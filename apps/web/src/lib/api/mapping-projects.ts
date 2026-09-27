@@ -7,6 +7,7 @@ import type {
   ServiceMappingStorage,
 } from '@/lib/storage'
 import type { ConceptMapping, MappingProject, ServiceMapping } from '@/types'
+import type { ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
 
 const PROJ = '/mapping-projects'
 const MAP = '/concept-mappings'
@@ -57,8 +58,18 @@ export async function fetchRawFileFromServer(projectId: string): Promise<Uint8Ar
 /** Fetch the server-built export ZIP for a mapping project (git variant tree).
  * In server mode the browser triggers + downloads instead of assembling the ZIP
  * from data it would otherwise have to pull down. */
-export async function fetchExportZipFromServer(projectId: string): Promise<Blob | null> {
-  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/export-zip`)
+export async function fetchExportZipFromServer(
+  projectId: string,
+  scores?: { format: ScoresExportFormat; methods: string[] },
+): Promise<Blob | null> {
+  const params = new URLSearchParams()
+  if (scores) {
+    params.set('scoresFormat', scores.format)
+    if (scores.methods.length === 0) params.set('noScores', 'true')
+    for (const m of scores.methods) params.append('scoreMethods', m)
+  }
+  const query = params.size ? `?${params}` : ''
+  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/export-zip${query}`)
   if (!res.ok) return null
   return await res.blob()
 }

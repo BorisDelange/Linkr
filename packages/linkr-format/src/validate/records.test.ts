@@ -280,3 +280,41 @@ describe('cohort', () => {
     expect(wrong?.hint).toContain('patient')
   })
 })
+
+describe('mapping project — versioned similarity scores', () => {
+  const HEADER = 'source_vocabulary_id,source_concept_code,concept_id,score,equivalence'
+  const withScores = (versionedScoreMethods: unknown, files: Record<string, string>) =>
+    new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'mapping-project', name: { en: 'MIMIC → OMOP' }, versionedScoreMethods }),
+      'mappings.json': JSON.stringify([MAPPING]),
+      ...files,
+    })
+
+  it('accepts one CSV per listed method', () => {
+    const tree = withScores(['ai/claude-opus-4-8'], {
+      'similarity-scores/ai/claude-opus-4-8.csv': `${HEADER}\nLOINC,1-2,3012345,0.8123,skos:exactMatch\n`,
+    })
+    expect(validateEntity(tree, 'mapping-project')).toEqual([])
+  })
+
+  it('flags a CSV without its key columns', () => {
+    const tree = withScores(['semantic/biolord'], {
+      'similarity-scores/semantic/biolord.csv': 'source_concept_code,score\n1-2,0.5\n',
+    })
+    const issues = validateEntity(tree, 'mapping-project')
+    expect(issues.map((i) => [i.severity, i.code])).toEqual([['error', 'csv-header-mismatch']])
+  })
+
+  // The app exports only the listed methods, so an unlisted CSV disappears from
+  // the repo on the next push.
+  it('warns about a CSV whose method is not listed', () => {
+    const tree = withScores([], { 'similarity-scores/semantic/biolord.csv': `${HEADER}\n` })
+    const issues = validateEntity(tree, 'mapping-project')
+    expect(issues.map((i) => [i.severity, i.code])).toEqual([['warning', 'orphan-record']])
+  })
+
+  it('refuses a versionedScoreMethods that is not a list', () => {
+    const issues = validateEntity(withScores('semantic/biolord', {}), 'mapping-project')
+    expect(issues.map((i) => i.code)).toEqual(['wrong-type'])
+  })
+})

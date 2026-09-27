@@ -14,6 +14,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { Input } from '@/components/ui/input'
 import { NumberInput } from '@/components/ui/number-input'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
+import { csvPathForMethod, formatMegabytes, GIT_FRIENDLY_CSV_BYTES, type ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
 import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -84,7 +86,6 @@ import { useRequireIdentity } from './IdentityRequiredDialog'
 import type { MappingProject, DataSource, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import { resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
-import { isServerMode } from '@/lib/api-client'
 
 interface TargetConceptPanelProps {
   project: MappingProject
@@ -1818,6 +1819,29 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     loadProjectMeta(project.id)
   }, [project.id, loadProjectMeta])
 
+  // Per-method CSV sizes for the "versioned" toggles, refreshed whenever the
+  // scores change while the dialog is open.
+  const [methodStats, setMethodStats] = useState<ScoreMethodStat[]>([])
+  useEffect(() => {
+    if (!suggestionsSettingsOpen || !scoresIndex) return
+    let cancelled = false
+    useSuggestionScoresStore.getState().methodStats(project.id)
+      .then((stats) => { if (!cancelled) setMethodStats(stats) })
+      .catch(() => { if (!cancelled) setMethodStats([]) })
+    return () => { cancelled = true }
+  }, [suggestionsSettingsOpen, scoresIndex, project.id])
+
+  const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
+  const versionedMethods = useMemo(() => new Set(project.versionedScoreMethods ?? []), [project.versionedScoreMethods])
+  const toggleVersionedMethod = (method: string, versioned: boolean) => {
+    const next = new Set(versionedMethods)
+    if (versioned) next.add(method)
+    else next.delete(method)
+    updateMappingProject(project.id, { versionedScoreMethods: [...next].sort() }).catch((err) => {
+      setSuggestionsImportError(err instanceof Error ? err.message : String(err))
+    })
+  }
+
   const [suggestions, setSuggestions] = useState<SuggestionCandidate[]>([])
   // Id of the source concept the current `suggestions` array was resolved for.
   // Null means "no resolved result yet" — we render a loader until the effect catches up.
@@ -2369,13 +2393,47 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               )
             })}
           </div>
-          {isServerMode() && (scoresIndex?.methods.length ?? 0) > 0 && (
+          {(scoresIndex?.methods.length ?? 0) > 0 && (
             <div className="mt-5 border-t pt-3">
-              <SectionLabel as="p" className="mb-2 tracking-wide">{t('concept_mapping.suggestions_methods_section')}</SectionLabel>
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <SectionLabel as="p" className="tracking-wide">{t('concept_mapping.suggestions_methods_section')}</SectionLabel>
+                <span className="mr-8 text-[10px] text-muted-foreground">{t('concept_mapping.suggestions_versioned_column')}</span>
+              </div>
               <ul className="space-y-1">
-                {scoresIndex!.methods.map((method) => (
-                  <li key={method} className="flex items-center justify-between gap-2 text-xs">
-                    <code className="truncate font-mono text-foreground">{method}</code>
+                {scoresIndex!.methods.map((method) => {
+                  const stat = methodStats.find((s) => s.method === method)
+                  const versionable = stat?.versionable ?? csvPathForMethod(method) !== null
+                  const versioned = versionedMethods.has(method)
+                  const tooLarge = (stat?.csvBytes ?? 0) > GIT_FRIENDLY_CSV_BYTES
+                  return (
+                  <li key={method} className="flex items-center gap-2 text-xs">
+                    <code className="min-w-0 flex-1 truncate font-mono text-foreground">{method}</code>
+                    {stat && (
+                      <span
+                        className={`shrink-0 font-mono text-[10px] tabular-nums ${versioned && tooLarge ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
+                        title={tooLarge ? t('concept_mapping.suggestions_csv_too_large') : t('concept_mapping.suggestions_csv_size', { count: stat.rowCount, formattedCount: stat.rowCount.toLocaleString() })}
+                      >
+                        ≈ {formatMegabytes(stat.csvBytes)}
+                      </span>
+                    )}
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <span className="flex shrink-0">
+                          <Switch
+                            size="sm"
+                            checked={versioned}
+                            disabled={!versionable}
+                            aria-label={t('concept_mapping.suggestions_version_method', { method })}
+                            onCheckedChange={(checked) => toggleVersionedMethod(method, checked)}
+                          />
+                        </span>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {versionable
+                          ? t('concept_mapping.suggestions_version_method_hint', { path: csvPathForMethod(method) })
+                          : t('concept_mapping.suggestions_method_not_versionable')}
+                      </TooltipContent>
+                    </Tooltip>
                     <Button
                       size="icon-sm"
                       variant="ghost"
@@ -2387,8 +2445,10 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
                       <Trash2 size={12} />
                     </Button>
                   </li>
-                ))}
+                  )
+                })}
               </ul>
+              <p className="mt-2 text-[10px] text-muted-foreground">{t('concept_mapping.suggestions_versioned_desc')}</p>
             </div>
           )}
           <div className="mt-5 border-t pt-3 text-xs text-muted-foreground">
@@ -2468,6 +2528,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
               const method = methodToRemove
               setMethodToRemove(null)
               if (!method) return
+              if (versionedMethods.has(method)) toggleVersionedMethod(method, false)
               removeMethods(project.id, [method]).catch((err) => {
                 setSuggestionsImportError(err instanceof Error ? err.message : String(err))
               })

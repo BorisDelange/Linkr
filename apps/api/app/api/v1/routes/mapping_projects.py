@@ -28,7 +28,7 @@ import os
 import tempfile
 from pathlib import Path
 
-from app.services import blob_store, notification_service
+from app.services import blob_store, notification_service, scores_export
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
@@ -416,14 +416,7 @@ async def query_file_source(
 # --- Suggestion-scores blob (precomputed match scores parquet) -------------
 
 
-# Appending and removing rows read the project's scores file, merge, and store a
-# new one: two calls interleaved would each drop the other's rows. One worker
-# serves the API, so an in-process lock per project is enough.
-_scores_locks: dict[str, asyncio.Lock] = {}
-
-
-def _scores_lock(project_id: str) -> asyncio.Lock:
-    return _scores_locks.setdefault(project_id, asyncio.Lock())
+_scores_lock = scores_export.scores_lock
 
 
 class ScoresFileRef(CamelModel):
@@ -626,6 +619,74 @@ async def remove_scores(
     return {"index": index, "removed": removed}
 
 
+@router.get(_PROJ + "/{project_id}/scores/methods")
+async def get_score_methods(
+    project_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Per method: row count and the size of its CSV, for the versioning toggles
+    and the export dialog. [] when the project has no scores file."""
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
+    return await scores_export.method_stats(project)
+
+
+@router.get(_PROJ + "/{project_id}/scores/method-csv")
+async def get_score_method_csv(
+    project_id: str,
+    method: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One method's versioned CSV (similarity-scores/<method>.csv), for an export
+    the browser assembles. 404 when the method has no rows."""
+    project = await _load_project(db, project_id, user, "concept-mapping:read")
+    files = await scores_export.score_files(project, "csv", [method])
+    data = next(iter(files.values()), None)
+    if data is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores for this method")
+    return Response(content=data, media_type="text/csv")
+
+
+class ScoreCsvRef(CamelModel):
+    method: str
+    sha: str
+
+
+class ScoresImportCsv(CamelModel):
+    files: list[ScoreCsvRef]
+
+
+@router.post(_PROJ + "/{project_id}/scores/import-csv")
+async def import_score_csvs(
+    project_id: str,
+    body: ScoresImportCsv,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the rows of each method by those of its uploaded CSV (the
+    similarity-scores/<method>.csv an import or a pull brings). Methods not in
+    the body are kept. Returns the new index, null when nothing remains."""
+    project = await _load_project(db, project_id, user, "concept-mapping:write")
+    csvs: list[tuple[str, str]] = []
+    for f in body.files:
+        if scores_service.csv_path_for_method(f.method) is None:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Invalid method: {f.method}")
+        if not blob_store.exists(f.sha):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Uploaded file not found")
+        csvs.append((f.method, str(blob_store.path_for(f.sha))))
+    if not csvs:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "No file")
+    async with _scores_lock(project_id):
+        try:
+            sha = await scores_export.replace_methods(db, project, csvs)
+        except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if not sha:
+        return None
+    return await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha)))
+
+
 class ScoresByTarget(CamelModel):
     concept_ids: list[int]
     min_score: float = 0
@@ -655,15 +716,23 @@ async def query_scores_by_target(
 @router.get(_PROJ + "/{project_id}/scores-file")
 async def get_scores_file(
     project_id: str,
+    methods: list[str] | None = Query(None),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Download the scores parquet from the blob store (for export). 404 when the
-    project has no scores file."""
+    """Download the scores parquet from the blob store (for export), restricted
+    to `methods` when given. 404 when the project has no scores file (or none of
+    those methods)."""
     project = await _load_project(db, project_id, user, "concept-mapping:read")
     if not project.scores_file_sha or not blob_store.exists(project.scores_file_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores file")
-    data = await blob_store.read_bytes(project.scores_file_sha)
+    if methods is None:
+        data = await blob_store.read_bytes(project.scores_file_sha)
+    else:
+        files = await scores_export.score_files(project, "parquet", methods)
+        data = files.get(scores_export.SCORES_PARQUET_FILE)
+        if data is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores for these methods")
     return Response(
         content=data,
         media_type="application/octet-stream",
@@ -793,15 +862,24 @@ async def get_raw_file(
 @router.get(_PROJ + "/{project_id}/export-zip")
 async def export_zip(
     project_id: str,
+    scores_format: scores_export.ScoresFormat = Query("csv", alias="scoresFormat"),
+    score_methods: list[str] | None = Query(None, alias="scoreMethods"),
+    no_scores: bool = Query(False, alias="noScores"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Build the project's export ZIP server-side and return it for download —
-    the git variant tree (project.json, mappings.json, source-concepts.csv,
-    source-concept-ids/, .gitignore). Offloads the browser: no data comes down
-    just to be re-zipped. See docs/architecture.md ("Fullstack Storage & Compute")."""
+    the git variant tree (entity.json, mappings.json, source-concepts.csv,
+    source-concept-ids/, similarity-scores/, .gitignore). Offloads the browser:
+    no data comes down just to be re-zipped. See docs/architecture.md ("Fullstack
+    Storage & Compute").
+
+    Scores default to what git carries (the versioned methods, as CSV);
+    `scoreMethods` + `scoresFormat` pick another selection, `noScores` none."""
     project = await _load_project(db, project_id, user, "concept-mapping:read")
-    zip_bytes = await assemble_mapping_project_zip(db, project)
+    zip_bytes = await assemble_mapping_project_zip(
+        db, project, scores_format, [] if no_scores else score_methods
+    )
     slug = _localized(project.name, "en") or project.id
     return Response(
         content=zip_bytes,

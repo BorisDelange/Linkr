@@ -4,13 +4,23 @@ import { isServerMode } from '@/lib/api-client'
 import type { ScoresIndex } from '@/types'
 import { validateScoresFile, type ParsedScoreRow } from '@/lib/concept-mapping/scores-parser'
 import { deleteScoresFile } from '@/lib/concept-mapping/scores-storage'
-import { persistScoresFile, queryScoresForSource, unregisterProject, buildIndex } from '@/lib/concept-mapping/scores-engine'
+import {
+  persistScoresFile,
+  queryScoresForSource,
+  unregisterProject,
+  buildIndex,
+  replaceScoreMethods,
+  scoreMethodStats,
+} from '@/lib/concept-mapping/scores-engine'
+import type { ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
 import {
   persistScoresFileOnServer,
   fetchScoresIndexFromServer,
   queryScoresForSourceOnServer,
   deleteScoresFileOnServer,
   removeScoreMethodsOnServer,
+  fetchScoreMethodStatsFromServer,
+  importScoreCsvsOnServer,
 } from '@/lib/api/scores'
 
 interface SuggestionScoresState {
@@ -24,8 +34,13 @@ interface SuggestionScoresState {
   reindexProject: (projectId: string) => Promise<void>
   importScores: (projectId: string, file: File) => Promise<ScoresIndex>
   deleteProjectScores: (projectId: string) => Promise<void>
-  /** Drop the rows of some methods from the scores file (server mode). */
-  removeMethods: (projectId: string, methods: string[]) => Promise<number>
+  /** Drop the rows of some methods from the scores file. */
+  removeMethods: (projectId: string, methods: string[]) => Promise<void>
+  /** Replace each method's rows with its CSV's (similarity-scores/<method>.csv
+   *  brought by an import); other methods are kept. */
+  importMethodCsvs: (projectId: string, csvs: { method: string; bytes: Uint8Array }[]) => Promise<ScoresIndex | null>
+  /** Row count and CSV size per method. */
+  methodStats: (projectId: string) => Promise<ScoreMethodStat[]>
 
   hasSuggestionsFor: (vocabId: string, code: string) => boolean
   queryScoresForSource: (vocabId: string, code: string) => Promise<ParsedScoreRow[]>
@@ -91,9 +106,22 @@ export const useSuggestionScoresStore = create<SuggestionScoresState>((set, get)
   },
 
   async removeMethods(projectId, methods) {
-    const { index, removed } = await removeScoreMethodsOnServer(projectId, methods)
+    const index = isServerMode()
+      ? (await removeScoreMethodsOnServer(projectId, methods)).index
+      : await replaceScoreMethods(projectId, [], methods)
     if (get().activeProjectId === projectId) set({ index, loaded: true })
-    return removed
+  },
+
+  async importMethodCsvs(projectId, csvs) {
+    const index = isServerMode()
+      ? await importScoreCsvsOnServer(projectId, csvs)
+      : await replaceScoreMethods(projectId, csvs)
+    if (get().activeProjectId === projectId) set({ index, loaded: true })
+    return index
+  },
+
+  methodStats(projectId) {
+    return isServerMode() ? fetchScoreMethodStatsFromServer(projectId) : scoreMethodStats(projectId)
   },
 
   hasSuggestionsFor(vocabId, code) {

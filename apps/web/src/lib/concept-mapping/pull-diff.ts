@@ -17,6 +17,7 @@ import type { ConceptMapping } from '@/types'
 import type { PullFile } from '@/lib/pull-plan'
 import type { MappingChange, MappingProjectMerge } from './merge'
 import type { SourceConceptsDiff } from '@/lib/api/git'
+import { methodForCsvPath } from './scores-csv'
 
 export interface PullDiffText {
   oldContent: string
@@ -92,6 +93,9 @@ export function buildPullDiff(
     }
     return { oldContent: stable(mine), newContent: stable(theirs), language: 'json' }
   }
+
+  // A method's scores CSV runs to megabytes of derived rows: taken or left whole.
+  if (methodForCsvPath(file.path)) return { oldContent: '', newContent: '', language: 'text', notice: 'whole_file' }
 
   if (file.path === 'source-concepts.csv') {
     // The preview ships counts, not rows (a 5 MB CSV would cost more than the

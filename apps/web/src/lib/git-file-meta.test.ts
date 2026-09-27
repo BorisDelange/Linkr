@@ -40,6 +40,7 @@ describe('gitFileMeta', () => {
     expect(gitFileMeta('mapping-projects', 'source-concepts.csv').category).toBe('concepts')
     expect(gitFileMeta('mapping-projects', 'source-concept-ids/entries.json').category).toBe('concepts')
     expect(gitFileMeta('mapping-projects', 'similarity-scores.parquet').category).toBe('scores')
+    expect(gitFileMeta('mapping-projects', 'similarity-scores/ai/claude-opus-4-8.csv').category).toBe('scores')
   })
 
   it('routes .gitattributes to its own trailing category everywhere', () => {

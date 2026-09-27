@@ -14,6 +14,7 @@ import { ENTITY_MANIFEST } from '@linkr/format'
 import { buildPullFiles, type PullFile, type PullItem, type PullPlan } from '@/lib/pull-plan'
 import type { PreparedPull } from './pull'
 import type { MappingChange } from './merge'
+import { csvPathForMethod } from './scores-csv'
 
 /** Repo file that carries each merged family. */
 const MAPPINGS_FILE = 'mappings.json'
@@ -113,6 +114,13 @@ export function buildMappingProjectPullPlan(prepared: PreparedPull, branch: stri
     }
   }
 
+  // --- similarity-scores/<method>.csv -------------------------------------
+  // One row per method the remote moved; each is taken or left whole.
+  const scoreRows = prepared.scoreChanges.map((change) => ({
+    path: csvPathForMethod(change.method) ?? change.method,
+    items: [{ key: change.method, label: change.method, state: change.state }],
+  }))
+
   // source-concept-ids/ is deliberately absent: its merge is monotone, so it is
   // applied on every pull without a choice (see pull-source-concept-ids.ts).
   // Listing it would ask the user to arbitrate something that has no wrong answer.
@@ -122,6 +130,7 @@ export function buildMappingProjectPullPlan(prepared: PreparedPull, branch: stri
     ...[...metaByFile.entries()].map(([path, items]) => ({ path, items })),
     { path: MAPPINGS_FILE, items: mappingItems, pickable: true },
     ...sourceRows,
+    ...scoreRows,
   ])
 
   return { scope: 'mapping-projects', branch, remoteHead: prepared.remoteHead, files }

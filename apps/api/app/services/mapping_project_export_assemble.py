@@ -21,7 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mapping_project import ConceptMapping, MappingProject
 from app.schemas.mapping_project import ConceptMappingResponse, MappingProjectResponse
-from app.services import blob_store
+from app.services import blob_store, scores_export
+from app.services.data import scores_service
 from app.services.mapping_project_export import build_mapping_project_tree
 from app.services.source_concept_id_scope import scoped_source_concept_ids
 
@@ -83,7 +84,11 @@ def _entry_dict(e) -> dict:
 
 
 async def build_mapping_project_tree_from_db(
-    db: AsyncSession, project: MappingProject, only_path: str | None = None
+    db: AsyncSession,
+    project: MappingProject,
+    only_path: str | None = None,
+    scores_format: scores_export.ScoresFormat = "csv",
+    score_methods: list[str] | None = None,
 ) -> dict[str, bytes]:
     """Assemble the export file tree for a mapping project from DB + blob store.
 
@@ -92,6 +97,9 @@ async def build_mapping_project_tree_from_db(
     35 MB, read out of the blob store) — assembling, zipping, unzipping and
     `git add -A`-ing all of it to compare one 2 MB JSON took about a minute per
     click. Skipping the payloads the caller did not ask for makes it instant.
+
+    Scores default to what git carries — one CSV per versioned method;
+    `scores_format` / `score_methods` pick another selection for a ZIP download.
     """
     want_source_csv = only_path in (None, "source-concepts.csv")
     want_mappings = only_path in (None, "mappings.json")
@@ -121,6 +129,17 @@ async def build_mapping_project_tree_from_db(
     ):
         source_csv = await blob_store.read_bytes(project.raw_file_sha)
 
+    if only_path is None:
+        score_files = await scores_export.score_files(project, scores_format, score_methods)
+    else:
+        method = scores_service.method_for_csv_path(only_path)
+        versioned = project.versioned_score_methods or []
+        score_files = (
+            await scores_export.score_files(project, "csv", [method])
+            if method in versioned
+            else {}
+        )
+
     return build_mapping_project_tree(
         project=_project_dict(project),
         mappings=mappings,
@@ -128,6 +147,7 @@ async def build_mapping_project_tree_from_db(
         entries=[_entry_dict(e) for e in entries],
         organization=organization,
         source_csv=source_csv,
+        score_files=score_files,
     )
 
 
@@ -152,10 +172,15 @@ async def assemble_mapping_project_file_zip(
 
 
 async def assemble_mapping_project_zip(
-    db: AsyncSession, project: MappingProject
+    db: AsyncSession,
+    project: MappingProject,
+    scores_format: scores_export.ScoresFormat = "csv",
+    score_methods: list[str] | None = None,
 ) -> bytes:
     """Build the mapping project's export ZIP bytes server-side (no client upload).
     Feeds the same git flow (status/diff/commit-push) that used to receive the
-    client-built ZIP."""
-    tree = await build_mapping_project_tree_from_db(db, project)
+    client-built ZIP — with the default scores selection, the versioned CSVs."""
+    tree = await build_mapping_project_tree_from_db(
+        db, project, scores_format=scores_format, score_methods=score_methods
+    )
     return await asyncio.to_thread(_zip_tree, tree)

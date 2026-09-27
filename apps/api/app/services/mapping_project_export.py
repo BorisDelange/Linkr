@@ -141,12 +141,22 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
             # metadata; only the licence identity is re-appended below.
             "readme",
             "license",
+            # Blob-store pointers: they address nothing on another instance, and
+            # the sha moved on every agent suggestion, churning entity.json in git
+            # for a file git never carried.
+            "scoresFileSha",
+            "scoresFileName",
         ):
             continue
         # Absent on the TS side means ``undefined``, which JSON.stringify omits;
         # the response schema makes it an explicit None here, so drop it or a
         # project without one exports a key more server-side than client-side.
-        if k in ("dataSourceRef", "vocabularyDataSourceRef", "sourceExtraction") and v is None:
+        if k in (
+            "dataSourceRef",
+            "vocabularyDataSourceRef",
+            "sourceExtraction",
+            "versionedScoreMethods",
+        ) and v is None:
             continue
         # Reset in place: reassigning an existing key keeps its position (JS + py3.7+).
         out[k] = "" if k == "dataSourceId" else v
@@ -235,11 +245,14 @@ def build_mapping_project_tree(
     entries: list[dict],
     organization: dict | None,
     source_csv: bytes | None,
+    score_files: dict[str, bytes] | None = None,
 ) -> dict[str, bytes]:
     """Build the git-variant mapping-project export tree as ``{path: bytes}``.
 
-    Byte-faithful to ``buildMappingProjectZip`` (git variant: no scores, no
-    ``.gitattributes`` unless LFS overrides — which this signature doesn't take).
+    Byte-faithful to ``buildMappingProjectZip`` (no ``.gitattributes`` unless LFS
+    overrides — which this signature doesn't take). ``score_files`` are the
+    similarity-scores files already rendered by ``scores_export.score_files``:
+    one CSV per versioned method for git, whatever the user picked for a ZIP.
     ``source_csv`` is written verbatim (the raw source buffer), matching the git
     variant which never re-serializes it. ``ranges``/``entries`` are already
     scoped to the project's badges by the caller.
@@ -266,6 +279,8 @@ def build_mapping_project_tree(
         tree["source-concept-ids/ranges.json"] = _json(_portable_ranges(ranges))
     if entries:
         tree["source-concept-ids/entries.json"] = _json(_compact_entries(entries))
+
+    tree.update(score_files or {})
 
     tree[".gitignore"] = b"*.parquet\nreview/\nstate.json\n"
 

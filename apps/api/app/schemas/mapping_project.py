@@ -31,6 +31,7 @@ class MappingProjectCreate(CamelModel):
     raw_file_name: str | None = None
     scores_file_sha: str | None = None
     scores_file_name: str | None = None
+    versioned_score_methods: list[str] | None = None
     concept_set_ids: list | None = None
     stats: dict | None = None
     import_batches: list | None = None
@@ -74,6 +75,7 @@ class MappingProjectUpdate(CamelModel):
     raw_file_name: str | None = None
     scores_file_sha: str | None = None
     scores_file_name: str | None = None
+    versioned_score_methods: list[str] | None = None
     concept_set_ids: list | None = None
     stats: dict | None = None
     import_batches: list | None = None
@@ -106,6 +108,7 @@ class MappingProjectResponse(CamelModel):
     raw_file_name: str | None = None
     scores_file_sha: str | None = None
     scores_file_name: str | None = None
+    versioned_score_methods: list[str] | None = None
     concept_set_ids: list | None = None
     stats: dict | None = None
     import_batches: list | None = None

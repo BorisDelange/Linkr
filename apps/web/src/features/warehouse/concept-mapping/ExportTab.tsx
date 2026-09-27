@@ -8,6 +8,10 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { getScoresFile } from '@/lib/concept-mapping/scores-storage'
+import { formatMegabytes, type ScoreMethodStat, type ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
+import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { isServerMode } from '@/lib/api-client'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -23,6 +27,7 @@ import {
   exportUnmappedToConcept,
   downloadFile,
   buildMappingProjectFolder,
+  type ScoresSelection,
 } from '@/lib/concept-mapping/export'
 import {
   OHDSI_FORMATS,
@@ -69,10 +74,14 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   // Which OHDSI vocabulary format the widget's picker is on.
   const [ohdsiFormat, setOhdsiFormat] = useState<OhdsiFormat>(DEFAULT_OHDSI_FORMAT)
 
-  // Linkr ZIP export modal: lets the user opt into bundling the (large) scores parquet.
+  // Linkr ZIP export modal: which similarity scores to bundle, and as what. The
+  // default mirrors git — the versioned methods, as CSV — since a front-only
+  // user commits this very ZIP by hand.
   const [zipDialogOpen, setZipDialogOpen] = useState(false)
-  const [includeScores, setIncludeScores] = useState(false)
-  const [scoresSize, setScoresSize] = useState<number | null>(null)
+  const [scoreStats, setScoreStats] = useState<ScoreMethodStat[] | null>(null)
+  const [scoresSize, setScoresSize] = useState(0)
+  const [scoresFormat, setScoresFormat] = useState<ScoresExportFormat>('csv')
+  const [selectedMethods, setSelectedMethods] = useState<Set<string>>(new Set())
 
   // Status checkboxes (approved checked by default)
   const [includedStatuses, setIncludedStatuses] = useState<Set<EffectiveMappingStatus>>(
@@ -270,16 +279,15 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     }
   }
 
-  const handleExportZip = useCallback(async (withScores: boolean) => {
+  const handleExportZip = useCallback(async (scores: ScoresSelection) => {
     setZipExporting(true)
     setSourceCsvTooLarge(false)
     try {
-      // Server mode without scores: let the backend assemble the git-variant ZIP
-      // (offloads the browser — no data pulled down just to re-zip). Scores aren't
-      // versioned, so a with-scores export still uses the client path below.
-      if (isServerMode() && !withScores) {
+      // Server mode: let the backend assemble the ZIP (offloads the browser — no
+      // data pulled down just to re-zip, the scores included).
+      if (isServerMode()) {
         const { fetchExportZipFromServer } = await import('@/lib/api/mapping-projects')
-        const blob = await fetchExportZipFromServer(project.id)
+        const blob = await fetchExportZipFromServer(project.id, scores)
         if (blob) {
           downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
           return
@@ -291,7 +299,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         queryDataSource: queryDataSourceAll,
         ensureMounted,
         dataSources,
-        includeScores: withScores,
+        scores,
       })
       await attachEntityOrganization(zip, ENTITY_MANIFEST, project, getStorage())
       const blob = await zip.generateAsync({ type: 'blob' })
@@ -305,7 +313,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
           queryDataSource,
           ensureMounted,
           dataSources,
-          includeScores: withScores,
+          scores,
           skipSourceConcepts: true,
         })
         await attachEntityOrganization(zip, ENTITY_MANIFEST, project, getStorage())
@@ -334,29 +342,56 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     }
   }, [project, dataSources, ensureMounted])
 
-  // Probe the stored scores file size, then open the export options modal.
+  const versionedMethods = useMemo(() => new Set(project.versionedScoreMethods ?? []), [project.versionedScoreMethods])
+
+  // Probe the stored scores (per method), then open the export options modal.
   const openZipDialog = useCallback(async () => {
     setSourceCsvTooLarge(false)
-    setIncludeScores(false)
-    setScoresSize(null)
+    setScoreStats(null)
+    setScoresFormat('csv')
+    setSelectedMethods(new Set(versionedMethods))
     setZipDialogOpen(true)
     try {
-      if (isServerMode()) {
-        const { fetchScoresFileSizeFromServer } = await import('@/lib/api/scores')
-        setScoresSize(await fetchScoresFileSizeFromServer(project.id))
-      } else {
-        const f = await getScoresFile(project.id)
-        setScoresSize(f ? f.size : 0)
-      }
+      const [stats, size] = await Promise.all([
+        useSuggestionScoresStore.getState().methodStats(project.id),
+        isServerMode()
+          ? import('@/lib/api/scores').then((m) => m.fetchScoresFileSizeFromServer(project.id))
+          : getScoresFile(project.id).then((f) => f?.size ?? 0),
+      ])
+      setScoreStats(stats)
+      setScoresSize(size)
+      setSelectedMethods(new Set(stats.filter((s) => versionedMethods.has(s.method)).map((s) => s.method)))
     } catch {
-      setScoresSize(0)
+      setScoreStats([])
     }
-  }, [project.id])
+  }, [project.id, versionedMethods])
+
+  const toggleMethod = (method: string) => {
+    setSelectedMethods((prev) => {
+      const next = new Set(prev)
+      if (next.has(method)) next.delete(method)
+      else next.add(method)
+      return next
+    })
+  }
+
+  // A method that cannot be a path has no CSV; the parquet carries any method.
+  const exportableStats = (scoreStats ?? []).filter((s) => scoresFormat === 'parquet' || s.versionable)
+  const exportedMethods = exportableStats.filter((s) => selectedMethods.has(s.method)).map((s) => s.method)
+  // A parquet cannot be sized per method without rewriting it, so each method is
+  // given the file's size in proportion to its share of the CSV bytes — an
+  // estimate, shown as one.
+  const totalCsvBytes = (scoreStats ?? []).reduce((sum, s) => sum + s.csvBytes, 0)
+  const methodBytes = (stat: ScoreMethodStat) =>
+    scoresFormat === 'csv' ? stat.csvBytes : totalCsvBytes > 0 ? (scoresSize * stat.csvBytes) / totalCsvBytes : 0
+  const exportedBytes = exportableStats
+    .filter((s) => selectedMethods.has(s.method))
+    .reduce((sum, s) => sum + methodBytes(s), 0)
 
   const confirmZipExport = useCallback(async () => {
     setZipDialogOpen(false)
-    await handleExportZip(includeScores)
-  }, [handleExportZip, includeScores])
+    await handleExportZip({ format: scoresFormat, methods: exportedMethods })
+  }, [handleExportZip, scoresFormat, exportedMethods])
 
   // Dedup by (vocabularyId, conceptCode) — same key as Progress / Mapping Editor.
   const filteredMappedKeys = useMemo(() => new Set(filteredMappings.map(sourceKey)), [filteredMappings])
@@ -602,31 +637,70 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
               </div>
             </div>
 
-            {/* Scores — opt-in */}
-            <label className={`flex items-start gap-2.5 rounded-md border p-2.5 ${scoresSize ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
-              <input
-                type="checkbox"
-                checked={includeScores}
-                disabled={!scoresSize}
-                onChange={() => setIncludeScores((v) => !v)}
-                className="mt-0.5 size-3.5 rounded border-border accent-primary"
-              />
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-medium">{t('concept_mapping.export_include_scores')}</span>
-                  {scoresSize ? (
-                    <Badge variant="secondary" >{(scoresSize / 1024 / 1024).toFixed(1)} MB</Badge>
-                  ) : null}
-                </div>
-                <p className="mt-0.5 text-[10px] text-muted-foreground">
-                  {scoresSize === null
-                    ? t('concept_mapping.export_scores_probing')
-                    : scoresSize
-                      ? t('concept_mapping.export_include_scores_desc')
-                      : t('concept_mapping.export_scores_none_hint')}
-                </p>
+            {/* Similarity scores — the versioned methods by default */}
+            <div className="space-y-2 rounded-md border p-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-medium">{t('concept_mapping.export_include_scores')}</span>
+                {scoreStats && scoreStats.length > 0 && (
+                  <Tabs value={scoresFormat} onValueChange={(v) => setScoresFormat(v as ScoresExportFormat)}>
+                    {/* The list's height is set through its orientation variant, so a plain h-* does not win. */}
+                    <TabsList className="p-0.5 group-data-[orientation=horizontal]/tabs:h-6">
+                      <TabsTrigger value="csv" className="rounded px-2 py-0 text-[10px]">CSV</TabsTrigger>
+                      <TabsTrigger value="parquet" className="rounded px-2 py-0 text-[10px]">Parquet</TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                )}
               </div>
-            </label>
+              {scoreStats === null ? (
+                <p className="text-[10px] text-muted-foreground">{t('concept_mapping.export_scores_probing')}</p>
+              ) : scoreStats.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground">{t('concept_mapping.export_scores_none_hint')}</p>
+              ) : (
+                <>
+                  <p className="text-[10px] text-muted-foreground">
+                    {scoresFormat === 'csv'
+                      ? t('concept_mapping.export_scores_csv_desc')
+                      : t('concept_mapping.export_scores_parquet_desc')}
+                  </p>
+                  <ul className="space-y-1">
+                    {exportableStats.map((stat) => (
+                      <li key={stat.method}>
+                        <label className="flex cursor-pointer items-center gap-2 text-xs">
+                          <Checkbox
+                            checked={selectedMethods.has(stat.method)}
+                            onCheckedChange={() => toggleMethod(stat.method)}
+                          />
+                          <code className="min-w-0 flex-1 truncate font-mono">{stat.method}</code>
+                          {versionedMethods.has(stat.method) && (
+                            <Badge variant="secondary">{t('concept_mapping.suggestions_versioned_badge')}</Badge>
+                          )}
+                          <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                            ≈ {formatMegabytes(methodBytes(stat))}
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                    <div className="flex gap-2">
+                      <button type="button" className="hover:text-foreground" onClick={() => setSelectedMethods(new Set(exportableStats.map((s) => s.method)))}>
+                        {t('concept_mapping.export_scores_select_all')}
+                      </button>
+                      <button type="button" className="hover:text-foreground" onClick={() => setSelectedMethods(new Set(exportableStats.filter((s) => versionedMethods.has(s.method)).map((s) => s.method)))}>
+                        {t('concept_mapping.export_scores_select_versioned')}
+                      </button>
+                    </div>
+                    <span className="font-mono tabular-nums">
+                      {exportedMethods.length === 0
+                        ? t('concept_mapping.export_scores_none_selected')
+                        : scoresFormat === 'parquet' && exportedMethods.length === exportableStats.length
+                          ? formatMegabytes(scoresSize)
+                          : `≈ ${formatMegabytes(exportedBytes)}`}
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
       </DialogShell>
     </div>
   )

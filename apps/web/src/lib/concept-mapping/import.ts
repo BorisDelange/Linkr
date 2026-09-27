@@ -3,8 +3,8 @@
  * project's full content, used by both the standalone git/ZIP import
  * (MappingProjectListPage) and the workspace-import auto-clone of git-linked
  * mapping projects (applyClonedEntity). Both routes parse the SAME repo/export
- * layout (project.json + mappings.json + source-concepts.csv +
- * source-concept-ids/ + similarity-scores.parquet), so they must restore it the
+ * layout (entity.json + mappings.json + source-concepts.csv +
+ * source-concept-ids/ + similarity-scores[.parquet|/<method>.csv]), so they must restore it the
  * same way — otherwise one path silently drops source concepts / scores / ids
  * (the "imported but no concepts" bug).
  *
@@ -13,19 +13,19 @@
  */
 import type { ConceptMapping, GitRemoteConfig, LocalizedString, MappingProject, SourceConceptIdRange } from '@/types'
 import type { Storage } from '@/lib/storage'
-import { isServerMode } from '@/lib/api-client'
 import { readImportedManifest, readLicense } from '@/lib/entity-io'
 import { resolvePointer } from '@/lib/import-identity'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
 import { getTotalSourceConcepts, readsFromFlatSource } from './mapping-status'
+import { restoreImportedScores, type ImportedScores } from './scores-restore'
 
 export interface MappingProjectImportInput {
   /** Parsed export/repo contents (parseImportZip output): path → JSON|string. */
   files: Record<string, unknown>
-  /** Precomputed suggestion scores, read as raw bytes (parquet is binary). */
-  scoresBytes: Uint8Array | null
+  /** Similarity scores the tree carries (readScoresFromZip). */
+  scores: ImportedScores
 }
 
 export interface MappingProjectImportOptions {
@@ -90,7 +90,7 @@ export async function importMappingProjectContent(
   options: MappingProjectImportOptions,
   storage: Storage,
 ): Promise<boolean> {
-  const { files, scoresBytes } = input
+  const { files, scores } = input
   const { targetId, workspaceId, replaceExisting, gitRemoteConfig } = options
   const now = new Date().toISOString()
 
@@ -205,28 +205,17 @@ export async function importMappingProjectContent(
     } catch { /* leave the registry as-is */ }
   }
 
-  // Precomputed suggestion scores (optional). Persist + push the fresh index so
-  // the editor shows suggestions without a reload — same as the standalone path.
-  if (scoresBytes && scoresBytes.byteLength > 0) {
-    try {
-      const scoresFile = new File([scoresBytes as BlobPart], `${targetId}.parquet`, {
-        type: 'application/octet-stream',
-      })
-      if (isServerMode()) {
-        const { persistScoresFileOnServer } = await import('@/lib/api/scores')
-        await persistScoresFileOnServer(targetId, scoresFile)
-      } else {
-        const [{ persistScoresFile }, { validateScoresFile }] = await Promise.all([
-          import('./scores-engine'),
-          import('./scores-parser'),
-        ])
-        const validation = await validateScoresFile(scoresFile)
-        if (validation.ok) await persistScoresFile(targetId, scoresFile)
-      }
+  // Similarity scores (optional). The store persists them and pushes the fresh
+  // index, so the editor shows suggestions without a reload. An overwrite starts
+  // from none: the scores of the replaced project would otherwise merge with the
+  // incoming CSVs front-only (server-side they went with the deleted row).
+  try {
+    if (replaceExisting) {
       const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')
-      await useSuggestionScoresStore.getState().importScores(targetId, scoresFile)
-    } catch { /* leave the project without scores */ }
-  }
+      await useSuggestionScoresStore.getState().deleteProjectScores(targetId)
+    }
+    await restoreImportedScores(targetId, scores)
+  } catch { /* leave the project without scores */ }
 
   return true
 }

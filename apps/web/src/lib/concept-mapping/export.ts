@@ -7,6 +7,7 @@ import { stripInstanceFields, attachEntityOrganization, licenseMeta, orderProven
 import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
+import { csvPathForMethod, SCORES_PARQUET_FILE, type ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -673,10 +674,16 @@ interface BuildMappingProjectFolderOptions {
    */
   skipSourceConcepts?: boolean
   /**
-   * Include the precomputed similarity scores (similarity-scores.parquet) in the ZIP.
-   * Opt-in — the file can be ~100 MB, so it is excluded by default (and from workspace export).
+   * Which similarity scores to include, and how. Defaults to what git carries:
+   * the project's versioned methods, one CSV each. The parquet runs to hundreds
+   * of MB, so it only travels when the user asks for it.
    */
-  includeScores?: boolean
+  scores?: ScoresSelection
+}
+
+export interface ScoresSelection {
+  format: ScoresExportFormat
+  methods: string[]
 }
 
 /**
@@ -735,7 +742,16 @@ export function cleanMappingProjectMeta(project: MappingProject): Record<string,
   // portable slug and `lineageId` the cross-instance identity. The provenance keys
   // go through the shared ordering, so this manifest reads the same as every other
   // kind's; `appVersion` trails the block.
-  const { id: _localKey, entityId, ...rest } = stripInstanceFields(projectRest) as Record<string, unknown>
+  // scoresFileSha/scoresFileName (server mode only, absent from the type) are
+  // blob-store pointers: they address nothing elsewhere, and the sha moved on
+  // every agent suggestion, churning entity.json for a file git never carried.
+  const {
+    id: _localKey,
+    entityId,
+    scoresFileSha: _scoresSha,
+    scoresFileName: _scoresName,
+    ...rest
+  } = stripInstanceFields(projectRest) as Record<string, unknown>
   return {
     ...(entityId !== undefined ? { entityId } : {}),
     // Declared rather than inferred: `mappings.json` used to be what told this
@@ -849,27 +865,10 @@ export async function buildMappingProjectFolder(
     }
   }
 
-  // Precomputed similarity scores (opt-in — large parquet, stored in OPFS/IDB
-  // front-only, or the blob store server-side; never in JSON)
-  if (options.includeScores) {
-    try {
-      const { isServerMode } = await import('@/lib/api-client')
-      if (isServerMode()) {
-        const { fetchScoresFileFromServer } = await import('@/lib/api/scores')
-        const buf = await fetchScoresFileFromServer(project.id)
-        if (buf && buf.byteLength > 0) {
-          zip.file(`${prefix}similarity-scores.parquet`, buf, { compression: 'STORE' })
-        }
-      } else {
-        const { getScoresFile } = await import('@/lib/concept-mapping/scores-storage')
-        const scoresFile = await getScoresFile(project.id)
-        if (scoresFile) {
-          zip.file(`${prefix}similarity-scores.parquet`, await scoresFile.arrayBuffer(), { compression: 'STORE' })
-        }
-      }
-    } catch {
-      // Scores export failed — continue without them
-    }
+  try {
+    await writeScoreFiles(zip, prefix, project, options.scores)
+  } catch {
+    // Scores export failed — continue without them
   }
 
   // Assigned source-concept-ids (workspace registry, scoped to this project's
@@ -883,6 +882,38 @@ export async function buildMappingProjectFolder(
 }
 
 /**
+ * Write the selected similarity scores: one `similarity-scores/<method>.csv` per
+ * method, or a single parquet restricted to those methods. The bytes live in
+ * OPFS/IDB front-only and in the blob store server-side, never in JSON.
+ */
+async function writeScoreFiles(
+  zip: JSZip,
+  prefix: string,
+  project: MappingProject,
+  selection: ScoresSelection | undefined,
+): Promise<void> {
+  const methods = selection?.methods ?? project.versionedScoreMethods ?? []
+  if (methods.length === 0) return
+  const { isServerMode } = await import('@/lib/api-client')
+  const server = isServerMode()
+  if ((selection?.format ?? 'csv') === 'parquet') {
+    const buf = server
+      ? await (await import('@/lib/api/scores')).fetchScoresFileFromServer(project.id, methods)
+      : await (await import('./scores-engine')).subsetScoresParquet(project.id, methods)
+    if (buf && buf.byteLength > 0) zip.file(`${prefix}${SCORES_PARQUET_FILE}`, buf, { compression: 'STORE' })
+    return
+  }
+  for (const method of [...new Set(methods)].sort()) {
+    const path = csvPathForMethod(method)
+    if (!path) continue
+    const buf = server
+      ? await (await import('@/lib/api/scores')).fetchScoreMethodCsvFromServer(project.id, method)
+      : await (await import('./scores-engine')).methodCsvBytes(project.id, method)
+    if (buf && buf.byteLength > 0) zip.file(`${prefix}${path}`, buf)
+  }
+}
+
+/**
  * Build a standalone mapping-project export ZIP (metadata + mappings + concept
  * sets + source ids), for git versioning. Mirrors buildProjectZip's shape:
  * takes an id + storage and returns a blob. DB-sourced concept extraction
@@ -890,8 +921,9 @@ export async function buildMappingProjectFolder(
  * the mapping definition, not a re-derivable DB dump.
  *
  * Parquet payloads (the precomputed similarity-scores.parquet and any other) are
- * never versioned — they can be ~100 MB and are fully re-derivable, their latest
- * version living in the app's OPFS/IDB / server blob store, not in git. The
+ * never versioned — they can be ~100 MB and cannot be diffed; their latest
+ * version lives in the app's OPFS/IDB / server blob store. The scores of the
+ * methods the user marked versioned travel instead, one CSV each. The
  * `.gitignore` also excludes review/ and state.json, foreign files another tool
  * (the concept-mapping agent) writes into the repo that Linkr doesn't own. LFS is
  * never applied automatically — a file is tracked via LFS only through the user's
@@ -906,7 +938,7 @@ export async function buildMappingProjectZip(
   if (!project) return null
   const JSZip = (await import('jszip')).default
   const zip = new JSZip()
-  await buildMappingProjectFolder(zip, '', project, storage, { includeScores: false })
+  await buildMappingProjectFolder(zip, '', project, storage)
   await attachEntityOrganization(zip, ENTITY_MANIFEST, project, storage)
 
   zip.file('.gitignore', '*.parquet\nreview/\nstate.json\n')

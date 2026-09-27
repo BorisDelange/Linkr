@@ -17,7 +17,8 @@ import { localized, setLocalized } from '@/lib/localized'
 import { applySort, visitSortFields } from '@/lib/list-sort'
 import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { getStorage } from '@/lib/storage'
-import { parseImportZip, readBinaryFromImportZip, readImportedManifest } from '@/lib/entity-io'
+import { loadImportZip, parseImportZip, readImportedManifest } from '@/lib/entity-io'
+import { isScoresPath, readScoresFromZip, restoreImportedScores, type ImportedScores } from '@/lib/concept-mapping/scores-restore'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import JSZip from 'jszip'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -162,7 +163,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
     mappings: import('@/types').ConceptMapping[]
     sourceIdRanges?: unknown
     sourceIdEntries?: unknown
-    scoresFile?: File
+    scores: ImportedScores
   }
   const [conflict, setConflict] = useState<{ name: string; existingId: string; pending: MappingProject; children: ImportChildren } | null>(null)
   const [importError, setImportError] = useState<FormattedError | null>(null)
@@ -269,20 +270,13 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
         }
       }
 
-      // Precomputed suggestion scores (best-effort — a failure must not fail the
-      // whole import). Server mode validates + indexes the parquet server-side;
-      // front-only persists it to OPFS/IDB and builds the index via DuckDB-WASM.
-      if (children.scoresFile) {
-        try {
-          // importScores persists (server or front-only, with its own validation)
-          // AND pushes the fresh index into the scores store, so the editor shows
-          // suggestions immediately — a bare persist left the store's cached index
-          // stale until a full app reload.
-          const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')
-          await useSuggestionScoresStore.getState().importScores(projectId, children.scoresFile)
-        } catch {
-          /* leave the project without scores */
-        }
+      // Similarity scores (best-effort — a failure must not fail the whole
+      // import). The store persists them AND pushes the fresh index, so the
+      // editor shows suggestions immediately.
+      try {
+        await restoreImportedScores(projectId, children.scores)
+      } catch {
+        /* leave the project without scores */
       }
     } finally {
       await loadMappingProjects()
@@ -293,24 +287,20 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
    *  import and duplicate, which differ only in where the ZIP comes from and
    *  whether the result is written as a copy. */
   const readProjectZip = useCallback(async (file: File): Promise<{ project: MappingProject; children: ImportChildren } | null> => {
-    const parsed = await parseImportZip(file)
+    // Scores are binary or large: read as bytes below, never decoded as text.
+    const parsed = await parseImportZip(file, { skip: isScoresPath })
     const project = readImportedManifest<MappingProject>(parsed, 'project', '_project.json')
     if (!project) return null
     withEntityDocs(project, parsed)
     const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]
-    // Precomputed suggestion scores (optional, large binary — read as bytes, not
-    // via parseImportZip which decodes every entry as text and corrupts parquet).
-    // The File's name is inert — importScores binds the parquet to the id it is
-    // given, which is only resolved later, in doImport.
-    const scoresBuf = await readBinaryFromImportZip(file, 'similarity-scores.parquet')
-    const scoresFile = scoresBuf
-      ? new File([scoresBuf as BlobPart], 'similarity-scores.parquet', { type: 'application/octet-stream' })
-      : undefined
+    // Similarity scores (optional): bound to the project id only in doImport,
+    // where it is resolved.
+    const scores = await readScoresFromZip(await loadImportZip(file))
     const children: ImportChildren = {
       mappings,
       sourceIdRanges: parsed['source-concept-ids/ranges.json'],
       sourceIdEntries: parsed['source-concept-ids/entries.json'],
-      scoresFile,
+      scores,
     }
     // Restore rawFileBuffer from source-concepts.csv in the ZIP (if file-based
     // project). The file is kept verbatim; duplicate source concepts are dropped

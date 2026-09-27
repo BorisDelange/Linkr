@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildMappingProjectPullPlan } from './pull-plan-builder'
-import { sourceConceptsChanged, type PreparedPull } from './pull'
+import { scoreChanges, sourceConceptsChanged, type PreparedPull } from './pull'
 import type { SourceConceptsDiff } from '@/lib/api/git'
 
 const diff = (over: Partial<SourceConceptsDiff> = {}): SourceConceptsDiff => ({
@@ -20,6 +20,7 @@ const prepared = (over: Partial<PreparedPull> = {}): PreparedPull => ({
   localProject: undefined,
   sourceConceptsDiff: undefined,
   remoteRegistry: { ranges: null, entries: null },
+  scoreChanges: [],
   ...over,
 })
 
@@ -171,5 +172,40 @@ describe('file ordering', () => {
       sourceConceptsDiff: diff({ added: 1 }),
     }), 'main')
     expect(paths(plan)).toEqual(['entity.json', 'mappings.json', 'source-concepts.csv'])
+  })
+})
+
+describe('score methods — one whole-file row per method the remote moved', () => {
+  const side = (scoreFiles: Record<string, string>) => ({ files: {}, stats: {}, scoreFiles })
+
+  it('compares blob oids: added, changed and deleted methods; unmoved ones are left alone', () => {
+    const base = side({
+      'similarity-scores/semantic/biolord.csv': 'a',
+      'similarity-scores/syntactic/jaro-winkler.csv': 'b',
+      'similarity-scores/ai/old-model.csv': 'c',
+    })
+    const remote = side({
+      'similarity-scores/semantic/biolord.csv': 'a2',
+      'similarity-scores/syntactic/jaro-winkler.csv': 'b',
+      'similarity-scores/ai/claude-opus-4-8.csv': 'd',
+    })
+    expect(scoreChanges(base, remote)).toEqual([
+      { method: 'ai/claude-opus-4-8', state: 'add' },
+      { method: 'ai/old-model', state: 'delete' },
+      { method: 'semantic/biolord', state: 'update' },
+    ])
+  })
+
+  it('ignores paths that are not a method CSV', () => {
+    expect(scoreChanges(side({}), side({ 'similarity-scores/../x.csv': 'a', 'similarity-scores/readme.md': 'b' }))).toEqual([])
+  })
+
+  it('lists each changed method under its CSV path', () => {
+    const plan = buildMappingProjectPullPlan(
+      prepared({ scoreChanges: [{ method: 'semantic/biolord', state: 'update' }] }),
+      'main',
+    )
+    const row = plan.files.find((f) => f.path === 'similarity-scores/semantic/biolord.csv')
+    expect(row?.items).toEqual([{ key: 'semantic/biolord', label: 'semantic/biolord', state: 'update' }])
   })
 })

@@ -10,7 +10,6 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useDqStore } from '@/stores/dq-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { isServerMode } from '@/lib/api-client'
 import {
   resolveByLineage as resolveByLineageRule,
   resolveChildId as resolveChildIdRule,
@@ -27,6 +26,7 @@ import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { getStorage } from '@/lib/storage'
+import { restoreImportedScores } from '@/lib/concept-mapping/scores-restore'
 import type { DataSource, DataSourceRef, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
 
 /** Append " (copy)" to every language of a multilingual name when duplicating. */
@@ -665,7 +665,7 @@ export async function importWorkspaceTree(
     // database-source project at whichever row now holds the database it was
     // exported against. Read once — the list does not change in this loop.
     const storedDatabases = await storage.dataSources.getAll()
-    for (const { project: mp, mappings, scoresFile } of parsed.mappingProjects) {
+    for (const { project: mp, mappings, scores } of parsed.mappingProjects) {
       const { id, replaces } = await resolveByLineage(() => storage.mappingProjects.getAll(), mp)
       // Keyed on the identity the manifest actually carries. A git-linked
       // project exports as a pointer with no `id`, so every one of them keyed
@@ -693,21 +693,14 @@ export async function importWorkspaceTree(
           ? { name: copyLocalizedName(mp.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: mp.lineageId }
           : { lineageId: mp.lineageId ?? crypto.randomUUID() }),
       })
-      if (scoresFile) {
-        // Untrusted ZIP input — validate columns before persisting, same as the interactive load flow.
-        if (isServerMode()) {
-          // The server attach endpoint validates the parquet before storing it.
-          const { persistScoresFileOnServer } = await import('@/lib/api/scores')
-          await persistScoresFileOnServer(id, scoresFile).catch(() => {})
-        } else {
-          const [{ persistScoresFile }, { validateScoresFile }] = await Promise.all([
-            import('@/lib/concept-mapping/scores-engine'),
-            import('@/lib/concept-mapping/scores-parser'),
-          ])
-          const validation = await validateScoresFile(scoresFile)
-          if (validation.ok) await persistScoresFile(id, scoresFile).catch(() => {})
-        }
+      // Untrusted ZIP input: the store validates before persisting (client-side
+      // front-only, by the attach endpoint server-side). A replaced project's
+      // scores go first, as its row did, so the incoming CSVs do not merge into them.
+      if (replaces) {
+        const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')
+        await useSuggestionScoresStore.getState().deleteProjectScores(replaces).catch(() => {})
       }
+      await restoreImportedScores(id, scores).catch(() => {})
       for (const m of mappings) {
         await storage.conceptMappings.create({
           ...m, id: remintMappings ? crypto.randomUUID() : m.id, projectId: id,

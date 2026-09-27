@@ -145,6 +145,7 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
     { test: /source-concepts\.csv$/, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_source_concepts' },
     { test: /^source-concept-ids\//, category: 'concepts', order: CAT.concepts, descriptionKey: 'versioning.file_desc_source_concept_ids' },
     { test: /similarity-scores\.parquet$/, category: 'scores', order: CAT.scores, descriptionKey: 'versioning.file_desc_similarity_scores' },
+    { test: /^similarity-scores\/.+\.csv$/, category: 'scores', order: CAT.scores, descriptionKey: 'versioning.file_desc_similarity_scores_csv' },
     GITIGNORE_RULE,
     ATTRS_RULE,
   ],

@@ -25,7 +25,8 @@ export type {
 
 export {
   CONTENT_FILE, EDITS_SUFFIX, editsFileName, ENTITY_MANIFEST, ENTITY_TYPES, MANIFEST, ROOT_FILE, SCRIPT_LANGUAGE, SCRIPTS_DIR, SIDECAR,
-  isEntityType, manifestCandidates, manifestList, scriptLanguage,
+  SCORES_CSV_DIR, SCORES_CSV_REQUIRED_COLUMNS,
+  isEntityType, manifestCandidates, manifestList, scoreCsvPath, scoreMethodOfPath, scriptLanguage,
 } from './layout.js'
 export type { LayoutKind } from './layout.js'
 

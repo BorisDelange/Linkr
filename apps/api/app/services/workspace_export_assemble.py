@@ -94,6 +94,7 @@ from app.services import (
     organization_service,
     patient_dashboard_service,
     schema_preset_service,
+    scores_export,
     source_concept_id_service,
     sql_script_service,
     user_plugin_service,
@@ -438,6 +439,7 @@ async def _mapping_project_sub_tree(db: AsyncSession, project: MappingProject) -
         entries=[_entry_dict(e) for e in entries],
         organization=None,
         source_csv=source_csv,
+        score_files=await scores_export.score_files(project),
     )
     tree.pop(".gitignore", None)
     return tree

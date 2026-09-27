@@ -203,3 +203,90 @@ def test_query_by_targets(tmp_path):
     got = svc.query_by_targets(path, [1], 0.5, None, 10)
     assert [(r["source_concept_code"], r["score"]) for r in got] == [("a", 0.9), ("d", 0.7)]
     assert [r["source_concept_code"] for r in svc.query_by_targets(path, [1, 2], 0, ["semantic/biolord"], 10)] == ["a", "c", "b"]
+
+
+# --- Per-method CSV (the versioned form) --------------------------------------
+
+_CSV_COLUMNS = ["source_vocabulary_id", "source_concept_code", "concept_id", "method", "score", "equivalence", "comment"]
+
+
+def _scores_file() -> str:
+    return _write_parquet(
+        [
+            {"source_vocabulary_id": "LOINC", "source_concept_code": "1-2", "concept_id": 3012345,
+             "method": "ai/claude-opus-4-8", "score": 0.81234, "equivalence": "skos:exactMatch",
+             "comment": 'good, "really"'},
+            {"source_vocabulary_id": "LOINC", "source_concept_code": "1-2", "concept_id": 42,
+             "method": "semantic/biolord", "score": 0.5, "equivalence": "skos:exactMatch", "comment": None},
+            {"source_vocabulary_id": "LOINC", "source_concept_code": "0-1", "concept_id": 43,
+             "method": "semantic/biolord", "score": 1.0, "equivalence": "skos:exactMatch", "comment": ""},
+        ],
+        _CSV_COLUMNS,
+    )
+
+
+def test_csv_path_rule_matches_the_format_package():
+    # Twin of scoreCsvPath / scoreMethodOfPath in packages/linkr-format/src/layout.ts.
+    assert svc.csv_path_for_method("ai/claude-opus-4-8") == "similarity-scores/ai/claude-opus-4-8.csv"
+    assert svc.method_for_csv_path("similarity-scores/semantic/biolord.csv") == "semantic/biolord"
+    for bad in ["../etc", "ai/..", "ai//x", ".hidden", "ai/.x", "a b", "ai\\x", ""]:
+        assert svc.csv_path_for_method(bad) is None, bad
+    assert svc.method_for_csv_path("similarity-scores/../x.csv") is None
+    assert svc.method_for_csv_path("similarity-scores.parquet") is None
+
+
+def test_write_method_csv_is_sorted_rounded_and_drops_blank_columns():
+    path = _scores_file()
+    out = Path(tempfile.mkdtemp())
+    assert svc.write_method_csv(path, "semantic/biolord", str(out / "b.csv")) == 2
+    # comment is blank for every biolord row, so the column is not written at all.
+    assert (out / "b.csv").read_text() == (
+        "source_vocabulary_id,source_concept_code,concept_id,score,equivalence\n"
+        "LOINC,0-1,43,1.0000,skos:exactMatch\n"
+        "LOINC,1-2,42,0.5000,skos:exactMatch\n"
+    )
+    svc.write_method_csv(path, "ai/claude-opus-4-8", str(out / "a.csv"))
+    assert (out / "a.csv").read_text().splitlines()[1] == 'LOINC,1-2,3012345,0.8123,skos:exactMatch,"good, ""really"""'
+
+
+def test_method_stats_estimates_each_csv():
+    stats = svc.method_stats(_scores_file())
+    assert [(s["method"], s["rowCount"], s["versionable"]) for s in stats] == [
+        ("ai/claude-opus-4-8", 1, True), ("semantic/biolord", 2, True),
+    ]
+    assert all(s["csvBytes"] > 0 for s in stats)
+
+
+def test_merge_method_csvs_replaces_only_the_named_methods():
+    path = _scores_file()
+    tmp = Path(tempfile.mkdtemp())
+    csv = tmp / "b.csv"
+    csv.write_text("source_vocabulary_id,source_concept_code,concept_id,score\nLOINC,9,7,0.25\n")
+    assert svc.merge_method_csvs(path, [("semantic/biolord", str(csv))], str(tmp / "m.parquet")) == 2
+    rows = duckdb.sql(
+        f"SELECT method, source_concept_code, concept_id, score, equivalence FROM '{tmp / 'm.parquet'}' ORDER BY method"
+    ).fetchall()
+    assert rows == [
+        ("ai/claude-opus-4-8", "1-2", 3012345, 0.81234, "skos:exactMatch"),
+        ("semantic/biolord", "9", 7, 0.25, None),
+    ]
+
+
+def test_csv_round_trip_keeps_the_rows():
+    path = _scores_file()
+    tmp = Path(tempfile.mkdtemp())
+    svc.write_method_csv(path, "semantic/biolord", str(tmp / "b.csv"))
+    assert svc.merge_method_csvs(None, [("semantic/biolord", str(tmp / "b.csv"))], str(tmp / "m.parquet")) == 2
+    svc.write_method_csv(str(tmp / "m.parquet"), "semantic/biolord", str(tmp / "b2.csv"))
+    assert (tmp / "b2.csv").read_bytes() == (tmp / "b.csv").read_bytes()
+
+
+def test_merge_method_csvs_refuses_a_csv_without_key_columns():
+    tmp = Path(tempfile.mkdtemp())
+    (tmp / "b.csv").write_text("source_concept_code,score\n1,0.5\n")
+    try:
+        svc.merge_method_csvs(None, [("semantic/biolord", str(tmp / "b.csv"))], str(tmp / "m.parquet"))
+    except ValueError as e:
+        assert "source_vocabulary_id" in str(e)
+    else:
+        raise AssertionError("expected a ValueError")

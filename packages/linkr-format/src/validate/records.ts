@@ -11,7 +11,7 @@
 import { checkArray, checkEnum, checkLocalized, checkNumber, checkString, isObject } from '../check.js'
 import type { IssueBag } from '../issue.js'
 import { filesIn, readJson, type EntityTree } from '../tree.js'
-import { CONTENT_FILE, MANIFEST } from '../layout.js'
+import { CONTENT_FILE, MANIFEST, SCORES_CSV_DIR, SCORES_CSV_REQUIRED_COLUMNS, scoreMethodOfPath } from '../layout.js'
 import { manifestPath } from './entities.js'
 
 // `info` is what exports written before `notice` carry; the app reads it as `notice`.
@@ -128,6 +128,7 @@ export function validateMappingProject(tree: EntityTree, bag: IssueBag): void {
     return
   }
   checkLocalized(bag, path, '/name', parsed.value.name, { required: true })
+  validateScoreCsvs(tree, bag, path, parsed.value.versionedScoreMethods)
 
   const mappingsPath = MANIFEST['mapping-project']
   const mappings = readJson(tree, mappingsPath)
@@ -171,6 +172,42 @@ export function validateMappingProject(tree: EntityTree, bag: IssueBag): void {
       })
     }
   })
+}
+
+/**
+ * `similarity-scores/<method>.csv` — the versioned methods' suggestions.
+ *
+ * A CSV missing a key column imports as nothing, and one whose method the entity
+ * does not list is dropped by the next export from the app (only listed methods
+ * are written), so both are worth saying.
+ */
+function validateScoreCsvs(tree: EntityTree, bag: IssueBag, manifest: string, listed: unknown): void {
+  let versioned = new Set<string>()
+  if (checkArray(bag, manifest, '/versionedScoreMethods', listed, { label: 'versionedScoreMethods' })) {
+    listed.forEach((m, i) => {
+      checkString(bag, manifest, `/versionedScoreMethods/${i}`, m, { required: true, label: 'versionedScoreMethods item' })
+    })
+    versioned = new Set(listed.filter((m): m is string => typeof m === 'string'))
+  }
+  for (const path of tree.paths().filter((p) => p.startsWith(`${SCORES_CSV_DIR}/`))) {
+    const method = scoreMethodOfPath(path)
+    if (!method) {
+      if (path.endsWith('.csv')) {
+        bag.warn(path, '', 'orphan-record', 'This path is not a score method the app can read; it is ignored.')
+      }
+      continue
+    }
+    const header = (tree.read(path) ?? '').split('\n', 1)[0].replace(/\r$/, '').split(',')
+    const missing = SCORES_CSV_REQUIRED_COLUMNS.filter((c) => !header.includes(c))
+    if (missing.length > 0) {
+      bag.error(path, '', 'csv-header-mismatch', `Missing columns: ${missing.join(', ')}.`,
+        `Expected at least: ${SCORES_CSV_REQUIRED_COLUMNS.join(', ')}.`)
+    }
+    if (!versioned.has(method)) {
+      bag.warn(path, '', 'orphan-record',
+        `"${method}" is not in versionedScoreMethods: it imports, but the next export drops it.`)
+    }
+  }
 }
 
 /**

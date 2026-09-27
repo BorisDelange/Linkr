@@ -1,6 +1,7 @@
 import { apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import type { ParsedScoreRow } from '@/lib/concept-mapping/scores-parser'
+import type { ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
 import type { ScoresIndex, SuggestionCategory } from '@/types'
 import { SUGGESTION_CATEGORIES } from '@/types'
 
@@ -91,11 +92,58 @@ export async function deleteScoresFileOnServer(projectId: string): Promise<void>
   await apiRequest(`${PROJ}/${projectId}/scores-file`, { method: 'DELETE' })
 }
 
-/** Download the scores parquet bytes from the blob store (for export). In server
- *  mode they never live in the browser, so export fetches them here. Null when
- *  the project has no scores file. */
-export async function fetchScoresFileFromServer(projectId: string): Promise<Uint8Array | null> {
-  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/scores-file`)
+/** Download the scores parquet bytes from the blob store (for export), only the
+ *  rows of `methods` when given. In server mode they never live in the browser,
+ *  so export fetches them here. Null when there is nothing to send. */
+export async function fetchScoresFileFromServer(projectId: string, methods?: string[]): Promise<Uint8Array | null> {
+  const query = methods ? `?${methods.map((m) => `methods=${encodeURIComponent(m)}`).join('&')}` : ''
+  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/scores-file${query}`)
   if (!res.ok) return null
   return new Uint8Array(await res.arrayBuffer())
+}
+
+/** One method's versioned CSV. Null when the method has no rows. */
+export async function fetchScoreMethodCsvFromServer(projectId: string, method: string): Promise<Uint8Array | null> {
+  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/scores/method-csv?method=${encodeURIComponent(method)}`)
+  if (!res.ok) return null
+  return new Uint8Array(await res.arrayBuffer())
+}
+
+/** Per method: row count and CSV size. [] when the project has no scores file. */
+export function fetchScoreMethodStatsFromServer(projectId: string): Promise<ScoreMethodStat[]> {
+  return apiRequest<ScoreMethodStat[]>(`${PROJ}/${projectId}/scores/methods`)
+}
+
+/** Replace each method's rows with those of its CSV (an import bringing
+ *  similarity-scores/<method>.csv). Null index when nothing remains. */
+export async function importScoreCsvsOnServer(
+  projectId: string,
+  csvs: { method: string; bytes: Uint8Array }[],
+): Promise<ScoresIndex | null> {
+  const files: { method: string; sha: string }[] = []
+  for (const { method, bytes } of csvs) {
+    const file = new File([bytes as BlobPart], `${method.replace(/\//g, '_')}.csv`, { type: 'text/csv' })
+    const { sha } = await uploadFileInChunks(file, file.name)
+    files.push({ method, sha })
+  }
+  const wire = await apiRequest<ScoresIndexWire | null>(`${PROJ}/${projectId}/scores/import-csv`, {
+    method: 'POST',
+    body: JSON.stringify({ files }),
+  })
+  return wire ? toScoresIndex(wire) : null
+}
+
+/** Take the versioned methods a pull brings: `methods` are replaced by their CSV
+ *  at the remote head (read server-side), `removed` are dropped. */
+export async function pullScoreMethodsOnServer(
+  projectId: string,
+  branch: string,
+  methods: string[],
+  removed: string[],
+): Promise<ScoresIndex | null> {
+  const wire = await apiRequest<ScoresIndexWire | null>(`/git/mapping-projects/${projectId}/pull-scores`, {
+    method: 'POST',
+    body: JSON.stringify({ branch, methods, removed }),
+  })
+  return wire ? toScoresIndex(wire) : null
 }

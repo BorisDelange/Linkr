@@ -48,6 +48,7 @@ import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
 import { readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
+import { readScoresFromZip, type ImportedScores } from '@/lib/concept-mapping/scores-restore'
 import { isServerMode } from '@/lib/api-client'
 import { buildPointer, findLineageMatch, resolvePointer, resolveProjectPointers, resolveSlugLanding } from '@/lib/import-identity'
 import { importDatasetOnServer, recordDatasetOps } from '@/lib/api/datasets'
@@ -488,12 +489,12 @@ function stripRootFolder(zip: JSZip): JSZip {
  */
 export async function parseImportZip(
   file: File,
+  options: { skip?: (path: string) => boolean } = {},
 ): Promise<Record<string, unknown>> {
-  let zip = await JSZip.loadAsync(file)
-  zip = stripRootFolder(zip)
+  const zip = await loadImportZip(file)
   const result: Record<string, unknown> = {}
   for (const [path, entry] of Object.entries(zip.files)) {
-    if (entry.dir) continue
+    if (entry.dir || options.skip?.(path)) continue
     const content = await entry.async('string')
     try {
       result[path] = JSON.parse(content)
@@ -505,21 +506,12 @@ export async function parseImportZip(
 }
 
 /**
- * Read a single entry from an import ZIP as raw bytes (root-folder-aware, like
- * parseImportZip). Binary payloads (e.g. similarity-scores.parquet) must be read
- * this way — parseImportZip decodes every entry as UTF-8 text, which corrupts
- * binary content. Returns null when the entry is absent or empty.
+ * An import ZIP with its root folder stripped, like parseImportZip sees it.
+ * Binary payloads (e.g. similarity-scores.parquet) must be read from this —
+ * parseImportZip decodes every entry as UTF-8 text, which corrupts them.
  */
-export async function readBinaryFromImportZip(
-  file: File,
-  path: string,
-): Promise<Uint8Array | null> {
-  let zip = await JSZip.loadAsync(file)
-  zip = stripRootFolder(zip)
-  const entry = zip.files[path]
-  if (!entry || entry.dir) return null
-  const buf = await entry.async('uint8array')
-  return buf.byteLength > 0 ? buf : null
+export async function loadImportZip(file: File): Promise<JSZip> {
+  return stripRootFolder(await JSZip.loadAsync(file))
 }
 
 // ---------------------------------------------------------------------------
@@ -3947,20 +3939,20 @@ export async function applyClonedEntity(
 
   if (type === 'mapping-project') {
     // Full restore — same content the standalone git/ZIP import applies:
-    // project.json (→ fileSourceData/source concepts), mappings.json,
-    // source-concept-ids/, similarity-scores.parquet. Restoring only mappings
-    // left the source-concept table empty ("imported but no concepts").
+    // entity.json (→ fileSourceData/source concepts), mappings.json,
+    // source-concept-ids/, similarity scores. Restoring only mappings left the
+    // source-concept table empty ("imported but no concepts").
+    const { isScoresPath, readScoresFromZip } = await import('@/lib/concept-mapping/scores-restore')
     const files: Record<string, unknown> = {}
     for (const [path, entry] of Object.entries(zip.files)) {
-      if (entry.dir || path === 'similarity-scores.parquet') continue
+      if (entry.dir || isScoresPath(path)) continue
       const text = await entry.async('string')
       try { files[path] = JSON.parse(text) } catch { files[path] = text }
     }
-    const scoresEntry = zip.files['similarity-scores.parquet']
-    const scoresBytes = scoresEntry && !scoresEntry.dir ? await scoresEntry.async('uint8array') : null
+    const scores = await readScoresFromZip(zip)
     const { importMappingProjectContent } = await import('@/lib/concept-mapping/import')
     const applied = await importMappingProjectContent(
-      { files, scoresBytes },
+      { files, scores },
       { targetId, workspaceId: workspaceId ?? '', replaceExisting: true, gitRemoteConfig },
       storage,
     )
@@ -4795,7 +4787,7 @@ export interface ParsedWorkspaceZip {
   etlPipelines: { pipeline: EtlPipeline; files: EtlFile[]; attachments?: ParsedEntityAttachments }[]
   dqRuleSets: { ruleSet: DqRuleSet; checks: DqCustomCheck[] }[]
   conceptSets: ConceptSet[]
-  mappingProjects: { project: MappingProject; mappings: ConceptMapping[]; scoresFile?: File }[]
+  mappingProjects: { project: MappingProject; mappings: ConceptMapping[]; scores: ImportedScores }[]
   sourceConceptIdRanges: SourceConceptIdRange[]
   sourceConceptIdEntries: SourceConceptIdEntry[]
   catalogs: DataCatalog[]
@@ -5177,14 +5169,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
       }
     }
 
-    // Optional precomputed similarity scores (opt-in on export — may be absent)
-    let scoresFile: File | undefined
-    const scoresEntry = zipData.files[`${prefix}similarity-scores.parquet`]
-    if (scoresEntry && !scoresEntry.dir) {
-      const buf = await scoresEntry.async('uint8array')
-      // TS lib.dom's BlobPart rejects the generic Uint8Array<ArrayBufferLike>; runtime accepts it
-      if (buf.byteLength > 0) scoresFile = new File([buf as BlobPart], `${project.id}.parquet`, { type: 'application/octet-stream' })
-    }
+    // Similarity scores: the versioned methods' CSVs, a parquet, or none.
+    const scores = await readScoresFromZip(zipData, prefix)
 
     // Per-project source-concept-ids (entries owned here; ranges act as a nextId floor).
     const pRanges = (await readJsonFile<SourceConceptIdRange[]>(zipData, `${prefix}source-concept-ids/ranges.json`)) ?? []
@@ -5192,7 +5178,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const pEntries = pRawEntries ? parseSourceConceptIdEntries(pRawEntries, workspace.id) : []
     if (pRanges.length > 0 || pEntries.length > 0) projectGroups.push({ ranges: pRanges, entries: pEntries })
 
-    mappingProjects.push({ project, mappings, scoresFile })
+    mappingProjects.push({ project, mappings, scores })
   }
 
   // --- source-concept-ids/ registry: root ranges + per-project entries, merged.

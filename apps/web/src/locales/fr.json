@@ -2522,7 +2522,7 @@
     "file_desc_mappings": "Les alignements de concepts : chaque terme source relié à un concept OMOP.",
     "file_desc_source_concepts": "Les concepts source à aligner (le dictionnaire importé).",
     "file_desc_source_concept_ids": "Les identifiants attribués aux concepts source (réutilisés entre projets).",
-    "file_desc_similarity_scores": "Scores de similarité précalculés pour suggérer les alignements (fichier volumineux, stocké via Git LFS).",
+    "file_desc_similarity_scores": "Scores de similarité précalculés pour suggérer les alignements (fichier binaire volumineux, jamais versionné).",
     "file_desc_collection_json": "Les paramètres de la collection de scripts SQL.",
     "file_desc_tree": "L'arborescence des fichiers (dossiers et ordre).",
     "file_desc_sql_file": "Une requête SQL de la collection.",
@@ -2571,7 +2571,8 @@
     "pull_db_all_or_nothing": "Tout ou rien : une base est reprise en entier.",
     "pull_db_take": "Remplacer par la version distante",
     "sync_auth_rejected_title": "Jeton d'accès refusé",
-    "sync_auth_rejected_body": "Un jeton est enregistré pour cet hôte, mais le dépôt l'a refusé. Il peut appartenir à un autre compte, avoir expiré, ou ne pas donner accès à ce dépôt — remplacez-le depuis Configuration."
+    "sync_auth_rejected_body": "Un jeton est enregistré pour cet hôte, mais le dépôt l'a refusé. Il peut appartenir à un autre compte, avoir expiré, ou ne pas donner accès à ce dépôt — remplacez-le depuis Configuration.",
+    "file_desc_similarity_scores_csv": "Les suggestions d'une méthode versionnée (Gérer les suggestions › Versionné)."
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -4532,7 +4533,6 @@
     "export_zip_core_files": "Fichiers cœur",
     "export_zip_core_files_desc": "Projet, alignements et concepts source — toujours inclus.",
     "export_include_scores": "Scores de similarité",
-    "export_include_scores_desc": "Inclure les suggestions précalculées (similarity-scores.parquet) pour les recharger sans les recalculer.",
     "export_scores_none_hint": "Aucun fichier de scores chargé. Chargez-en un depuis l'onglet Suggestions.",
     "export_scores_probing": "Recherche d'un fichier de scores…",
     "source_csv_too_large": "Le fichier CSV source est trop volumineux pour être téléchargé dans le navigateur. Ajoutez-le manuellement à votre dépôt git aux côtés du contenu du ZIP.",
@@ -5057,7 +5057,21 @@
     "suggestions_methods_section": "Méthodes du fichier",
     "suggestions_remove_method": "Retirer les suggestions {{method}}",
     "suggestions_remove_method_title": "Retirer ces suggestions ?",
-    "suggestions_remove_method_desc": "Toutes les suggestions de la méthode {{method}} seront retirées du fichier de scores. Les autres méthodes et les alignements sont conservés."
+    "suggestions_remove_method_desc": "Toutes les suggestions de la méthode {{method}} seront retirées du fichier de scores. Les autres méthodes et les alignements sont conservés.",
+    "suggestions_versioned_column": "Versionné",
+    "suggestions_versioned_badge": "versionné",
+    "suggestions_version_method": "Versionner les suggestions {{method}}",
+    "suggestions_version_method_hint": "Exporter ces suggestions dans {{path}}, vers git et dans le ZIP par défaut",
+    "suggestions_method_not_versionable": "Le nom de cette méthode ne peut pas servir de chemin de fichier : elle ne peut pas être versionnée",
+    "suggestions_versioned_desc": "Les méthodes versionnées sont exportées en un CSV chacune dans similarity-scores/ (un parquet ne se compare pas). Les tailles sont celles des CSV.",
+    "suggestions_csv_size_one": "{{formattedCount}} score — taille de son CSV",
+    "suggestions_csv_size_other": "{{formattedCount}} scores — taille de leur CSV",
+    "suggestions_csv_too_large": "Volumineux pour git : GitHub refuse les fichiers de plus de 100 Mo et avertit dès 50 Mo",
+    "export_scores_csv_desc": "Un CSV par méthode dans similarity-scores/, comme le versioning. Les méthodes versionnées sont cochées.",
+    "export_scores_parquet_desc": "Un seul similarity-scores.parquet — plus compact, mais non versionnable.",
+    "export_scores_select_all": "Toutes",
+    "export_scores_select_versioned": "Versionnées seulement",
+    "export_scores_none_selected": "Aucun score"
   },
   "data_catalog": {
     "pages_hint_github": "Dans le dépôt, réglez une fois Settings › Pages › Source sur « GitHub Actions ».",

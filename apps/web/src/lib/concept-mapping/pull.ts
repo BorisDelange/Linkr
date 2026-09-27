@@ -17,6 +17,8 @@ import {
   type GitPullSide,
   type SourceConceptsDiff,
 } from '@/lib/api/git'
+import { methodForCsvPath } from './scores-csv'
+import { compareCodePoints } from './source-concept-ids-io'
 import {
   mergeMappings,
   mergeMetadata,
@@ -38,6 +40,31 @@ export interface PreparedPull {
   /** Row-level source-concept diff by (vocabulary, code), computed server-side.
    *  `keyed: false` means a side was unparseable → whole-file choice only. */
   sourceConceptsDiff: SourceConceptsDiff | undefined
+  /** Versioned score methods the remote changed since BASE (see scoreChanges). */
+  scoreChanges: ScoreMethodChange[]
+}
+
+export interface ScoreMethodChange {
+  method: string
+  state: 'add' | 'update' | 'delete'
+}
+
+/**
+ * Which versioned score methods the remote moved since BASE, by blob oid — the
+ * CSVs run to megabytes, so they are compared without being read. A method whose
+ * file did not move is left alone: local suggestions added since the last push
+ * survive the pull.
+ */
+export function scoreChanges(base: GitPullSide, remote: GitPullSide): ScoreMethodChange[] {
+  const b = base.scoreFiles ?? {}
+  const r = remote.scoreFiles ?? {}
+  const out: ScoreMethodChange[] = []
+  for (const path of new Set([...Object.keys(b), ...Object.keys(r)])) {
+    const method = methodForCsvPath(path)
+    if (!method || b[path] === r[path]) continue
+    out.push({ method, state: !r[path] ? 'delete' : b[path] ? 'update' : 'add' })
+  }
+  return out.sort((x, y) => compareCodePoints(x.method, y.method))
 }
 
 /** Parse a managed JSON file from a preview side; [] / {} on absence or bad JSON. */
@@ -132,6 +159,7 @@ export async function prepareMappingProjectPull(projectId: string, branch?: stri
     localMappings,
     localProject: localProject ?? undefined,
     sourceConceptsDiff: preview.sourceConceptsDiff,
+    scoreChanges: scoreChanges(preview.base, preview.remote),
     remoteRegistry: {
       ranges: preview.remote.files['source-concept-ids/ranges.json'],
       entries: preview.remote.files['source-concept-ids/entries.json'],
@@ -180,6 +208,8 @@ export interface PullResolution {
   /** `vocab|code` pairs whose remote change the user refused. The applier rebuilds
    *  the CSV around them, so a per-row refusal actually holds. */
   declinedSourceConcepts?: ReadonlySet<string>
+  /** The score-method changes the user took. */
+  scoreChanges?: ScoreMethodChange[]
   /**
    * The user accepted EVERYTHING the plan offered.
    *
@@ -238,6 +268,26 @@ export async function applyMappingProjectPull(
       prepared.localProject,
       resolution.declinedSourceConcepts ?? new Set(),
     )
+  }
+
+  // 4a) Versioned score methods: the server reads each CSV at the remote head and
+  //     swaps that method's rows. The taken methods become versioned here too —
+  //     otherwise the next push, which exports only versioned methods, would
+  //     delete from the repo the very files just pulled.
+  const takenScores = resolution.scoreChanges ?? []
+  if (takenScores.length > 0) {
+    const replaced = takenScores.filter((c) => c.state !== 'delete').map((c) => c.method)
+    const removed = takenScores.filter((c) => c.state === 'delete').map((c) => c.method)
+    const { pullScoreMethodsOnServer } = await import('@/lib/api/scores')
+    const index = await pullScoreMethodsOnServer(projectId, branch, replaced, removed)
+    const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')
+    if (useSuggestionScoresStore.getState().activeProjectId === projectId) {
+      useSuggestionScoresStore.setState({ index, loaded: true })
+    }
+    const versioned = new Set(prepared.localProject?.versionedScoreMethods ?? [])
+    for (const m of replaced) versioned.add(m)
+    for (const m of removed) versioned.delete(m)
+    await storage.mappingProjects.update(projectId, { versionedScoreMethods: [...versioned].sort(compareCodePoints) })
   }
 
   // 4b) Badge allocation registry — always merged, never offered as a choice: the

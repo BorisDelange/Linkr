@@ -328,6 +328,10 @@ export interface MappingProject extends Seedable, Authored, Lineaged {
   stats?: MappingProjectStats
   /** History of bulk catalog imports. */
   importBatches?: ConceptSetImportBatch[]
+  /** Similarity-score methods exported as `similarity-scores/<method>.csv` — to
+   *  git, and ticked by default in the ZIP export. Portable: it rides in
+   *  entity.json, so the repo says which methods it versions. */
+  versionedScoreMethods?: string[]
   readme?: LocalizedString
   license?: import('./index').EntityLicense
   /** Git repository this mapping project is linked to. When set, workspace export emits metadata + this pointer only. */

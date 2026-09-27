@@ -2522,7 +2522,7 @@
     "file_desc_mappings": "The concept mappings: each source term matched to an OMOP concept.",
     "file_desc_source_concepts": "The source concepts to map (the imported dictionary).",
     "file_desc_source_concept_ids": "The identifiers assigned to source concepts (for reuse across projects).",
-    "file_desc_similarity_scores": "Precomputed similarity scores used to suggest mappings (large file, stored via Git LFS).",
+    "file_desc_similarity_scores": "Precomputed similarity scores used to suggest mappings (large binary file, never versioned).",
     "file_desc_collection_json": "The SQL script collection's settings.",
     "file_desc_tree": "The layout of the file tree (folders and order).",
     "file_desc_sql_file": "A SQL query in the collection.",
@@ -2571,7 +2571,8 @@
     "pull_db_all_or_nothing": "All or nothing: a database is taken whole.",
     "pull_db_take": "Replace with the remote",
     "sync_auth_rejected_title": "Access token refused",
-    "sync_auth_rejected_body": "A token is stored for this host, but the repository refused it. It may be for another account, expired, or lack read/write access to this repository — replace it from Config."
+    "sync_auth_rejected_body": "A token is stored for this host, but the repository refused it. It may be for another account, expired, or lack read/write access to this repository — replace it from Config.",
+    "file_desc_similarity_scores_csv": "The suggestions of one versioned method (Manage suggestions › Versioned)."
   },
   "summary": {
     "tab_overview": "Overview",
@@ -4532,7 +4533,6 @@
     "export_zip_core_files": "Core files",
     "export_zip_core_files_desc": "Project, mappings, and source concepts — always included.",
     "export_include_scores": "Similarity scores",
-    "export_include_scores_desc": "Bundle the precomputed suggestions (similarity-scores.parquet) so they reload without recomputing.",
     "export_scores_none_hint": "No scores file loaded. Load one from the Suggestions tab first.",
     "export_scores_probing": "Checking for a scores file…",
     "source_csv_too_large": "The source CSV file is too large to download in the browser. Add it manually to your git repository alongside the ZIP contents.",
@@ -5057,7 +5057,21 @@
     "suggestions_methods_section": "Methods in the file",
     "suggestions_remove_method": "Remove the {{method}} suggestions",
     "suggestions_remove_method_title": "Remove these suggestions?",
-    "suggestions_remove_method_desc": "Every suggestion of the method {{method}} will be removed from the scores file. The other methods and the mappings are kept."
+    "suggestions_remove_method_desc": "Every suggestion of the method {{method}} will be removed from the scores file. The other methods and the mappings are kept.",
+    "suggestions_versioned_column": "Versioned",
+    "suggestions_versioned_badge": "versioned",
+    "suggestions_version_method": "Version the {{method}} suggestions",
+    "suggestions_version_method_hint": "Export these suggestions as {{path}}, to git and in the ZIP by default",
+    "suggestions_method_not_versionable": "This method's name cannot be a file path, so it cannot be versioned",
+    "suggestions_versioned_desc": "Versioned methods travel as one CSV each in similarity-scores/ (a parquet cannot be diffed). Sizes are those of the CSVs.",
+    "suggestions_csv_size_one": "{{formattedCount}} score — size of its CSV",
+    "suggestions_csv_size_other": "{{formattedCount}} scores — size of their CSV",
+    "suggestions_csv_too_large": "Large for git: GitHub rejects files over 100 MB and warns from 50 MB",
+    "export_scores_csv_desc": "One CSV per method in similarity-scores/, as versioning does. The versioned methods are ticked.",
+    "export_scores_parquet_desc": "A single similarity-scores.parquet — more compact, but it cannot be versioned.",
+    "export_scores_select_all": "All",
+    "export_scores_select_versioned": "Versioned only",
+    "export_scores_none_selected": "No scores"
   },
   "data_catalog": {
     "pages_hint_github": "In the repository, set Settings › Pages › Source to \"GitHub Actions\" once.",
