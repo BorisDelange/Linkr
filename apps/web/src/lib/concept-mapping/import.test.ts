@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import type { Storage } from '@/lib/storage'
 import { importMappingProjectContent } from './import'
+import { NO_SCORES } from './scores-restore'
 
 vi.mock('@/lib/api-client', () => ({ isServerMode: () => false }))
 
@@ -61,7 +62,7 @@ describe('importMappingProjectContent — manifest shapes', () => {
           },
           'mappings.json': [{ id: 'm1', sourceConceptCode: 'HR', targetConceptId: 42, comments: [] }],
         },
-        scoresBytes: null,
+        scores: NO_SCORES,
       },
       { targetId: 'local-target', workspaceId: 'ws-1', replaceExisting: true },
       store,
@@ -75,7 +76,7 @@ describe('importMappingProjectContent — manifest shapes', () => {
   it('still reads a legacy tree that names its manifest project.json', async () => {
     const { store } = makeStore()
     const ok = await importMappingProjectContent(
-      { files: { 'project.json': structuredClone(PROJECT_JSON), 'mappings.json': [] }, scoresBytes: null },
+      { files: { 'project.json': structuredClone(PROJECT_JSON), 'mappings.json': [] }, scores: NO_SCORES },
       { targetId: 'local-target', workspaceId: 'ws-1', replaceExisting: true },
       store,
     )
@@ -85,7 +86,7 @@ describe('importMappingProjectContent — manifest shapes', () => {
   it('refuses a tree with no readable manifest', async () => {
     const { store } = makeStore()
     const ok = await importMappingProjectContent(
-      { files: { 'mappings.json': [] }, scoresBytes: null },
+      { files: { 'mappings.json': [] }, scores: NO_SCORES },
       { targetId: 'local-target', workspaceId: 'ws-1', replaceExisting: true },
       store,
     )
@@ -112,7 +113,7 @@ describe('importMappingProjectContent — full restore parity', () => {
     }
 
     const ok = await importMappingProjectContent(
-      { files, scoresBytes: null },
+      { files, scores: NO_SCORES },
       { targetId: 'local-target', workspaceId: 'ws-1', replaceExisting: true, gitRemoteConfig: { url: 'https://example/repo', branch: 'main' } },
       store,
     )
@@ -158,7 +159,7 @@ describe('importMappingProjectContent — full restore parity', () => {
       ],
     }
     await importMappingProjectContent(
-      { files, scoresBytes: null },
+      { files, scores: NO_SCORES },
       { targetId: 'local-target', workspaceId: 'ws-1' },
       store,
     )
@@ -181,7 +182,7 @@ describe('importMappingProjectContent — full restore parity', () => {
       'mappings.json': [{ id: 'm1', sourceConceptCode: 'HR', targetConceptId: 42, comments: [] }],
     }
     await importMappingProjectContent(
-      { files, scoresBytes: null },
+      { files, scores: NO_SCORES },
       { targetId: 'local-target', workspaceId: 'ws-1' },
       store,
     )
@@ -193,7 +194,7 @@ describe('importMappingProjectContent — full restore parity', () => {
   it('returns false when the ZIP has no project.json', async () => {
     const { store } = makeStore()
     const ok = await importMappingProjectContent(
-      { files: { 'mappings.json': [] }, scoresBytes: null },
+      { files: { 'mappings.json': [] }, scores: NO_SCORES },
       { targetId: 't', workspaceId: 'ws', replaceExisting: false },
       store,
     )

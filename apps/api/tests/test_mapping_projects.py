@@ -927,3 +927,56 @@ async def test_scores_remove_and_by_target(client):
     assert r == {"index": None, "removed": 1}
     assert (await client.get(f"{API}/mapping-projects/{p['id']}", headers=headers)).json()["scoresFileSha"] is None
     assert (await client.post(f"{base}/by-target", headers=headers, json={"conceptIds": [5]})).json() == []
+
+
+async def test_versioned_score_methods_travel_as_csv(client):
+    import io
+    import json
+    import zipfile
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _project(client, headers, ws, source_type="file")
+    base = f"{API}/mapping-projects/{p['id']}"
+    row = {"sourceVocabularyId": "REA", "sourceConceptCode": "hr", "conceptId": 5, "method": "ai/x", "score": 0.9}
+    await client.post(f"{base}/scores/append", headers=headers, json={"rows": [
+        row, {**row, "method": "semantic/biolord", "score": 0.5},
+    ]})
+
+    stats = (await client.get(f"{base}/scores/methods", headers=headers)).json()
+    assert [(s["method"], s["rowCount"]) for s in stats] == [("ai/x", 1), ("semantic/biolord", 1)]
+
+    # Nothing versioned: the default ZIP (what git carries) has no scores.
+    names = zipfile.ZipFile(io.BytesIO((await client.get(f"{base}/export-zip", headers=headers)).content)).namelist()
+    assert not [n for n in names if n.startswith("similarity-scores")]
+
+    await client.patch(base, headers=headers, json={"versionedScoreMethods": ["ai/x"]})
+    zf = zipfile.ZipFile(io.BytesIO((await client.get(f"{base}/export-zip", headers=headers)).content))
+    assert [n for n in zf.namelist() if n.startswith("similarity-scores")] == ["similarity-scores/ai/x.csv"]
+    assert zf.read("similarity-scores/ai/x.csv") == (
+        b"source_vocabulary_id,source_concept_code,concept_id,score\nREA,hr,5,0.9000\n"
+    )
+    manifest = json.loads(zf.read("entity.json"))
+    assert manifest["versionedScoreMethods"] == ["ai/x"]
+    # The blob pointer moved on every suggestion and addresses nothing elsewhere.
+    assert "scoresFileSha" not in manifest and "scoresFileName" not in manifest
+
+    # The ZIP may carry any selection, as a parquet — or nothing.
+    r = await client.get(f"{base}/export-zip?scoresFormat=parquet&scoreMethods=semantic/biolord", headers=headers)
+    names = zipfile.ZipFile(io.BytesIO(r.content)).namelist()
+    assert "similarity-scores.parquet" in names and "similarity-scores/ai/x.csv" not in names
+    r = await client.get(f"{base}/export-zip?noScores=true", headers=headers)
+    assert not [n for n in zipfile.ZipFile(io.BytesIO(r.content)).namelist() if n.startswith("similarity-scores")]
+
+    # Importing a method's CSV replaces that method only.
+    sha, _ = await blob_store.store_bytes(
+        b"source_vocabulary_id,source_concept_code,concept_id,score\nREA,rr,6,0.7\nREA,hr,7,0.6\n"
+    )
+    index = (await client.post(f"{base}/scores/import-csv", headers=headers, json={
+        "files": [{"method": "ai/x", "sha": sha}]})).json()
+    assert index["rowCount"] == 3 and index["sourceKeys"] == ["REA::hr", "REA::rr"]
+    got = (await client.post(f"{base}/scores/query", headers=headers, json={"vocabularyId": "REA", "conceptCode": "hr"})).json()
+    assert sorted((g["method"], g["concept_id"]) for g in got) == [("ai/x", 7), ("semantic/biolord", 5)]
+
+    bad = await client.post(f"{base}/scores/import-csv", headers=headers, json={"files": [{"method": "../x", "sha": sha}]})
+    assert bad.status_code == 400

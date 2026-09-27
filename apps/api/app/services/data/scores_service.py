@@ -6,6 +6,8 @@ mode the parquet lives in the blob store and never reaches the browser — the
 client sends (vocabulary, code) and gets back the matching score rows.
 """
 
+import re
+
 import duckdb
 
 from app.services.data.db_connect import _ext_dir
@@ -296,5 +298,199 @@ def query_by_targets(
         )
         cols = [d[0] for d in result.description]
         return [p for p in (_row_to_parsed(dict(zip(cols, raw))) for raw in result.fetchall()) if p]
+    finally:
+        con.close()
+
+
+# --- Per-method CSV: the versionable form of the scores ------------------------
+#
+# A parquet cannot be diffed or merged, so a method the user marks "versioned"
+# travels as `similarity-scores/<method>.csv` (e.g. similarity-scores/ai/
+# claude-opus-4-8.csv). One file per method keeps a diff local to the method that
+# changed, and removing a method removes a file. Twin of scores-csv.ts: the SQL
+# below is the same text on both sides, so a front-only and a server instance
+# write the same bytes.
+
+SCORES_CSV_DIR = "similarity-scores"
+
+# `method` is not a column: the file path carries it.
+CSV_REQUIRED_COLUMNS = ("source_vocabulary_id", "source_concept_code", "concept_id", "score")
+# Written only when the method has at least one non-empty value in them, so an
+# all-blank column does not cost a comma per row.
+CSV_OPTIONAL_COLUMNS = (
+    "equivalence",
+    "comment",
+    "created_at",
+    "concept_set_uid",
+    "concept_set_source_repo",
+)
+
+# A method becomes a path, so each `/`-separated segment must be a plain name —
+# no `..`, no leading dot, nothing a filesystem or git would reinterpret.
+_METHOD_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]*$")
+
+
+def csv_path_for_method(method: str) -> str | None:
+    """`similarity-scores/<method>.csv`, or None when the method cannot be a path."""
+    segments = method.split("/")
+    if not all(_METHOD_SEGMENT_RE.match(s) for s in segments):
+        return None
+    return f"{SCORES_CSV_DIR}/{method}.csv"
+
+
+def method_for_csv_path(path: str) -> str | None:
+    """Inverse of `csv_path_for_method`; None for any other path."""
+    prefix = f"{SCORES_CSV_DIR}/"
+    if not path.startswith(prefix) or not path.endswith(".csv"):
+        return None
+    method = path[len(prefix):-len(".csv")]
+    return method if csv_path_for_method(method) == path else None
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _parquet_columns(con: duckdb.DuckDBPyConnection, path: str) -> set[str]:
+    return {d[0] for d in con.execute("SELECT * FROM read_parquet(?) LIMIT 0", [path]).description}
+
+
+def _csv_select_list(present_optional: list[str]) -> str:
+    cols = [
+        "source_vocabulary_id",
+        "source_concept_code",
+        "CAST(concept_id AS VARCHAR) AS concept_id",
+        "printf('%.4f', score) AS score",
+    ]
+    cols += [f"NULLIF(CAST({c} AS VARCHAR), '') AS {c}" for c in present_optional]
+    return ", ".join(cols)
+
+
+def method_stats(path: str) -> list[dict]:
+    """Per method: row count and the byte size its CSV would have (exact up to
+    quoting), for the "versioned" toggles."""
+    con = _connect()
+    try:
+        cols = _parquet_columns(con, path)
+        optional = [c for c in CSV_OPTIONAL_COLUMNS if c in cols]
+        # Every optional column is counted as written: an estimate the user reads
+        # as "≈ N MB", not a promise.
+        lengths = " + ".join(
+            [
+                "strlen(source_vocabulary_id)",
+                "strlen(source_concept_code)",
+                "strlen(CAST(concept_id AS VARCHAR))",
+                "strlen(printf('%.4f', score))",
+            ]
+            + [f"coalesce(strlen(CAST({c} AS VARCHAR)), 0)" for c in optional]
+        )
+        separators = len(CSV_REQUIRED_COLUMNS) + len(optional)  # commas + newline
+        rows = con.execute(
+            f"SELECT method, COUNT(*), SUM({lengths} + {separators}) FROM read_parquet(?) "
+            "WHERE method IS NOT NULL AND method <> '' GROUP BY method ORDER BY method",
+            [path],
+        ).fetchall()
+        return [
+            {
+                "method": m,
+                "rowCount": int(n),
+                "csvBytes": int(b or 0),
+                "versionable": csv_path_for_method(m) is not None,
+            }
+            for m, n, b in rows
+        ]
+    finally:
+        con.close()
+
+
+def write_method_csv(path: str, method: str, out_path: str) -> int:
+    """Write the rows of `method` to `out_path` as its versioned CSV; returns the
+    row count. Rows are sorted on the full key and the score is rounded to four
+    decimals, so an unchanged method rewrites the same bytes."""
+    con = _connect()
+    try:
+        cols = _parquet_columns(con, path)
+        where = f"method = {_sql_literal(method)}"
+        present = [
+            c
+            for c in CSV_OPTIONAL_COLUMNS
+            if c in cols
+            and con.execute(
+                f"SELECT COUNT(*) FROM read_parquet(?) WHERE {where} "
+                f"AND NULLIF(CAST({c} AS VARCHAR), '') IS NOT NULL",
+                [path],
+            ).fetchone()[0]
+        ]
+        count = int(
+            con.execute(f"SELECT COUNT(*) FROM read_parquet(?) WHERE {where}", [path]).fetchone()[0]
+        )
+        con.execute(
+            f"COPY (SELECT {_csv_select_list(present)} FROM read_parquet({_sql_literal(path)}) "
+            f"WHERE {where} ORDER BY source_vocabulary_id, source_concept_code, concept_id) "
+            f"TO {_sql_literal(out_path)} "
+            "(FORMAT CSV, HEADER true, DELIMITER ',', QUOTE '\"', ESCAPE '\"', NULL '')"
+        )
+        return count
+    finally:
+        con.close()
+
+
+def merge_method_csvs(
+    existing_path: str | None, csvs: list[tuple[str, str]], out_path: str
+) -> int:
+    """Write `existing_path` with the rows of each (method, csv_path) REPLACED by
+    that CSV's rows to `out_path`; returns the resulting row count (the caller
+    drops the file when it is 0). A method absent from `csvs` is left untouched —
+    local, unversioned methods survive a pull."""
+    con = _connect()
+    try:
+        parts: list[str] = []
+        for method, csv_path in csvs:
+            source = f"read_csv({_sql_literal(csv_path)}, header=true, all_varchar=true)"
+            cols = {d[0] for d in con.execute(f"SELECT * FROM {source} LIMIT 0").description}
+            missing = [c for c in CSV_REQUIRED_COLUMNS if c not in cols]
+            if missing:
+                raise ValueError(f"{method}: missing required columns: {', '.join(missing)}")
+            optional = ", ".join(
+                f"{c if c in cols else 'NULL'}::VARCHAR AS {c}" for c in CSV_OPTIONAL_COLUMNS
+            )
+            parts.append(
+                "SELECT source_vocabulary_id, source_concept_code, "
+                "CAST(concept_id AS BIGINT) AS concept_id, "
+                f"{_sql_literal(method)} AS method, CAST(score AS DOUBLE) AS score, {optional} "
+                f"FROM {source}"
+            )
+        if existing_path:
+            replaced = ", ".join(_sql_literal(m) for m, _ in csvs) or "NULL"
+            parts.insert(
+                0,
+                f"SELECT * FROM read_parquet({_sql_literal(existing_path)}) "
+                f"WHERE method NOT IN ({replaced})",
+            )
+        if not parts:
+            return 0
+        union = " UNION ALL BY NAME ".join(f"({p})" for p in parts)
+        con.execute(f"CREATE TEMP TABLE merged AS {union}")
+        total = int(con.execute("SELECT COUNT(*) FROM merged").fetchone()[0])
+        if total:
+            con.execute(f"COPY merged TO {_sql_literal(out_path)} (FORMAT PARQUET)")
+        return total
+    finally:
+        con.close()
+
+
+def subset_parquet(path: str, methods: list[str], out_path: str) -> int:
+    """Write only the rows of `methods` to `out_path` (the ZIP's parquet variant
+    with a method selection); returns the row count."""
+    con = _connect()
+    try:
+        cond = "method IN (" + (", ".join(_sql_literal(m) for m in methods) or "NULL") + ")"
+        total = int(con.execute(f"SELECT COUNT(*) FROM read_parquet(?) WHERE {cond}", [path]).fetchone()[0])
+        if total:
+            con.execute(
+                f"COPY (SELECT * FROM read_parquet({_sql_literal(path)}) WHERE {cond}) "
+                f"TO {_sql_literal(out_path)} (FORMAT PARQUET)"
+            )
+        return total
     finally:
         con.close()

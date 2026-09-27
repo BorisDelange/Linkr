@@ -15,6 +15,8 @@ never pushes with another's token. Tokens are decrypted server-side and never
 leave the server.
 """
 
+import asyncio
+
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +36,7 @@ from app.schemas.git import (
     GitHostTokenRequest,
     GitHostTokenStatus,
     GitPullPreviewResponse,
+    GitPullScoresRequest,
     GitSetSyncStateRequest,
     GitStatusResponse,
     GitSyncStateResponse,
@@ -670,6 +673,56 @@ async def mapping_project_pull_file(
         )
     )
     return Response(content=data, media_type="application/octet-stream")
+
+
+@router.post("/mapping-projects/{mapping_project_id}/pull-scores")
+async def mapping_project_pull_scores(
+    mapping_project_id: str,
+    body: GitPullScoresRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Take the versioned score methods the remote changed: each method's rows
+    are replaced by its CSV at the remote head, read here rather than shipped to
+    the browser and back (a method's CSV runs to hundreds of MB). Local methods
+    the pull does not name are kept. Returns the new ScoresIndex, null when no
+    scores remain."""
+    import tempfile
+    from pathlib import Path
+
+    from app.services import scores_export
+    from app.services.data import scores_service
+
+    mp = await _load_mapping_project(
+        mapping_project_id, db, user, "concept-mapping:write"
+    )
+    paths = [(m, scores_service.csv_path_for_method(m)) for m in body.methods]
+    if any(p is None for _, p in paths):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid score method")
+    branch = _default_branch(mp, body.branch)
+    token = await _token(db, user, mp)
+    async with scores_export.scores_lock(mp.id):
+        with tempfile.TemporaryDirectory() as tmp:
+            csvs: list[tuple[str, str]] = []
+            for i, (method, path) in enumerate(paths):
+                data = await _guard(
+                    git_service.pull_file_bytes(
+                        git_service.mapping_project_repo_getter,
+                        mp.id, branch, path, _remote_url(mp), token,
+                    )
+                )
+                target = Path(tmp) / f"{i}.csv"
+                target.write_bytes(data)
+                csvs.append((method, str(target)))
+            try:
+                sha = await scores_export.replace_methods(db, mp, csvs, body.removed)
+            except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if not sha:
+        return None
+    return await asyncio.to_thread(
+        scores_service.build_index, mp.id, str(blob_store.path_for(sha))
+    )
 
 
 @router.post(
@@ -1444,8 +1497,6 @@ async def _apply_settings_zip(
     acting_username: str | None,
     selection: SettingsSelection | None = None,
 ) -> SettingsImportResponse:
-    import asyncio
-
     tree = await asyncio.to_thread(_read_zip_tree, zip_bytes)
     if selection is not None:
         tree = _selection_from_tree(tree, selection)

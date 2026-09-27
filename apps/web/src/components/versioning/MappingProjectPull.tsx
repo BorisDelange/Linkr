@@ -6,6 +6,7 @@ import { buildMappingProjectPullPlan } from '@/lib/concept-mapping/pull-plan-bui
 import { itemId, itemIdFor, planIsEmpty, wholeFileId, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
 import type { MappingChange } from '@/lib/concept-mapping/merge'
 import { buildPullDiff } from '@/lib/concept-mapping/pull-diff'
+import { csvPathForMethod } from '@/lib/concept-mapping/scores-csv'
 import { PullPanel } from './PullPanel'
 import { PullDiffDialog } from './PullDiffDialog'
 import { PullMappingsTable } from './PullMappingsTable'
@@ -296,9 +297,15 @@ function buildResolution(
       : sourceFile.items.some((i) => decisions.get(itemId(sourceFile, i)) === 'accept')
     : false
 
+  const scoreChanges = prepared.scoreChanges.filter((c) => {
+    const path = csvPathForMethod(c.method)
+    return path !== null && accepted(path, c.method)
+  })
+
   return {
     mappings,
     mappingConflictChoices,
+    scoreChanges,
     metadataUpdates,
     metadataConflictChoices,
     takeRemoteSourceConcepts,

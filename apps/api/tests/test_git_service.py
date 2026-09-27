@@ -846,6 +846,34 @@ async def test_pull_preview_ships_readme_and_license_per_language():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+async def test_pull_preview_lists_score_csvs_by_oid():
+    """Each versioned method's CSV comes back as {path: oid}, never as content:
+    the client tells which methods moved since BASE without shipping megabytes."""
+    tmp = Path(tempfile.mkdtemp())
+
+    def getter(_uid):
+        return tmp / "repo"
+
+    try:
+        remote = _bare_remote(tmp)
+        header = "source_vocabulary_id,source_concept_code,concept_id,score\n"
+        await g.commit_push(getter, "u", _zip({
+            "entity.json": '{"name":{"en":"P"},"versionedScoreMethods":["ai/x","semantic/biolord"]}',
+            "mappings.json": "[]",
+            "similarity-scores/ai/x.csv": header + "REA,hr,5,0.9000\n",
+            "similarity-scores/semantic/biolord.csv": header + "REA,hr,6,0.5000\n",
+        }), "main", "scores", remote, None)
+
+        preview = await g.pull_preview(getter, "u", "main", remote, None)
+        score_files = preview["remote"]["scoreFiles"]
+        assert sorted(score_files) == ["similarity-scores/ai/x.csv", "similarity-scores/semantic/biolord.csv"]
+        assert all(len(oid) == 40 for oid in score_files.values())
+        assert "similarity-scores/ai/x.csv" not in preview["remote"]["files"]
+        assert preview["base"]["scoreFiles"] == {}
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_docs_regex_matches_readme_variants_only():
     """The enumeration must catch every language sibling and nothing else — a
     stray match would ship unrelated files to the client as 'docs'."""

@@ -269,6 +269,8 @@ export interface GitPullSide {
    *  this commit (for LFS, the pointer's oid), so base↔remote oid tells "changed"
    *  without smudging. rowCount is present only for non-LFS CSVs. */
   stats: Record<string, { present: boolean; oid?: string; rowCount?: number; byteSize?: number; lfs?: boolean }>
+  /** similarity-scores/<method>.csv → blob oid: which versioned methods moved. */
+  scoreFiles?: Record<string, string>
 }
 
 /** Row-level diff of the source concept list, keyed by (vocabulary_id, concept_code).

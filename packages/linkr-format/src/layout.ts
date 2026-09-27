@@ -114,6 +114,36 @@ export const SIDECAR = {
   attachmentMeta: '_meta.json',
 } as const
 
+/**
+ * A mapping project's versioned similarity scores: one CSV per method, at
+ * `similarity-scores/<method>.csv` (`ai/claude-opus-4-8` →
+ * `similarity-scores/ai/claude-opus-4-8.csv`). The entity's
+ * `versionedScoreMethods` lists them. A parquet (`similarity-scores.parquet`)
+ * may ride beside them in a ZIP; it is never versioned.
+ */
+export const SCORES_CSV_DIR = 'similarity-scores'
+
+/** Header columns every score CSV carries; `method` is its path, not a column. */
+export const SCORES_CSV_REQUIRED_COLUMNS = ['source_vocabulary_id', 'source_concept_code', 'concept_id', 'score'] as const
+
+// Each `/`-separated segment of a method must be a plain name — no `..`, no
+// leading dot, nothing a filesystem or git would reinterpret. Twin of
+// _METHOD_SEGMENT_RE in apps/api/app/services/data/scores_service.py.
+const SCORE_METHOD_SEGMENT_RE = /^[A-Za-z0-9][A-Za-z0-9._@+-]*$/
+
+/** `similarity-scores/<method>.csv`, or null when the method cannot be a path. */
+export function scoreCsvPath(method: string): string | null {
+  return method.split('/').every((s) => SCORE_METHOD_SEGMENT_RE.test(s)) ? `${SCORES_CSV_DIR}/${method}.csv` : null
+}
+
+/** Inverse of `scoreCsvPath`; null for any other path. */
+export function scoreMethodOfPath(path: string): string | null {
+  const prefix = `${SCORES_CSV_DIR}/`
+  if (!path.startsWith(prefix) || !path.endsWith('.csv')) return null
+  const method = path.slice(prefix.length, -'.csv'.length)
+  return scoreCsvPath(method) === path ? method : null
+}
+
 /** Files that are content, not metadata, and are read by name. */
 export const CONTENT_FILE = {
   /** A schema preset's DDL, split out so a type change is a readable diff. */

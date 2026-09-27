@@ -48,6 +48,9 @@ class MappingProject(Base, TimestampMixin):
     # the source file: bytes in the blob store, sha pointer here.
     scores_file_sha: Mapped[str | None] = mapped_column(String(64))
     scores_file_name: Mapped[str | None] = mapped_column(String(255))
+    # Methods whose scores travel with the export as similarity-scores/<method>.csv.
+    # Portable (it rides in entity.json): the repo says which methods it versions.
+    versioned_score_methods: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     concept_set_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     stats: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     import_batches: Mapped[list | None] = mapped_column(JSONB_or_JSON)

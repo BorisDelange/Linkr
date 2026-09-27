@@ -85,6 +85,17 @@ class GitPullSide(CamelModel):
     files: dict[str, str | None] = {}
     # name → stats ({present, rowCount?, byteSize?, lfs?}) for heavy whole-list families.
     stats: dict[str, dict] = {}
+    # similarity-scores/<method>.csv path → blob oid: which versioned methods moved.
+    score_files: dict[str, str] = {}
+
+
+class GitPullScoresRequest(CamelModel):
+    """The score methods a pull takes from the remote head: `methods` are
+    replaced by their CSV there, `removed` are dropped (deleted upstream)."""
+
+    branch: str | None = None
+    methods: list[str] = []
+    removed: list[str] = []
 
 
 class SourceConceptChange(CamelModel):

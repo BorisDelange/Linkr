@@ -895,10 +895,25 @@ def _docs_files_at(repo: Path, commit: str) -> list[str]:
 # Whole-list families: too big to ship for a 3-way, so we return stats only; the
 # actual bytes are pulled on resolution. (line count for CSV.)
 #
-# similarity-scores.parquet is NOT here: scores are gitignored (re-derivable, and
-# ~100 MB), so they are never in a repo — offering them left the pull proposing a
-# file that could not exist, with an unknowable "?" row count.
+# similarity-scores.parquet is NOT here: it is gitignored (re-derivable, and
+# ~100 MB), so it is never in a repo. The versioned methods travel as
+# similarity-scores/<method>.csv instead — listed by `_score_files_at`.
 _PULL_STAT_FILES = ("source-concepts.csv",)
+
+_SCORES_CSV_DIR = "similarity-scores"
+
+
+def _score_files_at(repo: Path, commit: str) -> dict[str, str]:
+    """`{path: blob oid}` of the per-method score CSVs at `commit`. Oids only:
+    they tell which methods moved since BASE without reading megabytes of CSV."""
+    out = _run(repo, "ls-tree", "-r", commit, "--", f"{_SCORES_CSV_DIR}/", check=False)
+    files: dict[str, str] = {}
+    for line in out.splitlines():
+        meta, _, path = line.partition("\t")
+        parts = meta.split()
+        if len(parts) == 3 and parts[1] == "blob" and path.endswith(".csv"):
+            files[path] = parts[2]
+    return files
 
 
 def _blob_at(repo: Path, commit: str, path: str) -> str | None:
@@ -1178,7 +1193,7 @@ async def pull_preview(
 
         def side(commit: str | None) -> dict:
             if not commit:
-                return {"files": {}, "stats": {}}
+                return {"files": {}, "stats": {}, "scoreFiles": {}}
             files: dict[str, str | None] = {}
             for name in _PULL_TEXT_FILES:
                 files[name] = _blob_at(repo, commit, name)
@@ -1210,7 +1225,7 @@ async def pull_preview(
                     if name.endswith(".csv"):
                         stat["rowCount"] = _csv_line_count(raw)  # only when not LFS
                 stats[name] = stat
-            return {"files": files, "stats": stats}
+            return {"files": files, "stats": stats, "scoreFiles": _score_files_at(repo, commit)}
 
         # Row-level source-concept diff: LOCAL (from the DB blob) vs REMOTE, so
         # the UI can say "+2 / -5 concepts" instead of "the file changed".

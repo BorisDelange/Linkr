@@ -787,6 +787,24 @@ async function loadStructuralEntity(
           await persistScoresFile(project.id, scoresFile).catch(() => {})
         }
       }
+      // The versioned methods, one CSV each — the entity.json names them, since
+      // a static host cannot list a folder.
+      const { csvPathForMethod, isScoresCsv } = await import('@/lib/concept-mapping/scores-csv')
+      const scoreCsvs: { method: string; bytes: Uint8Array }[] = []
+      for (const method of project.versionedScoreMethods ?? []) {
+        const path = csvPathForMethod(method)
+        const buf = path ? await fetchBinary(`${base}/mapping-projects/${mpFolder}/${path}`) : null
+        if (buf && isScoresCsv(new Uint8Array(buf))) scoreCsvs.push({ method, bytes: new Uint8Array(buf) })
+      }
+      if (scoreCsvs.length > 0) {
+        if (isServerMode()) {
+          const { importScoreCsvsOnServer } = await import('@/lib/api/scores')
+          await importScoreCsvsOnServer(project.id, scoreCsvs).catch(() => {})
+        } else {
+          const { replaceScoreMethods } = await import('@/lib/concept-mapping/scores-engine')
+          await replaceScoreMethods(project.id, scoreCsvs).catch(() => {})
+        }
+      }
       break
     }
     case 'dqRuleSet': {
