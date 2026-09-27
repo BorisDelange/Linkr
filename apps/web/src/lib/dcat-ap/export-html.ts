@@ -49,22 +49,68 @@ function anonymize<T extends Counted>(rows: T[], threshold: number, mode: Anonym
     : r))
 }
 
+/**
+ * What the Explore tab reads: published crossings, variable labels, the concept
+ * list and the totals. The bulk of the page — tens of megabytes on a large
+ * warehouse — so the app's preview builds it once and hands it to the page
+ * (`dataFrom: 'parent'`) instead of inlining it.
+ */
+export interface CatalogPageData {
+  threshold: number
+  variables: ReturnType<typeof buildPublishedCatalog>['variables']
+  crossings: ReturnType<typeof buildPublishedCatalog>['crossings']
+  concepts: ReturnType<typeof buildConceptTable>
+  totals: Record<string, number>
+}
+
+export function buildCatalogPageData({ catalog, cache, locale = 'en', reveal = false }: Pick<ExportHtmlOptions, 'catalog' | 'cache' | 'locale' | 'reveal'>): CatalogPageData {
+  const threshold = catalog.anonymization.threshold
+  const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
+  const concepts = (reveal
+    ? cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold }))
+    : anonymize(cache.concepts, threshold, mode)).sort((a, b) => b.patientCount - a.patientCount)
+  const published = buildPublishedCatalog(catalog, cache, { locale, reveal })
+  const counts = catalogCounts(catalog)
+  return {
+    threshold,
+    variables: published.variables,
+    crossings: published.crossings,
+    concepts: buildConceptTable(concepts, locale),
+    totals: {
+      patients: cache.totalPatients,
+      ...(counts.visits ? { stays: cache.totalVisits } : {}),
+      ...(counts.unitStays && cache.grandTotal.totalUnitStays != null ? { unitStays: cache.grandTotal.totalUnitStays } : {}),
+      concepts: new Set(concepts.map((r) => r.conceptId)).size,
+      records: cache.grandTotal.totalRecords,
+    },
+  }
+}
+
+/** The message the preview's page waits for, and the one it sends when ready for it. */
+export const PAGE_DATA_MESSAGE = 'linkr-catalog-data'
+export const PAGE_READY_MESSAGE = 'linkr-catalog-ready'
+
 /** JSON safe to inline in a `<script>`: a `</script>` in a concept name cannot close it. */
 function inlineJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
 }
 
-export function generateCatalogHtml(opts: ExportHtmlOptions): string {
-  const { catalog, cache, schemaMapping, fullSchema, locale = 'en', reveal = false } = opts
+export function generateCatalogHtml(opts: ExportHtmlOptions & {
+  /** Built beforehand (`buildCatalogPageData`), for the same catalog, results, language and view. */
+  data?: CatalogPageData
+  /**
+   * 'inline' (the published file): the data is in the page. 'parent' (the
+   * app's preview): the page asks the window embedding it, which answers with
+   * a PAGE_DATA_MESSAGE — no tens of megabytes to write and parse as HTML.
+   */
+  dataFrom?: 'inline' | 'parent'
+}): string {
+  const { catalog, cache, schemaMapping, fullSchema, locale = 'en', dataFrom = 'inline' } = opts
   const T = PAGE_TEXT[locale]
   const fmt = (n: number) => n.toLocaleString(locale)
   const threshold = catalog.anonymization.threshold
   const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
-
-  const concepts = (reveal
-    ? cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold }))
-    : anonymize(cache.concepts, threshold, mode)).sort((a, b) => b.patientCount - a.patientCount)
-  const published = buildPublishedCatalog(catalog, cache, { locale, reveal })
+  const data = opts.data ?? buildCatalogPageData(opts)
 
   const metadata = catalog.dcatApMetadata ?? {}
   const jsonLd = JSON.stringify(buildJsonLd({ metadata, schemaMapping, fullSchema, cache, catalog }), null, 2)
@@ -74,16 +120,8 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
   const publisher = (metadata['publisher.name'] as string) || (metadata['agent.name'] as string) || ''
   const generated = new Date().toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })
 
-  const table = buildConceptTable(concepts, locale)
   const schema = buildSchemaSection(fullSchema, schemaMapping, locale)
   const counts = catalogCounts(catalog)
-  const totals = {
-    patients: cache.totalPatients,
-    ...(counts.visits ? { stays: cache.totalVisits } : {}),
-    ...(counts.unitStays && cache.grandTotal.totalUnitStays != null ? { unitStays: cache.grandTotal.totalUnitStays } : {}),
-    concepts: new Set(concepts.map((r) => r.conceptId)).size,
-    records: cache.grandTotal.totalRecords,
-  }
 
   const tab = (id: string, label: string, ico: IconName, count?: number, active = false) =>
     `<button class="tab${active ? ' active' : ''}" data-tab="${id}" role="tab" aria-selected="${active}">${icon(ico)}${label}${count != null ? `<span class="count num">${fmt(count)}</span>` : ''}</button>`
@@ -147,7 +185,7 @@ ${schema.html}
   </section>
 
   <section id="tab-info" class="tab-content">
-${buildInfoHtml({ locale, threshold, mode, counts, crossings: published.crossings.map((c) => c.vars.map((v) => published.variables[v]?.label ?? v)), variables: Object.values(published.variables).map((v) => v!.label) })}
+${buildInfoHtml({ locale, threshold, mode, counts, crossings: data.crossings.map((c) => c.vars.map((v) => data.variables[v]?.label ?? v)), variables: Object.values(data.variables).map((v) => v!.label) })}
   </section>
 
   <footer>
@@ -159,13 +197,7 @@ ${buildInfoHtml({ locale, threshold, mode, counts, crossings: published.crossing
 </div>
 
 <script>
-var DATA = ${inlineJson({
-    threshold,
-    variables: published.variables,
-    crossings: published.crossings,
-    concepts: table,
-    totals,
-  })};
+var DATA = ${dataFrom === 'inline' ? inlineJson(data) : 'null'};
 var META = ${inlineJson({
     fileBase: fileSlug(catalogTitle),
     conceptNote: icon('shield', 13) + fill(mode === 'suppress' ? T.concept_note_suppress : T.concept_note_replace, { t: threshold }),
@@ -179,7 +211,13 @@ var ICONS = ${inlineJson({
     user: icon('user', 16), stethoscope: icon('stethoscope', 16), activity: icon('activity', 16), tags: icon('tags', 16),
     layers: icon('layers', 16), trendingUp: icon('trendingUp', 16), barChart: icon('barChart', 16), sigma: icon('sigma', 16), table: icon('table', 16),
   })};
-${CATALOG_SCRIPT}
+${dataFrom === 'inline' ? CATALOG_SCRIPT : `window.addEventListener('message', function onData(e) {
+  if (e.source !== window.parent || !e.data || e.data.type !== '${PAGE_DATA_MESSAGE}') return;
+  window.removeEventListener('message', onData);
+  DATA = e.data.data;
+  ${CATALOG_SCRIPT}
+});
+window.parent.postMessage({ type: '${PAGE_READY_MESSAGE}' }, '*');`}
 </script>
 </body>
 </html>`

@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PAGE_LOCALES, pageLocaleOf, type PageLocale } from '@/lib/dcat-ap/page-text'
 import type { DataCatalog, CatalogResultCache } from '@/types'
 import { useCatalogPublish } from './use-catalog-publish'
+import { PAGE_DATA_MESSAGE, PAGE_READY_MESSAGE, type CatalogPageData } from '@/lib/dcat-ap/export-html'
 import { perfLog } from '@/lib/dcat-ap/perf'
 import { CatalogPagesCard } from './CatalogPagesCard'
 
@@ -29,8 +30,9 @@ const LOCALE_NAMES: Record<PageLocale, string> = { en: 'English', fr: 'Français
 
 export function CatalogExportTab({ catalog, cache, active, onOpenVersioning }: Props) {
   const { t, i18n } = useTranslation()
-  const { buildHtml, downloadHtml, downloadZip, zipLoading, publishSite, disableSite, siteSaving } = useCatalogPublish(catalog, cache)
-  const [html, setHtml] = useState<string | null>(null)
+  const { buildPreview, downloadHtml, downloadZip, zipLoading, publishSite, disableSite, siteSaving } = useCatalogPublish(catalog, cache)
+  const [preview, setPreview] = useState<{ html: string; data: CatalogPageData } | null>(null)
+  const frame = useRef<HTMLIFrameElement>(null)
   const [view, setView] = useState<'preview' | 'export'>('preview')
   // The preview follows the app; what leaves the app is in the language picked here.
   const previewLocale = pageLocaleOf(i18n.language)
@@ -44,15 +46,29 @@ export function CatalogExportTab({ catalog, cache, active, onOpenVersioning }: P
     let cancelled = false
     const start = performance.now()
     perfLog('preview: effect run')
-    void buildHtml(previewLocale, { reveal }).then((h) => {
-      perfLog(cancelled ? 'preview: built but superseded (effect re-ran)' : 'preview: html ready', start)
+    void buildPreview(previewLocale, { reveal }).then((p) => {
+      perfLog(cancelled ? 'preview: built but superseded (effect re-ran)' : 'preview: shell ready', start)
       if (!cancelled) {
         iframeStart.current = performance.now()
-        setHtml(h)
+        setPreview(p)
       }
     })
     return () => { cancelled = true }
-  }, [active, buildHtml, previewLocale, reveal])
+  }, [active, buildPreview, previewLocale, reveal])
+
+  // The page asks for its data once its script runs; it answers only this frame.
+  useEffect(() => {
+    if (!preview) return
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== frame.current?.contentWindow || (e.data as { type?: string } | null)?.type !== PAGE_READY_MESSAGE) return
+      perfLog('preview: page asked for its data', iframeStart.current ?? undefined)
+      const t = performance.now()
+      frame.current?.contentWindow?.postMessage({ type: PAGE_DATA_MESSAGE, data: preview.data }, '*')
+      perfLog('preview: data sent', t)
+    }
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [preview])
 
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as 'preview' | 'export')} className="flex h-full min-h-0 w-full flex-col gap-3 py-4">
@@ -73,11 +89,11 @@ export function CatalogExportTab({ catalog, cache, active, onOpenVersioning }: P
       <TabsContent value="preview" className="m-0 min-h-0 flex-1">
         {/* The preview is the downloaded file itself. */}
         <div className="relative h-full min-h-[480px] overflow-hidden rounded-md border bg-muted">
-          {html ? (
+          {preview ? (
             // Scripts run (tabs, filters, sorting) and the page's CSV buttons may
             // download, but nothing else: no same-origin access to the app, no
             // navigation, no forms.
-            <iframe srcDoc={html} onLoad={() => perfLog('preview: iframe loaded', iframeStart.current ?? undefined)} className="h-full w-full border-0" title={t('data_catalog.export_preview_title')} sandbox="allow-scripts allow-downloads allow-popups" />
+            <iframe ref={frame} srcDoc={preview.html} onLoad={() => perfLog('preview: iframe loaded', iframeStart.current ?? undefined)} className="h-full w-full border-0" title={t('data_catalog.export_preview_title')} sandbox="allow-scripts allow-downloads allow-popups" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <Loader2 size={14} className="animate-spin" />

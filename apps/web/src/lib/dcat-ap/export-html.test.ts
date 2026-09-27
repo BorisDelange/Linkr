@@ -1,7 +1,7 @@
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, it, expect } from 'vitest'
 import type { CatalogResultCache, DataCatalog } from '@/types'
-import { generateCatalogHtml } from './export-html'
+import { generateCatalogHtml, PAGE_READY_MESSAGE } from './export-html'
 import { TABLE_HELPERS } from './export-html-script'
 
 const EVIL = '</script><img src=x onerror=alert(1)>'
@@ -113,6 +113,25 @@ describe('generateCatalogHtml', () => {
     const ageSex = crossings.find((c: { id: string }) => c.id === 'age-sex')
     expect(ageSex.cells).toContainEqual([0, 0, null, null, 1])
     expect(html).not.toContain('4444')
+  })
+})
+
+describe('generateCatalogHtml for the app preview', () => {
+  const html = generateCatalogHtml({ ...fixture(), dataFrom: 'parent' })
+
+  it('carries no data: the page asks its parent for it', () => {
+    expect(html).toContain('var DATA = null;')
+    expect(html).toContain(PAGE_READY_MESSAGE)
+    expect(html).not.toContain(EVIL)
+  })
+
+  it('accepts data from the embedding window only', () => {
+    expect(html).toContain('e.source !== window.parent')
+  })
+
+  it('emits a script that parses', () => {
+    const [body] = scripts(html)
+    expect(() => new Function(body)).not.toThrow()
   })
 })
 

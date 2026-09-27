@@ -3,14 +3,14 @@ import JSZip from 'jszip'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { getStorage } from '@/lib/storage'
-import { generateCatalogHtml, buildConceptsCsv } from '@/lib/dcat-ap/export-html'
+import { generateCatalogHtml, buildConceptsCsv, type CatalogPageData } from '@/lib/dcat-ap/export-html'
 import { buildCrossingCsv, buildPublishedCatalog, crossingCsvPath } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
 import { buildPagesTree, type PagesProvider } from '@/lib/dcat-ap/pages-deployment'
 import { clearPagesSite, savePagesSite } from '@/lib/dcat-ap/pages-site-files'
 import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
-import { catalogPageKey, getCachedPage, getDatabaseSchema, putCachedPage } from '@/lib/dcat-ap/page-cache'
+import { getCatalogPageData, getDatabaseSchema } from '@/lib/dcat-ap/page-cache'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 import { perfLog } from '@/lib/dcat-ap/perf'
 import type { DataCatalog, CatalogResultCache, SchemaMapping } from '@/types'
@@ -25,20 +25,19 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 // TODO(data-catalog): temporary, with perfLog — what the page's weight is made of.
-function logPageWeight(catalog: DataCatalog, cache: CatalogResultCache, locale: PageLocale) {
+const weighed = new WeakSet<CatalogPageData>()
+function logPageWeight(data: CatalogPageData) {
+  if (weighed.has(data)) return
+  weighed.add(data)
   const kb = (v: unknown) => Math.round(JSON.stringify(v).length / 1024)
-  const published = buildPublishedCatalog(catalog, cache, { locale })
   const rows = [
-    { part: 'concepts (list)', kb: kb(cache.concepts), items: cache.concepts.length },
-    { part: 'variables (labels)', kb: kb(published.variables), items: Object.keys(published.variables).length },
-    ...published.crossings.map((c) => ({ part: `crossing ${c.vars.join(' × ')}`, kb: kb(c.cells), items: c.cells.length })),
-  ].sort((a, b) => b.kb - a.kb)
+    { part: 'concepts (list)', kb: kb(data.concepts), items: data.concepts.rows.length },
+    { part: 'variables (labels)', kb: kb(data.variables), items: Object.keys(data.variables).length },
+    ...data.crossings.map((c) => ({ part: `crossing ${c.vars.join(' × ')}`, kb: kb(c.cells), items: c.cells.length })),
+  ].sort((x, y) => y.kb - x.kb)
   perfLog('page weight by part (KB, items)')
   console.table(rows)
 }
-
-/** Builds under way, so a second caller for the same page waits for the first. */
-const pageBuilds = new Map<string, Promise<string>>()
 
 interface PublicationContext {
   catalog: DataCatalog
@@ -84,37 +83,23 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
 
   const baseName = localized(catalog.name, 'en').replace(/\s+/g, '-').toLowerCase()
 
-  /** The page, from the cache when nothing it depends on has changed since it was rendered. */
-  const buildHtml = useCallback(async (locale: PageLocale, { reveal = false }: { reveal?: boolean } = {}) => {
+  /**
+   * The preview: the page without its data, and the data, which the page asks
+   * its parent for (`dataFrom: 'parent'`). The page alone weighs little and
+   * renders at once; the data is reused from memory while nothing it reads changed.
+   */
+  const buildPreview = useCallback(async (locale: PageLocale, { reveal = false }: { reveal?: boolean } = {}) => {
     if (!cache) return null
     let t = performance.now()
     perfLog('preview: build start')
     const fullSchema = await getFullSchema()
     perfLog('preview: schema', t, `${fullSchema?.length ?? 0} tables`)
+    const data = getCatalogPageData(catalog, cache, locale, reveal)
+    logPageWeight(data)
     t = performance.now()
-    const key = catalogPageKey({ catalog, computedAt: cache.computedAt, schemaMapping, fullSchema, locale })
-    perfLog('preview: cache key', t)
-    const variant = reveal ? `${locale}:reveal` : locale
-    const slot = `${catalog.id}:${variant}:${key}`
-    const pending = pageBuilds.get(slot)
-    if (pending) return pending
-    const build = (async () => {
-      let t = performance.now()
-      const cached = await getCachedPage(catalog.id, variant, key)
-      perfLog(cached ? 'preview: page cache HIT' : 'preview: page cache miss', t)
-      if (cached) return cached
-      t = performance.now()
-      const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema, locale, reveal })
-      perfLog('preview: generate', t, `${Math.round(html.length / 1024)} KB`)
-      logPageWeight(catalog, cache, locale)
-      // Stored in the background: writing tens of megabytes takes seconds, and
-      // the page is already in memory for this session.
-      t = performance.now()
-      void putCachedPage(catalog.id, variant, key, html).then(() => perfLog('preview: page cache write (background)', t))
-      return html
-    })().finally(() => pageBuilds.delete(slot))
-    pageBuilds.set(slot, build)
-    return build
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema, locale, reveal, data, dataFrom: 'parent' })
+    perfLog('preview: page shell', t, `${Math.round(html.length / 1024)} KB`)
+    return { html, data }
   }, [catalog, cache, schemaMapping, getFullSchema])
 
   const buildFiles = useCallback(async (locale: PageLocale) => {
@@ -124,9 +109,11 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
   }, [catalog, cache, schemaMapping, getFullSchema])
 
   const downloadHtml = useCallback(async (locale: PageLocale) => {
-    const html = await buildHtml(locale)
-    if (html) downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${baseName}-catalog.html`)
-  }, [buildHtml, baseName])
+    if (!cache) return
+    const data = getCatalogPageData(catalog, cache, locale, false)
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale, data })
+    downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${baseName}-catalog.html`)
+  }, [catalog, cache, schemaMapping, getFullSchema, baseName])
 
   const downloadZip = useCallback(async (locale: PageLocale) => {
     setZipLoading(true)
@@ -165,5 +152,5 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
     }
   }, [catalog.id, updateCatalog])
 
-  return { buildHtml, downloadHtml, downloadZip, zipLoading, publishSite, disableSite, siteSaving }
+  return { buildPreview, downloadHtml, downloadZip, zipLoading, publishSite, disableSite, siteSaving }
 }
