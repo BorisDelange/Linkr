@@ -505,7 +505,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                           <Plus size={14} />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-52">
+                      <DropdownMenuContent align="end" density="compact" className="w-48">
                         <DropdownMenuItem onClick={() => void handleNewCheck()}>
                           <SquarePen />
                           {t('data_quality.add_manual')}
