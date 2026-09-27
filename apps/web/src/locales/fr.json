@@ -1078,7 +1078,8 @@
     "select_schema": "Choisissez un schéma",
     "schema_checks_status": "{{missing}} à ajouter · {{present}} déjà dans le rule set",
     "schema_checks_all_present": "Tous les checks de ce schéma sont déjà dans le rule set.",
-    "new_check_explore_sql": "-- Liste les lignes que le calcul compte comme violations, pour voir ce qui ne va pas.\n-- Même table et même condition que le calcul, sans COUNT.\nSELECT *\nFROM linkr_visit\nWHERE end_datetime < start_datetime\nLIMIT 100"
+    "new_check_explore_sql": "-- Liste les lignes que le calcul compte comme violations, pour voir ce qui ne va pas.\n-- Même table et même condition que le calcul, sans COUNT.\nSELECT *\nFROM linkr_visit\nWHERE end_datetime < start_datetime\nLIMIT 100",
+    "select_database_first": "Choisissez une base pour lancer le check"
   },
   "cohorts": {
     "results_patients": "Patients",

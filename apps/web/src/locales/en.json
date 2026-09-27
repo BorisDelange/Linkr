@@ -1078,7 +1078,8 @@
     "select_schema": "Select a schema",
     "schema_checks_status": "{{missing}} to add · {{present}} already in the rule set",
     "schema_checks_all_present": "Every check of this schema is already in the rule set.",
-    "new_check_explore_sql": "-- Lists the rows the count above treats as violations, to see what is wrong.\n-- Same table and same condition as the count, without COUNT.\nSELECT *\nFROM linkr_visit\nWHERE end_datetime < start_datetime\nLIMIT 100"
+    "new_check_explore_sql": "-- Lists the rows the count above treats as violations, to see what is wrong.\n-- Same table and same condition as the count, without COUNT.\nSELECT *\nFROM linkr_visit\nWHERE end_datetime < start_datetime\nLIMIT 100",
+    "select_database_first": "Select a database to run the check"
   },
   "cohorts": {
     "results_patients": "Patients",

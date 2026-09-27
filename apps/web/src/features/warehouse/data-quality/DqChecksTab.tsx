@@ -166,6 +166,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
   const [queryField, setQueryField] = useState<CheckQueryField>('sql')
+  // Set when a run is asked for with no database picked; cleared by picking one.
+  const [databaseMissing, setDatabaseMissing] = useState(false)
   const [addFromSchema, setAddFromSchema] = useState<'ddl' | 'mapping' | null>(null)
   // Groups the user folded or unfolded, against the default for the list size.
   const [toggledGroups, setToggledGroups] = useState<Set<string>>(new Set())
@@ -281,7 +283,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   )
 
   const handleTest = useCallback(async () => {
-    if (!selectedCheck || testing || !dataSourceId) return
+    if (!dataSourceId) {
+      setDatabaseMissing(true)
+      return
+    }
+    if (!selectedCheck || testing) return
     setTesting(true)
     setTestResult(null)
     try {
@@ -333,6 +339,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
   }, [selectedCheck, testing, dataSourceId, ensureMounted, formatPct, i18n.language, t])
 
   const investigate = () => {
+    if (!dataSourceId) {
+      setDatabaseMissing(true)
+      return
+    }
     if (selectedCheck) onInvestigate(selectedCheck.exploreSql?.trim() ? selectedCheck.exploreSql : selectedCheck.sql)
   }
 
@@ -396,12 +406,21 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
               the page's tab row because it is what Test runs against — beside
               the button it governs. */}
           <div className="ml-auto flex min-w-0 items-center gap-1">
+            {databaseMissing && !dataSourceId && (
+              <span className="flex items-center gap-1 text-xs text-destructive">
+                <AlertTriangle size={12} className="shrink-0" />
+                {t('data_quality.select_database_first')}
+              </span>
+            )}
             <Select
               value={dataSourceId}
-              onValueChange={(value) => updateRuleSet(ruleSetId, {
-                dataSourceId: value,
-                dataSourceRef: buildPointer(dbSources, value),
-              })}
+              onValueChange={(value) => {
+                setDatabaseMissing(false)
+                void updateRuleSet(ruleSetId, {
+                  dataSourceId: value,
+                  dataSourceRef: buildPointer(dbSources, value),
+                })
+              }}
               disabled={!canWrite}
             >
               <SelectTrigger size="xs" className="w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
