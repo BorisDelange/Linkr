@@ -45,7 +45,7 @@ export function formatDateShort(d: string | undefined, lang: string): string {
  * French browser kept printing French dates after switching the app to English.
  * The app's language is the only thing the user can actually see and control.
  */
-export function formatDateTimeLocale(d: string | undefined, lang: string): string {
+export function formatDateTimeLocale(d: string | undefined, lang: string, opts: { seconds?: boolean } = {}): string {
   if (!d) return '—'
   try {
     return new Date(d).toLocaleString(lang.startsWith('fr') ? 'fr-FR' : 'en-US', {
@@ -54,6 +54,7 @@ export function formatDateTimeLocale(d: string | undefined, lang: string): strin
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      ...(opts.seconds ? { second: '2-digit' } : {}),
     })
   } catch {
     return d

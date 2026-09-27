@@ -192,6 +192,17 @@ async def test_create_checks_in_one_request(client):
     p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"disabled": True})
     assert p.json()["disabled"] is True
 
+    # Moving a check to another group, then out of every group.
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"tableName": "renamed"})
+    assert p.json()["tableName"] == "renamed"
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"tableName": None})
+    assert p.json()["tableName"] is None
+    p = await client.patch(
+        f"{API}/dq-custom-checks/c2", headers=headers,
+        json={"exploreSql": "SELECT 1", "subcategory": None, "category": "completeness"},
+    )
+    assert p.json()["exploreSql"] == "SELECT 1" and p.json()["subcategory"] is None
+
     stray = [{**checks[0], "id": "x", "ruleSetId": "other"}]
     r = await client.post(f"{API}/dq-rule-sets/{rs_id}/checks", headers=headers, json=stray)
     assert r.status_code == 400

@@ -115,11 +115,19 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
             </div>
           )}
 
-          {/* Investigate: the rows breaking the rule, in the rule set's SQL console */}
-          <div className="space-y-1 border-t pt-3">
+          {/* The check's SQL, then Investigate: the failing rows in the rule set's console */}
+          <div className="space-y-1.5 border-t pt-3">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setDialogQuery('sql'); setSqlDialogOpen(true) }}
+              className="w-full gap-1.5 text-xs"
+            >
+              <Code2 size={12} />
+              {t('data_quality.detail_sql')}
+            </Button>
             {onInvestigate && (
               <Button
-                variant="outline"
                 size="sm"
                 onClick={() => onInvestigate(exploreSql ?? result.sql)}
                 className="w-full gap-1.5 text-xs"
@@ -128,15 +136,6 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
                 {t('data_quality.investigate')}
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => { setDialogQuery('sql'); setSqlDialogOpen(true) }}
-              className="w-full gap-1.5 text-xs"
-            >
-              <Code2 size={12} />
-              {t('data_quality.detail_sql')}
-            </Button>
           </div>
         </div>
       </ScrollArea>

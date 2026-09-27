@@ -13,15 +13,17 @@ import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShort
 import type { ShortcutActionId } from '@/types/shortcuts'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { formatApiError } from '@/lib/api-client'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
 
 /** Rows shown; the query itself is capped server-side too. */
 const SHOWN_ROWS = 1000
 
 const SHORTCUT_ACTIONS: ShortcutActionId[] = ['run_selection_or_line', 'run_file']
 
+/** `at`: when the query was sent (ISO). */
 type Outcome =
-  | { kind: 'rows'; headers: string[]; rows: string[][]; total: number; ms: number }
-  | { kind: 'error'; message: string; ms: number }
+  | { kind: 'rows'; headers: string[]; rows: string[][]; total: number; ms: number; at: string }
+  | { kind: 'error'; message: string; ms: number; at: string }
 
 /** The draft of each database's query, kept while the app is open — this tab
  *  saves nothing, but leaving it for the Schema tab must not lose the query. */
@@ -40,7 +42,7 @@ interface Props {
 /** A scratch SQL console on one database: write, run, read the result. No
  *  scripts, no files, no saving — the SQL scripts page is for that. */
 export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialSql, runOnMount = false }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   // Controlled: CodeEditor feeds Monaco this value back once its debounced
   // onChange lands, so a value that never follows the typing erases it.
@@ -54,6 +56,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
 
   const execute = useCallback(async (sql: string) => {
     setRunning(true)
+    const at = new Date().toISOString()
     const start = performance.now()
     try {
       const rows = await queryDataSource(dataSourceId, sql)
@@ -64,6 +67,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
         rows: rows.slice(0, SHOWN_ROWS).map((row) => headers.map((h) => (row[h] == null ? '' : String(row[h])))),
         total: rows.length,
         ms: Math.round(performance.now() - start),
+        at,
       })
     } catch (err) {
       const f = formatApiError(err)
@@ -71,6 +75,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
         kind: 'error',
         message: f.summaryKey ? t(f.summaryKey, { count: f.summaryCount ?? 0 }) : (f.summary ?? String(err)),
         ms: Math.round(performance.now() - start),
+        at,
       })
     } finally {
       setRunning(false)
@@ -105,8 +110,8 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
         {outcome && (
           <span className={cn('self-end text-xs leading-none', outcome.kind === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
             {outcome.kind === 'error'
-              ? t('databases.sql_failed', { ms: outcome.ms })
-              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
+              ? t('databases.sql_failed', { ms: outcome.ms, at: formatDateTimeLocale(outcome.at, i18n.language, { seconds: true }) })
+              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms, at: formatDateTimeLocale(outcome.at, i18n.language, { seconds: true }) })}
           </span>
         )}
         <div className="flex-1" />

@@ -125,6 +125,8 @@ class DqCustomCheckUpdate(CamelModel):
     sql: str | None = None
     explore_sql: str | None = None
     order: int | None = None
+    # The check's group in the list; null moves it to "Other checks".
+    table_name: str | None = None
     disabled: bool | None = None
 
 
