@@ -20,6 +20,7 @@ import type {
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { classRelation, eventRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { toNativeSql } from '@/lib/schema-classes/native-sql'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -283,19 +284,29 @@ export const CUSTOM_SQL_STEP_ID = '__custom_sql__'
  * The query generated from the criteria alone — what the SQL tab shows, and
  * what a hand edit starts from: the level's id, under its own name.
  */
-export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping): string | null {
+export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping, namedId = false): string | null {
   if (cohort.level === 'event') return null
   const parts = buildCohortQueryParts({ ...cohort, customSql: null }, mapping)
   if (!parts) return null
   const lines = [
     sqlComment(`One row per ${cohort.level}: its ${parts.idColumn}`),
     `SELECT DISTINCT`,
-    `  ${parts.baseTable}.${parts.idColumn}`,
+    // Named for the native form, where the column becomes the source's (transfer_id).
+    `  ${parts.baseTable}.${parts.idColumn}${namedId ? ` AS ${parts.idColumn}` : ''}`,
     `FROM`,
     `  ${parts.from}`,
   ]
   if (parts.whereClause) lines.push(`WHERE`, indent(parts.whereClause))
   return lines.join('\n')
+}
+
+/**
+ * The same query written on the database's own tables (`toNativeSql`), or null
+ * when it cannot be — the Linkr form then stands alone.
+ */
+export function buildCohortNativeSql(cohort: Cohort, mapping: SchemaMapping): string | null {
+  const sql = buildCohortCriteriaSql(cohort, mapping, true)
+  return sql ? toNativeSql(sql, mapping) : null
 }
 
 /**
@@ -582,7 +593,7 @@ function buildAgeCriteria(
       // Patient level: use earliest visit start date via subquery
       const visit = classRelation(mapping, 'visit')
       dateRef = visit
-        ? `(\n  SELECT MIN(start_datetime)\n  FROM ${visit.name}\n  WHERE ${visit.name}.patient_id = ${patient.name}.patient_id\n)`
+        ? `(\n  SELECT MIN(${visit.name}.start_datetime)\n  FROM ${visit.name}\n  WHERE ${visit.name}.patient_id = ${patient.name}.patient_id\n)`
         : 'CURRENT_DATE'
     } else {
       const startDateCol = getStartDateColumn(level, mapping)
@@ -696,8 +707,8 @@ function buildPeriodCriteria(
     const visit = classRelation(mapping, 'visit')
     if (!visit) return '1=1'
     const conditions = [`${visit.name}.patient_id = ${baseTable}.patient_id`]
-    if (config.startDate) conditions.push(`start_datetime >= '${escSql(config.startDate)}'`)
-    if (config.endDate) conditions.push(`start_datetime <= '${escSql(config.endDate)}'`)
+    if (config.startDate) conditions.push(`${visit.name}.start_datetime >= '${escSql(config.startDate)}'`)
+    if (config.endDate) conditions.push(`${visit.name}.start_datetime <= '${escSql(config.endDate)}'`)
     return existsSql(visit.name, conditions)
   }
 
@@ -1218,7 +1229,7 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
       // Patient level: use earliest visit start date
       const visit = classRelation(mapping, 'visit')
       if (visit) {
-        dateRef = `(SELECT MIN(start_datetime) FROM ${visit.name} WHERE ${visit.name}.patient_id = ${baseTable}.patient_id)`
+        dateRef = `(SELECT MIN(${visit.name}.start_datetime) FROM ${visit.name} WHERE ${visit.name}.patient_id = ${baseTable}.patient_id)`
         ageLabel = 'age_at_admission'
       } else {
         dateRef = 'CURRENT_DATE'

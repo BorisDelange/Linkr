@@ -224,9 +224,9 @@ type Derive = (exprs: Exprs, b: Builder) => void
 
 const EXTRA_KEY = /^extra_[A-Za-z0-9_]+$/
 
-function selectList(cls: ClassName, exprs: Exprs, extraKeys: string[], mappedOnly = false): { lines: string[]; mapped: Set<string> } {
+function selectList(cls: ClassName, exprs: Exprs, extraKeys: string[], mappedOnly = false, only?: ReadonlySet<string>): { lines: string[]; mapped: Set<string> } {
   const mapped = new Set<string>()
-  const lines = CLASS_CONTRACTS[cls].flatMap(({ name }) => {
+  const lines = CLASS_CONTRACTS[cls].filter(({ name }) => !only || only.has(name)).flatMap(({ name }) => {
     const expr = exprs[name]
     if (expr) mapped.add(name)
     return expr || !mappedOnly ? [`  ${expr ?? 'NULL'} AS ${name}`] : []
@@ -239,7 +239,8 @@ function selectList(cls: ClassName, exprs: Exprs, extraKeys: string[], mappedOnl
   return { lines, mapped }
 }
 
-function compileVisual(cls: ClassName, spec: RelationSpec, derive?: Derive, readable = false): Compiled | null {
+/** A visual relation's column expressions, over its tables' aliases. */
+function visualExprs(cls: ClassName, spec: RelationSpec, derive: Derive | undefined, readable: boolean) {
   if (!spec.from) return null
   const b = new Builder(spec, readable)
   if (!b.has(spec.from.alias)) return null
@@ -256,6 +257,17 @@ function compileVisual(cls: ClassName, spec: RelationSpec, derive?: Derive, read
     exprs[key] = b.field(f)
   }
   derive?.(exprs, b)
+  return { b, exprs, extraKeys }
+}
+
+/** `readable`: no padding (the SQL a person edits). `mappedOnly`: leave out the
+ *  contract columns nothing maps — what the relation editor starts from. */
+function compileVisual(
+  cls: ClassName, spec: RelationSpec, derive?: Derive, readable = false, mappedOnly = readable, only?: ReadonlySet<string>,
+): Compiled | null {
+  const parts = visualExprs(cls, spec, derive, readable)
+  if (!parts || !spec.from) return null
+  const { b, exprs, extraKeys } = parts
 
   const joins = (spec.joins ?? []).filter((j) => b.has(j.alias)).map((j) => {
     const on = (j.on ?? [])
@@ -269,7 +281,7 @@ function compileVisual(cls: ClassName, spec: RelationSpec, derive?: Derive, read
   })
   const where = spec.where?.trim() ? b.expr(spec.where) : null
 
-  const { lines, mapped } = selectList(cls, exprs, extraKeys, readable)
+  const { lines, mapped } = selectList(cls, exprs, extraKeys, mappedOnly, only)
   const from = [
     `FROM ${b.table(spec.from)}`,
     ...joins.map(({ j, on }) => `${j.type === 'inner' ? 'INNER' : 'LEFT'} JOIN ${b.table(j)} ON ${on}`),
@@ -284,7 +296,7 @@ function compileVisual(cls: ClassName, spec: RelationSpec, derive?: Derive, read
  * reads NULL, one it returns beyond the contract is dropped, so every consumer
  * binds whatever the SQL does inside.
  */
-function compileCustom(cls: ClassName, spec: RelationSpec, fixed: Exprs = {}): Compiled {
+function compileCustom(cls: ClassName, spec: RelationSpec, fixed: Exprs = {}, only?: ReadonlySet<string>): Compiled {
   const problems: string[] = []
   const contract = CLASS_CONTRACTS[cls].map((c) => c.name)
   const declared = spec.sqlColumns ?? [
@@ -292,8 +304,11 @@ function compileCustom(cls: ClassName, spec: RelationSpec, fixed: Exprs = {}): C
     ...CLASS_CONTRACTS[cls].filter((c) => c.required).map((c) => c.name),
   ]
   const extraKeys = cls === 'concept' ? [...new Set(declared.filter((k) => EXTRA_KEY.test(k)))] : []
-  const columns = [...contract, ...extraKeys]
-  const mapped = new Set(declared.filter((k) => columns.includes(k)))
+  const allColumns = [...contract, ...extraKeys]
+  // `only` narrows what is selected; every column is still padded, since a
+  // fallback value can read one that is not selected.
+  const columns = allColumns.filter((c) => !only || only.has(c))
+  const mapped = new Set(declared.filter((k) => allColumns.includes(k)))
   // A fixed value carries data when it is a literal, or when one of the columns
   // it falls back on does.
   for (const [k, expr] of Object.entries(fixed)) {
@@ -309,7 +324,7 @@ function compileCustom(cls: ClassName, spec: RelationSpec, fixed: Exprs = {}): C
     const nulls = columns.map((c) => `  NULL AS "${c}"`).join(',\n')
     return { sql: `SELECT\n${nulls}\nFROM (${body}) _c\nWHERE _c._linkr_error IS NULL`, mapped: new Set(), custom: true, problems, extras: {} }
   }
-  const pads = columns.map((c) => `NULL AS "${c}"`).join(', ')
+  const pads = allColumns.map((c) => `NULL AS "${c}"`).join(', ')
   const lines = columns.map((c) => {
     const col = `_c."${c}"`
     return `  ${fixed[c] ? `COALESCE(${col}, ${fixed[c]})` : col} AS ${EXTRA_KEY.test(c) ? `"${c}"` : c}`
@@ -440,7 +455,7 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
 }
 
 /** The relation's class, derived columns and fixed values, by where it lives. */
-function compileParts(mapping: SchemaMapping, specKey: string): { cls: ClassName; spec: RelationSpec; derive?: Derive } | null {
+function compileParts(mapping: SchemaMapping, specKey: string): { cls: ClassName; spec: RelationSpec; derive?: Derive; fixed?: Exprs } | null {
   if (specKey === 'patient' && mapping.patient) return { cls: 'patient', spec: mapping.patient, derive: derivePatient(mapping.patient) }
   if (specKey === 'visit' && mapping.visit) return { cls: 'visit', spec: mapping.visit }
   if (specKey === 'visitDetail' && mapping.visitDetail) return { cls: 'visit_detail', spec: mapping.visitDetail }
@@ -454,7 +469,9 @@ function compileParts(mapping: SchemaMapping, specKey: string): { cls: ClassName
   if (list === 'events' || list === 'drugs') {
     const spec = (list === 'events' ? mapping.events : mapping.drugs)?.find((e) => e.label === key)
     if (!spec) return null
-    return list === 'events' ? { cls: 'event', spec, derive: deriveEvent(spec) } : { cls: 'drug', spec, derive: deriveDrug(spec as DrugSpec) }
+    return list === 'events'
+      ? { cls: 'event', spec, derive: deriveEvent(spec) }
+      : { cls: 'drug', spec, derive: deriveDrug(spec as DrugSpec), fixed: drugFixed(spec as DrugSpec) }
   }
   return null
 }
@@ -477,4 +494,43 @@ export function generatedRelationSql(mapping: SchemaMapping, specKey: string): s
   const parts = compileParts(mapping, specKey)
   if (!parts) return null
   return compileVisual(parts.cls, { ...parts.spec, customSql: null }, parts.derive)?.sql ?? null
+}
+
+/**
+ * How a relation reads written straight on its source tables, for a query shown
+ * in the database's own terms (`lib/schema-classes/native-sql.ts`). `used`: the
+ * contract columns the query reads from it.
+ *  - `table`: one table and nothing else — every contract column is an
+ *    expression over the table's alias, to substitute where the column is read;
+ *  - `subquery`: anything more (joins, a filter, hand-written SQL), to put where
+ *    the relation stands in a FROM: the hand-written SQL itself when it returns
+ *    every used column as the relation does, else a SELECT of the used columns.
+ */
+export type InlineRelation =
+  | { kind: 'table'; table: RelationTable; columns: Record<string, string | null> }
+  | { kind: 'subquery'; sql: string }
+
+export function inlineRelation(mapping: SchemaMapping, name: string, used: ReadonlySet<string>): InlineRelation | null {
+  const rel = classRelations(mapping).find((r) => r.name === name)
+  const parts = rel && compileParts(mapping, rel.specKey)
+  if (!rel || !parts) return null
+  const { cls, spec, derive, fixed } = parts
+  if (!rel.custom && spec.from && !spec.joins?.length && !spec.where?.trim()) {
+    const visual = visualExprs(cls, { ...spec, customSql: null }, derive, true)
+    if (visual) {
+      const columns: Record<string, string | null> = {}
+      for (const { name: column } of CLASS_CONTRACTS[cls]) columns[column] = visual.exprs[column] ?? null
+      return { kind: 'table', table: spec.from, columns }
+    }
+  }
+  if (rel.custom) {
+    // Returned as the relation returns them: declared, with no fallback value
+    // the projection would put in place of a NULL.
+    const body = (spec.customSql ?? '').trim().replace(/;\s*$/, '')
+    const declared = new Set(spec.sqlColumns ?? [])
+    if ([...used].every((c) => declared.has(c) && !fixed?.[c])) return { kind: 'subquery', sql: body }
+    return { kind: 'subquery', sql: compileCustom(cls, spec, fixed, used).sql }
+  }
+  const sql = compileVisual(cls, { ...spec, customSql: null }, derive, true, false, used)?.sql
+  return sql ? { kind: 'subquery', sql } : null
 }

@@ -2,7 +2,7 @@
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import {
-  buildAttritionQueries, buildCohortCountSql, buildCohortCriteriaSql, buildCohortResultsSql,
+  buildAttritionQueries, buildCohortCountSql, buildCohortCriteriaSql, buildCohortNativeSql, buildCohortResultsSql,
 } from '@/lib/duckdb/cohort-query'
 import {
   buildConceptsQuery, computeAvailableColumns,
@@ -302,8 +302,9 @@ export function registerWarehouseTools(server: Server): void {
 
   server.registerTool('preview_cohort_sql', {
     description:
-      'Show the membership query the app generates from a cohort\'s criteria (the level\'s id), without '
-      + 'running it — what the app\'s SQL tab shows. Useful to check the logic or as a starting point for custom_sql.',
+      'Show the membership query the app generates from a cohort\'s criteria (the level\'s id), on the Linkr '
+      + 'relations and on the database\'s own tables, without running it (what the app\'s SQL tab shows). Useful '
+      + 'to check the logic or as a starting point for custom_sql.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ cohort_id: string }>({
       type: 'object', properties: { cohort_id: { type: 'string' } }, required: ['cohort_id'],
@@ -312,11 +313,13 @@ export function registerWarehouseTools(server: Server): void {
     const cohort = await api.getCohort(cohort_id)
     const mapping = await mappingOf(await cohortDatabase(cohort))
     const generated = buildCohortCriteriaSql(cohort, mapping)
+    const native = buildCohortNativeSql(cohort, mapping)
     if (cohort.customSql) {
       return text(`This cohort uses custom SQL (in effect):\n${cohort.customSql}\n\nFrom its criteria (not in effect):\n${generated ?? '(none)'}`)
     }
     if (!generated) return failure('The criteria produce no runnable query (empty level table in the mapping?).')
-    return text(`Membership query:\n${generated}`)
+    return text(`Membership query, on the Linkr relations (portable):\n${generated}`
+      + (native ? `\n\nThe same, on this database's own tables:\n${native}` : ''))
   }))
 
   server.registerTool('run_cohort', {
