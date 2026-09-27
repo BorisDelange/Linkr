@@ -361,6 +361,22 @@ describe('database', () => {
     expect(orphan.find((i) => i.path === 'cohort-boards/gone.json')?.code).toBe('orphan-record')
   })
 
+  it('checks a v2 mapping.json relation by relation', () => {
+    const errors = (mapping: unknown) => validateEntity(database({ 'mapping.json': JSON.stringify(mapping) }), 'database')
+      .filter((i) => i.path === 'mapping.json' && i.severity === 'error')
+    expect(errors(PRESET.mapping)).toEqual([])
+    const bad = errors({ formatVersion: 2, visit: { from: { alias: 's' }, fields: { visit_id: 's.id" OR 1' } } })
+    expect(bad.map((i) => i.pointer).sort()).toEqual(['/visit/fields/visit_id', '/visit/from/table'])
+  })
+
+  it('checks each override as a relation, under a key the app writes', () => {
+    const errors = (overrides: unknown) => validateEntity(database({ 'mapping-overrides.json': JSON.stringify(overrides) }), 'database')
+      .filter((i) => i.path === 'mapping-overrides.json' && i.severity === 'error')
+    expect(errors({ relations: { 'events.Site labs': PRESET.mapping.events[0], visit: { customSql: 'SELECT 1' } } })).toEqual([])
+    const bad = errors({ relations: { visit: { joins: [{ type: 'outer', table: 't', alias: 't', on: [] }] }, stays: { customSql: 'SELECT 1' } } })
+    expect(bad.map((i) => i.pointer).sort()).toEqual(['/relations/stays', '/relations/visit/from', '/relations/visit/joins/0/type'])
+  })
+
   it('accepts a well-formed cohort', () => {
     const issues = validateEntity(database({
       'cohorts/adults.json': JSON.stringify({

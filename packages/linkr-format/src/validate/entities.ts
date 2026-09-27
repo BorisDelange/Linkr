@@ -282,6 +282,7 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
         `The DDL is inline in the mapping; exports write it to ${CONTENT_FILE.schemaDdl}.`,
         `move the value to a ${CONTENT_FILE.schemaDdl} file and drop this field`)
     }
+    if (mapping.formatVersion === 2) checkMappingV2(bag, mappingPath, mapping, (p) => at(p.replace(/^\/mapping/, '')))
     if (JSON.stringify(mapping) !== JSON.stringify(canonicalSchemaMapping(mapping))) {
       bag.warn(mappingPath, at(''), 'legacy-format',
         'The mapping is not in canonical order; the next export will rewrite it.',
@@ -299,6 +300,14 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
     } else {
       if (o.relations != null && !isObject(o.relations)) {
         bag.error(CONTENT_FILE.schemaOverrides, '/relations', 'wrong-type', '`relations` maps relation keys to relations.')
+      } else if (isObject(o.relations)) {
+        for (const [key, rel] of Object.entries(o.relations)) {
+          if (!OVERRIDE_KEY.test(key)) {
+            bag.error(CONTENT_FILE.schemaOverrides, `/relations/${key}`, 'wrong-type',
+              'An override key is `patient`, `visit`, `visitDetail`, `note`, or `concepts.<key>` / `events.<label>` / `drugs.<label>`.')
+          }
+          checkRelation(bag, CONTENT_FILE.schemaOverrides, rel, `/relations/${key}`, (p) => p)
+        }
       }
       if (JSON.stringify(o) !== JSON.stringify(canonicalSchemaOverrides(o))) {
         bag.warn(CONTENT_FILE.schemaOverrides, '', 'legacy-format',
@@ -595,6 +604,64 @@ function checkInstanceFields(bag: IssueBag, path: string, record: Record<string,
 const RELATION_KEYS = ['patient', 'visit', 'visitDetail', 'note'] as const
 const RELATION_LISTS = ['concepts', 'events', 'drugs'] as const
 const COLUMN_REF = /^[A-Za-z_]\w*\.[A-Za-z_]\w*$/
+const OVERRIDE_KEY = /^(?:patient|visit|visitDetail|note|(?:concepts|events|drugs)\..+)$/
+
+/** One v2 relation, wherever it sits: a mapping's, or a database override's. */
+function checkRelation(
+  bag: IssueBag,
+  path: string,
+  rel: unknown,
+  pointer: string,
+  at: (pointer: string) => string,
+): void {
+  if (!isObject(rel)) {
+    bag.error(path, at(pointer), 'wrong-type', 'A relation must be an object.')
+    return
+  }
+  const hasSql = typeof rel.customSql === 'string' && rel.customSql.trim() !== ''
+  if (rel.customSql != null) checkString(bag, path, at(`${pointer}/customSql`), rel.customSql, { label: 'customSql' })
+  if (rel.from != null || !hasSql) {
+    if (!isObject(rel.from)) {
+      if (!('genderValues' in rel)) {
+        bag.error(path, at(`${pointer}/from`), 'missing-field', 'A relation needs `from` (a table and its alias) or `customSql`.')
+      }
+    } else {
+      checkString(bag, path, at(`${pointer}/from/table`), rel.from.table, { required: true, label: 'table' })
+      checkString(bag, path, at(`${pointer}/from/alias`), rel.from.alias, { required: true, label: 'alias' })
+    }
+  }
+  if (rel.joins != null) {
+    if (!Array.isArray(rel.joins)) {
+      bag.error(path, at(`${pointer}/joins`), 'wrong-type', '`joins` must be an array.')
+    } else {
+      rel.joins.forEach((j, i) => {
+        const jp = `${pointer}/joins/${i}`
+        if (!isObject(j)) return bag.error(path, at(jp), 'wrong-type', 'A join must be an object.')
+        if (j.type !== 'left' && j.type !== 'inner') bag.error(path, at(`${jp}/type`), 'wrong-type', 'A join type is `left` or `inner`.')
+        checkString(bag, path, at(`${jp}/table`), j.table, { required: true, label: 'table' })
+        checkString(bag, path, at(`${jp}/alias`), j.alias, { required: true, label: 'alias' })
+        const pairsOk = Array.isArray(j.on) && j.on.every((pair) =>
+          Array.isArray(pair) && pair.length === 2 && pair.every((side) => typeof side === 'string' && COLUMN_REF.test(side)))
+        if (!pairsOk) bag.error(path, at(`${jp}/on`), 'wrong-type', '`on` must be a list of [`alias.column`, `alias.column`] pairs.')
+      })
+    }
+  }
+  if (rel.fields != null) {
+    if (!isObject(rel.fields)) {
+      bag.error(path, at(`${pointer}/fields`), 'wrong-type', '`fields` must be an object.')
+    } else {
+      for (const [name, f] of Object.entries(rel.fields)) {
+        const ok = typeof f === 'string'
+          ? COLUMN_REF.test(f)
+          : isObject(f) && (typeof f.expr === 'string' || 'value' in f)
+        if (!ok) {
+          bag.error(path, at(`${pointer}/fields/${name}`), 'wrong-type',
+            'A field is `alias.column`, `{ "expr": "…" }` or `{ "value": … }`.')
+        }
+      }
+    }
+  }
+}
 
 /**
  * A v2 mapping: each relation is read either from a table (`from`, with `alias`)
@@ -608,58 +675,8 @@ function checkMappingV2(
   mapping: Record<string, unknown>,
   at: (pointer: string) => string,
 ): void {
-  const checkRelation = (rel: unknown, pointer: string) => {
-    if (!isObject(rel)) {
-      bag.error(path, at(pointer), 'wrong-type', 'A relation must be an object.')
-      return
-    }
-    const hasSql = typeof rel.customSql === 'string' && rel.customSql.trim() !== ''
-    if (rel.customSql != null) checkString(bag, path, at(`${pointer}/customSql`), rel.customSql, { label: 'customSql' })
-    if (rel.from != null || !hasSql) {
-      if (!isObject(rel.from)) {
-        if (!('genderValues' in rel)) {
-          bag.error(path, at(`${pointer}/from`), 'missing-field', 'A relation needs `from` (a table and its alias) or `customSql`.')
-        }
-      } else {
-        checkString(bag, path, at(`${pointer}/from/table`), rel.from.table, { required: true, label: 'table' })
-        checkString(bag, path, at(`${pointer}/from/alias`), rel.from.alias, { required: true, label: 'alias' })
-      }
-    }
-    if (rel.joins != null) {
-      if (!Array.isArray(rel.joins)) {
-        bag.error(path, at(`${pointer}/joins`), 'wrong-type', '`joins` must be an array.')
-      } else {
-        rel.joins.forEach((j, i) => {
-          const jp = `${pointer}/joins/${i}`
-          if (!isObject(j)) return bag.error(path, at(jp), 'wrong-type', 'A join must be an object.')
-          if (j.type !== 'left' && j.type !== 'inner') bag.error(path, at(`${jp}/type`), 'wrong-type', 'A join type is `left` or `inner`.')
-          checkString(bag, path, at(`${jp}/table`), j.table, { required: true, label: 'table' })
-          checkString(bag, path, at(`${jp}/alias`), j.alias, { required: true, label: 'alias' })
-          const pairsOk = Array.isArray(j.on) && j.on.every((pair) =>
-            Array.isArray(pair) && pair.length === 2 && pair.every((side) => typeof side === 'string' && COLUMN_REF.test(side)))
-          if (!pairsOk) bag.error(path, at(`${jp}/on`), 'wrong-type', '`on` must be a list of [`alias.column`, `alias.column`] pairs.')
-        })
-      }
-    }
-    if (rel.fields != null) {
-      if (!isObject(rel.fields)) {
-        bag.error(path, at(`${pointer}/fields`), 'wrong-type', '`fields` must be an object.')
-      } else {
-        for (const [name, f] of Object.entries(rel.fields)) {
-          const ok = typeof f === 'string'
-            ? COLUMN_REF.test(f)
-            : isObject(f) && (typeof f.expr === 'string' || 'value' in f)
-          if (!ok) {
-            bag.error(path, at(`${pointer}/fields/${name}`), 'wrong-type',
-              'A field is `alias.column`, `{ "expr": "…" }` or `{ "value": … }`.')
-          }
-        }
-      }
-    }
-  }
-
   for (const key of RELATION_KEYS) {
-    if (mapping[key] != null) checkRelation(mapping[key], `/mapping/${key}`)
+    if (mapping[key] != null) checkRelation(bag, path, mapping[key], `/mapping/${key}`, at)
   }
   const eventLabels = new Set<string>()
   for (const key of RELATION_LISTS) {
@@ -673,7 +690,7 @@ function checkMappingV2(
     const seen = key === 'concepts' ? new Set<string>() : eventLabels
     list.forEach((rel, i) => {
       const pointer = `/mapping/${key}/${i}`
-      checkRelation(rel, pointer)
+      checkRelation(bag, path, rel, pointer, at)
       if (!isObject(rel)) return
       const idField = key === 'concepts' ? 'key' : 'label'
       if (checkString(bag, path, at(`${pointer}/${idField}`), rel[idField], { required: true, label: idField })) {
