@@ -185,14 +185,21 @@ export function CohortBuilder() {
     [cohortId, setCustomSql],
   )
 
-  const handleExecute = useCallback(async () => {
+  // The SQL tab's unsaved text: every Run runs what the editor shows.
+  const sqlDraftRef = useRef<string | null | undefined>(undefined)
+  const handleSqlDraftChange = useCallback((sql: string | null | undefined) => {
+    sqlDraftRef.current = sql
+  }, [])
+
+  const runCohort = useCallback(async (customSqlDraft: string | null | undefined) => {
     if (!cohortId || !activeSource) return
     try {
-      await executeCohort(cohortId, activeSource.id, activeSource.schemaMapping)
+      await executeCohort(cohortId, activeSource.id, activeSource.schemaMapping, customSqlDraft)
     } catch {
       // Error handled by store
     }
   }, [cohortId, activeSource, executeCohort])
+  const handleExecute = useCallback(() => runCohort(sqlDraftRef.current), [runCohort])
 
   const runMaterialize = useCallback(async () => {
     if (!cohortId || !activeSource) return
@@ -458,7 +465,8 @@ export function CohortBuilder() {
                 cohort={cohort}
                 mapping={mapping}
                 onCustomSqlChange={handleCustomSqlChange}
-                onExecute={handleExecute}
+                onExecute={runCohort}
+                onDraftChange={handleSqlDraftChange}
               />
             )}
           </Allotment.Pane>

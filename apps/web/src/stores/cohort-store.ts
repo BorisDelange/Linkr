@@ -216,6 +216,9 @@ interface CohortState {
     id: string,
     dataSourceId: string,
     schemaMapping?: SchemaMapping,
+    /** Run this SQL in place of the saved one (an unsaved edit; null = the
+     *  criteria). Its count is shown, not stored on the cohort. */
+    customSqlDraft?: string | null,
   ) => Promise<number>
 
   /** Freeze the cohort membership (full id set) into a persisted snapshot. */
@@ -392,9 +395,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     }))
   },
 
-  executeCohort: async (id, dataSourceId, schemaMapping) => {
-    const cohort = get().cohorts.find((c) => c.id === id)
-    if (!cohort || !schemaMapping) return 0
+  executeCohort: async (id, dataSourceId, schemaMapping, customSqlDraft) => {
+    const saved = get().cohorts.find((c) => c.id === id)
+    if (!saved || !schemaMapping) return 0
+    const draft = customSqlDraft !== undefined && customSqlDraft !== (saved.customSql ?? null)
+    const cohort = draft ? { ...saved, customSql: customSqlDraft } : saved
 
     // Mark loading
     set((s) => {
@@ -452,11 +457,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         durationMs,
       }
 
-      // Persist count + attrition to IDB
-      await getStorage().cohorts.update(id, { resultCount: totalCount, attrition })
+      // An unsaved draft's count describes no stored definition: shown, not kept.
+      if (!draft) await getStorage().cohorts.update(id, { resultCount: totalCount, attrition })
 
       set((s) => ({
-        cohorts: s.cohorts.map((c) =>
+        cohorts: draft ? s.cohorts : s.cohorts.map((c) =>
           c.id === id ? { ...c, resultCount: totalCount, attrition } : c,
         ),
         executionResults: new Map(s.executionResults).set(id, result),

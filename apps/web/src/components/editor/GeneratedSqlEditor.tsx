@@ -1,4 +1,4 @@
-import { useState, useCallback, type ReactNode } from 'react'
+import { useState, useCallback, useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Copy, Check, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -12,7 +12,12 @@ interface GeneratedSqlEditorProps {
   customSql: string | null | undefined
   /** Saving text identical to the generated SQL stores null (back to generated). */
   onCustomSqlChange: (sql: string | null) => void
-  onRun?: () => void
+  /** Runs what the editor holds, saved or not: null when that is the generated
+   *  SQL (the form is in effect), else the text. */
+  onRun?: (sql: string | null) => void
+  /** The unsaved text, as `onRun` would run it — undefined when there is none —
+   *  so a Run button outside the editor runs the draft too. */
+  onDraftChange?: (sql: string | null | undefined) => void
   readOnly?: boolean
   /** Extra toolbar content, before the Reset / Copy buttons. */
   toolbarExtra?: ReactNode
@@ -33,6 +38,7 @@ export function GeneratedSqlEditor({
   customSql,
   onCustomSqlChange,
   onRun,
+  onDraftChange,
   readOnly,
   toolbarExtra,
 }: GeneratedSqlEditorProps) {
@@ -54,6 +60,17 @@ export function GeneratedSqlEditor({
     setSeen({ generatedSql, customSql })
     if (customSql == null) setEditorValue(generatedSql ?? '')
   }
+
+  const inEffect = useCallback(
+    (text: string) => (text === (generatedSql ?? '') ? null : text),
+    [generatedSql],
+  )
+  const handleRun = useCallback(() => onRun?.(inEffect(editorValue)), [onRun, inEffect, editorValue])
+
+  useEffect(() => {
+    onDraftChange?.(hasUnsavedChanges ? inEffect(editorValue) : undefined)
+  }, [onDraftChange, hasUnsavedChanges, inEffect, editorValue])
+  useEffect(() => () => onDraftChange?.(undefined), [onDraftChange])
 
   const handleSave = useCallback(() => {
     onCustomSqlChange(editorValue === (generatedSql ?? '') ? null : editorValue)
@@ -121,8 +138,8 @@ export function GeneratedSqlEditor({
             if (val !== undefined) setEditorValue(val)
           }}
           onSave={readOnly ? undefined : handleSave}
-          onRunSelectionOrLine={onRun}
-          onRunFile={onRun}
+          onRunSelectionOrLine={onRun ? handleRun : undefined}
+          onRunFile={onRun ? handleRun : undefined}
         />
       </div>
     </div>

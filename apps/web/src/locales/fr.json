@@ -1264,7 +1264,7 @@
     "attrition_all": "Tous les enregistrements",
     "attrition_excluded_one": "{{formatted}} exclu",
     "attrition_excluded_other": "{{formatted}} exclus",
-    "attrition_count": "effectif",
+    "attrition_count": "Effectif",
     "criterion_delete_title": "Supprimer le critère",
     "criterion_delete_description": "Voulez-vous vraiment supprimer ce critère ?",
     "group_delete_title": "Supprimer le groupe",

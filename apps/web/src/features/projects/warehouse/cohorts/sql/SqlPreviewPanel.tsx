@@ -8,10 +8,12 @@ interface SqlPreviewPanelProps {
   cohort: Cohort
   mapping: SchemaMapping | undefined
   onCustomSqlChange: (sql: string | null) => void
-  onExecute: () => void
+  /** Runs the editor's text, saved or not (null: the criteria). */
+  onExecute: (sql: string | null) => void
+  onDraftChange: (sql: string | null | undefined) => void
 }
 
-export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute }: SqlPreviewPanelProps) {
+export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute, onDraftChange }: SqlPreviewPanelProps) {
   const { t } = useTranslation()
   const autoSql = useMemo(() => (mapping ? buildCohortCriteriaSql(cohort, mapping) : null), [cohort, mapping])
   return (
@@ -30,6 +32,7 @@ export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute 
           customSql={cohort.customSql}
           onCustomSqlChange={onCustomSqlChange}
           onRun={onExecute}
+          onDraftChange={onDraftChange}
         />
       </div>
     </div>
