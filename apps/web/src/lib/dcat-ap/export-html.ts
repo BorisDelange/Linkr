@@ -190,7 +190,6 @@ ${buildInfoHtml({ locale, threshold, mode, counts, crossings: data.crossings.map
 
   <footer>
     <span>${[fill(T.generated_on, { date: generated }), publisher].filter(Boolean).map(esc).join(' · ')}</span>
-    <span>${icon('shield', 12)}${esc(fill(T.footer_mask, { t: threshold }))}</span>
     <span>Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · ${esc(T.ehds)}</span>
     <span>${esc(T.generated_with)} <a href="${docUrl(locale)}" target="_blank" rel="noopener">Linkr</a></span>
   </footer>

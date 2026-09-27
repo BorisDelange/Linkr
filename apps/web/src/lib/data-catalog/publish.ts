@@ -207,20 +207,27 @@ export function buildPublishedCatalog(
     const cells: PublishedCell[] = []
     let primary = 0
     let secondary = 0
-    crossing.rows.forEach((row, r) => {
-      const idx = crossing.variables.map((v, i) => index.get(v)?.get(row.values[i]))
-      if (idx.some((i) => i == null)) return
+    // Millions of rows on a large warehouse: one array per cell and nothing else.
+    const lookups = crossing.variables.map((v) => index.get(v))
+    const keys = measures.map((m) => ROW_KEY[m])
+    const k = lookups.length
+    rows: for (let r = 0; r < crossing.rows.length; r++) {
+      const row = crossing.rows[r]
       const status = (mask?.status[r] ?? PUBLISHED) as CellStatus
-      if (status === PUBLISHED || reveal) {
-        if (status === SECONDARY) secondary++
-        else if (status !== PUBLISHED) primary++
-        cells.push([...(idx as number[]), row.patients, ...measures.map((m) => row[ROW_KEY[m]] ?? null), status])
-      } else {
-        if (status === SECONDARY) secondary++
-        else primary++
-        cells.push([...(idx as number[]), null, ...measures.map(() => null), status])
+      const shown = status === PUBLISHED || reveal
+      const cell: PublishedCell = new Array(k + 2 + keys.length)
+      for (let i = 0; i < k; i++) {
+        const at = lookups[i]?.get(row.values[i])
+        if (at == null) continue rows
+        cell[i] = at
       }
-    })
+      cell[k] = shown ? row.patients : null
+      for (let m = 0; m < keys.length; m++) cell[k + 1 + m] = shown ? row[keys[m]] ?? null : null
+      cell[k + 1 + keys.length] = status
+      if (status === SECONDARY) secondary++
+      else if (status !== PUBLISHED) primary++
+      cells.push(cell)
+    }
     const n = crossing.variables.length
     cells.sort((x, y) => {
       for (let i = 0; i < n; i++) if (x[i] !== y[i]) return (x[i] as number) - (y[i] as number)

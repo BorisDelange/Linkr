@@ -18,8 +18,6 @@ export interface CrossingMask {
   publishedMass: number
 }
 
-const SEP = '\u0001'
-
 /** Crossings over events (with the concept variable) and over visits count different populations. */
 function factOf(c: Pick<CatalogCrossingResult, 'variables'>): 'event' | 'visit' {
   return c.variables.includes('concept') ? 'event' : 'visit'
@@ -59,76 +57,176 @@ export function computeCrossingMasks(
   crossings: readonly CatalogCrossingResult[],
   threshold: number,
 ): Map<string, CrossingMask> {
+  // Everything below runs over millions of cells on a large warehouse, so it
+  // holds flat typed arrays rather than an object or a string per cell or per
+  // group: those made the garbage collector the main cost.
+
+  // Each modality gets an index per variable, read once per cell. A cell's key
+  // over a set of variables is its indices in mixed radix — the same key for
+  // the same modalities in whichever crossing, so a group finds its margin.
+  const modalityIndex = new Map<string, Map<string, number>>()
+  const codes = new Map<string, Int32Array>()
+  for (const c of crossings) {
+    const k = c.variables.length
+    const indices = c.variables.map((v) => {
+      let index = modalityIndex.get(v)
+      if (!index) modalityIndex.set(v, (index = new Map()))
+      return index
+    })
+    const code = new Int32Array(c.rows.length * k)
+    for (let i = 0; i < c.rows.length; i++) {
+      const values = c.rows[i].values
+      for (let p = 0; p < k; p++) {
+        const index = indices[p]
+        let n = index.get(values[p])
+        if (n === undefined) index.set(values[p], (n = index.size))
+        code[i * k + p] = n
+      }
+    }
+    codes.set(c.id, code)
+  }
+  const radix = new Map<string, number>()
+  let span = 1
+  for (const [v, index] of modalityIndex) {
+    radix.set(v, span)
+    span *= index.size
+  }
+
   const masks = new Map<string, CrossingMask>()
   const byId = new Map(crossings.map((c) => [c.id, c]))
-  const statusByKey = new Map<string, Map<string, CellStatus>>()
+  const statusByKey = new Map<string, Map<number, CellStatus>>()
+  // Only crossings some larger one takes as a margin need their cells keyed.
+  const margins = new Set<string>()
+  for (const c of crossings) {
+    for (let subset = 1; subset < (1 << c.variables.length) - 1; subset++) {
+      margins.add(c.variables.filter((_, i) => subset & (1 << i)).join('-'))
+    }
+  }
 
   const ordered = [...crossings].sort((a, b) => a.variables.length - b.variables.length)
   for (const crossing of ordered) {
     const { rows, variables } = crossing
-    const status = new Uint8Array(rows.length)
-    for (let i = 0; i < rows.length; i++) status[i] = rows[i].patients < threshold ? PRIMARY : PUBLISHED
-
-    const groups: number[][] = []
+    const n = rows.length
     const k = variables.length
+    const code = codes.get(crossing.id)!
+    const weights = variables.map((v) => radix.get(v)!)
+    const status = new Uint8Array(n)
+    for (let i = 0; i < n; i++) status[i] = rows[i].patients < threshold ? PRIMARY : PUBLISHED
+
+    // The groups, back to back: group g is members[start[g]..start[g + 1]].
+    const members: number[] = []
+    const start: number[] = [0]
+    const bucketOf = new Int32Array(n)
     for (let subset = 0; subset < (1 << k) - 1; subset++) {
-      const positions = variables.map((_, i) => i).filter((i) => subset & (1 << i))
-      let totalPublished: (key: string) => boolean
+      const positions: number[] = []
+      for (let p = 0; p < k; p++) if (subset & (1 << p)) positions.push(p)
+      let totalPublished: (key: number) => boolean
       if (positions.length === 0) {
         totalPublished = () => true
       } else {
-        const subsetVars = positions.map((i) => variables[i])
-        const margin = byId.get(subsetVars.join('-'))
+        const margin = byId.get(positions.map((p) => variables[p]).join('-'))
         const marginStatus = margin && factOf(margin) === factOf(crossing) ? statusByKey.get(margin.id) : undefined
         if (!marginStatus) continue
         totalPublished = (key) => marginStatus.get(key) === PUBLISHED
       }
-      const bucket = new Map<string, number[]>()
-      for (let i = 0; i < rows.length; i++) {
-        const key = positions.map((p) => rows[i].values[p]).join(SEP)
-        const list = bucket.get(key)
-        if (list) list.push(i)
-        else bucket.set(key, [i])
+      // Buckets numbered in order of first appearance, members in row order.
+      const bucketIds = new Map<number, number>()
+      const bucketKeys: number[] = []
+      const sizes: number[] = []
+      for (let i = 0; i < n; i++) {
+        let key = 0
+        for (const p of positions) key += code[i * k + p] * weights[p]
+        let b = bucketIds.get(key)
+        if (b === undefined) {
+          b = bucketKeys.length
+          bucketIds.set(key, b)
+          bucketKeys.push(key)
+          sizes.push(0)
+        }
+        bucketOf[i] = b
+        sizes[b]++
       }
-      for (const [key, members] of bucket) {
-        if (members.length > 1 && totalPublished(key)) groups.push(members)
+      const offset = new Int32Array(sizes.length).fill(-1)
+      for (let b = 0; b < sizes.length; b++) {
+        if (sizes[b] < 2 || !totalPublished(bucketKeys[b])) continue
+        offset[b] = start[start.length - 1]
+        start.push(offset[b] + sizes[b])
+      }
+      members.length = start[start.length - 1]
+      const fill = offset.slice()
+      for (let i = 0; i < n; i++) {
+        const b = bucketOf[i]
+        if (offset[b] >= 0) members[fill[b]++] = i
       }
     }
+    const groupCount = start.length - 1
 
-    let changed = true
-    while (changed) {
-      changed = false
-      for (const members of groups) {
+    // Passes over the groups in order until none changes — but a group is only
+    // looked at again once one of its cells was masked since: one that did not
+    // fire and saw no change cannot fire. Same order, same outcome as scanning
+    // every group on every pass, without re-reading millions of unchanged cells.
+    const groupsOfCell = cellGroupIndex(members, start, n)
+    const queued = new Uint8Array(groupCount).fill(1)
+    let pending = groupCount
+    while (pending > 0) {
+      for (let g = 0; g < groupCount; g++) {
+        if (!queued[g]) continue
+        queued[g] = 0
+        pending--
         let masked = 0
         let smallest = -1
-        for (const i of members) {
+        for (let m = start[g]; m < start[g + 1]; m++) {
+          const i = members[m]
           if (status[i] !== PUBLISHED) masked++
           else if (smallest < 0 || rows[i].patients < rows[smallest].patients) smallest = i
         }
         if (masked === 1 && smallest >= 0) {
           status[smallest] = SECONDARY
-          changed = true
+          for (let j = groupsOfCell.start[smallest]; j < groupsOfCell.start[smallest + 1]; j++) {
+            const other = groupsOfCell.groups[j]
+            if (!queued[other]) {
+              queued[other] = 1
+              pending++
+            }
+          }
         }
       }
     }
 
-    const keyed = new Map<string, CellStatus>()
+    const keyed = margins.has(crossing.id) ? new Map<number, CellStatus>() : null
     let primary = 0
     let secondary = 0
     let patientMass = 0
     let publishedMass = 0
-    for (let i = 0; i < rows.length; i++) {
+    for (let i = 0; i < n; i++) {
       const s = status[i] as CellStatus
-      keyed.set(rows[i].values.join(SEP), s)
+      if (keyed) {
+        let key = 0
+        for (let p = 0; p < k; p++) key += code[i * k + p] * weights[p]
+        keyed.set(key, s)
+      }
       patientMass += rows[i].patients
       if (s === PRIMARY) primary++
       else if (s === SECONDARY) secondary++
       else publishedMass += rows[i].patients
     }
-    statusByKey.set(crossing.id, keyed)
-    masks.set(crossing.id, { status, cells: rows.length, primary, secondary, patientMass, publishedMass })
+    if (keyed) statusByKey.set(crossing.id, keyed)
+    masks.set(crossing.id, { status, cells: n, primary, secondary, patientMass, publishedMass })
   }
   return masks
+}
+
+/** For each cell, the groups it belongs to: `groups[start[i]..start[i + 1]]`. */
+function cellGroupIndex(members: readonly number[], groupStart: readonly number[], cells: number): { start: Int32Array; groups: Int32Array } {
+  const start = new Int32Array(cells + 1)
+  for (const i of members) start[i + 1]++
+  for (let i = 0; i < cells; i++) start[i + 1] += start[i]
+  const fill = start.slice(0, cells)
+  const index = new Int32Array(start[cells])
+  for (let g = 0; g + 1 < groupStart.length; g++) {
+    for (let m = groupStart[g]; m < groupStart[g + 1]; m++) index[fill[members[m]]++] = g
+  }
+  return { start, groups: index }
 }
 
 /** Share of a crossing's non-empty cells that are published, 0–1 (1 when it has none). */
