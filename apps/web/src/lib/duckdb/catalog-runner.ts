@@ -27,40 +27,13 @@
 
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
-import { effectiveCrossings } from '@/lib/data-catalog/config'
-import {
-  baseUnits,
-  cacheFromState,
-  emptyRunState,
-  orderModalities,
-  planCrossings,
-  planSlices,
-  stateFromCache,
-  type CatalogQuery,
-  type CatalogRunState,
-  type CatalogRunStep,
-  type CatalogRunUnit,
-  type CatalogUnitInfo,
-  type CrossingPlan,
-} from './catalog-compute'
+import type { CatalogQuery, CatalogRunStep, CatalogUnitInfo } from './catalog-compute'
+import { runCatalogComputation, type CatalogStepProgress } from './catalog-run'
 
-/**
- * Shortest gap between two writes of the cache, in milliseconds.
- *
- * Not a user setting: progress is counted in units and a pause writes what it
- * has, so this only trades how much a crash could lose against how often the
- * cache — which can hold a few hundred thousand cells — is re-serialized.
- */
-const SAVE_EVERY_MS = 5000
+export type { CatalogStepProgress }
 
 /** Where a run is: mounting, one of the counting steps, or writing the result. */
 export type CatalogRunPhase = 'mounting' | CatalogRunStep | 'saving'
-
-export interface CatalogStepProgress {
-  done: number
-  /** Null until the step's units are planned (the crossings wait on the rankings). */
-  total: number | null
-}
 
 /** What a watcher needs to render, whether or not it started the run. */
 export interface CatalogRunSnapshot {
@@ -225,111 +198,38 @@ export function startCatalogRun(input: StartCatalogRunInput): void {
   void loop(input, controller)
 }
 
-function stepCounts(units: readonly CatalogRunUnit[], offset: number, base: Partial<Record<CatalogRunStep, CatalogStepProgress>> = {}) {
-  const steps: Partial<Record<CatalogRunStep, CatalogStepProgress>> = { ...base }
-  units.forEach((u, i) => {
-    const s = steps[u.info.step] ?? { done: 0, total: 0 }
-    steps[u.info.step] = { done: s.done + (i < offset ? 1 : 0), total: (s.total ?? 0) + 1 }
-  })
-  return steps
-}
-
-/**
- * The run: size the warehouse, then the base units (concept list, totals,
- * rankings), then the crossing units planned from those rankings. The offset
- * counts units across both lists; every unit adds into the state, and the
- * cache written at a save point holds exactly the units before the offset.
- */
+/** The run: the shared computation, its progress relayed to the watchers. */
 async function loop(input: StartCatalogRunInput, controller: AbortController): Promise<void> {
-  const { catalog, mapping, query, persist } = input
-  const catalogId = catalog.id
+  const catalogId = input.catalog.id
   const signal = controller.signal
-  const startedAt = performance.now()
-  let state: CatalogRunState = emptyRunState()
-  let offset = 0
-  let savedOffset = 0
-  let plan: CrossingPlan | null = null
-  let base: Pick<CatalogResultCache, 'catalogId' | 'computedAt' | 'durationMs'> = { catalogId, computedAt: new Date().toISOString(), durationMs: 0 }
-
-  const save = async (done: boolean) => {
-    const order = plan?.crossings ?? effectiveCrossings(catalog)
-    const cache = cacheFromState({ ...base, labels: plan?.labels }, state, order, offset)
-    if (done) {
-      cache.modalities = orderModalities(catalog, cache.crossings)
-      cache.durationMs = Math.round(performance.now() - startedAt)
-      cache.computedAt = new Date().toISOString()
-      delete cache.work
-    }
-    await persist(cache, done)
-    savedOffset = offset
-  }
-
   try {
     await input.ensureMounted()
     signal.throwIfAborted()
-
-    const resumed = input.resumeFrom?.cache.work ? input.resumeFrom.cache : null
-    if (resumed) {
-      state = stateFromCache(resumed)
-      offset = resumed.completedSteps ?? 0
-      savedOffset = offset
-      base = { catalogId, computedAt: resumed.computedAt, durationMs: resumed.durationMs }
-    } else {
-      emitNow(catalogId, { phase: 'sizing', steps: { sizing: { done: 0, total: 1 } } })
-      state.slices = await planSlices(mapping, query, signal)
-    }
-    const sized = { sizing: { done: 1, total: 1 } }
-
-    let savedAt = Date.now()
-    const runUnits = async (units: readonly CatalogRunUnit[], first: number, all: () => CatalogRunUnit[]) => {
-      for (let i = offset - first; i < units.length; i++) {
-        signal.throwIfAborted()
-        const unit = units[i]
-        if (unit.info.step !== getCatalogRunSnapshot(catalogId).phase) emitNow(catalogId, { phase: unit.info.step })
-        emit(catalogId, { current: unit.info })
-        await unit.run(state, signal)
-        offset++
-        emit(catalogId, { computed: offset, steps: stepCounts(all(), offset, sized) })
-        if (Date.now() - savedAt >= SAVE_EVERY_MS) {
-          await save(false)
-          savedAt = Date.now()
-          emitNow(catalogId, { computed: offset })
-        }
-      }
-    }
-
-    const baseList = baseUnits(catalog, mapping, query, state.slices)
-    emitNow(catalogId, {
-      computed: offset,
-      total: null,
-      steps: { ...stepCounts(baseList, offset, sized), crossings: { done: 0, total: null } },
+    await runCatalogComputation({
+      catalog: input.catalog,
+      mapping: input.mapping,
+      query: input.query,
+      resumeFrom: input.resumeFrom?.cache ?? null,
+      persist: input.persist,
+    }, signal, {
+      step: (step) => emitNow(catalogId, { phase: step }),
+      unit: (info) => emit(catalogId, { current: info }),
+      progress: (computed, steps, total) => {
+        if (total !== getCatalogRunSnapshot(catalogId).total) emitNow(catalogId, { computed, steps, total })
+        else emit(catalogId, { computed, steps })
+      },
+      saved: (computed) => emitNow(catalogId, { computed }),
+      finishing: () => emitNow(catalogId, { phase: 'saving', current: null }),
     })
-    await runUnits(baseList, 0, () => baseList)
-    signal.throwIfAborted()
-
-    plan = planCrossings(catalog, mapping, query, state)
-    const crossingUnits = plan.units
-    const everything = () => [...baseList, ...crossingUnits]
-    emitNow(catalogId, { computed: offset, total: baseList.length + crossingUnits.length, steps: stepCounts(everything(), offset, sized) })
-    await runUnits(crossingUnits, baseList.length, everything)
-    signal.throwIfAborted()
-
-    emitNow(catalogId, { phase: 'saving', current: null })
-    await save(true)
   } catch (err) {
-    if (signal.aborted) {
-      // A pause keeps every unit finished so far, not just the last save point.
-      if (offset > savedOffset) {
-        try { await save(false) } catch { /* the next resume redoes the unsaved units */ }
+    if (!signal.aborted) {
+      const message = err instanceof Error ? err.message : String(err)
+      emit(catalogId, { error: message })
+      try {
+        await input.persistError(message)
+      } catch {
+        // The run already failed; failing to record that must not mask it.
       }
-      return
-    }
-    const message = err instanceof Error ? err.message : String(err)
-    emit(catalogId, { error: message })
-    try {
-      await input.persistError(message)
-    } catch {
-      // The run already failed; failing to record that must not mask it.
     }
   } finally {
     const run = runs.get(catalogId)

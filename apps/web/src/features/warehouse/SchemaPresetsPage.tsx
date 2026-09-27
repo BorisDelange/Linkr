@@ -13,7 +13,6 @@ import {
   Check,
   Upload,
   Code,
-  ArrowLeft,
   RotateCcw,
   Pencil,
   ChevronDown,
@@ -99,6 +98,7 @@ import type { SchemaMapping, CustomSchemaPreset } from '@/types/schema-mapping'
 import type { AuthorDetails } from '@/types/author'
 import type { EntityLicense, LocalizedString, OrganizationInfo, ProjectBadge } from '@/types'
 import type * as Monaco from 'monaco-editor'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 // ---------------------------------------------------------------------------
 // DDL Table of Contents — sidebar with collapsible sections
@@ -427,14 +427,12 @@ function SchemaDetailView({
 
   if (!baseMapping) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
-        <Database size={32} className="text-muted-foreground/50" />
-        <p className="mt-3 text-sm text-muted-foreground">Schema not found</p>
-        <Button variant="outline" size="sm" onClick={onBack} className="mt-4 gap-1.5">
-          <ArrowLeft size={14} />
-          {t('common.back')}
-        </Button>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_schema')}
+        entityId={schemaId}
+        onBack={onBack}
+        backLabel={t('common.back_to_schemas')}
+      />
     )
   }
 

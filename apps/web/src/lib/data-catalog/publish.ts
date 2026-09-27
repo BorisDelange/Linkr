@@ -1,6 +1,6 @@
 import { CATALOG_VARIABLE_ORDER, type CatalogResultCache, type CatalogVariableId, type DataCatalog, type PeriodGranularity } from '@/types/catalog'
 import { catalogCounts, OTHER_MODALITY, periodLabel, shownCrossingIds, trimPeriods } from './config'
-import { computeCrossingMasks, PUBLISHED, SECONDARY, type CellStatus } from './suppression'
+import { computeAnonymizationImpact, computeCrossingMasks, PUBLISHED, SECONDARY, type CellStatus } from './suppression'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 
 /**
@@ -137,6 +137,15 @@ export function publishedCrossingResults(catalog: Pick<DataCatalog, 'variables' 
   const shown = shownCrossingIds(catalog)
   const all = cache.crossings ?? []
   return shown ? all.filter((c) => shown.has(c.id)) : all
+}
+
+/**
+ * Finished results with the masks of the catalog's current settings worked
+ * out, so the Anonymization tab shows them without a Run of its own — whoever
+ * computed the catalog (the app, or the MCP server).
+ */
+export function withAnonymizationImpact(catalog: Pick<DataCatalog, 'variables' | 'crossings' | 'anonymization'>, cache: CatalogResultCache): CatalogResultCache {
+  return { ...cache, anonymizationImpact: computeAnonymizationImpact({ concepts: cache.concepts, crossings: publishedCrossingResults(catalog, cache) }, catalog.anonymization) }
 }
 
 /**

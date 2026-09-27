@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
-  ArrowLeft,
   ArrowUpRight,
   Pencil,
   BarChart3,
@@ -87,6 +86,7 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
@@ -143,7 +143,7 @@ interface DatabaseDetailPageProps {
  */
 export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId, siblingIds = [] }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
-  const { wsUid } = useResolvedParams()
+  const { wsUid, raw } = useResolvedParams()
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
@@ -200,14 +200,12 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
 
   if (!source) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
-        <DatabaseIcon size={32} className="text-muted-foreground/50" />
-        <p className="mt-3 text-sm text-muted-foreground">{t('databases.not_found')}</p>
-        <Button variant="outline" size="sm" onClick={onBack} className="mt-4 gap-1.5">
-          <ArrowLeft size={14} />
-          {t('common.back')}
-        </Button>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_database')}
+        entityId={raw.dbId}
+        onBack={onBack}
+        backLabel={t('common.back_to_databases')}
+      />
     )
   }
 

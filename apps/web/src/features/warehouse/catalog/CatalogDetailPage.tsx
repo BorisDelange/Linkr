@@ -1,8 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 import {
-  ArrowLeft,
   BookOpen,
   Database,
   Info,
@@ -41,6 +39,7 @@ import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
 import { CatalogDcatTab } from './CatalogDcatTab'
 import { CatalogExportTab } from './CatalogExportTab'
 import type { CatalogResultCache, DataCatalog } from '@/types'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const TAB_IDS = [
   'overview', 'config', 'anonymization', 'dcat', 'export',
@@ -93,7 +92,6 @@ export function CatalogDetailPage({ catalogId }: Props) {
   // mounted, hidden, so coming back is instant.
   const [kept, setKept] = useState<ReadonlySet<TabId>>(new Set())
   if (activeTab === 'export' && !kept.has(activeTab)) setKept(new Set([...kept, activeTab]))
-  const navigate = useNavigate()
   const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, resultCacheLoadedFor, loadResultCache, updateCatalog } = useCatalogStore()
   const resultsLoaded = resultCacheLoadedFor === catalogId
   const catalogActions = useCatalogActions()
@@ -117,20 +115,12 @@ export function CatalogDetailPage({ catalogId }: Props) {
 
   if (!catalog) {
     return (
-      <div className="h-full overflow-auto">
-        <div className="px-6 py-6">
-          <Button variant="ghost" size="sm" onClick={() => navigate(catalogListPath)}>
-            <ArrowLeft size={14} />
-            {t('data_catalog.back_to_list')}
-          </Button>
-          <Card className="mt-4">
-            <div className="flex flex-col items-center py-12">
-              <BookOpen size={40} className="text-muted-foreground" />
-              <p className="mt-4 text-sm font-medium">{t('data_catalog.not_found')}</p>
-            </div>
-          </Card>
-        </div>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_data_catalog')}
+        entityId={catalogId}
+        backTo={catalogListPath}
+        backLabel={t('common.back_to_data_catalogs')}
+      />
     )
   }
 

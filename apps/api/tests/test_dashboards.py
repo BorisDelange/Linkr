@@ -99,6 +99,23 @@ async def test_tabs_and_widgets_hierarchy(client):
     assert r.json()["layout"]["x"] == 6
 
 
+async def test_widget_moves_between_tabs_of_its_dashboard_only(client):
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+    d = await _dashboard(client, headers, proj)
+    t1 = await _tab(client, headers, d["id"])
+    t2 = await _tab(client, headers, d["id"], tid="t2")
+    other = await _tab(client, headers, (await _dashboard(client, headers, proj, did="d2"))["id"], tid="t3")
+    w = await _widget(client, headers, t1["id"])
+
+    r = await client.patch(f"{API}/dashboards/widgets/{w['id']}", headers=headers, json={"tabId": t2["id"]})
+    assert r.status_code == 200 and r.json()["tabId"] == t2["id"]
+
+    r = await client.patch(f"{API}/dashboards/widgets/{w['id']}", headers=headers, json={"tabId": other["id"]})
+    assert r.status_code == 400
+    assert (await client.get(f"{API}/dashboards/widgets/{w['id']}", headers=headers)).json()["tabId"] == t2["id"]
+
+
 async def test_cascade_delete_removes_children(client):
     headers = await _admin_headers(client)
     proj = await _project(client, headers)

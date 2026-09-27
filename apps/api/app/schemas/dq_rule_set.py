@@ -1,6 +1,13 @@
 from datetime import datetime
 
+from pydantic import field_validator, model_validator
+
 from app.schemas.base import CamelModel
+from app.schemas.dq_taxonomy import (
+    check_threshold,
+    normalize_category,
+    normalize_severity,
+)
 
 
 class DqRuleSetCreate(CamelModel):
@@ -21,6 +28,9 @@ class DqRuleSetCreate(CamelModel):
     data_source_id: str = ""
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
+    schema_preset_ref: dict | None = None
+    # Groups holding no check yet; null when none.
+    check_groups: list[str] | None = None
     status: str = "draft"
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -48,6 +58,8 @@ class DqRuleSetUpdate(CamelModel):
     data_source_id: str | None = None
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
+    schema_preset_ref: dict | None = None
+    check_groups: list[str] | None = None
     status: str | None = None
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -78,6 +90,8 @@ class DqRuleSetResponse(CamelModel):
     data_source_id: str
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
+    schema_preset_ref: dict | None = None
+    check_groups: list[str] | None = None
     status: str
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -100,20 +114,57 @@ class DqCustomCheckCreate(CamelModel):
     name: str = ""
     description: str = ""
     category: str
+    subcategory: str | None = None
     severity: str
     threshold: float = 0
     sql: str = ""
+    explore_sql: str | None = None
     order: int = 0
+    origin: str = "manual"
+    template_key: str | None = None
+    table_name: str | None = None
+    disabled: bool = False
+
+    @model_validator(mode="after")
+    def _taxonomy(self):
+        self.category, self.subcategory = normalize_category(self.category, self.subcategory)
+        self.severity = normalize_severity(self.severity)
+        check_threshold(self.threshold)
+        return self
 
 
 class DqCustomCheckUpdate(CamelModel):
     name: str | None = None
     description: str | None = None
     category: str | None = None
+    subcategory: str | None = None
     severity: str | None = None
     threshold: float | None = None
     sql: str | None = None
+    explore_sql: str | None = None
     order: int | None = None
+    # The check's group in the list; null moves it to "Other checks".
+    table_name: str | None = None
+    disabled: bool | None = None
+
+    @model_validator(mode="after")
+    def _no_null_on_required(self):
+        # Optional here only so a PATCH can leave them out: an explicit null would
+        # write NULL into a NOT NULL column.
+        for field in ("name", "description", "category", "severity", "threshold", "sql", "order", "disabled"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} cannot be null")
+        return self
+
+    @field_validator("severity")
+    @classmethod
+    def _severity(cls, v: str | None) -> str | None:
+        return None if v is None else normalize_severity(v)
+
+    @field_validator("threshold")
+    @classmethod
+    def _threshold(cls, v: float | None) -> float | None:
+        return None if v is None else check_threshold(v)
 
 
 class DqCustomCheckResponse(CamelModel):
@@ -122,10 +173,16 @@ class DqCustomCheckResponse(CamelModel):
     name: str
     description: str
     category: str
+    subcategory: str | None = None
     severity: str
     threshold: float
     sql: str
+    explore_sql: str | None = None
     order: int
+    origin: str
+    template_key: str | None = None
+    table_name: str | None = None
+    disabled: bool
     created_at: datetime
     updated_at: datetime
 

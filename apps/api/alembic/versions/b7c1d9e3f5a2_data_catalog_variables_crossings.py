@@ -13,7 +13,7 @@ nothing in the new one, so a paused run starts over. `pages_deployment` had no
 migration of its own.
 
 Revision ID: b7c1d9e3f5a2
-Revises: a1c2e3f4b5d6
+Revises: d4f6b8c0e2a3
 Create Date: 2026-09-27 12:00:00.000000
 
 """
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b7c1d9e3f5a2"
-down_revision: Union[str, None] = "a1c2e3f4b5d6"
+down_revision: Union[str, None] = "d4f6b8c0e2a3"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

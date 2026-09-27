@@ -49,6 +49,10 @@ export const apiDqCustomCheckStorage: DqCustomCheckStorage = {
     await apiRequest(CHECK, { method: 'POST', body: JSON.stringify(check) })
   },
 
+  createMany: async (ruleSetId, checks) => {
+    await apiRequest(`${SET}/${ruleSetId}/checks`, { method: 'POST', body: JSON.stringify(checks) })
+  },
+
   update: async (id, changes) => {
     await apiRequest(`${CHECK}/${id}`, { method: 'PATCH', body: JSON.stringify(changes) })
   },

@@ -57,6 +57,7 @@ with no rationale gets "corrected" back to upstream:
 | `DialogDescription` / `SheetDescription` | `text-sm` | `text-xs` | matches the dense body |
 | `AlertDialogDescription` | `text-sm` | `text-sm` | an alert's description *is* its content — the consequences of a destructive action — not a subtitle over a dense form; nine call sites were already overriding `text-xs` back to `text-sm` |
 | `Button` | — | added `sm-tight` (h-7) | dozens of buttons hand-rolled `className="h-7"` |
+| `DropdownMenuContent` | — | added `density="compact"` (items `text-xs`, `py-1`) | two sizes, on purpose: page-level action menus ("…", right-click, More) keep `text-sm`; menus opened from an `icon-xs` button in a dense toolbar or sidebar header (filters, pickers, a sidebar's "+") take `compact`. Older filter menus still shrink each item with `className="text-xs"` — same result, prefer the prop in new code |
 
 Inside a dialog, labels and the description render at **13px** rather than 12px —
 the size `Input`, `Textarea`, `Select` and `Button` already use, so a dialog reads
@@ -559,9 +560,14 @@ the dominant size). Never hand-roll a CSS spinner — the ones that existed
 have been replaced — and never `return null` while loading (3 pages still do,
 leaving the screen blank).
 
-**Not found** — use `components/layout/EntityNotFound.tsx`. The 4 warehouse
-detail pages bypass it and degrade to a bare grey `<p>` with no icon and no way
-back; don't copy them.
+**Not found** — use `components/layout/EntityNotFound.tsx` for any URL whose
+entity does not resolve (every detail page and the project/workspace guards go
+through it): icon, "`<Entity>` not found", why, the id from the URL, and an
+outline "Back to `<list>`" button (`backTo` path, or `onBack` when the page
+already owns its back navigation). Labels are `common.entity_*` and
+`common.back_to_*`. It replaced ten hand-made variants — link vs ghost vs outline
+button, with or without icon, three text sizes, two hard-coded English strings,
+four with no way back.
 
 **Long computations** — under the overall `Progress` bar, list the phases with
 **`RunSteps`** (`components/ui/run-steps.tsx`): one line per step, done /

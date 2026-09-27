@@ -53,8 +53,7 @@ import { yieldClass } from './yield-class'
 import { CrossingBadges, VariableBadge } from './variable-badge'
 import { VARIABLE_ICON } from './variable-icons'
 import { VARIABLE_COLORS } from '@/lib/data-catalog/variable-colors'
-import { computeAnonymizationImpact } from '@/lib/data-catalog/suppression'
-import { publishedCrossingResults } from '@/lib/data-catalog/publish'
+import { withAnonymizationImpact } from '@/lib/data-catalog/publish'
 
 interface Props {
   catalog: DataCatalog
@@ -183,7 +182,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   const persist = useCallback(async (computed: CatalogResultCache, done: boolean) => {
     // A finished run starts with the masks of the current settings worked out,
     // so the Anonymization tab has them without a Run of its own.
-    const cache = done ? { ...computed, anonymizationImpact: computeAnonymizationImpact({ concepts: computed.concepts, crossings: publishedCrossingResults(catalog, computed) }, catalog.anonymization) } : computed
+    const cache = done ? withAnonymizationImpact(catalog, computed) : computed
     await getStorage().catalogResults.save(cache)
     setResultCache(cache)
     await updateCatalog(catalog.id, clearedCatalogPatch({

@@ -160,3 +160,22 @@ export function columnMetaMap(
 export function findColumn<T extends DatasetColumn>(columns: T[], ref: string): T | undefined {
   return columns.find((c) => c.id === ref) ?? columns.find((c) => c.name.toLowerCase() === ref.toLowerCase())
 }
+
+/** The dataset a model means by `ref`: its exact path, or the same path or file name
+ *  without the extension and case (models drop `.parquet`, or give the name alone). */
+export function matchDatasetPath(files: { path: string }[], ref: string): { path: string } | { error: string } {
+  const norm = (p: string) => p.trim().toLowerCase().replace(/^\/+/, '').replace(/\.(parquet|csv|tsv|xlsx|json)$/, '')
+  const base = (p: string) => p.split('/').pop() ?? p
+  const exact = files.find((f) => f.path === ref)
+  if (exact) return { path: exact.path }
+  const want = norm(ref)
+  const byPath = files.filter((f) => norm(f.path) === want)
+  const hits = byPath.length ? byPath : files.filter((f) => norm(base(f.path)) === norm(base(ref)))
+  if (hits.length === 1) return { path: hits[0].path }
+  const list = (hits.length ? hits : files).slice(0, 15).map((f) => f.path).join(', ')
+  return {
+    error: hits.length > 1
+      ? `"${ref}" matches several datasets: ${list}. Give the full path.`
+      : `No dataset "${ref}" in this project. Datasets: ${list || '(none)'} — see list_datasets.`,
+  }
+}

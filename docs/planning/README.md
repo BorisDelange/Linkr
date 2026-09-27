@@ -60,14 +60,14 @@ client. The former provider config (and its proxy) is deleted.
 | ✅ | Files server `linkr-files` and its `linkr-authoring` / `create-project` skills deleted — `linkr` over a running instance is the only MCP | S |
 | ✅ | Security: read-query connections cut off the server filesystem (`COPY TO` / `read_csv` any path were open) | S |
 | ✅ | Frame: notification WS + live refresh + header notification centre for cohorts, dashboards (tab/widget detail), datasets; `get_ui_context` (focused tab); **per-change undo** (latest change per item only) — writes marked `X-Linkr-Client: mcp`; in-process hub (single worker) | M |
-| ✅ | HTTP transport + personal API keys (`lnk_…`, Profile → API keys; each LibreChat user sends their own) + tool annotations → local LibreChat beside Linkr. Not built: project-scoped and read-only keys | M |
+| ✅ | HTTP transport + personal API keys (`lnk_…`, Profile → API keys; each LibreChat user sends their own) + tool annotations → local LibreChat beside Linkr. A key has its owner's rights: no project-scoped or read-only keys, by decision | M |
 | ✅ | `linkr` extended: datasets (incl. `create_dataset_from_query`, written server-side) and dashboards (plugins documented from manifests; key-indicator missing — inline manifest, see plugin-model harmonisation) | M |
 | ✅ | Gaps closed: IDE scripts + R/Python runs (figures as `ui://`), dataset column edits / metadata / duplicate / move / delete, concept sets (read) + concept lists, delete cohort, dashboard update / delete / filters; scripts, dataset edits and concept lists now notify. Not done: derive a database from a cohort (needs a managed target DB created first), cohort materialization (front-only logic), Atlas import | L |
 | ✅ | `cohort_report`: the cohort report in the chat — summary to the model, HTML as an MCP-UI `ui://` resource rendered inline by LibreChat | S |
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |
 | ✅ | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` (plugin docs salvaged into the MCP), then the LLM provider config + proxy + `llm-config` permission | S |
 | 🤔 | Embedded chat — (a) Linkr UI over LibreChat Agents API · (b) server loop · (c) ACP + OpenCode | L |
-| 💤 | Workspace agent (narrow tools) | M |
+| ✅ | Full coverage (2026-09-27, ~230 tools; the client sees a core of ~30 + a gateway `find_linkr_tools` / `run_linkr_read|write|delete_tool` — ~6k tokens instead of ~40k, zero client config; `LINKR_MCP_TOOLSETS=all` for Claude Code): workspaces / projects / databases (create, link, presets), data quality, ETL pipelines + SQL collections, wiki + data catalogs + READMEs, dataset editing + analyses, Pipeline page, patient-data boards, workspace plugins, dashboard extras, kernels / environments / jobs, mapping projects + reviews + source concept ids, git read-only. Out by design: permissions, members, project/workspace deletion, git push, secrets | L |
 
 ## Reports — [reports-plan.md](reports-plan.md)
 

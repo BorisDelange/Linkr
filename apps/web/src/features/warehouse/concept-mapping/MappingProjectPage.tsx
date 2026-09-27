@@ -49,6 +49,9 @@ import { MappingEditorTab } from './MappingEditorTab'
 import { MappingsTab } from './MappingsTab'
 import { ProgressTab } from './ProgressTab'
 import { ExportTab } from './ExportTab'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
+import { paths } from '@/lib/paths'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
 
 interface MappingProjectPageProps {
   projectId: string
@@ -59,6 +62,7 @@ type TabId = (typeof TABS)[number]
 
 export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const { t } = useTranslation()
+  const { wsUid } = useResolvedParams()
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
     key: `mapping-project:${projectId}`,
     tabs: TABS,
@@ -153,9 +157,12 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
 
   if (!project) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">{t('concept_mapping.project_not_found')}</p>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_mapping_project')}
+        entityId={projectId}
+        backTo={paths.warehouseConceptMapping(wsUid ?? '')}
+        backLabel={t('common.back_to_mapping_projects')}
+      />
     )
   }
 
