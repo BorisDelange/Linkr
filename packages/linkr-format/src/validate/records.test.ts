@@ -151,6 +151,24 @@ describe('data catalog', () => {
     const issues = validateEntity(new MemoryTree({ 'entity.json': '{"type":"data-catalog"}' }), 'data-catalog')
     expect(issues.some((i) => i.code === 'missing-field')).toBe(true)
   })
+
+  it('accepts a Pages deployment with its site and CI file', () => {
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({
+        type: 'data-catalog', name: { en: 'Catalog' }, dimensions: ['age'],
+        pagesDeployment: { provider: 'gitlab', updatedAt: '2026-09-26T10:00:00.000Z' },
+      }),
+      'site/index.html': '<html></html>',
+      'site/concepts.csv': 'a,b\n',
+      '.gitlab-ci.yml': 'pages:\n',
+    })
+    expect(validateEntity(tree, 'data-catalog')).toEqual([])
+  })
+
+  it('rejects an unknown Pages provider', () => {
+    const issues = validateEntity(catalog({ pagesDeployment: { provider: 'netlify' } }), 'data-catalog')
+    expect(issues.some((i) => i.pointer === '/pagesDeployment/provider')).toBe(true)
+  })
 })
 
 describe('cohort', () => {

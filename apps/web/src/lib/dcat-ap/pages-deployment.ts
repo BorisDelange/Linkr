@@ -1,0 +1,200 @@
+/**
+ * Static-site deployment of a published data catalog through GitLab Pages or
+ * GitHub Pages, from the catalog's own git repository.
+ *
+ * The catalog repo then carries, beside `entity.json`:
+ *   - `site/`: the published files (`index.html` = the catalog page, its CSVs,
+ *     `metadata.jsonld`), rendered in the browser by the Publish tab;
+ *   - the CI file of the chosen provider, which deploys `site/` on push.
+ *
+ * Both are stored as README-attachment rows of owner type
+ * `PAGES_SITE_OWNER_TYPE`, whose `fileName` is the path in the tree. The HTML
+ * generator is TypeScript, and in server mode the git tree is assembled in
+ * Python — so the site cannot be rendered at push time. Storing the rendered
+ * files with the catalog lets both tree builders (`buildDataCatalogZip` and
+ * `build_data_catalog_tree`) copy them verbatim, with no generator on the server.
+ */
+import { webRepoUrl } from '@/lib/git-web-url'
+import type { CatalogPagesDeployment } from '@/types/catalog'
+
+export type PagesProvider = CatalogPagesDeployment['provider']
+
+export const PAGES_PROVIDERS: PagesProvider[] = ['gitlab', 'github']
+
+export const PAGES_SITE_OWNER_TYPE = 'data-catalog-site' as const
+
+export const PAGES_SITE_DIR = 'site'
+
+export const PAGES_CI_PATH: Record<PagesProvider, string> = {
+  gitlab: '.gitlab-ci.yml',
+  github: '.github/workflows/pages.yml',
+}
+
+/** A file of the deployed tree: its repo path, content and media type. */
+export interface PagesTreeFile {
+  path: string
+  content: string
+  mimeType: string
+}
+
+/**
+ * Whether a path may be written into the catalog repo from a site attachment.
+ * Mirrored by `_PAGES_TREE_PATH` in workspace_export_assemble.py: the stored
+ * `fileName` is client-supplied, so without this an attachment could land on
+ * `entity.json`, `../x` or `.git/config`.
+ */
+export function isPagesTreePath(path: string): boolean {
+  if (path === PAGES_CI_PATH.gitlab || path === PAGES_CI_PATH.github) return true
+  return /^site\/[A-Za-z0-9_-][A-Za-z0-9._-]*(\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*$/.test(path)
+}
+
+// Hosts whose Pages domain is known. Any other host is a self-hosted instance,
+// whose Pages domain is whatever its administrator configured.
+const PAGES_HOSTS: Record<string, { provider: PagesProvider; domain: string }> = {
+  'gitlab.com': { provider: 'gitlab', domain: 'gitlab.io' },
+  'framagit.org': { provider: 'gitlab', domain: 'frama.io' },
+  'github.com': { provider: 'github', domain: 'github.io' },
+}
+
+function remoteParts(remoteUrl: string | undefined | null): { host: string; segments: string[] } | null {
+  const web = webRepoUrl(remoteUrl)
+  if (!web) return null
+  const parsed = new URL(web)
+  return { host: parsed.hostname.toLowerCase(), segments: parsed.pathname.split('/').filter(Boolean) }
+}
+
+/** The provider a remote most likely uses: GitHub for github.com, GitLab otherwise
+ *  (gitlab.com, framagit and self-hosted instances are nearly always GitLab). */
+export function guessPagesProvider(remoteUrl: string | undefined | null): PagesProvider {
+  return remoteParts(remoteUrl)?.host === 'github.com' ? 'github' : 'gitlab'
+}
+
+export type PagesUrl =
+  | { kind: 'known'; url: string }
+  /** The host serves another provider than the one chosen (GitHub CI on gitlab.com). */
+  | { kind: 'provider-mismatch'; hostProvider: PagesProvider }
+  /** A host we cannot predict the Pages domain of. */
+  | { kind: 'self-hosted' }
+  | { kind: 'invalid-remote' }
+
+/**
+ * The address the site will be served at, predicted from the remote.
+ *
+ * Project sites live at `https://<namespace>.<domain>/<path>/`, where the
+ * namespace is the top-level group or user and the path the rest (subgroups
+ * included). A project named after the domain itself (`<owner>.github.io`) is
+ * the user/group site, served at the root.
+ */
+export function pagesUrlFromRemote(remoteUrl: string | undefined | null, provider: PagesProvider): PagesUrl {
+  const parts = remoteParts(remoteUrl)
+  if (!parts || parts.segments.length < 2) return { kind: 'invalid-remote' }
+  const host = PAGES_HOSTS[parts.host]
+  if (!host) return { kind: 'self-hosted' }
+  if (host.provider !== provider) return { kind: 'provider-mismatch', hostProvider: host.provider }
+  // GitHub has no subgroups: anything past owner/repo is not a repo path.
+  if (provider === 'github' && parts.segments.length !== 2) return { kind: 'invalid-remote' }
+  const [namespace, ...rest] = parts.segments
+  const siteHost = `${namespace.toLowerCase()}.${host.domain}`
+  const path = rest.join('/')
+  if (rest.length === 1 && path.toLowerCase() === siteHost) return { kind: 'known', url: `https://${siteHost}/` }
+  return { kind: 'known', url: `https://${siteHost}/${path}/` }
+}
+
+// A branch name outside this set is not written into the YAML: git allows
+// quotes and colons in branch names, which would break the file or the rule
+// expression. The CI then falls back to the repository's default branch.
+const SAFE_BRANCH = /^[A-Za-z0-9._/-]+$/
+
+const GENERATED_HEADER = [
+  '# Generated by Linkr: deploys the data catalog page in site/.',
+  '# Rewritten each time the site is updated from the catalog\'s Publish tab.',
+]
+
+/** The CI file that deploys `site/` on every push to `branch`. */
+export function buildPagesCiFile(provider: PagesProvider, branch: string | undefined): string {
+  const safeBranch = branch && SAFE_BRANCH.test(branch) ? branch : null
+  if (provider === 'gitlab') {
+    // Copies site/ to public/ rather than using `pages: publish: site`: that
+    // keyword needs GitLab 17.9+, and self-hosted instances (framagit…) often
+    // run older versions. A `pages` job publishing `public` works on all of them.
+    return [
+      ...GENERATED_HEADER,
+      'pages:',
+      '  stage: deploy',
+      '  image: alpine:latest',
+      '  script:',
+      '    - rm -rf public',
+      '    - cp -r site public',
+      '  artifacts:',
+      '    paths:',
+      '      - public',
+      '  rules:',
+      safeBranch
+        ? `    - if: $CI_COMMIT_BRANCH == "${safeBranch}"`
+        : '    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH',
+      '',
+    ].join('\n')
+  }
+  return [
+    ...GENERATED_HEADER,
+    '# Requires Settings > Pages > Source: "GitHub Actions".',
+    'name: Deploy data catalog to GitHub Pages',
+    '',
+    'on:',
+    '  push:',
+    ...(safeBranch ? ['    branches:', `      - "${safeBranch}"`] : []),
+    '  workflow_dispatch:',
+    '',
+    'permissions:',
+    '  contents: read',
+    '  pages: write',
+    '  id-token: write',
+    '',
+    'concurrency:',
+    '  group: pages',
+    '  cancel-in-progress: false',
+    '',
+    'jobs:',
+    '  deploy:',
+    '    runs-on: ubuntu-latest',
+    '    environment:',
+    '      name: github-pages',
+    '      url: ${{ steps.deployment.outputs.page_url }}',
+    '    steps:',
+    '      - uses: actions/checkout@v5',
+    '      - uses: actions/configure-pages@v5',
+    '      - uses: actions/upload-pages-artifact@v4',
+    '        with:',
+    '          path: site',
+    '      - id: deployment',
+    '        uses: actions/deploy-pages@v4',
+    '',
+  ].join('\n')
+}
+
+function mimeTypeOf(name: string): string {
+  if (name.endsWith('.html')) return 'text/html'
+  if (name.endsWith('.csv')) return 'text/csv'
+  if (name.endsWith('.jsonld')) return 'application/ld+json'
+  if (name.endsWith('.json')) return 'application/json'
+  if (name.endsWith('.yml') || name.endsWith('.yaml')) return 'application/yaml'
+  return 'text/plain'
+}
+
+/**
+ * The deployed tree from the published files (as the ZIP names them): the
+ * catalog page becomes `site/index.html` so it is served at the site root, the
+ * other files keep their names under `site/`, plus the provider's CI file.
+ */
+export function buildPagesTree(
+  files: { name: string; content: string }[],
+  provider: PagesProvider,
+  branch: string | undefined,
+): PagesTreeFile[] {
+  const site = files.map((f) => {
+    const name = f.name === 'catalog.html' ? 'index.html' : f.name
+    return { path: `${PAGES_SITE_DIR}/${name}`, content: f.content, mimeType: mimeTypeOf(name) }
+  })
+  const ciPath = PAGES_CI_PATH[provider]
+  return [...site, { path: ciPath, content: buildPagesCiFile(provider, branch), mimeType: mimeTypeOf(ciPath) }]
+}

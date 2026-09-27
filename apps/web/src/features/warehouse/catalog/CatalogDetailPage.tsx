@@ -251,7 +251,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
 
         <TabsContent value="export" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
           {activeResultCache ? (
-            <CatalogExportTab catalog={catalog} cache={activeResultCache} />
+            <CatalogExportTab catalog={catalog} cache={activeResultCache} onOpenVersioning={() => setActiveTab('versioning')} />
           ) : (
             <Card>
               <div className="flex flex-col items-center py-12">

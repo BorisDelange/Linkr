@@ -1,14 +1,32 @@
-import { queryDataSource } from './engine'
 import {
-  buildBatchedCatalogQueries,
-  buildDateRangeQuery,
-  buildServiceLabelsQuery,
-  buildPeriodRowQuery,
-  generatePeriodIntervals,
-  type PeriodInterval,
+  buildConceptListQueries,
+  buildConceptRankQuery,
+  buildCrossingEstimateQuery,
+  buildCrossingQuery,
+  buildServiceListQuery,
+  buildTotalsQuery,
+  variableColumn,
+  type ConceptFilter,
+  type CrossingQueryContext,
 } from './catalog-queries'
-import { getStorage } from '@/lib/storage'
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogPeriodRow } from '@/types'
+import {
+  ageBucketLabels,
+  crossingId,
+  crossingParamsKey,
+  effectiveCrossings,
+  OTHER_MODALITY,
+  periodRange,
+  SEX_MODALITIES,
+} from '@/lib/data-catalog/config'
+import type {
+  CatalogConceptRow,
+  CatalogCrossingResult,
+  CatalogCrossingRow,
+  CatalogGrandTotal,
+  CatalogResultCache,
+  CatalogVariableId,
+  DataCatalog,
+} from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 export type ComputeStep = 'mounting' | 'building' | 'executing' | 'processing' | 'saving'
@@ -24,530 +42,267 @@ export interface ComputeProgress {
 /**
  * A query that has already been routed to the right data source.
  *
- * The batched entry points take this rather than a data-source id so the runner
- * owns the routing (and, in tests, can answer without DuckDB at all).
+ * The entry points take this rather than a data-source id so the runner owns
+ * the routing (and, in tests, can answer without DuckDB at all).
  */
 export type CatalogQuery = (sql: string) => Promise<Record<string, unknown>[]>
 
-/** Everything the period walk needs, resolved once before the first batch. */
-export interface PeriodPlan {
-  catalog: DataCatalog
-  mapping: SchemaMapping
-  intervals: PeriodInterval[]
-  ageBrackets: number[]
-  serviceLabels: string[]
-  conceptCategories: string[]
-  threshold: number
-}
+const MISSING_MAPPING = 'Cannot build catalog query: missing schema mapping (patient table, visit table, or concept dictionaries)'
 
 /**
- * Compute a catalog using two-table architecture:
- * - Concept table: per-concept aggregates (simple GROUP BY, no dims) — one query per dictionary
- * - Dimension table: per-dimension-value aggregates + grand total (GROUPING SETS)
+ * Concept modalities per query of a concept-level crossing. The cells are
+ * exact whatever the split — every cell carries its concept, and each concept
+ * falls in one chunk — so the chunks only make a long crossing resumable.
  */
-export async function computeCatalog(
-  catalog: DataCatalog,
-  dataSourceId: string,
-  mapping: SchemaMapping,
-  onProgress?: (progress: ComputeProgress) => void,
-): Promise<CatalogResultCache> {
-  const startTime = performance.now()
-
-  // Step 1: Building queries
-  onProgress?.({ step: 'building', fraction: 0 })
-
-  const queries = buildBatchedCatalogQueries(
-    mapping,
-    catalog.dimensions,
-    undefined,
-    catalog.categoryColumn,
-    catalog.subcategoryColumn,
-  )
-  if (!queries) {
-    throw new Error('Cannot build catalog query: missing schema mapping (patient table, visit table, or concept dictionaries)')
-  }
-
-  onProgress?.({ step: 'building', fraction: 1 })
-
-  // Step 2: Execute one query per dictionary (concept-level aggregates, no dims)
-  onProgress?.({ step: 'executing', fraction: 0, detail: 'listing concepts' })
-
-  const totalDicts = queries.conceptListQueries.length
-  const totalSteps = totalDicts + 1 // dictionaries + 1 global query
-
-  const enabledDims = catalog.dimensions.filter((d) => d.enabled)
-  const dimKeys = enabledDims.map((d) => `dim_${d.type}`)
-
-  const concepts: CatalogConceptRow[] = []
-  const dimensions: CatalogDimensionRow[] = []
-  let grandTotal: CatalogGrandTotal = { totalPatients: 0, totalVisits: 0, totalRecords: 0 }
-
-  for (let dictIdx = 0; dictIdx < queries.conceptListQueries.length; dictIdx++) {
-    const clq = queries.conceptListQueries[dictIdx]
-
-    // Fetch all concept IDs for this dictionary
-    const idRows = await queryDataSource(dataSourceId, clq.sql)
-    const allIds = idRows.map((r) => r.cid as string | number)
-
-    onProgress?.({
-      step: 'executing',
-      fraction: (dictIdx + 1) / totalSteps,
-      detail: `dictionary ${dictIdx + 1}/${totalDicts}`,
-    })
-
-    if (allIds.length === 0) continue
-
-    // Execute one query for all concepts in this dictionary
-    const template = queries.batchTemplates.find((t) => t.dictKey === clq.dictKey)!
-    const sql = template.buildSql(allIds)
-    const rawRows = await queryDataSource(dataSourceId, sql)
-
-    for (const row of rawRows) {
-      concepts.push({
-        conceptId: row.concept_id as number | string,
-        conceptName: row.concept_name as string,
-        dictionaryKey: row.dictionary_key as string | undefined,
-        category: catalog.categoryColumn ? (row.concept_category as string | null) ?? null : undefined,
-        subcategory: catalog.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
-        patientCount: Number(row.patient_count ?? 0),
-        recordCount: Number(row.record_count ?? 0),
-        visitCount: Number(row.visit_count ?? 0),
-      })
-    }
-  }
-
-  // Execute global query (dim-only margins + grand total)
-  onProgress?.({
-    step: 'executing',
-    fraction: totalDicts / totalSteps,
-    detail: 'totals',
-  })
-
-  const globalRows = await queryDataSource(dataSourceId, queries.globalQuery)
-  for (const row of globalRows) {
-    const pCount = Number(row.patient_count ?? 0)
-    const rCount = Number(row.record_count ?? 0)
-    const vCount = Number(row.visit_count ?? 0)
-
-    // Determine which dim columns are present (non-null)
-    const activeDims: { dimIndex: number; value: string | number }[] = []
-    for (let i = 0; i < enabledDims.length; i++) {
-      if (row[dimKeys[i]] != null) {
-        activeDims.push({ dimIndex: i, value: row[dimKeys[i]] as string | number })
-      }
-    }
-
-    if (activeDims.length === 0) {
-      // Grand total row (all dims rolled up)
-      grandTotal = { totalPatients: pCount, totalVisits: vCount, totalRecords: rCount }
-    } else if (activeDims.length === 1) {
-      // Single-dimension margin row
-      const dim = enabledDims[activeDims[0].dimIndex]
-      dimensions.push({
-        dimensionId: dim.id,
-        dimensionType: dim.type,
-        value: activeDims[0].value,
-        patientCount: pCount,
-        recordCount: rCount,
-        visitCount: vCount,
-      })
-    }
-  }
-
-  onProgress?.({ step: 'executing', fraction: 1 })
-
-  // Step 3: Compute period table (if configured)
-  onProgress?.({ step: 'processing', fraction: 0 })
-
-  let periods: CatalogPeriodRow[] | undefined
-  let periodReliabilityScore: number | undefined
-
-  if (catalog.periodConfig) {
-    const periodResult = await computePeriodTable(
-      catalog,
-      dataSourceId,
-      mapping,
-      (frac) => onProgress?.({ step: 'processing', fraction: frac * 0.9 }),
-    )
-    periods = periodResult.rows
-    periodReliabilityScore = periodResult.reliabilityScore
-  }
-
-  onProgress?.({ step: 'processing', fraction: 0.95 })
-
-  const durationMs = Math.round(performance.now() - startTime)
-
-  const cache: CatalogResultCache = {
-    catalogId: catalog.id,
-    computedAt: new Date().toISOString(),
-    durationMs,
-    concepts,
-    dimensions,
-    grandTotal,
-    totalConcepts: concepts.length,
-    totalPatients: grandTotal.totalPatients,
-    totalVisits: grandTotal.totalVisits,
-    periods,
-    periodReliabilityScore,
-  }
-
-  onProgress?.({ step: 'processing', fraction: 1 })
-
-  // Step 4: Saving to IDB
-  onProgress?.({ step: 'saving', fraction: 0 })
-  await getStorage().catalogResults.save(cache)
-  onProgress?.({ step: 'saving', fraction: 1 })
-
-  return cache
-}
+const CONCEPT_CHUNK = 2000
 
 // ---------------------------------------------------------------------------
-// Batched entry points
-//
-// The same work `computeCatalog` does, split so a run can be paused and resumed:
-// the concept and dimension passes in one call (they are one aggregate query per
-// dictionary — a walk would gain nothing), then the period table a page at a
-// time. `catalog-runner.ts` drives these; `computeCatalog` above stays as the
-// one-shot path.
+// Concept list and totals
 // ---------------------------------------------------------------------------
 
-/**
- * The concept rows, dimension margins and grand total — everything but periods.
- *
- * Returns a cache whose `periods` is still empty: the runner fills it in
- * batches, so this is the part a resume replays rather than the part it skips.
- */
-export async function computeCatalogBase(
+/** One row per concept with its exact patient, record and visit counts. */
+export async function computeConceptList(
   catalog: DataCatalog,
   mapping: SchemaMapping,
   query: CatalogQuery,
   signal?: AbortSignal,
-): Promise<CatalogResultCache> {
-  const queries = buildBatchedCatalogQueries(
-    mapping,
-    catalog.dimensions,
-    undefined,
-    catalog.categoryColumn,
-    catalog.subcategoryColumn,
-  )
-  if (!queries) {
-    throw new Error('Cannot build catalog query: missing schema mapping (patient table, visit table, or concept dictionaries)')
-  }
-
-  const enabledDims = catalog.dimensions.filter((d) => d.enabled)
-  const dimKeys = enabledDims.map((d) => `dim_${d.type}`)
+): Promise<CatalogConceptRow[]> {
+  const cfg = catalog.variables.concept
+  const queries = buildConceptListQueries(mapping, cfg?.categoryColumn, cfg?.subcategoryColumn)
+  if (!queries) throw new Error(MISSING_MAPPING)
 
   const concepts: CatalogConceptRow[] = []
-  const dimensions: CatalogDimensionRow[] = []
-  let grandTotal: CatalogGrandTotal = { totalPatients: 0, totalVisits: 0, totalRecords: 0 }
-
   for (const clq of queries.conceptListQueries) {
     if (signal?.aborted) break
-    const idRows = await query(clq.sql)
-    const allIds = idRows.map((r) => r.cid as string | number)
-    if (allIds.length === 0) continue
-
+    const ids = (await query(clq.sql)).map((r) => r.cid as string | number)
+    if (ids.length === 0) continue
     const template = queries.batchTemplates.find((t) => t.dictKey === clq.dictKey)!
-    for (const row of await query(template.buildSql(allIds))) {
+    for (const row of await query(template.buildSql(ids))) {
       concepts.push({
         conceptId: row.concept_id as number | string,
         conceptName: row.concept_name as string,
         dictionaryKey: row.dictionary_key as string | undefined,
-        category: catalog.categoryColumn ? (row.concept_category as string | null) ?? null : undefined,
-        subcategory: catalog.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
+        category: cfg?.categoryColumn ? (row.concept_category as string | null) ?? null : undefined,
+        subcategory: cfg?.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
         patientCount: Number(row.patient_count ?? 0),
         recordCount: Number(row.record_count ?? 0),
         visitCount: Number(row.visit_count ?? 0),
       })
     }
   }
-
-  for (const row of await query(queries.globalQuery)) {
-    const pCount = Number(row.patient_count ?? 0)
-    const rCount = Number(row.record_count ?? 0)
-    const vCount = Number(row.visit_count ?? 0)
-
-    const activeDims: { dimIndex: number; value: string | number }[] = []
-    for (let i = 0; i < enabledDims.length; i++) {
-      if (row[dimKeys[i]] != null) {
-        activeDims.push({ dimIndex: i, value: row[dimKeys[i]] as string | number })
-      }
-    }
-
-    if (activeDims.length === 0) {
-      grandTotal = { totalPatients: pCount, totalVisits: vCount, totalRecords: rCount }
-    } else if (activeDims.length === 1) {
-      const dim = enabledDims[activeDims[0].dimIndex]
-      dimensions.push({
-        dimensionId: dim.id,
-        dimensionType: dim.type,
-        value: activeDims[0].value,
-        patientCount: pCount,
-        recordCount: rCount,
-        visitCount: vCount,
-      })
-    }
-  }
-
-  return {
-    catalogId: catalog.id,
-    computedAt: new Date().toISOString(),
-    durationMs: 0,
-    concepts,
-    dimensions,
-    grandTotal,
-    totalConcepts: concepts.length,
-    totalPatients: grandTotal.totalPatients,
-    totalVisits: grandTotal.totalVisits,
-  }
+  return concepts
 }
 
-/** The period walk, as a plan + a pageable run + the summary it feeds. */
-export const computePeriodBatch = {
-  /**
-   * Resolve everything the walk needs: the intervals, the labels each row is
-   * widened by, and the masking threshold. One round of queries, before any row.
-   */
-  async plan(
-    catalog: DataCatalog,
-    mapping: SchemaMapping,
-    query: CatalogQuery,
-  ): Promise<PeriodPlan | null> {
-    const periodConfig = catalog.periodConfig
-    if (!periodConfig) return null
-
-    const dateRangeQuery = buildDateRangeQuery(mapping)
-    if (!dateRangeQuery) return null
-    const dateRows = await query(dateRangeQuery)
-    const minDate = dateRows[0]?.min_date as string | null
-    const maxDate = dateRows[0]?.max_date as string | null
-    if (!minDate || !maxDate) return null
-
-    const svcQuery = buildServiceLabelsQuery(mapping, periodConfig.serviceLevel)
-    let serviceLabels: string[] = []
-    if (svcQuery) {
-      serviceLabels = (await query(svcQuery)).map((r) => String(r.svc_label)).filter(Boolean)
-      if (periodConfig.serviceLabels && periodConfig.serviceLabels.length > 0) {
-        const allowed = new Set(periodConfig.serviceLabels)
-        serviceLabels = serviceLabels.filter((l) => allowed.has(l))
-      }
-    }
-
-    return {
-      catalog,
-      mapping,
-      intervals: generatePeriodIntervals(minDate, maxDate, periodConfig.granularity),
-      ageBrackets: getAgeBrackets(catalog),
-      serviceLabels,
-      conceptCategories: periodConfig.conceptCategories ?? [],
-      threshold: catalog.anonymization.threshold,
-    }
-  },
-
-  /** One page of period rows, starting at `offset`. */
-  async run(
-    plan: PeriodPlan,
-    offset: number,
-    count: number,
-    query: CatalogQuery,
-    signal?: AbortSignal,
-    onProgress?: (done: number, label: string) => void,
-  ): Promise<CatalogPeriodRow[]> {
-    const rows: CatalogPeriodRow[] = []
-    const end = Math.min(offset + count, plan.intervals.length)
-    for (let i = offset; i < end; i++) {
-      if (signal?.aborted) break
-      const interval = plan.intervals[i]
-      const sql = buildPeriodRowQuery(
-        plan.mapping,
-        interval,
-        plan.catalog.periodConfig!,
-        plan.ageBrackets,
-        plan.serviceLabels,
-        undefined,
-        plan.catalog.categoryColumn,
-        plan.conceptCategories,
-      )
-      // A period with no buildable query still occupies its slot: the offset is
-      // an index into `intervals`, so skipping one without a row would shift
-      // every later resume by one and silently drop a period.
-      rows.push(
-        sql
-          ? parsePeriodRow(
-              (await query(sql))[0] ?? {}, interval, plan.ageBrackets,
-              plan.serviceLabels, plan.conceptCategories, plan.threshold,
-            )
-          : parsePeriodRow({}, interval, plan.ageBrackets, plan.serviceLabels, plan.conceptCategories, plan.threshold),
-      )
-      onProgress?.(rows.length, interval.label)
-    }
-    return rows
-  },
-
-  /** The reliability score the Data and Publish tabs read off the cache. */
-  summarize(periods: CatalogPeriodRow[]): { periodReliabilityScore: number } {
-    const dataRows = periods.filter((r) => r.period_granularity !== 'all')
-    const masked = dataRows.filter((r) => r.n_patients === null).length
-    return { periodReliabilityScore: dataRows.length > 0 ? masked / dataRows.length : 0 }
-  },
+export async function computeTotals(mapping: SchemaMapping, query: CatalogQuery): Promise<CatalogGrandTotal> {
+  const sql = buildTotalsQuery(mapping)
+  if (!sql) throw new Error(MISSING_MAPPING)
+  const row = (await query(sql))[0] ?? {}
+  return {
+    totalPatients: Number(row.total_patients ?? 0),
+    totalVisits: Number(row.total_visits ?? 0),
+    totalRecords: Number(row.total_records ?? 0),
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Period table computation
+// Crossing plan
 // ---------------------------------------------------------------------------
 
-/**
- * Build the age brackets from the catalog dimensions config.
- * Returns the brackets of the age_group dimension if enabled, else empty.
- */
-function getAgeBrackets(catalog: DataCatalog): number[] {
-  const ageDim = catalog.dimensions.find((d) => d.type === 'age_group' && d.enabled)
-  return ageDim?.ageGroup?.brackets ?? []
+/** One query's worth of a run: a crossing, or one concept chunk of it. */
+export interface CrossingUnit {
+  crossingId: string
+  variables: CatalogVariableId[]
+  conceptFilter?: ConceptFilter
+  /** The concept 1-way marginal, already known from the plan's ranking query. */
+  precomputed?: CatalogCrossingRow[]
+  /** For the progress line: 'period-age', 'concept-period (3/7)'. */
+  label: string
+}
+
+export interface CrossingPlan {
+  ctx: CrossingQueryContext
+  crossings: CatalogVariableId[][]
+  units: CrossingUnit[]
+  labels: CatalogResultCache['labels']
+}
+
+/** Concept modality → (dictionary, id), the inverse of the SQL's modality expression. */
+function conceptFilterOf(modalities: readonly string[], dictKeys: readonly string[]): ConceptFilter {
+  const multi = dictKeys.length > 1
+  const byDict = new Map<string, string[]>()
+  for (const m of modalities) {
+    const sep = multi ? m.indexOf(':') : -1
+    const dictKey = multi ? m.slice(0, sep) : dictKeys[0]
+    const id = multi ? m.slice(sep + 1) : m
+    byDict.set(dictKey, [...(byDict.get(dictKey) ?? []), id])
+  }
+  return [...byDict].map(([dictKey, ids]) => ({ dictKey, ids }))
 }
 
 /**
- * Parse the raw SQL row returned by buildPeriodRowQuery into a CatalogPeriodRow.
- * Applies anonymization threshold: values below threshold → null.
+ * Resolve everything the crossings need before the first one runs: the
+ * services a top-N grouping keeps, the concepts in scope (ranked by patients —
+ * which is also the concept variable's 1-way marginal), and the unit list.
  */
-export function parsePeriodRow(
-  raw: Record<string, unknown>,
-  interval: PeriodInterval,
-  ageBrackets: number[],
-  serviceLabels: string[],
-  conceptCategories: string[],
-  threshold: number,
-): CatalogPeriodRow {
-  const mask = (v: unknown): number | null => {
-    const n = v != null ? Number(v) : 0
-    return n < threshold ? null : n
-  }
-  // A cell's other measures (stays, rows) are masked on its PATIENT count: one
-  // patient with twelve stays is still one patient, and publishing the 12 would
-  // show the cell is not empty.
-  const maskWith = (patients: unknown, v: unknown): number | null =>
-    mask(patients) === null ? null : (v != null ? Number(v) : 0)
-
-  // Age bucket labels (must match the alias generation in buildPeriodRowQuery)
-  const bucketLabels: string[] = []
-  if (ageBrackets.length > 0) {
-    const sorted = [...ageBrackets].sort((a, b) => a - b)
-    if (sorted[0] > 0) bucketLabels.push(`[0;${sorted[0]}[`)
-    for (let i = 0; i < sorted.length; i++) {
-      const lo = sorted[i]
-      const hi = i < sorted.length - 1 ? sorted[i + 1] : null
-      bucketLabels.push(hi != null ? `[${lo};${hi}[` : `[${lo};+inf[`)
-    }
-  }
-
-  const age_buckets: Record<string, number | null> = {}
-  for (const label of bucketLabels) {
-    const alias = `age_${label.replace(/[^a-zA-Z0-9]/g, '_')}`
-    age_buckets[label] = mask(raw[alias])
-  }
-
-  const services: Record<string, { n_patients: number | null; n_sejours: number | null }> = {}
-  for (const svcLabel of serviceLabels) {
-    const aliasBase = svcLabel.replace(/[^a-zA-Z0-9]/g, '_')
-    services[svcLabel] = {
-      n_patients: mask(raw[`svc_${aliasBase}_pat`]),
-      n_sejours: maskWith(raw[`svc_${aliasBase}_pat`], raw[`svc_${aliasBase}_sej`]),
-    }
-  }
-
-  const concept_categories: Record<string, { n_patients: number | null; n_rows: number | null }> = {}
-  for (const cat of conceptCategories) {
-    const aliasBase = cat.replace(/[^a-zA-Z0-9]/g, '_')
-    concept_categories[cat] = {
-      n_patients: mask(raw[`cat_${aliasBase}_pat`]),
-      n_rows: maskWith(raw[`cat_${aliasBase}_pat`], raw[`cat_${aliasBase}_rows`]),
-    }
-  }
-
-  return {
-    period_granularity: interval.granularity,
-    period_start: interval.start,
-    period_label: interval.label,
-    n_patients: mask(raw.n_patients),
-    n_sejours: maskWith(raw.n_patients, raw.n_sejours),
-    sex_m: mask(raw.sex_m),
-    sex_f: mask(raw.sex_f),
-    sex_other: mask(raw.sex_other),
-    age_buckets,
-    services,
-    concept_categories,
-  }
-}
-
-async function computePeriodTable(
+export async function planCrossings(
   catalog: DataCatalog,
-  dataSourceId: string,
   mapping: SchemaMapping,
-  onProgress?: (fraction: number) => void,
-): Promise<{ rows: CatalogPeriodRow[]; reliabilityScore: number }> {
-  const periodConfig = catalog.periodConfig!
-  const threshold = catalog.anonymization.threshold
-  const ageBrackets = getAgeBrackets(catalog)
+  query: CatalogQuery,
+  concepts: readonly CatalogConceptRow[] = [],
+): Promise<CrossingPlan> {
+  const variables = catalog.variables
+  const crossings = effectiveCrossings(catalog)
+  const used = new Set(crossings.flat())
 
-  // 1. Get date range
-  const dateRangeQuery = buildDateRangeQuery(mapping)
-  if (!dateRangeQuery) return { rows: [], reliabilityScore: 0 }
+  let topServices: string[] = []
+  const service = variables.service
+  if (used.has('service') && service?.grouping === 'top') {
+    const sql = buildServiceListQuery(mapping, service.level)
+    if (sql) topServices = (await query(sql)).slice(0, Math.max(0, service.topN)).map((r) => String(r.svc))
+  }
 
-  const dateRows = await queryDataSource(dataSourceId, dateRangeQuery)
-  const minDate = dateRows[0]?.min_date as string | null
-  const maxDate = dateRows[0]?.max_date as string | null
-  if (!minDate || !maxDate) return { rows: [], reliabilityScore: 0 }
+  let conceptRows: CatalogCrossingRow[] = []
+  let conceptFilter: ConceptFilter | null = null
+  const concept = variables.concept
+  const dictKeys = (mapping.conceptTables ?? []).map((d) => d.key)
+  if (used.has('concept') && concept) {
+    const sql = buildConceptRankQuery(mapping, concept)
+    const ranked = sql ? await query(sql) : []
+    const kept = concept.level === 'concept' && concept.scope === 'top' ? ranked.slice(0, Math.max(0, concept.topN)) : ranked
+    conceptRows = kept.map((r) => ({ values: [String(r.concept)], patients: Number(r.patients ?? 0), records: Number(r.records ?? 0) }))
+    if (concept.level === 'concept' && concept.scope === 'top') conceptFilter = conceptFilterOf(conceptRows.map((r) => r.values[0]), dictKeys)
+  }
 
-  // 3. Generate period intervals (ALL + granularity-based)
-  const intervals = generatePeriodIntervals(minDate, maxDate, periodConfig.granularity)
+  const ctx: CrossingQueryContext = { mapping, variables, topServices, conceptFilter }
 
-  // 4. Get distinct service labels (filtered if serviceLabels is specified)
-  const svcQuery = buildServiceLabelsQuery(mapping, periodConfig.serviceLevel)
-  let serviceLabels: string[] = []
-  if (svcQuery) {
-    const svcRows = await queryDataSource(dataSourceId, svcQuery)
-    serviceLabels = svcRows.map((r) => String(r.svc_label)).filter(Boolean)
-    if (periodConfig.serviceLabels && periodConfig.serviceLabels.length > 0) {
-      const allowed = new Set(periodConfig.serviceLabels)
-      serviceLabels = serviceLabels.filter((l) => allowed.has(l))
+  const units: CrossingUnit[] = []
+  for (const vars of crossings) {
+    const id = crossingId(vars)
+    if (id === 'concept') {
+      units.push({ crossingId: id, variables: vars, precomputed: conceptRows, label: id })
+    } else if (vars.includes('concept') && concept?.level === 'concept' && conceptRows.length > CONCEPT_CHUNK) {
+      const chunks = Math.ceil(conceptRows.length / CONCEPT_CHUNK)
+      for (let i = 0; i < chunks; i++) {
+        const slice = conceptRows.slice(i * CONCEPT_CHUNK, (i + 1) * CONCEPT_CHUNK).map((r) => r.values[0])
+        units.push({ crossingId: id, variables: vars, conceptFilter: conceptFilterOf(slice, dictKeys), label: `${id} (${i + 1}/${chunks})` })
+      }
+    } else {
+      units.push({ crossingId: id, variables: vars, label: id })
     }
   }
 
-  // 5. Resolve concept categories to use
-  const conceptCategories = periodConfig.conceptCategories ?? []
+  let labels: CatalogResultCache['labels']
+  if (used.has('concept') && concept?.level === 'concept' && concepts.length) {
+    const multi = dictKeys.length > 1
+    const inScope = new Set(conceptRows.map((r) => r.values[0]))
+    const names: Record<string, string> = {}
+    for (const c of concepts) {
+      const key = multi ? `${c.dictionaryKey}:${c.conceptId}` : String(c.conceptId)
+      if (inScope.has(key)) names[key] = c.conceptName
+    }
+    labels = { concept: names }
+  }
 
-  // 6. Execute one query per interval
-  const rows: CatalogPeriodRow[] = []
-  const total = intervals.length
+  return { ctx, crossings, units, labels }
+}
 
-  for (let i = 0; i < intervals.length; i++) {
-    const interval = intervals[i]
-    const sql = buildPeriodRowQuery(
-      mapping,
-      interval,
-      periodConfig,
-      ageBrackets,
-      serviceLabels,
-      undefined,
-      catalog.categoryColumn,
-      conceptCategories,
-    )
+/** The cells of one unit, raw. */
+export async function runCrossingUnit(plan: CrossingPlan, unit: CrossingUnit, query: CatalogQuery): Promise<CatalogCrossingRow[]> {
+  if (unit.precomputed) return unit.precomputed
+  const sql = buildCrossingQuery({ ...plan.ctx, conceptFilter: unit.conceptFilter ?? plan.ctx.conceptFilter }, unit.variables)
+  if (!sql) return []
+  const withConcept = unit.variables.includes('concept')
+  return (await query(sql)).map((r) => ({
+    values: unit.variables.map((v) => String(r[variableColumn(v)])),
+    patients: Number(r.patients ?? 0),
+    ...(withConcept ? { records: Number(r.records ?? 0) } : { stays: Number(r.stays ?? 0) }),
+  }))
+}
+
+/**
+ * Display order of each variable's modalities, read off the 1-way marginals:
+ * every period from the first to the last (gaps included, so a quiet month
+ * still shows), services and concepts by patients with "Other" last.
+ */
+export function orderModalities(
+  catalog: Pick<DataCatalog, 'variables'>,
+  crossings: readonly CatalogCrossingResult[],
+): CatalogResultCache['modalities'] {
+  const marginal = (v: CatalogVariableId) => crossings.find((c) => c.id === v)?.rows ?? []
+  const byPatients = (v: CatalogVariableId) =>
+    [...marginal(v)]
+      .sort((a, b) => Number(a.values[0] === OTHER_MODALITY) - Number(b.values[0] === OTHER_MODALITY) || b.patients - a.patients || a.values[0].localeCompare(b.values[0]))
+      .map((r) => r.values[0])
+
+  const out: CatalogResultCache['modalities'] = {}
+  const { variables } = catalog
+  if (variables.age?.enabled) out.age = ageBucketLabels(variables.age.brackets)
+  if (variables.sex?.enabled) {
+    const present = new Set(marginal('sex').map((r) => r.values[0]))
+    out.sex = SEX_MODALITIES.filter((s) => s !== 'other' || present.has(s))
+  }
+  if (variables.period?.enabled) {
+    const periods = marginal('period').map((r) => r.values[0]).sort()
+    out.period = periods.length ? periodRange(periods[0], periods[periods.length - 1], variables.period.granularity) : []
+  }
+  if (variables.service?.enabled) out.service = byPatients('service')
+  if (variables.concept?.enabled) out.concept = byPatients('concept')
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Yield estimate
+// ---------------------------------------------------------------------------
+
+export interface CrossingEstimate {
+  cells: number
+  published: number
+  mass: number
+  publishedMass: number
+}
+
+const estimates = new Map<string, CrossingEstimate>()
+
+/**
+ * Key of one crossing's estimate: the database, the parameters of the
+ * variables it crosses, and the threshold — so changing an unrelated variable
+ * keeps it.
+ */
+export function estimateKey(catalog: Pick<DataCatalog, 'dataSourceId' | 'variables' | 'anonymization'>, vars: readonly CatalogVariableId[]): string {
+  return `${catalog.dataSourceId}|${crossingParamsKey(catalog.variables, vars)}|${catalog.anonymization.threshold}`
+}
+
+export function getCachedEstimate(key: string): CrossingEstimate | undefined {
+  return estimates.get(key)
+}
+
+/**
+ * Primary-suppression yield of each crossing a run would compute: non-empty
+ * cells, those reaching the threshold, and the patient mass of each. One
+ * aggregate query per crossing, skipped when its key is already cached.
+ */
+export async function estimateCrossings(
+  catalog: DataCatalog,
+  mapping: SchemaMapping,
+  query: CatalogQuery,
+  onEstimate?: (id: string, estimate: CrossingEstimate) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const todo = effectiveCrossings(catalog).filter((vars) => !estimates.has(estimateKey(catalog, vars)))
+  if (todo.length === 0) return
+  const plan = await planCrossings({ ...catalog, crossings: todo }, mapping, query)
+  for (const vars of todo) {
+    if (signal?.aborted) return
+    const sql = buildCrossingEstimateQuery(plan.ctx, vars, catalog.anonymization.threshold)
     if (!sql) continue
-
-    const rawRows = await queryDataSource(dataSourceId, sql)
-    if (rawRows.length > 0) {
-      rows.push(parsePeriodRow(rawRows[0], interval, ageBrackets, serviceLabels, conceptCategories, threshold))
+    const row = (await query(sql))[0] ?? {}
+    const estimate: CrossingEstimate = {
+      cells: Number(row.cells ?? 0),
+      published: Number(row.published ?? 0),
+      mass: Number(row.mass ?? 0),
+      publishedMass: Number(row.published_mass ?? 0),
     }
-
-    onProgress?.(i / total)
+    estimates.set(estimateKey(catalog, vars), estimate)
+    onEstimate?.(crossingId(vars), estimate)
   }
-
-  // 7. Compute reliability score: fraction of n_patients values that are null (masked)
-  // Exclude the ALL row from the score calculation
-  const dataRows = rows.filter((r) => r.period_granularity !== 'all')
-  const maskedCount = dataRows.filter((r) => r.n_patients === null).length
-  const reliabilityScore = dataRows.length > 0 ? maskedCount / dataRows.length : 0
-
-  onProgress?.(1)
-
-  return { rows, reliabilityScore }
 }

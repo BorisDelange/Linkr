@@ -3080,6 +3080,8 @@ export async function buildDataCatalogFolder(
   // no results for, and the Configuration tab would offer to "resume" it.
   const { computedPeriods: _paused, ...stripped } = stripInstanceFields(catalog) as DataCatalog
   const portable = { ...stripped, dataSourceId: '' } as DataCatalog
+  // A disabled deployment is stored as null; the server export drops it, so must this one.
+  if (portable.pagesDeployment == null) delete portable.pagesDeployment
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'data-catalog')))
   await writeEntityDocs(zip, prefix, catalog, storage, 'data-catalog', catalog.id)
 }
@@ -3093,6 +3095,9 @@ export async function buildDataCatalogZip(
   if (!catalog) return null
   const zip = new JSZip()
   await buildDataCatalogFolder(zip, '', catalog, storage)
+  // The Pages site belongs to the catalog's own repo only, not to its folder in a workspace export.
+  const { writePagesSiteFiles } = await import('@/lib/dcat-ap/pages-site-files')
+  await writePagesSiteFiles(zip, catalog, storage)
   await attachEntityOrganization(zip, ENTITY_MANIFEST, catalog, storage)
   const blob = await finalizeEntityZip(zip, options.lfsOverrides)
   return { blob, name: localized(catalog.name, 'en') || catalog.id }
@@ -3960,6 +3965,8 @@ export async function applyClonedEntity(
     const { id: _id, workspaceId: _ws, dataSourceId: _dsid, ...rest } =
       dropForeignAuthorId(catalog) as DataCatalog
     const changes = await withEntityDocs(rest, 'data-catalog') as Partial<DataCatalog>
+    const { restorePagesSiteFiles } = await import('@/lib/dcat-ap/pages-site-files')
+    await restorePagesSiteFiles(zip, catalog, storage, targetId, workspaceId)
     if (workspaceId && catalog.dataSourceRef) {
       const database = resolvePointer(await storage.dataSources.getAll(), catalog.dataSourceRef, workspaceId)
       if (database) changes.dataSourceId = database.id

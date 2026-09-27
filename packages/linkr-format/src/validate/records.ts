@@ -255,6 +255,22 @@ export function validateDataCatalog(tree: EntityTree, bag: IssueBag): void {
     checkLocalized(bag, path, '/description', catalog.description, { label: 'description' })
   }
 
+  // GitLab/GitHub Pages deployment. The rendered site/ and CI file travel only in
+  // the catalog's own repo (not in its workspace-export folder), so their absence
+  // is not an error here.
+  if (catalog.pagesDeployment != null) {
+    const pages = catalog.pagesDeployment
+    if (!isObject(pages)) {
+      bag.error(path, '/pagesDeployment', 'wrong-type', 'pagesDeployment must be an object.')
+    } else {
+      checkEnum(bag, path, '/pagesDeployment/provider', pages.provider, ['gitlab', 'github'] as const,
+        { required: true, label: 'pagesDeployment.provider' })
+      if (pages.updatedAt != null) {
+        checkString(bag, path, '/pagesDeployment/updatedAt', pages.updatedAt, { label: 'pagesDeployment.updatedAt' })
+      }
+    }
+  }
+
   // Dimensions are what the catalog counts over; an empty list produces a
   // catalog that computes nothing.
   if (catalog.dimensions != null) {

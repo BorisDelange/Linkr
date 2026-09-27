@@ -168,6 +168,9 @@ def _portable_catalog(data: dict) -> dict:
     # The offset of a run paused on THIS instance: exported, it would tell the
     # importing one a computation is half-done that it has no results for.
     data.pop("computedPeriods", None)
+    # Unset (null) server-side, absent client-side: same byte-parity rule as dataSourceRef.
+    if data.get("pagesDeployment") is None:
+        data.pop("pagesDeployment", None)
     return data
 
 
@@ -985,6 +988,28 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     return tree
 
 
+# Mirrors isPagesTreePath (lib/dcat-ap/pages-deployment.ts): a site attachment's
+# file_name is its repo path and is client-supplied, so only site/** and the two
+# CI files may be written — never entity.json, ../x or .git/config.
+_PAGES_TREE_PATH = re.compile(
+    r"\.gitlab-ci\.yml|\.github/workflows/pages\.yml"
+    r"|site/[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*"
+)
+
+
+async def _pages_site_files(db: AsyncSession, catalog_id: str) -> dict[str, bytes]:
+    """The GitLab/GitHub Pages site of a catalog, rendered by the Publish tab (the
+    HTML generator is TypeScript) and stored as attachments, copied verbatim.
+    Server equivalent of ``writePagesSiteFiles`` (pages-site-files.ts)."""
+    tree: dict[str, bytes] = {}
+    for att in await attachment_service.list_readme_by_owner(db, "data-catalog-site", catalog_id):
+        if not _PAGES_TREE_PATH.fullmatch(att.file_name):
+            continue
+        if att.blob_sha and blob_store.exists(att.blob_sha):
+            tree[att.file_name] = await blob_store.read_bytes(att.blob_sha)
+    return tree
+
+
 async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
     tree: dict[str, bytes] = {}
     dumped = _portable_catalog(_badged_dump(DataCatalogResponse, catalog))
@@ -994,6 +1019,8 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
         )
     )
     tree.update(await _entity_docs(db, "", dumped, "data-catalog", catalog.id))
+    if catalog.pages_deployment:
+        tree.update(await _pages_site_files(db, catalog.id))
     await _attach_org(db, tree, ENTITY_MANIFEST, catalog)
     return tree
 

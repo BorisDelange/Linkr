@@ -43,6 +43,7 @@ class DataCatalogCreate(CamelModel):
     # Creation date preserved on import round-trip; absent → server_default now.
     created_at: datetime | None = None
     version: str = "0.1.0"
+    pages_deployment: dict | None = None
 
 
 class DataCatalogUpdate(CamelModel):
@@ -77,6 +78,7 @@ class DataCatalogUpdate(CamelModel):
     # Restored on import/clone so the original creation date survives a git
     # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
     created_at: datetime | None = None
+    pages_deployment: dict | None = None
 
 
 class DataCatalogResponse(CamelModel):
@@ -112,3 +114,4 @@ class DataCatalogResponse(CamelModel):
     created_at: datetime
     updated_at: datetime
     version: str
+    pages_deployment: dict | None = None

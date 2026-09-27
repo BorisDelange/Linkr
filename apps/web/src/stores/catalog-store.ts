@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
+import { PAGES_SITE_OWNER_TYPE } from '@/lib/dcat-ap/pages-deployment'
+import { isLegacyCatalog, LEGACY_CATALOG_FIELDS, normalizeCatalog } from '@/lib/data-catalog/config'
 import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
 
@@ -65,7 +67,16 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
           storage.dataCatalogs.update(c.id, { name: c.name, description: c.description }).catch(() => {})
         }
       }
-      set({ catalogs: all, catalogsLoaded: true })
+      // Catalogs from before variables and crossings: converted once, and the
+      // old fields cleared so nothing reads them again.
+      const catalogs = all.map((c) => {
+        if (!isLegacyCatalog(c)) return normalizeCatalog(c)
+        const converted = normalizeCatalog(c)
+        const cleared = Object.fromEntries(LEGACY_CATALOG_FIELDS.map((k) => [k, k === 'dimensions' ? [] : null]))
+        storage.dataCatalogs.update(c.id, { ...cleared, variables: converted.variables, crossings: converted.crossings } as Partial<DataCatalog>).catch(() => {})
+        return converted
+      })
+      set({ catalogs, catalogsLoaded: true })
     } catch {
       // IDB store may not exist yet (upgrade pending); mark loaded so app doesn't block
       set({ catalogsLoaded: true })
@@ -75,7 +86,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   getWorkspaceCatalogs: (workspaceId) =>
     get().catalogs.filter((c) => c.workspaceId === workspaceId),
 
-  createCatalog: async (catalog) => {
+  createCatalog: async (raw) => {
+    const catalog = normalizeCatalog(raw)
     await getStorage().dataCatalogs.create(catalog)
     set((s) => ({ catalogs: [...s.catalogs, catalog] }))
   },
@@ -91,6 +103,7 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
 
   deleteCatalog: async (id) => {
     await getStorage().catalogResults.delete(id)
+    await getStorage().readmeAttachments.deleteByOwner(PAGES_SITE_OWNER_TYPE, id).catch(() => {})
     await getStorage().dataCatalogs.delete(id)
     set((s) => ({
       catalogs: s.catalogs.filter((c) => c.id !== id),

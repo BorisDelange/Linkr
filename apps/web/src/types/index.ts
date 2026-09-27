@@ -4,8 +4,7 @@ export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptS
 export type { DataSourceRef, EntityRef } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
 import type { DataSourceRef, EffectiveMappingStatus, EntityRef } from './concept-mapping'
-export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
-export { getDefaultDimensions } from './catalog'
+export type { DataCatalog, CatalogStatus, CatalogVariableId, CatalogVariables, PeriodGranularity, PeriodVariableConfig, AgeVariableConfig, SexVariableConfig, ServiceVariableConfig, ServiceGroupingMode, ConceptVariableConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogGrandTotal, CatalogCrossingRow, CatalogCrossingResult, CatalogResultCache } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
 import type { Authored, Lineaged } from './author'
 import type { DerivedFrom } from './cohort'
@@ -514,6 +513,9 @@ export type ReadmeOwnerType =
   | 'etl-pipeline'
   | 'dq-rule-set'
   | 'data-catalog'
+  /** The published site + CI file of a catalog deployed with GitLab/GitHub
+   *  Pages; `fileName` is the path in the catalog repo (lib/dcat-ap/pages-deployment). */
+  | 'data-catalog-site'
   | 'schema-preset'
   | 'user-plugin'
   | 'data-source'

@@ -6,17 +6,75 @@ import type { DataSourceRef } from './concept-mapping'
 
 export type CatalogStatus = 'draft' | 'computing' | 'ready' | 'success' | 'error'
 
-// --- Demographic Dimensions ---
+// --- Variables ---
 
-export type DimensionType = 'age_group' | 'sex' | 'admission_date' | 'care_site'
+/**
+ * What a catalog can be broken down by. Every crossing is a list of these in
+ * CATALOG_VARIABLE_ORDER — the order is the canonical one AND the display one:
+ * the first variable of a pivot is its rows, so the variables that tend to have
+ * the most values come first.
+ */
+export type CatalogVariableId = 'concept' | 'period' | 'service' | 'age' | 'sex'
 
-export interface AgeGroupConfig {
+export const CATALOG_VARIABLE_ORDER: readonly CatalogVariableId[] = ['concept', 'period', 'service', 'age', 'sex']
+
+export type PeriodGranularity = 'month' | 'quarter' | 'year'
+
+export interface PeriodVariableConfig {
+  enabled: boolean
+  granularity: PeriodGranularity
+}
+
+export interface AgeVariableConfig {
+  enabled: boolean
   /**
    * Age bracket boundaries (sorted ascending).
-   * E.g. [0, 18, 25, 35, 50, 65, 80] → "0–17", "18–24", "25–34", …, "80+"
-   * The last bracket is open-ended (80+).
+   * E.g. [18, 65] → "[0;18[", "[18;65[", "[65;+∞[". The last bracket is open-ended.
    */
   brackets: number[]
+}
+
+export interface SexVariableConfig {
+  enabled: boolean
+}
+
+export type ServiceGroupingMode = 'all' | 'top' | 'manual'
+
+export interface ServiceVariableConfig {
+  enabled: boolean
+  /** visit_occurrence type (hospital) or visit_detail unit (unit stay). */
+  level: 'visit' | 'visit_detail'
+  /** All services as they are, the N largest + "Other", or named groups. */
+  grouping: ServiceGroupingMode
+  topN: number
+  /** Manual grouping: raw service name → group name. */
+  groups: Record<string, string>
+  /** Manual grouping: whether a service left out of every group joins "Other" or keeps its name. */
+  unassigned: 'other' | 'keep'
+}
+
+export interface ConceptVariableConfig {
+  enabled: boolean
+  /** Count each concept, or its category / subcategory from the concept dictionary. */
+  level: 'concept' | 'category' | 'subcategory'
+  /**
+   * Key from ConceptDictionary (categoryColumn / subcategoryColumn / extraColumns)
+   * used as the concept's category, e.g. 'domain_id' for OMOP. Also classifies
+   * the concept list.
+   */
+  categoryColumn?: string
+  subcategoryColumn?: string
+  /** Every concept, or only the N concepts with the most patients. */
+  scope: 'all' | 'top'
+  topN: number
+}
+
+export interface CatalogVariables {
+  concept?: ConceptVariableConfig
+  period?: PeriodVariableConfig
+  service?: ServiceVariableConfig
+  age?: AgeVariableConfig
+  sex?: SexVariableConfig
 }
 
 /** Common age bracket presets. */
@@ -26,27 +84,6 @@ export const AGE_BRACKET_PRESETS: Record<string, number[]> = {
   '20y': [20, 40, 60, 80],
   'pediatric': [1, 2, 6, 12, 18, 25, 35, 50, 65, 80],
   'clinical': [2, 18, 25, 35, 45, 55, 65, 75, 85],
-}
-
-export interface AdmissionDateConfig {
-  step: 'day' | 'month' | 'year'
-}
-
-export interface CareSiteConfig {
-  /** Reference to a ServiceMapping entity for renaming/grouping. */
-  serviceMappingId?: string
-  /** Whether to use visit_occurrence (hospital) or visit_detail (unit). */
-  level: 'visit' | 'visit_detail'
-}
-
-export interface DimensionConfig {
-  id: string
-  type: DimensionType
-  label: string
-  enabled: boolean
-  ageGroup?: AgeGroupConfig
-  admissionDate?: AdmissionDateConfig
-  careSite?: CareSiteConfig
 }
 
 // --- Anonymization ---
@@ -79,56 +116,12 @@ export interface ServiceMapping {
   updatedAt: string
 }
 
-// --- Period Configuration ---
-
-export interface PeriodConfig {
-  /** Time granularity for the period table. Minimum is 'month' (no 'day'). */
-  granularity: 'month' | 'quarter' | 'year'
-  /** Whether to use visit_occurrence.typeColumn or visitDetailTable.unitColumn as service. */
-  serviceLevel: 'visit' | 'visit_detail'
-  /**
-   * Subset of service labels to include. If undefined or empty, all services are included.
-   */
-  serviceLabels?: string[]
-  /**
-   * Values of categoryColumn to include as columns in the period table.
-   * E.g. ['Measurement', 'Condition', 'Drug'] for OMOP domain_id.
-   * Empty or undefined = no concept category columns.
-   */
-  conceptCategories?: string[]
-}
-
-// --- Period Result Row ---
-
-/**
- * One row of the period table.
- * null values = masked (patient count below anonymization threshold).
- */
-export interface CatalogPeriodRow {
-  period_granularity: 'month' | 'quarter' | 'year' | 'all'
-  /** ISO date '2025-01-01' (first day of the period), or '' for ALL. */
-  period_start: string
-  /** Human-readable label: 'Jan 2025', 'Q1 2025', '2025', or 'ALL'. */
-  period_label: string
-
-  n_patients: number | null
-  n_sejours: number | null
-
-  sex_m: number | null
-  sex_f: number | null
-  sex_other: number | null
-
-  /** Age bucket counts keyed by bracket label, e.g. '[0;18[' → 45 or null. */
-  age_buckets: Record<string, number | null>
-
-  /** Per-service counts keyed by service label. */
-  services: Record<string, { n_patients: number | null; n_sejours: number | null }>
-
-  /** Per-concept-category counts keyed by category value. */
-  concept_categories: Record<string, { n_patients: number | null; n_rows: number | null }>
-}
-
 // --- Data Catalog ---
+
+export interface CatalogPagesDeployment {
+  provider: 'gitlab' | 'github'
+  updatedAt?: string
+}
 
 export interface DataCatalog extends Seedable, Authored, Lineaged {
   id: string
@@ -150,32 +143,26 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
    * resolved back to a local id on import. Same rule as a mapping project's.
    */
   dataSourceRef?: DataSourceRef
-  dimensions: DimensionConfig[]
+  /** What the catalog can be broken down by, each with its own parameters. */
+  variables: CatalogVariables
+  /**
+   * The crossings to compute: 1 to 3 variable ids each, in CATALOG_VARIABLE_ORDER.
+   * Every enabled variable's 1-way marginal is computed whether listed or not.
+   */
+  crossings: CatalogVariableId[][]
   anonymization: AnonymizationConfig
-  /**
-   * Key from ConceptDictionary.extraColumns to use as the concept category column.
-   * E.g. 'domain_id' for OMOP, 'category' for MIMIC.
-   */
-  categoryColumn?: string
-  /**
-   * Key from ConceptDictionary.extraColumns to use as the concept subcategory column.
-   * E.g. 'concept_class_id' for OMOP.
-   */
-  subcategoryColumn?: string
-  /** Optional period table configuration. */
-  periodConfig?: PeriodConfig
   status: CatalogStatus
   lastError?: string
   lastComputedAt?: string
   lastComputeDurationMs?: number
   /**
-   * Period rows written so far by a paused run, so a resume picks up there.
+   * Work units written so far by a paused run, so a resume picks up there.
    *
    * Absent means "no run in flight": either nothing has been computed, or the
-   * last one finished. Set only between save points — the walk is chunked on
-   * periods, so this is an index into the run's period plan.
+   * last one finished. An index into the run's unit plan (one unit per crossing,
+   * or per concept chunk of a concept-level crossing).
    */
-  computedPeriods?: number
+  computedSteps?: number
   /** Health-DCAT-AP metadata stored as a JSON-LD object. */
   dcatApMetadata?: Record<string, unknown>
   readme?: LocalizedString
@@ -186,6 +173,13 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
    * the full catalog lives in the linked repo (`catalog.json`) and is restored on clone.
    */
   gitRemoteConfig?: GitRemoteConfig
+  /**
+   * Automatic deployment of the published page from the linked repo. When set,
+   * the repo tree carries `site/` and the provider's CI file (see
+   * lib/dcat-ap/pages-deployment). `updatedAt` is when the site files were last
+   * regenerated, to flag a site older than the last computation.
+   */
+  pagesDeployment?: CatalogPagesDeployment | null
   /** Frozen provenance snapshot of the origin organization (inlined on standalone export). Not a live link. */
   organization?: OrganizationInfo
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
@@ -208,21 +202,35 @@ export interface CatalogConceptRow {
   visitCount: number
 }
 
-/** Per-dimension-value row: exact COUNT(DISTINCT) per dimension bucket (no concepts). */
-export interface CatalogDimensionRow {
-  dimensionId: string
-  dimensionType: DimensionType
-  value: string | number
-  patientCount: number
-  recordCount: number
-  visitCount: number
-}
-
 /** Grand total from GROUPING SETS. */
 export interface CatalogGrandTotal {
   totalPatients: number
   totalVisits: number
   totalRecords: number
+}
+
+/**
+ * One cell of a crossing: the modality of each of its variables (in the
+ * crossing's order) and the raw counts. Only non-empty cells are stored.
+ *
+ * Raw, never masked: masking depends on the threshold, which the Anonymization
+ * tab previews without recomputing, so it is applied where the cells are shown
+ * (`lib/data-catalog/suppression.ts`).
+ */
+export interface CatalogCrossingRow {
+  values: string[]
+  patients: number
+  /** Distinct visits — crossings without the concept variable. */
+  stays?: number
+  /** Event rows — crossings with the concept variable. */
+  records?: number
+}
+
+export interface CatalogCrossingResult {
+  /** Variable ids joined by '-', e.g. 'period-age'. */
+  id: string
+  variables: CatalogVariableId[]
+  rows: CatalogCrossingRow[]
 }
 
 export interface CatalogResultCache {
@@ -231,55 +239,21 @@ export interface CatalogResultCache {
   durationMs: number
   /** Concept table: one row per concept with exact counts. */
   concepts: CatalogConceptRow[]
-  /** Dimension table: one row per (dimension, value) with exact counts. */
-  dimensions: CatalogDimensionRow[]
   /** Grand total. */
   grandTotal: CatalogGrandTotal
   totalConcepts: number
   totalPatients: number
   totalVisits: number
+  /** One long-format table per crossing, the 1-way marginals included. */
+  crossings: CatalogCrossingResult[]
   /**
-   * Period table: one row per time period (+ one ALL row).
-   * Only present when catalog.periodConfig is set.
+   * Display order of each variable's modalities: age brackets youngest first,
+   * every period between the first and the last (gaps included), services by
+   * patients with "Other" last.
    */
-  periods?: CatalogPeriodRow[]
-  /**
-   * Period reliability score: fraction of n_patients cells that are masked (null).
-   * 0 = no masking, 1 = all masked. Only present when periods is set.
-   */
-  periodReliabilityScore?: number
-}
-
-// --- Default dimension presets ---
-
-export function getDefaultDimensions(): DimensionConfig[] {
-  return [
-    {
-      id: 'age_group',
-      type: 'age_group',
-      label: 'Age group',
-      enabled: true,
-      ageGroup: { brackets: [10, 20, 30, 40, 50, 60, 70, 80, 90] },
-    },
-    {
-      id: 'sex',
-      type: 'sex',
-      label: 'Sex',
-      enabled: true,
-    },
-    {
-      id: 'admission_date',
-      type: 'admission_date',
-      label: 'Admission date',
-      enabled: true,
-      admissionDate: { step: 'month' },
-    },
-    {
-      id: 'care_site',
-      type: 'care_site',
-      label: 'Care site',
-      enabled: false,
-      careSite: { level: 'visit_detail' },
-    },
-  ]
+  modalities: Partial<Record<CatalogVariableId, string[]>>
+  /** Display labels of modalities that are ids (concept ids → concept names). */
+  labels?: Partial<Record<CatalogVariableId, Record<string, string>>>
+  /** Units of the run's plan written to `crossings`, for a resume. */
+  completedSteps?: number
 }

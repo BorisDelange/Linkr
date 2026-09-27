@@ -57,3 +57,6 @@ class DataCatalog(Base, TimestampMixin):
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # GitLab/GitHub Pages deployment of the published page ({provider, updatedAt?});
+    # the rendered site lives in readme_attachments under owner type "data-catalog-site".
+    pages_deployment: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
