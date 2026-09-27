@@ -1,9 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { DatabaseSelect } from '@/components/ui/database-select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { localized, setLocalized } from '@/lib/localized'
@@ -19,7 +27,21 @@ import { useSaveForm } from '@/hooks/use-save-form'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useDqStore } from '@/stores/dq-store'
-import type { DqRuleSet, ProjectBadge } from '@/types'
+import { useSchemaPresetStore } from '@/stores/schema-preset-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { checksFromTemplates, schemaCheckTemplates } from '@/lib/dq-templates'
+import { findSourcePreset } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
+import type { CustomSchemaPreset, DqRuleSet, EntityRef, ProjectBadge } from '@/types'
+
+const NO_SCHEMA = '__none__'
+
+function presetPointer(preset: CustomSchemaPreset): EntityRef {
+  return {
+    ...(preset.lineageId ? { lineageId: preset.lineageId } : {}),
+    entityId: preset.entityId,
+    label: preset.mapping.presetLabel,
+  }
+}
 
 interface Props {
   open: boolean
@@ -32,13 +54,24 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
-  const { createRuleSet, updateRuleSet } = useDqStore()
+  const { createRuleSet, updateRuleSet, createCustomChecks } = useDqStore()
   const dbSources = useDatabaseOptions(activeWorkspaceId)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const allPresets = useSchemaPresetStore((s) => s.presets)
+  const presetsLoaded = useSchemaPresetStore((s) => s.loaded)
+  const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
+  const presets = useMemo(
+    () => allPresets.filter((p) => !activeWorkspaceId || p.workspaceId === activeWorkspaceId),
+    [allPresets, activeWorkspaceId],
+  )
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [entityId, setEntityId] = useState('')
   const [dataSourceId, setDataSourceId] = useState('')
+  const [presetId, setPresetId] = useState(NO_SCHEMA)
+  // Picking a database proposes its schema, until the user picks one themselves.
+  const [presetTouched, setPresetTouched] = useState(false)
   const [badges, setBadges] = useState<ProjectBadge[]>([])
   const [version, setVersion] = useState('0.1.0')
   const [authoring, setAuthoring] = useState<Partial<AuthoringValue>>({})
@@ -50,6 +83,12 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
   const badgeSuggestions = useBadgeSuggestions(dqRuleSets, activeWorkspaceId, editingRuleSet?.id)
 
   useEffect(() => {
+    if (open && !presetsLoaded) void loadPresets(activeWorkspaceId ?? undefined)
+  }, [open, presetsLoaded, loadPresets, activeWorkspaceId])
+
+  useEffect(() => {
+    setPresetId(NO_SCHEMA)
+    setPresetTouched(false)
     if (editingRuleSet) {
       setName(localized(editingRuleSet.name, language))
       setDescription(localized(editingRuleSet.description, language))
@@ -68,6 +107,25 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
       setAuthoring({})
     }
   }, [editingRuleSet, open])
+
+  const preset = presets.find((p) => p.id === presetId)
+  const templates = useMemo(
+    () => (preset ? schemaCheckTemplates(preset.mapping, (key, vars) => t(key, vars ?? {})) : []),
+    [preset, t],
+  )
+  const templateCounts = useMemo(() => ({
+    ddl: templates.filter((c) => c.origin === 'ddl').length,
+    mapping: templates.filter((c) => c.origin === 'mapping').length,
+  }), [templates])
+  const editingPresetLabel = localized(editingRuleSet?.schemaPresetRef?.label, language)
+
+  const handleDatabaseChange = (id: string) => {
+    setDataSourceId(id)
+    if (isEdit || presetTouched) return
+    const source = dataSources.find((ds) => ds.id === id)
+    const match = source ? findSourcePreset(source, presets) : undefined
+    if (match) setPresetId(match.id)
+  }
 
   const handleSubmit = async () => {
     if (!name.trim() || !activeWorkspaceId) return
@@ -94,6 +152,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         description: setLocalized(undefined, language, description.trim()),
         dataSourceId,
         dataSourceRef: buildPointer(dbSources, dataSourceId),
+        ...(preset ? { schemaPresetRef: presetPointer(preset) } : {}),
         badges,
         status: 'draft',
         version: version.trim() || '0.1.0',
@@ -102,6 +161,7 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
         createdAt: now,
         updatedAt: now,
       })
+      if (templates.length) await createCustomChecks(checksFromTemplates(id, templates))
       onOpenChange(false)
       onCreated?.(id)
     }
@@ -171,9 +231,37 @@ export function CreateDqRuleSetDialog({ open, onOpenChange, editingRuleSet, onCr
               <DatabaseSelect
                 workspaceId={activeWorkspaceId}
                 value={dataSourceId}
-                onChange={setDataSourceId}
+                onChange={handleDatabaseChange}
                 placeholder={t('data_quality.select_database')}
               />
+            </div>
+            <div className="space-y-2">
+              <Label>{t('data_quality.rs_schema')}</Label>
+              {isEdit ? (
+                <Input value={editingPresetLabel || t('data_quality.rs_schema_none')} disabled />
+              ) : (
+                <Select value={presetId} onValueChange={(v) => { setPresetId(v); setPresetTouched(true) }}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_SCHEMA}>{t('data_quality.rs_schema_none')}</SelectItem>
+                    {presets.length > 0 && <SelectSeparator />}
+                    {presets.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {localized(p.mapping.presetLabel, language) || p.entityId}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {isEdit
+                  ? t('data_quality.rs_schema_edit_hint')
+                  : preset
+                    ? t('data_quality.rs_schema_hint', { count: templates.length, ddl: templateCounts.ddl, mapping: templateCounts.mapping })
+                    : t('data_quality.rs_schema_none_hint')}
+              </p>
             </div>
           </>
         }

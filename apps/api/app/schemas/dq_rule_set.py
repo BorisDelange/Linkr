@@ -21,6 +21,7 @@ class DqRuleSetCreate(CamelModel):
     data_source_id: str = ""
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
+    schema_preset_ref: dict | None = None
     status: str = "draft"
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -48,6 +49,7 @@ class DqRuleSetUpdate(CamelModel):
     data_source_id: str | None = None
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
+    schema_preset_ref: dict | None = None
     status: str | None = None
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -78,6 +80,7 @@ class DqRuleSetResponse(CamelModel):
     data_source_id: str
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
+    schema_preset_ref: dict | None = None
     status: str
     last_run_at: str | None = None
     last_run_duration_ms: int | None = None
@@ -100,20 +103,31 @@ class DqCustomCheckCreate(CamelModel):
     name: str = ""
     description: str = ""
     category: str
+    subcategory: str | None = None
     severity: str
     threshold: float = 0
     sql: str = ""
+    explore_sql: str | None = None
     order: int = 0
+    origin: str = "manual"
+    template_key: str | None = None
+    table_name: str | None = None
+    disabled: bool = False
 
 
 class DqCustomCheckUpdate(CamelModel):
     name: str | None = None
     description: str | None = None
     category: str | None = None
+    subcategory: str | None = None
     severity: str | None = None
     threshold: float | None = None
     sql: str | None = None
+    explore_sql: str | None = None
     order: int | None = None
+    # The check's group in the list; null moves it to "Other checks".
+    table_name: str | None = None
+    disabled: bool | None = None
 
 
 class DqCustomCheckResponse(CamelModel):
@@ -122,10 +136,16 @@ class DqCustomCheckResponse(CamelModel):
     name: str
     description: str
     category: str
+    subcategory: str | None = None
     severity: str
     threshold: float
     sql: str
+    explore_sql: str | None = None
     order: int
+    origin: str
+    template_key: str | None = None
+    table_name: str | None = None
+    disabled: bool
     created_at: datetime
     updated_at: datetime
 

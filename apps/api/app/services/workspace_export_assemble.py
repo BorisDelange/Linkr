@@ -192,7 +192,7 @@ def _portable_rule_set(data: dict) -> dict:
     position) while ``dataSourceRef`` is what travels.
     """
     data["dataSourceId"] = ""
-    return _drop_null_refs(data, "dataSourceRef")
+    return _drop_null_refs(data, "dataSourceRef", "schemaPresetRef")
 
 
 def _portable_collection(data: dict) -> dict:

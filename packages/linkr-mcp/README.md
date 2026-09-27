@@ -87,10 +87,13 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 
 | Tool | Purpose |
 |---|---|
-| `list_dq_rule_sets`, `get_dq_rule_set`, `create_dq_rule_set`, `update_dq_rule_set`, `delete_dq_rule_set` | data-quality rule sets (workspace-level, one database each): metadata, custom checks, last score, recent runs |
-| `list_dq_checks` | every check a rule set runs — the app's generated ones (builtin: empty tables, per-column NULL rates; schema: mapping-aware consistency/plausibility) built with its own `data-quality-checks.ts`, plus custom SQL checks |
-| `create_dq_check`, `update_dq_check`, `delete_dq_checks` | custom SQL checks (`violated_rows` / `total_rows`), validated like the editor and test-run on the database before saving |
-| `run_dq_rule_set` | a scan (all checks or a subset): score, counts per category/severity, failing checks; recorded in the run history like the page (dry run opt-in) |
+| `list_dq_rule_sets`, `get_dq_rule_set`, `create_dq_rule_set`, `update_dq_rule_set`, `delete_dq_rule_set` | data-quality rule sets (workspace-level, one database each): metadata, schema, check counts by origin/category/group, last score, recent runs; creating one generates its checks from a schema preset (DDL + mapping, `dq-templates.ts`) like the New rule set dialog |
+| `list_dq_checks`, `get_dq_check` | the rule set's stored checks by group, as the Checks tab lists them: Kahn category/subcategory (`dq-taxonomy.ts`), severity, threshold, origin (`ddl` / `mapping` / `manual`), disabled; one check's SQL and explore SQL |
+| `add_dq_schema_checks` | a preset's DDL or mapping checks the rule set does not hold yet (matched on `templateKey`), listed or added, like the Add-from-schema dialog |
+| `create_dq_check`, `update_dq_check`, `test_dq_check`, `set_dq_checks_enabled`, `delete_dq_checks` | hand-written checks and edits to any check (`violated_rows` / `total_rows`), validated like the editor and test-run before saving; the Test button; enable/disable (persisted) |
+| `move_dq_checks`, `rename_dq_check_group`, `delete_dq_check_group` | check groups (the `tableName` checks share): move checks, rename a group, delete it with or without its checks |
+| `run_dq_rule_set` | a scan of the enabled checks (all or a subset) with the app's `runnableChecks` / `checkStatus` / `buildSummary`: score, counts per category/severity, failing checks; recorded like the page (rule set's last run + run history; dry run opt-in) |
+| `investigate_dq_check` | the Investigate button: re-counts a check, runs its explore SQL bounded, returns per-column aggregates of the failing rows (rows themselves only on request) |
 | `list_dq_runs`, `get_dq_run`, `delete_dq_runs` | run history, one run's results by status, deletion (`destructiveHint`) |
 
 ### `lab` — datasets, dashboards, patient data, pipeline, plugins

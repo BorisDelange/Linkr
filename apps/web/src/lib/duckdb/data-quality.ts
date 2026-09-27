@@ -1,65 +1,7 @@
-import { queryDataSource, discoverTables, schemaName } from './engine'
-import type { SchemaMapping } from '@/types/schema-mapping'
-import type { DqCustomCheck } from '@/types'
-import {
-  buildSummary, customCheckToDqCheck, dedupeChecks, errorResult, evaluateCheck, generateEmptyTableCheck,
-  generateFieldNullRateChecks, generateSchemaChecks, type ColumnInfo, type DqCheck, type DqCheckResult, type DqReport,
-} from './data-quality-checks'
+import { queryDataSource } from './engine'
+import { buildSummary, checkStatus, type DqCheck, type DqCheckResult, type DqReport } from './data-quality-checks'
 
 export * from './data-quality-checks'
-
-async function discoverColumns(dataSourceId: string, tableName: string): Promise<ColumnInfo[]> {
-  const schema = schemaName(dataSourceId)
-  // Match discoverTables: a source may be schema-based (`<schema>`) or ATTACHed as
-  // a single file (`<schema>.main`). Match both so column discovery is stable
-  // regardless of how/when the source was mounted.
-  const rows = await queryDataSource(
-    dataSourceId,
-    `SELECT column_name, data_type, ordinal_position FROM information_schema.columns
-     WHERE (table_schema = '${schema}' OR (table_catalog = '${schema}' AND table_schema = 'main'))
-     AND table_name = '${tableName}' ORDER BY ordinal_position`,
-  )
-  return rows.map((r) => ({
-    tableName,
-    columnName: String(r.column_name),
-    dataType: String(r.data_type),
-    ordinalPosition: Number(r.ordinal_position),
-  }))
-}
-
-// ---------------------------------------------------------------------------
-// Check generation
-// ---------------------------------------------------------------------------
-
-export async function generateChecks(
-  dataSourceId: string,
-  schemaMapping?: SchemaMapping,
-  customChecks?: DqCustomCheck[],
-): Promise<DqCheck[]> {
-  const tables = await discoverTables(dataSourceId)
-  const checks: DqCheck[] = []
-
-  // Universal checks for every table
-  for (const tableName of tables) {
-    checks.push(generateEmptyTableCheck(tableName))
-
-    try {
-      const columns = await discoverColumns(dataSourceId, tableName)
-      checks.push(...generateFieldNullRateChecks(tableName, columns))
-    } catch {
-      // Column discovery can fail for some table types
-    }
-  }
-
-  // Schema-aware checks
-  if (schemaMapping && schemaMapping.presetId !== 'none') {
-    checks.push(...generateSchemaChecks(schemaMapping, tables))
-  }
-
-  if (customChecks) checks.push(...customChecks.map(customCheckToDqCheck))
-
-  return dedupeChecks(checks)
-}
 
 // ---------------------------------------------------------------------------
 // Check execution
@@ -69,9 +11,46 @@ async function runCheck(dataSourceId: string, check: DqCheck): Promise<DqCheckRe
   const start = performance.now()
   try {
     const rows = await queryDataSource(dataSourceId, check.sql)
-    return evaluateCheck(check, rows, Math.round(performance.now() - start))
+    const elapsed = performance.now() - start
+
+    if (!rows.length) {
+      return {
+        checkId: check.id,
+        status: 'not_applicable',
+        violatedRows: 0,
+        totalRows: 0,
+        pctViolated: 0,
+        executionTimeMs: Math.round(elapsed),
+        sql: check.sql,
+      }
+    }
+
+    const violatedRows = Number(rows[0].violated_rows ?? 0)
+    const totalRows = Number(rows[0].total_rows ?? 0)
+    const pctViolated = totalRows > 0 ? (violatedRows / totalRows) * 100 : 0
+
+    const status = checkStatus(violatedRows, totalRows, check.threshold)
+
+    return {
+      checkId: check.id,
+      status,
+      violatedRows,
+      totalRows,
+      pctViolated,
+      executionTimeMs: Math.round(elapsed),
+      sql: check.sql,
+    }
   } catch (err) {
-    return errorResult(check, err, Math.round(performance.now() - start))
+    return {
+      checkId: check.id,
+      status: 'error',
+      violatedRows: 0,
+      totalRows: 0,
+      pctViolated: 0,
+      executionTimeMs: Math.round(performance.now() - start),
+      sql: check.sql,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    }
   }
 }
 

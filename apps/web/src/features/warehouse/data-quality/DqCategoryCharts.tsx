@@ -4,24 +4,13 @@ import { useTranslation } from 'react-i18next'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
 } from 'recharts'
-import type { DqCheck, DqCheckResult, DqCategory } from '@/lib/duckdb/data-quality'
+import type { DqCheck, DqCheckResult } from '@/lib/duckdb/data-quality'
+import { DQ_CATEGORIES } from '@/lib/dq-taxonomy'
+import { CATEGORY_HEX } from './DqConstants'
 
 interface Props {
   checks: DqCheck[]
   results: DqCheckResult[]
-}
-
-const CATEGORY_ORDER: DqCategory[] = [
-  'completeness', 'validity', 'uniqueness', 'consistency', 'plausibility',
-]
-
-// Extract the first Tailwind color class and map to a hex for Recharts
-const CATEGORY_HEX: Record<DqCategory, string> = {
-  completeness: '#3b82f6', // blue-500
-  validity: '#a855f7',     // purple-500
-  uniqueness: '#f59e0b',   // amber-500
-  consistency: '#06b6d4',  // cyan-500
-  plausibility: '#22c55e', // green-500
 }
 
 export function DqCategoryCharts({ checks, results }: Props) {
@@ -30,7 +19,7 @@ export function DqCategoryCharts({ checks, results }: Props) {
   const data = useMemo(() => {
     const resultMap = new Map(results.map((r) => [r.checkId, r]))
 
-    return CATEGORY_ORDER.map((cat) => {
+    return DQ_CATEGORIES.map((cat) => {
       const catChecks = checks.filter((c) => c.category === cat)
       const catResults = catChecks
         .map((c) => resultMap.get(c.id))

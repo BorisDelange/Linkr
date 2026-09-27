@@ -9,15 +9,25 @@ import {
 } from 'lucide-react'
 import type { DqCategory, DqSeverity, DqCheckStatus } from '@/lib/duckdb/data-quality'
 
-export const CATEGORIES: DqCategory[] = ['completeness', 'validity', 'uniqueness', 'consistency', 'plausibility']
-export const SEVERITIES: DqSeverity[] = ['error', 'warning', 'notice']
-
+// Three hues far apart, and none of red, green or amber, which already mean
+// fail, pass and warning. Chip, dot and chart read the same palette.
 export const CATEGORY_COLORS: Record<DqCategory, string> = {
-  completeness: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
-  validity: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
-  uniqueness: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400',
-  consistency: 'bg-orange-500/15 text-orange-700 dark:text-orange-400',
-  plausibility: 'bg-rose-500/15 text-rose-700 dark:text-rose-400',
+  conformance: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
+  completeness: 'bg-teal-500/15 text-teal-700 dark:text-teal-400',
+  plausibility: 'bg-fuchsia-500/15 text-fuchsia-700 dark:text-fuchsia-400',
+}
+
+export const CATEGORY_DOT: Record<DqCategory, string> = {
+  conformance: 'bg-blue-500',
+  completeness: 'bg-teal-500',
+  plausibility: 'bg-fuchsia-500',
+}
+
+/** Recharts takes colours, not classes: the -500 of each hue above. */
+export const CATEGORY_HEX: Record<DqCategory, string> = {
+  conformance: '#3b82f6',
+  completeness: '#14b8a6',
+  plausibility: '#d946ef',
 }
 
 export const STATUS_CONFIG: Record<DqCheckStatus, { icon: typeof CheckCircle2; color: string; label: string }> = {

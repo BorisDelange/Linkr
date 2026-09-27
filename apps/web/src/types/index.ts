@@ -1443,17 +1443,17 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
    * resolved back to a local id on import.
    */
   dataSourceRef?: DataSourceRef
+  /**
+   * Schema preset the rule set was generated from, as a portable pointer only:
+   * it is informative (nothing re-reads the preset after creation), so it is
+   * resolved by lineage where it is shown rather than kept as a local id.
+   */
+  schemaPresetRef?: EntityRef
   status: DqRuleSetStatus
   lastRunAt?: string
   lastRunDurationMs?: number
   /** Score 0-100, percentage of passing checks */
   lastScore?: number
-  /**
-   * Ids of checks disabled for this rule set — custom check ids and built-in check
-   * ids (their deterministic `builtin_*`/`schema_*` ids). Disabled checks stay listed
-   * (greyed) but are excluded from the scan and the score.
-   */
-  disabledCheckIds?: string[]
   readme?: LocalizedString
   license?: EntityLicense
   /**
@@ -1471,16 +1471,33 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   updatedAt: string
 }
 
+/**
+ * One check of a rule set. Every check is stored — the ones generated from a
+ * schema at creation as much as those written by hand — so any of them can be
+ * edited, disabled or deleted. Key order matches the server's
+ * `DqCustomCheckResponse`: exports from both must be byte-identical.
+ */
 export interface DqCustomCheck {
   id: string
   ruleSetId: string
   name: string
   description: string
-  category: 'completeness' | 'validity' | 'uniqueness' | 'consistency' | 'plausibility'
-  severity: 'error' | 'warning' | 'notice'
+  category: import('@/lib/dq-taxonomy').DqCategory
+  subcategory: import('@/lib/dq-taxonomy').DqSubcategory | null
+  severity: import('@/lib/dq-taxonomy').DqSeverity
+  /** Max % of violated rows allowed, 0-100 (0 = zero tolerance). */
   threshold: number
   sql: string
+  /** Lists the rows breaking the rule, to investigate a failure; null falls back to `sql`. */
+  exploreSql: string | null
   order: number
+  origin: import('@/lib/dq-taxonomy').DqCheckOrigin
+  /** Which schema rule generated it (`ddl.not_null:person.person_id`); null when written by hand. */
+  templateKey: string | null
+  /** Table or relation the check is about, to group the list; null when it spans several. */
+  tableName: string | null
+  /** Kept in the list, left out of runs and of the score. */
+  disabled: boolean
   createdAt: string
   updatedAt: string
 }

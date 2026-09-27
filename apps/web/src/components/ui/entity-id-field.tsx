@@ -6,6 +6,9 @@ import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { slugifyId } from '@/lib/slugify-id'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
+
+const INVALID_DELAY_MS = 800
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/
 
@@ -58,6 +61,10 @@ export function EntityIdField({
 
   const idValid = value.length === 0 || (value.length >= 2 && value.length <= 50 && ID_PATTERN.test(value))
   const idDuplicate = value.length > 0 && existingIds.includes(value)
+  // The format error waits until typing pauses: otherwise it flashes on the
+  // first letter of every name, before the second one lands.
+  const settledValue = useDebouncedValue(value, INVALID_DELAY_MS)
+  const showInvalid = !idValid && value.length > 0 && settledValue === value
 
   return (
     <div className="space-y-2">
@@ -87,7 +94,7 @@ export function EntityIdField({
       {!readOnly && idDuplicate && (
         <p className="text-xs text-destructive">{t('entity_id.duplicate')}</p>
       )}
-      {!readOnly && !idValid && value.length > 0 && (
+      {!readOnly && showInvalid && (
         <p className="text-xs text-destructive">{t('entity_id.invalid')}</p>
       )}
     </div>

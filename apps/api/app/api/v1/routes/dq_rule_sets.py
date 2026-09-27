@@ -120,6 +120,25 @@ async def list_checks(
     return await dq_rule_set_service.list_checks(db, rule_set_id)
 
 
+@router.post(
+    _SET + "/{rule_set_id}/checks",
+    response_model=list[DqCustomCheckResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_checks(
+    rule_set_id: str,
+    body: list[DqCustomCheckCreate],
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """A rule set generated from a schema starts with hundreds of checks: one
+    request, one transaction."""
+    await _load_rule_set(db, rule_set_id, user, "data-quality:write")
+    if any(c.rule_set_id != rule_set_id for c in body):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Every check must belong to the rule set")
+    return await dq_rule_set_service.create_checks(db, body)
+
+
 @router.delete(_SET + "/{rule_set_id}/checks", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_checks_for_rule_set(
     rule_set_id: str,
