@@ -1,4 +1,4 @@
-from sqlalchemy import Text, cast, select
+from sqlalchemy import Text, cast, select, update
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,19 +31,21 @@ async def get_raw(db: AsyncSession, scope: str, cache_key: str) -> tuple[str, st
 
 async def save(
     db: AsyncSession, scope: str, cache_key: str, computed_at: str, payload: dict
-) -> StatsCache:
-    row = await get(db, scope, cache_key)
-    if row is None:
-        row = StatsCache(
-            scope=scope, cache_key=cache_key, computed_at=computed_at, payload=payload
-        )
-        db.add(row)
-    else:
-        row.computed_at = computed_at
-        row.payload = payload
+) -> None:
+    """Store `payload` under (scope, cache_key), replacing what was there.
+
+    Neither the previous payload nor the one just written is read back: a
+    catalog's results run to tens of megabytes.
+    """
+    updated = await db.execute(
+        update(StatsCache)
+        .where(StatsCache.scope == scope, StatsCache.cache_key == cache_key)
+        .values(computed_at=computed_at, payload=payload)
+        .execution_options(synchronize_session=False)
+    )
+    if updated.rowcount == 0:
+        db.add(StatsCache(scope=scope, cache_key=cache_key, computed_at=computed_at, payload=payload))
     await db.commit()
-    await db.refresh(row)
-    return row
 
 
 async def delete(db: AsyncSession, scope: str, cache_key: str) -> None:

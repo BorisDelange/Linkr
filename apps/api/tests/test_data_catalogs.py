@@ -70,3 +70,28 @@ async def test_non_member_cannot_access(client, db):
     other = await _create_user(db, client, "bob")
     assert (await client.get(f"{API}/data-catalogs?workspaceId={ws}", headers=other)).status_code == 403
     assert (await client.delete(f"{API}/data-catalogs/{c['id']}", headers=other)).status_code == 403
+
+
+async def test_results_cache_round_trip(client):
+    headers = await _admin_headers(client)
+    c = await _catalog(client, headers, await _workspace(client, headers))
+    url = f"{API}/data-catalogs/{c['id']}/results-cache"
+
+    r = await client.get(url, headers=headers)
+    assert r.status_code == 200 and r.json() is None
+
+    payload = {
+        "variables": {"sexe": {"label": "Sexe — é à ü 中文 \"quoted\"", "counts": [{"value": "F", "n": 12}, {"value": None, "n": 0}]}},
+        "crossings": [[["âge", 18.5], {"nested": {"deep": [True, False, None]}}]],
+        "empty": {},
+    }
+    r = await client.put(url, headers=headers, json={"computedAt": "2026-09-27T10:00:00Z", "payload": payload})
+    assert r.status_code == 204 and r.content == b""
+    assert (await client.get(url, headers=headers)).json() == {"computedAt": "2026-09-27T10:00:00Z", "payload": payload}
+
+    r = await client.put(url, headers=headers, json={"computedAt": "2026-09-28T10:00:00Z", "payload": {"v": 2}})
+    assert r.status_code == 204
+    assert (await client.get(url, headers=headers)).json() == {"computedAt": "2026-09-28T10:00:00Z", "payload": {"v": 2}}
+
+    assert (await client.delete(url, headers=headers)).status_code == 204
+    assert (await client.get(url, headers=headers)).json() is None

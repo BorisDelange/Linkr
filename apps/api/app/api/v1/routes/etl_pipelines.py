@@ -267,10 +267,10 @@ async def save_quality_cache(
 ):
     """Store the table a client just computed, sharing it with the workspace."""
     await _load_pipeline(db, pipeline_id, user, "etl:write")
-    row = await stats_cache_service.save(
+    await stats_cache_service.save(
         db, _QUALITY_SCOPE, pipeline_id, body.computed_at, body.payload
     )
-    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+    return StatsCacheResponse(computed_at=body.computed_at, payload=body.payload)
 
 
 @router.delete(

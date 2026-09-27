@@ -881,10 +881,10 @@ async def save_database_stats_cache(
     source through the same principal."""
     source = await _load_source(db, source_id, user, "databases:read")
     await _require_source_access(db, source, user, _cache_write_permission(source))
-    row = await stats_cache_service.save(
+    await stats_cache_service.save(
         db, _STATS_SCOPE, _stats_key(source, user), body.computed_at, body.payload
     )
-    return StatsCacheResponse(computed_at=row.computed_at, payload=row.payload)
+    return StatsCacheResponse(computed_at=body.computed_at, payload=body.payload)
 
 
 @router.delete("/{source_id}/stats-cache", status_code=status.HTTP_204_NO_CONTENT)
