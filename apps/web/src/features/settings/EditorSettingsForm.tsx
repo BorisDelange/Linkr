@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppStore, type EditorSettings } from '@/stores/app-store'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
-import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import {
   Select,
   SelectContent,
@@ -50,17 +50,11 @@ export function EditorSettingsForm() {
       {/* Font size */}
       <div className="flex items-center justify-between">
         <Label className="text-sm">{t('editor.font_size')}</Label>
-        <Input
-          type="number"
+        <NumberInput
           min={FONT_SIZE_MIN}
           max={FONT_SIZE_MAX}
           value={editorSettings.fontSize}
-          onChange={(e) => {
-            const n = Number(e.target.value)
-            if (Number.isFinite(n)) {
-              updateEditorSettings({ fontSize: Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, n)) })
-            }
-          }}
+          onValueChange={(fontSize) => updateEditorSettings({ fontSize })}
           className="w-24"
         />
       </div>
@@ -68,17 +62,11 @@ export function EditorSettingsForm() {
       {/* Tab size */}
       <div className="flex items-center justify-between">
         <Label className="text-sm">{t('editor.tab_size')}</Label>
-        <Input
-          type="number"
+        <NumberInput
           min={TAB_SIZE_MIN}
           max={TAB_SIZE_MAX}
           value={editorSettings.tabSize}
-          onChange={(e) => {
-            const n = Number(e.target.value)
-            if (Number.isFinite(n)) {
-              updateEditorSettings({ tabSize: Math.min(TAB_SIZE_MAX, Math.max(TAB_SIZE_MIN, n)) })
-            }
-          }}
+          onValueChange={(tabSize) => updateEditorSettings({ tabSize })}
           className="w-24"
         />
       </div>
@@ -148,19 +136,13 @@ export function EditorSettingsForm() {
       {editorSettings.autoSave && (
         <div className="flex items-center justify-between">
           <Label className="text-sm">{t('editor.auto_save_delay')}</Label>
-          <Input
-            type="number"
+          <NumberInput
+            integer={false}
             min={AUTO_SAVE_DELAY_MIN_S}
             max={AUTO_SAVE_DELAY_MAX_S}
             step={0.5}
             value={editorSettings.autoSaveDelay / 1000}
-            onChange={(e) => {
-              const n = Number(e.target.value)
-              if (Number.isFinite(n)) {
-                const clamped = Math.min(AUTO_SAVE_DELAY_MAX_S, Math.max(AUTO_SAVE_DELAY_MIN_S, n))
-                updateEditorSettings({ autoSaveDelay: Math.round(clamped * 1000) })
-              }
-            }}
+            onValueChange={(s) => updateEditorSettings({ autoSaveDelay: Math.round(s * 1000) })}
             className="w-24"
           />
         </div>

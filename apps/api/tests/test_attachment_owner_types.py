@@ -14,6 +14,8 @@ from app.api.v1.routes.attachments import _OWNER_MODELS
 #: with that file; `project` and `workspace` are special-cased in the route.
 CLIENT_OWNER_TYPES = {
     "data-catalog",
+    # The rendered Pages site of a catalog (lib/dcat-ap/pages-site-files.ts).
+    "data-catalog-site",
     "data-source",
     "dq-rule-set",
     "etl-pipeline",

@@ -112,10 +112,10 @@ export interface DqRuleSetSpec extends EntityIdentity {
 export interface DataCatalogSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
-  /** Columns the catalog counts over. Empty means it computes nothing. */
-  dimensions: string[]
-  categoryColumn?: string
-  subcategoryColumn?: string
+  /** What the catalog breaks counts down by (concept, period, service, age, sex), each with its parameters. */
+  variables: Record<string, unknown>
+  /** Variables counted together, 1 to 3 ids each. */
+  crossings: string[][]
 }
 
 export interface ConceptMappingSpec {
@@ -416,9 +416,8 @@ export function serializeEntity<K extends SerializableEntityKind>(
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...badgesField(s),
-            dimensions: s.dimensions,
-            ...(s.categoryColumn ? { categoryColumn: s.categoryColumn } : {}),
-            ...(s.subcategoryColumn ? { subcategoryColumn: s.subcategoryColumn } : {}),
+            variables: s.variables,
+            crossings: s.crossings,
             status: 'draft',
             ...provenanceTail(s),
           }, s.extra)),

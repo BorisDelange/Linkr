@@ -19,7 +19,7 @@ import { buildPointer } from '@/lib/import-identity'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useCatalogStore } from '@/stores/catalog-store'
-import { getDefaultDimensions } from '@/types'
+import { defaultCatalogCrossings, defaultCatalogVariables } from '@/lib/data-catalog/config'
 import type { DataCatalog, ProjectBadge } from '@/types'
 
 /** The tabs this dialog can be opened straight at. */
@@ -106,8 +106,8 @@ export function CreateCatalogDialog({ open, onOpenChange, editingCatalog, onCrea
         dataSourceId,
         dataSourceRef: buildPointer(dbSources, dataSourceId),
         badges,
-        dimensions: getDefaultDimensions(),
-        periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
+        variables: defaultCatalogVariables(),
+        crossings: defaultCatalogCrossings(),
         anonymization: { threshold: 10, mode: 'replace' },
         status: 'draft',
         version: version.trim() || '0.1.0',

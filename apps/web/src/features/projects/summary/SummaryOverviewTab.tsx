@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
+import { StatCard } from '@/components/ui/stat-card'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import {
@@ -420,40 +421,6 @@ function ListItem({ to, children }: { to: string; children: React.ReactNode }) {
   )
 }
 
-function StatCard({
-  icon,
-  iconBg,
-  value,
-  label,
-  to,
-}: {
-  icon: React.ReactNode
-  iconBg: string
-  value: number
-  label: string
-  to?: string
-}) {
-  const content = (
-    <div className="flex items-center gap-3">
-      <div className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconBg}`}>
-        {icon}
-      </div>
-      <div>
-        <div className="text-2xl font-bold tabular-nums">{value}</div>
-        <div className="text-xs text-muted-foreground">{label}</div>
-      </div>
-    </div>
-  )
-  const className = 'rounded-xl border bg-card p-4 shadow-sm'
-  if (to) {
-    return (
-      <Link to={to} className={`${className} block transition-colors hover:bg-accent`}>
-        {content}
-      </Link>
-    )
-  }
-  return <div className={className}>{content}</div>
-}
 
 function StatusDot({ status }: { status: string }) {
   const color =

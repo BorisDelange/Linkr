@@ -130,8 +130,8 @@ describe('readEntity — record lists', () => {
     const catalog: DataCatalogSpec = {
       ...IDENTITY, entityId: 'icu-catalog',
       name: { en: 'ICU catalog' },
-      dimensions: ['col_unit', 'col_year'],
-      categoryColumn: 'col_domain',
+      variables: { period: { enabled: true, granularity: 'year' }, sex: { enabled: true } },
+      crossings: [['period', 'sex']],
     }
     const { first, second } = roundTrip('data-catalog', catalog)
     expect(second).toEqual(first)

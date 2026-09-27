@@ -146,21 +146,57 @@ describe('mapping project — legacy layout', () => {
 describe('data catalog', () => {
   const catalog = (over: Record<string, unknown> = {}) =>
     new MemoryTree({
-      'entity.json': JSON.stringify({ type: 'data-catalog', name: { en: 'Catalog' }, dimensions: ['age'], ...over }),
+      'entity.json': JSON.stringify({ type: 'data-catalog', name: { en: 'Catalog' }, variables: { age: { enabled: true, brackets: [18] } }, crossings: [['age']], ...over }),
     })
 
   it('accepts a well-formed catalog', () => {
     expect(validateEntity(catalog(), 'data-catalog')).toEqual([])
   })
 
-  it('warns when it would compute nothing', () => {
-    const issues = validateEntity(catalog({ dimensions: [] }), 'data-catalog')
+  it('warns when no variable is enabled', () => {
+    const issues = validateEntity(catalog({ variables: { age: { enabled: false } } }), 'data-catalog')
     expect(issues.find((i) => i.code === 'empty-value')?.severity).toBe('warning')
+  })
+
+  it('rejects a crossing of an unknown variable or of too many', () => {
+    const issues = validateEntity(catalog({ crossings: [['age', 'ward'], ['age', 'sex', 'period', 'service']] }), 'data-catalog')
+    expect(issues.map((i) => i.pointer)).toEqual(['/crossings/0', '/crossings/1'])
+  })
+
+  it('accepts the counts beside patients, and rejects a non-boolean one', () => {
+    expect(validateEntity(catalog({ counts: { visits: false, unitStays: true } }), 'data-catalog')).toEqual([])
+    const issues = validateEntity(catalog({ counts: { visits: 'yes' } }), 'data-catalog')
+    expect(issues.map((i) => i.pointer)).toEqual(['/counts/visits'])
+  })
+
+  it('flags a catalog written before variables, without failing it', () => {
+    const tree = new MemoryTree({ 'entity.json': JSON.stringify({ type: 'data-catalog', name: { en: 'Catalog' }, dimensions: [{ type: 'sex', enabled: true }] }) })
+    const issues = validateEntity(tree, 'data-catalog')
+    expect(issues).toHaveLength(1)
+    expect(issues[0]).toMatchObject({ code: 'legacy-format', severity: 'warning' })
   })
 
   it('requires a name', () => {
     const issues = validateEntity(new MemoryTree({ 'entity.json': '{"type":"data-catalog"}' }), 'data-catalog')
     expect(issues.some((i) => i.code === 'missing-field')).toBe(true)
+  })
+
+  it('accepts a Pages deployment with its site and CI file', () => {
+    const tree = new MemoryTree({
+      'entity.json': JSON.stringify({
+        type: 'data-catalog', name: { en: 'Catalog' }, variables: { age: { enabled: true } }, crossings: [],
+        pagesDeployment: { provider: 'gitlab', updatedAt: '2026-09-26T10:00:00.000Z' },
+      }),
+      'site/index.html': '<html></html>',
+      'site/concepts.csv': 'a,b\n',
+      '.gitlab-ci.yml': 'pages:\n',
+    })
+    expect(validateEntity(tree, 'data-catalog')).toEqual([])
+  })
+
+  it('rejects an unknown Pages provider', () => {
+    const issues = validateEntity(catalog({ pagesDeployment: { provider: 'netlify' } }), 'data-catalog')
+    expect(issues.some((i) => i.pointer === '/pagesDeployment/provider')).toBe(true)
   })
 })
 

@@ -176,8 +176,8 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 |---|---|
 | `list_wiki_pages`, `search_wiki_pages`, `get_wiki_page` | the workspace wiki: page tree, search with snippets, one page's Markdown (per language) with its path and attachments; by `workspace_id` or `project_uid` |
 | `create_wiki_page`, `update_wiki_page`, `move_wiki_page`, `delete_wiki_page` | pages as the wiki store writes them (slug, sort order, author); move renumbers siblings and refuses cycles; delete takes the sub-pages and attachments (`destructiveHint`) |
-| `list_data_catalogs`, `get_data_catalog`, `create_data_catalog`, `update_data_catalog`, `delete_data_catalog` | anonymized aggregate catalogs of a database: dimensions, age brackets, threshold, category columns, period table — with the Configuration tab's rules |
-| `compute_data_catalog`, `get_data_catalog_results`, `reset_data_catalog_results` | the app's resumable computation (`lib/duckdb/catalog-batch.ts`) through the server query route, results in the shared results cache; time-budgeted, resumes on the next call; sub-threshold counts masked |
+| `list_data_catalogs`, `get_data_catalog`, `create_data_catalog`, `update_data_catalog`, `delete_data_catalog` | anonymized aggregate catalogs of a database: variables (concept, period, service, age, sex) and their settings, crossings, what cells count, anonymization — with the Configuration tab's rules |
+| `compute_data_catalog`, `get_data_catalog_results`, `reset_data_catalog_results` | the app's resumable computation (`lib/duckdb/catalog-run.ts`) through the server query route, results in the shared results cache; time-budgeted, resumes on the next call; results masked as the published page masks them (primary and secondary suppression) |
 | `get_readme`, `set_readme` | the Markdown README of a workspace, database, mapping project, SQL collection, ETL pipeline, DQ rule set, data catalog or plugin (one language, others kept) |
 
 ### `git` — versioning, read-only

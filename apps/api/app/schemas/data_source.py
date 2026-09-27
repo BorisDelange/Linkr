@@ -162,6 +162,18 @@ class TestConnectionResult(CamelModel):
 
 class QueryRequest(CamelModel):
     sql: str
+    # Tags the query so `POST /query/cancel` can interrupt it while it runs.
+    query_id: str | None = None
+    # Every row, up to db_connect.MAX_QUERY_ROWS_ALL, instead of the usual cap.
+    all_rows: bool = False
+
+
+class QueryCancelRequest(CamelModel):
+    query_id: str
+
+
+class QueryCancelResult(CamelModel):
+    cancelled: bool
 
 
 class QueryResult(CamelModel):

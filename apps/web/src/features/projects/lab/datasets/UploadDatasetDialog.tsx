@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import {
@@ -951,11 +952,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                   </FormField>
                   <FormField label={t('datasets.upload_skip_rows')}>
                     {({ id }) => (
-                      <Input id={id}
-                        type="number"
+                      <NumberInput id={id}
                         min={0}
                         value={skipRows}
-                        onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                        onValueChange={setSkipRows}
                         className="h-8 text-xs"
                       />
                     )}
@@ -997,11 +997,10 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
                   )}
                   <FormField label={t('datasets.upload_skip_rows')}>
                     {({ id }) => (
-                      <Input id={id}
-                        type="number"
+                      <NumberInput id={id}
                         min={0}
                         value={skipRows}
-                        onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                        onValueChange={setSkipRows}
                         className="h-8 text-xs"
                       />
                     )}

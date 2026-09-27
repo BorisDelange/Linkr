@@ -1,10 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/server'
 import { describe, expect, it } from 'vitest'
-import { getDefaultDimensions, type CatalogResultCache, type DataCatalog } from '@/types/catalog'
+import type { CatalogResultCache, DataCatalog } from '@/types/catalog'
+import { DEFAULT_CONCEPT_CONFIG, defaultCatalogVariables } from '@/lib/data-catalog/config'
 import type { WikiPage } from '@/types'
 import { registerWikiTools } from './tools-wiki'
 import {
-  breadcrumbs, catalogPatch, maskedCount, planMove, readmeIn, renderCatalogResults, renderWikiTree, subtreeIds,
+  breadcrumbs, catalogPatch, describeCatalogConfig, maskedCount, planMove, readmeIn, renderCatalogResults, renderWikiTree, subtreeIds,
   wikiSlug, withReadme,
 } from './wiki'
 
@@ -53,45 +54,66 @@ describe('readme', () => {
 
 const catalog = (): DataCatalog => ({
   id: 'c', workspaceId: 'ws', name: { en: 'C' }, description: {}, dataSourceId: 'd',
-  dimensions: getDefaultDimensions(), anonymization: { threshold: 10, mode: 'replace' },
-  periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' }, status: 'draft',
-  categoryColumn: 'domain_id', createdAt: '', updatedAt: '',
+  variables: { ...defaultCatalogVariables(), concept: { ...DEFAULT_CONCEPT_CONFIG, enabled: true, categoryColumn: 'domain_id' } },
+  crossings: [['period'], ['age'], ['age', 'sex']],
+  anonymization: { threshold: 10, mode: 'replace' }, status: 'draft', createdAt: '', updatedAt: '',
 })
+
+type Patched = { patch: Record<string, never> }
 
 describe('catalogPatch', () => {
   const cols = ['concept_class_id', 'domain_id']
 
-  it('moves the admission-date dimension with the period table', () => {
-    const off = catalogPatch(catalog(), { period: null }, cols)
-    expect(off).toMatchObject({ patch: { periodConfig: null } })
-    const dims = (off as { patch: { dimensions: DataCatalog['dimensions'] } }).patch.dimensions
-    expect(dims.find((d) => d.type === 'admission_date')?.enabled).toBe(false)
-
-    const yearly = catalogPatch(catalog(), { period: { granularity: 'year' } }, cols) as { patch: Record<string, never> }
-    expect(yearly.patch.periodConfig).toEqual({ granularity: 'year', serviceLevel: 'visit_detail' })
-    expect((yearly.patch.dimensions as DataCatalog['dimensions']).find((d) => d.type === 'admission_date')?.admissionDate).toEqual({ step: 'year' })
+  it('changes one setting of a variable and keeps the others', () => {
+    const p = catalogPatch(catalog(), { period_granularity: 'month', period_step: 3 }, cols) as Patched
+    expect((p.patch.variables as DataCatalog['variables']).period).toEqual({ enabled: true, granularity: 'month', step: 3 })
+    expect((p.patch.variables as DataCatalog['variables']).age).toEqual(catalog().variables.age)
+    expect(catalogPatch(catalog(), { period_step: 0 }, cols)).toHaveProperty('error')
   })
 
   it('takes brackets or a preset, and refuses bad ones', () => {
-    const p = catalogPatch(catalog(), { age_brackets: [65, 18, 18] }, cols) as { patch: { dimensions: DataCatalog['dimensions'] } }
-    expect(p.patch.dimensions.find((d) => d.type === 'age_group')?.ageGroup?.brackets).toEqual([18, 65])
+    const p = catalogPatch(catalog(), { age_brackets: [65, 18, 18] }, cols) as Patched
+    expect((p.patch.variables as DataCatalog['variables']).age?.brackets).toEqual([18, 65])
     expect(catalogPatch(catalog(), { age_brackets: '20y' }, cols)).not.toHaveProperty('error')
     expect(catalogPatch(catalog(), { age_brackets: 'weird' }, cols)).toHaveProperty('error')
     expect(catalogPatch(catalog(), { age_brackets: [0] }, cols)).toHaveProperty('error')
   })
 
-  it('keeps category and subcategory distinct, clears with null, checks names', () => {
-    expect(catalogPatch(catalog(), { subcategory_column: 'domain_id' }, cols))
-      .toEqual({ patch: { categoryColumn: null, subcategoryColumn: 'domain_id' } })
-    expect(catalogPatch(catalog(), { category_column: null }, cols)).toEqual({ patch: { categoryColumn: null } })
+  it('keeps category and subcategory distinct, checks names, needs a column to count categories', () => {
+    const p = catalogPatch(catalog(), { subcategory_column: 'domain_id' }, cols) as Patched
+    const concept = (p.patch.variables as DataCatalog['variables']).concept!
+    expect(concept.subcategoryColumn).toBe('domain_id')
+    expect(concept.categoryColumn).toBeUndefined()
     expect(catalogPatch(catalog(), { category_column: 'nope' }, cols)).toHaveProperty('error')
+    expect(catalogPatch(catalog(), { category_column: null, concept_level: 'category' }, cols)).toHaveProperty('error')
   })
 
-  it('locks the period axis of a paused run, validates the threshold', () => {
-    expect(catalogPatch({ ...catalog(), computedPeriods: 3 }, { period: null }, cols)).toHaveProperty('error')
+  it('stores crossings in canonical order, once each, 1 to 3 known variables', () => {
+    expect(catalogPatch(catalog(), { crossings: [['sex', 'age'], ['age', 'sex'], ['period']] }, cols))
+      .toEqual({ patch: { crossings: [['age', 'sex'], ['period']] } })
+    expect(catalogPatch(catalog(), { crossings: [['age', 'weight']] }, cols)).toHaveProperty('error')
+    expect(catalogPatch(catalog(), { crossings: [['concept', 'period', 'age', 'sex']] }, cols)).toHaveProperty('error')
+  })
+
+  it('sets what cells count', () => {
+    expect(catalogPatch(catalog(), { count_unit_stays: true }, cols))
+      .toEqual({ patch: { counts: { visits: true, unitStays: true } } })
+    expect(catalogPatch(catalog(), { count_stays: true }, cols)).toEqual({ patch: {} })
+  })
+
+  it('locks what a paused run counts, not its anonymization; validates the threshold', () => {
+    expect(catalogPatch({ ...catalog(), computedSteps: 3 }, { sex_enabled: false }, cols)).toHaveProperty('error')
+    expect(catalogPatch({ ...catalog(), computedSteps: 3 }, { anonymization_threshold: 5 }, cols)).not.toHaveProperty('error')
     expect(catalogPatch(catalog(), { anonymization_threshold: 0 }, cols)).toHaveProperty('error')
     expect(catalogPatch(catalog(), { anonymization_threshold: 5 }, cols))
       .toEqual({ patch: { anonymization: { threshold: 5, mode: 'replace' } } })
+  })
+
+  it('describes the configuration', () => {
+    const lines = describeCatalogConfig(catalog()).join('\n')
+    expect(lines).toContain('age [10, 20, 30, 40, 50, 60, 70, 80, 90]')
+    expect(lines).toContain('Published alone: period, age')
+    expect(lines).toContain('Counts: patients, hospital stays')
   })
 })
 
@@ -102,25 +124,46 @@ describe('catalog results', () => {
       { conceptId: 1, conceptName: 'Heart rate', category: 'Measurement', patientCount: 120, recordCount: 900, visitCount: 130 },
       { conceptId: 2, conceptName: 'Rare drug', category: 'Drug', patientCount: 3, recordCount: 4, visitCount: 3 },
     ],
-    dimensions: [{ dimensionId: 'sex', dimensionType: 'sex', value: 'F', patientCount: 7, recordCount: 7, visitCount: 7 }],
+    crossings: [
+      { id: 'age', variables: ['age'], rows: [{ values: ['[0;18['], patients: 40, stays: 50 }, { values: ['[18;+∞['], patients: 160, stays: 250 }] },
+      { id: 'age-sex', variables: ['age', 'sex'], rows: [
+        { values: ['[0;18[', 'male'], patients: 36, stays: 45 }, { values: ['[0;18[', 'female'], patients: 4, stays: 5 },
+        { values: ['[18;+∞[', 'male'], patients: 80, stays: 120 }, { values: ['[18;+∞[', 'female'], patients: 80, stays: 130 },
+      ] },
+    ],
+    modalities: { age: ['[0;18[', '[18;+∞['], sex: ['male', 'female'] },
     grandTotal: { totalPatients: 200, totalVisits: 300, totalRecords: 5000 },
     totalConcepts: 2, totalPatients: 200, totalVisits: 300,
   }
+  const cat = { ...catalog(), variables: { ...catalog().variables, age: { enabled: true, brackets: [18] } }, crossings: [['age'], ['age', 'sex']] as DataCatalog['crossings'] }
 
   it('masks counts below the threshold', () => {
     expect(maskedCount(9, 10)).toBe('< 10')
     expect(maskedCount(null, 10)).toBe('< 10')
     expect(maskedCount(10, 10)).toBe('10')
-    const concepts = renderCatalogResults(cache, 10, 'concepts')
+    const concepts = renderCatalogResults(cat, cache, 'concepts')
     expect(concepts).toContain('Rare drug · Drug · patients < 10')
     expect(concepts.indexOf('Heart rate')).toBeLessThan(concepts.indexOf('Rare drug'))
-    expect(renderCatalogResults(cache, 10, 'dimensions')).toContain('sex = F · patients < 10')
+  })
+
+  it('leaves small concepts out in suppress mode', () => {
+    expect(renderCatalogResults({ ...cat, anonymization: { threshold: 10, mode: 'suppress' } }, cache, 'concepts')).not.toContain('Rare drug')
+  })
+
+  it('masks a crossing like the page: the small cell and the one that would give it away', () => {
+    const cells = renderCatalogResults(cat, cache, 'crossing', { crossing: 'age-sex' })
+    expect(cells).toContain('Age group 0–17 × Gender Female: < 10')
+    expect(cells).toContain('Age group 0–17 × Gender Male: masked')
+    expect(cells).toContain('Age group 18+ × Gender Male: patients 80 · stays 120')
+    expect(cells).not.toContain('36')
+    expect(renderCatalogResults(cat, cache, 'crossing', { crossing: 'nope' })).toContain('Give crossing, one of: age, age-sex')
   })
 
   it('filters concepts and summarizes', () => {
-    expect(renderCatalogResults(cache, 10, 'concepts', { category: 'Drug' })).not.toContain('Heart rate')
-    expect(renderCatalogResults(cache, 10, 'summary')).toContain('Measurement: 1')
-    expect(renderCatalogResults(cache, 10, 'periods')).toContain('No period table')
+    expect(renderCatalogResults(cat, cache, 'concepts', { category: 'Drug' })).not.toContain('Heart rate')
+    const summary = renderCatalogResults(cat, cache, 'summary')
+    expect(summary).toContain('Measurement: 1')
+    expect(summary).toContain('age-sex (age × sex) — 4 cell(s), 2 masked')
   })
 })
 

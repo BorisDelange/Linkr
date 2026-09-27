@@ -1,21 +1,23 @@
 /** The workspace wiki, data catalogs, and the READMEs of workspace entities. */
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
-import { computeCatalogBase, computePeriodBatch } from '@/lib/duckdb/catalog-batch'
-import { buildCategoryLabelsQuery, buildServiceLabelsQuery } from '@/lib/duckdb/catalog-queries'
+import { runCatalogComputation } from '@/lib/duckdb/catalog-run'
+import { buildServiceListQuery } from '@/lib/duckdb/catalog-queries'
+import { defaultCatalogCrossings, defaultCatalogVariables } from '@/lib/data-catalog/config'
+import { withAnonymizationImpact } from '@/lib/data-catalog/publish'
 import { buildPointer } from '@/lib/import-identity'
 import { localized, setLocalized } from '@/lib/localized'
 import { slugifyId, uniqueEntityId } from '@/lib/slugify-id'
 import { userDisplayName, userToAuthorDetails } from '@/lib/user-identity'
-import { AGE_BRACKET_PRESETS, getDefaultDimensions } from '@/types/catalog'
+import { AGE_BRACKET_PRESETS, DEFAULT_CATALOG_COUNTS } from '@/types/catalog'
 import type { CatalogResultCache, DataCatalog, LocalizedString, User, WikiPage } from '@/types'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server,
 } from './shared.js'
 import type { DataSource } from './api.js'
 import {
-  README_OWNERS, breadcrumbs, catalogClassColumns, catalogPatch, clip, describeCatalogConfig, describeCatalogStatus,
-  planMove, readmeIn, renderCatalogResults, renderWikiTree, subtreeIds, wikiSlug, withReadme,
+  CATALOG_VARIABLES, README_OWNERS, breadcrumbs, catalogClassColumns, catalogPatch, clip, describeCatalogConfig, describeCatalogStatus,
+  maskedCount, planMove, readmeIn, renderCatalogResults, renderWikiTree, subtreeIds, wikiSlug, withReadme,
   type CatalogChanges, type ReadmeOwner, type ResultsView,
 } from './wiki.js'
 
@@ -113,7 +115,7 @@ const pointerTo = (all: DataSource[], id: string) =>
   buildPointer(all.map((d) => ({ id: d.id, name: d.name, lineageId: d.lineageId ?? undefined, entityId: d.entityId ?? undefined })), id)
 
 /** Clearing a field takes an explicit null: the API reads a missing key as "no change". */
-const clearedRunState = { lastError: null, lastComputedAt: null, lastComputeDurationMs: null, computedPeriods: null }
+const clearedRunState = { lastError: null, lastComputedAt: null, lastComputeDurationMs: null, computedSteps: null }
 
 export function registerWikiTools(server: Server): void {
   // --- Wiki ------------------------------------------------------------------
@@ -310,9 +312,10 @@ export function registerWikiTools(server: Server): void {
   server.registerTool('list_data_catalogs', {
     description:
       'Data catalogs of a workspace (or of every workspace you can read when no scope is given). A data catalog '
-      + 'publishes anonymized aggregate counts of one database — patients, visits and records per concept, per '
-      + 'demographic dimension and per period, counts below a threshold masked — with DCAT-AP metadata, so others can '
-      + 'see what the database holds without seeing patient rows.',
+      + 'publishes anonymized aggregate counts of one database — patients (and hospital or unit stays, records) per '
+      + 'concept and per crossing of variables (period, service, age group, sex, concept), small counts masked along '
+      + 'with the cells that would reveal them — with DCAT-AP metadata, so others can see what the database holds '
+      + 'without seeing patient rows.',
     annotations: READ,
     inputSchema: fromJsonSchema<Scope>({ type: 'object', properties: SCOPE_PROPS }),
   }, guard(async (args) => {
@@ -324,9 +327,9 @@ export function registerWikiTools(server: Server): void {
 
   server.registerTool('get_data_catalog', {
     description:
-      'A data catalog\'s configuration (database, dimensions, anonymization threshold, concept category columns, '
-      + 'period table) and computation status. With `options`, also the values each setting can take on its database '
-      + '(classification columns, category values, service labels), read with small aggregate queries.',
+      'A data catalog\'s configuration (database, variables and their settings, crossings, what cells count, '
+      + 'anonymization) and computation status. With `options`, also what each setting can take on its database '
+      + '(classification columns, services with their patients, age presets), read with small aggregate queries.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ catalog_id: string; options?: boolean }>({
       type: 'object',
@@ -340,25 +343,24 @@ export function registerWikiTools(server: Server): void {
     const out = [describeCatalog(c, ds ? loc(ds.name) : '(not found)')]
     if (options && ds?.schemaMapping) {
       const mapping = ds.schemaMapping
+      out.push(`Variables: ${CATALOG_VARIABLES.join(', ')} (a crossing is 1 to 3 of them)`)
       out.push(`Age bracket presets: ${Object.entries(AGE_BRACKET_PRESETS).map(([k, v]) => `${k} [${v.join(', ')}]`).join(' · ')}`)
       out.push(`Classification columns: ${catalogClassColumns(mapping).join(', ') || '(none)'}`)
-      if (c.categoryColumn) {
-        const sql = buildCategoryLabelsQuery(mapping, c.categoryColumn)
-        const values = sql ? (await api.query(ds.id, sql).catch(() => [])).map((r) => String(r.cat_label)).filter(Boolean) : []
-        out.push(`Values of ${c.categoryColumn}: ${values.slice(0, 100).join(', ') || '(none)'}`)
+      for (const level of ['visit_detail', 'visit'] as const) {
+        const sql = buildServiceListQuery(mapping, level)
+        const rows = sql ? await api.query(ds.id, sql).catch(() => []) : []
+        const services = rows.map((r) => `${String(r.svc)} (${maskedCount(Number(r.patients ?? 0), c.anonymization.threshold)})`)
+        out.push(`Services at ${level === 'visit' ? 'visit-type' : 'care-unit'} level, with patients: ${services.slice(0, 100).join(', ') || '(none)'}${services.length > 100 ? ` … ${services.length - 100} more` : ''}`)
       }
-      const svc = buildServiceLabelsQuery(mapping, 'visit_detail')
-      const labels = svc ? (await api.query(ds.id, svc).catch(() => [])).map((r) => String(r.svc_label)).filter(Boolean) : []
-      out.push(`Service labels (unit level): ${labels.slice(0, 100).join(', ') || '(none)'}${labels.length > 100 ? ` … ${labels.length - 100} more` : ''}`)
     }
     return text(out.join('\n'))
   }))
 
   server.registerTool('create_data_catalog', {
     description:
-      'Create a data catalog on a database of the workspace, with the app\'s defaults (age groups by 10 years, sex, '
-      + 'admission month; monthly period table; counts below 10 masked). Configure it with update_data_catalog, '
-      + 'then compute it with compute_data_catalog.',
+      'Create a data catalog on a database of the workspace, with the app\'s defaults (variables period by year, age '
+      + 'groups by 10 years, sex; crossings period, age, period × age, period × sex, age × sex; patients and hospital '
+      + 'stays counted; counts below 10 masked). Configure it with update_data_catalog, then compute it with compute_data_catalog.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<Scope & { name: string; database_id: string; description?: string; language?: string; entity_id?: string }>({
       type: 'object',
@@ -392,8 +394,9 @@ export function registerWikiTools(server: Server): void {
       dataSourceId: ds.id,
       ...(pointerTo(all, ds.id) ? { dataSourceRef: pointerTo(all, ds.id) } : {}),
       badges: [],
-      dimensions: getDefaultDimensions(),
-      periodConfig: { granularity: 'month', serviceLevel: 'visit_detail' },
+      variables: defaultCatalogVariables(),
+      crossings: defaultCatalogCrossings(),
+      counts: { ...DEFAULT_CATALOG_COUNTS },
       anonymization: { threshold: 10, mode: 'replace' },
       status: 'draft',
       version: '0.1.0',
@@ -406,9 +409,10 @@ export function registerWikiTools(server: Server): void {
 
   server.registerTool('update_data_catalog', {
     description:
-      'Change a data catalog: name, description, database, version, and what it counts — dimensions (sex, age groups '
-      + 'with their brackets, care site), anonymization threshold, the concept category / subcategory columns, and the '
-      + 'period table (null turns it off). Results computed before a change are stale: recompute with compute_data_catalog restart.',
+      'Change a data catalog: name, description, database, version, and what it counts — the variables (concept, '
+      + 'period, service, age, sex) and their settings, the crossings to compute (the whole list; a one-variable '
+      + 'crossing is also what publishes that variable alone), what cells count beside patients, and the anonymization. '
+      + 'Results computed before a change of what is counted are stale: recompute with compute_data_catalog restart.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<CatalogChanges & {
       catalog_id: string; name?: string; description?: string; language?: string; database_id?: string; version?: string
@@ -421,29 +425,36 @@ export function registerWikiTools(server: Server): void {
         language: { type: 'string', description: 'Language of name/description, default "en".' },
         database_id: { type: 'string' },
         version: { type: 'string', description: 'Semantic version, e.g. "0.2.0".' },
-        sex_enabled: { type: 'boolean' },
-        age_group_enabled: { type: 'boolean' },
+        concept_enabled: { type: 'boolean' },
+        concept_level: { type: 'string', enum: ['concept', 'category', 'subcategory'], description: 'Count each concept, or its category / subcategory.' },
+        category_column: { type: ['string', 'null'], description: 'get_data_catalog with options lists the columns.' },
+        subcategory_column: { type: ['string', 'null'] },
+        concept_scope: { type: 'string', enum: ['all', 'top'], description: 'Every concept, or only the concept_top_n with the most patients.' },
+        concept_top_n: { type: 'number' },
+        period_enabled: { type: 'boolean' },
+        period_granularity: { type: 'string', enum: ['month', 'quarter', 'year'] },
+        period_step: { type: 'number', description: 'Units per period: 2 with year counts every two years. Default 1.' },
+        service_enabled: { type: 'boolean' },
+        service_level: { type: 'string', enum: ['visit', 'visit_detail'], description: 'Visit type, or care unit.' },
+        service_grouping: { type: 'string', enum: ['all', 'top', 'manual'], description: 'Every service, the service_top_n largest + other, or service_groups.' },
+        service_top_n: { type: 'number' },
+        service_groups: { type: 'object', additionalProperties: { type: 'string' }, description: 'manual grouping: raw service name → group name.' },
+        service_unassigned: { type: 'string', enum: ['other', 'keep'], description: 'manual grouping: a service in no group joins "other" or keeps its name.' },
+        age_enabled: { type: 'boolean' },
         age_brackets: {
           description: `Lower bounds of the age groups (e.g. [18, 65, 80]), or a preset: ${Object.keys(AGE_BRACKET_PRESETS).join(', ')}.`,
           anyOf: [{ type: 'array', items: { type: 'number' } }, { type: 'string' }],
         },
-        care_site_enabled: { type: 'boolean' },
-        care_site_level: { type: 'string', enum: ['visit', 'visit_detail'] },
-        period: {
-          description: 'The period table; null turns it off.',
-          anyOf: [{ type: 'null' }, {
-            type: 'object',
-            properties: {
-              granularity: { type: 'string', enum: ['month', 'quarter', 'year'] },
-              service_labels: { type: ['array', 'null'], items: { type: 'string' }, description: 'Limit to these services; null or [] for all.' },
-              concept_categories: { type: 'array', items: { type: 'string' }, description: 'Values of the category column counted per period.' },
-            },
-          }],
+        sex_enabled: { type: 'boolean' },
+        crossings: {
+          type: 'array',
+          items: { type: 'array', items: { type: 'string', enum: [...CATALOG_VARIABLES] } },
+          description: 'The whole list of crossings, each 1 to 3 variables, e.g. [["period"], ["age", "sex"], ["concept", "period"]].',
         },
+        count_stays: { type: 'boolean', description: 'Also count hospital stays per cell.' },
+        count_unit_stays: { type: 'boolean', description: 'Also count care-unit stays per cell.' },
         anonymization_threshold: { type: 'number', description: 'Counts below it are masked. Whole number ≥ 1.' },
-        anonymization_mode: { type: 'string', enum: ['replace', 'suppress'] },
-        category_column: { type: ['string', 'null'], description: 'get_data_catalog with options lists the columns.' },
-        subcategory_column: { type: ['string', 'null'] },
+        anonymization_mode: { type: 'string', enum: ['replace', 'suppress'], description: 'Concept list: show "< T" or leave the concept out.' },
       },
       required: ['catalog_id'],
     }),
@@ -486,17 +497,18 @@ export function registerWikiTools(server: Server): void {
 
   server.registerTool('compute_data_catalog', {
     description:
-      'Compute a data catalog the way the app does: aggregate queries on its database (concept counts, dimension '
-      + 'counts, then the period table one period at a time), results stored on the server and shared with every user. '
-      + 'Resumable: it works for up to `time_budget_seconds` then stops at a save point — call again to resume. '
-      + 'An already computed catalog is recomputed only with restart: true. Only aggregate counts are produced.',
+      'Compute a data catalog the way the app does: aggregate queries on its database (concept counts, totals, '
+      + 'rankings, then each crossing, over slices of the patients on a large warehouse), results stored on the '
+      + 'server and shared with every user. Resumable: it works for up to `time_budget_seconds` then stops at a save '
+      + 'point — call again to resume. An already computed catalog is recomputed only with restart: true. Only '
+      + 'aggregate counts are produced.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ catalog_id: string; restart?: boolean; time_budget_seconds?: number; force?: boolean }>({
       type: 'object',
       properties: {
         catalog_id: { type: 'string' },
         restart: { type: 'boolean', description: 'Discard previous or partial results and start over.' },
-        time_budget_seconds: { type: 'number', description: 'Default 50, max 600. The concept pass always completes.' },
+        time_budget_seconds: { type: 'number', description: 'Default 50, max 600. The query in flight when it runs out is redone on resume.' },
         force: { type: 'boolean', description: 'Run even if the catalog looks like it is being computed in Linkr right now.' },
       },
       required: ['catalog_id'],
@@ -504,7 +516,7 @@ export function registerWikiTools(server: Server): void {
   }, guard(async ({ catalog_id, restart, time_budget_seconds, force }) => {
     const catalog = await catalogs.get(catalog_id).catch(() => null)
     if (!catalog) return failure(`No data catalog ${catalog_id} (list_data_catalogs lists them).`)
-    const paused = catalog.computedPeriods != null
+    const paused = catalog.computedSteps != null
     if (!restart && !paused && catalog.status === 'success') {
       return text(`Already computed (${catalog.lastComputedAt}). Read it with get_data_catalog_results, or pass restart: true to recompute.`)
     }
@@ -514,86 +526,76 @@ export function registerWikiTools(server: Server): void {
     }
     const ds = await api.getDataSource(catalog.dataSourceId).catch(() => null)
     if (!ds?.schemaMapping) return failure(`The catalog's database ${catalog.dataSourceId || '(none)'} is missing or has no schema mapping.`)
-    const mapping = ds.schemaMapping
-    const query = (sql: string) => api.query(ds.id, sql)
-    const deadline = Date.now() + Math.min(Math.max(time_budget_seconds ?? 50, 5), 600) * 1000
+    const budget = Math.min(Math.max(time_budget_seconds ?? 50, 5), 600) * 1000
     const startedAt = Date.now()
 
     const stored = restart ? null : await catalogs.getResults(catalog_id)
-    if (restart) await catalogs.update(catalog_id, { computedPeriods: null })
-    const resume = stored && paused ? { cache: stored, computed: catalog.computedPeriods! } : null
+    if (restart) await catalogs.update(catalog_id, { computedSteps: null })
+    const resumeFrom = stored && paused ? stored : null
 
-    const persist = async (cache: CatalogResultCache, done: boolean) => {
-      await catalogs.saveResults(cache)
-      await catalogs.update(catalog_id, {
-        status: done ? 'success' : 'computing',
-        lastError: null,
-        lastComputedAt: cache.computedAt,
-        lastComputeDurationMs: cache.durationMs,
-        computedPeriods: done ? null : cache.periods?.length ?? 0,
-      })
-    }
-
+    let lastStep = 0
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), budget)
     try {
-      let cache = resume?.cache ?? await computeCatalogBase(catalog, mapping, query)
-      let offset = resume?.computed ?? 0
-      const plan = catalog.periodConfig ? await computePeriodBatch.plan(catalog, mapping, query) : null
-      const total = plan?.intervals.length ?? 0
-      const periods = [...(cache.periods ?? [])]
-      if (periods.length < offset) offset = periods.length
-      while (plan && offset < total) {
-        const batch = await computePeriodBatch.run(plan, offset, Math.min(24, total - offset), query)
-        if (batch.length === 0) break
-        periods.push(...batch)
-        offset += batch.length
-        cache = { ...cache, periods, ...computePeriodBatch.summarize(periods) }
-        await persist(cache, offset >= total)
-        if (Date.now() > deadline && offset < total) {
-          return text(`Paused at ${offset}/${total} period rows (time budget reached); progress is saved. Call compute_data_catalog again to resume.`)
-        }
+      const outcome = await runCatalogComputation({
+        catalog,
+        mapping: ds.schemaMapping,
+        query: (sql) => api.query(ds.id, sql),
+        resumeFrom,
+        persist: async (computed, done) => {
+          const cache = done ? withAnonymizationImpact(catalog, computed) : computed
+          await catalogs.saveResults(cache)
+          await catalogs.update(catalog_id, {
+            status: done ? 'success' : 'computing',
+            lastError: null,
+            lastComputedAt: cache.computedAt,
+            lastComputeDurationMs: cache.durationMs,
+            computedSteps: done ? null : cache.completedSteps ?? 0,
+          })
+        },
+      }, controller.signal, { progress: (computed) => { lastStep = computed } })
+      if (outcome === 'paused') {
+        return text(`Paused after ${lastStep} step(s) (time budget reached); progress is saved. Call compute_data_catalog again to resume.`)
       }
-      cache = {
-        ...cache,
-        periods: plan ? periods : undefined,
-        ...(plan ? computePeriodBatch.summarize(periods) : {}),
-        durationMs: Date.now() - startedAt,
-        computedAt: new Date().toISOString(),
-      }
-      await persist(cache, true)
-      return text(`Computed in ${Math.round((Date.now() - startedAt) / 1000)} s.\n${renderCatalogResults(cache, catalog.anonymization.threshold, 'summary')}`)
+      const cache = await catalogs.getResults(catalog_id)
+      return text(`Computed in ${Math.round((Date.now() - startedAt) / 1000)} s.\n${cache ? renderCatalogResults(catalog, cache, 'summary') : ''}`)
     } catch (e) {
       const message = (e as Error).message
       await catalogs.update(catalog_id, { status: 'error', lastError: message }).catch(() => {})
       return failure(`Computation failed: ${message}`)
+    } finally {
+      clearTimeout(timer)
     }
   }))
 
   server.registerTool('get_data_catalog_results', {
     description:
-      'A computed data catalog\'s results, counts below the anonymization threshold shown masked ("< 10"). '
-      + 'view: summary (totals, concepts per category, top concepts), concepts (filter by search / category), '
-      + 'dimensions (counts per sex, age group, admission month, care site), periods (the period table).',
+      'A computed data catalog\'s results, masked as its published page masks them: counts below the anonymization '
+      + 'threshold shown "< T", and crossing cells that would reveal them by subtraction shown masked. view: summary '
+      + '(totals, concepts per category, top concepts, the crossings), concepts (filter by search / category), '
+      + 'crossing (the cells of one crossing, by its id from the summary; search filters the cell labels).',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ catalog_id: string; view?: ResultsView; search?: string; category?: string; limit?: number }>({
+    inputSchema: fromJsonSchema<{ catalog_id: string; view?: ResultsView; crossing?: string; search?: string; category?: string; limit?: number }>({
       type: 'object',
       properties: {
         catalog_id: { type: 'string' },
-        view: { type: 'string', enum: ['summary', 'concepts', 'dimensions', 'periods'] },
-        search: { type: 'string', description: 'concepts view: name or id substring.' },
+        view: { type: 'string', enum: ['summary', 'concepts', 'crossing'] },
+        crossing: { type: 'string', description: 'crossing view: the crossing id, e.g. "period-age".' },
+        search: { type: 'string', description: 'concepts view: name or id substring; crossing view: cell label substring.' },
         category: { type: 'string', description: 'concepts view: one category value.' },
         limit: { type: 'number', description: 'Rows to show, default 50, max 500.' },
       },
       required: ['catalog_id'],
     }),
-  }, guard(async ({ catalog_id, view, search, category, limit }) => {
+  }, guard(async ({ catalog_id, view, crossing, search, category, limit }) => {
     const c = await catalogs.get(catalog_id).catch(() => null)
     if (!c) return failure(`No data catalog ${catalog_id} (list_data_catalogs lists them).`)
     const cache = await catalogs.getResults(catalog_id)
     if (!cache) return text(`Not computed yet (${describeCatalogStatus(c)}). Run compute_data_catalog.`)
-    const note = c.computedPeriods != null ? `\n(Partial: computation paused after ${c.computedPeriods} period rows.)` : ''
-    return text(renderCatalogResults(cache, c.anonymization.threshold, view ?? 'summary', {
-      search, category, limit: Math.min(Math.max(limit ?? 50, 1), 500),
-    }) + note)
+    if (c.computedSteps != null) return text(`Computation paused after ${c.computedSteps} step(s): resume it with compute_data_catalog before reading results.`)
+    return text(renderCatalogResults(c, cache, view ?? 'summary', {
+      crossing, search, category, limit: Math.min(Math.max(limit ?? 50, 1), 500),
+    }))
   }))
 
   server.registerTool('reset_data_catalog_results', {

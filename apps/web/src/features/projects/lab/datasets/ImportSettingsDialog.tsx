@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { FormField } from '@/components/ui/form-field'
 import {
   Select,
@@ -385,11 +385,10 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                   </FormField>
                   <FormField label={t('datasets.upload_skip_rows')}>
                     {({ id }) => (
-                      <Input id={id}
-                        type="number"
+                      <NumberInput id={id}
                         min={0}
                         value={skipRows}
-                        onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                        onValueChange={setSkipRows}
                         className="h-8 text-xs"
                       />
                     )}
@@ -431,11 +430,10 @@ export function ImportSettingsDialog({ open, onOpenChange, file }: ImportSetting
                   )}
                   <FormField label={t('datasets.upload_skip_rows')}>
                     {({ id }) => (
-                      <Input id={id}
-                        type="number"
+                      <NumberInput id={id}
                         min={0}
                         value={skipRows}
-                        onChange={(e) => setSkipRows(Math.max(0, parseInt(e.target.value) || 0))}
+                        onValueChange={setSkipRows}
                         className="h-8 text-xs"
                       />
                     )}

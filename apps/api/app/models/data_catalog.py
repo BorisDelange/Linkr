@@ -5,8 +5,9 @@ from app.models.base import JSONB_or_JSON, Base, TimestampMixin
 
 
 class DataCatalog(Base, TimestampMixin):
-    """A workspace-scoped data catalog: dimension/anonymization config + DCAT-AP
-    metadata. Computed results are a separate cache (not persisted here)."""
+    """A workspace-scoped data catalog: variables, crossings and anonymization
+    config + DCAT-AP metadata. Computed results are a separate cache (not
+    persisted here)."""
 
     __tablename__ = "data_catalogs"
 
@@ -29,18 +30,20 @@ class DataCatalog(Base, TimestampMixin):
     # data_source_id is this instance's local UUID and means nothing elsewhere, so
     # this is what the export carries and the import resolves back to a local row.
     data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    dimensions: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
+    # What counts are broken down by ({concept, period, service, age, sex}: config)
+    # and which of them are counted together (lists of 1 to 3 variable ids).
+    variables: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    crossings: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
+    # What cells count beside patients ({visits, unitStays}); NULL = visits only.
+    counts: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     anonymization: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    category_column: Mapped[str | None] = mapped_column(String(255))
-    subcategory_column: Mapped[str | None] = mapped_column(String(255))
-    period_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_error: Mapped[str | None] = mapped_column(Text)
     last_computed_at: Mapped[str | None] = mapped_column(String(40))
     last_compute_duration_ms: Mapped[int | None] = mapped_column(Integer)
-    # Period rows a paused computation has written; a resume picks up there.
+    # Units of its plan a paused computation has written; a resume picks up there.
     # NULL means no run is in flight (nothing computed, or the last one finished).
-    computed_periods: Mapped[int | None] = mapped_column(Integer)
+    computed_steps: Mapped[int | None] = mapped_column(Integer)
     dcat_ap_metadata: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).
@@ -57,3 +60,6 @@ class DataCatalog(Base, TimestampMixin):
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # GitLab/GitHub Pages deployment of the published page ({provider, updatedAt?});
+    # the rendered site lives in readme_attachments under owner type "data-catalog-site".
+    pages_deployment: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

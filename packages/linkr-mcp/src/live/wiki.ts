@@ -3,7 +3,15 @@ import { foldAccents } from '@/lib/fold-accents'
 import { localized, setLocalized, toLocalized } from '@/lib/localized'
 import { conceptRelations, has } from '@/lib/schema-classes/relations'
 import { fieldColumn } from '@/lib/schema-classes/spec'
-import { AGE_BRACKET_PRESETS, type AnonymizationMode, type CatalogPeriodRow, type CatalogResultCache, type DataCatalog, type DimensionConfig, type PeriodConfig } from '@/types/catalog'
+import {
+  AGE_BRACKET_PRESETS, CATALOG_VARIABLE_ORDER, type AnonymizationMode, type CatalogResultCache, type CatalogVariableId, type CatalogVariables,
+  type ConceptVariableConfig, type DataCatalog, type PeriodGranularity, type ServiceVariableConfig,
+} from '@/types/catalog'
+import {
+  DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, canonicalCrossing, catalogCounts, crossingId, defaultCatalogVariables, effectiveCrossings, shownCrossingIds,
+} from '@/lib/data-catalog/config'
+import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
+import { PRIMARY, SECONDARY } from '@/lib/data-catalog/suppression'
 import type { LocalizedString, SchemaMapping, WikiPage } from '@/types'
 
 // --- Wiki ---------------------------------------------------------------------
@@ -152,194 +160,275 @@ export function catalogClassColumns(mapping: SchemaMapping | null | undefined): 
   return [...keys].sort()
 }
 
+/** Variable ids the tools take, in the catalog's canonical order. */
+export const CATALOG_VARIABLES = CATALOG_VARIABLE_ORDER
+
 export interface CatalogChanges {
-  sex_enabled?: boolean
-  age_group_enabled?: boolean
-  /** Bracket lower bounds, or a preset name. */
-  age_brackets?: number[] | string
-  care_site_enabled?: boolean
-  care_site_level?: 'visit' | 'visit_detail'
-  /** null turns the period table off. */
-  period?: null | {
-    granularity?: 'month' | 'quarter' | 'year'
-    service_labels?: string[] | null
-    concept_categories?: string[]
-  }
-  anonymization_threshold?: number
-  anonymization_mode?: AnonymizationMode
+  concept_enabled?: boolean
+  /** Count each concept, or its category / subcategory. */
+  concept_level?: ConceptVariableConfig['level']
   category_column?: string | null
   subcategory_column?: string | null
+  /** Every concept, or only the N with the most patients. */
+  concept_scope?: ConceptVariableConfig['scope']
+  concept_top_n?: number
+  period_enabled?: boolean
+  period_granularity?: PeriodGranularity
+  /** Granularity units per period: 2 with 'year' counts every two years. */
+  period_step?: number
+  service_enabled?: boolean
+  service_level?: ServiceVariableConfig['level']
+  service_grouping?: ServiceVariableConfig['grouping']
+  service_top_n?: number
+  /** Manual grouping: raw service name → group name. */
+  service_groups?: Record<string, string>
+  service_unassigned?: ServiceVariableConfig['unassigned']
+  age_enabled?: boolean
+  /** Bracket lower bounds, or a preset name. */
+  age_brackets?: number[] | string
+  sex_enabled?: boolean
+  /** The whole list of crossings to compute, each 1 to 3 variable ids. */
+  crossings?: string[][]
+  count_stays?: boolean
+  count_unit_stays?: boolean
+  anonymization_threshold?: number
+  anonymization_mode?: AnonymizationMode
 }
+
+/** Changes that alter what a run counts: refused while a run is paused mid-way. */
+const COMPUTED_FIELDS: (keyof CatalogChanges)[] = [
+  'concept_enabled', 'concept_level', 'category_column', 'subcategory_column', 'concept_scope', 'concept_top_n',
+  'period_enabled', 'period_granularity', 'period_step', 'service_enabled', 'service_level', 'service_grouping',
+  'service_top_n', 'service_groups', 'service_unassigned', 'age_enabled', 'age_brackets', 'sex_enabled',
+  'crossings', 'count_stays', 'count_unit_stays',
+]
+
+const positiveInt = (n: unknown) => typeof n === 'number' && Number.isInteger(n) && n >= 1
 
 /**
  * The PATCH body for a catalog configuration change, following the
- * Configuration tab's rules: the admission-date dimension moves with the period
- * table (it is its axis) and its step with the granularity; a column cannot be
- * both category and subcategory. Cleared fields are sent as null, never
+ * Configuration tab's rules: a column cannot be both category and subcategory,
+ * counting categories needs a category column, crossings are 1 to 3 distinct
+ * variables stored in canonical order. Cleared fields are sent as null, never
  * undefined — the API reads a missing key as "no change".
  */
 export function catalogPatch(
-  catalog: Pick<DataCatalog, 'dimensions' | 'periodConfig' | 'anonymization' | 'categoryColumn' | 'subcategoryColumn' | 'computedPeriods'>,
+  catalog: Pick<DataCatalog, 'variables' | 'crossings' | 'counts' | 'anonymization' | 'computedSteps'>,
   c: CatalogChanges,
   classColumns: string[],
 ): { patch: Record<string, unknown> } | { error: string } {
   const patch: Record<string, unknown> = {}
-  let dims: DimensionConfig[] = catalog.dimensions.map((d) => ({ ...d }))
-  const setDim = (type: DimensionConfig['type'], change: Partial<DimensionConfig>) => {
-    dims = dims.map((d) => (d.type === type ? { ...d, ...change } : d))
+  if (catalog.computedSteps != null && COMPUTED_FIELDS.some((k) => c[k] !== undefined)) {
+    return { error: 'A computation of this catalog is paused mid-way: what it counts cannot change until it is finished (compute_data_catalog) or discarded (reset_data_catalog_results).' }
   }
-  const touchesPeriodAxis = c.period !== undefined
-  if (touchesPeriodAxis && catalog.computedPeriods != null) {
-    return { error: 'A computation of this catalog is paused mid-way: its period table cannot change until it is finished (compute_data_catalog) or discarded (reset_data_catalog_results).' }
-  }
+  const defaults = defaultCatalogVariables()
+  const v: CatalogVariables = structuredClone(catalog.variables ?? {})
+  const concept = (v.concept ??= { ...DEFAULT_CONCEPT_CONFIG })
+  const period = (v.period ??= { ...defaults.period! })
+  const service = (v.service ??= { ...DEFAULT_SERVICE_CONFIG, groups: {} })
+  const age = (v.age ??= { ...defaults.age! })
+  const sex = (v.sex ??= { enabled: false })
 
-  if (c.sex_enabled !== undefined) setDim('sex', { enabled: c.sex_enabled })
-  if (c.age_group_enabled !== undefined) setDim('age_group', { enabled: c.age_group_enabled })
-  if (c.age_brackets !== undefined) {
-    let brackets: number[]
-    if (typeof c.age_brackets === 'string') {
-      const preset = AGE_BRACKET_PRESETS[c.age_brackets]
-      if (!preset) return { error: `Unknown age bracket preset "${c.age_brackets}". Presets: ${Object.keys(AGE_BRACKET_PRESETS).join(', ')}.` }
-      brackets = [...preset]
-    } else {
-      if (c.age_brackets.some((b) => !Number.isInteger(b) || b <= 0)) return { error: 'age_brackets must be positive whole numbers of years.' }
-      brackets = [...new Set(c.age_brackets)].sort((a, b) => a - b)
-    }
-    setDim('age_group', { ageGroup: { brackets } })
+  if (c.concept_enabled !== undefined) concept.enabled = c.concept_enabled
+  if (c.concept_scope !== undefined) concept.scope = c.concept_scope
+  if (c.concept_top_n !== undefined) {
+    if (!positiveInt(c.concept_top_n)) return { error: 'concept_top_n must be a whole number ≥ 1.' }
+    concept.topN = c.concept_top_n
   }
-  if (c.care_site_enabled !== undefined) setDim('care_site', { enabled: c.care_site_enabled })
-  if (c.care_site_level !== undefined) {
-    const current = dims.find((d) => d.type === 'care_site')?.careSite
-    setDim('care_site', { careSite: { ...current, level: c.care_site_level } })
-  }
-
-  if (c.period === null) {
-    patch.periodConfig = null
-    setDim('admission_date', { enabled: false })
-  } else if (c.period) {
-    const current: PeriodConfig = catalog.periodConfig ?? { granularity: 'month', serviceLevel: 'visit_detail' }
-    const next: PeriodConfig = { ...current }
-    if (c.period.granularity) next.granularity = c.period.granularity
-    if (c.period.service_labels !== undefined) {
-      if (c.period.service_labels?.length) next.serviceLabels = c.period.service_labels
-      else delete next.serviceLabels
-    }
-    if (c.period.concept_categories !== undefined) next.conceptCategories = c.period.concept_categories
-    patch.periodConfig = next
-    // AdmissionDateConfig.step has no 'quarter': the dimension follows at the nearest step it can hold.
-    setDim('admission_date', { enabled: true, admissionDate: { step: next.granularity === 'year' ? 'year' : 'month' } })
-  }
-
-  if (c.anonymization_threshold !== undefined || c.anonymization_mode !== undefined) {
-    const threshold = c.anonymization_threshold ?? catalog.anonymization.threshold
-    if (!Number.isInteger(threshold) || threshold < 1) return { error: 'anonymization_threshold must be a whole number ≥ 1.' }
-    patch.anonymization = { threshold, mode: c.anonymization_mode ?? catalog.anonymization.mode ?? 'replace' }
-  }
-
   for (const [key, value] of [['category_column', c.category_column], ['subcategory_column', c.subcategory_column]] as const) {
     if (value && !classColumns.includes(value)) {
       return { error: `Unknown ${key} "${value}". Columns this database offers: ${classColumns.join(', ') || '(none)'}.` }
     }
   }
-  let category = catalog.categoryColumn ?? null
-  let subcategory = catalog.subcategoryColumn ?? null
   if (c.category_column !== undefined) {
-    category = c.category_column || null
-    if (subcategory === category) subcategory = null
+    concept.categoryColumn = c.category_column || undefined
+    if (concept.subcategoryColumn === concept.categoryColumn) concept.subcategoryColumn = undefined
   }
   if (c.subcategory_column !== undefined) {
-    subcategory = c.subcategory_column || null
-    if (subcategory === category) category = null
+    concept.subcategoryColumn = c.subcategory_column || undefined
+    if (concept.subcategoryColumn === concept.categoryColumn) concept.categoryColumn = undefined
   }
-  if (category !== (catalog.categoryColumn ?? null)) patch.categoryColumn = category
-  if (subcategory !== (catalog.subcategoryColumn ?? null)) patch.subcategoryColumn = subcategory
+  if (c.concept_level !== undefined) concept.level = c.concept_level
+  if (concept.level === 'category' && !concept.categoryColumn) return { error: 'concept_level "category" needs a category_column.' }
+  if (concept.level === 'subcategory' && !concept.subcategoryColumn) return { error: 'concept_level "subcategory" needs a subcategory_column.' }
 
-  if (JSON.stringify(dims) !== JSON.stringify(catalog.dimensions)) patch.dimensions = dims
+  if (c.period_enabled !== undefined) period.enabled = c.period_enabled
+  if (c.period_granularity !== undefined) period.granularity = c.period_granularity
+  if (c.period_step !== undefined) {
+    if (!positiveInt(c.period_step)) return { error: 'period_step must be a whole number ≥ 1.' }
+    if (c.period_step === 1) delete period.step
+    else period.step = c.period_step
+  }
+
+  if (c.service_enabled !== undefined) service.enabled = c.service_enabled
+  if (c.service_level !== undefined) service.level = c.service_level
+  if (c.service_grouping !== undefined) service.grouping = c.service_grouping
+  if (c.service_top_n !== undefined) {
+    if (!positiveInt(c.service_top_n)) return { error: 'service_top_n must be a whole number ≥ 1.' }
+    service.topN = c.service_top_n
+  }
+  if (c.service_groups !== undefined) service.groups = { ...c.service_groups }
+  if (c.service_unassigned !== undefined) service.unassigned = c.service_unassigned
+
+  if (c.age_enabled !== undefined) age.enabled = c.age_enabled
+  if (c.age_brackets !== undefined) {
+    if (typeof c.age_brackets === 'string') {
+      const preset = AGE_BRACKET_PRESETS[c.age_brackets]
+      if (!preset) return { error: `Unknown age bracket preset "${c.age_brackets}". Presets: ${Object.keys(AGE_BRACKET_PRESETS).join(', ')}.` }
+      age.brackets = [...preset]
+    } else {
+      if (c.age_brackets.length === 0 || c.age_brackets.some((b) => !positiveInt(b))) return { error: 'age_brackets must be positive whole numbers of years.' }
+      age.brackets = [...new Set(c.age_brackets)].sort((a, b) => a - b)
+    }
+  }
+  if (c.sex_enabled !== undefined) sex.enabled = c.sex_enabled
+
+  if (JSON.stringify(v) !== JSON.stringify(catalog.variables ?? {})) patch.variables = v
+
+  if (c.crossings !== undefined) {
+    const seen = new Set<string>()
+    const crossings: CatalogVariableId[][] = []
+    for (const raw of c.crossings) {
+      const bad = raw.find((id) => !CATALOG_VARIABLE_ORDER.includes(id as CatalogVariableId))
+      if (bad) return { error: `Unknown variable "${bad}" in crossings. Variables: ${CATALOG_VARIABLE_ORDER.join(', ')}.` }
+      const vars = canonicalCrossing(raw as CatalogVariableId[])
+      if (vars.length < 1 || vars.length > 3) return { error: `A crossing has 1 to 3 distinct variables (got ${raw.join(' × ') || 'none'}).` }
+      const id = crossingId(vars)
+      if (seen.has(id)) continue
+      seen.add(id)
+      crossings.push(vars)
+    }
+    if (JSON.stringify(crossings) !== JSON.stringify(catalog.crossings ?? [])) patch.crossings = crossings
+  }
+
+  if (c.count_stays !== undefined || c.count_unit_stays !== undefined) {
+    const counts = { ...catalogCounts(catalog) }
+    if (c.count_stays !== undefined) counts.visits = c.count_stays
+    if (c.count_unit_stays !== undefined) counts.unitStays = c.count_unit_stays
+    if (JSON.stringify(counts) !== JSON.stringify(catalogCounts(catalog))) patch.counts = counts
+  }
+
+  if (c.anonymization_threshold !== undefined || c.anonymization_mode !== undefined) {
+    const threshold = c.anonymization_threshold ?? catalog.anonymization.threshold
+    if (!positiveInt(threshold)) return { error: 'anonymization_threshold must be a whole number ≥ 1.' }
+    patch.anonymization = { threshold, mode: c.anonymization_mode ?? catalog.anonymization.mode ?? 'replace' }
+  }
   return { patch }
 }
 
-/** A count as the Data tab shows it: below the threshold it is masked. */
+/** A count as the page shows it: below the threshold it is masked. */
 export const maskedCount = (n: number | null | undefined, threshold: number): string =>
   n == null ? `< ${threshold}` : n < threshold ? `< ${threshold}` : String(n)
 
+function describeVariable(id: CatalogVariableId, v: CatalogVariables): string {
+  switch (id) {
+    case 'concept': {
+      const c = v.concept!
+      const cols = [c.categoryColumn && `category ${c.categoryColumn}`, c.subcategoryColumn && `subcategory ${c.subcategoryColumn}`].filter(Boolean).join(', ')
+      return `concept (by ${c.level}${cols ? `; ${cols}` : ''}; ${c.scope === 'top' ? `top ${c.topN}` : 'all'})`
+    }
+    case 'period': return `period (by ${v.period!.step && v.period!.step > 1 ? `${v.period!.step} ` : ''}${v.period!.granularity})`
+    case 'service': {
+      const s = v.service!
+      const grouping = s.grouping === 'top' ? `top ${s.topN} + other` : s.grouping === 'manual' ? `${new Set(Object.values(s.groups)).size} manual group(s), others ${s.unassigned === 'other' ? 'as other' : 'kept'}` : 'all'
+      return `service (${s.level === 'visit' ? 'visit type' : 'care unit'}; ${grouping})`
+    }
+    case 'age': return `age [${v.age!.brackets.join(', ')}]`
+    case 'sex': return 'sex'
+  }
+}
+
 export function describeCatalogConfig(catalog: DataCatalog): string[] {
-  const out: string[] = []
-  const dims = catalog.dimensions.map((d) => {
-    let extra = ''
-    if (d.type === 'age_group' && d.ageGroup) extra = ` [${d.ageGroup.brackets.join(', ')}]`
-    if (d.type === 'care_site' && d.careSite) extra = ` (${d.careSite.level})`
-    if (d.type === 'admission_date' && d.admissionDate) extra = ` (${d.admissionDate.step})`
-    return `${d.type}${d.enabled ? '' : ' (off)'}${extra}`
-  })
-  out.push(`Dimensions: ${dims.join(' · ')}`)
-  out.push(`Anonymization: counts below ${catalog.anonymization.threshold} are ${catalog.anonymization.mode === 'suppress' ? 'suppressed' : 'masked'}`)
-  out.push(`Concept category column: ${catalog.categoryColumn ?? '(none)'} · subcategory: ${catalog.subcategoryColumn ?? '(none)'}`)
-  const p = catalog.periodConfig
-  out.push(p
-    ? `Period table: by ${p.granularity}, services at ${p.serviceLevel} level${p.serviceLabels?.length ? ` limited to ${p.serviceLabels.join(', ')}` : ''}`
-      + `${p.conceptCategories?.length ? `, concept categories ${p.conceptCategories.join(', ')}` : ''}`
-    : 'Period table: off')
-  return out
+  const v = catalog.variables ?? {}
+  const on = CATALOG_VARIABLE_ORDER.filter((id) => v[id]?.enabled)
+  const off = CATALOG_VARIABLE_ORDER.filter((id) => !v[id]?.enabled)
+  const counts = catalogCounts(catalog)
+  const computed = effectiveCrossings(catalog).map((c) => c.join(' × '))
+  const shown = shownCrossingIds(catalog)
+  const alone = (catalog.crossings ?? []).filter((c) => c.length === 1 && (!shown || shown.has(crossingId(c)))).map((c) => c[0])
+  return [
+    `Variables: ${on.map((id) => describeVariable(id, v)).join(' · ') || '(none)'}${off.length ? ` — off: ${off.join(', ')}` : ''}`,
+    `Crossings computed: ${computed.join(' · ') || '(none)'}`,
+    `Published alone: ${alone.join(', ') || '(none)'}`,
+    `Counts: patients${counts.visits ? ', hospital stays' : ''}${counts.unitStays ? ', unit stays' : ''}`,
+    `Anonymization: counts below ${catalog.anonymization.threshold} are ${catalog.anonymization.mode === 'suppress' ? 'suppressed' : 'masked'}, and cells that would reveal them by subtraction too`,
+  ]
 }
 
 export function describeCatalogStatus(catalog: DataCatalog): string {
-  const paused = catalog.computedPeriods != null
-  const parts = [`Status: ${paused ? `paused after ${catalog.computedPeriods} period row(s)` : catalog.status}`]
+  const paused = catalog.computedSteps != null
+  const parts = [`Status: ${paused ? `paused after ${catalog.computedSteps} step(s)` : catalog.status}`]
   if (catalog.lastComputedAt) parts.push(`last computed ${catalog.lastComputedAt}${catalog.lastComputeDurationMs != null ? ` in ${Math.round(catalog.lastComputeDurationMs / 1000)} s` : ''}`)
   if (catalog.status === 'error' && catalog.lastError) parts.push(`error: ${catalog.lastError}`)
   return parts.join(' · ')
 }
 
-export type ResultsView = 'summary' | 'concepts' | 'dimensions' | 'periods'
+export type ResultsView = 'summary' | 'concepts' | 'crossing'
 
-/** A computed catalog, as bounded text. Counts below the threshold are masked. */
+/**
+ * A computed catalog, as bounded text, masked exactly as the published page
+ * masks it: concepts below the threshold capped or dropped, crossing cells
+ * through primary and secondary suppression (`buildPublishedCatalog`).
+ */
 export function renderCatalogResults(
+  catalog: Pick<DataCatalog, 'variables' | 'crossings' | 'counts' | 'anonymization'>,
   cache: CatalogResultCache,
-  threshold: number,
   view: ResultsView,
-  opts: { limit?: number; search?: string; category?: string } = {},
+  opts: { limit?: number; search?: string; category?: string; crossing?: string } = {},
 ): string {
   const limit = opts.limit ?? 50
+  const { threshold } = catalog.anonymization
+  const suppress = catalog.anonymization.mode === 'suppress'
   const m = (n: number | null | undefined) => maskedCount(n, threshold)
-  const head = `Computed ${cache.computedAt}: ${m(cache.totalPatients)} patients · ${m(cache.totalVisits)} visits · `
-    + `${cache.totalConcepts} concepts${cache.periods ? ` · ${cache.periods.length} period row(s)` : ''}`
-    + (cache.periodReliabilityScore != null ? ` · ${Math.round(cache.periodReliabilityScore * 100)}% of period cells masked` : '')
+  const published = buildPublishedCatalog(catalog, cache)
+  const head = `Computed ${cache.computedAt}: ${m(cache.totalPatients)} patients · ${m(cache.totalVisits)} hospital stays · `
+    + `${cache.totalConcepts} concepts · ${published.crossings.length} published crossing(s)`
+  const concepts = cache.concepts.filter((c) => !suppress || c.patientCount >= threshold)
+
   if (view === 'summary') {
     const byCategory = new Map<string, number>()
-    for (const c of cache.concepts) byCategory.set(c.category ?? '(none)', (byCategory.get(c.category ?? '(none)') ?? 0) + 1)
+    for (const c of concepts) byCategory.set(c.category ?? '(none)', (byCategory.get(c.category ?? '(none)') ?? 0) + 1)
     const cats = [...byCategory].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([k, n]) => `${k}: ${n}`)
-    const top = [...cache.concepts].sort((a, b) => b.patientCount - a.patientCount).slice(0, 10)
+    const top = [...concepts].sort((a, b) => b.patientCount - a.patientCount).slice(0, 10)
       .map((c) => `  ${c.conceptName} (${c.conceptId}) — ${m(c.patientCount)} patients`)
-    return [head, cats.length ? `Concepts by category: ${cats.join(' · ')}` : '', 'Top concepts by patients:', ...top]
+    const crossings = published.crossings.map((c) => {
+      const masked = c.masked.primary + c.masked.secondary
+      return `  ${c.id} (${c.vars.join(' × ')}) — ${c.cells.length} cell(s)${masked ? `, ${masked} masked` : ''}`
+    })
+    return [head, cats.length ? `Concepts by category: ${cats.join(' · ')}` : '', 'Top concepts by patients:', ...top,
+      ...(crossings.length ? ['Crossings (read one with view "crossing"):', ...crossings] : [])]
       .filter(Boolean).join('\n')
   }
+
   if (view === 'concepts') {
     const q = opts.search?.toLowerCase()
-    const rows = cache.concepts
+    const rows = concepts
       .filter((c) => !opts.category || c.category === opts.category)
       .filter((c) => !q || c.conceptName?.toLowerCase().includes(q) || String(c.conceptId).includes(q))
       .sort((a, b) => b.patientCount - a.patientCount)
     const lines = rows.slice(0, limit).map((c) =>
       `${c.conceptId} · ${c.conceptName}${c.category ? ` · ${c.category}` : ''}${c.subcategory ? ` / ${c.subcategory}` : ''}`
-      + ` · patients ${m(c.patientCount)} · visits ${m(c.visitCount)} · records ${m(c.recordCount)}`)
+      + ` · patients ${m(c.patientCount)}${c.visitCount != null ? ` · stays ${m(c.visitCount)}` : ''} · records ${m(c.recordCount)}`)
     return [head, `${rows.length} matching concept(s)${rows.length > limit ? `, first ${limit} by patients` : ''}:`, ...lines].join('\n')
   }
-  if (view === 'dimensions') {
-    const lines = cache.dimensions.slice(0, Math.max(limit, 200)).map((d) =>
-      `${d.dimensionType} = ${d.value} · patients ${m(d.patientCount)} · visits ${m(d.visitCount)} · records ${m(d.recordCount)}`)
-    return [head, ...lines].join('\n')
+
+  const crossing = published.crossings.find((c) => c.id === opts.crossing)
+  if (!crossing) {
+    return `${head}\nGive crossing, one of: ${published.crossings.map((c) => c.id).join(', ') || '(none published)'}.`
   }
-  const periods = cache.periods ?? []
-  if (periods.length === 0) return `${head}\nNo period table (off in the configuration, or not computed yet).`
-  const periodLine = (r: CatalogPeriodRow) => {
-    const extra = [
-      `M ${m(r.sex_m)} F ${m(r.sex_f)}`,
-      ...Object.entries(r.age_buckets).map(([k, v]) => `${k} ${m(v)}`),
-      ...Object.entries(r.services).map(([k, v]) => `${k} ${m(v.n_patients)}`),
-      ...Object.entries(r.concept_categories).map(([k, v]) => `${k} ${m(v.n_patients)}`),
-    ]
-    return `${r.period_label} · patients ${m(r.n_patients)} · stays ${m(r.n_sejours)} · ${extra.join(' · ')}`
+  const k = crossing.vars.length
+  const q = opts.search?.toLowerCase()
+  const lines: string[] = []
+  let matched = 0
+  for (const cell of crossing.cells) {
+    const label = crossing.vars.map((id, i) => `${published.variables[id]!.label} ${published.variables[id]!.names[cell[i] as number]}`).join(' × ')
+    if (q && !label.toLowerCase().includes(q)) continue
+    matched++
+    if (lines.length >= limit) continue
+    const status = cell[cell.length - 1]
+    const counts = status === PRIMARY ? `< ${threshold}` : status === SECONDARY ? 'masked (protects a small cell)'
+      : [`patients ${cell[k]}`, ...crossing.measures.map((ms, j) => `${ms} ${cell[k + 1 + j] ?? '—'}`)].join(' · ')
+    lines.push(`${label}: ${counts}`)
   }
-  const lines = periods.slice(0, limit).map(periodLine)
-  return [head, ...lines, ...(periods.length > limit ? [`… ${periods.length - limit} more period row(s).`] : [])].join('\n')
+  return [head, `${crossing.id}: ${matched} cell(s)${matched > limit ? `, first ${limit}` : ''}:`, ...lines].join('\n')
 }

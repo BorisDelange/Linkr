@@ -27,9 +27,10 @@ const ROLES: Partial<Record<ClassName, string>> = {
   concept: 'Concept dictionary',
 }
 
+// CSVW builtin names (XSD): `dateTime`, not `datetime`, which no validator knows.
 const DATATYPES: Record<ColumnKind, string> = {
   id: 'integer',
-  datetime: 'datetime',
+  datetime: 'dateTime',
   date: 'date',
   number: 'decimal',
   text: 'string',

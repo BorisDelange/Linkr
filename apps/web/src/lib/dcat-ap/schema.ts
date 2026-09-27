@@ -1,509 +1,453 @@
 /**
- * Health-DCAT-AP field schema.
+ * Health-DCAT-AP field schema — Release 8, NON-PUBLIC profile.
  *
- * Based on Health-DCAT-AP Release 6 (EHDS Regulation EU 2025/327).
- * Spec: https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-6/
- *
- * Defines mandatory, recommended, and optional fields for:
- * - Catalog (dcat:Catalog)
- * - Dataset (dcat:Dataset)
- * - Distribution (dcat:Distribution)
- * - Agent / Publisher (foaf:Agent)
- *
- * Health-specific properties follow the EHDS framework (Art. 51 categories).
+ * Obligations follow the R8 SHACL shapes of the non-public profile (the one a
+ * hospital warehouse falls under): a violation is `mandatory`, a warning
+ * `recommended`. They also cover the 27 minimum elements of Commission
+ * Implementing Regulation (EU) 2026/2098, which binds to the current release.
+ * Background and the element-by-element audit: docs/health-dcat-ap.md.
  */
 
-/** Release version this schema is based on. */
-export const HEALTHDCATAP_RELEASE = '6'
+export const HEALTHDCATAP_RELEASE = '8'
 
-/** Spec URL. */
-export const HEALTHDCATAP_SPEC_URL =
-  'https://healthdataeu.pages.code.europa.eu/healthdcat-ap/releases/release-6/'
+export const HEALTHDCATAP_SPEC_URL = 'https://data.health.europa.eu/healthdcat-ap/releases/release-8/'
+
+/** EHDS Regulation (EU) 2025/327, as R8 says to cite it. */
+export const EHDS_LEGISLATION = 'http://data.europa.eu/eli/reg/2025/327/oj'
 
 // ---------------------------------------------------------------------------
 // Field types
 // ---------------------------------------------------------------------------
 
-export type DcatFieldType = 'text' | 'uri' | 'date' | 'number' | 'select' | 'multiselect' | 'localized'
+export type DcatFieldType =
+  | 'text' | 'localized' | 'uri' | 'email' | 'date' | 'number' | 'boolean'
+  | 'select' | 'multiselect'
+  /** Free literals, no vocabulary (code values). */
+  | 'tags'
 
 export type DcatObligation = 'mandatory' | 'recommended' | 'optional'
 
+/** The RDF class a field is emitted on. */
 export type DcatClass = 'catalog' | 'dataset' | 'distribution' | 'agent'
 
+/** Where a field sits in the tab — reading order, not RDF structure. */
+export type DcatSection = 'identity' | 'health' | 'coverage' | 'agents' | 'distribution' | 'catalog' | 'generated'
+
+/** For agent fields: which agent (or the dataset's own contact point) the field describes. */
+export type DcatAgentRole = 'contact' | 'publisher' | 'hdab' | 'custodian' | 'coordinator'
+
 export interface DcatFieldDef {
-  /** Unique key for this field (used as JSON path in metadata). */
+  /** Key in `DataCatalog.dcatApMetadata`. */
   key: string
-  /** RDF property URI. */
+  /** RDF property, as shown to the user and in the published page. */
   uri: string
-  /** DCAT-AP class this field belongs to. */
   dcatClass: DcatClass
-  /** i18n key for the label. */
+  section: DcatSection
+  agentRole?: DcatAgentRole
   labelKey: string
-  /** i18n key for the description/help text. */
+  /** Help shown behind the label's info icon. */
   descriptionKey: string
-  /** Field input type. */
   type: DcatFieldType
-  /** Obligation level. */
   obligation: DcatObligation
-  /** For 'select'/'multiselect': key into DCAT_VOCABULARIES. */
+  /**
+   * Mandatory only for restricted / non-public data — the HDAB, which a public
+   * dataset has no need of. Counted as recommended when access is PUBLIC.
+   */
+  nonPublicOnly?: boolean
   vocabularyKey?: string
-  /** Whether this field can be auto-filled from computed catalog data. */
+  /** Filled by the Auto-fill button from the database and the computed results. */
   autoFillable?: boolean
 }
 
 // ---------------------------------------------------------------------------
-// Controlled vocabularies
+// Controlled vocabularies (R8 production NALs)
 // ---------------------------------------------------------------------------
 
 export interface VocabularyOption {
   value: string
-  labelKey: string
+  /** i18n key, for options whose name is a phrase to translate. */
+  labelKey?: string
+  /** Canonical English name — the label of proper nouns (SNOMED CT) and the published page's text. */
+  label: string
 }
 
-/** Access rights (EU vocabulary). */
-const ACCESS_RIGHTS: VocabularyOption[] = [
-  { value: 'http://publications.europa.eu/resource/authority/access-right/PUBLIC', labelKey: 'dcat.access_public' },
-  { value: 'http://publications.europa.eu/resource/authority/access-right/RESTRICTED', labelKey: 'dcat.access_restricted' },
-  { value: 'http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC', labelKey: 'dcat.access_non_public' },
+const EU = 'http://publications.europa.eu/resource/authority'
+const HDEU = 'https://hdeu-dcat.data.health.europa.eu/resource/authority'
+
+const opt = (base: string, code: string, label: string, labelKey?: string): VocabularyOption =>
+  ({ value: `${base}/${code}`, label, labelKey })
+
+const ACCESS_RIGHTS = [
+  opt(`${EU}/access-right`, 'PUBLIC', 'Public', 'dcat.access_public'),
+  opt(`${EU}/access-right`, 'RESTRICTED', 'Restricted', 'dcat.access_restricted'),
+  opt(`${EU}/access-right`, 'NON_PUBLIC', 'Non-public', 'dcat.access_non_public'),
 ]
 
-/** EHDS Art. 51 — categories of electronic health data for secondary use. */
-const HEALTH_CATEGORIES: VocabularyOption[] = [
-  { value: 'EHR', labelKey: 'dcat.hcat_ehr' },
-  { value: 'CLAIMS', labelKey: 'dcat.hcat_claims' },
-  { value: 'PHDR', labelKey: 'dcat.hcat_registry' },
-  { value: 'GENOMIC', labelKey: 'dcat.hcat_genomic' },
-  { value: 'COHORT', labelKey: 'dcat.hcat_cohort' },
-  { value: 'CLINICAL_TRIAL', labelKey: 'dcat.hcat_clinical_trial' },
-  { value: 'MEDICAL_DEVICE', labelKey: 'dcat.hcat_medical_device' },
-  { value: 'SURVEY', labelKey: 'dcat.hcat_survey' },
-  { value: 'BIOBANK', labelKey: 'dcat.hcat_biobank' },
-  { value: 'IMAGING', labelKey: 'dcat.hcat_imaging' },
-  { value: 'ADMINISTRATIVE', labelKey: 'dcat.hcat_administrative' },
-]
+/** EHDS Art. 51(1)(a)–(q). */
+const HEALTH_CATEGORIES = ([
+  ['EHRS', 'Electronic health records'],
+  ['DIOH', 'Factors impacting on health'],
+  ['NRPE', 'Healthcare needs, resources, provision and expenditure'],
+  ['PGEH', 'Data generated by medical devices (personal)'],
+  ['IDHP', 'Health professionals'],
+  ['PHDR', 'Population-based health registries'],
+  ['MRMR', 'Medical and mortality registries'],
+  ['EHCT', 'Clinical trials and studies'],
+  ['EMRD', 'Other data from medical devices'],
+  ['RMMD', 'Registries of medicinal products and devices'],
+  ['RQSH', 'Research cohorts, questionnaires and surveys'],
+  ['EINS', 'Biobanks'],
+  ['HRAD', 'Healthcare administrative data'],
+  ['HGPD', 'Genetic, epigenomic and genomic data'],
+  ['HPML', 'Other human molecular data'],
+  ['RPDG', 'Pathogen data'],
+  ['WELA', 'Wellness applications'],
+] as const).map(([c, l]) => opt(`${HDEU}/healthcategories`, c, l, `dcat.hcat_${c.toLowerCase()}`))
 
-/** Common health data coding systems. */
-const CODING_SYSTEMS: VocabularyOption[] = [
-  { value: 'http://snomed.info/sct', labelKey: 'dcat.cs_snomed' },
-  { value: 'http://loinc.org', labelKey: 'dcat.cs_loinc' },
-  { value: 'http://hl7.org/fhir/sid/icd-10', labelKey: 'dcat.cs_icd10' },
-  { value: 'http://hl7.org/fhir/sid/icd-11', labelKey: 'dcat.cs_icd11' },
-  { value: 'http://www.nlm.nih.gov/research/umls/rxnorm', labelKey: 'dcat.cs_rxnorm' },
-  { value: 'http://www.whocc.no/atc', labelKey: 'dcat.cs_atc' },
+const HEALTH_THEMES = ([
+  ['NONCOMMUNICABLE_DISEASES', 'Noncommunicable diseases'],
+  ['CANCER_DISEASE', 'Cancer'],
+  ['RESPIRATORY_DISEASES', 'Respiratory diseases'],
+  ['MENTAL_HEALTH', 'Mental health'],
+  ['LIFECOURSE_HEALTH', 'Life-course health'],
+  ['REPRODUCTIVE_HEALTH', 'Reproductive health'],
+  ['SENSORY_HEALTH', 'Sensory health'],
+  ['NUTRITION_SECURITY', 'Nutrition and food security'],
+  ['INJURY_PREVENTION', 'Injury prevention'],
+  ['EMERGENCY_SETTINGS', 'Health emergencies'],
+  ['IMMUNIZATION_DISEASES', 'Vaccine-preventable diseases'],
+  ['BLOOD_INFECTIONS', 'Blood-borne infections'],
+  ['ENTERIC_INFECTIONS', 'Enteric infections'],
+  ['VECTOR_DISEASES', 'Vector-borne diseases'],
+  ['TROPICAL_DISEASES', 'Tropical diseases'],
+  ['ANTIMICROBIAL_CONTROL', 'Antimicrobial resistance'],
+  ['ENVIRONMENTAL_HEALTH', 'Environmental health'],
+  ['CLIMATE_HEALTH', 'Climate and health'],
+  ['HEALTH_SYSTEMS', 'Health systems'],
+  ['HEALTH_PRODUCTS', 'Health products'],
+] as const).map(([c, l]) => opt(`${HDEU}/health-theme`, c, l, `dcat.htheme_${c.toLowerCase()}`))
 
-]
+/** The data model the dataset follows (`dct:conformsTo`). */
+const STANDARDS = ([
+  ['OMOP-CDM', 'OMOP CDM'],
+  ['FHIR', 'HL7 FHIR'],
+  ['OPENEHR', 'openEHR'],
+  ['CDISC-SDTM', 'CDISC SDTM'],
+  ['ISO-13606-1', 'ISO 13606'],
+  ['CDA', 'HL7 CDA'],
+  ['HL7', 'HL7 v2'],
+  ['DICOM', 'DICOM'],
+  ['MIABIS', 'MIABIS'],
+  ['BEACON', 'GA4GH Beacon'],
+  ['IDMP', 'ISO IDMP'],
+] as const).map(([c, l]) => opt(`${HDEU}/standard`, c, l))
 
-/** All 24 EU official languages + Other. EU Publications Office Named Authority List. */
-const LANGUAGES: VocabularyOption[] = [
-  { value: 'http://publications.europa.eu/resource/authority/language/BUL', labelKey: 'dcat.lang_bg' },
-  { value: 'http://publications.europa.eu/resource/authority/language/HRV', labelKey: 'dcat.lang_hr' },
-  { value: 'http://publications.europa.eu/resource/authority/language/CES', labelKey: 'dcat.lang_cs' },
-  { value: 'http://publications.europa.eu/resource/authority/language/DAN', labelKey: 'dcat.lang_da' },
-  { value: 'http://publications.europa.eu/resource/authority/language/NLD', labelKey: 'dcat.lang_nl' },
-  { value: 'http://publications.europa.eu/resource/authority/language/ENG', labelKey: 'dcat.lang_en' },
-  { value: 'http://publications.europa.eu/resource/authority/language/EST', labelKey: 'dcat.lang_et' },
-  { value: 'http://publications.europa.eu/resource/authority/language/FIN', labelKey: 'dcat.lang_fi' },
-  { value: 'http://publications.europa.eu/resource/authority/language/FRA', labelKey: 'dcat.lang_fr' },
-  { value: 'http://publications.europa.eu/resource/authority/language/DEU', labelKey: 'dcat.lang_de' },
-  { value: 'http://publications.europa.eu/resource/authority/language/ELL', labelKey: 'dcat.lang_el' },
-  { value: 'http://publications.europa.eu/resource/authority/language/HUN', labelKey: 'dcat.lang_hu' },
-  { value: 'http://publications.europa.eu/resource/authority/language/GLE', labelKey: 'dcat.lang_ga' },
-  { value: 'http://publications.europa.eu/resource/authority/language/ITA', labelKey: 'dcat.lang_it' },
-  { value: 'http://publications.europa.eu/resource/authority/language/LAV', labelKey: 'dcat.lang_lv' },
-  { value: 'http://publications.europa.eu/resource/authority/language/LIT', labelKey: 'dcat.lang_lt' },
-  { value: 'http://publications.europa.eu/resource/authority/language/MLT', labelKey: 'dcat.lang_mt' },
-  { value: 'http://publications.europa.eu/resource/authority/language/POL', labelKey: 'dcat.lang_pl' },
-  { value: 'http://publications.europa.eu/resource/authority/language/POR', labelKey: 'dcat.lang_pt' },
-  { value: 'http://publications.europa.eu/resource/authority/language/RON', labelKey: 'dcat.lang_ro' },
-  { value: 'http://publications.europa.eu/resource/authority/language/SLK', labelKey: 'dcat.lang_sk' },
-  { value: 'http://publications.europa.eu/resource/authority/language/SLV', labelKey: 'dcat.lang_sl' },
-  { value: 'http://publications.europa.eu/resource/authority/language/SPA', labelKey: 'dcat.lang_es' },
-  { value: 'http://publications.europa.eu/resource/authority/language/SWE', labelKey: 'dcat.lang_sv' },
-]
+const CODING_SYSTEMS = ([
+  ['OHDSI-VOCAB', 'OHDSI standardized vocabularies'],
+  ['SNOMED-CT', 'SNOMED CT'],
+  ['LOINC', 'LOINC'],
+  ['RXNORM', 'RxNorm'],
+  ['ATC', 'ATC'],
+  ['ICD-10', 'ICD-10'],
+  ['ICD-10-NAT', 'ICD-10 (national modification)'],
+  ['ICD-11', 'ICD-11'],
+  ['ICD-9-CM', 'ICD-9-CM'],
+  ['ICD-O', 'ICD-O'],
+  ['PROC-CODES-NAT', 'National procedure codes'],
+  ['UCUM', 'UCUM'],
+  ['MEDDRA', 'MedDRA'],
+  ['ORPHACODE', 'ORPHAcode'],
+  ['HPO', 'HPO'],
+  ['NCIT', 'NCI Thesaurus'],
+  ['DICOM-CT', 'DICOM terminology'],
+  ['EDQM', 'EDQM standard terms'],
+  ['EMDN', 'EMDN'],
+  ['ICPC-2', 'ICPC-2'],
+  ['ICF', 'ICF'],
+  ['MESH', 'MeSH'],
+  ['UMLS', 'UMLS'],
+] as const).map(([c, l]) => opt(`${HDEU}/coding-system`, c, l))
 
-/** Distribution format. */
-const FORMATS: VocabularyOption[] = [
-  { value: 'http://publications.europa.eu/resource/authority/file-type/CSV', labelKey: 'dcat.fmt_csv' },
-  { value: 'http://publications.europa.eu/resource/authority/file-type/JSON', labelKey: 'dcat.fmt_json' },
-  { value: 'http://publications.europa.eu/resource/authority/file-type/JSONLD', labelKey: 'dcat.fmt_jsonld' },
-  { value: 'http://publications.europa.eu/resource/authority/file-type/HTML', labelKey: 'dcat.fmt_html' },
-  { value: 'http://publications.europa.eu/resource/authority/file-type/PARQUET', labelKey: 'dcat.fmt_parquet' },
-  { value: 'http://publications.europa.eu/resource/authority/file-type/RDF_TURTLE', labelKey: 'dcat.fmt_turtle' },
-]
+/** What produced the data (`prov:wasGeneratedBy`). */
+const HEALTH_ACTIVITIES = ([
+  ['HOSPITAL_RECORDS', 'Hospital records'],
+  ['ROUTINE_RECORDS', 'Routine care records'],
+  ['HEALTHCARE_VISIT', 'Healthcare visits'],
+  ['ADMISSION_DISCHARGE', 'Admissions and discharges'],
+  ['LABORATORY_TESTS', 'Laboratory tests'],
+  ['PRESCRIBING_DISPENSING', 'Prescribing and dispensing'],
+  ['MEASUREMENTS', 'Measurements'],
+  ['PATIENT_OUTCOMES', 'Patient outcomes'],
+  ['RESEARCH_DATABASE', 'Research database'],
+  ['COHORT', 'Cohort'],
+  ['CLINICAL_TRIAL', 'Clinical trial'],
+  ['MEDICAL_REGISTRY', 'Medical registry'],
+  ['QUALITY_REGISTRY', 'Quality registry'],
+  ['ADMINISTRATIVE_PROCESSES', 'Administrative processes'],
+  ['INSURANCE_CLAIMS', 'Insurance claims'],
+  ['OBSERVATIONAL_DATA', 'Observational data'],
+] as const).map(([c, l]) => opt(`${HDEU}/health-activity`, c, l, `dcat.hact_${c.toLowerCase()}`))
 
-/** Frequency (EU vocabulary — subset). */
-const FREQUENCIES: VocabularyOption[] = [
-  { value: 'http://publications.europa.eu/resource/authority/frequency/NEVER', labelKey: 'dcat.freq_never' },
-  { value: 'http://publications.europa.eu/resource/authority/frequency/ANNUAL', labelKey: 'dcat.freq_annual' },
-  { value: 'http://publications.europa.eu/resource/authority/frequency/QUARTERLY', labelKey: 'dcat.freq_quarterly' },
-  { value: 'http://publications.europa.eu/resource/authority/frequency/MONTHLY', labelKey: 'dcat.freq_monthly' },
-  { value: 'http://publications.europa.eu/resource/authority/frequency/DAILY', labelKey: 'dcat.freq_daily' },
-  { value: 'http://publications.europa.eu/resource/authority/frequency/CONT', labelKey: 'dcat.freq_continuous' },
-]
+/** EU dataset-type NAL — the codes a health dataset can meaningfully take. */
+const DATASET_TYPES = ([
+  ['STATISTICAL', 'Statistical data'],
+  ['SYNTHETIC_DATA', 'Synthetic data'],
+  ['TEST_DATA', 'Test data'],
+  ['DOMAIN_MODEL', 'Domain model'],
+  ['CODE_LIST', 'Code list'],
+  ['GEOSPATIAL', 'Geospatial data'],
+] as const).map(([c, l]) => opt(`${EU}/dataset-type`, c, l, `dcat.dtype_${c.toLowerCase()}`))
+
+const PUBLISHER_TYPES = ([
+  ['inpatient-institute', 'Hospital (inpatient care)'],
+  ['healthcare-providers', 'Healthcare provider'],
+  ['university', 'University'],
+  ['research-institute-org', 'Research institute'],
+  ['research-infra', 'Research infrastructure'],
+  ['national-authority', 'National authority'],
+  ['regional-authority', 'Regional authority'],
+  ['public-health-institute', 'Public health institute'],
+  ['public-health-registry', 'Public health registry'],
+  ['quality-registry', 'Quality registry'],
+  ['biobank', 'Biobank'],
+  ['health-insurance-company-org', 'Health insurance'],
+  ['private-company', 'Private company'],
+  ['not-for-profit-org', 'Not-for-profit organisation'],
+] as const).map(([c, l]) => opt(`${HDEU}/publisher-type`, c, l, `dcat.ptype_${c.replace(/-/g, '_')}`))
+
+const DATA_THEMES = ([
+  ['HEAL', 'Health'],
+  ['SOCI', 'Population and society'],
+  ['TECH', 'Science and technology'],
+  ['GOVE', 'Government and public sector'],
+  ['ECON', 'Economy and finance'],
+  ['ENVI', 'Environment'],
+  ['EDUC', 'Education, culture and sport'],
+] as const).map(([c, l]) => opt(`${EU}/data-theme`, c, l, `dcat.theme_${c.toLowerCase()}`))
+
+/** DPV personal-data categories (`dpv:hasPersonalData`). */
+const PERSONAL_DATA = ([
+  ['HealthRecord', 'Health record'],
+  ['MedicalHealth', 'Medical health'],
+  ['Age', 'Age'],
+  ['BirthDate', 'Date of birth'],
+  ['Gender', 'Gender'],
+  ['Prescription', 'Prescription'],
+  ['Genetic', 'Genetic data'],
+] as const).map(([c, l]) => ({ value: `https://w3id.org/dpv/pd#${c}`, label: l, labelKey: `dcat.pd_${c.toLowerCase()}` }))
+
+/** EU/EEA countries, then a few frequent partners. Labels come from Intl at render time. */
+const COUNTRY_CODES = [
+  'AUT', 'BEL', 'BGR', 'HRV', 'CYP', 'CZE', 'DNK', 'EST', 'FIN', 'FRA', 'DEU', 'GRC', 'HUN', 'IRL',
+  'ITA', 'LVA', 'LTU', 'LUX', 'MLT', 'NLD', 'POL', 'PRT', 'ROU', 'SVK', 'SVN', 'ESP', 'SWE',
+  'ISL', 'LIE', 'NOR', 'CHE', 'GBR', 'USA', 'CAN',
+] as const
+/** ISO 3166 alpha-3 → alpha-2, for `Intl.DisplayNames`. */
+export const COUNTRY_ALPHA2: Record<string, string> = {
+  AUT: 'AT', BEL: 'BE', BGR: 'BG', HRV: 'HR', CYP: 'CY', CZE: 'CZ', DNK: 'DK', EST: 'EE', FIN: 'FI', FRA: 'FR',
+  DEU: 'DE', GRC: 'GR', HUN: 'HU', IRL: 'IE', ITA: 'IT', LVA: 'LV', LTU: 'LT', LUX: 'LU', MLT: 'MT', NLD: 'NL',
+  POL: 'PL', PRT: 'PT', ROU: 'RO', SVK: 'SK', SVN: 'SI', ESP: 'ES', SWE: 'SE', ISL: 'IS', LIE: 'LI', NOR: 'NO',
+  CHE: 'CH', GBR: 'GB', USA: 'US', CAN: 'CA',
+}
+const COUNTRIES = COUNTRY_CODES.map((c) => opt(`${EU}/country`, c, new Intl.DisplayNames(['en'], { type: 'region' }).of(COUNTRY_ALPHA2[c]) ?? c))
+
+const LANGUAGES = ([
+  ['BUL', 'bg'], ['HRV', 'hr'], ['CES', 'cs'], ['DAN', 'da'], ['NLD', 'nl'], ['ENG', 'en'], ['EST', 'et'], ['FIN', 'fi'],
+  ['FRA', 'fr'], ['DEU', 'de'], ['ELL', 'el'], ['HUN', 'hu'], ['GLE', 'ga'], ['ITA', 'it'], ['LAV', 'lv'], ['LIT', 'lt'],
+  ['MLT', 'mt'], ['POL', 'pl'], ['POR', 'pt'], ['RON', 'ro'], ['SLK', 'sk'], ['SLV', 'sl'], ['SPA', 'es'], ['SWE', 'sv'],
+] as const).map(([c, iso]) =>
+  opt(`${EU}/language`, c, new Intl.DisplayNames(['en'], { type: 'language' }).of(iso) ?? c, `dcat.lang_${iso}`))
+
+const FORMATS = ([
+  ['CSV', 'CSV', 'dcat.fmt_csv'], ['JSON', 'JSON', 'dcat.fmt_json'], ['JSON_LD', 'JSON-LD', 'dcat.fmt_jsonld'],
+  ['HTML', 'HTML', 'dcat.fmt_html'], ['PARQUET', 'Parquet', 'dcat.fmt_parquet'], ['RDF_TURTLE', 'Turtle', 'dcat.fmt_turtle'],
+] as const).map(([c, l, k]) => opt(`${EU}/file-type`, c, l, k))
+
+const FREQUENCIES = ([
+  ['NEVER', 'Never'], ['ANNUAL', 'Annual'], ['QUARTERLY', 'Quarterly'], ['MONTHLY', 'Monthly'],
+  ['DAILY', 'Daily'], ['CONT', 'Continuous'],
+] as const).map(([c, l]) => opt(`${EU}/frequency`, c, l, `dcat.freq_${c === 'CONT' ? 'continuous' : c.toLowerCase()}`))
 
 export const DCAT_VOCABULARIES: Record<string, VocabularyOption[]> = {
   accessRights: ACCESS_RIGHTS,
   healthCategory: HEALTH_CATEGORIES,
+  healthTheme: HEALTH_THEMES,
+  standard: STANDARDS,
   codingSystem: CODING_SYSTEMS,
+  healthActivity: HEALTH_ACTIVITIES,
+  datasetType: DATASET_TYPES,
+  publisherType: PUBLISHER_TYPES,
+  dataTheme: DATA_THEMES,
+  personalData: PERSONAL_DATA,
+  country: COUNTRIES,
   language: LANGUAGES,
   format: FORMATS,
   frequency: FREQUENCIES,
 }
 
+export const vocabularyIri = (vocabularyKey: string, code: string): string | undefined =>
+  DCAT_VOCABULARIES[vocabularyKey]?.find((o) => o.value.endsWith(`/${code}`) || o.value.endsWith(`#${code}`))?.value
+
 // ---------------------------------------------------------------------------
-// Field definitions — aligned with Health-DCAT-AP Release 6
+// Fields
 // ---------------------------------------------------------------------------
 
-export const DCAT_FIELDS: DcatFieldDef[] = [
+type FieldSpec = Omit<DcatFieldDef, 'labelKey' | 'descriptionKey'>
+
+/** `dataset.numberOfRecords` → `dcat.f_dataset_numberOfRecords` (+ `_desc`). */
+const withKeys = (f: FieldSpec): DcatFieldDef => {
+  const base = `dcat.f_${f.key.replace('.', '_')}`
+  return { ...f, labelKey: base, descriptionKey: `${base}_desc` }
+}
+
+export const DCAT_FIELDS: DcatFieldDef[] = ([
+  // ── Dataset: identity ──
+  { key: 'dataset.title', uri: 'dct:title', dcatClass: 'dataset', section: 'identity', type: 'text', obligation: 'mandatory' },
+  { key: 'dataset.description', uri: 'dct:description', dcatClass: 'dataset', section: 'identity', type: 'localized', obligation: 'mandatory' },
+  { key: 'dataset.identifier', uri: 'dct:identifier', dcatClass: 'dataset', section: 'identity', type: 'text', obligation: 'mandatory' },
+  { key: 'dataset.type', uri: 'dct:type', dcatClass: 'dataset', section: 'identity', type: 'select', obligation: 'recommended', vocabularyKey: 'datasetType' },
+  { key: 'dataset.accessRights', uri: 'dct:accessRights', dcatClass: 'dataset', section: 'identity', type: 'select', obligation: 'mandatory', vocabularyKey: 'accessRights' },
+  { key: 'dataset.keyword', uri: 'dcat:keyword', dcatClass: 'dataset', section: 'identity', type: 'text', obligation: 'mandatory' },
+  { key: 'dataset.theme', uri: 'dcat:theme', dcatClass: 'dataset', section: 'identity', type: 'multiselect', obligation: 'mandatory', vocabularyKey: 'dataTheme' },
+  { key: 'dataset.provenance', uri: 'dct:provenance', dcatClass: 'dataset', section: 'identity', type: 'localized', obligation: 'mandatory' },
+  { key: 'dataset.language', uri: 'dct:language', dcatClass: 'dataset', section: 'identity', type: 'multiselect', obligation: 'recommended', vocabularyKey: 'language' },
+  { key: 'dataset.accrualPeriodicity', uri: 'dct:accrualPeriodicity', dcatClass: 'dataset', section: 'identity', type: 'select', obligation: 'optional', vocabularyKey: 'frequency' },
+
+  // ── Dataset: health content ──
+  { key: 'dataset.healthCategory', uri: 'healthdcatap:healthCategory', dcatClass: 'dataset', section: 'health', type: 'multiselect', obligation: 'mandatory', vocabularyKey: 'healthCategory' },
+  { key: 'dataset.hasStructuredData', uri: 'healthdcatap:hasStructuredData', dcatClass: 'dataset', section: 'health', type: 'boolean', obligation: 'mandatory', autoFillable: true },
+  { key: 'dataset.conformsTo', uri: 'dct:conformsTo', dcatClass: 'dataset', section: 'health', type: 'multiselect', obligation: 'recommended', vocabularyKey: 'standard', autoFillable: true },
+  { key: 'dataset.codingSystem', uri: 'healthdcatap:hasCodingSystem', dcatClass: 'dataset', section: 'health', type: 'multiselect', obligation: 'recommended', vocabularyKey: 'codingSystem', autoFillable: true },
+  { key: 'dataset.codeValues', uri: 'healthdcatap:hasCodeValues', dcatClass: 'dataset', section: 'health', type: 'tags', obligation: 'recommended' },
+  { key: 'dataset.healthTheme', uri: 'healthdcatap:healthTheme', dcatClass: 'dataset', section: 'health', type: 'multiselect', obligation: 'recommended', vocabularyKey: 'healthTheme' },
+  { key: 'dataset.personalData', uri: 'dpv:hasPersonalData', dcatClass: 'dataset', section: 'health', type: 'multiselect', obligation: 'recommended', vocabularyKey: 'personalData' },
+  { key: 'dataset.wasGeneratedBy', uri: 'prov:wasGeneratedBy', dcatClass: 'dataset', section: 'health', type: 'multiselect', obligation: 'optional', vocabularyKey: 'healthActivity' },
+
+  // ── Dataset: coverage and figures ──
+  { key: 'dataset.temporalStart', uri: 'dct:temporal → dcat:startDate', dcatClass: 'dataset', section: 'coverage', type: 'date', obligation: 'recommended', autoFillable: true },
+  { key: 'dataset.temporalEnd', uri: 'dct:temporal → dcat:endDate', dcatClass: 'dataset', section: 'coverage', type: 'date', obligation: 'recommended', autoFillable: true },
+  { key: 'dataset.numberOfUniqueIndividuals', uri: 'healthdcatap:numberOfUniqueIndividuals', dcatClass: 'dataset', section: 'coverage', type: 'number', obligation: 'recommended', autoFillable: true },
+  { key: 'dataset.numberOfRecords', uri: 'healthdcatap:numberOfRecords', dcatClass: 'dataset', section: 'coverage', type: 'number', obligation: 'recommended', autoFillable: true },
+  { key: 'dataset.minTypicalAge', uri: 'healthdcatap:minTypicalAge', dcatClass: 'dataset', section: 'coverage', type: 'number', obligation: 'optional', autoFillable: true },
+  { key: 'dataset.maxTypicalAge', uri: 'healthdcatap:maxTypicalAge', dcatClass: 'dataset', section: 'coverage', type: 'number', obligation: 'optional', autoFillable: true },
+  { key: 'dataset.spatial', uri: 'dct:spatial', dcatClass: 'dataset', section: 'coverage', type: 'multiselect', obligation: 'optional', vocabularyKey: 'country' },
+  { key: 'dataset.populationCoverage', uri: 'healthdcatap:populationCoverage', dcatClass: 'dataset', section: 'coverage', type: 'localized', obligation: 'optional' },
+  { key: 'dataset.retentionStart', uri: 'healthdcatap:retentionPeriod → dcat:startDate', dcatClass: 'dataset', section: 'coverage', type: 'date', obligation: 'optional' },
+  { key: 'dataset.retentionEnd', uri: 'healthdcatap:retentionPeriod → dcat:endDate', dcatClass: 'dataset', section: 'coverage', type: 'date', obligation: 'optional' },
+
+  // ── Contacts and organisations ──
+  { key: 'contact.email', uri: 'dcat:contactPoint → vcard:hasEmail', dcatClass: 'agent', section: 'agents', agentRole: 'contact', type: 'email', obligation: 'mandatory' },
+  { key: 'contact.page', uri: 'dcat:contactPoint → vcard:hasURL', dcatClass: 'agent', section: 'agents', agentRole: 'contact', type: 'uri', obligation: 'optional' },
+  { key: 'publisher.name', uri: 'dct:publisher → foaf:name', dcatClass: 'agent', section: 'agents', agentRole: 'publisher', type: 'text', obligation: 'mandatory', autoFillable: true },
+  { key: 'publisher.type', uri: 'dct:publisher → dct:type', dcatClass: 'agent', section: 'agents', agentRole: 'publisher', type: 'select', obligation: 'recommended', vocabularyKey: 'publisherType' },
+  { key: 'publisher.email', uri: 'dct:publisher → cv:email', dcatClass: 'agent', section: 'agents', agentRole: 'publisher', type: 'email', obligation: 'mandatory' },
+  { key: 'publisher.contactPage', uri: 'dct:publisher → cv:contactPage', dcatClass: 'agent', section: 'agents', agentRole: 'publisher', type: 'uri', obligation: 'optional' },
+  { key: 'hdab.name', uri: 'healthdcatap:hdab → foaf:name', dcatClass: 'agent', section: 'agents', agentRole: 'hdab', type: 'text', obligation: 'mandatory', nonPublicOnly: true },
+  { key: 'hdab.email', uri: 'healthdcatap:hdab → cv:email', dcatClass: 'agent', section: 'agents', agentRole: 'hdab', type: 'email', obligation: 'mandatory', nonPublicOnly: true },
+  { key: 'hdab.contactPage', uri: 'healthdcatap:hdab → cv:contactPage', dcatClass: 'agent', section: 'agents', agentRole: 'hdab', type: 'uri', obligation: 'optional' },
+  { key: 'custodian.name', uri: 'geodcatap:custodian → foaf:name', dcatClass: 'agent', section: 'agents', agentRole: 'custodian', type: 'text', obligation: 'recommended', autoFillable: true },
+  { key: 'custodian.email', uri: 'geodcatap:custodian → cv:email', dcatClass: 'agent', section: 'agents', agentRole: 'custodian', type: 'email', obligation: 'recommended' },
+  { key: 'coordinator.name', uri: 'healthdcatap:hdabCoordinator → foaf:name', dcatClass: 'agent', section: 'agents', agentRole: 'coordinator', type: 'text', obligation: 'optional' },
+  { key: 'coordinator.email', uri: 'healthdcatap:hdabCoordinator → cv:email', dcatClass: 'agent', section: 'agents', agentRole: 'coordinator', type: 'email', obligation: 'optional' },
+
+  // ── Access (the dataset's distribution) ──
+  { key: 'distribution.accessURL', uri: 'dcat:accessURL', dcatClass: 'distribution', section: 'distribution', type: 'uri', obligation: 'mandatory' },
+  { key: 'distribution.title', uri: 'dct:title', dcatClass: 'distribution', section: 'distribution', type: 'text', obligation: 'optional' },
+  { key: 'distribution.description', uri: 'dct:description', dcatClass: 'distribution', section: 'distribution', type: 'localized', obligation: 'recommended' },
+  { key: 'distribution.format', uri: 'dct:format', dcatClass: 'distribution', section: 'distribution', type: 'select', obligation: 'recommended', vocabularyKey: 'format' },
+  { key: 'distribution.license', uri: 'dct:license', dcatClass: 'distribution', section: 'distribution', type: 'uri', obligation: 'recommended' },
+
   // ── Catalog ──
-  {
-    key: 'catalog.title',
-    uri: 'dct:title',
-    dcatClass: 'catalog',
-    labelKey: 'dcat.catalog_title',
-    descriptionKey: 'dcat.catalog_title_desc',
-    type: 'text',
-    obligation: 'mandatory',
-  },
-  {
-    key: 'catalog.description',
-    uri: 'dct:description',
-    dcatClass: 'catalog',
-    labelKey: 'dcat.catalog_description',
-    descriptionKey: 'dcat.catalog_description_desc',
-    type: 'text',
-    obligation: 'mandatory',
-  },
-  {
-    key: 'catalog.publisher',
-    uri: 'dct:publisher',
-    dcatClass: 'catalog',
-    labelKey: 'dcat.catalog_publisher',
-    descriptionKey: 'dcat.catalog_publisher_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'catalog.language',
-    uri: 'dct:language',
-    dcatClass: 'catalog',
-    labelKey: 'dcat.catalog_language',
-    descriptionKey: 'dcat.catalog_language_desc',
-    type: 'multiselect',
-    obligation: 'optional',
-    vocabularyKey: 'language',
-  },
-  {
-    key: 'catalog.homepage',
-    uri: 'foaf:homepage',
-    dcatClass: 'catalog',
-    labelKey: 'dcat.catalog_homepage',
-    descriptionKey: 'dcat.catalog_homepage_desc',
-    type: 'uri',
-    obligation: 'optional',
-  },
-  {
-    key: 'catalog.issued',
-    uri: 'dct:issued',
-    dcatClass: 'catalog',
-    labelKey: 'dcat.catalog_issued',
-    descriptionKey: 'dcat.catalog_issued_desc',
-    type: 'date',
-    obligation: 'optional',
-  },
+  { key: 'catalog.title', uri: 'dct:title', dcatClass: 'catalog', section: 'catalog', type: 'text', obligation: 'mandatory', autoFillable: true },
+  { key: 'catalog.description', uri: 'dct:description', dcatClass: 'catalog', section: 'catalog', type: 'localized', obligation: 'mandatory', autoFillable: true },
+  { key: 'catalog.language', uri: 'dct:language', dcatClass: 'catalog', section: 'catalog', type: 'multiselect', obligation: 'recommended', vocabularyKey: 'language' },
+  { key: 'catalog.homepage', uri: 'foaf:homepage', dcatClass: 'catalog', section: 'catalog', type: 'uri', obligation: 'recommended' },
+  { key: 'catalog.issued', uri: 'dct:issued', dcatClass: 'catalog', section: 'catalog', type: 'date', obligation: 'recommended' },
+  { key: 'catalog.modified', uri: 'dct:modified', dcatClass: 'catalog', section: 'catalog', type: 'date', obligation: 'optional' },
 
-  // ── Dataset ──
-  {
-    key: 'dataset.title',
-    uri: 'dct:title',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_title',
-    descriptionKey: 'dcat.dataset_title_desc',
-    type: 'text',
-    obligation: 'mandatory',
-  },
-  {
-    key: 'dataset.description',
-    uri: 'dct:description',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_description',
-    descriptionKey: 'dcat.dataset_description_desc',
-    type: 'text',
-    obligation: 'mandatory',
-  },
-  {
-    key: 'dataset.identifier',
-    uri: 'dct:identifier',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_identifier',
-    descriptionKey: 'dcat.dataset_identifier_desc',
-    type: 'text',
-    obligation: 'mandatory',
-  },
-  {
-    key: 'dataset.accessRights',
-    uri: 'dct:accessRights',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_access_rights',
-    descriptionKey: 'dcat.dataset_access_rights_desc',
-    type: 'select',
-    obligation: 'mandatory',
-    vocabularyKey: 'accessRights',
-  },
-  {
-    key: 'dataset.healthCategory',
-    uri: 'healthdcatap:healthCategory',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_health_category',
-    descriptionKey: 'dcat.dataset_health_category_desc',
-    type: 'multiselect',
-    obligation: 'mandatory',
-    vocabularyKey: 'healthCategory',
-  },
-  {
-    key: 'dataset.publisher',
-    uri: 'dct:publisher',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_publisher',
-    descriptionKey: 'dcat.dataset_publisher_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.hdab',
-    uri: 'healthdcatap:hdab',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_hdab',
-    descriptionKey: 'dcat.dataset_hdab_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.custodian',
-    uri: 'geodcatap:custodian',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_custodian',
-    descriptionKey: 'dcat.dataset_custodian_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.theme',
-    uri: 'dcat:theme',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_theme',
-    descriptionKey: 'dcat.dataset_theme_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.keyword',
-    uri: 'dcat:keyword',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_keyword',
-    descriptionKey: 'dcat.dataset_keyword_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.language',
-    uri: 'dct:language',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_language',
-    descriptionKey: 'dcat.dataset_language_desc',
-    type: 'multiselect',
-    obligation: 'optional',
-    vocabularyKey: 'language',
-  },
-  {
-    key: 'dataset.temporal',
-    uri: 'dct:temporal',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_temporal',
-    descriptionKey: 'dcat.dataset_temporal_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.spatial',
-    uri: 'dct:spatial',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_spatial',
-    descriptionKey: 'dcat.dataset_spatial_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.accrualPeriodicity',
-    uri: 'dct:accrualPeriodicity',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_frequency',
-    descriptionKey: 'dcat.dataset_frequency_desc',
-    type: 'select',
-    obligation: 'optional',
-    vocabularyKey: 'frequency',
-  },
-  // Health-specific fields
-  {
-    key: 'dataset.codingSystem',
-    uri: 'dct:conformsTo',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_coding_system',
-    descriptionKey: 'dcat.dataset_coding_system_desc',
-    type: 'multiselect',
-    obligation: 'optional',
-    vocabularyKey: 'codingSystem',
-  },
-  {
-    key: 'dataset.numberOfRecords',
-    uri: 'healthdcatap:numberOfRecords',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_num_records',
-    descriptionKey: 'dcat.dataset_num_records_desc',
-    type: 'number',
-    obligation: 'optional',
-    autoFillable: true,
-  },
-  {
-    key: 'dataset.numberOfUniqueIndividuals',
-    uri: 'healthdcatap:numberOfUniqueIndividuals',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_num_individuals',
-    descriptionKey: 'dcat.dataset_num_individuals_desc',
-    type: 'number',
-    obligation: 'optional',
-    autoFillable: true,
-  },
-  {
-    key: 'dataset.minTypicalAge',
-    uri: 'healthdcatap:minTypicalAge',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_min_age',
-    descriptionKey: 'dcat.dataset_min_age_desc',
-    type: 'number',
-    obligation: 'optional',
-    autoFillable: true,
-  },
-  {
-    key: 'dataset.maxTypicalAge',
-    uri: 'healthdcatap:maxTypicalAge',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_max_age',
-    descriptionKey: 'dcat.dataset_max_age_desc',
-    type: 'number',
-    obligation: 'optional',
-    autoFillable: true,
-  },
-  {
-    key: 'dataset.populationCoverage',
-    uri: 'healthdcatap:populationCoverage',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_population',
-    descriptionKey: 'dcat.dataset_population_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.personalData',
-    uri: 'healthdcatap:hasPersonalData',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_personal_data',
-    descriptionKey: 'dcat.dataset_personal_data_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'dataset.retentionPeriod',
-    uri: 'dct:temporal',
-    dcatClass: 'dataset',
-    labelKey: 'dcat.dataset_retention',
-    descriptionKey: 'dcat.dataset_retention_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
+  // ── Generated: where the analytics distributions will live ──
+  { key: 'analytics.baseURL', uri: 'healthdcatap:analytics → dcat:accessURL', dcatClass: 'distribution', section: 'generated', type: 'uri', obligation: 'recommended' },
+] satisfies FieldSpec[]).map(withKeys)
 
-  // ── Distribution ──
-  {
-    key: 'distribution.accessURL',
-    uri: 'dcat:accessURL',
-    dcatClass: 'distribution',
-    labelKey: 'dcat.dist_access_url',
-    descriptionKey: 'dcat.dist_access_url_desc',
-    type: 'uri',
-    obligation: 'mandatory',
-  },
-  {
-    key: 'distribution.format',
-    uri: 'dct:format',
-    dcatClass: 'distribution',
-    labelKey: 'dcat.dist_format',
-    descriptionKey: 'dcat.dist_format_desc',
-    type: 'select',
-    obligation: 'optional',
-    vocabularyKey: 'format',
-  },
-  {
-    key: 'distribution.license',
-    uri: 'dct:license',
-    dcatClass: 'distribution',
-    labelKey: 'dcat.dist_license',
-    descriptionKey: 'dcat.dist_license_desc',
-    type: 'uri',
-    obligation: 'optional',
-  },
-  {
-    key: 'distribution.description',
-    uri: 'dct:description',
-    dcatClass: 'distribution',
-    labelKey: 'dcat.dist_description',
-    descriptionKey: 'dcat.dist_description_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
+export function getFieldsBySection(section: DcatSection): DcatFieldDef[] {
+  return DCAT_FIELDS.filter((f) => f.section === section)
+}
 
-  // ── Agent (publisher) ──
-  {
-    key: 'agent.name',
-    uri: 'foaf:name',
-    dcatClass: 'agent',
-    labelKey: 'dcat.agent_name',
-    descriptionKey: 'dcat.agent_name_desc',
-    type: 'text',
-    obligation: 'mandatory',
-  },
-  {
-    key: 'agent.type',
-    uri: 'dct:type',
-    dcatClass: 'agent',
-    labelKey: 'dcat.agent_type',
-    descriptionKey: 'dcat.agent_type_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'agent.contactEmail',
-    uri: 'cv:email',
-    dcatClass: 'agent',
-    labelKey: 'dcat.agent_email',
-    descriptionKey: 'dcat.agent_email_desc',
-    type: 'text',
-    obligation: 'optional',
-  },
-  {
-    key: 'agent.contactPage',
-    uri: 'cv:contactPage',
-    dcatClass: 'agent',
-    labelKey: 'dcat.agent_contact_page',
-    descriptionKey: 'dcat.agent_contact_page_desc',
-    type: 'uri',
-    obligation: 'optional',
-  },
+const PUBLIC_ACCESS = `${EU}/access-right/PUBLIC`
+
+/** The obligation that applies given what the metadata says about access. */
+export function effectiveObligation(field: DcatFieldDef, metadata: Record<string, unknown>): DcatObligation {
+  if (field.nonPublicOnly && metadata['dataset.accessRights'] === PUBLIC_ACCESS) return 'recommended'
+  return field.obligation
+}
+
+export function isFilled(value: unknown): boolean {
+  if (Array.isArray(value)) return value.length > 0
+  return value !== undefined && value !== null && value !== ''
+}
+
+// ---------------------------------------------------------------------------
+// Reading metadata saved before Release 8
+// ---------------------------------------------------------------------------
+
+const LEGACY_HEALTH_CATEGORY: Record<string, string> = {
+  EHR: 'EHRS', CLAIMS: 'HRAD', ADMINISTRATIVE: 'HRAD', PHDR: 'PHDR', GENOMIC: 'HGPD', COHORT: 'RQSH',
+  SURVEY: 'RQSH', CLINICAL_TRIAL: 'EHCT', MEDICAL_DEVICE: 'EMRD', BIOBANK: 'EINS',
+}
+const LEGACY_CODING_SYSTEM: Record<string, string> = {
+  'http://snomed.info/sct': 'SNOMED-CT',
+  'http://loinc.org': 'LOINC',
+  'http://hl7.org/fhir/sid/icd-10': 'ICD-10',
+  'http://hl7.org/fhir/sid/icd-11': 'ICD-11',
+  'http://www.nlm.nih.gov/research/umls/rxnorm': 'RXNORM',
+  'http://www.whocc.no/atc': 'ATC',
+}
+/** Old key → new key, when the value carries over unchanged. */
+const LEGACY_KEYS: [string, string][] = [
+  ['agent.name', 'publisher.name'],
+  ['catalog.publisher', 'publisher.name'],
+  ['dataset.publisher', 'publisher.name'],
+  ['agent.contactEmail', 'publisher.email'],
+  ['agent.contactPage', 'publisher.contactPage'],
+  ['dataset.hdab', 'hdab.name'],
+  ['dataset.custodian', 'custodian.name'],
 ]
+/** Old free-text fields R8 wants as IRIs or periods — dropped rather than guessed. */
+const LEGACY_DROPPED = ['agent.type', 'dataset.retentionPeriod', 'dataset.temporal']
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+/**
+ * Metadata as the R8 fields expect it. Pre-R8 keys are renamed, their codes
+ * mapped to the official vocabularies, and the free-text values R8 needs typed
+ * are dropped (the temporal range is parsed first). Idempotent, so it runs on
+ * every read; the next save writes the normalised shape back.
+ */
+export function normalizeDcatMetadata(input: Record<string, unknown> | undefined | null): Record<string, unknown> {
+  const m: Record<string, unknown> = { ...(input ?? {}) }
+  for (const [from, to] of LEGACY_KEYS) {
+    if (from in m) {
+      if (!isFilled(m[to]) && isFilled(m[from])) m[to] = m[from]
+      delete m[from]
+    }
+  }
+  if (typeof m['dataset.temporal'] === 'string') {
+    const [start, end] = (m['dataset.temporal'] as string).split('/').map((s) => s.trim())
+    if (!m['dataset.temporalStart'] && /^\d{4}-\d{2}-\d{2}$/.test(start ?? '')) m['dataset.temporalStart'] = start
+    if (!m['dataset.temporalEnd'] && /^\d{4}-\d{2}-\d{2}$/.test(end ?? '')) m['dataset.temporalEnd'] = end
+  }
+  if (typeof m['dataset.theme'] === 'string') m['dataset.theme'] = [vocabularyIri('dataTheme', 'HEAL')]
+  // Same key as before R8, which held free text ("No — aggregated counts only"); now DPV IRIs.
+  if (typeof m['dataset.personalData'] === 'string') delete m['dataset.personalData']
+  for (const key of LEGACY_DROPPED) delete m[key]
 
-export function getFieldsByClass(dcatClass: DcatClass): DcatFieldDef[] {
-  return DCAT_FIELDS.filter((f) => f.dcatClass === dcatClass)
+  const remap = (key: string, vocab: string, legacy: Record<string, string>) => {
+    const v = m[key]
+    if (!Array.isArray(v)) return
+    const mapped = v.map(String).map((x) => (legacy[x] ? vocabularyIri(vocab, legacy[x]) ?? x : x))
+    const kept = [...new Set(mapped.filter((x) => DCAT_VOCABULARIES[vocab].some((o) => o.value === x)))]
+    if (kept.length) m[key] = kept
+    else delete m[key]
+  }
+  remap('dataset.healthCategory', 'healthCategory', LEGACY_HEALTH_CATEGORY)
+  remap('dataset.codingSystem', 'codingSystem', LEGACY_CODING_SYSTEM)
+  return m
 }

@@ -269,13 +269,83 @@ export function validateDataCatalog(tree: EntityTree, bag: IssueBag): void {
     checkLocalized(bag, path, '/description', catalog.description, { label: 'description' })
   }
 
-  // Dimensions are what the catalog counts over; an empty list produces a
-  // catalog that computes nothing.
-  if (catalog.dimensions != null) {
-    if (!checkArray(bag, path, '/dimensions', catalog.dimensions, { label: 'dimensions' })) return
-    if (catalog.dimensions.length === 0) {
-      bag.warn(path, '/dimensions', 'empty-value',
-        'No dimensions; this catalog would compute nothing.')
+  // GitLab/GitHub Pages deployment. The rendered site/ and CI file travel only in
+  // the catalog's own repo (not in its workspace-export folder), so their absence
+  // is not an error here.
+  if (catalog.pagesDeployment != null) {
+    const pages = catalog.pagesDeployment
+    if (!isObject(pages)) {
+      bag.error(path, '/pagesDeployment', 'wrong-type', 'pagesDeployment must be an object.')
+    } else {
+      checkEnum(bag, path, '/pagesDeployment/provider', pages.provider, ['gitlab', 'github'] as const,
+        { required: true, label: 'pagesDeployment.provider' })
+      if (pages.updatedAt != null) {
+        checkString(bag, path, '/pagesDeployment/updatedAt', pages.updatedAt, { label: 'pagesDeployment.updatedAt' })
+      }
     }
   }
+
+  // What cells count beside patients; absent = hospital stays only.
+  if (catalog.counts != null) {
+    if (!isObject(catalog.counts)) {
+      bag.error(path, '/counts', 'wrong-type', 'counts must be an object.')
+    } else {
+      for (const key of ['visits', 'unitStays'] as const) {
+        const value = catalog.counts[key]
+        if (value != null && typeof value !== 'boolean') {
+          bag.error(path, `/counts/${key}`, 'wrong-type', `counts.${key} must be a boolean.`)
+        }
+      }
+    }
+  }
+
+  // Variables are what the catalog breaks its counts down by, crossings which
+  // of them are counted together.
+  if (catalog.variables == null) {
+    if (catalog.dimensions != null || catalog.periodConfig != null) {
+      bag.warn(path, '/variables', 'legacy-format',
+        'Catalog written before variables and crossings; Linkr converts it on import.')
+    }
+    return
+  }
+  if (!isObject(catalog.variables)) {
+    bag.error(path, '/variables', 'wrong-type', 'variables must be an object.')
+    return
+  }
+  const variables = catalog.variables
+  for (const [id, config] of Object.entries(variables)) {
+    if (!(CATALOG_VARIABLES as readonly string[]).includes(id)) {
+      bag.warn(path, `/variables/${id}`, 'unknown-reference', `Unknown catalog variable "${id}".`)
+      continue
+    }
+    if (!isObject(config)) {
+      bag.error(path, `/variables/${id}`, 'wrong-type', `variables.${id} must be an object.`)
+      continue
+    }
+    if (typeof config.enabled !== 'boolean') {
+      bag.error(path, `/variables/${id}/enabled`, 'wrong-type', `variables.${id}.enabled must be a boolean.`)
+    }
+  }
+  if (!Object.values(variables).some((c) => isObject(c) && c.enabled === true)) {
+    bag.warn(path, '/variables', 'empty-value', 'No variable enabled; this catalog would count only its concept list.')
+  }
+  if (catalog.crossings != null) {
+    if (!checkArray(bag, path, '/crossings', catalog.crossings, { label: 'crossings' })) return
+    catalog.crossings.forEach((crossing, i) => {
+      const at = `/crossings/${i}`
+      if (!Array.isArray(crossing) || crossing.length < 1 || crossing.length > 3) {
+        bag.error(path, at, 'wrong-type', 'A crossing is a list of 1 to 3 variable ids.')
+        return
+      }
+      for (const id of crossing) {
+        if (!(CATALOG_VARIABLES as readonly string[]).includes(id as string)) {
+          bag.error(path, at, 'unknown-reference', `Unknown catalog variable "${String(id)}" in a crossing.`)
+        } else if (!isObject(variables[id as string])) {
+          bag.warn(path, at, 'unknown-reference', `Crossing names "${String(id)}", which has no configuration.`)
+        }
+      }
+    })
+  }
 }
+
+const CATALOG_VARIABLES = ['concept', 'period', 'service', 'age', 'sex'] as const
