@@ -8,6 +8,8 @@ import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
 import { perfLog } from '@/lib/dcat-ap/perf'
 
+const resultLoads = new Map<string, Promise<CatalogResultCache | undefined>>()
+
 interface CatalogState {
   // Catalog CRUD
   catalogs: DataCatalog[]
@@ -170,10 +172,20 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
 
   loadResultCache: async (catalogId) => {
     if (get().resultCacheLoadedFor !== catalogId) set({ resultCacheLoadedFor: null, activeResultCache: null })
-    const start = performance.now()
-    perfLog('results: load start')
-    const cache = await getStorage().catalogResults.get(catalogId).catch(() => undefined)
-    perfLog('results: loaded', start)
+    // One request per catalog at a time: the page mounting twice (StrictMode,
+    // a quick back-and-forth) would otherwise download the results twice, in
+    // parallel, each one slowing the other.
+    let pending = resultLoads.get(catalogId)
+    if (!pending) {
+      const start = performance.now()
+      perfLog('results: load start')
+      pending = getStorage().catalogResults.get(catalogId).catch(() => undefined).finally(() => {
+        resultLoads.delete(catalogId)
+        perfLog('results: loaded', start)
+      })
+      resultLoads.set(catalogId, pending)
+    }
+    const cache = await pending
     set({ activeResultCache: cache ?? null, resultCacheLoadedFor: catalogId })
   },
 

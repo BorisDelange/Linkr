@@ -24,6 +24,22 @@ function downloadBlob(blob: Blob, filename: string) {
   URL.revokeObjectURL(url)
 }
 
+// TODO(data-catalog): temporary, with perfLog — what the page's weight is made of.
+function logPageWeight(catalog: DataCatalog, cache: CatalogResultCache, locale: PageLocale) {
+  const kb = (v: unknown) => Math.round(JSON.stringify(v).length / 1024)
+  const published = buildPublishedCatalog(catalog, cache, { locale })
+  const rows = [
+    { part: 'concepts (list)', kb: kb(cache.concepts), items: cache.concepts.length },
+    { part: 'variables (labels)', kb: kb(published.variables), items: Object.keys(published.variables).length },
+    ...published.crossings.map((c) => ({ part: `crossing ${c.vars.join(' × ')}`, kb: kb(c.cells), items: c.cells.length })),
+  ].sort((a, b) => b.kb - a.kb)
+  perfLog('page weight by part (KB, items)')
+  console.table(rows)
+}
+
+/** Builds under way, so a second caller for the same page waits for the first. */
+const pageBuilds = new Map<string, Promise<string>>()
+
 interface PublicationContext {
   catalog: DataCatalog
   cache: CatalogResultCache
@@ -79,17 +95,26 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
     const key = catalogPageKey({ catalog, computedAt: cache.computedAt, schemaMapping, fullSchema, locale })
     perfLog('preview: cache key', t)
     const variant = reveal ? `${locale}:reveal` : locale
-    t = performance.now()
-    const cached = await getCachedPage(catalog.id, variant, key)
-    perfLog(cached ? 'preview: page cache HIT' : 'preview: page cache miss', t)
-    if (cached) return cached
-    t = performance.now()
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema, locale, reveal })
-    perfLog('preview: generate', t, `${Math.round(html.length / 1024)} KB`)
-    t = performance.now()
-    await putCachedPage(catalog.id, variant, key, html)
-    perfLog('preview: page cache write', t)
-    return html
+    const slot = `${catalog.id}:${variant}:${key}`
+    const pending = pageBuilds.get(slot)
+    if (pending) return pending
+    const build = (async () => {
+      let t = performance.now()
+      const cached = await getCachedPage(catalog.id, variant, key)
+      perfLog(cached ? 'preview: page cache HIT' : 'preview: page cache miss', t)
+      if (cached) return cached
+      t = performance.now()
+      const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema, locale, reveal })
+      perfLog('preview: generate', t, `${Math.round(html.length / 1024)} KB`)
+      logPageWeight(catalog, cache, locale)
+      // Stored in the background: writing tens of megabytes takes seconds, and
+      // the page is already in memory for this session.
+      t = performance.now()
+      void putCachedPage(catalog.id, variant, key, html).then(() => perfLog('preview: page cache write (background)', t))
+      return html
+    })().finally(() => pageBuilds.delete(slot))
+    pageBuilds.set(slot, build)
+    return build
   }, [catalog, cache, schemaMapping, getFullSchema])
 
   const buildFiles = useCallback(async (locale: PageLocale) => {
