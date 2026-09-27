@@ -228,7 +228,17 @@ export class LinkrApi {
    */
   private withRelations = async (dataSourceId: string, sql: string): Promise<string> => {
     if (!sql.toLowerCase().includes(RELATION_PREFIX)) return sql
-    return injectClassRelations(sql, (await this.getDataSource(dataSourceId)).schemaMapping)
+    return injectClassRelations(sql, await this.mappingFor(dataSourceId))
+  }
+
+  // A run of hundreds of checks would otherwise re-read the database per query.
+  private readonly mappings = new Map<string, { at: number; mapping: SchemaMapping | null | undefined }>()
+  private mappingFor = async (dataSourceId: string): Promise<SchemaMapping | null | undefined> => {
+    const hit = this.mappings.get(dataSourceId)
+    if (hit && Date.now() - hit.at < 30_000) return hit.mapping
+    const mapping = (await this.getDataSource(dataSourceId)).schemaMapping
+    this.mappings.set(dataSourceId, { at: Date.now(), mapping })
+    return mapping
   }
 
   listCohorts = (projectUid: string) =>

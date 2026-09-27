@@ -4,7 +4,7 @@ import type { DqCheckTemplate } from '@/lib/dq-templates'
 import type { DqCustomCheck } from '@/types'
 import {
   boundedQuery, checkTestProblem, evaluateRows, errorResult, formatCheckList, formatReport, groupChecks, groupKey,
-  makeReport, missingTemplates, nextOrder, readCheck, resolveSubcategory, runRecord, runnableChecks, selectChecks,
+  makeReport, missingTemplates, nextEmptyGroups, nextOrder, readCheck, resolveSubcategory, runRecord, runnableChecks, selectChecks,
   summarizeRows, unboundedExplore, validateCheckFields,
 } from './dq'
 import { registerDqTools } from './tools-dq'
@@ -109,7 +109,7 @@ describe('a run', () => {
     const { ruleSetChanges, entry } = runRecord('r1', { id: 'rs', dataSourceId: 'db1' }, report, '2026-01-01T00:00:01.000Z')
     // 1 passed out of 3 applicable (the not-applicable one is left out of the score).
     expect(entry).toMatchObject({ id: 'r1', ruleSetId: 'rs', dataSourceId: 'db1', status: 'success', totalChecks: 4, passed: 1, failed: 1, errors: 1, notApplicable: 1, durationMs: 11, score: 33 })
-    expect(ruleSetChanges).toEqual({ status: 'error', lastRunAt: report.computedAt, lastRunDurationMs: 11, lastScore: 33 })
+    expect(ruleSetChanges).toEqual({ status: 'success', lastRunAt: report.computedAt, lastRunDurationMs: 11, lastScore: 33 })
   })
 
   it('lists errors then failures', () => {
@@ -155,5 +155,16 @@ describe('investigation', () => {
 describe('registerDqTools', () => {
   it('registers every tool with a valid schema', () => {
     expect(() => registerDqTools(new McpServer({ name: 't', version: '0' }))).not.toThrow()
+  })
+})
+
+describe('nextEmptyGroups', () => {
+  const checks = [{ tableName: 'Vitals' }] as DqCustomCheck[]
+
+  it('adds, renames and removes, keeping only groups that hold no check', () => {
+    expect(nextEmptyGroups(null, checks, { add: 'Labs' })).toEqual(['Labs'])
+    expect(nextEmptyGroups(['Labs'], checks, { rename: ['Labs', 'Biology'] })).toEqual(['Biology'])
+    expect(nextEmptyGroups(['Labs', 'Vitals'], checks, {})).toEqual(['Labs'])
+    expect(nextEmptyGroups(['Labs'], checks, { remove: 'Labs' })).toBeNull()
   })
 })

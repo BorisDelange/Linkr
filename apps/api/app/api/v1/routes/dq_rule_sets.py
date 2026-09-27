@@ -167,7 +167,10 @@ async def update_check(
     db: AsyncSession = Depends(get_db),
 ):
     check = await _load_check(db, check_id, user, "data-quality:write")
-    return await dq_rule_set_service.update_check(db, check, body)
+    try:
+        return await dq_rule_set_service.update_check(db, check, body)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
 
 @router.delete(_CHECK + "/{check_id}", status_code=status.HTTP_204_NO_CONTENT)

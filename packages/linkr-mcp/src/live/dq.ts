@@ -39,10 +39,12 @@ export const nextOrder = (checks: DqCustomCheck[]) => checks.reduce((max, c) => 
 /** A check's group is the `tableName` it shares with others; none is "Other checks". */
 export const groupOf = (c: Pick<DqCustomCheck, 'tableName'>) => c.tableName ?? ''
 
-/** The sidebar's groups: named ones in list order, "Other checks" last. */
-export function groupChecks(checks: DqCustomCheck[]): { name: string; checks: DqCustomCheck[] }[] {
+/** The sidebar's groups: named ones in list order, then the rule set's empty
+ *  groups (`checkGroups`), "Other checks" last. */
+export function groupChecks(checks: DqCustomCheck[], emptyGroups: readonly string[] = []): { name: string; checks: DqCustomCheck[] }[] {
   const byName = new Map<string, DqCustomCheck[]>()
   for (const c of byOrder(checks)) byName.set(groupOf(c), [...(byName.get(groupOf(c)) ?? []), c])
+  for (const name of emptyGroups) if (name && !byName.has(name)) byName.set(name, [])
   const other = byName.get('')
   byName.delete('')
   const named = [...byName].map(([name, list]) => ({ name, checks: list }))
@@ -205,7 +207,8 @@ export function runRecord(
   const durationMs = report.results.reduce((sum, r) => sum + r.executionTimeMs, 0)
   return {
     ruleSetChanges: {
-      status: s.failed > 0 ? 'error' : 'success',
+      // The scan ran: failing checks are the score's business, as on the page.
+      status: 'success',
       lastRunAt: report.computedAt,
       lastRunDurationMs: durationMs,
       lastScore: score,
@@ -270,11 +273,13 @@ export function describeCheck(c: DqCustomCheck, withSql = false): string {
 }
 
 /** The checks by group, as the sidebar lists them. */
-export function formatCheckList(checks: DqCustomCheck[], opts: { withSql?: boolean; max?: number } = {}): string {
+export function formatCheckList(
+  checks: DqCustomCheck[], opts: { withSql?: boolean; max?: number; emptyGroups?: readonly string[] } = {},
+): string {
   const max = opts.max ?? 200
   const lines: string[] = []
   let shown = 0
-  for (const g of groupChecks(checks)) {
+  for (const g of groupChecks(checks, opts.emptyGroups)) {
     const disabled = g.checks.filter((c) => c.disabled).length
     lines.push(`${g.name || OTHER_GROUP} (${disabled ? `${g.checks.length - disabled}/${g.checks.length} enabled` : g.checks.length})`)
     for (const c of g.checks) {
@@ -287,12 +292,12 @@ export function formatCheckList(checks: DqCustomCheck[], opts: { withSql?: boole
 }
 
 /** Counts a rule set's checks the way its overview does. */
-export function checkCounts(checks: DqCustomCheck[]): string {
+export function checkCounts(checks: DqCustomCheck[], emptyGroups: readonly string[] = []): string {
   const count = <K extends string>(keys: readonly K[], of: (c: DqCustomCheck) => K) =>
     keys.map((k) => `${k} ${checks.filter((c) => of(c) === k).length}`).join(', ')
   const disabled = checks.filter((c) => c.disabled).length
   return `${checks.length} check(s), ${checks.length - disabled} enabled · by origin: ${count(ORIGINS, (c) => c.origin)} · `
-    + `by category: ${count(CATEGORIES, (c) => c.category)} · ${groupChecks(checks).length} group(s)`
+    + `by category: ${count(CATEGORIES, (c) => c.category)} · ${groupChecks(checks, emptyGroups).length} group(s)`
 }
 
 function resultLine(c: DqCheck | undefined, r: DqCheckResult, withSql: boolean): string {
@@ -380,4 +385,17 @@ export function summarizeRows(rows: Record<string, unknown>[], topN = 5): string
     }
     return `- ${col}: ${parts.join(' · ')}`
   })
+}
+
+/** The rule set's empty groups after a change: stored only while they hold no check, null when none. */
+export function nextEmptyGroups(stored: readonly string[] | null | undefined, checks: DqCustomCheck[], change: {
+  add?: string; remove?: string; rename?: [string, string]
+}): string[] | null {
+  const inUse = new Set(checks.map(groupOf).filter(Boolean))
+  let next = [...(stored ?? [])]
+  if (change.rename) next = next.map((g) => (g === change.rename![0] ? change.rename![1] : g))
+  if (change.remove) next = next.filter((g) => g !== change.remove)
+  if (change.add && !next.includes(change.add)) next.push(change.add)
+  next = next.filter((g) => g && !inUse.has(g))
+  return next.length ? next : null
 }

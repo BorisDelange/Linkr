@@ -3148,6 +3148,8 @@ export async function buildDqRuleSetFolder(
   storage: Storage,
 ): Promise<void> {
   const portable = { ...stripInstanceFields(ruleSet), dataSourceId: '' } as DqRuleSet
+  // Only a rule set that has empty groups carries the key, as on the server.
+  if (!portable.checkGroups?.length) delete portable.checkGroups
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'dq-rule-set')))
   await writeEntityDocs(zip, prefix, ruleSet, storage, 'dq-rule-set', ruleSet.id)
   const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)

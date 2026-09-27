@@ -1449,6 +1449,9 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
    * resolved by lineage where it is shown rather than kept as a local id.
    */
   schemaPresetRef?: EntityRef
+  /** Check groups with no check yet — a group is otherwise the `tableName` its
+   *  checks share, so an empty one has nowhere else to live. */
+  checkGroups?: string[] | null
   status: DqRuleSetStatus
   lastRunAt?: string
   lastRunDurationMs?: number

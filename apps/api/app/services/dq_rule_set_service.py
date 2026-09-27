@@ -12,6 +12,7 @@ from app.schemas.dq_rule_set import (
     DqRunHistoryCreate,
     DqRunHistoryUpdate,
 )
+from app.schemas.dq_taxonomy import fitting_subcategory, normalize_category
 
 
 # --- Rule sets -------------------------------------------------------------
@@ -106,7 +107,18 @@ async def create_checks(
 async def update_check(
     db: AsyncSession, check: DqCustomCheck, data: DqCustomCheckUpdate
 ) -> DqCustomCheck:
-    for key, value in data.model_dump(exclude_unset=True).items():
+    """Raises ValueError when the category and subcategory do not fit together."""
+    changes = data.model_dump(exclude_unset=True)
+    if "category" in changes or "subcategory" in changes:
+        category = changes.get("category", check.category)
+        if "subcategory" in changes:
+            category, subcategory = normalize_category(category, changes["subcategory"])
+        else:
+            category, subcategory = normalize_category(category, None)
+            if category == changes.get("category", check.category):
+                subcategory = fitting_subcategory(category, check.subcategory)
+        changes["category"], changes["subcategory"] = category, subcategory
+    for key, value in changes.items():
         setattr(check, key, value)
     await db.commit()
     await db.refresh(check)

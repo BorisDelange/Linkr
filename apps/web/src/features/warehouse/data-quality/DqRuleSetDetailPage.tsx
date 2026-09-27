@@ -139,7 +139,8 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     const durationMs = report.results.reduce((sum, r) => sum + r.executionTimeMs, 0)
 
     void updateRuleSet(ruleSet.id, {
-      status: report.summary.failed > 0 ? 'error' : 'success',
+      // The scan ran: failing checks are the score's business, not the status's.
+      status: 'success',
       lastRunAt: report.computedAt,
       lastRunDurationMs: durationMs,
       lastScore: score,
