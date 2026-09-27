@@ -313,6 +313,8 @@ async def update_widget(
     db: AsyncSession = Depends(get_db),
 ):
     widget = await _load_widget(db, widget_id, user, "patient-data:write")
+    if "tab_id" in body.model_fields_set and body.tab_id is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A widget always belongs to a tab")
     if body.tab_id is not None and body.tab_id != widget.tab_id:
         source = await patient_dashboard_service.get_tab(db, widget.tab_id)
         target = await _load_tab(db, body.tab_id, user, "patient-data:write")

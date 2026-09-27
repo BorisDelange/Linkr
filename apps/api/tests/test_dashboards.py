@@ -115,6 +115,41 @@ async def test_widget_moves_between_tabs_of_its_dashboard_only(client):
     assert r.status_code == 400
     assert (await client.get(f"{API}/dashboards/widgets/{w['id']}", headers=headers)).json()["tabId"] == t2["id"]
 
+    r = await client.patch(f"{API}/dashboards/widgets/{w['id']}", headers=headers, json={"tabId": None})
+    assert r.status_code == 400
+    assert (await client.get(f"{API}/dashboards/widgets/{w['id']}", headers=headers)).json()["tabId"] == t2["id"]
+
+
+async def test_patient_widget_moves_between_tabs_of_its_board_only(client):
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+
+    async def board(bid: str) -> dict:
+        return (await client.post(f"{API}/patient-dashboards", headers=headers, json={
+            "id": bid, "projectUid": proj, "name": {"en": "Board"},
+        })).json()
+
+    async def tab(board_id: str, tid: str) -> dict:
+        return (await client.post(f"{API}/patient-dashboards/tabs", headers=headers, json={
+            "id": tid, "patientDashboardId": board_id, "name": "Tab",
+        })).json()
+
+    b = await board("b1")
+    t1, t2 = await tab(b["id"], "pt1"), await tab(b["id"], "pt2")
+    other = await tab((await board("b2"))["id"], "pt3")
+    w = (await client.post(f"{API}/patient-dashboards/widgets", headers=headers, json={
+        "id": "pw1", "tabId": t1["id"], "pluginId": "timeline",
+    })).json()
+    url = f"{API}/patient-dashboards/widgets/{w['id']}"
+
+    r = await client.patch(url, headers=headers, json={"tabId": t2["id"]})
+    assert r.status_code == 200 and r.json()["tabId"] == t2["id"]
+
+    for body in ({"tabId": other["id"]}, {"tabId": None}):
+        r = await client.patch(url, headers=headers, json=body)
+        assert r.status_code == 400
+        assert (await client.get(url, headers=headers)).json()["tabId"] == t2["id"]
+
 
 async def test_cascade_delete_removes_children(client):
     headers = await _admin_headers(client)
