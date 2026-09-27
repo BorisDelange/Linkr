@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Play, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -64,12 +64,19 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
   const bodyOf = (s: RelationSpec) =>
     s.customSql?.trim() ? s.customSql.trim().replace(/;\s*$/, '') : generatedRelationSql(mapping, specKey)
 
-  /**
-   * `current` is the spec as just saved: a check run right after a save must
-   * not write back the spec from before it.
-   */
+  // A check outlives the edit it was started for: only the latest run may
+  // publish, and its columns land on the spec as it is NOW, not as it was.
+  const runToken = useRef(0)
+  const latestSpec = useRef(spec)
+  useEffect(() => {
+    latestSpec.current = spec
+  }, [spec])
+
+  /** `current` is the spec as just saved: a check run right after a save reads it. */
   const run = async (what: 'check' | 'preview', current: RelationSpec = spec) => {
     if (!sourceId || !relation) return
+    const token = ++runToken.current
+    const isLatest = () => token === runToken.current
     setBusy(true)
     setError(null)
     try {
@@ -78,23 +85,27 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
         const bodySql = bodyOf(current)
         if (!bodySql) throw new Error(t('schema_mapping.nothing_to_check'))
         const described = await queryDataSource(sourceId, `DESCRIBE ${bodySql}`)
+        if (!isLatest()) return
         const next = checkContract(cls, described as { column_name: string; column_type: string }[], bodySql)
         setReport(next)
         // Hand-written SQL: what it returns is what the rest of the app reads
-        // as filled (age criterion, timeline values…). Recorded here rather
-        // than by a button nobody knew to press.
-        if (current.customSql?.trim() && !readOnly && JSON.stringify(current.sqlColumns ?? []) !== JSON.stringify(next.filled)) {
-          onChange?.({ ...current, sqlColumns: next.filled })
+        // as filled (age criterion, timeline values…).
+        const checkedSql = current.customSql?.trim()
+        const now = latestSpec.current
+        if (checkedSql && !readOnly && now.customSql?.trim() === checkedSql
+          && JSON.stringify(now.sqlColumns ?? []) !== JSON.stringify(next.filled)) {
+          onChange?.({ ...now, sqlColumns: next.filled })
         }
       } else {
         // The draft's relation, injected here: the database's own mapping would
         // otherwise answer for `linkr_…`.
-        setRows(await queryDataSource(sourceId, withClassRelations(`SELECT * FROM ${relation.name} LIMIT 100`, mapping)))
+        const result = await queryDataSource(sourceId, withClassRelations(`SELECT * FROM ${relation.name} LIMIT 100`, mapping))
+        if (isLatest()) setRows(result)
       }
     } catch (e) {
-      setError(queryErrorMessage(e, t, previewSources.find((p) => p.id === sourceId)?.label ?? sourceId))
+      if (isLatest()) setError(queryErrorMessage(e, t, previewSources.find((p) => p.id === sourceId)?.label ?? sourceId))
     } finally {
-      setBusy(false)
+      if (isLatest()) setBusy(false)
     }
   }
 
@@ -153,6 +164,9 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
               readOnly={readOnly}
               onCustomSqlChange={(sql) => {
                 const next = { ...spec, customSql: sql, sqlColumns: sql ? spec.sqlColumns : undefined }
+                latestSpec.current = next
+                runToken.current++
+                setBusy(false)
                 onChange?.(next)
                 if (sql && sourceId) void run('check', next)
               }}
