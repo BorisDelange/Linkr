@@ -33,6 +33,8 @@ export interface PublishedVariable {
    */
   partition: Record<PublishedMeasure, boolean>
   granularity?: PeriodGranularity
+  /** Period only: granularity units per period. */
+  step?: number
   /** Concept variable only: whether a modality is a concept or a category of them. */
   level?: 'concept' | 'category' | 'subcategory'
 }
@@ -72,14 +74,14 @@ function variableLabel(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVaria
     case 'period': return 'Period'
     case 'service': return v.service?.level === 'visit' ? 'Visit type' : 'Care unit'
     case 'age': return 'Age group'
-    case 'sex': return 'Sex'
+    case 'sex': return 'Gender'
   }
 }
 
-function modalityName(id: CatalogVariableId, code: string, cache: CatalogResultCache): string {
+function modalityName(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVariableId, code: string, cache: CatalogResultCache): string {
   if (code === OTHER_MODALITY) return id === 'service' ? 'Other services' : 'Other'
   switch (id) {
-    case 'period': return periodLabel(code, 'en')
+    case 'period': return periodLabel(code, 'en', catalog.variables.period?.step ?? 1)
     case 'age': return ageDisplayName(code)
     case 'sex': return SEX_NAMES[code] ?? code
     case 'concept': return cache.labels?.concept?.[code] ?? code
@@ -127,10 +129,13 @@ export function publishedVariables(
       label: variableLabel(catalog, id),
       kind: KIND[id],
       mods,
-      names: mods.map((m) => modalityName(id, m, cache)),
+      names: mods.map((m) => modalityName(catalog, id, m, cache)),
       partition: partitionOf(catalog, id),
     }
-    if (id === 'period') variable.granularity = catalog.variables.period?.granularity
+    if (id === 'period') {
+      variable.granularity = catalog.variables.period?.granularity
+      variable.step = catalog.variables.period?.step ?? 1
+    }
     if (id === 'concept') variable.level = catalog.variables.concept?.level ?? 'concept'
     if (id === 'concept' && catalog.variables.concept?.level === 'concept' && catalog.variables.concept.categoryColumn) {
       const categoryOf = new Map<string, string | null>()

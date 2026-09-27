@@ -443,7 +443,7 @@ export function orderModalities(
   }
   if (variables.period?.enabled) {
     const periods = marginal('period').map((r) => r.values[0]).sort()
-    out.period = periods.length ? periodRange(periods[0], periods[periods.length - 1], variables.period.granularity) : []
+    out.period = periods.length ? periodRange(periods[0], periods[periods.length - 1], variables.period.granularity, variables.period.step ?? 1) : []
   }
   if (variables.service?.enabled) out.service = byPatients('service')
   if (variables.concept?.enabled) out.concept = byPatients('concept')

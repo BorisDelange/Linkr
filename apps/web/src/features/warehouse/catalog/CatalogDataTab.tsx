@@ -73,7 +73,7 @@ function useExplorer(catalog: DataCatalog, cache: CatalogResultCache): [Explorer
       v.names = v.mods.map((code, i) => {
         if (code === OTHER_MODALITY) return t('data_catalog.other_services')
         if (v.id === 'sex') return t(`data_catalog.sex_${code}`)
-        if (v.id === 'period') return periodLabel(code, i18n.language)
+        if (v.id === 'period') return periodLabel(code, i18n.language, v.step ?? 1)
         return v.names[i]
       })
     }
@@ -367,20 +367,25 @@ function NominalFilter({ xp, v, update }: { xp: Explorer; v: CatalogVariableId; 
   )
 }
 
-function periodBounds(code: string): [string, string] {
+/** First and last day of a period modality, which spans `step` units from the one it names. */
+function periodBounds(code: string, step = 1): [string, string] {
   const pad = (n: number) => String(n).padStart(2, '0')
-  const last = (y: string, m: number) => pad(new Date(Date.UTC(Number(y), m, 0)).getUTCDate())
   const q = /^(\d{4})-Q([1-4])$/.exec(code)
-  if (q) { const m0 = (Number(q[2]) - 1) * 3 + 1; return [`${q[1]}-${pad(m0)}-01`, `${q[1]}-${pad(m0 + 2)}-${last(q[1], m0 + 2)}`] }
   const m = /^(\d{4})-(\d{2})$/.exec(code)
-  if (m) return [`${code}-01`, `${code}-${last(m[1], Number(m[2]))}`]
-  return [`${code}-01-01`, `${code}-12-31`]
+  const first = q ? Number(q[1]) * 12 + (Number(q[2]) - 1) * 3 : m ? Number(m[1]) * 12 + Number(m[2]) - 1 : Number(code) * 12
+  const last = first + (q ? 3 : m ? 1 : 12) * step - 1
+  const ly = Math.floor(last / 12)
+  const lm = (last % 12) + 1
+  const lastDay = new Date(Date.UTC(ly, lm, 0)).getUTCDate()
+  return [`${Math.floor(first / 12)}-${pad((first % 12) + 1)}-01`, `${ly}-${pad(lm)}-${pad(lastDay)}`]
 }
 
 function PeriodFilter({ xp, update }: { xp: Explorer; update: (change?: (x: Explorer) => void) => void }) {
   const { t } = useTranslation()
   const vr = xp.V.period!
   const n = vr.mods.length
+  const step = vr.step ?? 1
+  const bounds = (code: string) => periodBounds(code, step)
   const r = xp.S.range ?? [0, n - 1]
   const setRange = (next: [number, number]) => update((x) => { x.S.range = next[0] === 0 && next[1] === n - 1 ? null : next })
   const fromDate = (end: 0 | 1, date: string) => {
@@ -389,7 +394,7 @@ function PeriodFilter({ xp, update }: { xp: Explorer; update: (change?: (x: Expl
     else {
       let idx = -1
       for (let k = 0; k < n; k++) {
-        const b = periodBounds(vr.mods[k])
+        const b = bounds(vr.mods[k])
         if (end === 0 ? b[1] >= date : b[0] <= date) { idx = k; if (end === 0) break }
       }
       if (idx !== -1) next[end] = idx
@@ -414,8 +419,8 @@ function PeriodFilter({ xp, update }: { xp: Explorer; update: (change?: (x: Expl
         </>
       ) : (
         <div className="grid grid-cols-2 gap-2">
-          <Input type="date" className="h-7 px-1.5 text-xs" value={periodBounds(vr.mods[r[0]])[0]} min={periodBounds(vr.mods[0])[0]} max={periodBounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(0, e.target.value)} />
-          <Input type="date" className="h-7 px-1.5 text-xs" value={periodBounds(vr.mods[r[1]])[1]} min={periodBounds(vr.mods[0])[0]} max={periodBounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(1, e.target.value)} />
+          <Input type="date" className="h-7 px-1.5 text-xs" value={bounds(vr.mods[r[0]])[0]} min={bounds(vr.mods[0])[0]} max={bounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(0, e.target.value)} />
+          <Input type="date" className="h-7 px-1.5 text-xs" value={bounds(vr.mods[r[1]])[1]} min={bounds(vr.mods[0])[0]} max={bounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(1, e.target.value)} />
         </div>
       )}
       <div className="flex gap-3">

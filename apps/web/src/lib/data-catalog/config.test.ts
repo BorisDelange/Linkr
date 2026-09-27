@@ -7,6 +7,7 @@ import {
   defaultCatalogVariables,
   effectiveCrossings,
   normalizeCatalog,
+  periodLabel,
   periodRange,
   trimPeriods,
 } from './config'
@@ -44,6 +45,14 @@ describe('modalities', () => {
     expect(periodRange('2023-Q4', '2024-Q2', 'quarter')).toEqual(['2023-Q4', '2024-Q1', '2024-Q2'])
     expect(periodRange('2021', '2023', 'year')).toEqual(['2021', '2022', '2023'])
     expect(periodRange('2024', '2021', 'year')).toEqual([])
+  })
+
+  it('steps through periods of several units, labelled by their span', () => {
+    expect(periodRange('2020', '2024', 'year', 2)).toEqual(['2020', '2022', '2024'])
+    expect(periodRange('2024-01', '2024-12', 'month', 6)).toEqual(['2024-01', '2024-07'])
+    expect(periodLabel('2020', 'en', 2)).toBe('2020–2021')
+    expect(periodLabel('2024-Q3', 'en', 2)).toBe('Q3 2024 – Q4 2024')
+    expect(periodLabel('2024-11', 'en', 3)).toBe('Nov 2024 – Jan 2025')
   })
 
   it('trims the periods before the first and after the last reaching the threshold', () => {

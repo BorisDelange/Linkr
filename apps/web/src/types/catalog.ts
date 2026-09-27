@@ -23,6 +23,8 @@ export type PeriodGranularity = 'month' | 'quarter' | 'year'
 export interface PeriodVariableConfig {
   enabled: boolean
   granularity: PeriodGranularity
+  /** Granularity units per period: 2 with 'year' counts every two years. Absent = 1. */
+  step?: number
 }
 
 export interface AgeVariableConfig {

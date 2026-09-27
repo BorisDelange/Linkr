@@ -53,7 +53,8 @@ export var EXPLORE_TEXT = {
   below_masked: 'Below {t} patients: masked', search_concepts: 'Search concepts…', no_concept_matches: 'No concept matches these filters.',
   cell: 'cell', cells_noun: 'cells', concept: 'concept', concepts_noun: 'concepts',
   thing_concept: 'concepts', thing_period: 'periods', thing_service: 'services',
-  thing_age: 'age groups', thing_sex: 'sexes', download_csv: 'Download as CSV', top: 'Top {n}',
+  thing_age: 'age groups', thing_sex: 'genders', download_csv: 'Download as CSV', top: 'Top {n}',
+  g_year: 'year', g_quarter: 'quarter', g_month: 'month', g_years: '{n} years', g_quarters: '{n} quarters', g_months: '{n} months',
 }
 
 var ORDER = ['concept', 'period', 'service', 'age', 'sex'];
@@ -641,6 +642,11 @@ export function createExplorer(DATA, opts) {
   }
   function stat(key, label, value, sub, icon) { stats.push({ key: key, label: label, value: value, sub: sub || '', icon: icon || 'activity' }); }
   function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  /** 'year', or '2 years' for a stepped period. */
+  function periodUnit(vr) {
+    var g = vr.granularity || 'year';
+    return vr.step > 1 ? tr('g_' + g + 's', { n: vr.step }) : tr('g_' + g);
+  }
 
   /**
    * Everything the host draws: { title, context: [{ v, label, value }], stats:
@@ -768,7 +774,7 @@ export function createExplorer(DATA, opts) {
     if (top) stat('highest', tr('highest'), compact(top.v), top.name, 'trendingUp');
     if (vr.kind === 'time' && published.length) {
       var vals = published.map(function(i) { return i.v; }).sort(function(a, b) { return a - b; });
-      stat('median', tr('median_per', { unit: vr.granularity || 'period' }), compact(vals[Math.floor(vals.length / 2)]), '', 'barChart');
+      stat('median', tr('median_per', { unit: periodUnit(vr) }), compact(vals[Math.floor(vals.length / 2)]), '', 'barChart');
     }
     if (vr.partition[metric] && published.length) {
       var sum = 0;
@@ -781,7 +787,7 @@ export function createExplorer(DATA, opts) {
     var pctLabel = tr('pct_of_patients');
     if (vr.kind === 'time') {
       block(tr('over_time', { unit: unit }), 'full', function(w) { return lineChart(w, items.map(function(i) { return i.name; }), [{ name: unit, color: VARIABLE_HEX.period, vals: items }], { title: unit, unit: unit }); }, { note: note });
-      if (items.length <= 60) block(tr('per_unit', { unit: unit, unit2: vr.granularity || 'period' }), 'full', function(w) { return columnChart(w, items, { title: unit, unit: unit, color: VARIABLE_HEX.period }); });
+      if (items.length <= 60) block(tr('per_unit', { unit: unit, unit2: periodUnit(vr) }), 'full', function(w) { return columnChart(w, items, { title: unit, unit: unit, color: VARIABLE_HEX.period }); });
     } else if (v === 'age') {
       block(tr('age_distribution'), 'half', function(w) { return columnChart(w, items, { title: tr('age_distribution'), unit: unit, color: VARIABLE_HEX.age }); }, { note: note });
       pieOrShare(items, vr, metric, unit, total, pctLabel);
@@ -885,7 +891,7 @@ export function createExplorer(DATA, opts) {
       if (rowPartition && rows.length <= 12) {
         var stackSeries = ser(rows, function(r) { return colObjs.map(function(col) { return at(r.i, col.i); }); });
         block(tr('composition_over_time'), 'full', function(w) { return barsBySeries(w, colObjs.map(function(col) { return col.name; }), stackSeries, { title: tr('composition_over_time'), mode: 'percent' }) + legend(stackSeries); },
-          { note: tr('composition_note', { var: rv.label.toLowerCase(), unit: cv.granularity || 'period' }) });
+          { note: tr('composition_note', { var: rv.label.toLowerCase(), unit: periodUnit(cv) }) });
       }
     } else {
       var seriesCols = colObjs.slice(0, 12);

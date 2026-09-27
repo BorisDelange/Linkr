@@ -220,11 +220,24 @@ ORDER BY patients DESC, svc`
 // Variable expressions
 // ---------------------------------------------------------------------------
 
-export function periodExpr(dateExpr: string, granularity: PeriodGranularity): string {
+/**
+ * A period modality, written as its first unit: '2024', '2024-Q1', '2024-03'.
+ * With a step, units are numbered from year 0 and grouped by `step`, so
+ * two-year periods start on even years whatever the data.
+ */
+export function periodExpr(dateExpr: string, granularity: PeriodGranularity, step = 1): string {
   const d = `CAST(${dateExpr} AS TIMESTAMP)`
-  if (granularity === 'year') return `strftime(${d}, '%Y')`
-  if (granularity === 'quarter') return `(strftime(${d}, '%Y') || '-Q' || CAST(quarter(${d}) AS VARCHAR))`
-  return `strftime(${d}, '%Y-%m')`
+  if (step <= 1) {
+    if (granularity === 'year') return `strftime(${d}, '%Y')`
+    if (granularity === 'quarter') return `(strftime(${d}, '%Y') || '-Q' || CAST(quarter(${d}) AS VARCHAR))`
+    return `strftime(${d}, '%Y-%m')`
+  }
+  const s = Math.floor(step)
+  const unit = granularity === 'year' ? `year(${d})` : granularity === 'quarter' ? `(year(${d}) * 4 + quarter(${d}) - 1)` : `(year(${d}) * 12 + month(${d}) - 1)`
+  const b = `(${unit} - (${unit} % ${s}))`
+  if (granularity === 'year') return `CAST(${b} AS VARCHAR)`
+  if (granularity === 'quarter') return `(CAST(${b} // 4 AS VARCHAR) || '-Q' || CAST(${b} % 4 + 1 AS VARCHAR))`
+  return `(CAST(${b} // 12 AS VARCHAR) || '-' || lpad(CAST(${b} % 12 + 1 AS VARCHAR), 2, '0'))`
 }
 
 /**
@@ -435,7 +448,7 @@ export function buildCrossingQuery(ctx: CrossingQueryContext, vars: readonly Cat
     if (v === 'concept') {
       expr = 'ev.concept'
     } else if (v === 'period') {
-      expr = periodExpr(dateExpr, variables.period?.granularity ?? 'year')
+      expr = periodExpr(dateExpr, variables.period?.granularity ?? 'year', variables.period?.step ?? 1)
     } else if (v === 'age') {
       expr = ageBucketExpr(mapping, dateExpr, variables.age?.brackets ?? [])
     } else if (v === 'sex') {

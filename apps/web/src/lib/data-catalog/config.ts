@@ -132,7 +132,7 @@ export function ageBucketLabels(brackets: readonly number[]): string[] {
  * Period modalities as the SQL writes them: '2024-03' (month), '2024-Q1'
  * (quarter), '2024' (year). Lexicographic order is chronological for all three.
  */
-export function periodRange(first: string, last: string, granularity: PeriodGranularity): string[] {
+export function periodRange(first: string, last: string, granularity: PeriodGranularity, step = 1): string[] {
   const parse = (v: string): number | null => {
     const y = parseInt(v.slice(0, 4), 10)
     if (isNaN(y)) return null
@@ -153,20 +153,40 @@ export function periodRange(first: string, last: string, granularity: PeriodGran
   const b = parse(last)
   if (a == null || b == null || b < a) return []
   const out: string[] = []
-  for (let n = a; n <= b; n++) out.push(format(n))
+  for (let n = a; n <= b; n += Math.max(1, Math.floor(step))) out.push(format(n))
   return out
 }
 
-/** 'Mar 2024', 'Q1 2024' or '2024'. */
-export function periodLabel(value: string, locale = 'en'): string {
+/** The last unit of a period that starts at `value` and spans `step` units. */
+function periodEnd(value: string, step: number): string {
   const quarter = /^(\d{4})-Q([1-4])$/.exec(value)
-  if (quarter) return `Q${quarter[2]} ${quarter[1]}`
+  if (quarter) {
+    const n = Number(quarter[1]) * 4 + Number(quarter[2]) - 1 + step - 1
+    return `${Math.floor(n / 4)}-Q${(n % 4) + 1}`
+  }
   const month = /^(\d{4})-(\d{2})$/.exec(value)
   if (month) {
-    const d = new Date(Date.UTC(Number(month[1]), Number(month[2]) - 1, 1))
-    return d.toLocaleDateString(locale, { year: 'numeric', month: 'short', timeZone: 'UTC' })
+    const n = Number(month[1]) * 12 + Number(month[2]) - 1 + step - 1
+    return `${Math.floor(n / 12)}-${String((n % 12) + 1).padStart(2, '0')}`
   }
-  return value
+  return String(Number(value) + step - 1)
+}
+
+/** 'Mar 2024', 'Q1 2024' or '2024'; with a step, the span: '2024–2025', 'Jan 2024 – Jun 2024'. */
+export function periodLabel(value: string, locale = 'en', step = 1): string {
+  const one = (v: string) => {
+    const quarter = /^(\d{4})-Q([1-4])$/.exec(v)
+    if (quarter) return `Q${quarter[2]} ${quarter[1]}`
+    const month = /^(\d{4})-(\d{2})$/.exec(v)
+    if (month) {
+      const d = new Date(Date.UTC(Number(month[1]), Number(month[2]) - 1, 1))
+      return d.toLocaleDateString(locale, { year: 'numeric', month: 'short', timeZone: 'UTC' })
+    }
+    return v
+  }
+  if (step <= 1) return one(value)
+  const end = periodEnd(value, step)
+  return /^\d{4}$/.test(value) ? `${value}–${end}` : `${one(value)} – ${one(end)}`
 }
 
 /**

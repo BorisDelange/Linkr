@@ -14,7 +14,7 @@ import { Progress } from '@/components/ui/progress'
 import { RunSteps, type RunStepItem } from '@/components/ui/run-steps'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Switch } from '@/components/ui/switch'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { SuggestInput } from '@/components/ui/suggest-input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -120,6 +120,12 @@ export function CatalogConfigTab({ catalog }: Props) {
     })
   }
   const isCrossed = (vars: CatalogVariableId[]) => crossings.some((c) => crossingId(c) === crossingId(vars))
+  /** Pick or drop every crossing of a group (the pairs, or the triples), leaving the others as they are. */
+  const setCrossings = async (group: CatalogVariableId[][], on: boolean) => {
+    const ids = new Set(group.map(crossingId))
+    const kept = crossings.filter((c) => !ids.has(crossingId(c)))
+    await updateCatalog(catalog.id, { crossings: on ? [...kept, ...group.map(canonicalCrossing)] : kept })
+  }
 
   // --- Yield estimates ---
   const [estimates, setEstimates] = useState<Record<string, CrossingEstimate>>({})
@@ -286,17 +292,38 @@ export function CatalogConfigTab({ catalog }: Props) {
         </div>
 
         <VariableRow id="period" enabled={!!variables.period?.enabled} disabled={!editable} onToggle={(v) => setVariable('period', { enabled: v })}
-          summary={variables.period?.enabled ? t(`data_catalog.period_granularity_${variables.period.granularity}`) : undefined}>
-          <div className="grid max-w-xs gap-1.5">
-            <Label htmlFor="catalog-granularity">{t('data_catalog.period_granularity')}</Label>
-            <Select value={variables.period?.granularity ?? 'year'} disabled={!editable} onValueChange={(v) => setVariable('period', { granularity: v as PeriodGranularity })}>
-              <SelectTrigger id="catalog-granularity" className="h-8 text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {(['month', 'quarter', 'year'] as const).map((g) => (
-                  <SelectItem key={g} value={g} className="text-xs">{t(`data_catalog.period_granularity_${g}`)}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          summary={variables.period?.enabled
+            ? ((variables.period.step ?? 1) > 1
+              ? t('data_catalog.period_step_summary', { n: variables.period.step, unit: t(`data_catalog.period_units_${variables.period.granularity}`) })
+              : t(`data_catalog.period_granularity_${variables.period.granularity}`))
+            : undefined}>
+          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-1.5">
+              <Label htmlFor="catalog-granularity">{t('data_catalog.period_granularity')}</Label>
+              <Select value={variables.period?.granularity ?? 'year'} disabled={!editable} onValueChange={(v) => setVariable('period', { granularity: v as PeriodGranularity })}>
+                <SelectTrigger id="catalog-granularity" className="h-8 w-full text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {(['month', 'quarter', 'year'] as const).map((g) => (
+                    <SelectItem key={g} value={g} className="text-xs">{t(`data_catalog.period_granularity_${g}`)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-1.5">
+              <Label htmlFor="catalog-period-step">{t('data_catalog.period_step')}</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="catalog-period-step"
+                  type="number"
+                  min={1}
+                  value={variables.period?.step ?? 1}
+                  disabled={!editable}
+                  className="h-8 w-20 text-xs"
+                  onChange={(e) => setVariable('period', { step: Math.max(1, parseInt(e.target.value) || 1) })}
+                />
+                <span className="text-xs text-muted-foreground">{t(`data_catalog.period_unit_${variables.period?.granularity ?? 'year'}`)}</span>
+              </div>
+            </div>
           </div>
         </VariableRow>
 
@@ -358,7 +385,10 @@ export function CatalogConfigTab({ catalog }: Props) {
         ) : (
           <>
             <div className="grid gap-2">
-              <Label>{t('data_catalog.crossings_pairs')}</Label>
+              <div className="flex items-center gap-2">
+                <Label>{t('data_catalog.crossings_pairs')}</Label>
+                <SelectAllNone disabled={!editable} onAll={() => void setCrossings(pairs, true)} onNone={() => void setCrossings(pairs, false)} />
+              </div>
               <div className="overflow-x-auto">
                 <table className="border-separate border-spacing-1 text-xs">
                   <thead>
@@ -393,7 +423,10 @@ export function CatalogConfigTab({ catalog }: Props) {
 
             {triples.length > 0 && (
               <div className="grid gap-2">
-                <Label>{t('data_catalog.crossings_triples')}</Label>
+                <div className="flex items-center gap-2">
+                  <Label>{t('data_catalog.crossings_triples')}</Label>
+                  <SelectAllNone disabled={!editable} onAll={() => void setCrossings(triples, true)} onNone={() => void setCrossings(triples, false)} />
+                </div>
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {triples.map((vars) => (
                     <CrossingToggle
@@ -527,6 +560,19 @@ export function CatalogConfigTab({ catalog }: Props) {
       </AlertDialog>
     </div>
     </TooltipProvider>
+  )
+}
+
+/** "Select all / None", as the app's other multi-pick lists write it. */
+function SelectAllNone({ onAll, onNone, disabled }: { onAll: () => void; onNone: () => void; disabled?: boolean }) {
+  const { t } = useTranslation()
+  if (disabled) return null
+  return (
+    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+      <button type="button" onClick={onAll} className="hover:text-foreground">{t('common.select_all')}</button>
+      <span className="text-muted-foreground/40">/</span>
+      <button type="button" onClick={onNone} className="hover:text-foreground">{t('common.select_none')}</button>
+    </div>
   )
 }
 
@@ -691,7 +737,7 @@ function ServiceSettings({
         <div className="grid gap-1.5">
           <Label>{t('data_catalog.service_level')}</Label>
           <Select value={config.level} disabled={!canEdit} onValueChange={(v) => onChange({ level: v as ServiceVariableConfig['level'], groups: {} })}>
-            <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-8 w-full text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="visit_detail" className="text-xs" disabled={!canDetail}>{t('data_catalog.service_level_visit_detail')}</SelectItem>
               <SelectItem value="visit" className="text-xs" disabled={!canVisit}>{t('data_catalog.service_level_visit')}</SelectItem>
@@ -700,13 +746,14 @@ function ServiceSettings({
         </div>
         <div className="grid gap-1.5">
           <Label>{t('data_catalog.service_grouping')}</Label>
-          <Tabs value={config.grouping} onValueChange={(v) => canEdit && onChange({ grouping: v as ServiceVariableConfig['grouping'] })}>
-            <TabsList className="h-8 w-full">
+          <Select value={config.grouping} disabled={!canEdit} onValueChange={(v) => onChange({ grouping: v as ServiceVariableConfig['grouping'] })}>
+            <SelectTrigger className="h-8 w-full text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
               {(['all', 'top', 'manual'] as const).map((g) => (
-                <TabsTrigger key={g} value={g} disabled={!canEdit} className="flex-1 text-xs">{t(`data_catalog.service_grouping_${g}`)}</TabsTrigger>
+                <SelectItem key={g} value={g} className="text-xs">{t(`data_catalog.service_grouping_${g}`)}</SelectItem>
               ))}
-            </TabsList>
-          </Tabs>
+            </SelectContent>
+          </Select>
         </div>
       </div>
 
@@ -743,7 +790,7 @@ function ServiceSettings({
               <div className="p-3 text-xs text-muted-foreground">{t('data_catalog.no_results')}</div>
             ) : (
               <table className="w-full text-xs">
-                <thead className="sticky top-0 bg-muted/60 text-muted-foreground">
+                <thead className="sticky top-0 z-10 bg-muted text-muted-foreground">
                   <tr>
                     <th className="px-3 py-1.5 text-left font-medium">{t('data_catalog.var_service')}</th>
                     <th className="px-3 py-1.5 text-right font-medium">{t('data_catalog.col_patients')}</th>
@@ -756,15 +803,17 @@ function ServiceSettings({
                       <td className="px-3 py-1">{s.name}</td>
                       <td className="px-3 py-1 text-right tabular-nums text-muted-foreground">{s.patients.toLocaleString()}</td>
                       <td className="px-3 py-1">
-                        <Input
-                          list="catalog-service-groups"
-                          defaultValue={config.groups?.[s.name] ?? ''}
-                          disabled={!canEdit}
-                          placeholder={config.unassigned === 'other' ? t('data_catalog.other_services') : s.name}
-                          onBlur={(e) => { if (e.target.value !== (config.groups?.[s.name] ?? '')) setGroup(s.name, e.target.value) }}
-                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
-                          className="h-7 text-xs"
-                        />
+                        {canEdit ? (
+                          <SuggestInput
+                            value={config.groups?.[s.name] ?? ''}
+                            suggestions={groups}
+                            placeholder={config.unassigned === 'other' ? t('data_catalog.other_services') : s.name}
+                            onCommit={(v) => setGroup(s.name, v)}
+                            className="font-sans"
+                          />
+                        ) : (
+                          <span className="text-muted-foreground">{config.groups?.[s.name] ?? ''}</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -772,13 +821,18 @@ function ServiceSettings({
               </table>
             )}
           </div>
-          <datalist id="catalog-service-groups">{groups.map((g) => <option key={g} value={g} />)}</datalist>
-          {groups.length > 0 && (
+          {(groups.length > 0 || (services?.length ?? 0) > 0) && (
             <div className="flex flex-wrap items-center gap-1">
               <span className="text-[10px] text-muted-foreground">{t('data_catalog.service_groups_list')}</span>
               {groups.map((g) => (
                 <Badge key={g} variant="secondary">{`${g} · ${Object.values(config.groups).filter((x) => x.trim() === g).length}`}</Badge>
               ))}
+              {services && (
+                // Services the list shows with no group yet: how much is left to sort.
+                <Badge variant="outline" className="text-muted-foreground">
+                  {`${t('data_catalog.service_groups_none')} · ${services.filter((sv) => !(config.groups?.[sv.name] ?? '').trim()).length}`}
+                </Badge>
+              )}
             </div>
           )}
         </div>

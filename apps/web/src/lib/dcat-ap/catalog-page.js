@@ -137,12 +137,16 @@ var ICON_OF = { user: 'user', stethoscope: 'stethoscope', activity: 'activity', 
 function dot(v) { return '<i class="vdot" style="background:' + VARIABLE_HEX[v] + '"></i>'; }
 function vbadge(v) { return '<span class="vbadge" style="--vc:' + VARIABLE_HEX[v] + '">' + escHtml(XP.varLabel(v)) + '</span>'; }
 
+/** First and last day of a period modality, which spans `step` units from the one it names. */
 function periodBounds(code) {
-  var q = /^(\d{4})-Q([1-4])$/.exec(code);
-  if (q) { var m0 = (Number(q[2]) - 1) * 3 + 1; return [q[1] + '-' + pad2(m0) + '-01', q[1] + '-' + pad2(m0 + 2) + '-' + lastDay(q[1], m0 + 2)]; }
-  var m = /^(\d{4})-(\d{2})$/.exec(code);
-  if (m) return [code + '-01', code + '-' + lastDay(m[1], Number(m[2]))];
-  return [code + '-01-01', code + '-12-31'];
+  var step = (V.period && V.period.step) || 1;
+  var q = /^(\d{4})-Q([1-4])$/.exec(code), m = /^(\d{4})-(\d{2})$/.exec(code);
+  var first, lastIdx;
+  if (q) { first = Number(q[1]) * 12 + (Number(q[2]) - 1) * 3; lastIdx = first + 3 * step - 1; }
+  else if (m) { first = Number(m[1]) * 12 + Number(m[2]) - 1; lastIdx = first + step - 1; }
+  else { first = Number(code) * 12; lastIdx = first + 12 * step - 1; }
+  var ly = Math.floor(lastIdx / 12), lm = lastIdx % 12 + 1;
+  return [Math.floor(first / 12) + '-' + pad2(first % 12 + 1) + '-01', ly + '-' + pad2(lm) + '-' + lastDay(ly, lm)];
 }
 function pad2(n) { return (n < 10 ? '0' : '') + n; }
 function lastDay(y, m) { return pad2(new Date(Date.UTC(Number(y), m, 0)).getUTCDate()); }
@@ -188,7 +192,7 @@ function periodFilter() {
     var min = periodBounds(vr.mods[0])[0], max = periodBounds(vr.mods[n - 1])[1];
     h += '<div class="cal"><label><span>From</span><input type="date" class="input" data-act="cal" data-end="0" min="' + min + '" max="' + max + '" value="' + periodBounds(vr.mods[r[0]])[0] + '"></label>'
       + '<label><span>To</span><input type="date" class="input" data-act="cal" data-end="1" min="' + min + '" max="' + max + '" value="' + periodBounds(vr.mods[r[1]])[1] + '"></label></div>'
-      + '<div class="hint">Whole ' + (vr.granularity || 'period') + 's containing these dates are kept.</div>';
+      + '<div class="hint">Whole periods containing these dates are kept.</div>';
   }
   var presets = [['All', 0]];
   if (n > 12) presets.push(['Last 12', n - 12]);

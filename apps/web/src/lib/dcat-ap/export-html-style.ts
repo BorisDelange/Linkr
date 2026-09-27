@@ -183,7 +183,7 @@ code,.mono{font-family:${MONO}}
 .meta-line{font-size:12px;color:var(--muted);margin-top:2px}
 .masthead h1{font-size:22px;line-height:1.2;color:var(--ink);letter-spacing:-.01em}
 .masthead .desc{font-size:14px;max-width:80ch;color:var(--text);margin-top:12px}
-.tabs{display:flex;gap:4px;margin-top:14px;margin-bottom:-1px;overflow-x:auto}
+.tabs{display:flex;justify-content:center;gap:4px;margin-top:14px;margin-bottom:-1px;overflow-x:auto}
 .tab{display:inline-flex;align-items:center;gap:7px;padding:10px 14px 11px;font-size:13px;font-weight:500;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s}
 .tab:hover{color:var(--ink)}
 .tab.active{color:var(--blue);border-bottom-color:var(--blue2)}

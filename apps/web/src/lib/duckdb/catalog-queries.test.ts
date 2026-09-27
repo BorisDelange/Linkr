@@ -36,6 +36,11 @@ describe('variable expressions', () => {
     expect(periodExpr('d', 'quarter')).toContain("'-Q'")
   })
 
+  it('groups units by the step, periods starting on multiples of it', () => {
+    expect(periodExpr('d', 'year', 2)).toBe('CAST((year(CAST(d AS TIMESTAMP)) - (year(CAST(d AS TIMESTAMP)) % 2)) AS VARCHAR)')
+    expect(periodExpr('d', 'month', 6)).toContain("lpad(CAST(")
+  })
+
   it('labels age brackets exactly as ageBucketLabels does', () => {
     const sql = ageBucketExpr(mapping, 'd', [18, 65])!
     for (const label of ageBucketLabels([18, 65])) expect(sql).toContain(`'${label}'`)
