@@ -204,13 +204,34 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
   const [tablesVisible, setTablesVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(defaultStatsVisible)
-  // Allotment lays its panes out before the container has its final width, and
-  // the table list then opens wider than its preferred size. Resetting once
-  // laid out gives it that size, as a double-click on the separator does.
+  // Allotment sizes its panes against the width the container has at mount,
+  // often not its final one (a tab still laying out), and the table list then
+  // opens at another size than its preferred one. Once the container has a real
+  // width, a reset gives each pane that size, as a double-click on a separator does.
   const allotmentRef = useRef<AllotmentHandle>(null)
+  const panesRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    const frame = requestAnimationFrame(() => allotmentRef.current?.reset())
-    return () => cancelAnimationFrame(frame)
+    const node = panesRef.current
+    if (!node) return
+    let frame = 0
+    let settled = 0
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry.contentRect.width <= 0) return
+      cancelAnimationFrame(frame)
+      // After Allotment's own layout for this width, which runs on the same change.
+      frame = requestAnimationFrame(() => {
+        allotmentRef.current?.reset()
+        // Stop once the width holds: from then on a resize is the user's.
+        clearTimeout(settled)
+        settled = window.setTimeout(() => observer.disconnect(), 300)
+      })
+    })
+    observer.observe(node)
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+      clearTimeout(settled)
+    }
   }, [])
   const [loading, setLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
@@ -633,7 +654,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
         </div>
 
         {/* Content: table sidebar + columns table + stats sidebar */}
-        <div className="min-h-0 flex-1">
+        <div ref={panesRef} className="min-h-0 flex-1">
           <Allotment ref={allotmentRef} proportionalLayout={false}>
             {/* Table list sidebar */}
             {/* 250, not 220: the row-count column needs to clear the right edge
