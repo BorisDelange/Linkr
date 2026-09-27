@@ -375,7 +375,7 @@ export function CatalogConfigTab({ catalog }: Props) {
             </span>
           )}
           {estimating ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => estimateAbort.current?.abort()}>
+            <Button variant="destructive" size="sm" className="gap-1.5" onClick={() => estimateAbort.current?.abort()}>
               <Square size={12} />
               {t('data_catalog.estimate_stop')}
             </Button>
