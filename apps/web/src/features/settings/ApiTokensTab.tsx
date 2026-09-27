@@ -218,7 +218,7 @@ export function ApiTokensTab() {
         >
           <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
             <TriangleAlert size={14} className="mt-0.5 shrink-0 text-destructive" />
-            <p className="text-xs text-destructive">{t('api_tokens.shown_once_warning')}</p>
+            <p className="text-xs text-orange-600 dark:text-orange-400">{t('api_tokens.shown_once_warning')}</p>
           </div>
           <FormField label={t('api_tokens.key')}>
             {({ id }) => (
