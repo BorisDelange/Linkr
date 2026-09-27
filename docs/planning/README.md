@@ -67,7 +67,7 @@ client. The former provider config (and its proxy) is deleted.
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |
 | ✅ | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` (plugin docs salvaged into the MCP), then the LLM provider config + proxy + `llm-config` permission | S |
 | 🤔 | Embedded chat — (a) Linkr UI over LibreChat Agents API · (b) server loop · (c) ACP + OpenCode | L |
-| ✅ | Full coverage (2026-09-27, ~230 tools in toolsets, `LINKR_MCP_TOOLSETS`): workspaces / projects / databases (create, link, presets), data quality, ETL pipelines + SQL collections, wiki + data catalogs + READMEs, dataset editing + analyses, Pipeline page, patient-data boards, workspace plugins, dashboard extras, kernels / environments / jobs, mapping projects + reviews + source concept ids, git read-only. Out by design: permissions, members, project/workspace deletion, git push, secrets | L |
+| ✅ | Full coverage (2026-09-27, ~230 tools; the client sees a core of ~30 + a gateway `find_linkr_tools` / `run_linkr_read|write|delete_tool` — ~6k tokens instead of ~40k, zero client config; `LINKR_MCP_TOOLSETS=all` for Claude Code): workspaces / projects / databases (create, link, presets), data quality, ETL pipelines + SQL collections, wiki + data catalogs + READMEs, dataset editing + analyses, Pipeline page, patient-data boards, workspace plugins, dashboard extras, kernels / environments / jobs, mapping projects + reviews + source concept ids, git read-only. Out by design: permissions, members, project/workspace deletion, git push, secrets | L |
 
 ## Reports — [reports-plan.md](reports-plan.md)
 

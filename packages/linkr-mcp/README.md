@@ -27,16 +27,28 @@ The repo's `.mcp.json` registers it for Claude Code sessions opened here.
 Run it by hand with `npx tsx --tsconfig packages/linkr-mcp/tsconfig.json packages/linkr-mcp/src/live/server.ts`
 — the explicit `--tsconfig` is what resolves the `@/` alias into `apps/web/src`.
 
-Tools come in toolsets. `LINKR_MCP_TOOLSETS` (comma-separated, e.g. `warehouse,lab`)
-keeps only some of them — all are on by default. Worth it for a small model or a client
-with a tool cap: the ~230 tool definitions weigh ~40k tokens together. `get_ui_context`,
-`list_projects`, `get_project_context` and the docs tools are always on.
+**What the client sees.** By default ~30 common tools (`CORE_TOOLS` in `build.ts`:
+context, exploration, cohorts, datasets, dashboards, scripts) plus four gateway tools —
+about 6k tokens of definitions instead of ~40k for all ~230:
+
+- `find_linkr_tools` — search every other tool by need (in English), or get tools by
+  name: description, arguments as JSON Schema, and which run tool calls it. With no
+  argument, the index of every tool by family. Its description lists the families.
+- `run_linkr_read_tool` / `run_linkr_write_tool` / `run_linkr_delete_tool` — call a tool
+  found that way; each only accepts tools of its kind and carries the matching
+  annotation, so the client's approval still tells reads from writes from deletions.
+  Arguments are validated against the tool's own schema.
+
+The list never changes, so nothing is configured in the client: add the server, done.
+`LINKR_MCP_TOOLSETS` exposes families directly on top of the core (`mapping`,
+`lab,ide`…), or `all`: every tool, no gateway — what a client that loads tools on demand
+wants (Claude Code: the repo's `.mcp.json` sets it).
 
 **Out of reach by design**: permissions, roles, members and users; deleting a project or
 a workspace; git commit / push; secrets (database passwords and logins, connection
 details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §6.
 
-### Always on
+### `context` — always direct
 
 | Tool | Purpose |
 |---|---|
@@ -171,7 +183,8 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 |---|---|
 | `get_git_status`, `get_git_diff`, `get_git_sync_state`, `list_git_branches` | read-only git versioning of a project, workspace, mapping project or workspace entity: pending files vs the remote branch, one file's line diff, behind / diverged, branches — commit, push and pull stay in Linkr |
 
-Code: `server.ts` / `http.ts` (entries) · `build.ts` (toolsets) · `shared.ts` · `tools-context.ts` (UI context, projects) ·
+Code: `server.ts` / `http.ts` (entries) · `build.ts` (toolsets, core list) · `gateway.ts` / `tools-gateway.ts`
+(catalogue, find + run) · `shared.ts` · `tools-context.ts` (UI context, projects) ·
 `tools-workspace.ts` / `tools-databases.ts` / `workspace-rest.ts` (workspaces, projects, databases) ·
 `tools-warehouse.ts` (exploration, cohorts, report) · `tools-cohorts-extra.ts` (freeze, ATLAS import) · `tools-concepts.ts` ·
 `tools-derive.ts` (derived databases, jobs) · `tools-dq.ts` (data quality) ·
@@ -180,7 +193,7 @@ boards, dashboard extras, workspace plugins) · `tools-ide.ts` (scripts, runs) �
 jobs, environments, IDE connections) · `tools-mapping.ts` (concept mapping) · `tools-mapping-extra.ts` (mapping
 projects, reviews, source concept ids) · `tools-etl.ts` (ETL pipelines, SQL collections) · `tools-wiki.ts` (wiki,
 data catalogs, READMEs) · `tools-git.ts` (git, read-only) · `tools-docs.ts` (documentation) · pure helpers
-`cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`, `derive.ts`, `docs.ts`, `dq.ts`, `etl.ts`, `git.ts`, `lab.ts`,
+`cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`, `derive.ts`, `docs.ts`, `dq.ts`, `etl.ts`, `gateway.ts`, `git.ts`, `lab.ts`,
 `lab-extra.ts`, `ide.ts`, `mapping.ts`, `mapping-extra.ts`, `plugins.ts`, `report.ts`, `runtime.ts`, `wiki.ts`,
 `workspace.ts` (tested).
 

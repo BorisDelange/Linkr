@@ -211,6 +211,19 @@ Cursor, an agent in the IDE terminal. Hence:
 - **The token carries the caller's own rights.** REST re-checks every permission: an
   LLM never exceeds the user driving it.
 
+### What the client sees — core + gateway (2026-09-27)
+
+~230 tools weigh ~40k tokens of definitions, sent with every turn by most clients.
+The client therefore sees a fixed list: ~30 common tools (`CORE_TOOLS`) and a gateway —
+`find_linkr_tools` (search by need, index by family) and `run_linkr_read_tool` /
+`run_linkr_write_tool` / `run_linkr_delete_tool`, one per kind so client-side approval
+still works by annotation. ~6k tokens, and **nothing to configure in the client**.
+Rejected: several MCP entries per toolset (user config), and `enable_toolset` with
+`tools/list_changed` (a LibreChat agent keeps its saved tool list, so added tools
+never reach it). `LINKR_MCP_TOOLSETS` adds families directly, or `all` for clients that
+load tools on demand (Claude Code). Same idea as Cloudflare's search/execute server,
+without code execution.
+
 ### Proof of concept — cohorts (2026-09-23)
 
 stdio, auth by the user's own session token, driven from Claude Code first. Tools:
