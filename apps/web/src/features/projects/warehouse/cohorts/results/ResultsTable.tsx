@@ -16,7 +16,7 @@ type Row = Record<string, unknown>
 /** Columns the cohort SELECT emits, in the order it emits them. Anything else a
  *  custom SQL returns falls through to a text column keyed on its own name. */
 const DATE_COLUMNS = new Set(['start_date', 'end_date'])
-const NUMERIC_COLUMNS = new Set(['id', 'patient_id', 'age_at_admission', 'age_current'])
+const NUMERIC_COLUMNS = new Set(['patient_id', 'visit_id', 'visit_detail_id', 'age_at_admission', 'age_current'])
 
 /** `2159-03-20T21:08:00`, with or without the time — what the engine serializes
  *  a DuckDB DATE/TIMESTAMP to. Detected by shape so a custom SQL's own date
@@ -36,10 +36,12 @@ function hasTime(v: string): boolean {
  *  prettified, since custom SQL can select anything. */
 function headerFor(key: string, t: (k: string) => string): string {
   switch (key) {
-    case 'id':
-      return t('cohorts.results_col_id')
     case 'patient_id':
       return t('cohorts.results_col_patient')
+    case 'visit_id':
+      return t('cohorts.results_col_visit')
+    case 'visit_detail_id':
+      return t('cohorts.results_col_visit_detail')
     case 'gender':
       return t('cohorts.criteria_sex')
     case 'age_at_admission':
@@ -103,7 +105,8 @@ export function ResultsTable({ rows }: ResultsTableProps) {
     <DataTable
       data={rows}
       columns={columns}
-      rowKey={(row) => String(row.id ?? JSON.stringify(row))}
+      // The first column is the member's id.
+      rowKey={(row) => String(Object.values(row)[0] ?? JSON.stringify(row))}
       emptyMessage={t('cohorts.results_none')}
       pageSize={100}
     />

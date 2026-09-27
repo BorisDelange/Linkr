@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact } from 'lucide-react'
+import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
@@ -16,11 +16,21 @@ interface ResultsPanelProps {
   /** A third tab reviewing the result's patients, where the host has a board to
    *  show them through (a database's cohorts). Rendered only while it is open. */
   renderPatients?: (result: CohortExecutionResult) => ReactNode
+  /** A tab browsing every table of the database, filtered on the cohort. */
+  renderTables?: () => ReactNode
 }
 
-export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, renderPatients }: ResultsPanelProps) {
+type ResultsTab = 'results' | 'attrition' | 'patients' | 'tables'
+
+export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, renderPatients, renderTables }: ResultsPanelProps) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<'results' | 'attrition' | 'patients'>('results')
+  const [activeTab, setActiveTab] = useState<ResultsTab>('results')
+  const tabs: { id: ResultsTab; label: string; icon: typeof Users }[] = [
+    { id: 'results', label: t('cohorts.results_table'), icon: Table2 },
+    { id: 'attrition', label: t('cohorts.results_attrition'), icon: BarChart3 },
+    ...(renderPatients ? [{ id: 'patients' as const, label: t('cohorts.results_patients'), icon: Contact }] : []),
+    ...(renderTables ? [{ id: 'tables' as const, label: t('cohorts.results_tables'), icon: Database }] : []),
+  ]
 
   if (!result && !loading) {
     return (
@@ -32,7 +42,11 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, r
               {t('cohorts.results_failed')}
             </p>
             <p className="max-w-md break-words text-xs">
-              {error === 'EMPTY_QUERY' ? t('cohorts.results_empty_query') : error}
+              {error === 'EMPTY_QUERY'
+                ? t('cohorts.results_empty_query')
+                : error.includes('No matching columns found that match regex')
+                  ? t('cohorts.results_custom_sql_no_id')
+                  : error}
             </p>
           </>
         ) : (
@@ -84,44 +98,21 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, r
       {result && (
         <>
           <div className="flex border-b px-2">
-            <button
-              type="button"
-              onClick={() => setActiveTab('results')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'results'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <Table2 size={12} />
-              {t('cohorts.results_table')}
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab('attrition')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                activeTab === 'attrition'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              <BarChart3 size={12} />
-              {t('cohorts.results_attrition')}
-            </button>
-            {renderPatients && (
+            {tabs.map(({ id, label, icon: Icon }) => (
               <button
+                key={id}
                 type="button"
-                onClick={() => setActiveTab('patients')}
+                onClick={() => setActiveTab(id)}
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${
-                  activeTab === 'patients'
+                  activeTab === id
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Contact size={12} />
-                {t('cohorts.results_patients')}
+                <Icon size={12} />
+                {label}
               </button>
-            )}
+            ))}
           </div>
 
           {/* The results table scrolls and paginates internally; the attrition
@@ -144,6 +135,8 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, r
             </div>
           ) : activeTab === 'patients' && renderPatients ? (
             <div className="min-h-0 flex-1 overflow-hidden">{renderPatients(result)}</div>
+          ) : activeTab === 'tables' && renderTables ? (
+            <div className="min-h-0 flex-1 overflow-hidden">{renderTables()}</div>
           ) : (
             <div className="min-h-0 flex-1 overflow-auto">
               <AttritionChart attrition={result.attrition} />

@@ -20,6 +20,7 @@ import type {
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { classRelation, eventRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { fieldRef } from '@/lib/schema-classes/spec'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -212,7 +213,7 @@ export function buildCohortQueryParts(
       baseTable,
       idColumn,
       from: buildFromClause(cohort.level, mapping, null, baseTable, forcePatientJoin),
-      whereClause: customMembershipClause(custom, baseTable, idColumn),
+      whereClause: customMembershipClause(custom, baseTable, idColumn, levelIdNames(cohort.level, mapping)),
     }
   }
 
@@ -239,16 +240,39 @@ function customMembershipSql(cohort: Pick<Cohort, 'customSql'>): string | null {
   return sql || null
 }
 
+/** The column naming a member in the results: `visit_detail_id` at unit-stay level. */
+export function cohortIdColumn(level: Exclude<CohortLevel, 'event'>): 'patient_id' | 'visit_id' | 'visit_detail_id' {
+  return level === 'patient' ? 'patient_id' : level === 'visit' ? 'visit_id' : 'visit_detail_id'
+}
+
 /**
- * Keeps the level's rows the hand-written query lists. The query goes in as
- * written — indenting it would change a multi-line string literal — on lines
- * of its own, so a trailing `-- comment` cannot swallow the closing parenthesis.
+ * The names a hand-written query may give the level's id: Linkr's
+ * (`visit_detail_id`) and, when the mapping reads it from a plain column, the
+ * database's own (`stay_id` in MIMIC) — so a query written on the source
+ * tables needs no renaming.
  */
-function customMembershipClause(sql: string, baseTable: string, idColumn: string): string {
+export function levelIdNames(level: CohortLevel, mapping: SchemaMapping): string[] {
+  const linkr = getIdColumn(level, mapping)
+  if (!linkr) return []
+  const spec = level === 'patient' ? mapping.patient : level === 'visit' ? mapping.visit : mapping.visitDetail
+  const native = fieldRef(spec?.fields?.[linkr])?.column
+  return native && native.toLowerCase() !== linkr ? [linkr, native] : [linkr]
+}
+
+/**
+ * Keeps the level's rows the hand-written query lists, reading its id column
+ * by name, case-insensitively (`COLUMNS`: a query that returns none fails with
+ * DuckDB naming the columns it has). The query goes in as written — indenting
+ * it would change a multi-line string literal — on lines of its own, so a
+ * trailing `-- comment` cannot swallow the closing parenthesis.
+ */
+function customMembershipClause(sql: string, baseTable: string, idColumn: string, names: string[]): string {
+  // Names are plain identifiers (fieldRef only accepts \w), so they need no escaping.
+  const pattern = `(?i)^(${names.join('|')})$`
   return [
-    sqlComment('Members listed by the custom SQL'),
+    sqlComment(`Rows whose ${names.join(' / ')} the custom SQL returns`),
     `${baseTable}.${idColumn} IN (`,
-    `  SELECT id FROM (`,
+    `  SELECT COLUMNS('${pattern}') FROM (`,
     sql,
     `  ) AS custom_members`,
     `)`,
@@ -259,11 +283,26 @@ function customMembershipClause(sql: string, baseTable: string, idColumn: string
 export const CUSTOM_SQL_STEP_ID = '__custom_sql__'
 
 /**
- * The membership query generated from the criteria alone — what the SQL tab
- * shows, and what a hand edit starts from.
+ * The query generated from the criteria alone — what the SQL tab shows, and
+ * what a hand edit starts from: the level's id, under its own name.
  */
 export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping): string | null {
-  return buildCohortMembershipSql({ ...cohort, customSql: null }, mapping)
+  if (cohort.level === 'event') return null
+  const parts = buildCohortQueryParts({ ...cohort, customSql: null }, mapping)
+  if (!parts) return null
+  const names = levelIdNames(cohort.level, mapping)
+  const header = names.length > 1
+    ? `One row per ${cohort.level}: its ${parts.idColumn} (${names[1]} in this database)`
+    : `One row per ${cohort.level}: its ${parts.idColumn}`
+  const lines = [
+    sqlComment(header),
+    `SELECT DISTINCT`,
+    `  ${parts.baseTable}.${parts.idColumn}`,
+    `FROM`,
+    `  ${parts.from}`,
+  ]
+  if (parts.whereClause) lines.push(`WHERE`, indent(parts.whereClause))
+  return lines.join('\n')
 }
 
 /**
@@ -333,7 +372,6 @@ export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping)
   if (!parts) return null
 
   const lines = [
-    sqlComment(`Members of the cohort: one row per ${cohort.level}, its ${parts.idColumn} as id`),
     `SELECT DISTINCT`,
     `  ${parts.baseTable}.${parts.idColumn} AS id,`,
     `  ${parts.baseTable}.patient_id AS patient_id`,
@@ -385,7 +423,7 @@ export function buildAttritionQueries(
     queries.push({
       nodeId: CUSTOM_SQL_STEP_ID,
       label: 'Custom SQL',
-      sql: countFrom(baseFrom, customMembershipClause(custom, baseTable, idColumn)),
+      sql: countFrom(baseFrom, customMembershipClause(custom, baseTable, idColumn, levelIdNames(cohort.level, mapping))),
     })
     return queries
   }
@@ -1153,13 +1191,14 @@ function buildSubqueryLink(
  * Build SELECT columns for result rows based on level.
  */
 function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTable: string): string {
-  const cols: string[] = [`${baseTable}.${getIdColumn(level, mapping)} AS id`]
+  // The ids under their own names, from the level's up to the patient's.
+  const cols: string[] = [`${baseTable}.${getIdColumn(level, mapping)}`]
   const patient = classRelation(mapping, 'patient')
   const gv = mapping.patient?.genderValues
   const ref = level === 'patient' ? baseTable : 'p'
 
-  // Patient ID (for visit/visit_detail levels)
-  if (level !== 'patient') cols.push(`${baseTable}.patient_id AS patient_id`)
+  if (level === 'visit_detail' && has(levelRelation(level, mapping), 'visit_id')) cols.push(`${baseTable}.visit_id`)
+  if (level !== 'patient') cols.push(`${baseTable}.patient_id`)
 
   // Gender — use CASE WHEN to show human-readable labels from genderValues mapping
   if (has(patient, 'gender_source_value')) {

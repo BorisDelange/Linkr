@@ -44,6 +44,7 @@ import { CriteriaPanel } from './builder/CriteriaPanel'
 import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
 import { CohortPatientsPanel } from './results/CohortPatientsPanel'
+import { CohortTablesPanel } from './results/CohortTablesPanel'
 import { CohortReportDialog } from './report/CohortReportDialog'
 import { CohortDeriveDialog } from './derive/CohortDeriveDialog'
 import { isServerMode } from '@/lib/api-client'
@@ -475,6 +476,11 @@ export function CohortBuilder() {
                         rows={r.rows}
                       />
                     )
+                  : undefined
+              }
+              renderTables={
+                activeSource && mapping && cohort.level !== 'event'
+                  ? () => <CohortTablesPanel dataSourceId={activeSource.id} cohort={cohort} schemaMapping={mapping} />
                   : undefined
               }
             />

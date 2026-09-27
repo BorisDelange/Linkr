@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { cohortIdColumn } from '@/lib/duckdb/cohort-query'
 import { useTranslation } from 'react-i18next'
 import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
@@ -71,8 +72,9 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
   // what is listed is what ran, whatever the criteria have become since — and
   // whatever the cohort is written in (custom SQL, a unit-stay level).
   const listedCohort = useMemo<Cohort>(() => {
-    const ids = rows.map((r) => String(r.id))
-    const patientIds = [...new Set(rows.map((r) => String(level === 'patient' ? r.id : r.patient_id)))]
+    const idColumn = level === 'event' ? 'patient_id' : cohortIdColumn(level)
+    const ids = rows.map((r) => String(r[idColumn]))
+    const patientIds = [...new Set(rows.map((r) => String(r.patient_id)))]
     return {
       ...cohort,
       materialization: {

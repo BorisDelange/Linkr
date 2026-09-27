@@ -67,7 +67,7 @@ describe('derivationRequest', () => {
   })
 
   it('filters on a hand-written query, and records it so a rebuild runs it again', () => {
-    const customSql = 'SELECT visit_id AS id FROM linkr_visit WHERE visit_id < 10'
+    const customSql = 'SELECT visit_id FROM linkr_visit WHERE visit_id < 10'
     const r = derivationRequest({ cohort: cohort({ customSql }), cohortKey: 'icu', source: db(), copyPersonless: false, target: 'new-database' })
     expect(r.membershipSql).toContain('WHERE visit_id < 10')
     expect(r.membershipSql).toMatch(/AS patient_id/)

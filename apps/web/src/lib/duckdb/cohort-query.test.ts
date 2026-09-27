@@ -8,6 +8,7 @@ import {
   buildCohortResultsSql,
   conceptCriterionBoundToStay,
   getNodeLabel,
+  levelIdNames,
   sqlComment,
   withinStaySql,
   CUSTOM_SQL_STEP_ID,
@@ -568,7 +569,7 @@ describe('hand-written membership query', () => {
     },
   } as never)
   const custom = (customSql: string, level: CohortLevel = 'visit_detail'): Cohort => ({ ...makeCohort(level), customSql })
-  const SQL = 'SELECT visit_detail_id AS id FROM linkr_visit_detail WHERE visit_detail_id IN (101, 205)'
+  const SQL = 'SELECT stay_id FROM icu WHERE stay_id IN (101, 205)'
 
   it('filters every query of the cohort on it', () => {
     const c = custom(SQL)
@@ -577,7 +578,8 @@ describe('hand-written membership query', () => {
       buildCohortResultsSql(c, vdMapping)!,
       buildCohortMembershipSql(c, vdMapping)!,
     ]) {
-      expect(squash(sql)).toContain(`linkr_visit_detail.visit_detail_id IN ( SELECT id FROM ( ${SQL} ) AS custom_members )`)
+      expect(squash(sql)).toContain(
+        `linkr_visit_detail.visit_detail_id IN ( SELECT COLUMNS('(?i)^(visit_detail_id|stay_id)$') FROM ( ${SQL} ) AS custom_members )`)
     }
   })
 
@@ -595,7 +597,7 @@ describe('hand-written membership query', () => {
   })
 
   it('never re-indents a line inside one of its string literals', () => {
-    const sql = buildCohortCountSql(custom("SELECT 1 AS id WHERE 'a\nb' <> ''"), vdMapping)!
+    const sql = buildCohortCountSql(custom("SELECT 1 AS stay_id WHERE 'a\nb' <> ''"), vdMapping)!
     expect(sql).toContain("'a\nb'")
   })
 
@@ -604,7 +606,15 @@ describe('hand-written membership query', () => {
     expect(steps.map((s) => s.nodeId)).toEqual(['__total__', CUSTOM_SQL_STEP_ID])
     const generated = buildCohortCriteriaSql(custom(SQL), vdMapping)!
     expect(generated).not.toContain('custom_members')
-    expect(generated).toContain('AS id')
+    // The level's id under its own name: nothing renamed to `id`.
+    expect(generated).toMatch(/SELECT DISTINCT\n {2}linkr_visit_detail\.visit_detail_id\nFROM/)
+    expect(generated).toContain('stay_id in this database')
+  })
+
+  it('accepts only the Linkr name when the mapping reads the id from an expression', () => {
+    expect(levelIdNames('patient', mapping)).toEqual(['patient_id', 'person_id'])
+    const expr = { ...vdMapping, visitDetail: { ...vdMapping.visitDetail!, fields: { ...vdMapping.visitDetail!.fields, visit_detail_id: 'CAST(i.stay_id AS TEXT)' } } }
+    expect(levelIdNames('visit_detail', expr)).toEqual(['visit_detail_id'])
   })
 
   it('cannot define an event-level cohort', () => {

@@ -169,12 +169,12 @@ describe('buildCohortReportModel', () => {
 
   it('reports a hand-written query as one step, with none of the criteria it replaces', async () => {
     const model = await buildCohortReportModel({
-      cohort: cohort({ customSql: 'SELECT visit_id AS id FROM linkr_visit' }), mapping, databaseName: 'x', run, t, locale: 'en', threshold: 11,
+      cohort: cohort({ customSql: 'SELECT visit_id FROM linkr_visit' }), mapping, databaseName: 'x', run, t, locale: 'en', threshold: 11,
     })
     expect(model.flow.map((f) => f.label)).toEqual(['cohort_report.flow_total', 'cohort_report.flow_custom_sql'])
     expect(model.criteria).toEqual([])
     expect(model.concepts).toEqual([])
-    expect(model.sql).toBe('SELECT visit_id AS id FROM linkr_visit')
+    expect(model.sql).toBe('SELECT visit_id FROM linkr_visit')
   })
 
   it('refuses the event level', async () => {

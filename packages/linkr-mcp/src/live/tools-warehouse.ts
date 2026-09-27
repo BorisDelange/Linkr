@@ -286,9 +286,11 @@ export function registerWarehouseTools(server: Server): void {
     description:
       'Change a cohort: any of name, description, level, database, criteria (REPLACES the whole tree — '
       + 'read it with get_cohort first to keep existing criteria), or custom_sql. custom_sql, when set, '
-      + 'replaces the criteria entirely: it is the MEMBERSHIP query, returning the members\' ids in a column '
-      + 'named "id" (patient_id, visit_id or visit_detail_id per the level; other columns are ignored). Count, '
-      + 'results, freeze, derivation, report and Patient data all follow it; attrition has a single step. '
+      + 'replaces the criteria entirely: it is the MEMBERSHIP query, returning one row per member with the '
+      + 'level\'s id column under its own name — the Linkr name (patient_id, visit_id, visit_detail_id) or the '
+      + 'database\'s own (person_id, stay_id…), matched case-insensitively; other columns are ignored. It may '
+      + 'query the Linkr relations (linkr_visit…) or the database\'s own tables. Count, results, freeze, '
+      + 'derivation, report and Patient data all follow it; attrition has a single step. '
       + 'Start from preview_cohort_sql. Pass null to go back to the criteria.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
@@ -299,7 +301,7 @@ export function registerWarehouseTools(server: Server): void {
       properties: {
         cohort_id: { type: 'string' },
         ...COHORT_FIELDS,
-        custom_sql: { type: ['string', 'null'], description: 'SELECT <level id> AS id FROM … WHERE …, or null.' },
+        custom_sql: { type: ['string', 'null'], description: 'SELECT <level id column> FROM … WHERE …, or null.' },
       },
       required: ['cohort_id'],
     }),
@@ -352,7 +354,7 @@ export function registerWarehouseTools(server: Server): void {
 
   server.registerTool('preview_cohort_sql', {
     description:
-      'Show the membership query the app generates from a cohort\'s criteria (id, patient_id), without '
+      'Show the membership query the app generates from a cohort\'s criteria (the level\'s id), without '
       + 'running it — what the app\'s SQL tab shows. Useful to check the logic or as a starting point for custom_sql.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ cohort_id: string }>({
