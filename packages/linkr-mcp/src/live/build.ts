@@ -11,7 +11,11 @@ import { registerEtlTools } from './tools-etl.js'
 import { registerGatewayTools } from './tools-gateway.js'
 import { registerGitTools } from './tools-git.js'
 import { registerIdeTools } from './tools-ide.js'
-import { registerLabExtraTools } from './tools-lab-extra.js'
+import { registerDashboardExtraTools } from './tools-lab-dashboards.js'
+import { registerLabDatasetTools } from './tools-lab-datasets.js'
+import { registerPatientBoardTools } from './tools-lab-patient.js'
+import { registerPipelineTools } from './tools-lab-pipeline.js'
+import { registerUserPluginTools } from './tools-lab-plugins.js'
 import { registerLabTools } from './tools-lab.js'
 import { registerMappingExtraTools } from './tools-mapping-extra.js'
 import { registerMappingTools } from './tools-mapping.js'
@@ -27,7 +31,10 @@ export const TOOLSETS: Record<string, Register[]> = {
   workspace: [registerWorkspaceTools],
   warehouse: [registerWarehouseTools, registerCohortExtraTools, registerConceptTools, registerDeriveTools],
   dq: [registerDqTools],
-  lab: [registerLabTools, registerLabExtraTools],
+  lab: [
+    registerLabTools, registerLabDatasetTools, registerPipelineTools, registerPatientBoardTools, registerDashboardExtraTools,
+    registerUserPluginTools,
+  ],
   ide: [registerIdeTools, registerRuntimeTools],
   mapping: [registerMappingTools, registerMappingExtraTools],
   etl: [registerEtlTools],

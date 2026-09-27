@@ -193,13 +193,14 @@ Code: `server.ts` / `http.ts` (entries) · `build.ts` (toolsets, core list) · `
 `tools-workspace.ts` / `tools-databases.ts` / `workspace-rest.ts` (workspaces, projects, databases) ·
 `tools-warehouse.ts` (exploration, cohorts, report) · `tools-cohorts-extra.ts` (freeze, ATLAS import) · `tools-concepts.ts` ·
 `tools-derive.ts` (derived databases, jobs) · `tools-dq.ts` (data quality) ·
-`tools-lab.ts` (datasets, plugins, dashboards) · `tools-lab-extra.ts` (dataset editing, analyses, pipeline, patient
-boards, dashboard extras, workspace plugins) · `tools-ide.ts` (scripts, runs) · `tools-runtime.ts` (kernel sessions,
+`tools-lab.ts` (datasets, plugins, dashboards) · `tools-lab-datasets.ts` (dataset editing, analyses) ·
+`tools-lab-pipeline.ts` · `tools-lab-patient.ts` (patient boards) · `tools-lab-dashboards.ts` (dashboard extras) ·
+`tools-lab-plugins.ts` (workspace plugins) · `lab-rest.ts` (their shared REST calls) · `tools-ide.ts` (scripts, runs) · `tools-runtime.ts` (kernel sessions,
 jobs, environments, IDE connections) · `tools-mapping.ts` (concept mapping) · `tools-mapping-extra.ts` (mapping
 projects, reviews, source concept ids) · `tools-etl.ts` (ETL pipelines, SQL collections) · `tools-wiki.ts` (wiki,
 data catalogs, READMEs) · `tools-git.ts` (git, read-only) · `tools-docs.ts` (documentation) · pure helpers
 `cohorts.ts`, `cohorts-extra.ts`, `concepts.ts`, `derive.ts`, `docs.ts`, `dq.ts`, `etl.ts`, `gateway.ts`, `git.ts`, `lab.ts`,
-`lab-extra.ts`, `ide.ts`, `mapping.ts`, `mapping-extra.ts`, `plugins.ts`, `report.ts`, `runtime.ts`, `wiki.ts`,
+`lab-extra.ts`, `helpers.ts`, `ide.ts`, `mapping.ts`, `mapping-extra.ts`, `plugins.ts`, `report.ts`, `runtime.ts`, `wiki.ts`,
 `workspace.ts` (tested).
 
 ## Skills

@@ -8,7 +8,11 @@ import {
   listPatientPlugins, newPipelineNode, nextAddedRow, reorderIds, resolveTimelineMapping, scaffoldManifest, summarizeOps,
   templateFile, undoStart, withoutNode,
 } from './lab-extra'
-import { registerLabExtraTools } from './tools-lab-extra'
+import { registerDashboardExtraTools } from './tools-lab-dashboards'
+import { registerLabDatasetTools } from './tools-lab-datasets'
+import { registerPatientBoardTools } from './tools-lab-patient'
+import { registerPipelineTools } from './tools-lab-pipeline'
+import { registerUserPluginTools } from './tools-lab-plugins'
 
 const COLS = [
   { id: 'col_age', name: 'age', type: 'number' },
@@ -190,8 +194,10 @@ describe('checkPluginFiles', () => {
   })
 })
 
-describe('registerLabExtraTools', () => {
-  it('registers every tool with a valid schema', () => {
-    expect(() => registerLabExtraTools(new McpServer({ name: 't', version: '0' }))).not.toThrow()
+describe('lab tool modules', () => {
+  it('register every tool with a valid schema', () => {
+    for (const register of [
+      registerLabDatasetTools, registerPipelineTools, registerPatientBoardTools, registerDashboardExtraTools, registerUserPluginTools,
+    ]) expect(() => register(new McpServer({ name: 't', version: '0' }))).not.toThrow()
   })
 })
