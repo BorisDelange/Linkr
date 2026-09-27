@@ -17,7 +17,13 @@ export const withApiToken = <T>(token: string, fn: () => T): T =>
 /** The Linkr API for the current call: the request's user over HTTP, else the
  *  credentials of the environment (stdio). */
 export const api: LinkrApi = new Proxy({} as LinkrApi, {
-  get: (_, key) => Reflect.get(requestApi.getStore() ?? envApi, key),
+  get: (_, key) => {
+    const target = requestApi.getStore() ?? envApi
+    const value = Reflect.get(target, key)
+    // Bound, or a prototype method would run with the proxy as `this` and store
+    // the login tokens on it instead of the client.
+    return typeof value === 'function' ? value.bind(target) : value
+  },
 })
 
 export type ToolResult = CallToolResult
