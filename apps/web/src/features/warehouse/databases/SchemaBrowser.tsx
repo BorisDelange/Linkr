@@ -171,6 +171,10 @@ const columnStatsCache = new Map<string, ColumnStats>()
 const columnStatsKey = (dataSourceId: string, table: string, col: string) =>
   `${dataSourceId}::${table}::${col}`
 
+/** Table list, columns, statistics — in pixels. The columns pane gets whatever
+ *  width is left: its size here only has to be positive. */
+const PANE_SIZES = [250, 600, 300]
+
 // --- Shared schema browser ---
 //
 // One component for the three schema views: the SQL-scripts / IDE "browse
@@ -204,11 +208,11 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
   const [tablesVisible, setTablesVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(defaultStatsVisible)
-  // Allotment sizes its panes against the width its container has when it
-  // mounts. At zero (a tab or a split still laying out) every pane starts at its
-  // minimum, and the width gained next goes to the columns pane: the table list
-  // stayed tiny. So it mounts once the container has a width, and each pane
-  // opens at its preferred size in pixels, as a double-click on a separator gives.
+  // Allotment ignores `preferredSize` when it first lays out (it splits the
+  // width evenly; only a double-click on a separator applies it), so the panes
+  // open at `defaultSizes`, in pixels, the columns pane taking the rest. It
+  // mounts once its container has a width: laid out at zero, every pane fell
+  // to its minimum and the width gained next went to the columns pane.
   const panesRef = useRef<HTMLDivElement>(null)
   const [panesReady, setPanesReady] = useState(false)
   useEffect(() => {
@@ -643,11 +647,11 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
         {/* Content: table sidebar + columns table + stats sidebar */}
         <div ref={panesRef} className="min-h-0 flex-1">
           {panesReady && (
-            <Allotment proportionalLayout={false}>
+            <Allotment proportionalLayout={false} defaultSizes={PANE_SIZES}>
               {/* Table list sidebar */}
               {/* 250, not 220: the row-count column needs to clear the right edge
                   with a little breathing room at the default (double-click) width. */}
-              <Allotment.Pane preferredSize={250} minSize={140} maxSize={360} visible={tablesVisible}>
+              <Allotment.Pane preferredSize={PANE_SIZES[0]} minSize={140} maxSize={360} visible={tablesVisible}>
                 <div className="flex h-full flex-col border-r">
                   <div className="flex items-center gap-2 border-b px-3 py-2">
                     <SortHeader
@@ -808,7 +812,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
               </Allotment.Pane>
 
               {/* Stats sidebar */}
-              <Allotment.Pane preferredSize={300} minSize={220} maxSize={440} visible={statsVisible}>
+              <Allotment.Pane preferredSize={PANE_SIZES[2]} minSize={220} maxSize={440} visible={statsVisible}>
                 <div className="flex h-full min-h-0 flex-col border-l">
                   <ColumnStatsDetail
                     column={columns.find((c) => c.column_name === selectedColumn) ?? null}
