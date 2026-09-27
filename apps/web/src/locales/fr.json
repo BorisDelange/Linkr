@@ -3891,7 +3891,7 @@
   "etl": {
     "gen_warn_table_not_in_ddl": "{{table}} n'est pas dans la DDL de la cible : seules les colonnes que son mapping nomme sont écrites.",
     "gen_warn_no_target_relation": "Le schéma cible ne dit pas où va {{relation}} (pas de relation visuelle) : non écrit.",
-    "gen_warn_no_target_table": "{{relation}} n'est pas chargé : choisissez une table cible.",
+    "gen_warn_no_target_table": "La table {{table}} n'est pas chargée : choisissez une table cible.",
     "gen_open": "Générer depuis les schémas",
     "gen_title": "Générer les scripts de chargement OMOP",
     "gen_description": "Un script par classe de la base source, écrit à partir de son mapping de schéma et de celui de la cible. Les scripts s'exécutent tels quels et restent modifiables.",

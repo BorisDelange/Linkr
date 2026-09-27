@@ -44,7 +44,8 @@ export interface GeneratedEtlScript {
 export type OmopEtlWarning =
   | { kind: 'table-not-in-ddl'; table: string }
   | { kind: 'no-target-relation'; relation: string }
-  | { kind: 'no-target-table'; relation: string }
+  /** `label`: the event or drug table's name, as the mapping calls it. */
+  | { kind: 'no-target-table'; relation: string; label: string }
 
 export interface OmopEtlResult {
   scripts: GeneratedEtlScript[]
@@ -334,7 +335,7 @@ export function generateOmopEtl(
     const choice = choices.find((c) => c.specKey === rel.specKey)
     const table = options.eventTargets && rel.specKey in options.eventTargets ? options.eventTargets[rel.specKey] : choice?.default
     if (!table) {
-      warnings.push({ kind: 'no-target-table', relation: rel.specKey })
+      warnings.push({ kind: 'no-target-table', relation: rel.specKey, label: rel.key ?? rel.specKey })
       continue
     }
     const t = targets.find((x) => (x.cls === 'event' || x.cls === 'drug') && x.table === table)

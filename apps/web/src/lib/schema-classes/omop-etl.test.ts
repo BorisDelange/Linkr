@@ -67,7 +67,7 @@ describe('generateOmopEtl', () => {
     ])
     const skipped = run({ sourceLabel: 'EAV', eventTargets: { 'drugs.Administrations': null } })
     expect(skipped.scripts.map((s) => s.name)).not.toContain('50_drug_exposure.sql')
-    expect(skipped.warnings).toEqual([{ kind: 'no-target-table', relation: 'drugs.Administrations' }])
+    expect(skipped.warnings).toEqual([{ kind: 'no-target-table', relation: 'drugs.Administrations', label: 'Administrations' }])
   })
 })
 

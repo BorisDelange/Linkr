@@ -3891,7 +3891,7 @@
   "etl": {
     "gen_warn_table_not_in_ddl": "{{table}} is not in the target's DDL: only the columns its mapping names are written.",
     "gen_warn_no_target_relation": "The target schema does not say where {{relation}} goes (no visual relation): not written.",
-    "gen_warn_no_target_table": "{{relation}} is not loaded: pick a target table.",
+    "gen_warn_no_target_table": "Table {{table}} is not loaded: pick a target table.",
     "gen_open": "Generate from the schemas",
     "gen_title": "Generate the OMOP load scripts",
     "gen_description": "One script per class of the source database, written from its schema mapping and the target's. The scripts run as they are and stay editable.",
