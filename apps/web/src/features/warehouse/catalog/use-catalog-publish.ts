@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import JSZip from 'jszip'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -10,7 +10,7 @@ import { buildPagesTree, type PagesProvider } from '@/lib/dcat-ap/pages-deployme
 import { clearPagesSite, savePagesSite } from '@/lib/dcat-ap/pages-site-files'
 import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
-import { getCatalogPageData, getDatabaseSchema } from '@/lib/dcat-ap/page-cache'
+import { getCatalogPageData, getDatabaseSchema, schemaVersion } from '@/lib/dcat-ap/page-cache'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 import type { DataCatalog, CatalogResultCache, SchemaMapping } from '@/types'
 
@@ -57,13 +57,15 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
   const [zipLoading, setZipLoading] = useState(false)
   const [siteSaving, setSiteSaving] = useState(false)
 
-  const getFullSchema = useCallback(() => getDatabaseSchema(catalog.dataSourceId, async () => {
+  const version = useMemo(() => schemaVersion(schemaMapping), [schemaMapping])
+  /** `fresh` for a published file: the preview may show the last known schema, a file may not. */
+  const getFullSchema = useCallback((fresh = false) => getDatabaseSchema(catalog.dataSourceId, async () => {
     try {
       return await discoverFullSchema(catalog.dataSourceId)
     } catch {
       return null
     }
-  }), [catalog.dataSourceId])
+  }, { version, fresh }), [catalog.dataSourceId, version])
 
   const baseName = localized(catalog.name, 'en').replace(/\s+/g, '-').toLowerCase()
 
@@ -82,14 +84,14 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
 
   const buildFiles = useCallback(async (locale: PageLocale) => {
     if (!cache) return null
-    const ctx: PublicationContext = { catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale }
+    const ctx: PublicationContext = { catalog, cache, schemaMapping, fullSchema: await getFullSchema(true), locale }
     return publicationFiles(ctx)
   }, [catalog, cache, schemaMapping, getFullSchema])
 
   const downloadHtml = useCallback(async (locale: PageLocale) => {
     if (!cache) return
     const data = getCatalogPageData(catalog, cache, locale, false)
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale, data })
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema: await getFullSchema(true), locale, data })
     downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${baseName}-catalog.html`)
   }, [catalog, cache, schemaMapping, getFullSchema, baseName])
 

@@ -63,32 +63,52 @@ function db(): Promise<IDBPDatabase> {
 /**
  * The database's introspected tables, which the page's Schema tab lists. Asking
  * the server can take seconds on a large warehouse, so the last answer is kept:
- * the page renders from it at once, while a fresh one is fetched for the next
+ * the preview renders from it at once, while a fresh one is fetched for the next
  * render.
+ *
+ * `version` names the database's current schema (a digest of its mapping): a
+ * kept answer for another version is not used. `fresh` waits for a new answer —
+ * for a published file, which must not carry a schema from before a change the
+ * mapping does not see (a table added to the database) — and falls back to the
+ * kept one only when the server cannot answer.
  */
-const schemas = new Map<string, IntrospectedTable[] | null>()
+interface KeptSchema { version: string; tables: IntrospectedTable[] | null }
+const schemas = new Map<string, KeptSchema>()
 const inFlight = new Map<string, Promise<IntrospectedTable[] | null>>()
 
-export async function getDatabaseSchema(dataSourceId: string, fetch: () => Promise<IntrospectedTable[] | null>): Promise<IntrospectedTable[] | null> {
-  if (schemas.has(dataSourceId)) return schemas.get(dataSourceId) ?? null
+export function schemaVersion(mapping: unknown): string {
+  return digest(JSON.stringify(mapping ?? null))
+}
+
+export async function getDatabaseSchema(
+  dataSourceId: string,
+  fetch: () => Promise<IntrospectedTable[] | null>,
+  { version = '', fresh = false }: { version?: string; fresh?: boolean } = {},
+): Promise<IntrospectedTable[] | null> {
+  const kept = schemas.get(dataSourceId)
   const refresh = () => {
-    let p = inFlight.get(dataSourceId)
+    const key = `${dataSourceId}|${version}`
+    let p = inFlight.get(key)
     if (!p) {
       p = fetch().then(async (tables) => {
-        schemas.set(dataSourceId, tables)
-        inFlight.delete(dataSourceId)
-        if (tables) await (await db()).put(SCHEMAS, tables, dataSourceId).catch(() => {})
+        inFlight.delete(key)
+        if (!tables) return null
+        schemas.set(dataSourceId, { version, tables })
+        await (await db()).put(SCHEMAS, { version, tables }, dataSourceId).catch(() => {})
         return tables
       })
-      inFlight.set(dataSourceId, p)
+      inFlight.set(key, p)
     }
     return p
   }
+  if (fresh) return (await refresh()) ?? kept?.tables ?? null
+  if (kept?.version === version) return kept.tables
   try {
-    const stored = (await (await db()).get(SCHEMAS, dataSourceId)) as IntrospectedTable[] | undefined
-    if (stored) {
+    const stored = (await (await db()).get(SCHEMAS, dataSourceId)) as KeptSchema | IntrospectedTable[] | undefined
+    if (stored && !Array.isArray(stored) && stored.version === version) {
+      schemas.set(dataSourceId, stored)
       void refresh()
-      return stored
+      return stored.tables
     }
   } catch {
     // No database: ask the server.

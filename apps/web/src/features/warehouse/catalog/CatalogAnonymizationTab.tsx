@@ -45,14 +45,25 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   // results, so a visit reads it rather than redoing it. A new computation
   // replaces it with the masks of the settings it ran with.
   const saveTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  useEffect(() => () => clearTimeout(saveTimer.current), [])
+  const pendingSave = useRef<(() => void) | null>(null)
+  const flushSave = () => {
+    clearTimeout(saveTimer.current)
+    const save = pendingSave.current
+    pendingSave.current = null
+    save?.()
+  }
+  const flushOnUnmount = useRef(flushSave)
+  // Leaving the tab within the debounce must not lose the last threshold typed.
+  useEffect(() => { const flush = flushOnUnmount.current; return () => flush() }, [])
   const changeThreshold = (next: number) => {
     setThreshold(next)
     clearTimeout(saveTimer.current)
-    saveTimer.current = setTimeout(() => void updateCatalog(catalog.id, { anonymization: { threshold: next, mode } }), 400)
+    pendingSave.current = () => void updateCatalog(catalog.id, { anonymization: { threshold: next, mode } })
+    saveTimer.current = setTimeout(flushSave, 400)
   }
   const changeMode = (next: AnonymizationMode) => {
     clearTimeout(saveTimer.current)
+    pendingSave.current = null
     void updateCatalog(catalog.id, { anonymization: { threshold, mode: next } })
   }
   const saved = cache.anonymizationImpact
@@ -64,7 +75,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
       // Let the button show its state before the masking blocks the thread.
       await new Promise((r) => setTimeout(r, 0))
       const next = { ...cache, anonymizationImpact: catalogAnonymizationImpact(catalog, cache, settings) }
-      setResultCache(next)
+      setResultCache(catalog.id, next)
       if (canWrite) await getStorage().catalogResults.save(next)
     } finally {
       setRunning(false)

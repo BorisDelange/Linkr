@@ -92,8 +92,9 @@ export function CatalogDetailPage({ catalogId }: Props) {
   // mounted, hidden, so coming back is instant.
   const [kept, setKept] = useState<ReadonlySet<TabId>>(new Set())
   if (activeTab === 'export' && !kept.has(activeTab)) setKept(new Set([...kept, activeTab]))
-  const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, resultCacheLoadedFor, loadResultCache, updateCatalog } = useCatalogStore()
+  const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache: loadedCache, resultCacheLoadedFor, loadResultCache, updateCatalog } = useCatalogStore()
   const resultsLoaded = resultCacheLoadedFor === catalogId
+  const activeResultCache = loadedCache?.catalogId === catalogId ? loadedCache : null
   const catalogActions = useCatalogActions()
   const canWrite = useMyWorkspaceRole().can('catalog:write')
   // Reinstalling replaces the whole entity's content, so it takes the same role

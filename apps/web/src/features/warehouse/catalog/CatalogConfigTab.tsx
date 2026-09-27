@@ -184,7 +184,7 @@ export function CatalogConfigTab({ catalog }: Props) {
     // so the Anonymization tab has them without a Run of its own.
     const cache = done ? withAnonymizationImpact(catalog, computed) : computed
     await getStorage().catalogResults.save(cache)
-    setResultCache(cache)
+    setResultCache(catalog.id, cache)
     await updateCatalog(catalog.id, clearedCatalogPatch({
       status: done ? 'success' : 'computing',
       lastError: null,
@@ -222,7 +222,7 @@ export function CatalogConfigTab({ catalog }: Props) {
     setConfirmDiscard(false)
     clearCatalogRunError(catalog.id)
     await getStorage().catalogResults.delete(catalog.id).catch(() => {})
-    setResultCache(null)
+    setResultCache(catalog.id, null)
     await updateCatalog(catalog.id, clearedCatalogPatch({
       status: 'draft',
       lastError: null,

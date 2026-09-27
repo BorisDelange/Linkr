@@ -64,6 +64,8 @@ interface Run {
 
 const runs = new Map<string, Run>()
 const pending = new Map<string, Set<(snapshot: CatalogRunSnapshot) => void>>()
+/** A start asked for while a paused run was still winding down: it begins once that run is gone. */
+const queued = new Map<string, StartCatalogRunInput>()
 
 /**
  * Shortest gap between two progress notifications, in milliseconds.
@@ -133,6 +135,7 @@ export function watchCatalogRun(
 
 /** Stop a catalog's run now: the query in flight is interrupted and its unit redone on resume. */
 export function pauseCatalogRun(catalogId: string): void {
+  queued.delete(catalogId)
   runs.get(catalogId)?.controller.abort()
 }
 
@@ -166,11 +169,16 @@ export interface StartCatalogRunInput {
  * Start (or resume) a catalog's computation.
  *
  * Returns immediately; progress reaches watchers through `watchCatalogRun`. A
- * no-op when a run is already in flight for this catalog.
+ * no-op when a run is already in flight for this catalog — unless that run was
+ * paused and is still landing its last save: the start then waits for it.
  */
 export function startCatalogRun(input: StartCatalogRunInput): void {
   const catalogId = input.catalog.id
-  if (runs.get(catalogId)?.snapshot.running) return
+  const current = runs.get(catalogId)
+  if (current?.snapshot.running) {
+    if (current.controller.signal.aborted) queued.set(catalogId, input)
+    return
+  }
 
   const controller = new AbortController()
   const run: Run = {
@@ -241,6 +249,11 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
     if (run) {
       run.snapshot = { ...IDLE, error }
       if (run.watchers.size === 0 && !error) runs.delete(catalogId)
+    }
+    const next = queued.get(catalogId)
+    if (next) {
+      queued.delete(catalogId)
+      startCatalogRun(next)
     }
   }
 }

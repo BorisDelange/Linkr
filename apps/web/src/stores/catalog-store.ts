@@ -35,7 +35,8 @@ interface CatalogState {
   /** The catalog whose results have been read (found or not); until then they are loading. */
   resultCacheLoadedFor: string | null
   loadResultCache: (catalogId: string) => Promise<void>
-  setResultCache: (cache: CatalogResultCache | null) => void
+  /** Ignored unless `catalogId` is the catalog whose results are loaded: a run outliving its page must not show its counts in another's. */
+  setResultCache: (catalogId: string, cache: CatalogResultCache | null) => void
   startCompute: () => void
   setComputeProgress: (progress: ComputeProgress) => void
   finishCompute: (cache: CatalogResultCache) => void
@@ -183,7 +184,8 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     set({ activeResultCache: cache ?? null, resultCacheLoadedFor: catalogId })
   },
 
-  setResultCache: (cache) => {
+  setResultCache: (catalogId, cache) => {
+    if (get().resultCacheLoadedFor !== catalogId) return
     set({ activeResultCache: cache })
   },
 
