@@ -8,6 +8,14 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `metadata.version` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## 2.1.0 — 2026-09-27
+
+### Added
+- Works when the Linkr MCP server exposes the mapping tools only through its
+  gateway (its default for LibreChat and similar clients): the skill says to call
+  them with `run_linkr_read_tool` / `run_linkr_write_tool` /
+  `run_linkr_delete_tool`, and to read their arguments with `find_linkr_tools`.
+
 ## 2.0.0 — 2026-09-24
 
 ### Changed (breaking)
