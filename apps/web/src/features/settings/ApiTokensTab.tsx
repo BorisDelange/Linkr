@@ -219,9 +219,9 @@ export function ApiTokensTab() {
           title={t('api_tokens.created_title')}
           description={t('api_tokens.created_description', { name: created.name })}
         >
-          <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/5 p-3">
-            <TriangleAlert size={14} className="mt-0.5 shrink-0 text-destructive" />
-            <p className="text-xs text-orange-600 dark:text-orange-400">{t('api_tokens.shown_once_warning')}</p>
+          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+            <TriangleAlert size={14} className="mt-0.5 shrink-0" />
+            <p className="leading-relaxed">{t('api_tokens.shown_once_warning')}</p>
           </div>
           <FormField label={t('api_tokens.key')}>
             {({ id }) => (
