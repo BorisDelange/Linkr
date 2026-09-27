@@ -13,7 +13,6 @@ import {
   Upload,
   FileText,
   FileBarChart,
-  Eye,
   Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -41,7 +40,6 @@ import { CatalogConfigTab } from './CatalogConfigTab'
 import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
 import { CatalogDcatTab } from './CatalogDcatTab'
 import { CatalogExportTab } from './CatalogExportTab'
-import { CatalogPreviewDialog } from './CatalogPreviewDialog'
 import type { CatalogResultCache, DataCatalog } from '@/types'
 
 const TAB_IDS = [
@@ -228,7 +226,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
 
         <TabsContent value="export" forceMount={kept.has('export') || undefined} className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5 data-[state=inactive]:hidden">
           <ResultsGate loaded={resultsLoaded} cache={activeResultCache}>
-            {(cache) => <CatalogExportTab catalog={catalog} cache={cache} onOpenVersioning={() => setActiveTab('versioning')} />}
+            {(cache) => <CatalogExportTab catalog={catalog} cache={cache} active={activeTab === 'export'} onOpenVersioning={() => setActiveTab('versioning')} />}
           </ResultsGate>
         </TabsContent>
       </Tabs>
@@ -444,8 +442,6 @@ function CatalogReportCard({
 }) {
   const { t, i18n } = useTranslation()
   const cache = useCatalogStore((s) => (s.activeResultCache?.catalogId === catalog.id ? s.activeResultCache : null))
-  const [previewOpen, setPreviewOpen] = useState(false)
-
   return (
     <div className="flex min-w-0 shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
       <div className="-my-1 flex items-center justify-between gap-2">
@@ -461,20 +457,13 @@ function CatalogReportCard({
         )}
       </div>
       {cache ? (
-        <>
-          <p className="text-[10px] text-muted-foreground">
-            {t('data_catalog.overview_report_detail', {
-              concepts: cache.totalConcepts.toLocaleString(i18n.language),
-              patients: cache.totalPatients.toLocaleString(i18n.language),
-              date: new Date(cache.computedAt).toLocaleDateString(i18n.language),
-            })}
-          </p>
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPreviewOpen(true)}>
-            <Eye size={14} />
-            {t('data_catalog.export_preview')}
-          </Button>
-          <CatalogPreviewDialog catalog={catalog} cache={cache} open={previewOpen} onOpenChange={setPreviewOpen} />
-        </>
+        <p className="text-[10px] text-muted-foreground">
+          {t('data_catalog.overview_report_detail', {
+            concepts: cache.totalConcepts.toLocaleString(i18n.language),
+            patients: cache.totalPatients.toLocaleString(i18n.language),
+            date: new Date(cache.computedAt).toLocaleDateString(i18n.language),
+          })}
+        </p>
       ) : (
         <button
           type="button"

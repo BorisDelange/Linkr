@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import JSZip from 'jszip'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCatalogStore } from '@/stores/catalog-store'
@@ -10,7 +10,7 @@ import { buildPagesTree, type PagesProvider } from '@/lib/dcat-ap/pages-deployme
 import { clearPagesSite, savePagesSite } from '@/lib/dcat-ap/pages-site-files'
 import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
-import { catalogPageKey, getCachedPage, putCachedPage } from '@/lib/dcat-ap/page-cache'
+import { catalogPageKey, getCachedPage, getDatabaseSchema, putCachedPage } from '@/lib/dcat-ap/page-cache'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 import type { DataCatalog, CatalogResultCache, SchemaMapping } from '@/types'
 
@@ -56,29 +56,26 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
   const updateCatalog = useCatalogStore((s) => s.updateCatalog)
   const [zipLoading, setZipLoading] = useState(false)
   const [siteSaving, setSiteSaving] = useState(false)
-  // The introspected schema is the slow part and does not change within a session.
-  const schemaCache = useRef<IntrospectedTable[] | null>(null)
 
-  const getFullSchema = useCallback(async (): Promise<IntrospectedTable[] | null> => {
-    if (schemaCache.current) return schemaCache.current
+  const getFullSchema = useCallback(() => getDatabaseSchema(catalog.dataSourceId, async () => {
     try {
-      schemaCache.current = await discoverFullSchema(catalog.dataSourceId)
-      return schemaCache.current
+      return await discoverFullSchema(catalog.dataSourceId)
     } catch {
       return null
     }
-  }, [catalog.dataSourceId])
+  }), [catalog.dataSourceId])
 
   const baseName = localized(catalog.name, 'en').replace(/\s+/g, '-').toLowerCase()
 
   /** The page, from the cache when nothing it depends on has changed since it was rendered. */
   const buildHtml = useCallback(async (locale: PageLocale, { reveal = false }: { reveal?: boolean } = {}) => {
     if (!cache) return null
-    const key = catalogPageKey({ catalogUpdatedAt: catalog.updatedAt, computedAt: cache.computedAt, schema: schemaMapping, locale })
+    const fullSchema = await getFullSchema()
+    const key = catalogPageKey({ catalog, computedAt: cache.computedAt, schemaMapping, fullSchema, locale })
     const variant = reveal ? `${locale}:reveal` : locale
     const cached = await getCachedPage(catalog.id, variant, key)
     if (cached) return cached
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale, reveal })
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema, locale, reveal })
     await putCachedPage(catalog.id, variant, key, html)
     return html
   }, [catalog, cache, schemaMapping, getFullSchema])

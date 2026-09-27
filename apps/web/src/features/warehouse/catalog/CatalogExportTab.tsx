@@ -18,13 +18,15 @@ import { CatalogPagesCard } from './CatalogPagesCard'
 interface Props {
   catalog: DataCatalog
   cache: CatalogResultCache
+  /** The tab stays mounted once visited; the preview is only rebuilt while it shows. */
+  active: boolean
   onOpenVersioning?: () => void
 }
 
 /** Each language in its own name, as language pickers show them. */
 const LOCALE_NAMES: Record<PageLocale, string> = { en: 'English', fr: 'Français' }
 
-export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
+export function CatalogExportTab({ catalog, cache, active, onOpenVersioning }: Props) {
   const { t, i18n } = useTranslation()
   const { buildHtml, downloadHtml, downloadZip, zipLoading, publishSite, disableSite, siteSaving } = useCatalogPublish(catalog, cache)
   const [html, setHtml] = useState<string | null>(null)
@@ -36,10 +38,11 @@ export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
   const [reveal, setReveal] = useState(false)
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     void buildHtml(previewLocale, { reveal }).then((h) => { if (!cancelled) setHtml(h) })
     return () => { cancelled = true }
-  }, [buildHtml, previewLocale, reveal])
+  }, [active, buildHtml, previewLocale, reveal])
 
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as 'preview' | 'export')} className="flex h-full min-h-0 w-full flex-col gap-3 py-4">

@@ -94,13 +94,24 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
     set((s) => ({ catalogs: [...s.catalogs, catalog] }))
   },
 
+  // Applied before the save so a toggle answers at once rather than after the
+  // round trip; a failed save puts back what it overwrote.
   updateCatalog: async (id, changes) => {
-    await getStorage().dataCatalogs.update(id, changes)
+    const before = get().catalogs.find((c) => c.id === id)
     set((s) => ({
       catalogs: s.catalogs.map((c) =>
         c.id === id ? { ...c, ...changes, updatedAt: new Date().toISOString() } : c,
       ),
     }))
+    try {
+      await getStorage().dataCatalogs.update(id, changes)
+    } catch (e) {
+      if (before) {
+        const restore = Object.fromEntries(Object.keys(changes).map((k) => [k, before[k as keyof DataCatalog]]))
+        set((s) => ({ catalogs: s.catalogs.map((c) => (c.id === id ? { ...c, ...restore } : c)) }))
+      }
+      throw e
+    }
   },
 
   deleteCatalog: async (id) => {
