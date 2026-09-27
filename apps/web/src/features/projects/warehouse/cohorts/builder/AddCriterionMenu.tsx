@@ -51,7 +51,7 @@ export function AddCriterionMenu({ onAddCriterion, onAddGroup }: AddCriterionMen
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-52">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {t('cohorts.section_criteria')}
         </DropdownMenuLabel>
         <DropdownMenuGroup>
@@ -67,11 +67,11 @@ export function AddCriterionMenu({ onAddCriterion, onAddGroup }: AddCriterionMen
           ))}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {t('cohorts.section_logic')}
         </DropdownMenuLabel>
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={onAddGroup} className="gap-2 text-xs">
+          <DropdownMenuItem onClick={onAddGroup} className="gap-2">
             <FolderTree size={14} />
             {t('cohorts.add_group')}
           </DropdownMenuItem>

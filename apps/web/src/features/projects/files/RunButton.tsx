@@ -112,19 +112,19 @@ export function RunButton({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
-                <DropdownMenuItem onClick={onRunFile} disabled={isDisabled} className="gap-2 text-xs">
+                <DropdownMenuItem onClick={onRunFile} disabled={isDisabled} className="gap-2">
                   <FileCode size={13} className="text-muted-foreground" />
                   {t('files.run_file')}
                   {runFileKey && <DropdownMenuShortcut>{runFileKey}</DropdownMenuShortcut>}
                 </DropdownMenuItem>
                 {/* run_selection_or_line (⌘Enter) covers BOTH: run selection when
                     there's a selection, else the current line — so show it on both. */}
-                <DropdownMenuItem onClick={onRunSelection} disabled={isDisabled} className="gap-2 text-xs">
+                <DropdownMenuItem onClick={onRunSelection} disabled={isDisabled} className="gap-2">
                   <TextSelect size={13} className="text-muted-foreground" />
                   {t('files.run_selection')}
                   {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={onRunLine} disabled={isDisabled} className="gap-2 text-xs">
+                <DropdownMenuItem onClick={onRunLine} disabled={isDisabled} className="gap-2">
                   <CornerDownLeft size={13} className="text-muted-foreground" />
                   {t('files.run_line')}
                   {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
@@ -137,7 +137,7 @@ export function RunButton({
                     <DropdownMenuItem
                       onClick={onRunFileAsJob}
                       disabled={!canRun}
-                      className="gap-2 text-xs"
+                      className="gap-2"
                       title={t('files.run_as_job_hint')}
                     >
                       <Server size={13} className="text-muted-foreground" />

@@ -1434,7 +1434,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
                       </Tooltip>
                       <DropdownMenuContent align="start" className="w-[180px]">
-                        <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+                        <DropdownMenuLabel>{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         {csTable.getAllColumns()
                           .filter((col) => !col.id.startsWith('_'))
@@ -1766,7 +1766,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                             <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
                           </Tooltip>
                           <DropdownMenuContent align="start" className="w-[200px]">
-                            <DropdownMenuLabel className="text-xs">{t('common.columns')}</DropdownMenuLabel>
+                            <DropdownMenuLabel>{t('common.columns')}</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             {browseTable.getAllColumns().map((col) => (
                               <DropdownMenuCheckboxItem

@@ -94,7 +94,7 @@ export function ConnectionDropdown({ projectUid }: { projectUid?: string }) {
       <DropdownMenuContent align="start" className="w-[200px]">
         {warehouseConns.length > 0 && (
           <>
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className="text-muted-foreground">
               {t('connections.warehouse_databases')}
             </DropdownMenuLabel>
             {warehouseConns.map((c) => (
@@ -110,7 +110,7 @@ export function ConnectionDropdown({ projectUid }: { projectUid?: string }) {
         {warehouseConns.length > 0 && customConns.length > 0 && <DropdownMenuSeparator />}
         {customConns.length > 0 && (
           <>
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className="text-muted-foreground">
               {t('connections.custom_connections')}
             </DropdownMenuLabel>
             {customConns.map((c) => (
@@ -138,7 +138,7 @@ function ConnectionMenuItem({
   onSelect: () => void
 }) {
   return (
-    <DropdownMenuItem onClick={onSelect} className="gap-2 py-1 text-xs" title={entry.name}>
+    <DropdownMenuItem onClick={onSelect} className="gap-2 py-1" title={entry.name}>
       <span className={cn('size-1.5 shrink-0 rounded-full', statusDot[entry.status] ?? 'bg-gray-400')} />
       <span className="truncate">{entry.name}</span>
       {isActive && <span className="ml-auto text-primary">✓</span>}

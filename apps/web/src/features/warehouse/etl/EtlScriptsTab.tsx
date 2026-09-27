@@ -676,19 +676,19 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="start">
-                                <DropdownMenuItem onClick={handleRunFile} className="gap-2 text-xs">
+                                <DropdownMenuItem onClick={handleRunFile} className="gap-2">
                                   <FileCode size={13} className="text-muted-foreground" />
                                   {t('etl.run_file')}
                                   {runFileKey && <DropdownMenuShortcut>{runFileKey}</DropdownMenuShortcut>}
                                 </DropdownMenuItem>
                                 {/* One chord (⌘Enter) covers both: selection when there
                                     is one, else the current line — so it shows on both. */}
-                                <DropdownMenuItem onClick={handleRunSelectionOrLine} className="gap-2 text-xs">
+                                <DropdownMenuItem onClick={handleRunSelectionOrLine} className="gap-2">
                                   <TextSelect size={13} className="text-muted-foreground" />
                                   {t('etl.run_selection')}
                                   {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
                                 </DropdownMenuItem>
-                                <DropdownMenuItem onClick={handleRunSelectionOrLine} className="gap-2 text-xs">
+                                <DropdownMenuItem onClick={handleRunSelectionOrLine} className="gap-2">
                                   <CornerDownLeft size={13} className="text-muted-foreground" />
                                   {t('etl.run_line')}
                                   {runLineKey && <DropdownMenuShortcut>{runLineKey}</DropdownMenuShortcut>}
@@ -696,7 +696,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                                 {/* Below the separator sits the whole-pipeline action,
                                     where the IDE puts "run as background job". */}
                                 <DropdownMenuSeparator />
-                                <DropdownMenuItem onClick={handleRunAll} className="gap-2 text-xs">
+                                <DropdownMenuItem onClick={handleRunAll} className="gap-2">
                                   <ListChecks size={13} className="text-muted-foreground" />
                                   {t('etl.run_all')}
                                   <DropdownMenuShortcut>{runAllKey}</DropdownMenuShortcut>

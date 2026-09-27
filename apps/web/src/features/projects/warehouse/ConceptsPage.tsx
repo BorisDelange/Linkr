@@ -623,13 +623,12 @@ export function ConceptsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-[220px]">
-              <DropdownMenuLabel className="text-xs">
+              <DropdownMenuLabel>
                 {t('concepts.list_add_to')}
               </DropdownMenuLabel>
               {projectLists.map((l) => (
                 <DropdownMenuItem
                   key={l.id}
-                  className="text-xs"
                   onClick={() => addToList(l)}
                 >
                   {l.id === activeListId && <Check size={12} className="mr-1" />}
@@ -643,7 +642,6 @@ export function ConceptsPage() {
               ))}
               {projectLists.length > 0 && <DropdownMenuSeparator />}
               <DropdownMenuItem
-                className="text-xs"
                 onClick={() => { setEditingList(null); setEditOpen(true) }}
               >
                 <Plus size={12} className="mr-1" />
