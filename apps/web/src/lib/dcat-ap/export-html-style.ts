@@ -32,6 +32,7 @@ const ICON_PATHS = {
   layers: '<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
   trendingUp: '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
   sigma: '<path d="M18 7V5a1 1 0 0 0-1-1H6.5a.5.5 0 0 0-.4.8l4.5 6a2 2 0 0 1 0 2.4l-4.5 6a.5.5 0 0 0 .4.8H17a1 1 0 0 0 1-1v-2"/>',
+  network: '<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/>',
   fileText: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M10 9H8"/><path d="M16 13H8"/><path d="M16 17H8"/>',
 } as const
 
@@ -175,14 +176,17 @@ code,.mono{font-family:${MONO}}
 .card{background:var(--card);border:1px solid var(--line-soft);border-radius:10px}
 
 .masthead{padding:24px 28px 0;border-bottom:1px solid var(--line-soft)}
-.brand{display:flex;align-items:center;justify-content:center;gap:14px;padding-bottom:14px;border-bottom:2px solid var(--blue)}
-.brand svg{flex-shrink:0}
+.brand{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;padding-bottom:14px;border-bottom:2px solid var(--blue)}
+.brand svg{flex-shrink:0;justify-self:start}
 .brand-t{min-width:0;text-align:center}
 .brand-t .eyebrow{margin-top:3px}
 .eyebrow{font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
 .meta-line{font-size:12px;color:var(--muted);margin-top:2px}
 .masthead h1{font-size:22px;line-height:1.2;color:var(--ink);letter-spacing:-.01em}
 .masthead .desc{font-size:14px;max-width:80ch;color:var(--text);margin:12px auto 0;text-align:center}
+.subtabs{display:flex;justify-content:center;margin-bottom:16px}
+.subtabs .seg button{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 14px}
+.schema-pane[hidden]{display:none}
 .tabs{display:flex;justify-content:center;gap:4px;margin-top:14px;margin-bottom:-1px;overflow-x:auto}
 .tab{display:inline-flex;align-items:center;gap:7px;padding:10px 14px 11px;font-size:13px;font-weight:500;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s}
 .tab:hover{color:var(--ink)}

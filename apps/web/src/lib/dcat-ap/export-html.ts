@@ -19,7 +19,7 @@ import { buildJsonLd } from './jsonld'
 import { mappedTableDocs } from './mapped-tables'
 import { localized } from '@/lib/localized'
 import { DCAT_FIELDS, DCAT_VOCABULARIES, HEALTHDCATAP_RELEASE, HEALTHDCATAP_SPEC_URL, normalizeDcatMetadata, type DcatClass } from './schema'
-import en from '@/locales/en.json'
+import { bundleText, exploreText, fill, PAGE_TEXT, type PageLocale, type PageText } from './page-text'
 import { CATALOG_CSS, icon, type IconName } from './export-html-style'
 import { CATALOG_SCRIPT } from './export-html-script'
 import { mappingColumnRoles, mappingTableTypes, renderSchemaErd, TABLE_TYPE_ICON, type ColumnRole, type TableType } from './export-html-erd'
@@ -30,6 +30,8 @@ export interface ExportHtmlOptions {
   schemaMapping?: SchemaMapping | null
   /** Full introspected schema (all tables + columns from information_schema). */
   fullSchema?: IntrospectedTable[] | null
+  /** Language of the page. Default English. */
+  locale?: PageLocale
 }
 
 type Counted = { patientCount: number; recordCount: number; visitCount?: number }
@@ -47,26 +49,26 @@ function inlineJson(value: unknown): string {
   return JSON.stringify(value).replace(/</g, '\\u003c')
 }
 
-const fmt = (n: number) => n.toLocaleString('en')
-
 export function generateCatalogHtml(opts: ExportHtmlOptions): string {
-  const { catalog, cache, schemaMapping, fullSchema } = opts
+  const { catalog, cache, schemaMapping, fullSchema, locale = 'en' } = opts
+  const T = PAGE_TEXT[locale]
+  const fmt = (n: number) => n.toLocaleString(locale)
   const threshold = catalog.anonymization.threshold
   const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
 
   const concepts = anonymize(cache.concepts, threshold, mode).sort((a, b) => b.patientCount - a.patientCount)
-  const published = buildPublishedCatalog(catalog, cache)
+  const published = buildPublishedCatalog(catalog, cache, { locale })
 
   const metadata = catalog.dcatApMetadata ?? {}
   const jsonLd = JSON.stringify(buildJsonLd({ metadata, schemaMapping, fullSchema, cache, catalog }), null, 2)
 
-  const catalogTitle = (metadata['catalog.title'] as string) || localized(catalog.name, 'en')
-  const catalogDesc = (metadata['catalog.description'] as string) || localized(catalog.description, 'en') || ''
+  const catalogTitle = (metadata['catalog.title'] as string) || localized(catalog.name, locale)
+  const catalogDesc = (metadata['catalog.description'] as string) || localized(catalog.description, locale) || ''
   const publisher = (metadata['publisher.name'] as string) || (metadata['agent.name'] as string) || ''
-  const generated = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  const generated = new Date().toLocaleDateString(locale === 'fr' ? 'fr-FR' : 'en-US', { year: 'numeric', month: 'long', day: 'numeric' })
 
-  const table = buildConceptTable(concepts)
-  const schema = buildSchemaSection(fullSchema, schemaMapping)
+  const table = buildConceptTable(concepts, locale)
+  const schema = buildSchemaSection(fullSchema, schemaMapping, locale)
   const counts = catalogCounts(catalog)
   const totals = {
     patients: cache.totalPatients,
@@ -80,11 +82,11 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
     `<button class="tab${active ? ' active' : ''}" data-tab="${id}" role="tab" aria-selected="${active}">${icon(ico)}${label}${count != null ? `<span class="count num">${fmt(count)}</span>` : ''}</button>`
 
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${locale}">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${esc(catalogTitle)} — Concept catalog</title>
+<title>${esc(catalogTitle)} — ${esc(T.concept_catalog)}</title>
 <script type="application/ld+json">
 ${jsonLd.replace(/</g, '\\u003c')}
 </script>
@@ -93,38 +95,38 @@ ${jsonLd.replace(/</g, '\\u003c')}
 <body>
 <div class="sheet">
   <header class="masthead">
-    <div class="brand">${LINKR_LOGO_SVG}<div class="brand-t"><h1>${esc(catalogTitle)}</h1><div class="eyebrow">Concept catalog</div></div></div>
+    <div class="brand">${LINKR_LOGO_SVG}<div class="brand-t"><h1>${esc(catalogTitle)}</h1><div class="eyebrow">${esc(T.concept_catalog)}</div></div></div>
     ${catalogDesc ? `<p class="desc">${esc(catalogDesc)}</p>` : ''}
     <nav class="tabs" role="tablist">
-      ${tab('explore', 'Explore', 'barChart', undefined, true)}
-      ${tab('metadata', 'Metadata', 'fileText')}
-      ${tab('schema', 'Schema', 'table', schema.tableCount || undefined)}
-      ${tab('info', 'Info', 'info')}
+      ${tab('explore', esc(T.tab_explore), 'barChart', undefined, true)}
+      ${tab('metadata', esc(T.tab_metadata), 'fileText')}
+      ${tab('schema', esc(T.tab_schema), 'table', schema.tableCount || undefined)}
+      ${tab('info', esc(T.tab_info), 'info')}
     </nav>
   </header>
 
   <section id="tab-explore" class="tab-content active">
     <div class="explore">
-      <aside class="card xp-side" id="xp-side" aria-label="Display and filters"></aside>
+      <aside class="card xp-side" id="xp-side" aria-label="${esc(T.side_aria)}"></aside>
       <div class="xp-main" id="xp-main"></div>
     </div>
   </section>
 
   <section id="tab-metadata" class="tab-content">
     <div class="section-head">
-      <h2>Metadata</h2><span class="sub">Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · EHDS Regulation (EU) 2025/327</span><span class="spacer"></span>
-      <button class="btn" id="open-jsonld" type="button" title="View the raw JSON-LD source">${icon('code')}JSON-LD</button>
+      <h2>${esc(T.metadata_title)}</h2><span class="sub">Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · ${esc(T.ehds)}</span><span class="spacer"></span>
+      <button class="btn" id="open-jsonld" type="button" title="${esc(T.jsonld_view)}">${icon('code')}JSON-LD</button>
     </div>
-${buildMetadataHtml(metadata)}
+${buildMetadataHtml(metadata, locale)}
   </section>
 
   <div id="jsonld-overlay" class="overlay" role="dialog" aria-modal="true" aria-labelledby="jsonld-title">
     <div class="dialog">
       <div class="dialog-head">
-        <div class="dialog-title" id="jsonld-title">${icon('code', 16)}JSON-LD source</div>
-        <button class="btn" id="copy-jsonld" type="button">${icon('copy', 13)}<span>Copy</span></button>
-        <button class="btn" id="download-jsonld" type="button">${icon('download', 13)}Download</button>
-        <button class="btn icon-only" id="close-jsonld" type="button" title="Close" aria-label="Close">${icon('x', 16)}</button>
+        <div class="dialog-title" id="jsonld-title">${icon('code', 16)}${esc(T.jsonld_source)}</div>
+        <button class="btn" id="copy-jsonld" type="button">${icon('copy', 13)}<span>${esc(T.copy)}</span></button>
+        <button class="btn" id="download-jsonld" type="button">${icon('download', 13)}${esc(T.download)}</button>
+        <button class="btn icon-only" id="close-jsonld" type="button" title="${esc(T.close)}" aria-label="${esc(T.close)}">${icon('x', 16)}</button>
       </div>
       <pre class="dialog-body"><code id="jsonld-code">${syntaxHighlight(jsonLd)}</code></pre>
     </div>
@@ -132,20 +134,20 @@ ${buildMetadataHtml(metadata)}
 
   <section id="tab-schema" class="tab-content">
     <div class="section-head">
-      <h2>Data schema</h2><span class="sub">${[schemaMapping?.presetLabel ? localized(schemaMapping.presetLabel, 'en') : '', schema.tableCount ? `${schema.tableCount} tables` : ''].filter(Boolean).map(esc).join(' · ') || 'Source warehouse structure'}</span>
+      <h2>${esc(T.schema_title)}</h2><span class="sub">${[schemaMapping?.presetLabel ? localized(schemaMapping.presetLabel, locale) : '', schema.tableCount ? fill(T.schema_tables_n, { n: schema.tableCount }) : ''].filter(Boolean).map(esc).join(' · ') || esc(T.schema_default_sub)}</span>
     </div>
 ${schema.html}
   </section>
 
   <section id="tab-info" class="tab-content">
-${buildInfoHtml({ threshold, mode, counts, crossings: published.crossings.map((c) => c.vars.map((v) => published.variables[v]?.label ?? v)), variables: Object.values(published.variables).map((v) => v!.label) })}
+${buildInfoHtml({ locale, threshold, mode, counts, crossings: published.crossings.map((c) => c.vars.map((v) => published.variables[v]?.label ?? v)), variables: Object.values(published.variables).map((v) => v!.label) })}
   </section>
 
   <footer>
-    <span>${[`Generated on ${generated}`, publisher].filter(Boolean).map(esc).join(' · ')}</span>
-    <span>${icon('shield', 12)}Counts below ${threshold} patients are masked, and cells that would reveal them by subtraction too</span>
-    <span>Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · EHDS Regulation (EU) 2025/327</span>
-    <span>Generated with <a href="${LINKR_DOC_URL}" target="_blank" rel="noopener">Linkr</a></span>
+    <span>${[fill(T.generated_on, { date: generated }), publisher].filter(Boolean).map(esc).join(' · ')}</span>
+    <span>${icon('shield', 12)}${esc(fill(T.footer_mask, { t: threshold }))}</span>
+    <span>Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · ${esc(T.ehds)}</span>
+    <span>${esc(T.generated_with)} <a href="${docUrl(locale)}" target="_blank" rel="noopener">Linkr</a></span>
   </footer>
 </div>
 
@@ -159,9 +161,10 @@ var DATA = ${inlineJson({
   })};
 var META = ${inlineJson({
     fileBase: fileSlug(catalogTitle),
-    conceptNote: icon('shield', 13) + (mode === 'suppress' ? `Concepts with fewer than ${threshold} patients are not listed` : `Counts below ${threshold} patients are shown as &lt; ${threshold}`),
+    conceptNote: icon('shield', 13) + fill(mode === 'suppress' ? T.concept_note_suppress : T.concept_note_replace, { t: threshold }),
   })};
-var L = ${inlineJson({ charts: 'Charts', table: 'Table', download_csv: 'Download as CSV' })};
+var L = ${inlineJson({ ...T, locale })};
+var TX = ${inlineJson(exploreText(locale))};
 var ICONS = ${inlineJson({
     up: icon('arrowUp', 11), down: icon('arrowDown', 11), both: icon('arrowUpDown', 11),
     search: icon('search', 14), x: icon('x', 13), download: icon('download', 13),
@@ -179,11 +182,12 @@ ${CATALOG_SCRIPT}
 // Info
 // ---------------------------------------------------------------------------
 
-const LINKR_DOC_URL = 'https://linkr.interhop.org/en/docs/warehouse/data-catalog'
+const docUrl = (locale: PageLocale) => `https://linkr.interhop.org/${locale === 'fr' ? '' : 'en/'}docs/warehouse/data-catalog`
 const EHDS_URL = 'https://eur-lex.europa.eu/eli/reg/2025/327/oj'
 
 /** What the page is, how its numbers were made and protected, and where to read more. */
-function buildInfoHtml({ threshold, mode, counts, crossings, variables }: {
+function buildInfoHtml({ locale, threshold, mode, counts, crossings, variables }: {
+  locale: PageLocale
   threshold: number
   mode: AnonymizationMode
   counts: CatalogCounts
@@ -193,10 +197,32 @@ function buildInfoHtml({ threshold, mode, counts, crossings, variables }: {
   const multi = crossings.filter((c) => c.length > 1)
   const card = (ico: IconName, title: string, body: string) =>
     `    <div class="card info-card"><div class="meta-card-head">${icon(ico, 15)}${title}</div><div class="info-body">${body}</div></div>`
+  const vars = variables.map((v) => `<b>${esc(v.toLowerCase())}</b>`).join(', ')
+  const crossed = multi.map((c) => esc(c.join(' × '))).join(', ')
+  const spec = `<a href="${HEALTHDCATAP_SPEC_URL}" target="_blank" rel="noopener">Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE}</a>`
+  const linkr = '<a href="https://linkr.interhop.org" target="_blank" rel="noopener">Linkr</a>'
+  if (locale === 'fr') {
+    return [
+      card('bookOpen', 'À propos de ce catalogue', `<p>Cette page décrit le contenu d'un entrepôt de données cliniques sans y donner accès : combien de patients, d'hospitalisations et d'enregistrements il contient, pour quels concepts, sur quelles périodes et quelles populations. Chaque nombre est un effectif agrégé ; aucune ligne concernant un patient ne sort de l'entrepôt.</p>
+<p><b>Explorer</b> permet de lire les effectifs. Choisissez une, deux ou trois variables dans le panneau latéral, filtrez chacune d'elles : graphiques, chiffres clés et tableau suivent. <b>Métadonnées</b> décrit le jeu de données dans le vocabulaire Health-DCAT-AP, et <b>Schéma</b> la structure de l'entrepôt source.</p>`),
+      card('barChart', 'Comment les effectifs sont calculés', `<p>L'entrepôt est compté selon ${vars || 'ses concepts'}. Chaque variable est comptée seule${multi.length ? `, et ces croisements ont été calculés : ${crossed}` : ''}.</p>
+<ul><li>Les <b>patients</b> sont des patients distincts : un patient vu sur deux périodes compte une fois dans chacune, les patients ne s'additionnent donc pas d'une valeur à l'autre d'une variable.</li>
+${counts.visits ? '<li>Les <b>hospitalisations</b> sont les séjours hospitaliers (visites).</li>' : ''}
+${counts.unitStays ? '<li>Les <b>séjours en unité</b> sont les séjours dans une unité de soins au sein de ces hospitalisations.</li>' : ''}
+<li>Les <b>enregistrements</b> sont les lignes d'événements (mesures, médicaments, diagnostics…), comptées quand la variable concept fait partie du croisement.</li>
+<li>La période et l'âge sont pris au début de l'hospitalisation, ou à la date de l'enregistrement.</li></ul>
+<p>Les cellules ne sont jamais additionnées sur cette page : chaque chiffre affiché est une cellule calculée.</p>`),
+      card('shield', 'Anonymisation', `<p>Tout effectif inférieur à <b>${threshold} patients</b> est ${mode === 'suppress' ? 'retiré' : 'masqué (affiché &lt; ' + threshold + ')'}. Cela ne suffit pas quand un total est publié : une cellule cachée pourrait être retrouvée en soustrayant les autres cellules du total. Une cellule de plus de ce groupe est donc masquée (<em>suppression secondaire</em>). Les cellules masquées ne portent aucun nombre dans aucun fichier publié.</p>
+<p>Les périodes avant la première et après la dernière atteignant le seuil sont écartées.</p>`),
+      card('package', 'Standards et fichiers', `<p>Les métadonnées suivent ${spec}, le profil européen de description des jeux de données de santé du <a href="${EHDS_URL}" target="_blank" rel="noopener">règlement sur l'Espace européen des données de santé (UE) 2025/327</a>. Elles sont intégrées à cette page en JSON-LD, lisible par les catalogues et les moteurs de recherche (Métadonnées › JSON-LD).</p>
+<p>Le site publié contient cette page, <code>concepts.csv</code> (une ligne par concept), un CSV par croisement dans <code>crossings/</code>, et <code>metadata.jsonld</code>.</p>`),
+      card('info', 'Réalisé avec Linkr', `<p>Ce catalogue a été calculé et publié avec ${linkr}, une plateforme open source pour les entrepôts de données cliniques. Comment il est configuré et calculé : <a href="${docUrl(locale)}" target="_blank" rel="noopener">documentation Linkr — Catalogue de données</a>.</p>`),
+    ].join('\n')
+  }
   return [
     card('bookOpen', 'About this catalog', `<p>This page describes the content of a clinical data warehouse without giving access to it: how many patients, hospitalizations and records it holds, for which concepts, over which periods and populations. Every number is an aggregate count; no row about a patient ever leaves the warehouse.</p>
 <p><b>Explore</b> reads the counts. Pick one, two or three variables in the sidebar, filter each of them, and the charts, key figures and table follow. <b>Metadata</b> describes the dataset in the Health-DCAT-AP vocabulary, and <b>Schema</b> the structure of the source warehouse.</p>`),
-    card('barChart', 'How the counts are made', `<p>The warehouse is counted along ${variables.length ? variables.map((v) => `<b>${esc(v.toLowerCase())}</b>`).join(', ') : 'its concepts'}. Each variable is counted on its own${multi.length ? `, and these crossings were computed: ${multi.map((c) => esc(c.join(' × '))).join(', ')}` : ''}.</p>
+    card('barChart', 'How the counts are made', `<p>The warehouse is counted along ${vars || 'its concepts'}. Each variable is counted on its own${multi.length ? `, and these crossings were computed: ${crossed}` : ''}.</p>
 <ul><li><b>Patients</b> are distinct patients: one seen in two periods counts once in each, so patients never add up across the values of a variable.</li>
 ${counts.visits ? '<li><b>Hospitalizations</b> are hospital stays (visits).</li>' : ''}
 ${counts.unitStays ? '<li><b>Unit stays</b> are the stays in a care unit within those hospitalizations.</li>' : ''}
@@ -205,9 +231,9 @@ ${counts.unitStays ? '<li><b>Unit stays</b> are the stays in a care unit within 
 <p>Cells are never summed on this page: every figure shown is one computed cell.</p>`),
     card('shield', 'Anonymisation', `<p>Any count below <b>${threshold} patients</b> is ${mode === 'suppress' ? 'removed' : 'masked (shown as &lt; ' + threshold + ')'}. That alone is not enough when a total is published: a hidden cell could be recovered by subtracting the other cells from the total. So one more cell of that group is masked too (<em>secondary suppression</em>). Masked cells carry no number in any published file.</p>
 <p>Periods before the first and after the last one reaching the threshold are left out.</p>`),
-    card('package', 'Standards and files', `<p>The metadata follows <a href="${HEALTHDCATAP_SPEC_URL}" target="_blank" rel="noopener">Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE}</a>, the European profile for describing health datasets under the <a href="${EHDS_URL}" target="_blank" rel="noopener">European Health Data Space regulation (EU) 2025/327</a>. It is embedded in this page as JSON-LD, readable by catalogues and search engines (Metadata › JSON-LD).</p>
+    card('package', 'Standards and files', `<p>The metadata follows ${spec}, the European profile for describing health datasets under the <a href="${EHDS_URL}" target="_blank" rel="noopener">European Health Data Space regulation (EU) 2025/327</a>. It is embedded in this page as JSON-LD, readable by catalogues and search engines (Metadata › JSON-LD).</p>
 <p>The published site holds this page, <code>concepts.csv</code> (one row per concept), one CSV per crossing under <code>crossings/</code>, and <code>metadata.jsonld</code>.</p>`),
-    card('info', 'Made with Linkr', `<p>This catalog was computed and published with <a href="https://linkr.interhop.org" target="_blank" rel="noopener">Linkr</a>, an open-source platform for clinical data warehouses. How it is configured and computed: <a href="${LINKR_DOC_URL}" target="_blank" rel="noopener">Linkr documentation — Data catalog</a>.</p>`),
+    card('info', 'Made with Linkr', `<p>This catalog was computed and published with ${linkr}, an open-source platform for clinical data warehouses. How it is configured and computed: <a href="${docUrl(locale)}" target="_blank" rel="noopener">Linkr documentation — Data catalog</a>.</p>`),
   ].join('\n')
 }
 
@@ -225,19 +251,20 @@ interface ConceptCol {
   className?: string
 }
 
-export function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[]) {
+export function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[], locale: PageLocale = 'en') {
+  const T = PAGE_TEXT[locale]
   const hasDictionary = new Set(concepts.map((r) => r.dictionaryKey).filter(Boolean)).size > 1
   const select = (key: string, label: string): ConceptCol => ({ key, label, type: 'text', filter: 'select', width: 150 })
   const count = (key: string, label: string): ConceptCol => ({ key, label, type: 'number', filter: 'min', width: 130 })
   const cols: ConceptCol[] = [
-    { key: 'conceptId', label: 'Concept ID', type: 'text', filter: 'text', width: 130, className: 'id' },
-    { key: 'conceptName', label: 'Concept name', type: 'text', filter: 'text', width: 380, className: 'name' },
-    ...(hasDictionary ? [select('dictionaryKey', 'Vocabulary')] : []),
-    ...(concepts.some((r) => r.category != null) ? [select('category', 'Category')] : []),
-    ...(concepts.some((r) => r.subcategory != null) ? [select('subcategory', 'Subcategory')] : []),
-    { ...count('patientCount', 'Patients'), className: 'p' },
-    ...(concepts.some((r) => r.visitCount != null) ? [count('visitCount', 'Hospitalizations')] : []),
-    count('recordCount', 'Records'),
+    { key: 'conceptId', label: T.col_concept_id, type: 'text', filter: 'text', width: 130, className: 'id' },
+    { key: 'conceptName', label: T.col_concept_name, type: 'text', filter: 'text', width: 380, className: 'name' },
+    ...(hasDictionary ? [select('dictionaryKey', T.col_vocabulary)] : []),
+    ...(concepts.some((r) => r.category != null) ? [select('category', T.col_category)] : []),
+    ...(concepts.some((r) => r.subcategory != null) ? [select('subcategory', T.col_subcategory)] : []),
+    { ...count('patientCount', T.col_patients), className: 'p' },
+    ...(concepts.some((r) => r.visitCount != null) ? [count('visitCount', T.col_visits)] : []),
+    count('recordCount', T.col_records),
   ]
   const rows = concepts.map((r) => [
     ...cols.map((c) => (r[c.key as keyof CatalogConceptRow] ?? '') as string | number),
@@ -265,10 +292,19 @@ const TYPE_ORDER: TableType[] = ['patient', 'visit', 'concept', 'event']
 
 const anchorId = (table: string) => `tbl-${table.replace(/[^a-zA-Z0-9_-]/g, '_')}`
 
-function mappingRoleLabels(mapping: SchemaMapping): Map<string, string> {
+/** The table roles of `mappedTableDocs`, in French. */
+const ROLE_FR: Record<string, string> = {
+  'Patient demographics': 'Données démographiques des patients',
+  'Visit / encounter records': 'Visites / hospitalisations',
+  'Visit detail / unit stays': 'Séjours en unité',
+  'Clinical notes': 'Notes cliniques',
+  'Concept dictionary': 'Dictionnaire de concepts',
+}
+
+function mappingRoleLabels(mapping: SchemaMapping, locale: PageLocale): Map<string, string> {
   const labels = new Map<string, string>()
   // The first relation reading a table names its role (patient before visit before events).
-  for (const t of mappedTableDocs(mapping)) if (!labels.has(t.table)) labels.set(t.table, t.role)
+  for (const t of mappedTableDocs(mapping)) if (!labels.has(t.table)) labels.set(t.table, locale === 'fr' ? ROLE_FR[t.role] ?? t.role : t.role)
   return labels
 }
 
@@ -283,10 +319,11 @@ function tablesFromMapping(m: SchemaMapping): SchemaTable[] {
   return [...byTable.values()]
 }
 
-function buildSchemaSection(fullSchema?: IntrospectedTable[] | null, mapping?: SchemaMapping | null): { html: string; tableCount: number } {
+function buildSchemaSection(fullSchema: IntrospectedTable[] | null | undefined, mapping: SchemaMapping | null | undefined, locale: PageLocale): { html: string; tableCount: number } {
+  const T: PageText = PAGE_TEXT[locale]
   const types = mapping ? mappingTableTypes(mapping) : new Map<string, TableType>()
   const roles = mapping ? mappingColumnRoles(mapping) : new Map<string, Map<string, ColumnRole>>()
-  const roleLabels = mapping ? mappingRoleLabels(mapping) : new Map<string, string>()
+  const roleLabels = mapping ? mappingRoleLabels(mapping, locale) : new Map<string, string>()
 
   const source: SchemaTable[] = fullSchema?.length
     ? fullSchema.map((t) => ({ name: t.name, columns: t.columns.map((c) => ({ name: c.name, datatype: c.type })) }))
@@ -305,13 +342,13 @@ function buildSchemaSection(fullSchema?: IntrospectedTable[] | null, mapping?: S
 
   const erd = mapping ? renderSchemaErd(mapping, anchorId) : ''
   const erdHtml = erd ? `    <div class="card erd-card">
-      <h3 class="eyebrow">Mapped tables</h3>
+      <h3 class="eyebrow">${esc(T.mapped_tables)}</h3>
       <div class="erd-scroll">${erd}</div>
-      <div class="legend">${TYPE_ORDER.map((t) => `<span><i class="swatch t-${t}"></i>${{ patient: 'Patients', visit: 'Visits', concept: 'Concept dictionaries', event: 'Event tables' }[t]}</span>`).join('')}${(['pk', 'fk', 'value', 'date'] as const).map((r) => `<span><i class="role r-${r}">${r}</i>${{ pk: 'Primary key', fk: 'Foreign key', value: 'Value', date: 'Date' }[r]}</span>`).join('')}<span>Click a table to see all its columns</span></div>
+      <div class="legend">${TYPE_ORDER.map((t) => `<span><i class="swatch t-${t}"></i>${esc(T[`legend_${t}`])}</span>`).join('')}${(['pk', 'fk', 'value', 'date'] as const).map((r) => `<span><i class="role r-${r}">${r}</i>${esc(T[`role_${r}`])}</span>`).join('')}<span>${esc(T.click_table)}</span></div>
     </div>` : ''
 
   if (!tables.length) {
-    return { html: erdHtml || '    <div class="card empty">No schema available.</div>', tableCount: 0 }
+    return { html: erdHtml || `    <div class="card empty">${esc(T.no_schema)}</div>`, tableCount: 0 }
   }
 
   const toc = tables.map((t) =>
@@ -324,18 +361,15 @@ function buildSchemaSection(fullSchema?: IntrospectedTable[] | null, mapping?: S
       `<tr><td class="c-name">${withRoles ? `<span class="role ${c.role ? `r-${c.role}` : 'none'}">${c.role ?? ''}</span>` : ''}<code>${esc(c.name)}</code></td><td class="c-type">${c.datatype ? `<code>${esc(c.datatype)}</code>` : ''}</td></tr>`,
     ).join('')
     return `      <div class="card tbl${t.type ? ` t-${t.type}` : ''}" id="${anchorId(t.name)}">
-        <div class="tbl-head">${icon(t.type ? TABLE_TYPE_ICON[t.type] : 'table', 14)}<span class="tbl-name" title="${esc(t.name)}">${esc(t.name)}</span><span class="tbl-count num">${t.columns.length} col${t.columns.length === 1 ? '' : 's'}</span></div>
+        <div class="tbl-head">${icon(t.type ? TABLE_TYPE_ICON[t.type] : 'table', 14)}<span class="tbl-name" title="${esc(t.name)}">${esc(t.name)}</span><span class="tbl-count num">${t.columns.length} ${esc(t.columns.length === 1 ? T.col_one : T.col_other)}</span></div>
         ${t.role ? `<div class="tbl-role">${esc(t.role)}</div>` : ''}
         <table class="cols"><tbody>${rows}</tbody></table>
       </div>`
   }).join('\n')
 
-  return {
-    tableCount: tables.length,
-    html: `${erdHtml}
-    <div class="schema-layout">
+  const layout = `    <div class="schema-layout">
       <aside class="card toc">
-        <label class="toc-search">${icon('search', 13)}<input type="search" id="toc-filter" class="input" placeholder="Filter tables…" autocomplete="off"></label>
+        <label class="toc-search">${icon('search', 13)}<input type="search" id="toc-filter" class="input" placeholder="${esc(T.filter_tables)}" autocomplete="off"></label>
         <nav class="toc-list">
 ${toc}
         </nav>
@@ -343,6 +377,17 @@ ${toc}
       <div class="schema-main">
 ${cards}
       </div>
+    </div>`
+  if (!erdHtml) return { tableCount: tables.length, html: layout }
+  // The tables first: what a reader looks up; the diagram is the overview.
+  return {
+    tableCount: tables.length,
+    html: `    <div class="subtabs"><div class="seg" id="schema-seg"><button type="button" data-pane="tables" class="active">${icon('table', 13)}${esc(T.schema_tab_tables)}</button><button type="button" data-pane="diagram">${icon('network', 13)}${esc(T.schema_tab_diagram)}</button></div></div>
+    <div class="schema-pane" data-pane="tables">
+${layout}
+    </div>
+    <div class="schema-pane" data-pane="diagram" hidden>
+${erdHtml}
     </div>`,
   }
 }
@@ -351,45 +396,36 @@ ${cards}
 // Metadata
 // ---------------------------------------------------------------------------
 
-const CLASS_LABELS: Record<DcatClass, { title: string; icon: IconName }> = {
-  catalog: { title: 'Catalog', icon: 'folderOpen' },
-  dataset: { title: 'Dataset', icon: 'database' },
-  distribution: { title: 'Distribution', icon: 'package' },
-  agent: { title: 'Contacts and organisations', icon: 'building' },
+const CLASS_ICON: Record<DcatClass, IconName> = {
+  catalog: 'folderOpen',
+  dataset: 'database',
+  distribution: 'package',
+  agent: 'building',
 }
 
 const CLASS_ORDER: DcatClass[] = ['catalog', 'dataset', 'distribution', 'agent']
 
-/** The field's English label — the published page is English, whatever the app's language. */
-// Widened on purpose: handing the JSON's literal type (thousands of keys) to
-// reduce() made every overload check compare against it — minutes of tsc time.
-const EN_BUNDLE: unknown = en
-const enLabel = (labelKey: string): string => {
-  let leaf: unknown = EN_BUNDLE
-  for (const k of labelKey.split('.')) leaf = (leaf as Record<string, unknown> | undefined)?.[k]
-  return typeof leaf === 'string' ? leaf : labelKey
-}
-
-function buildMetadataHtml(raw: Record<string, unknown>): string {
+function buildMetadataHtml(raw: Record<string, unknown>, locale: PageLocale): string {
+  const T = PAGE_TEXT[locale]
+  const label = (key: string) => bundleText(locale, key) ?? bundleText('en', key) ?? key
   const metadata = normalizeDcatMetadata(raw)
   const sections = CLASS_ORDER.flatMap((cls) => {
     const filled = DCAT_FIELDS.filter((f) => f.dcatClass === cls && metadata[f.key] != null && metadata[f.key] !== '')
     if (!filled.length) return []
     const rows = filled.map((f) => `        <div class="meta-row">
-          <div class="meta-label">${esc(enLabel(f.labelKey))}</div>
-          <div class="meta-value">${resolveFieldDisplay(f.key, metadata[f.key], f.type, f.vocabularyKey)}</div>
+          <div class="meta-label">${esc(label(f.labelKey))}</div>
+          <div class="meta-value">${resolveFieldDisplay(f.key, metadata[f.key], f.type, f.vocabularyKey, locale)}</div>
           <div class="meta-uri">${esc(f.uri)}</div>
         </div>`).join('\n')
-    const { title, icon: ico } = CLASS_LABELS[cls]
     return [`    <div class="card meta-card">
-      <div class="meta-card-head">${icon(ico, 15)}${title}</div>
+      <div class="meta-card-head">${icon(CLASS_ICON[cls], 15)}${esc(T[`class_${cls}`])}</div>
 ${rows}
     </div>`]
   })
-  return sections.length ? sections.join('\n') : '    <div class="card empty">No Health-DCAT-AP metadata has been filled in for this catalog.</div>'
+  return sections.length ? sections.join('\n') : `    <div class="card empty">${esc(T.no_metadata)}</div>`
 }
 
-function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?: string): string {
+function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey: string | undefined, locale: PageLocale): string {
   if (vocabKey && DCAT_VOCABULARIES[vocabKey]) {
     const vocab = DCAT_VOCABULARIES[vocabKey]
     const values = typeof raw === 'string'
@@ -397,7 +433,7 @@ function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?:
       : Array.isArray(raw) ? raw.map(String) : [String(raw)]
     return values.map((v) => {
       const opt = vocab.find((o) => o.value === v)
-      return `<span class="pill">${esc(opt ? opt.label : v)}</span>`
+      return `<span class="pill">${esc(opt ? (opt.labelKey && bundleText(locale, opt.labelKey)) || opt.label : v)}</span>`
     }).join('')
   }
 
@@ -414,7 +450,7 @@ function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?:
     return str.split(sep).map((s) => s.trim()).filter(Boolean).map((k) => `<span class="pill">${esc(k)}</span>`).join('')
   }
 
-  if (type === 'boolean') return raw === true || raw === 'true' ? 'Yes' : 'No'
+  if (type === 'boolean') return raw === true || raw === 'true' ? PAGE_TEXT[locale].yes : PAGE_TEXT[locale].no
 
   if (type === 'tags' && Array.isArray(raw)) {
     return raw.map((k) => `<span class="pill">${esc(String(k))}</span>`).join('')
@@ -422,7 +458,7 @@ function resolveFieldDisplay(key: string, raw: unknown, type: string, vocabKey?:
 
   if (type === 'number') {
     const n = Number(raw)
-    return isNaN(n) ? esc(String(raw)) : `<strong class="num">${n.toLocaleString('en')}</strong>`
+    return isNaN(n) ? esc(String(raw)) : `<strong class="num">${n.toLocaleString(locale)}</strong>`
   }
 
   return esc(String(raw))

@@ -19,7 +19,7 @@ import {
   Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -682,13 +682,13 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                         </div>
                         <div className="flex items-center gap-1.5">
                           <Label className="text-[10px] text-muted-foreground">{t('data_quality.custom_threshold')}:</Label>
-                          <Input
-                            type="number"
+                          <NumberInput
+                            integer={false}
                             min={0}
                             max={100}
                             step={5}
                             value={selectedCustomCheck.threshold}
-                            onChange={(e) => updateCustomCheck(selectedCustomCheck.id, { threshold: Number(e.target.value) })}
+                            onValueChange={(threshold) => updateCustomCheck(selectedCustomCheck.id, { threshold })}
                             className="h-6 w-16 text-[13px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           />
                         </div>

@@ -12,6 +12,7 @@ import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, Che
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -2097,13 +2098,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             {/* Max results */}
             <div className="space-y-1">
               <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.search_max_results')}</label>
-              <Input
-                type="number"
+              <NumberInput
                 className="h-7 text-xs"
                 value={searchMaxResults}
                 min={1}
                 max={100000}
-                onChange={(e) => setSearchMaxResults(Math.max(1, parseInt(e.target.value) || 1000))}
+                onValueChange={setSearchMaxResults}
               />
               {searchMaxResults > 10000 && (
                 <p className="text-[10px] text-destructive">{t('concept_mapping.search_max_results_warning')}</p>

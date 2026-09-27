@@ -55,8 +55,8 @@ copyBtn.addEventListener('click', function() {
   var code = $('jsonld-code');
   var done = function() {
     var label = copyBtn.querySelector('span');
-    label.textContent = 'Copied';
-    setTimeout(function() { label.textContent = 'Copy'; }, 1500);
+    label.textContent = L.copied;
+    setTimeout(function() { label.textContent = L.copy; }, 1500);
   };
   // The in-app preview is a sandboxed iframe without clipboard access.
   var fallback = function() {
@@ -72,10 +72,21 @@ copyBtn.addEventListener('click', function() {
   } else fallback();
 });
 
-// ---- Schema: table filter, TOC and diagram navigation ----
+// ---- Schema: tables / diagram, table filter, TOC and diagram navigation ----
+var schemaSeg = $('schema-seg');
+function showPane(name) {
+  if (!schemaSeg) return;
+  each(schemaSeg.querySelectorAll('button'), function(b) { b.classList.toggle('active', b.dataset.pane === name); });
+  each(document.querySelectorAll('.schema-pane'), function(p) { p.hidden = p.dataset.pane !== name; });
+}
+if (schemaSeg) schemaSeg.addEventListener('click', function(e) {
+  var b = e.target.closest('button');
+  if (b) showPane(b.dataset.pane);
+});
 function goToTable(id) {
   var card = $(id);
   if (!card) return;
+  showPane('tables');
   card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   card.classList.add('flash');
   setTimeout(function() { card.classList.remove('flash'); }, 1200);
@@ -122,6 +133,8 @@ document.addEventListener('mousemove', function(e) {
 
 // ---- Explore ----
 var XP = createExplorer(DATA, {
+  text: TX,
+  locale: L.locale,
   fileBase: META.fileBase,
   conceptNote: META.conceptNote,
   dark: function() { return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches); },
@@ -131,7 +144,9 @@ var side = $('xp-side');
 var main = $('xp-main');
 var current = null; // the last view, for chart redraws and CSV buttons
 
-var GROUP_LABEL = { 1: 'One variable', 2: 'Two variables', 3: 'Three variables' };
+var GROUP_LABEL = { 1: L.group_1, 2: L.group_2, 3: L.group_3 };
+/** A page text with its `{name}` placeholders filled. */
+function lx(key, vars) { return L[key].replace(/\{(\w+)\}/g, function(m, k) { return vars && k in vars ? vars[k] : m; }); }
 var ICON_OF = { user: 'user', stethoscope: 'stethoscope', activity: 'activity', tags: 'tags', layers: 'layers', trendingUp: 'trendingUp', barChart: 'barChart', sigma: 'sigma', shield: 'shield', grid: 'table' };
 
 function dot(v) { return '<i class="vdot" style="background:' + VARIABLE_HEX[v] + '"></i>'; }
@@ -152,7 +167,7 @@ function pad2(n) { return (n < 10 ? '0' : '') + n; }
 function lastDay(y, m) { return pad2(new Date(Date.UTC(Number(y), m, 0)).getUTCDate()); }
 
 function crossingPicker() {
-  var h = '<select class="select full" data-act="crossing" aria-label="Variables to show">';
+  var h = '<select class="select full" data-act="crossing" aria-label="' + escHtml(L.variables_aria) + '">';
   XP.options().forEach(function(g) {
     h += '<optgroup label="' + GROUP_LABEL[g.size] + '">' + g.items.map(function(it) {
       return '<option value="' + it.id + '"' + (S.crossing === it.id ? ' selected' : '') + '>' + escHtml(it.vars.map(XP.varLabel).join(' × ')) + '</option>';
@@ -165,9 +180,9 @@ function nominalFilter(v) {
   var vr = V[v], sel = S.sel[v];
   var many = vr.mods.length > 14 || vr.names.some(function(nm) { return nm.length > 24; });
   var h = '<div class="flt"><div class="flt-head">' + dot(v) + '<span>' + escHtml(vr.label) + '</span><span class="spacer"></span>'
-    + (sel ? '<button type="button" class="link" data-act="sel-all" data-v="' + v + '">All</button>' : '')
-    + '<button type="button" class="link" data-act="sel-none" data-v="' + v + '">None</button></div>';
-  if (many) h += '<input type="search" class="input flt-search" data-act="sel-search" data-v="' + v + '" placeholder="Filter…" autocomplete="off">';
+    + (sel ? '<button type="button" class="link" data-act="sel-all" data-v="' + v + '">' + escHtml(L.all) + '</button>' : '')
+    + '<button type="button" class="link" data-act="sel-none" data-v="' + v + '">' + escHtml(L.none) + '</button></div>';
+  if (many) h += '<input type="search" class="input flt-search" data-act="sel-search" data-v="' + v + '" placeholder="' + escHtml(L.filter_ph) + '" autocomplete="off">';
   h += '<div class="' + (many ? 'checks' : 'pills') + '">';
   vr.names.forEach(function(nm, i) {
     var on = !sel || !!sel[i];
@@ -175,30 +190,30 @@ function nominalFilter(v) {
       ? '<label class="check" data-name="' + escHtml(nm.toLowerCase()) + '"><input type="checkbox" data-act="sel" data-v="' + v + '" data-i="' + i + '"' + (on ? ' checked' : '') + '><span>' + escHtml(nm) + '</span></label>'
       : '<button type="button" class="pill-t' + (on ? ' on' : '') + '" style="--vc:' + VARIABLE_HEX[v] + '" data-act="sel" data-v="' + v + '" data-i="' + i + '">' + escHtml(nm) + '</button>';
   });
-  return h + '</div><div class="hint">Keep one value to read the others for it alone.</div></div>';
+  return h + '</div><div class="hint">' + escHtml(L.keep_one_hint) + '</div></div>';
 }
 
 function periodFilter() {
   var vr = V.period, n = vr.mods.length;
   var r = S.range || [0, n - 1];
   var h = '<div class="flt"><div class="flt-head">' + dot('period') + '<span>' + escHtml(vr.label) + '</span><span class="spacer"></span>'
-    + '<div class="seg mini" data-act="pmode"><button type="button" data-v="slider"' + (S.periodMode === 'slider' ? ' class="active"' : '') + '>Slider</button><button type="button" data-v="calendar"' + (S.periodMode === 'calendar' ? ' class="active"' : '') + '>Calendar</button></div></div>';
+    + '<div class="seg mini" data-act="pmode"><button type="button" data-v="slider"' + (S.periodMode === 'slider' ? ' class="active"' : '') + '>' + escHtml(L.slider) + '</button><button type="button" data-v="calendar"' + (S.periodMode === 'calendar' ? ' class="active"' : '') + '>' + escHtml(L.calendar) + '</button></div></div>';
   if (S.periodMode === 'slider') {
     h += '<div class="range"><div class="range-track"><div class="range-fill" id="range-fill"></div></div>'
-      + '<input type="range" min="0" max="' + (n - 1) + '" value="' + r[0] + '" data-act="range" data-end="0" aria-label="First period">'
-      + '<input type="range" min="0" max="' + (n - 1) + '" value="' + r[1] + '" data-act="range" data-end="1" aria-label="Last period"></div>'
+      + '<input type="range" min="0" max="' + (n - 1) + '" value="' + r[0] + '" data-act="range" data-end="0" aria-label="' + escHtml(L.first_period) + '">'
+      + '<input type="range" min="0" max="' + (n - 1) + '" value="' + r[1] + '" data-act="range" data-end="1" aria-label="' + escHtml(L.last_period) + '"></div>'
       + '<div class="range-labels"><span id="range-lo">' + escHtml(vr.names[r[0]]) + '</span><span id="range-hi">' + escHtml(vr.names[r[1]]) + '</span></div>';
   } else {
     var min = periodBounds(vr.mods[0])[0], max = periodBounds(vr.mods[n - 1])[1];
-    h += '<div class="cal"><label><span>From</span><input type="date" class="input" data-act="cal" data-end="0" min="' + min + '" max="' + max + '" value="' + periodBounds(vr.mods[r[0]])[0] + '"></label>'
-      + '<label><span>To</span><input type="date" class="input" data-act="cal" data-end="1" min="' + min + '" max="' + max + '" value="' + periodBounds(vr.mods[r[1]])[1] + '"></label></div>'
-      + '<div class="hint">Whole periods containing these dates are kept.</div>';
+    h += '<div class="cal"><label><span>' + escHtml(L.from) + '</span><input type="date" class="input" data-act="cal" data-end="0" min="' + min + '" max="' + max + '" value="' + periodBounds(vr.mods[r[0]])[0] + '"></label>'
+      + '<label><span>' + escHtml(L.to) + '</span><input type="date" class="input" data-act="cal" data-end="1" min="' + min + '" max="' + max + '" value="' + periodBounds(vr.mods[r[1]])[1] + '"></label></div>'
+      + '<div class="hint">' + escHtml(L.cal_hint) + '</div>';
   }
-  var presets = [['All', 0]];
-  if (n > 12) presets.push(['Last 12', n - 12]);
-  if (n > 5 && vr.granularity === 'year') presets.push(['Last 5', n - 5]);
-  if (n > 24 && vr.granularity === 'month') presets.push(['Last 24', n - 24]);
-  h += '<div class="presets">' + presets.map(function(pr) { return '<button type="button" class="link" data-act="range-preset" data-v="' + pr[1] + '">' + pr[0] + '</button>'; }).join('') + '</div>';
+  var presets = [[L.all, 0]];
+  if (n > 12) presets.push([lx('last_n', { n: 12 }), n - 12]);
+  if (n > 5 && vr.granularity === 'year') presets.push([lx('last_n', { n: 5 }), n - 5]);
+  if (n > 24 && vr.granularity === 'month') presets.push([lx('last_n', { n: 24 }), n - 24]);
+  h += '<div class="presets">' + presets.map(function(pr) { return '<button type="button" class="link" data-act="range-preset" data-v="' + pr[1] + '">' + escHtml(pr[0]) + '</button>'; }).join('') + '</div>';
   return h + '</div>';
 }
 
@@ -207,34 +222,34 @@ function conceptFilter() {
   if (cv && cv.level !== 'concept' && !XP.isListView()) return nominalFilter('concept');
   var cats = XP.conceptCategories();
   var h = '<div class="flt"><div class="flt-head">' + dot('concept') + '<span>' + escHtml(XP.varLabel('concept')) + '</span></div>'
-    + '<input type="search" class="input flt-search" id="concept-q" data-act="cq" placeholder="Search concepts…" value="' + escHtml(S.cq) + '" autocomplete="off">';
-  if (cats.length) h += '<select class="select" data-act="ccat"><option value="">All categories</option>' + cats.map(function(c) { return '<option value="' + escHtml(c) + '"' + (S.ccat === c ? ' selected' : '') + '>' + escHtml(c) + '</option>'; }).join('') + '</select>';
+    + '<input type="search" class="input flt-search" id="concept-q" data-act="cq" placeholder="' + escHtml(L.search_concepts) + '" value="' + escHtml(S.cq) + '" autocomplete="off">';
+  if (cats.length) h += '<select class="select" data-act="ccat"><option value="">' + escHtml(L.all_categories) + '</option>' + cats.map(function(c) { return '<option value="' + escHtml(c) + '"' + (S.ccat === c ? ' selected' : '') + '>' + escHtml(c) + '</option>'; }).join('') + '</select>';
   return h + '</div>';
 }
 
 /** A three-variable crossing shows one value of one of its variables at a time. */
 function pinControl(vars) {
   var vr = V[S.pin];
-  var h = '<div class="flt pin"><div class="flt-head">' + dot(S.pin) + '<span>One value at a time</span></div>'
+  var h = '<div class="flt pin"><div class="flt-head">' + dot(S.pin) + '<span>' + escHtml(L.pin_title) + '</span></div>'
     + '<select class="select" data-act="pin">' + vars.map(function(v) { return '<option value="' + v + '"' + (S.pin === v ? ' selected' : '') + '>' + escHtml(XP.varLabel(v)) + '</option>'; }).join('') + '</select>'
-    + '<select class="select" data-act="pin-val">' + (XP.canUnpin() ? '<option value="">All</option>' : '')
+    + '<select class="select" data-act="pin-val">' + (XP.canUnpin() ? '<option value="">' + escHtml(L.all) + '</option>' : '')
     + vr.names.map(function(nm, i) { return '<option value="' + i + '"' + (S.pinVal === i ? ' selected' : '') + '>' + escHtml(nm) + '</option>'; }).join('') + '</select>'
-    + '<div class="hint">Charts draw two variables; this one is read value by value' + (XP.canUnpin() ? ', or all together.' : '.') + '</div></div>';
+    + '<div class="hint">' + escHtml(XP.canUnpin() ? L.pin_hint_all : L.pin_hint) + '</div></div>';
   return h;
 }
 
 function renderSide() {
   var vars = XP.varsOf(S.crossing);
-  var h = '<div class="xp-sec"><div class="xp-sec-t">Variables</div>' + crossingPicker() + '</div>';
+  var h = '<div class="xp-sec"><div class="xp-sec-t">' + escHtml(L.variables) + '</div>' + crossingPicker() + '</div>';
   var ms = XP.measures();
   if (ms.indexOf(S.metric) === -1) S.metric = 'patients';
   // Patients alone leave nothing to choose; three labels no longer fit side by side.
   if (ms.length === 2) {
-    h += '<div class="xp-sec"><div class="xp-sec-t">Count</div><div class="seg full" data-act="metric">' + ms.map(function(m) {
+    h += '<div class="xp-sec"><div class="xp-sec-t">' + escHtml(L.count) + '</div><div class="seg full" data-act="metric">' + ms.map(function(m) {
       return '<button type="button" data-v="' + m + '"' + (S.metric === m ? ' class="active"' : '') + '>' + escHtml(XP.measureLabel(m)) + '</button>';
     }).join('') + '</div></div>';
   } else if (ms.length > 2) {
-    h += '<div class="xp-sec"><div class="xp-sec-t">Count</div><select class="select full" data-act="metric">' + ms.map(function(m) {
+    h += '<div class="xp-sec"><div class="xp-sec-t">' + escHtml(L.count) + '</div><select class="select full" data-act="metric">' + ms.map(function(m) {
       return '<option value="' + m + '"' + (S.metric === m ? ' selected' : '') + '>' + escHtml(XP.measureLabel(m)) + '</option>';
     }).join('') + '</select></div>';
   }
@@ -244,8 +259,8 @@ function renderSide() {
     if (v === 'concept') return conceptFilter();
     return nominalFilter(v);
   }).join('');
-  h += '<div class="xp-sec"><div class="xp-sec-t">Filters</div>' + filters + '</div>';
-  h += '<button type="button" class="btn full" data-act="reset">' + ICONS.x + 'Reset filters</button>';
+  h += '<div class="xp-sec"><div class="xp-sec-t">' + escHtml(L.filters) + '</div>' + filters + '</div>';
+  h += '<button type="button" class="btn full" data-act="reset">' + ICONS.x + escHtml(L.reset_filters) + '</button>';
   side.innerHTML = h;
   paintRange();
 }
@@ -341,7 +356,7 @@ function kpiHtml(s) {
 function tableOptions(t) {
   if (t.kind === 'concepts') {
     var anonText = function(v, r) { return v == null ? '' : (r._anon ? '< ' : '') + fmt(v); };
-    var anonTitle = function(v, r) { return r._anon ? 'Below the anonymisation threshold' : ''; };
+    var anonTitle = function(v, r) { return r._anon ? L.below_threshold : ''; };
     return Object.assign({}, t, {
       columns: t.columns.map(function(c) { return c.type === 'number' ? Object.assign({ format: anonText, title: anonTitle }, c) : c; }),
       rowClass: function(r) { return r._anon ? 'anon' : ''; },
@@ -417,7 +432,7 @@ window.addEventListener('resize', function() { clearTimeout(resizeTimer); resize
 function createDataTable(container, o) {
   var cols = o.columns, all = o.rows, pinned = o.pinnedRows || [];
   var searchKeys = o.searchKeys || cols.filter(function(c) { return c.type !== 'number'; }).map(function(c) { return c.key; });
-  var noun = o.noun || ['row', 'rows'];
+  var noun = o.noun || [L.row, L.rows];
   var pageSize = o.pageSize || 50, page = 0;
   var sorting = o.initialSort || null;
   var filtered = all;
@@ -427,24 +442,24 @@ function createDataTable(container, o) {
   var widths = cols.map(defaultWidth);
 
   function filterCell(c, i) {
-    var attrs = 'class="f" data-idx="' + i + '" aria-label="Filter ' + escHtml(c.label) + '"';
-    if (c.filter === 'min') return '<input ' + attrs + ' type="number" min="0" placeholder="≥ min">';
-    if (c.filter === 'text') return '<input ' + attrs + ' type="text" placeholder="Filter…">';
+    var attrs = 'class="f" data-idx="' + i + '" aria-label="' + escHtml(lx('filter_col', { c: c.label })) + '"';
+    if (c.filter === 'min') return '<input ' + attrs + ' type="number" min="0" placeholder="' + escHtml(L.min_ph) + '">';
+    if (c.filter === 'text') return '<input ' + attrs + ' type="text" placeholder="' + escHtml(L.filter_ph) + '">';
     if (c.filter !== 'select') return '';
     var values = uniqueSorted(all.map(function(r) { return r[c.key]; }));
-    return '<select ' + attrs + '><option value="">All</option>' + values.map(function(v) { return '<option value="' + escHtml(v) + '">' + escHtml(v) + '</option>'; }).join('') + '</select>';
+    return '<select ' + attrs + '><option value="">' + escHtml(L.all) + '</option>' + values.map(function(v) { return '<option value="' + escHtml(v) + '">' + escHtml(v) + '</option>'; }).join('') + '</select>';
   }
 
   var h = '<div class="dt-toolbar">';
-  if (searchKeys.length) h += '<label class="search">' + ICONS.search + '<input type="search" class="input dt-search" placeholder="' + escHtml(o.searchPlaceholder || 'Search…') + '" autocomplete="off"></label>';
-  h += '<button class="btn dt-clear" type="button" hidden>' + ICONS.x + 'Clear filters</button><span class="spacer"></span>';
+  if (searchKeys.length) h += '<label class="search">' + ICONS.search + '<input type="search" class="input dt-search" placeholder="' + escHtml(o.searchPlaceholder || L.search) + '" autocomplete="off"></label>';
+  h += '<button class="btn dt-clear" type="button" hidden>' + ICONS.x + escHtml(L.clear_filters) + '</button><span class="spacer"></span>';
   if (o.note) h += '<span class="dt-note">' + o.note + '</span>';
-  h += '<button class="btn dt-csv" type="button" title="Download the filtered rows as CSV">' + ICONS.download + 'CSV</button></div>';
+  h += '<button class="btn dt-csv" type="button" title="' + escHtml(L.csv_title) + '">' + ICONS.download + 'CSV</button></div>';
   // The last, width-less column takes the slack, so resizing one column never stretches the others.
   h += '<div class="dt-scroll"><table><colgroup>' + widths.map(function(w) { return '<col style="width:' + w + 'px">'; }).join('') + '<col></colgroup><thead><tr class="head">';
   cols.forEach(function(c, i) {
     h += '<th' + (isRight(c) ? ' class="r"' : '') + ' aria-sort="none"><button class="sort" type="button" data-idx="' + i + '"><span class="lbl">' + escHtml(c.label) + '</span><span class="sort-ico"></span></button>'
-      + '<span class="rz" data-idx="' + i + '" title="Drag to resize, double-click to reset"></span></th>';
+      + '<span class="rz" data-idx="' + i + '" title="' + escHtml(L.drag_resize) + '"></span></th>';
   });
   h += '<th class="fill"></th></tr>';
   if (hasFilters) {
@@ -452,10 +467,10 @@ function createDataTable(container, o) {
     cols.forEach(function(c, i) { h += '<th' + (isRight(c) ? ' class="r"' : '') + '>' + filterCell(c, i) + '</th>'; });
     h += '<th class="fill"></th></tr>';
   }
-  h += '</thead><tbody></tbody></table></div><div class="dt-foot"><span class="num dt-count"></span><span class="spacer"></span><span>Rows per page</span><select class="select dt-size">'
+  h += '</thead><tbody></tbody></table></div><div class="dt-foot"><span class="num dt-count"></span><span class="spacer"></span><span>' + escHtml(L.rows_per_page) + '</span><select class="select dt-size">'
     + [25, 50, 100, 250, 500].map(function(n) { return '<option value="' + n + '"' + (n === pageSize ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select>'
-    + '<button class="btn icon-only dt-prev" type="button" aria-label="Previous page">' + ICONS.left + '</button><span class="page-info num dt-page"></span>'
-    + '<button class="btn icon-only dt-next" type="button" aria-label="Next page">' + ICONS.right + '</button></div>';
+    + '<button class="btn icon-only dt-prev" type="button" aria-label="' + escHtml(L.prev_page) + '">' + ICONS.left + '</button><span class="page-info num dt-page"></span>'
+    + '<button class="btn icon-only dt-next" type="button" aria-label="' + escHtml(L.next_page) + '">' + ICONS.right + '</button></div>';
   container.innerHTML = h;
 
   function q(sel) { return container.querySelector(sel); }
@@ -528,10 +543,10 @@ function createDataTable(container, o) {
     var html = pinned.map(function(r) { return rowHtml(r, 'pinned'); }).join('');
     var slice = filtered.slice(page * pageSize, page * pageSize + pageSize);
     html += slice.map(function(r) { return rowHtml(r, ''); }).join('');
-    if (!slice.length) html += '<tr class="no-rows"><td colspan="' + (cols.length + 1) + '">' + escHtml(o.emptyText || 'No row matches these filters.') + '</td></tr>';
+    if (!slice.length) html += '<tr class="no-rows"><td colspan="' + (cols.length + 1) + '">' + escHtml(o.emptyText || L.no_rows) + '</td></tr>';
     tbody.innerHTML = html;
     var total = all.length, word = function(n) { return n === 1 ? noun[0] : noun[1]; };
-    q('.dt-count').textContent = filtered.length === total ? fmt(total) + ' ' + word(total) : fmt(filtered.length) + ' of ' + fmt(total) + ' ' + word(total);
+    q('.dt-count').textContent = filtered.length === total ? fmt(total) + ' ' + word(total) : lx('n_of_total', { n: fmt(filtered.length), total: fmt(total) }) + ' ' + word(total);
     q('.dt-page').textContent = (page + 1) + ' / ' + pages;
     q('.dt-prev').disabled = page === 0;
     q('.dt-next').disabled = page >= pages - 1;
@@ -604,4 +619,4 @@ function createDataTable(container, o) {
 
 // ---- Start ----
 if (side && main && S.crossing) refresh();
-else if (main) main.innerHTML = '<div class="card empty">Nothing was computed for this catalog.</div>';
+else if (main) main.innerHTML = '<div class="card empty">' + escHtml(L.nothing_computed) + '</div>';

@@ -10,6 +10,8 @@ import { buildPagesTree, type PagesProvider } from '@/lib/dcat-ap/pages-deployme
 import { clearPagesSite, savePagesSite } from '@/lib/dcat-ap/pages-site-files'
 import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
+import { catalogPageKey, getCachedPage, putCachedPage } from '@/lib/dcat-ap/page-cache'
+import type { PageLocale } from '@/lib/dcat-ap/page-text'
 import type { DataCatalog, CatalogResultCache, SchemaMapping } from '@/types'
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -26,20 +28,21 @@ interface PublicationContext {
   cache: CatalogResultCache
   schemaMapping: SchemaMapping | undefined
   fullSchema: IntrospectedTable[] | null
+  locale: PageLocale
 }
 
 /** The files of a published catalog, as the ZIP names them. The Pages site is
  *  built from the same list, so both always carry the same files. */
 function publicationFiles(ctx: PublicationContext): { name: string; content: string }[] {
-  const { catalog, cache, schemaMapping, fullSchema } = ctx
-  const published = buildPublishedCatalog(catalog, cache)
+  const { catalog, cache } = ctx
+  const published = buildPublishedCatalog(catalog, cache, { locale: ctx.locale })
   return [
     { name: 'catalog.html', content: generateCatalogHtml(ctx) },
     { name: 'concepts.csv', content: buildConceptsCsv(cache.concepts, catalog) },
     ...published.crossings.map((c) => ({ name: crossingCsvPath(c.id), content: buildCrossingCsv(published, c) })),
     {
       name: 'metadata.jsonld',
-      content: JSON.stringify(buildJsonLd({ metadata: catalog.dcatApMetadata ?? {}, schemaMapping, cache, catalog, fullSchema }), null, 2),
+      content: JSON.stringify(buildJsonLd({ metadata: catalog.dcatApMetadata ?? {}, schemaMapping: ctx.schemaMapping, cache, catalog, fullSchema: ctx.fullSchema }), null, 2),
     },
   ]
 }
@@ -47,7 +50,8 @@ function publicationFiles(ctx: PublicationContext): { name: string; content: str
 export const PUBLICATION_FILE_NAMES = ['catalog.html', 'concepts.csv', crossingCsvPath('…'), 'metadata.jsonld']
 
 /** Builds the published catalog (standalone HTML, the ZIP with CSVs and JSON-LD,
- *  or the Pages site stored with the catalog) from the computed results. */
+ *  or the Pages site stored with the catalog) from the computed results, in the
+ *  page language each call names. */
 export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCache | null) {
   const schemaMapping = useDataSourceStore((s) => s.dataSources.find((ds) => ds.id === catalog.dataSourceId)?.schemaMapping)
   const updateCatalog = useCatalogStore((s) => s.updateCatalog)
@@ -68,27 +72,32 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
 
   const baseName = localized(catalog.name, 'en').replace(/\s+/g, '-').toLowerCase()
 
-  const buildHtml = useCallback(async () => {
+  /** The page, from the cache when nothing it depends on has changed since it was rendered. */
+  const buildHtml = useCallback(async (locale: PageLocale) => {
     if (!cache) return null
-    const fullSchema = await getFullSchema()
-    return generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema })
+    const key = catalogPageKey({ catalogUpdatedAt: catalog.updatedAt, computedAt: cache.computedAt, schema: schemaMapping, locale })
+    const cached = await getCachedPage(catalog.id, locale, key)
+    if (cached) return cached
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale })
+    await putCachedPage(catalog.id, locale, key, html)
+    return html
   }, [catalog, cache, schemaMapping, getFullSchema])
 
-  const buildFiles = useCallback(async () => {
+  const buildFiles = useCallback(async (locale: PageLocale) => {
     if (!cache) return null
-    const ctx: PublicationContext = { catalog, cache, schemaMapping, fullSchema: await getFullSchema() }
+    const ctx: PublicationContext = { catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale }
     return publicationFiles(ctx)
   }, [catalog, cache, schemaMapping, getFullSchema])
 
-  const downloadHtml = useCallback(async () => {
-    const html = await buildHtml()
+  const downloadHtml = useCallback(async (locale: PageLocale) => {
+    const html = await buildHtml(locale)
     if (html) downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${baseName}-catalog.html`)
   }, [buildHtml, baseName])
 
-  const downloadZip = useCallback(async () => {
+  const downloadZip = useCallback(async (locale: PageLocale) => {
     setZipLoading(true)
     try {
-      const files = await buildFiles()
+      const files = await buildFiles(locale)
       if (!files) return
       const zip = new JSZip()
       for (const f of files) zip.file(f.name, f.content)
@@ -100,10 +109,10 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
 
   /** Renders the site and stores it with the catalog; the next Versioning push
    *  carries it to the repo, whose CI deploys it. */
-  const publishSite = useCallback(async (provider: PagesProvider) => {
+  const publishSite = useCallback(async (provider: PagesProvider, locale: PageLocale) => {
     setSiteSaving(true)
     try {
-      const files = await buildFiles()
+      const files = await buildFiles(locale)
       if (!files) return
       await savePagesSite(getStorage(), catalog, buildPagesTree(files, provider, catalog.gitRemoteConfig?.branch))
       await updateCatalog(catalog.id, { pagesDeployment: { provider, updatedAt: new Date().toISOString() } })

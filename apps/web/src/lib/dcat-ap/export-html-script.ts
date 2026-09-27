@@ -15,7 +15,7 @@ export const EXPLORE_INLINE = EXPLORE_SCRIPT.replace(/^export /gm, '')
  * exactly as displayed, never the number behind them.
  */
 export const TABLE_HELPERS = `
-  function fmt(n) { return Number(n).toLocaleString('en'); }
+  function fmt(n) { return Number(n).toLocaleString(typeof L !== 'undefined' && L.locale ? L.locale : 'en'); }
   function cellText(col, row) {
     var v = row[col.key];
     if (col.format) return col.format(v, row);

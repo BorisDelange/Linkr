@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import type { DataCatalog, CatalogResultCache } from '@/types'
 import { useCatalogPublish } from './use-catalog-publish'
+import { pageLocaleOf } from '@/lib/dcat-ap/page-text'
 
 /** The published HTML catalog, previewed as it will be downloaded. */
 export function CatalogPreviewDialog({
@@ -18,16 +19,17 @@ export function CatalogPreviewDialog({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const locale = pageLocaleOf(i18n.language)
   const { buildHtml, downloadHtml, downloadZip, zipLoading } = useCatalogPublish(catalog, cache)
   const [html, setHtml] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    void buildHtml().then((h) => { if (!cancelled) setHtml(h) })
+    void buildHtml(locale).then((h) => { if (!cancelled) setHtml(h) })
     return () => { cancelled = true }
-  }, [open, buildHtml])
+  }, [open, buildHtml, locale])
 
   return (
     <DialogShell
@@ -41,11 +43,11 @@ export function CatalogPreviewDialog({
       cancelLabel={t('common.close')}
       footerExtra={
         <div className="flex items-center gap-2 sm:mr-auto">
-          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void downloadHtml()}>
+          <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void downloadHtml(locale)}>
             <Download size={14} />
             {t('data_catalog.export_download_html')}
           </Button>
-          <Button variant="outline" size="sm" className="gap-1.5" disabled={zipLoading} onClick={() => void downloadZip()}>
+          <Button variant="outline" size="sm" className="gap-1.5" disabled={zipLoading} onClick={() => void downloadZip(locale)}>
             <Archive size={14} />
             {zipLoading ? t('data_catalog.export_generating') : t('data_catalog.export_download_zip')}
           </Button>

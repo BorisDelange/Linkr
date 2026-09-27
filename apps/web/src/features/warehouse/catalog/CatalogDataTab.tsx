@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
-  Activity, BarChart3, BookOpen, Download, Grid3x3, Layers, RotateCcw, Search, ShieldCheck, Sigma, Stethoscope, Tags, TrendingUp, User,
+  Activity, BarChart3, BookOpen, CalendarDays, Download, Grid3x3, Layers, RotateCcw, Search, ShieldCheck, Sigma, SlidersHorizontal, Stethoscope,
+  Table2, Tags, TrendingUp, User,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
+import { DatePickerField, fromIsoDay } from '@/components/ui/date-picker-field'
+import { MultiSelectFilter, MULTI_SELECT_FORM_TRIGGER } from '@/components/ui/multi-select-filter'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { EmptyState } from '@/components/ui/empty-state'
 import { Input } from '@/components/ui/input'
@@ -15,12 +17,14 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Slider } from '@/components/ui/slider'
 import { StatCard } from '@/components/ui/stat-card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { catalogCounts, OTHER_MODALITY, periodLabel } from '@/lib/data-catalog/config'
+import { catalogCounts } from '@/lib/data-catalog/config'
+import { pageLocaleOf } from '@/lib/dcat-ap/page-text'
 import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
 import { VARIABLE_COLORS } from '@/lib/data-catalog/variable-colors'
 import { createExplorer, EXPLORE_TEXT, type ExploreData, type ExploreTable, type Explorer } from '@/lib/dcat-ap/catalog-explore'
 import { chartCss } from '@/lib/dcat-ap/export-html-style'
 import { buildConceptTable } from '@/lib/dcat-ap/export-html'
+import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { cn } from '@/lib/utils'
 import type { CatalogVariableId } from '@/types/catalog'
 import type { CatalogResultCache, DataCatalog } from '@/types'
@@ -42,9 +46,14 @@ type Row = Record<string, unknown>
  * anything is published.
  */
 
-/** The page's chart styles, mapped to the app's theme. */
-const EXPLORE_STYLE = `.catalog-explore{--card:var(--color-card);--ink:var(--color-foreground);--text:var(--color-foreground);--muted:var(--color-muted-foreground);--line:var(--color-border);--line-soft:var(--color-border);--soft:var(--color-muted);--blue:var(--color-primary);--blue2:var(--color-primary);--accent-soft:color-mix(in srgb,var(--color-primary) 12%,transparent);--hatch:var(--color-muted);--warn:#d97706}
-${chartCss('.catalog-explore')}`
+/**
+ * The page's chart styles, mapped to the app's theme. Scoped to the engine's
+ * own markup (`.xp-v`): the page's variable names (--muted, --card…) are also
+ * the app's theme tokens, and redefining them any wider recolours the app's
+ * components around the charts.
+ */
+const EXPLORE_STYLE = `.xp-v{--card:var(--color-card);--ink:var(--color-foreground);--text:var(--color-foreground);--muted:var(--color-muted-foreground);--line:var(--color-border);--line-soft:var(--color-border);--soft:var(--color-muted);--blue:var(--color-primary);--blue2:var(--color-primary);--accent-soft:color-mix(in srgb,var(--color-primary) 12%,transparent);--hatch:var(--color-muted);--warn:#d97706}
+${chartCss('.xp-v')}`
 
 const STAT_ICON: Record<string, ReactNode> = {
   user: <User size={18} />, stethoscope: <Stethoscope size={18} />, activity: <Activity size={18} />, tags: <Tags size={18} />,
@@ -66,19 +75,11 @@ function useExplorer(catalog: DataCatalog, cache: CatalogResultCache): [Explorer
   const { t, i18n } = useTranslation()
   const explorer = useMemo(() => {
     const threshold = catalog.anonymization.threshold
-    const published = buildPublishedCatalog(catalog, cache, { reveal: true })
-    for (const v of Object.values(published.variables)) {
-      if (!v) continue
-      v.label = v.id === 'concept' && v.level && v.level !== 'concept' ? t(`data_catalog.concept_level_${v.level}`) : t(`data_catalog.var_${v.id}`)
-      v.names = v.mods.map((code, i) => {
-        if (code === OTHER_MODALITY) return t('data_catalog.other_services')
-        if (v.id === 'sex') return t(`data_catalog.sex_${code}`)
-        if (v.id === 'period') return periodLabel(code, i18n.language, v.step ?? 1)
-        return v.names[i]
-      })
-    }
+    // The labels the published page would carry, in the app's language.
+    const locale = pageLocaleOf(i18n.language)
+    const published = buildPublishedCatalog(catalog, cache, { reveal: true, locale })
     const counts = catalogCounts(catalog)
-    const concepts = buildConceptTable(cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold })))
+    const concepts = buildConceptTable(cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold })), locale)
     const data: ExploreData = {
       ...published,
       concepts,
@@ -131,6 +132,12 @@ export function CatalogDataTab({ catalog, cache }: Props) {
       <ExploreSidebar xp={xp} update={update} />
 
       <div className="flex min-w-0 flex-col gap-4" onClick={onChartsClick}>
+        <Tabs value={S.tab} onValueChange={(v) => update((x) => { x.S.tab = v as 'charts' | 'table' })} className="items-center">
+          <TabsList>
+            <TabsTrigger value="charts"><BarChart3 size={14} />{t('data_catalog.xp_tab_charts')}</TabsTrigger>
+            <TabsTrigger value="table"><Table2 size={14} />{t('data_catalog.xp_tab_table')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">{view.title}</h3>
           {view.context.map((c) => (
@@ -138,13 +145,6 @@ export function CatalogDataTab({ catalog, cache }: Props) {
               {`${c.label} : ${c.value}`}
             </span>
           ))}
-          <span className="flex-1" />
-          <Tabs value={S.tab} onValueChange={(v) => update((x) => { x.S.tab = v as 'charts' | 'table' })}>
-            <TabsList className="h-8">
-              <TabsTrigger value="charts" className="text-xs">{t('data_catalog.xp_tab_charts')}</TabsTrigger>
-              <TabsTrigger value="table" className="text-xs">{t('data_catalog.xp_tab_table')}</TabsTrigger>
-            </TabsList>
-          </Tabs>
         </div>
 
         {S.tab === 'charts' && view.stats.length > 0 && (
@@ -154,7 +154,7 @@ export function CatalogDataTab({ catalog, cache }: Props) {
                 key={s.key}
                 className="p-3 shadow-none"
                 icon={STAT_ICON[s.icon] ?? STAT_ICON.activity}
-                iconBg="bg-primary/10 text-primary"
+                iconBg={cn(ENTITY_COLORS.project.bg, ENTITY_COLORS.project.icon)}
                 value={s.value}
                 label={s.label}
                 detail={s.sub ? <span className="text-[10px] text-muted-foreground" title={s.sub}>{s.sub}</span> : undefined}
@@ -176,7 +176,7 @@ export function CatalogDataTab({ catalog, cache }: Props) {
                   {b.sub && <span className="text-[10px] text-muted-foreground">{b.sub}</span>}
                   <span className="flex-1" />
                   {/* Engine-rendered, trusted: the block's own segmented control. */}
-                  {b.head && <span dangerouslySetInnerHTML={{ __html: b.head }} />}
+                  {b.head && <span className="xp-v" dangerouslySetInnerHTML={{ __html: b.head }} />}
                   {b.csv && (
                     <Button variant="outline" size="xs" onClick={() => downloadCsv(b.csv!.name, b.csv!.text())}>
                       <Download />CSV
@@ -214,7 +214,7 @@ function ChartBody({ render }: { render: (width: number) => string }) {
     return () => ro.disconnect()
   }, [])
   // The markup comes from the engine, which escapes every data string it draws.
-  return <div ref={ref} className="min-w-0" dangerouslySetInnerHTML={{ __html: width > 0 ? render(width) : '' }} />
+  return <div ref={ref} className="xp-v min-w-0" dangerouslySetInnerHTML={{ __html: width > 0 ? render(width) : '' }} />
 }
 
 /** The charts' hover tooltips: any element carrying `data-tip` (engine-built, escaped HTML). */
@@ -252,7 +252,7 @@ function DataTips({ root }: { root: React.RefObject<HTMLDivElement | null> }) {
       el.removeEventListener('mouseleave', leave)
     }
   }, [root])
-  return <div ref={tip} className="tip" />
+  return <div className="xp-v"><div ref={tip} className="tip" /></div>
 }
 
 // ── Sidebar ──────────────────────────────────────────────────────
@@ -286,20 +286,12 @@ function ExploreSidebar({ xp, update }: { xp: Explorer; update: (change?: (x: Ex
       {measures.length > 1 && (
         <div className="grid gap-2 border-t pt-3">
           <SectionLabel>{t('data_catalog.xp_count')}</SectionLabel>
-          {measures.length === 2 ? (
-            <Tabs value={measures.includes(S.metric) ? S.metric : 'patients'} onValueChange={(m) => update((x) => { x.S.metric = m as typeof S.metric })}>
-              <TabsList className="h-8 w-full">
-                {measures.map((m) => <TabsTrigger key={m} value={m} className="flex-1 text-xs">{xp.measureLabel(m)}</TabsTrigger>)}
-              </TabsList>
-            </Tabs>
-          ) : (
-            <Select value={measures.includes(S.metric) ? S.metric : 'patients'} onValueChange={(m) => update((x) => { x.S.metric = m as typeof S.metric })}>
-              <SelectTrigger className="h-8 w-full text-xs"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {measures.map((m) => <SelectItem key={m} value={m} className="text-xs">{xp.measureLabel(m)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          )}
+          <Select value={measures.includes(S.metric) ? S.metric : 'patients'} onValueChange={(m) => update((x) => { x.S.metric = m as typeof S.metric })}>
+            <SelectTrigger className="h-8 w-full text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {measures.map((m) => <SelectItem key={m} value={m} className="text-xs">{xp.measureLabel(m)}</SelectItem>)}
+            </SelectContent>
+          </Select>
         </div>
       )}
 
@@ -337,47 +329,23 @@ function NominalFilter({ xp, v, update }: { xp: Explorer; v: CatalogVariableId; 
   const { t } = useTranslation()
   const vr = xp.V[v]!
   const sel = xp.S.sel[v]
-  const [search, setSearch] = useState('')
-  const many = vr.mods.length > 14 || vr.names.some((n) => n.length > 24)
-  const shown = vr.names.map((name, i) => ({ name, i })).filter((m) => !search || m.name.toLowerCase().includes(search.toLowerCase()))
+  const n = vr.mods.length
+  // The engine keeps no selection for "all"; the control keeps none for "no filter".
+  const value = sel ? Object.keys(sel) : []
   return (
     <div className="grid gap-1.5">
-      <FilterHead v={v} label={vr.label}>
-        {sel && <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => update((x) => { delete x.S.sel[v] })}>{t('data_catalog.xp_all')}</button>}
-        <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => update((x) => { x.S.sel[v] = {} })}>{t('data_catalog.xp_none')}</button>
-      </FilterHead>
-      {many && (
-        <div className="relative">
-          <Search size={12} className="absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-7 pl-7 text-xs" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('common.search')} />
-        </div>
-      )}
-      {many ? (
-        <div className="max-h-48 overflow-y-auto rounded-md border p-1">
-          {shown.map((m) => (
-            <label key={m.i} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent">
-              <Checkbox checked={!sel || !!sel[m.i]} onCheckedChange={() => update((x) => x.toggleSel(v, m.i))} />
-              <span className="truncate">{m.name}</span>
-            </label>
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-1">
-          {shown.map((m) => {
-            const on = !sel || !!sel[m.i]
-            return (
-              <button
-                key={m.i}
-                type="button"
-                onClick={() => update((x) => x.toggleSel(v, m.i))}
-                className={cn('h-6 max-w-full truncate rounded-md border px-2 text-[10px] transition-colors', on ? VARIABLE_COLORS[v].badge : 'border-border text-muted-foreground opacity-70 hover:opacity-100')}
-              >
-                {m.name}
-              </button>
-            )
-          })}
-        </div>
-      )}
+      <FilterHead v={v} label={vr.label} />
+      <MultiSelectFilter
+        value={value}
+        options={vr.names.map((name, i) => ({ value: String(i), label: name }))}
+        placeholder={t('data_catalog.xp_all')}
+        triggerClass={MULTI_SELECT_FORM_TRIGGER}
+        showChevron
+        onChange={(next) => update((x) => {
+          if (next.length === 0 || next.length === n) delete x.S.sel[v]
+          else x.S.sel[v] = Object.fromEntries(next.map((i) => [Number(i), true as const]))
+        })}
+      />
     </div>
   )
 }
@@ -417,32 +385,48 @@ function PeriodFilter({ xp, update }: { xp: Explorer; update: (change?: (x: Expl
     if (next[0] > next[1]) next[end === 0 ? 1 : 0] = next[end]
     setRange(next)
   }
+  const calendar = xp.S.periodMode === 'calendar'
+  const preset = !xp.S.range ? 'all' : r[1] === n - 1 && (n - r[0] === 12 || n - r[0] === 5) ? String(n - r[0]) : ''
   return (
     <div className="grid gap-2">
       <FilterHead v="period" label={vr.label}>
-        <Tabs value={xp.S.periodMode} onValueChange={(m) => update((x) => { x.S.periodMode = m as 'slider' | 'calendar' })}>
-          <TabsList className="h-6">
-            <TabsTrigger value="slider" className="px-2 text-[10px]">{t('data_catalog.xp_slider')}</TabsTrigger>
-            <TabsTrigger value="calendar" className="px-2 text-[10px]">{t('data_catalog.xp_calendar')}</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="text-muted-foreground"
+          title={t(calendar ? 'data_catalog.xp_slider' : 'data_catalog.xp_calendar')}
+          aria-label={t(calendar ? 'data_catalog.xp_slider' : 'data_catalog.xp_calendar')}
+          onClick={() => update((x) => { x.S.periodMode = calendar ? 'slider' : 'calendar' })}
+        >
+          {calendar ? <SlidersHorizontal /> : <CalendarDays />}
+        </Button>
       </FilterHead>
-      {xp.S.periodMode === 'slider' ? (
-        <>
-          <Slider min={0} max={Math.max(0, n - 1)} step={1} minStepsBetweenThumbs={0} value={r} onValueChange={(v) => setRange([v[0], v[1]])} />
-          <div className="flex justify-between text-[10px] font-medium"><span>{vr.names[r[0]]}</span><span>{vr.names[r[1]]}</span></div>
-        </>
+      {calendar ? (
+        <div className="grid gap-1.5">
+          {([0, 1] as const).map((end) => (
+            <DatePickerField
+              key={end}
+              value={bounds(vr.mods[r[end]])[end]}
+              onChange={(d) => fromDate(end, d ?? '')}
+              clearable={false}
+              disabledDays={{ before: fromIsoDay(bounds(vr.mods[0])[0])!, after: fromIsoDay(bounds(vr.mods[n - 1])[1])! }}
+            />
+          ))}
+        </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <Input type="date" className="h-7 px-1.5 text-xs" value={bounds(vr.mods[r[0]])[0]} min={bounds(vr.mods[0])[0]} max={bounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(0, e.target.value)} />
-          <Input type="date" className="h-7 px-1.5 text-xs" value={bounds(vr.mods[r[1]])[1]} min={bounds(vr.mods[0])[0]} max={bounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(1, e.target.value)} />
+        <div className="grid gap-1.5">
+          <div className="flex justify-between text-[10px] text-muted-foreground"><span>{vr.names[r[0]]}</span><span>{vr.names[r[1]]}</span></div>
+          <Slider min={0} max={Math.max(0, n - 1)} step={1} minStepsBetweenThumbs={0} value={r} onValueChange={(v) => setRange([v[0], v[1]])} />
         </div>
       )}
-      <div className="flex gap-3">
-        <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setRange([0, n - 1])}>{t('data_catalog.xp_all')}</button>
-        {n > 12 && <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setRange([n - 12, n - 1])}>{t('data_catalog.xp_last', { n: 12 })}</button>}
-        {n > 5 && vr.granularity === 'year' && <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setRange([n - 5, n - 1])}>{t('data_catalog.xp_last', { n: 5 })}</button>}
-      </div>
+      <Select value={preset} onValueChange={(p) => setRange(p === 'all' ? [0, n - 1] : [n - Number(p), n - 1])}>
+        <SelectTrigger className="h-8 w-full text-xs"><SelectValue placeholder={t('data_catalog.xp_custom_range')} /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all" className="text-xs">{t('data_catalog.xp_all_periods')}</SelectItem>
+          {n > 12 && <SelectItem value="12" className="text-xs">{t('data_catalog.xp_last', { n: 12 })}</SelectItem>}
+          {n > 5 && <SelectItem value="5" className="text-xs">{t('data_catalog.xp_last', { n: 5 })}</SelectItem>}
+        </SelectContent>
+      </Select>
     </div>
   )
 }

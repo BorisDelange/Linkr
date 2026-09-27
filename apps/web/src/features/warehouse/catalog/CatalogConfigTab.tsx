@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { Progress } from '@/components/ui/progress'
 import { RunSteps, type RunStepItem } from '@/components/ui/run-steps'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -320,14 +321,13 @@ export function CatalogConfigTab({ catalog }: Props) {
             <div className="grid gap-1.5">
               <Label htmlFor="catalog-period-step">{t('data_catalog.period_step')}</Label>
               <div className="flex items-center gap-2">
-                <Input
+                <NumberInput
                   id="catalog-period-step"
-                  type="number"
                   min={1}
                   value={variables.period?.step ?? 1}
                   disabled={!editable}
                   className="h-8 w-20 text-xs"
-                  onChange={(e) => setVariable('period', { step: Math.max(1, parseInt(e.target.value) || 1) })}
+                  onValueChange={(step) => setVariable('period', { step })}
                 />
                 <span className="text-xs text-muted-foreground">{t(`data_catalog.period_unit_${variables.period?.granularity ?? 'year'}`)}</span>
               </div>
@@ -486,7 +486,8 @@ export function CatalogConfigTab({ catalog }: Props) {
           )}
         </div>
 
-        <Progress value={preparing ? 0 : percent} />
+        {/* A finished computation reads as a full bar, whenever it ran. */}
+        <Progress value={done ? 100 : preparing ? 0 : percent} indicatorClassName={done ? 'bg-foreground' : undefined} />
         {running && <RunSteps steps={runSteps} className="mt-2" />}
 
         {error && (
@@ -809,8 +810,8 @@ function ServiceSettings({
       {config.grouping === 'top' && (
         <div className="flex items-center gap-2 text-xs">
           <span>{t('data_catalog.service_top_keep')}</span>
-          <Input type="number" min={1} value={config.topN} disabled={!canEdit} className="h-8 w-20 text-xs"
-            onChange={(e) => onChange({ topN: Math.max(1, parseInt(e.target.value) || 1) })} />
+          <NumberInput min={1} value={config.topN} disabled={!canEdit} className="h-8 w-20 text-xs"
+            onValueChange={(topN) => onChange({ topN })} />
           <span className="text-muted-foreground">{t('data_catalog.service_top_rest')}</span>
         </div>
       )}
@@ -983,8 +984,8 @@ function ConceptSettings({
                   </SelectContent>
                 </Select>
                 {config.scope === 'top' && (
-                  <Input type="number" min={1} value={config.topN} disabled={!canEdit} className="h-8 w-24 text-xs"
-                    onChange={(e) => onChange({ topN: Math.max(1, parseInt(e.target.value) || 1) })} />
+                  <NumberInput min={1} value={config.topN} disabled={!canEdit} className="h-8 w-24 text-xs"
+                    onValueChange={(topN) => onChange({ topN })} />
                 )}
               </div>
             </div>

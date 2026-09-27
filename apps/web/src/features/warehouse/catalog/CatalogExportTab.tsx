@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button'
 import { FieldInfo } from '@/components/ui/field-info'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PAGE_LOCALES, pageLocaleOf, type PageLocale } from '@/lib/dcat-ap/page-text'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { DataCatalog, CatalogResultCache } from '@/types'
 import { PUBLICATION_FILE_NAMES, useCatalogPublish } from './use-catalog-publish'
@@ -17,17 +20,23 @@ interface Props {
   onOpenVersioning?: () => void
 }
 
+/** Each language in its own name, as language pickers show them. */
+const LOCALE_NAMES: Record<PageLocale, string> = { en: 'English', fr: 'Français' }
+
 export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { buildHtml, downloadHtml, downloadZip, zipLoading, publishSite, disableSite, siteSaving } = useCatalogPublish(catalog, cache)
   const [html, setHtml] = useState<string | null>(null)
   const [view, setView] = useState<'preview' | 'export'>('preview')
+  // The preview follows the app; what leaves the app is in the language picked here.
+  const previewLocale = pageLocaleOf(i18n.language)
+  const [exportLocale, setExportLocale] = useState<PageLocale>(previewLocale)
 
   useEffect(() => {
     let cancelled = false
-    void buildHtml().then((h) => { if (!cancelled) setHtml(h) })
+    void buildHtml(previewLocale).then((h) => { if (!cancelled) setHtml(h) })
     return () => { cancelled = true }
-  }, [buildHtml])
+  }, [buildHtml, previewLocale])
 
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as 'preview' | 'export')} className="flex h-full min-h-0 w-full flex-col gap-3 py-4">
@@ -64,10 +73,18 @@ export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
               <FieldInfo text={t('data_catalog.export_html_description')} />
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <Label htmlFor="catalog-page-locale">{t('data_catalog.export_language')}</Label>
+              <Select value={exportLocale} onValueChange={(v) => setExportLocale(v as PageLocale)}>
+                <SelectTrigger id="catalog-page-locale" className="h-8 w-32 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAGE_LOCALES.map((l) => <SelectItem key={l} value={l} className="text-xs">{LOCALE_NAMES[l]}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <span className="flex-1" />
               <TooltipProvider delayDuration={500}>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <Button size="sm" className="gap-1.5" onClick={() => void downloadZip()} disabled={zipLoading}>
+                    <Button size="sm" className="gap-1.5" onClick={() => void downloadZip(exportLocale)} disabled={zipLoading}>
                       <Archive size={14} />
                       {zipLoading ? t('data_catalog.export_generating') : t('data_catalog.export_download_zip')}
                     </Button>
@@ -77,7 +94,7 @@ export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void downloadHtml()}>
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void downloadHtml(exportLocale)}>
                 <Download size={14} />
                 {t('data_catalog.export_download_html')}
               </Button>
@@ -86,7 +103,7 @@ export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
 
           <CatalogPagesCard
             catalog={catalog}
-            publishSite={publishSite}
+            publishSite={(provider) => publishSite(provider, exportLocale)}
             disableSite={disableSite}
             siteSaving={siteSaving}
             onOpenVersioning={onOpenVersioning}

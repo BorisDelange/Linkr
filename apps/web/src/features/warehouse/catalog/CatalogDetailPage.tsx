@@ -93,6 +93,10 @@ export function CatalogDetailPage({ catalogId }: Props) {
       setReadmeEditing(false)
     }
   }, [activeTab])
+  // Data and Publish are costly to build (every crossing's masks, the whole
+  // page): once opened they stay mounted, hidden, so coming back is instant.
+  const [kept, setKept] = useState<ReadonlySet<TabId>>(new Set())
+  if ((activeTab === 'data' || activeTab === 'export') && !kept.has(activeTab)) setKept(new Set([...kept, activeTab]))
   const navigate = useNavigate()
   const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, loadResultCache, updateCatalog } = useCatalogStore()
   const catalogActions = useCatalogActions()
@@ -213,7 +217,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
           <CatalogConfigTab catalog={catalog} />
         </TabsContent>
 
-        <TabsContent value="data" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
+        <TabsContent value="data" forceMount={kept.has('data') || undefined} className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5 data-[state=inactive]:hidden">
           {activeResultCache ? (
             <CatalogDataTab catalog={catalog} cache={activeResultCache} />
           ) : (
@@ -249,7 +253,7 @@ export function CatalogDetailPage({ catalogId }: Props) {
           <CatalogDcatTab catalog={catalog} cache={activeResultCache} />
         </TabsContent>
 
-        <TabsContent value="export" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
+        <TabsContent value="export" forceMount={kept.has('export') || undefined} className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5 data-[state=inactive]:hidden">
           {activeResultCache ? (
             <CatalogExportTab catalog={catalog} cache={activeResultCache} onOpenVersioning={() => setActiveTab('versioning')} />
           ) : (

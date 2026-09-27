@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { AlertCircle, Database, Info, Loader2, Pause, Play, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -565,15 +565,12 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               label={t('concept_mapping.extract_min_patients')}
               hint={t('concept_mapping.extract_min_patients_hint')}
             />
-            <Input
+            <NumberInput
               id="extract-min-patients"
-              type="number"
               min={0}
               value={options.minPatients}
               disabled={running}
-              onChange={(e) => setOptions((o) => ({
-                ...o, minPatients: Math.max(0, parseInt(e.target.value) || 0),
-              }))}
+              onValueChange={(minPatients) => setOptions((o) => ({ ...o, minPatients }))}
               className="h-8 text-xs"
             />
           </div>
@@ -583,15 +580,12 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               label={t('concept_mapping.extract_min_category')}
               hint={t('concept_mapping.extract_min_category_hint')}
             />
-            <Input
+            <NumberInput
               id="extract-min-category"
-              type="number"
               min={0}
               value={options.minCategoryCount}
               disabled={running}
-              onChange={(e) => setOptions((o) => ({
-                ...o, minCategoryCount: Math.max(0, parseInt(e.target.value) || 0),
-              }))}
+              onValueChange={(minCategoryCount) => setOptions((o) => ({ ...o, minCategoryCount }))}
               className="h-8 text-xs"
             />
           </div>

@@ -1,6 +1,7 @@
 import { CATALOG_VARIABLE_ORDER, type CatalogResultCache, type CatalogVariableId, type DataCatalog, type PeriodGranularity } from '@/types/catalog'
 import { catalogCounts, OTHER_MODALITY, periodLabel, trimPeriods } from './config'
 import { computeCrossingMasks, PUBLISHED, SECONDARY, type CellStatus } from './suppression'
+import type { PageLocale } from '@/lib/dcat-ap/page-text'
 
 /**
  * The catalog's crossings as they may leave the instance: masked, trimmed and
@@ -66,33 +67,46 @@ export interface PublishedCatalog {
   crossings: PublishedCrossing[]
 }
 
-const SEX_NAMES: Record<string, string> = { male: 'Male', female: 'Female', other: 'Other' }
+const LABELS = {
+  en: {
+    concept: 'Concept', concept_category: 'Concept category', concept_subcategory: 'Concept subcategory', period: 'Period',
+    visit_type: 'Visit type', care_unit: 'Care unit', age: 'Age group', sex: 'Gender',
+    male: 'Male', female: 'Female', other: 'Other', all_ages: 'All ages', other_services: 'Other services',
+  },
+  fr: {
+    concept: 'Concept', concept_category: 'Catégorie de concept', concept_subcategory: 'Sous-catégorie de concept', period: 'Période',
+    visit_type: 'Type de visite', care_unit: 'Unité de soins', age: "Tranche d'âge", sex: 'Genre',
+    male: 'Homme', female: 'Femme', other: 'Autre', all_ages: 'Tous âges', other_services: 'Autres services',
+  },
+} satisfies Record<PageLocale, Record<string, string>>
 
 /** '[18;65[' → '18–64', '[90;+∞[' → '90+', '[0;+∞[' → 'All ages'. */
-export function ageDisplayName(label: string): string {
+export function ageDisplayName(label: string, locale: PageLocale = 'en'): string {
   const m = /^\[(\d+);(\d+|\+∞)\[$/.exec(label)
   if (!m) return label
-  if (m[2] === '+∞') return m[1] === '0' ? 'All ages' : `${m[1]}+`
+  if (m[2] === '+∞') return m[1] === '0' ? LABELS[locale].all_ages : `${m[1]}+`
   return `${m[1]}–${Number(m[2]) - 1}`
 }
 
-function variableLabel(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVariableId): string {
+function variableLabel(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVariableId, locale: PageLocale): string {
   const v = catalog.variables
+  const L = LABELS[locale]
   switch (id) {
-    case 'concept': return v.concept?.level === 'category' ? 'Concept category' : v.concept?.level === 'subcategory' ? 'Concept subcategory' : 'Concept'
-    case 'period': return 'Period'
-    case 'service': return v.service?.level === 'visit' ? 'Visit type' : 'Care unit'
-    case 'age': return 'Age group'
-    case 'sex': return 'Gender'
+    case 'concept': return v.concept?.level === 'category' ? L.concept_category : v.concept?.level === 'subcategory' ? L.concept_subcategory : L.concept
+    case 'period': return L.period
+    case 'service': return v.service?.level === 'visit' ? L.visit_type : L.care_unit
+    case 'age': return L.age
+    case 'sex': return L.sex
   }
 }
 
-function modalityName(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVariableId, code: string, cache: CatalogResultCache): string {
-  if (code === OTHER_MODALITY) return id === 'service' ? 'Other services' : 'Other'
+function modalityName(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVariableId, code: string, cache: CatalogResultCache, locale: PageLocale): string {
+  const L = LABELS[locale]
+  if (code === OTHER_MODALITY) return id === 'service' ? L.other_services : L.other
   switch (id) {
-    case 'period': return periodLabel(code, 'en', catalog.variables.period?.step ?? 1)
-    case 'age': return ageDisplayName(code)
-    case 'sex': return SEX_NAMES[code] ?? code
+    case 'period': return periodLabel(code, locale, catalog.variables.period?.step ?? 1)
+    case 'age': return ageDisplayName(code, locale)
+    case 'sex': return code === 'male' || code === 'female' || code === 'other' ? L[code] : code
     case 'concept': return cache.labels?.concept?.[code] ?? code
     default: return code
   }
@@ -122,6 +136,7 @@ const KIND: Record<CatalogVariableId, PublishedVariable['kind']> = {
 export function publishedVariables(
   catalog: Pick<DataCatalog, 'variables' | 'anonymization'>,
   cache: CatalogResultCache,
+  locale: PageLocale = 'en',
 ): PublishedCatalog['variables'] {
   const threshold = catalog.anonymization.threshold
   const crossings = cache.crossings ?? []
@@ -136,10 +151,10 @@ export function publishedVariables(
     if (id === 'period') mods = trimPeriods(mods, new Map(marginal.map((r) => [r.values[0], r.patients])), threshold)
     const variable: PublishedVariable = {
       id,
-      label: variableLabel(catalog, id),
+      label: variableLabel(catalog, id, locale),
       kind: KIND[id],
       mods,
-      names: mods.map((m) => modalityName(catalog, id, m, cache)),
+      names: mods.map((m) => modalityName(catalog, id, m, cache, locale)),
       partition: partitionOf(catalog, id),
     }
     if (id === 'period') {
@@ -161,16 +176,17 @@ export function publishedVariables(
 /**
  * `reveal` keeps the numbers of masked cells, their status unchanged: for the
  * app's Data tab, which shows what the masks hide. Never for a published output.
+ * `locale` is the language of the labels (variables, modalities).
  */
 export function buildPublishedCatalog(
   catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'counts'>,
   cache: CatalogResultCache,
-  { reveal = false }: { reveal?: boolean } = {},
+  { reveal = false, locale = 'en' }: { reveal?: boolean; locale?: PageLocale } = {},
 ): PublishedCatalog {
   const threshold = catalog.anonymization.threshold
   const crossings = cache.crossings ?? []
   const masks = computeCrossingMasks(crossings, threshold)
-  const variables = publishedVariables(catalog, cache)
+  const variables = publishedVariables(catalog, cache, locale)
   const index = new Map<CatalogVariableId, Map<string, number>>()
   for (const v of Object.values(variables)) index.set(v.id, new Map(v.mods.map((m, i) => [m, i])))
 

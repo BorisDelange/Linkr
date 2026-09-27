@@ -28,6 +28,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -1618,13 +1619,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         {/* Max results */}
                         <div className="space-y-1">
                           <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.search_max_results')}</label>
-                          <Input
-                            type="number"
+                          <NumberInput
                             className="h-7 text-xs"
                             value={browseMaxResults}
                             min={1}
                             max={100000}
-                            onChange={(e) => setBrowseMaxResults(Math.max(1, parseInt(e.target.value) || BROWSE_MAX_RESULTS))}
+                            onValueChange={setBrowseMaxResults}
                           />
                           {browseMaxResults > 10000 && (
                             <p className="text-[10px] text-destructive">{t('concept_mapping.search_max_results_warning')}</p>
