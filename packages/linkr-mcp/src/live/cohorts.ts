@@ -6,9 +6,9 @@
 import { classRelation, eventRelations, has } from '@/lib/schema-classes/relations'
 import { fieldRef, specEntries } from '@/lib/schema-classes/spec'
 import { randomUUID } from 'node:crypto'
-import { getNodeLabel } from '@/lib/duckdb/cohort-query'
+import { CUSTOM_SQL_NO_ID, cohortRunError, getNodeLabel } from '@/lib/duckdb/cohort-query'
 import type {
-  CohortLevel, CriteriaGroupNode, CriteriaTreeNode, CriteriaType, SchemaMapping,
+  Cohort, CohortLevel, CriteriaGroupNode, CriteriaTreeNode, CriteriaType, SchemaMapping,
 } from '@/types'
 
 // 'event' stays in the type for cohorts stored before it was withdrawn; it is not offered.
@@ -377,4 +377,15 @@ export function formatRows(rows: Record<string, unknown>[], maxRows: number, max
   }
   if (shown < rows.length) lines.push(`… ${rows.length - shown} more row(s) not shown (${rows.length} total).`)
   return lines.join('\n')
+}
+
+/** What to tell the agent when a cohort's hand-written query returns no id
+ *  column for its level (DuckDB's error names a COLUMNS regex); null for any
+ *  other error. */
+export function customSqlIdHint(cohort: Pick<Cohort, 'customSql' | 'level'>, message: string): string | null {
+  const error = cohortRunError(cohort, message)
+  if (!error.startsWith(`${CUSTOM_SQL_NO_ID}:`)) return null
+  const column = error.slice(CUSTOM_SQL_NO_ID.length + 1)
+  return `The cohort's custom SQL returns no ${column} column. At ${cohort.level} level it must: name the id `
+    + `column ${column} in its SELECT (e.g. SELECT stay_id AS ${column} FROM …). run_sql shows what it returns.`
 }

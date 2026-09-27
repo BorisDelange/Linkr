@@ -3,7 +3,7 @@ import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildCohortCountSql } from '@/lib/duckdb/cohort-query'
 import type { Cohort, CriterionNode } from '@/types'
 import {
-  applyConceptNames, conceptIdsByTable, describeMapping, formatRows, normalizeCriteria, renderTree,
+  applyConceptNames, conceptIdsByTable, customSqlIdHint, describeMapping, formatRows, normalizeCriteria, renderTree,
 } from './cohorts'
 
 const MAPPING = mappingV1ToV2({
@@ -151,5 +151,20 @@ describe('rendering', () => {
     expect(out.split('\n')).toHaveLength(5)
     expect(out).toContain('x y')
     expect(out).toContain('7 more row(s)')
+  })
+})
+
+describe('customSqlIdHint', () => {
+  const duckdb = 'Binder Error: No matching columns found that match regex "(?i)^visit_detail_id$"'
+
+  it('tells the agent which column its custom SQL must return', () => {
+    const hint = customSqlIdHint({ customSql: 'SELECT * FROM measurement', level: 'visit_detail' }, duckdb)
+    expect(hint).toContain('returns no visit_detail_id column')
+    expect(hint).toContain('AS visit_detail_id')
+  })
+
+  it('leaves any other error, and a cohort on its criteria, alone', () => {
+    expect(customSqlIdHint({ customSql: 'SELECT 1', level: 'patient' }, 'Parser Error: syntax error')).toBeNull()
+    expect(customSqlIdHint({ customSql: null, level: 'patient' }, duckdb)).toBeNull()
   })
 })

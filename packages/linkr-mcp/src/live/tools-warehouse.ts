@@ -13,13 +13,27 @@ import { renderReportHtml } from '@/lib/cohort-report/render-html'
 import { DEFAULT_SUPPRESSION_THRESHOLD } from '@/lib/cohort-report/suppress'
 import type { AttritionStep, Cohort, CohortLevel, SchemaMapping } from '@/types'
 import {
-  COHORT_LEVELS, CRITERIA_FORMAT, applyConceptNames, conceptIdsByTable,
+  COHORT_LEVELS, CRITERIA_FORMAT, applyConceptNames, conceptIdsByTable, customSqlIdHint,
   formatRows, normalizeCriteria, renderTree,
 } from './cohorts.js'
 import { REPORT_LANGUAGES, embedReportHtml, reportTranslator, summarizeReport, type ReportLanguage } from './report.js'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, mappingOf, projectDatabases, text, type Server,
+  type ToolResult,
 } from './shared.js'
+import { ApiError } from './api.js'
+
+/** Runs a cohort's queries; a hand-written query that returns no id column for
+ *  its level fails with what to change, not with DuckDB's COLUMNS error. */
+async function withCohortErrors(cohort: Cohort, run: () => Promise<ToolResult>): Promise<ToolResult> {
+  try {
+    return await run()
+  } catch (e) {
+    const hint = customSqlIdHint(cohort, e instanceof ApiError ? e.message : (e as Error).message)
+    if (hint) return failure(hint)
+    throw e
+  }
+}
 
 /** The database a cohort runs on — the one owning it, its own, else the project's
  *  first usable one (as the app does). */
@@ -341,37 +355,7 @@ export function registerWarehouseTools(server: Server): void {
     }),
   }, guard(async ({ cohort_id, sample_rows }) => {
     const cohort = await api.getCohort(cohort_id)
-    const dbId = await cohortDatabase(cohort)
-    const mapping = await mappingOf(dbId)
-    const countSql = buildCohortCountSql(cohort, mapping)
-    if (!countSql) return failure('The criteria produce no runnable query.')
-    const started = Date.now()
-    const total = Number((await api.query(dbId, countSql))[0]?.cnt ?? NaN)
-    if (Number.isNaN(total)) return failure('The count query returned no "cnt" column.')
-
-    const attrition: AttritionStep[] = []
-    let prev = 0
-    for (const step of buildAttritionQueries(cohort, mapping)) {
-      const count = Number((await api.query(dbId, step.sql))[0]?.cnt ?? 0)
-      attrition.push({ nodeId: step.nodeId, label: step.label, count, excluded: step.nodeId === '__total__' ? 0 : prev - count })
-      prev = count
-    }
-    // Rows are patient-level data; aggregates are the default (plan §2: with a
-    // remote model, schema and aggregates only).
-    const n = Math.min(sample_rows ?? 0, 50)
-    const sampleSql = n > 0 ? buildCohortResultsSql(cohort, mapping, n, 0) : null
-    const sample = sampleSql ? await api.query(dbId, sampleSql) : []
-    await api.updateCohort(cohort_id, { resultCount: total, attrition })
-
-    const out = [`"${loc(cohort.name)}": ${total} ${cohort.level}(s) — ${Date.now() - started} ms`]
-    if (attrition.length) {
-      out.push('', 'Attrition:')
-      for (const a of attrition) {
-        out.push(`  ${a.nodeId === '__total__' ? 'All' : a.label}: ${a.count}${a.excluded ? `  (−${a.excluded})` : ''}`)
-      }
-    }
-    if (sample.length) out.push('', 'Sample:', formatRows(sample, n))
-    return text(out.join('\n'))
+    return withCohortErrors(cohort, () => runCohort(cohort, sample_rows))
   }))
 
   server.registerTool('cohort_report', {
@@ -381,8 +365,8 @@ export function registerWarehouseTools(server: Server): void {
       + 'concepts, age / sex / index-date charts, care units, methodology. Runs the cohort fresh (about 30 queries). '
       + 'Returns a text summary for you and the report itself as a UI resource that the chat renders inline: '
       + 'place its marker in your answer where the report should appear, with a short introduction — do not '
-      + 'retype the report. Small counts are suppressed (<threshold). Not available for cohorts with custom SQL '
-      + 'or at event level.',
+      + 'retype the report. Small counts are suppressed (<threshold). With custom SQL, the flowchart has one step for '
+      + 'it and no criteria are listed.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ cohort_id: string; language?: ReportLanguage; include_sql?: boolean; threshold?: number }>({
       type: 'object',
@@ -420,7 +404,7 @@ export function registerWarehouseTools(server: Server): void {
       })
     } catch (e) {
       if (e instanceof CohortReportUnavailable) return failure(t(`cohort_report.unavailable_${e.reason}`))
-      throw e
+      return withCohortErrors(cohort, () => { throw e })
     }
     const html = embedReportHtml(renderReportHtml(model, t, { includeSql: include_sql }))
     return {
@@ -435,4 +419,39 @@ export function registerWarehouseTools(server: Server): void {
       ],
     }
   }))
+}
+
+/** run_cohort's work: count, attrition, a sample, the count saved. */
+async function runCohort(cohort: Cohort, sampleRows: number | undefined): Promise<ToolResult> {
+  const dbId = await cohortDatabase(cohort)
+  const mapping = await mappingOf(dbId)
+  const countSql = buildCohortCountSql(cohort, mapping)
+  if (!countSql) return failure('The criteria produce no runnable query.')
+  const started = Date.now()
+  const total = Number((await api.query(dbId, countSql))[0]?.cnt ?? NaN)
+  if (Number.isNaN(total)) return failure('The count query returned no "cnt" column.')
+
+  const attrition: AttritionStep[] = []
+  let prev = 0
+  for (const step of buildAttritionQueries(cohort, mapping)) {
+    const count = Number((await api.query(dbId, step.sql))[0]?.cnt ?? 0)
+    attrition.push({ nodeId: step.nodeId, label: step.label, count, excluded: step.nodeId === '__total__' ? 0 : prev - count })
+    prev = count
+  }
+  // Rows are patient-level data; aggregates are the default (plan §2: with a
+  // remote model, schema and aggregates only).
+  const n = Math.min(sampleRows ?? 0, 50)
+  const sampleSql = n > 0 ? buildCohortResultsSql(cohort, mapping, n, 0) : null
+  const sample = sampleSql ? await api.query(dbId, sampleSql) : []
+  await api.updateCohort(cohort.id, { resultCount: total, attrition })
+
+  const out = [`"${loc(cohort.name)}": ${total} ${cohort.level}(s) — ${Date.now() - started} ms`]
+  if (attrition.length) {
+    out.push('', 'Attrition:')
+    for (const a of attrition) {
+      out.push(`  ${a.nodeId === '__total__' ? 'All' : a.label}: ${a.count}${a.excluded ? `  (−${a.excluded})` : ''}`)
+    }
+  }
+  if (sample.length) out.push('', 'Sample:', formatRows(sample, n))
+  return text(out.join('\n'))
 }
