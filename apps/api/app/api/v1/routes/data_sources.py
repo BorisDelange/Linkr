@@ -50,6 +50,7 @@ from app.services import (
     concept_stats_cache_service,
     data_source_service,
     database_credential_service,
+    fs_browser,
     notification_service,
     stats_cache_service,
 )
@@ -131,7 +132,10 @@ async def create_data_source(
 ):
     if body.workspace_id is not None:
         await check_workspace_permission(db, body.workspace_id, user, "databases:write")
-    return await data_source_service.create(db, body, user)
+    try:
+        return await data_source_service.create(db, body, user)
+    except fs_browser.FsBrowseError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.post("/test-connection", response_model=TestConnectionResult)
@@ -219,7 +223,10 @@ async def update_data_source(
     db: AsyncSession = Depends(get_db),
 ):
     source = await _load_source(db, source_id, user, "databases:write")
-    return await data_source_service.update(db, source, body, editor_id=user.id)
+    try:
+        return await data_source_service.update(db, source, body, editor_id=user.id)
+    except fs_browser.FsBrowseError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
