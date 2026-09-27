@@ -117,6 +117,11 @@ function CreateFromPresetDialog({
       label: localized(cp.mapping.presetLabel, language),
       ddl: cp.mapping.ddl!,
       mapping: cp.mapping,
+      // Provenance, as a database added from the same preset records it: without
+      // it the new database could not name its schema, nor be updated from it.
+      schemaSource: cp.lineageId
+        ? { lineageId: cp.lineageId, label: cp.mapping.presetLabel, ...(cp.version ? { version: cp.version } : {}) }
+        : undefined,
     }))
 
   const selectedPreset = presetsWithDDL.find((p) => p.id === selectedPresetId)
@@ -139,6 +144,7 @@ function CreateFromPresetDialog({
         description: setLocalized({}, language,
           description.trim() || t('databases.created_from_preset', { preset: selectedPreset.label })),
         schemaMapping: selectedPreset.mapping,
+        schemaSource: selectedPreset.schemaSource,
         ddl: selectedPreset.ddl,
         alias: alias.trim() || undefined,
         managedPath: databaseLocationPath(location),

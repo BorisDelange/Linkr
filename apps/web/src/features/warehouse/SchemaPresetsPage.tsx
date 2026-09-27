@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, Suspense, lazy, useMemo, useRef, useId, createContext, useContext } from 'react'
+import { useState, useEffect, useCallback, Suspense, lazy, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
@@ -87,17 +87,15 @@ import { useContentBadge } from '@/components/versioning/use-content-badge'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useSaveForm } from '@/hooks/use-save-form'
 import { SchemaERD } from './SchemaERD'
+import { MappingEditor } from './schema-mapping/MappingEditor'
+import { mappingTables } from '@/lib/schema-classes/spec'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { DdlERD } from './DdlERD'
 
 const LazyCodeEditor = lazy(() =>
   import('@/components/editor/CodeEditor').then((m) => ({ default: m.CodeEditor }))
 )
-import type {
-  SchemaMapping,
-  ConceptDictionary,
-  EventTable,
-  CustomSchemaPreset,
-} from '@/types/schema-mapping'
+import type { SchemaMapping, CustomSchemaPreset } from '@/types/schema-mapping'
 import type { AuthorDetails } from '@/types/author'
 import type { EntityLicense, LocalizedString, OrganizationInfo, ProjectBadge } from '@/types'
 import type * as Monaco from 'monaco-editor'
@@ -226,779 +224,6 @@ function DdlTableOfContents({
 }
 
 // ---------------------------------------------------------------------------
-// Detail sub-components (read-only view)
-// ---------------------------------------------------------------------------
-
-function DetailRow({ label, value }: { label: string; value: string | undefined }) {
-  if (!value) return null
-  return (
-    <div className="flex items-baseline gap-2 py-0.5">
-      <span className="text-xs text-muted-foreground min-w-[120px] shrink-0">{label}</span>
-      <code className="text-xs font-mono text-foreground">{value}</code>
-    </div>
-  )
-}
-
-function TableSection({
-  title,
-  mapping,
-}: {
-  title: string
-  mapping: Record<string, string | undefined> | undefined
-}) {
-  if (!mapping) return null
-  const entries = Object.entries(mapping).filter(([, v]) => v !== undefined)
-  if (entries.length === 0) return null
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-foreground mb-1">{title}</h5>
-      <div className="rounded-md border bg-muted/30 px-3 py-2">
-        {entries.map(([key, val]) => (
-          <DetailRow key={key} label={formatColumnKey(key)} value={val} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function formatColumnKey(key: string): string {
-  return key
-    .replace(/Column$/, '')
-    .replace(/([A-Z])/g, ' $1')
-    .replace(/^./, (s) => s.toUpperCase())
-    .trim()
-}
-
-function ConceptDictionarySection({ dict }: { dict: ConceptDictionary }) {
-  return (
-    <div className="rounded-md border bg-muted/30 px-3 py-2">
-      <span className="text-xs font-medium text-foreground">{dict.key}</span>
-      <div className="mt-1">
-        {dict.schema && <DetailRow label="Schema" value={dict.schema} />}
-        <DetailRow label="Table" value={dict.table} />
-        <DetailRow label="ID column" value={dict.idColumn} />
-        <DetailRow label="Name column" value={dict.nameColumn} />
-        {dict.codeColumn && <DetailRow label="Code column" value={dict.codeColumn} />}
-        {(dict.terminologyIdColumn ?? dict.vocabularyColumn) && (
-          <DetailRow label="Terminology ID" value={dict.terminologyIdColumn ?? dict.vocabularyColumn} />
-        )}
-        {dict.terminologyNameColumn && <DetailRow label="Terminology name" value={dict.terminologyNameColumn} />}
-        {dict.categoryColumn && <DetailRow label="Category column" value={dict.categoryColumn} />}
-        {dict.subcategoryColumn && <DetailRow label="Subcategory column" value={dict.subcategoryColumn} />}
-        {dict.extraColumns && Object.entries(dict.extraColumns).map(([k, v]) => (
-          <DetailRow key={k} label={`Extra: ${k}`} value={v} />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function EventTableSection({ label, et }: { label: string; et: EventTable }) {
-  return (
-    <div className="rounded-md border bg-muted/30 px-3 py-2">
-      <span className="text-xs font-medium text-foreground">{label}</span>
-      <div className="mt-1">
-        {et.schema && <DetailRow label="Schema" value={et.schema} />}
-        <DetailRow label="Table" value={et.table} />
-        <DetailRow label="Concept ID" value={et.conceptIdColumn} />
-        {et.sourceConceptIdColumn && (
-          <DetailRow label="Source concept ID" value={et.sourceConceptIdColumn} />
-        )}
-        {et.conceptVocabularyColumn && (
-          <DetailRow label="Vocabulary column" value={et.conceptVocabularyColumn} />
-        )}
-        {et.conceptCodeColumn && (
-          <DetailRow label="Code column" value={et.conceptCodeColumn} />
-        )}
-        {et.patientIdColumn && <DetailRow label="Patient ID" value={et.patientIdColumn} />}
-        {et.dateColumn && <DetailRow label="Date column" value={et.dateColumn} />}
-        {et.endDateColumn && <DetailRow label="End date column" value={et.endDateColumn} />}
-        {et.valueColumn && <DetailRow label="Value (numeric)" value={et.valueColumn} />}
-        {et.valueStringColumn && <DetailRow label="Value (string)" value={et.valueStringColumn} />}
-        {et.valueUnitColumn && <DetailRow label="Unit (text)" value={et.valueUnitColumn} />}
-        {et.valueUnitConceptIdColumn && (
-          <DetailRow label="Unit concept ID" value={et.valueUnitConceptIdColumn} />
-        )}
-        {et.routeColumn && <DetailRow label="Route (text)" value={et.routeColumn} />}
-        {et.routeConceptIdColumn && (
-          <DetailRow label="Route concept ID" value={et.routeConceptIdColumn} />
-        )}
-        {et.conceptDictionaryKey && (
-          <DetailRow label="Dictionary" value={et.conceptDictionaryKey} />
-        )}
-      </div>
-    </div>
-  )
-}
-
-function PresetDetail({ mapping }: { mapping: SchemaMapping }) {
-  const { t, i18n } = useTranslation()
-  const description = mapping.description ? localized(mapping.description, i18n.language) : ''
-
-  const hasAnyContent =
-    mapping.patientTable ||
-    mapping.visitTable ||
-    (mapping.conceptTables && mapping.conceptTables.length > 0) ||
-    (mapping.eventTables && Object.keys(mapping.eventTables).length > 0)
-
-  if (!hasAnyContent) {
-    return (
-      <div className="space-y-3 py-2">
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
-        <p className="text-xs text-muted-foreground italic">
-          {t('settings.schema_preset_no_mapping')}
-        </p>
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-4">
-    {description && <p className="text-sm text-muted-foreground">{description}</p>}
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Left column: patient, gender, visit, concept dictionaries */}
-      <div className="space-y-4">
-        <TableSection
-          title={t('settings.schema_preset_patient_table')}
-          mapping={mapping.patientTable as unknown as Record<string, string | undefined>}
-        />
-
-        {mapping.genderValues && (
-          <div>
-            <h5 className="text-xs font-medium text-foreground mb-1">
-              {t('settings.schema_preset_gender_values')}
-            </h5>
-            <div className="rounded-md border bg-muted/30 px-3 py-2">
-              <DetailRow label="Male" value={mapping.genderValues.male} />
-              <DetailRow label="Female" value={mapping.genderValues.female} />
-              {mapping.genderValues.unknown && (
-                <DetailRow label="Unknown" value={mapping.genderValues.unknown} />
-              )}
-            </div>
-          </div>
-        )}
-
-        <TableSection
-          title={t('settings.schema_preset_visit_table')}
-          mapping={mapping.visitTable as unknown as Record<string, string | undefined>}
-        />
-
-        <TableSection
-          title={t('settings.schema_preset_visit_detail_table')}
-          mapping={mapping.visitDetailTable as unknown as Record<string, string | undefined>}
-        />
-
-        <TableSection
-          title={t('settings.schema_preset_death_table')}
-          mapping={mapping.deathTable as unknown as Record<string, string | undefined>}
-        />
-
-        <TableSection
-          title={t('settings.schema_preset_note_table')}
-          mapping={mapping.noteTable as unknown as Record<string, string | undefined>}
-        />
-
-        {mapping.conceptTables && mapping.conceptTables.length > 0 && (
-          <div>
-            <h5 className="text-xs font-medium text-foreground mb-1">
-              {t('settings.schema_preset_concept_dictionaries')}
-            </h5>
-            <div className="space-y-2">
-              {mapping.conceptTables.map((dict) => (
-                <ConceptDictionarySection key={dict.key} dict={dict} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Right column: event tables + known tables */}
-      <div className="space-y-4">
-        {mapping.eventTables && Object.keys(mapping.eventTables).length > 0 && (
-          <div>
-            <h5 className="text-xs font-medium text-foreground mb-1">
-              {t('settings.schema_preset_event_tables')}
-            </h5>
-            <div className="space-y-2">
-              {Object.entries(mapping.eventTables).map(([label, et]) => (
-                <EventTableSection key={label} label={label} et={et} />
-              ))}
-            </div>
-          </div>
-        )}
-
-      </div>
-    </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Inline editor for custom presets
-// ---------------------------------------------------------------------------
-
-/**
- * The schema's table names, offered as completions in every "Table" field.
- *
- * Passed by context rather than threaded through seven editor components: it is
- * ambient reference data, not a prop any of them acts on. `knownTables` still
- * earns its place in the mapping — AddDatabaseDialog reads it to recognise table
- * names in parquet paths — it just has no business being printed as a wall of
- * text in the mapping view.
- */
-const KnownTablesContext = createContext<string[]>([])
-
-function EditableField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  suggestions,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  placeholder?: string
-  /** Offered as completions, not enforced: a schema may hold a table the
-   *  preset's knownTables never listed, and refusing it would be wrong. */
-  suggestions?: string[]
-}) {
-  // A datalist rather than a combobox: the field stays free text, which is what
-  // a mapping needs, and the browser handles filtering.
-  const listId = useId()
-  return (
-    <div className="grid grid-cols-[120px_1fr] items-center gap-2">
-      <Label className="text-xs text-muted-foreground">{label}</Label>
-      <Input
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="h-7 text-xs font-mono"
-        list={suggestions?.length ? listId : undefined}
-      />
-      {suggestions?.length ? (
-        <datalist id={listId}>
-          {suggestions.map((tbl) => (
-            <option key={tbl} value={tbl} />
-          ))}
-        </datalist>
-      ) : null}
-    </div>
-  )
-}
-
-function EditablePatientTable({
-  table,
-  onChange,
-}: {
-  table: SchemaMapping['patientTable']
-  onChange: (t: SchemaMapping['patientTable']) => void
-}) {
-  const knownTables = useContext(KnownTablesContext)
-  const { t } = useTranslation()
-  const val = table ?? { table: '', idColumn: '' }
-
-  const update = (key: string, v: string) => {
-    onChange({ ...val, [key]: v || undefined } as typeof val)
-  }
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_patient_table')}</h5>
-      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
-        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="person" />
-        <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="person_id" />
-        <EditableField label="Birth date" value={val.birthDateColumn ?? ''} onChange={(v) => update('birthDateColumn', v)} placeholder="birth_datetime" />
-        <EditableField label="Birth year" value={val.birthYearColumn ?? ''} onChange={(v) => update('birthYearColumn', v)} placeholder="year_of_birth" />
-        <EditableField label="Anchor age" value={val.anchorAgeColumn ?? ''} onChange={(v) => update('anchorAgeColumn', v)} placeholder="anchor_age" />
-        <EditableField label="Anchor year" value={val.anchorYearColumn ?? ''} onChange={(v) => update('anchorYearColumn', v)} placeholder="anchor_year" />
-        <EditableField label="Gender" value={val.genderColumn ?? ''} onChange={(v) => update('genderColumn', v)} placeholder="gender_concept_id" />
-        <EditableField label="Death date" value={val.deathDateColumn ?? ''} onChange={(v) => update('deathDateColumn', v)} placeholder="dod" />
-      </div>
-    </div>
-  )
-}
-
-function EditableDeathTable({
-  table,
-  onChange,
-}: {
-  table: SchemaMapping['deathTable']
-  onChange: (t: SchemaMapping['deathTable']) => void
-}) {
-  const knownTables = useContext(KnownTablesContext)
-  const { t } = useTranslation()
-  const val = table ?? { table: '', patientIdColumn: '', dateColumn: '' }
-
-  const update = (key: string, v: string) => {
-    onChange({ ...val, [key]: v || undefined } as typeof val)
-  }
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_death_table')}</h5>
-      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
-        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="death" />
-        <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
-        <EditableField label="Date column" value={val.dateColumn} onChange={(v) => update('dateColumn', v)} placeholder="death_datetime" />
-      </div>
-    </div>
-  )
-}
-
-function EditableNoteTable({
-  table,
-  onChange,
-}: {
-  table: SchemaMapping['noteTable']
-  onChange: (t: SchemaMapping['noteTable']) => void
-}) {
-  const knownTables = useContext(KnownTablesContext)
-  const { t } = useTranslation()
-  const val = table ?? { table: '', idColumn: '', patientIdColumn: '', dateColumn: '', textColumn: '' }
-
-  const update = (key: string, v: string) => {
-    onChange({ ...val, [key]: v || undefined } as typeof val)
-  }
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_note_table')}</h5>
-      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
-        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="note" />
-        <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="note_id" />
-        <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
-        <EditableField label="Visit ID" value={val.visitIdColumn ?? ''} onChange={(v) => update('visitIdColumn', v)} placeholder="visit_occurrence_id" />
-        <EditableField label="Date column" value={val.dateColumn} onChange={(v) => update('dateColumn', v)} placeholder="note_datetime" />
-        <EditableField label="Title column" value={val.titleColumn ?? ''} onChange={(v) => update('titleColumn', v)} placeholder="note_title" />
-        <EditableField label="Text column" value={val.textColumn} onChange={(v) => update('textColumn', v)} placeholder="note_text" />
-        <EditableField label="Type column" value={val.typeColumn ?? ''} onChange={(v) => update('typeColumn', v)} placeholder="note_source_value" />
-      </div>
-    </div>
-  )
-}
-
-function EditableVisitTable({
-  table,
-  onChange,
-}: {
-  table: SchemaMapping['visitTable']
-  onChange: (t: SchemaMapping['visitTable']) => void
-}) {
-  const knownTables = useContext(KnownTablesContext)
-  const { t } = useTranslation()
-  const val = table ?? { table: '', idColumn: '', patientIdColumn: '', startDateColumn: '' }
-
-  const update = (key: string, v: string) => {
-    onChange({ ...val, [key]: v || undefined } as typeof val)
-  }
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_visit_table')}</h5>
-      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
-        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_occurrence" />
-        <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="visit_occurrence_id" />
-        <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
-        <EditableField label="Start date" value={val.startDateColumn} onChange={(v) => update('startDateColumn', v)} placeholder="visit_start_datetime" />
-        <EditableField label="End date" value={val.endDateColumn ?? ''} onChange={(v) => update('endDateColumn', v)} placeholder="visit_end_datetime" />
-        <EditableField label="Type column" value={val.typeColumn ?? ''} onChange={(v) => update('typeColumn', v)} placeholder="visit_source_value" />
-      </div>
-    </div>
-  )
-}
-
-function EditableGenderValues({
-  genderValues,
-  onChange,
-}: {
-  genderValues: SchemaMapping['genderValues']
-  onChange: (g: SchemaMapping['genderValues']) => void
-}) {
-  const { t } = useTranslation()
-  const val = genderValues ?? { male: '', female: '' }
-
-  const update = (key: string, v: string) => {
-    onChange({ ...val, [key]: v || undefined } as typeof val)
-  }
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_gender_values')}</h5>
-      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Male" value={val.male} onChange={(v) => update('male', v)} placeholder="8507" />
-        <EditableField label="Female" value={val.female} onChange={(v) => update('female', v)} placeholder="8532" />
-        <EditableField label="Unknown" value={val.unknown ?? ''} onChange={(v) => update('unknown', v)} placeholder="0" />
-      </div>
-    </div>
-  )
-}
-
-function EditableEventTable({
-  label,
-  et,
-  onLabelChange,
-  onTableChange,
-  onRemove,
-}: {
-  label: string
-  et: EventTable
-  onLabelChange: (newLabel: string) => void
-  onTableChange: (et: EventTable) => void
-  onRemove: () => void
-}) {
-  const knownTables = useContext(KnownTablesContext)
-  const update = (key: string, v: string) => {
-    onTableChange({ ...et, [key]: v || undefined } as EventTable)
-  }
-
-  return (
-    <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1.5">
-      <div className="flex items-center gap-2">
-        <Input
-          value={label}
-          onChange={(e) => onLabelChange(e.target.value)}
-          className="h-7 text-xs font-medium flex-1"
-          placeholder="Event table label"
-        />
-        <Button variant="ghost" size="icon-sm" onClick={onRemove}>
-          <X size={12} />
-        </Button>
-      </div>
-      <EditableField label="Schema" value={et.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
-      <EditableField suggestions={knownTables} label="Table" value={et.table} onChange={(v) => update('table', v)} placeholder="measurement" />
-      <EditableField label="Concept ID" value={et.conceptIdColumn} onChange={(v) => update('conceptIdColumn', v)} placeholder="measurement_concept_id" />
-      <EditableField label="Source ID" value={et.sourceConceptIdColumn ?? ''} onChange={(v) => update('sourceConceptIdColumn', v)} />
-      <EditableField label="Patient ID" value={et.patientIdColumn ?? ''} onChange={(v) => update('patientIdColumn', v)} />
-      <EditableField label="Date" value={et.dateColumn ?? ''} onChange={(v) => update('dateColumn', v)} />
-      <EditableField label="End date" value={et.endDateColumn ?? ''} onChange={(v) => update('endDateColumn', v)} placeholder="drug_exposure_end_datetime" />
-      <EditableField label="Value (num)" value={et.valueColumn ?? ''} onChange={(v) => update('valueColumn', v)} placeholder="value_as_number" />
-      <EditableField label="Value (str)" value={et.valueStringColumn ?? ''} onChange={(v) => update('valueStringColumn', v)} placeholder="value_as_string" />
-      <EditableField label="Unit (text)" value={et.valueUnitColumn ?? ''} onChange={(v) => update('valueUnitColumn', v)} placeholder="unit_source_value" />
-      <EditableField label="Unit concept ID" value={et.valueUnitConceptIdColumn ?? ''} onChange={(v) => update('valueUnitConceptIdColumn', v)} placeholder="unit_concept_id" />
-      <EditableField label="Route (text)" value={et.routeColumn ?? ''} onChange={(v) => update('routeColumn', v)} placeholder="route_source_value" />
-      <EditableField label="Route concept ID" value={et.routeConceptIdColumn ?? ''} onChange={(v) => update('routeConceptIdColumn', v)} placeholder="route_concept_id" />
-      <EditableField label="Dictionary" value={et.conceptDictionaryKey ?? ''} onChange={(v) => update('conceptDictionaryKey', v)} placeholder="none" />
-    </div>
-  )
-}
-
-function EditableVisitDetailTable({
-  table,
-  onChange,
-}: {
-  table: SchemaMapping['visitDetailTable']
-  onChange: (t: SchemaMapping['visitDetailTable']) => void
-}) {
-  const knownTables = useContext(KnownTablesContext)
-  const { t } = useTranslation()
-  const val = table ?? { table: '', idColumn: '', visitIdColumn: '', patientIdColumn: '', startDateColumn: '' }
-
-  const update = (key: string, v: string) => {
-    onChange({ ...val, [key]: v || undefined } as typeof val)
-  }
-
-  return (
-    <div>
-      <h5 className="text-xs font-medium text-foreground mb-2">{t('settings.schema_preset_visit_detail_table')}</h5>
-      <div className="space-y-1.5 rounded-md border bg-muted/30 px-3 py-2">
-        <EditableField label="Schema" value={val.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
-        <EditableField suggestions={knownTables} label="Table" value={val.table} onChange={(v) => update('table', v)} placeholder="visit_detail" />
-        <EditableField label="ID column" value={val.idColumn} onChange={(v) => update('idColumn', v)} placeholder="visit_detail_id" />
-        <EditableField label="Hospitalization ID" value={val.visitIdColumn} onChange={(v) => update('visitIdColumn', v)} placeholder="visit_occurrence_id" />
-        <EditableField label="Patient ID" value={val.patientIdColumn} onChange={(v) => update('patientIdColumn', v)} placeholder="person_id" />
-        <EditableField label="Start date" value={val.startDateColumn} onChange={(v) => update('startDateColumn', v)} placeholder="visit_detail_start_datetime" />
-        <EditableField label="End date" value={val.endDateColumn ?? ''} onChange={(v) => update('endDateColumn', v)} placeholder="visit_detail_end_datetime" />
-        <EditableField label="Unit column" value={val.unitColumn ?? ''} onChange={(v) => update('unitColumn', v)} placeholder="care_site_id" />
-        <EditableField label="Unit name table" value={val.unitNameTable ?? ''} onChange={(v) => update('unitNameTable', v)} placeholder="care_site" />
-        <EditableField label="Unit name ID" value={val.unitNameIdColumn ?? ''} onChange={(v) => update('unitNameIdColumn', v)} placeholder="care_site_id" />
-        <EditableField label="Unit name column" value={val.unitNameColumn ?? ''} onChange={(v) => update('unitNameColumn', v)} placeholder="care_site_name" />
-      </div>
-    </div>
-  )
-}
-
-function EditableExtraColumns({
-  extraColumns,
-  onChange,
-}: {
-  extraColumns: Record<string, string> | undefined
-  onChange: (ec: Record<string, string> | undefined) => void
-}) {
-  const entries = Object.entries(extraColumns ?? {})
-
-  const addEntry = () => {
-    onChange({ ...(extraColumns ?? {}), '': '' })
-  }
-
-  const updateKey = (_oldKey: string, newKey: string, index: number) => {
-    const newEc: Record<string, string> = {}
-    let i = 0
-    for (const [k, v] of Object.entries(extraColumns ?? {})) {
-      if (i === index) {
-        newEc[newKey] = v
-      } else {
-        newEc[k] = v
-      }
-      i++
-    }
-    onChange(Object.keys(newEc).length > 0 ? newEc : undefined)
-  }
-
-  const updateValue = (key: string, value: string) => {
-    onChange({ ...(extraColumns ?? {}), [key]: value })
-  }
-
-  const removeEntry = (key: string) => {
-    const newEc = { ...(extraColumns ?? {}) }
-    delete newEc[key]
-    onChange(Object.keys(newEc).length > 0 ? newEc : undefined)
-  }
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center justify-between">
-        <Label className="text-xs text-muted-foreground">Extra columns</Label>
-        <Button variant="ghost" size="sm" onClick={addEntry} className="h-5 text-[10px] gap-0.5 px-1.5">
-          <Plus size={9} />
-          Add
-        </Button>
-      </div>
-      {entries.map(([key, val], i) => (
-        <div key={i} className="flex items-center gap-1">
-          <Input
-            value={key}
-            onChange={(e) => updateKey(key, e.target.value, i)}
-            placeholder="alias"
-            className="h-6 text-[11px] font-mono flex-1"
-          />
-          <Input
-            value={val}
-            onChange={(e) => updateValue(key, e.target.value)}
-            placeholder="column_name"
-            className="h-6 text-[11px] font-mono flex-1"
-          />
-          <Button variant="ghost" size="icon-sm" onClick={() => removeEntry(key)} className="h-5 w-5 shrink-0">
-            <X size={10} />
-          </Button>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function EditableConceptDict({
-  dict,
-  onChange,
-  onRemove,
-}: {
-  dict: ConceptDictionary
-  onChange: (d: ConceptDictionary) => void
-  onRemove: () => void
-}) {
-  const knownTables = useContext(KnownTablesContext)
-  const update = (key: string, v: string) => {
-    onChange({ ...dict, [key]: v || undefined } as ConceptDictionary)
-  }
-
-  return (
-    <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1.5">
-      <div className="flex items-center gap-2">
-        <Input
-          value={dict.key}
-          onChange={(e) => onChange({ ...dict, key: e.target.value })}
-          className="h-7 text-xs font-medium flex-1"
-          placeholder="Dictionary key"
-        />
-        <Button variant="ghost" size="icon-sm" onClick={onRemove}>
-          <X size={12} />
-        </Button>
-      </div>
-      <EditableField label="Schema" value={dict.schema ?? ''} onChange={(v) => update('schema', v)} placeholder="(none)" />
-      <EditableField suggestions={knownTables} label="Table" value={dict.table} onChange={(v) => update('table', v)} placeholder="concept" />
-      <EditableField label="ID column" value={dict.idColumn ?? ''} onChange={(v) => update('idColumn', v)} placeholder="concept_id" />
-      <EditableField label="Name column" value={dict.nameColumn} onChange={(v) => update('nameColumn', v)} placeholder="concept_name" />
-      <EditableField label="Code column" value={dict.codeColumn ?? ''} onChange={(v) => update('codeColumn', v)} />
-      <EditableField label="Terminology ID" value={dict.terminologyIdColumn ?? dict.vocabularyColumn ?? ''} onChange={(v) => update('terminologyIdColumn', v)} placeholder="vocabulary_id" />
-      <EditableField label="Terminology name" value={dict.terminologyNameColumn ?? ''} onChange={(v) => update('terminologyNameColumn', v)} placeholder="vocabulary_name" />
-      <EditableField label="Category column" value={dict.categoryColumn ?? ''} onChange={(v) => update('categoryColumn', v)} placeholder="category" />
-      <EditableField label="Subcategory column" value={dict.subcategoryColumn ?? ''} onChange={(v) => update('subcategoryColumn', v)} placeholder="subcategory" />
-      <EditableExtraColumns
-        extraColumns={dict.extraColumns}
-        onChange={(ec) => onChange({ ...dict, extraColumns: ec })}
-      />
-    </div>
-  )
-}
-
-type MapTabId = 'patient' | 'stay' | 'notes' | 'events' | 'concepts'
-
-function PresetEditor({
-  mapping,
-  onChange,
-}: {
-  mapping: SchemaMapping
-  onChange: (m: SchemaMapping) => void
-}) {
-  const { t } = useTranslation()
-  const [mapTab, setMapTab] = useState<MapTabId>('patient')
-
-  const addEventTable = () => {
-    const eventTables = { ...(mapping.eventTables ?? {}) }
-    const newLabel = `Event table ${Object.keys(eventTables).length + 1}`
-    eventTables[newLabel] = { table: '', conceptIdColumn: '' }
-    onChange({ ...mapping, eventTables })
-  }
-
-  const updateEventTable = (oldLabel: string, newLabel: string, et: EventTable) => {
-    const eventTables = { ...(mapping.eventTables ?? {}) }
-    if (newLabel !== oldLabel) {
-      delete eventTables[oldLabel]
-    }
-    eventTables[newLabel] = et
-    onChange({ ...mapping, eventTables })
-  }
-
-  const removeEventTable = (label: string) => {
-    const eventTables = { ...(mapping.eventTables ?? {}) }
-    delete eventTables[label]
-    onChange({ ...mapping, eventTables })
-  }
-
-  const addConceptDict = () => {
-    const conceptTables = [...(mapping.conceptTables ?? [])]
-    conceptTables.push({ key: `dict_${conceptTables.length + 1}`, table: '', idColumn: '', nameColumn: '' })
-    onChange({ ...mapping, conceptTables })
-  }
-
-  const updateConceptDict = (index: number, dict: ConceptDictionary) => {
-    const conceptTables = [...(mapping.conceptTables ?? [])]
-    conceptTables[index] = dict
-    onChange({ ...mapping, conceptTables })
-  }
-
-  const removeConceptDict = (index: number) => {
-    const conceptTables = [...(mapping.conceptTables ?? [])]
-    conceptTables.splice(index, 1)
-    onChange({ ...mapping, conceptTables })
-  }
-
-  return (
-    <KnownTablesContext.Provider value={mapping.knownTables ?? []}>
-    <div className="space-y-4">
-      {/* Grouped by clinical subject rather than by table: a flat column of a
-          dozen sections made you hunt for the one you wanted. */}
-      <Tabs value={mapTab} onValueChange={(v) => setMapTab(v as MapTabId)}>
-        <div className="flex items-center">
-          <div className="flex-1" />
-          <TabsList>
-            <TabsTrigger value="patient">{t('settings.schema_map_tab_patient')}</TabsTrigger>
-            <TabsTrigger value="stay">{t('settings.schema_map_tab_stay')}</TabsTrigger>
-            <TabsTrigger value="notes">{t('settings.schema_map_tab_notes')}</TabsTrigger>
-            <TabsTrigger value="events">{t('settings.schema_map_tab_events')}</TabsTrigger>
-            <TabsTrigger value="concepts">{t('settings.schema_map_tab_concepts')}</TabsTrigger>
-          </TabsList>
-          <div className="flex-1" />
-        </div>
-
-        <TabsContent value="patient" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <EditablePatientTable
-              table={mapping.patientTable}
-              onChange={(patientTable) => onChange({ ...mapping, patientTable })}
-            />
-            <div className="space-y-4">
-              <EditableGenderValues
-                genderValues={mapping.genderValues}
-                onChange={(genderValues) => onChange({ ...mapping, genderValues })}
-              />
-              <EditableDeathTable
-                table={mapping.deathTable}
-                onChange={(deathTable) => onChange({ ...mapping, deathTable })}
-              />
-            </div>
-          </div>
-        </TabsContent>
-
-        <TabsContent value="stay" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <EditableVisitTable
-              table={mapping.visitTable}
-              onChange={(visitTable) => onChange({ ...mapping, visitTable })}
-            />
-            <EditableVisitDetailTable
-              table={mapping.visitDetailTable}
-              onChange={(visitDetailTable) => onChange({ ...mapping, visitDetailTable })}
-            />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="notes" className="mt-4">
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <EditableNoteTable
-              table={mapping.noteTable}
-              onChange={(noteTable) => onChange({ ...mapping, noteTable })}
-            />
-          </div>
-        </TabsContent>
-
-        <TabsContent value="events" className="mt-4">
-          <div className="flex items-center justify-between mb-2">
-            <h5 className="text-xs font-medium text-foreground">
-              {t('settings.schema_preset_event_tables')}
-            </h5>
-            <Button variant="ghost" size="sm" onClick={addEventTable} className="h-6 text-xs gap-1">
-              <Plus size={10} />
-              Add
-            </Button>
-          </div>
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-            {Object.entries(mapping.eventTables ?? {}).map(([label, et]) => (
-              <EditableEventTable
-                key={label}
-                label={label}
-                et={et}
-                onLabelChange={(newLabel) => updateEventTable(label, newLabel, et)}
-                onTableChange={(newEt) => updateEventTable(label, label, newEt)}
-                onRemove={() => removeEventTable(label)}
-              />
-            ))}
-          </div>
-        </TabsContent>
-
-        <TabsContent value="concepts" className="mt-4">
-          <div className="flex items-center justify-between mb-2">
-            <h5 className="text-xs font-medium text-foreground">
-              {t('settings.schema_preset_concept_dictionaries')}
-            </h5>
-            <Button variant="ghost" size="sm" onClick={addConceptDict} className="h-6 text-xs gap-1">
-              <Plus size={10} />
-              Add
-            </Button>
-          </div>
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2">
-            {(mapping.conceptTables ?? []).map((dict, i) => (
-              <EditableConceptDict
-                key={i}
-                dict={dict}
-                onChange={(d) => updateConceptDict(i, d)}
-                onRemove={() => removeConceptDict(i)}
-              />
-            ))}
-          </div>
-        </TabsContent>
-      </Tabs>
-    </div>
-    </KnownTablesContext.Provider>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Schema card (compact — click to navigate)
 // ---------------------------------------------------------------------------
 
@@ -1040,15 +265,7 @@ function SchemaCard({
   const { t, i18n } = useTranslation()
 
   // Count mapped tables (all distinct table names referenced in the mapping)
-  const mappedTableNames = new Set<string>()
-  if (mapping.patientTable) mappedTableNames.add(mapping.patientTable.table)
-  if (mapping.visitTable) mappedTableNames.add(mapping.visitTable.table)
-  if (mapping.visitDetailTable) mappedTableNames.add(mapping.visitDetailTable.table)
-  if (mapping.noteTable) mappedTableNames.add(mapping.noteTable.table)
-  if (mapping.visitDetailTable?.unitNameTable) mappedTableNames.add(mapping.visitDetailTable.unitNameTable)
-  mapping.conceptTables?.forEach((d) => mappedTableNames.add(d.table))
-  if (mapping.eventTables) Object.values(mapping.eventTables).forEach((e) => mappedTableNames.add(e.table))
-  const mappedCount = mappedTableNames.size
+  const mappedCount = mappingTables(mapping).length
   const totalCount = mapping.knownTables?.length ?? 0
   const description = mapping.description ? localized(mapping.description, i18n.language) : ''
 
@@ -1130,7 +347,7 @@ function SchemaDetailView({
   onSave: (presetId: string, mapping: SchemaMapping) => Promise<void>
   onBack: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { can, atLeast } = useMyWorkspaceRole()
   const canWrite = can('schemas:write')
   // Reinstalling replaces the whole entity's content, so it takes the same role
@@ -1148,6 +365,16 @@ function SchemaDetailView({
     [schemaId, customPresets],
   )
   const baseMapping = preset?.mapping ?? null
+  // A preset has no data of its own: its relations are checked and previewed on
+  // a database installed from it.
+  const dataSources = useDataSourceStore((st) => st.dataSources)
+  const previewSources = useMemo(
+    () =>
+      dataSources
+        .filter((ds) => !!preset?.lineageId && ds.schemaSource?.lineageId === preset.lineageId)
+        .map((ds) => ({ id: ds.id, label: localized(ds.name, i18n.language) })),
+    [dataSources, preset?.lineageId],
+  )
 
   const [isEditing, setIsEditing] = useState(false)
   const [editMapping, setEditMapping] = useState<SchemaMapping | null>(null)
@@ -1424,9 +651,14 @@ function SchemaDetailView({
           {mappingView === 'diagram' ? (
             <SchemaERD mapping={displayMapping} fullscreen />
           ) : isEditing && editMapping ? (
-            <PresetEditor mapping={editMapping} onChange={setEditMapping} />
+            <MappingEditor mapping={editMapping} onChange={setEditMapping} previewSources={previewSources} />
           ) : (
-            <PresetDetail mapping={displayMapping} />
+            <MappingEditor
+              mapping={displayMapping}
+              readOnly
+              previewSources={previewSources}
+              persist={canWrite ? (m) => void onSave(schemaId, m) : undefined}
+            />
           )}
         </TabsContent>
 
@@ -1641,16 +873,7 @@ function SchemaStatCards({
   // schema can actually drive the warehouse pages, which the DDL alone cannot.
   // Distinct table names, as the list card counts them: several mapped roles can
   // point at the same physical table, and counting roles would overstate it.
-  const mappedTables = new Set(
-    [
-      mapping.patientTable?.table,
-      mapping.visitTable?.table,
-      mapping.visitDetailTable?.table,
-      mapping.deathTable?.table,
-      mapping.noteTable?.table,
-      ...Object.values(mapping.eventTables ?? {}).map((e) => e.table),
-    ].filter((t): t is string => !!t),
-  ).size
+  const mappedTables = mappingTables(mapping).length
 
   const cards = [
     { key: 'tables', icon: Table, value: count('tables'), label: t('schemas.overview_tables'), onClick: onSeeDdl },
@@ -2022,7 +1245,7 @@ export function SchemaPresetsPage() {
 
     // What the user typed always wins; otherwise derive a free id from the name.
     const presetId = newPresetId.trim() || uniqueEntityId(slugifyId(name), takenIds)
-    const newMapping: SchemaMapping = { presetId, presetLabel: label, description }
+    const newMapping: SchemaMapping = { formatVersion: 2, presetId, presetLabel: label, description }
     // Navigate on the preset's own `id`, not the slug: the header badge resolves
     // the URL segment against `id` first, so landing on a presetId left the page
     // with no badge until the next reload.

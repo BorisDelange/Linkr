@@ -13,7 +13,7 @@
  * rule attached to it matters: synthetic or public open data only, never a
  * connected database. See docs/architecture.md § Format package & MCP authoring.
  */
-import { canonicalSchemaMapping } from '../schema-mapping.js'
+import { canonicalSchemaMapping, canonicalSchemaOverrides } from '../schema-mapping.js'
 import type { CopyFile, LocalizedInput, SerializedTree, WriteFile } from './project.js'
 import { CONTENT_FILE, ENTITY_MANIFEST, ROOT_FILE } from '../layout.js'
 
@@ -79,6 +79,12 @@ export interface DatabaseSpec {
    * resolving. Carrying the mapping is what makes it installable in any order.
    */
   schema: string | Record<string, unknown>
+  /**
+   * What this database changes on top of its preset's mapping — parameter
+   * values, relations replaced (the app's `SchemaOverrides`). Written to
+   * `mapping-overrides.json`, only when there are some.
+   */
+  schemaOverrides?: Record<string, unknown>
   /** Which published schema this mapping came from. See `SchemaProvenance`. */
   schemaSource?: SchemaProvenance
   /** The tables. Empty is allowed: an in-memory target database has none. */
@@ -194,6 +200,10 @@ export function serializeDatabase(spec: DatabaseSpec): SerializedTree {
   ]
   if (typeof ddl === 'string' && ddl) {
     files.push({ path: CONTENT_FILE.schemaDdl, content: ddl })
+  }
+  const overrides = spec.schemaOverrides
+  if (overrides && Object.keys(overrides.relations ?? {}).length) {
+    files.push({ path: CONTENT_FILE.schemaOverrides, content: json(canonicalSchemaOverrides(overrides)) })
   }
   const copies: CopyFile[] = ordered.map((t) => ({
     path: `data/${t.name}.parquet`,

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildValueDistributionQuery, buildValueHistogramQuery } from './concept-queries'
 import { isFreshCachedStats, HISTOGRAM_VARIANT, type ConceptStats } from './use-concepts'
-import type { SchemaMapping } from '@/types/schema-mapping'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // A dictionary spans several event tables, and which one holds a given concept
 // is a property of the DATA, not of the mapping. Reading only the first table
@@ -9,7 +10,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 // for every concept stored in another one — an OMOP measurement read from
 // `observation` because that table happened to be declared first.
 
-const MAPPING: SchemaMapping = {
+const MAPPING_V1 = {
   conceptTables: [{ key: 'omop', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name' }],
   eventTables: {
     // Declared FIRST on purpose: the bug picked whichever came first.
@@ -26,20 +27,23 @@ const MAPPING: SchemaMapping = {
       valueColumn: 'value_as_number',
     },
   },
-} as unknown as SchemaMapping
+} as const
+const MAPPING = mappingV1ToV2(MAPPING_V1 as never)
 
 describe('buildValueDistributionQuery', () => {
   it('reads every event table of the dictionary, not just the first', () => {
     const sql = buildValueDistributionQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('FROM "observation"')
-    expect(sql).toContain('FROM "measurement"')
+    expect(sql).toContain('FROM linkr_event_observation')
+    expect(sql).toContain('FROM linkr_event_measurement')
     expect(sql).toContain('UNION ALL')
   })
 
   it('matches the concept on both the concept and source-concept columns', () => {
     const sql = buildValueDistributionQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('measurement_concept_id')
-    expect(sql).toContain('measurement_source_concept_id')
+    expect(sql).toContain('concept_id = 3024171 OR source_concept_id = 3024171')
+    const full = withClassRelations(sql, MAPPING)
+    expect(full).toContain('e."measurement_concept_id" AS concept_id')
+    expect(full).toContain('e."measurement_source_concept_id" AS source_concept_id')
   })
 
   it('aggregates over the union rather than one table', () => {
@@ -49,22 +53,22 @@ describe('buildValueDistributionQuery', () => {
   })
 
   it('returns null when no event table records a value', () => {
-    const noValues = {
-      conceptTables: MAPPING.conceptTables,
+    const noValues = mappingV1ToV2({
+      conceptTables: MAPPING_V1.conceptTables,
       eventTables: {
         condition: { table: 'condition_occurrence', conceptIdColumn: 'condition_concept_id' },
       },
-    } as unknown as SchemaMapping
+    } as never)
     expect(buildValueDistributionQuery(noValues, 'omop', 1)).toBeNull()
   })
 
   it('still works when a single table declares a value column', () => {
-    const one = {
-      conceptTables: MAPPING.conceptTables,
-      eventTables: { measurement: MAPPING.eventTables!.measurement },
-    } as unknown as SchemaMapping
+    const one = mappingV1ToV2({
+      conceptTables: MAPPING_V1.conceptTables,
+      eventTables: { measurement: MAPPING_V1.eventTables.measurement },
+    } as never)
     const sql = buildValueDistributionQuery(one, 'omop', 3024171)!
-    expect(sql).toContain('FROM "measurement"')
+    expect(sql).toContain('FROM linkr_event_measurement')
     expect(sql).not.toContain('UNION ALL')
   })
 })
@@ -72,8 +76,8 @@ describe('buildValueDistributionQuery', () => {
 describe('buildValueHistogramQuery', () => {
   it('bins values from every event table of the dictionary', () => {
     const sql = buildValueHistogramQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('FROM "observation"')
-    expect(sql).toContain('FROM "measurement"')
+    expect(sql).toContain('FROM linkr_event_observation')
+    expect(sql).toContain('FROM linkr_event_measurement')
     expect(sql).toContain('UNION ALL')
   })
 

@@ -35,6 +35,22 @@ function treeOf(spec: DatabaseSpec): MemoryTree {
 }
 
 describe('serializeDatabase', () => {
+  it('writes the overrides beside the mapping, in canonical order, only when there are some', () => {
+    const overrides = {
+      baseAtOverride: { visit: '0a1b2c3d' },
+      relations: { visit: { fields: { patient_id: 'v.subject_id', visit_id: 'v.hadm_id' }, from: { alias: 'v', table: 'stays' } } },
+    }
+    const tree = treeOf({ ...SPEC, schemaOverrides: overrides })
+    expect(tree.read('mapping-overrides.json')).toBe(JSON.stringify({
+      relations: { visit: { from: { table: 'stays', alias: 'v' }, fields: { visit_id: 'v.hadm_id', patient_id: 'v.subject_id' } } },
+      baseAtOverride: { visit: '0a1b2c3d' },
+    }, null, 2))
+    expect(validateEntity(tree, 'database')).toEqual([])
+    expect(treeOf({ ...SPEC, schemaOverrides: {} }).read('mapping-overrides.json')).toBeNull()
+    const bad = new MemoryTree({ ...Object.fromEntries(serializeDatabase(SPEC).files.map((f) => [f.path, f.content])), 'mapping-overrides.json': '[]' })
+    expect(validateEntity(bad, 'database').map((i) => i.path)).toContain('mapping-overrides.json')
+  })
+
   it('produces a tree its own validator accepts', () => {
     const tree = treeOf(SPEC)
     expect(detectTreeKind(tree)).toBe('database')

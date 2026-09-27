@@ -15,9 +15,9 @@ import type {
   TextCriteriaConfig,
   TextMatchMode,
 } from '@/types'
-import type { SchemaMapping, EventTable } from '@/types'
+import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { birthYearSql, qualify } from '@/lib/schema-helpers'
+import { classRelation, eventRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -101,7 +101,7 @@ export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping): str
 
   const lines = [
     `SELECT`,
-    `  COUNT(DISTINCT "${parts.baseTable}"."${parts.idColumn}") AS cnt`,
+    `  COUNT(DISTINCT ${parts.baseTable}.${parts.idColumn}) AS cnt`,
     `FROM`,
     `  ${parts.from}`,
   ]
@@ -141,7 +141,7 @@ export function buildCohortResultsSql(
   }
   lines.push(
     `ORDER BY`,
-    `  "${parts.baseTable}"."${parts.idColumn}"`,
+    `  ${parts.baseTable}.${parts.idColumn}`,
     `LIMIT ${limit}`,
     `OFFSET ${offset}`,
   )
@@ -158,19 +158,10 @@ export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping)
   const parts = buildCohortQueryParts(cohort, mapping)
   if (!parts) return null
 
-  const patientIdCol = getPatientIdColumn(cohort.level, mapping)
-  const patientIdExpr =
-    cohort.level === 'patient'
-      ? `"${parts.baseTable}"."${parts.idColumn}"`
-      : patientIdCol
-        ? `"${parts.baseTable}"."${patientIdCol}"`
-        : null
-  if (!patientIdExpr) return null
-
   const lines = [
     `SELECT DISTINCT`,
-    `  "${parts.baseTable}"."${parts.idColumn}" AS id,`,
-    `  ${patientIdExpr} AS patient_id`,
+    `  ${parts.baseTable}.${parts.idColumn} AS id,`,
+    `  ${parts.baseTable}.patient_id AS patient_id`,
     `FROM`,
     `  ${parts.from}`,
   ]
@@ -193,10 +184,9 @@ export function buildAttritionQueries(
   const baseTable = getBaseTable(cohort.level, mapping)
   const idColumn = getIdColumn(cohort.level, mapping)
   if (!baseTable || !idColumn) return []
-  const patientIdCol = getPatientIdColumn(cohort.level, mapping)
-  const countCols = opts.withPatients && patientIdCol
-    ? `  COUNT(DISTINCT "${baseTable}"."${idColumn}") AS cnt,\n  COUNT(DISTINCT "${baseTable}"."${patientIdCol}") AS patients`
-    : `  COUNT(DISTINCT "${baseTable}"."${idColumn}") AS cnt`
+  const countCols = opts.withPatients
+    ? `  COUNT(DISTINCT ${baseTable}.${idColumn}) AS cnt,\n  COUNT(DISTINCT ${baseTable}.patient_id) AS patients`
+    : `  COUNT(DISTINCT ${baseTable}.${idColumn}) AS cnt`
 
   const queries: { nodeId: string; label: string; sql: string }[] = []
 
@@ -358,24 +348,22 @@ function buildAgeCriteria(
   mapping: SchemaMapping,
   baseTable: string,
 ): string {
-  const pt = mapping.patientTable
-  if (!pt) return '1=1'
+  const patient = classRelation(mapping, 'patient')
+  if (!patient) return '1=1'
 
-  const personRef = level === 'patient' ? `${qualify(pt)}` : 'p'
+  const personRef = level === 'patient' ? patient.name : 'p'
 
   let dateRef: string
   if (config.ageReference === 'admission') {
     if (level === 'patient') {
       // Patient level: use earliest visit start date via subquery
-      const vt = mapping.visitTable
-      if (vt?.startDateColumn) {
-        dateRef = `(SELECT MIN("${vt.startDateColumn}") FROM ${qualify(vt)} WHERE ${qualify(vt)}."${vt.patientIdColumn}" = ${qualify(pt)}."${pt.idColumn}")`
-      } else {
-        dateRef = 'CURRENT_DATE'
-      }
+      const visit = classRelation(mapping, 'visit')
+      dateRef = visit
+        ? `(SELECT MIN(start_datetime) FROM ${visit.name} WHERE ${visit.name}.patient_id = ${patient.name}.patient_id)`
+        : 'CURRENT_DATE'
     } else {
       const startDateCol = getStartDateColumn(level, mapping)
-      dateRef = startDateCol ? `"${baseTable}"."${startDateCol}"` : 'CURRENT_DATE'
+      dateRef = startDateCol ? `${baseTable}.${startDateCol}` : 'CURRENT_DATE'
     }
   } else {
     dateRef = 'CURRENT_DATE'
@@ -383,25 +371,16 @@ function buildAgeCriteria(
 
   // In days or months the birth YEAR is far too coarse to answer the question
   // (a neonatology filter needs the date), so those units require the date
-  // column; years still falls back to the year when the date is NULL.
+  // column; years uses the birth year, which already falls back from the date.
   const unit = config.ageUnit ?? 'years'
-  const dateAge =
-    pt.birthDateColumn && unit !== 'years'
-      ? `DATE_DIFF('${unit === 'days' ? 'day' : 'month'}', ${personRef}."${pt.birthDateColumn}"::TIMESTAMP, ${dateRef}::TIMESTAMP)`
-      : pt.birthDateColumn
-        ? `DATE_PART('year', ${dateRef}) - DATE_PART('year', ${personRef}."${pt.birthDateColumn}")`
-        : null
-  const birthYear = birthYearSql(pt, personRef)
-  const yearAge =
-    birthYear && unit === 'years'
-      ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${birthYear}`
-      : null
-
   let ageExpr: string
-  if (dateAge && yearAge) ageExpr = `COALESCE(${dateAge}, ${yearAge})`
-  else if (dateAge) ageExpr = dateAge
-  else if (yearAge) ageExpr = yearAge
-  else return '1=1'
+  if (unit === 'years') {
+    if (!has(patient, 'birth_year')) return '1=1'
+    ageExpr = `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${personRef}.birth_year`
+  } else {
+    if (!has(patient, 'birth_date')) return '1=1'
+    ageExpr = `DATE_DIFF('${unit === 'days' ? 'day' : 'month'}', ${personRef}.birth_date::TIMESTAMP, ${dateRef}::TIMESTAMP)`
+  }
 
   const min = sqlNumber(config.min)
   const max = sqlNumber(config.max)
@@ -424,7 +403,7 @@ export function ageCriterionUnsatisfiable(
   mapping: SchemaMapping,
 ): boolean {
   if ((config.ageUnit ?? 'years') === 'years') return false
-  return !mapping.patientTable?.birthDateColumn
+  return !has(classRelation(mapping, 'patient'), 'birth_date')
 }
 
 // --- Sex ---
@@ -435,11 +414,13 @@ function buildSexCriteria(
   mapping: SchemaMapping,
 ): string {
   if (config.values.length === 0) return '1=1'
-  const pt = mapping.patientTable
-  if (!pt?.genderColumn) return '1=1'
-  const personRef = level === 'patient' ? `${qualify(pt)}` : 'p'
+  const patient = classRelation(mapping, 'patient')
+  // Saved cohorts hold the source's own codes ('8507', 'M'), not the normalised
+  // gender, so they are matched against the source value.
+  if (!has(patient, 'gender_source_value')) return '1=1'
+  const personRef = level === 'patient' ? patient!.name : 'p'
   const vals = config.values.map((v) => `'${escSql(v)}'`).join(', ')
-  return `${personRef}."${pt.genderColumn}" IN (${vals})`
+  return `${personRef}.gender_source_value IN (${vals})`
 }
 
 // --- Death ---
@@ -450,47 +431,28 @@ function buildDeathCriteria(
   mapping: SchemaMapping,
   baseTable: string,
 ): string {
-  const pt = mapping.patientTable
-  const personRef = level === 'patient' ? (pt ? `${qualify(pt)}` : null) : 'p'
-  if (!personRef) return '1=1'
+  const patient = classRelation(mapping, 'patient')
+  if (!has(patient, 'death_datetime')) return '1=1'
+  const personRef = level === 'patient' ? patient!.name : 'p'
 
-  // Check patient table death date column first
-  if (pt?.deathDateColumn) {
-    const deathCol = `${personRef}."${pt.deathDateColumn}"`
-    if (!config.isDead) return `${deathCol} IS NULL`
+  const deathCol = `${personRef}.death_datetime`
+  if (!config.isDead) return `${deathCol} IS NULL`
 
-    // 'any' (and the patient level, which has no stay to bound it) just asks
-    // whether a death is recorded at all. The other references additionally
-    // require it to fall inside the stay being selected — without that window
-    // "died during this unit stay" matched anyone who ever died.
-    const ref = config.deathReference ?? 'any'
-    if (ref === 'any' || level === 'patient') return `${deathCol} IS NOT NULL`
+  // 'any' (and the patient level, which has no stay to bound it) just asks
+  // whether a death is recorded at all. The other references additionally
+  // require it to fall inside the stay being selected — without that window
+  // "died during this unit stay" matched anyone who ever died.
+  const ref = config.deathReference ?? 'any'
+  if (ref === 'any' || level === 'patient') return `${deathCol} IS NOT NULL`
 
-    const windowTable = ref === 'visit' ? mapping.visitTable : mapping.visitDetailTable
-    if (!windowTable?.startDateColumn || !windowTable.endDateColumn) {
-      return `${deathCol} IS NOT NULL`
-    }
-    // At the level being queried the window is the base row itself; otherwise it
-    // is looked up through the patient.
-    const sameLevel =
-      (ref === 'visit' && level === 'visit') ||
-      (ref === 'visit_detail' && level === 'visit_detail')
-    if (sameLevel) {
-      return `${deathCol} IS NOT NULL AND ${deathCol} BETWEEN "${baseTable}"."${windowTable.startDateColumn}" AND "${baseTable}"."${windowTable.endDateColumn}"`
-    }
-    const patientIdCol = getPatientIdColumn(level, mapping) ?? pt.idColumn
-    return `${deathCol} IS NOT NULL AND EXISTS (SELECT 1 FROM ${qualify(windowTable)} w WHERE w."${windowTable.patientIdColumn}" = "${baseTable}"."${patientIdCol}" AND ${deathCol} BETWEEN w."${windowTable.startDateColumn}" AND w."${windowTable.endDateColumn}")`
+  const window = classRelation(mapping, ref === 'visit' ? 'visit' : 'visit_detail')
+  if (!window || !has(window, 'end_datetime')) return `${deathCol} IS NOT NULL`
+  // At the level being queried the window is the base row itself; otherwise it
+  // is looked up through the patient.
+  if (ref === level) {
+    return `${deathCol} IS NOT NULL AND ${deathCol} BETWEEN ${baseTable}.start_datetime AND ${baseTable}.end_datetime`
   }
-
-  // Fall back to separate death table
-  const dt = mapping.deathTable
-  if (dt) {
-    const patientIdCol = pt?.idColumn ?? 'person_id'
-    const subquery = `SELECT 1 FROM ${qualify(dt)} WHERE ${qualify(dt)}."${dt.patientIdColumn}" = ${personRef}."${patientIdCol}"`
-    return config.isDead ? `EXISTS (${subquery})` : `NOT EXISTS (${subquery})`
-  }
-
-  return '1=1'
+  return `${deathCol} IS NOT NULL AND EXISTS (SELECT 1 FROM ${window.name} w WHERE w.patient_id = ${baseTable}.patient_id AND ${deathCol} BETWEEN w.start_datetime AND w.end_datetime)`
 }
 
 // --- Period ---
@@ -505,17 +467,15 @@ function buildPeriodCriteria(
 
   if (level === 'patient') {
     // Patient level: filter via subquery on visit table
-    const vt = mapping.visitTable
-    if (!vt?.startDateColumn) return '1=1'
-    const pt = mapping.patientTable
-    if (!pt) return '1=1'
+    const visit = classRelation(mapping, 'visit')
+    if (!visit) return '1=1'
     const conditions: string[] = []
-    if (config.startDate) conditions.push(`"${vt.startDateColumn}" >= '${escSql(config.startDate)}'`)
-    if (config.endDate) conditions.push(`"${vt.startDateColumn}" <= '${escSql(config.endDate)}'`)
+    if (config.startDate) conditions.push(`start_datetime >= '${escSql(config.startDate)}'`)
+    if (config.endDate) conditions.push(`start_datetime <= '${escSql(config.endDate)}'`)
     return [
       `EXISTS (`,
-      `    SELECT 1 FROM ${qualify(vt)}`,
-      `    WHERE ${qualify(vt)}."${vt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}"`,
+      `    SELECT 1 FROM ${visit.name}`,
+      `    WHERE ${visit.name}.patient_id = ${baseTable}.patient_id`,
       `      AND ${conditions.join(' AND ')}`,
       `)`,
     ].join('\n')
@@ -523,7 +483,7 @@ function buildPeriodCriteria(
 
   const startDateCol = getStartDateColumn(level, mapping)
   if (!startDateCol) return '1=1'
-  const dateRef = `"${baseTable}"."${startDateCol}"`
+  const dateRef = `${baseTable}.${startDateCol}`
   const parts: string[] = []
   if (config.startDate) parts.push(`${dateRef} >= '${escSql(config.startDate)}'`)
   if (config.endDate) parts.push(`${dateRef} <= '${escSql(config.endDate)}'`)
@@ -589,19 +549,16 @@ function buildTextCriteria(
   // With nothing to search on this stays descriptive, as it was before.
   if (searches.length === 0) return '1=1'
 
-  const nt = mapping.noteTable
-  if (!nt?.textColumn) return '1=1'
-
-  const patientIdCol = getPatientIdColumn(level, mapping)
-  if (!patientIdCol && level !== 'patient') return '1=1'
+  const note = classRelation(mapping, 'note')
+  if (!note) return '1=1'
 
   const conditions: { clause: string; operator: CriteriaOperator }[] = []
   for (const search of searches) {
-    const column = search.field === 'title' ? nt.titleColumn : nt.textColumn
+    const column = search.field === 'title' ? 'title' : 'text'
     // A title search on a mapping without a title column would silently widen
     // the criterion to every note, so it is dropped instead.
-    if (!column) continue
-    const colRef = `n."${column}"`
+    if (!has(note, column)) continue
+    const colRef = `n.${column}`
     const terms = search.terms.map((t) => t.trim()).filter(Boolean)
     if (terms.length === 0) continue
     const mode = search.mode ?? 'contains'
@@ -619,19 +576,15 @@ function buildTextCriteria(
 
   // Notes hang off the patient; at visit level, narrow to the visit when the
   // mapping says which visit a note belongs to, else to the stay's dates.
-  const linkCol =
-    level === 'patient'
-      ? `n."${nt.patientIdColumn}" = "${baseTable}"."${mapping.patientTable?.idColumn ?? 'person_id'}"`
-      : `n."${nt.patientIdColumn}" = "${baseTable}"."${patientIdCol}"`
-  const links = [linkCol]
-  if (level === 'visit' && nt.visitIdColumn && mapping.visitTable) {
-    links.push(`n."${nt.visitIdColumn}" = "${baseTable}"."${mapping.visitTable.idColumn}"`)
+  const links = [`n.patient_id = ${baseTable}.patient_id`]
+  if (level === 'visit' && has(note, 'visit_id')) {
+    links.push(`n.visit_id = ${baseTable}.visit_id`)
   } else {
-    const window = stayWindowClause(level, mapping, baseTable, nt.dateColumn ? `n."${nt.dateColumn}"` : undefined)
+    const window = stayWindowClause(level, mapping, baseTable, 'n.note_datetime')
     if (window) links.push(window)
   }
 
-  return `EXISTS (SELECT 1 FROM ${qualify(nt)} n WHERE ${links.join(' AND ')} AND (${combined}))`
+  return `EXISTS (SELECT 1 FROM ${note.name} n WHERE ${links.join(' AND ')} AND (${combined}))`
 }
 
 function buildDurationCriteria(
@@ -650,17 +603,12 @@ function buildDurationCriteria(
   const datePart =
     config.durationUnit === 'hours' ? 'hour' : config.durationUnit === 'months' ? 'month' : 'day'
 
-  // Build the duration filter conditions for the target level
-  const targetStartCol = getStartDateColumn(targetLevel, mapping)
-  const targetEndCol = getEndDateColumn(targetLevel, mapping)
-  if (!targetStartCol || !targetEndCol) return '1=1'
-
   const targetTable = getBaseTable(targetLevel, mapping)
-  if (!targetTable) return '1=1'
+  if (!targetTable || !getEndDateColumn(targetLevel, mapping)) return '1=1'
 
   // If the target level matches the cohort level, filter directly
   if (targetLevel === level) {
-    const durExpr = `DATE_DIFF('${datePart}', "${baseTable}"."${targetStartCol}", "${baseTable}"."${targetEndCol}")`
+    const durExpr = `DATE_DIFF('${datePart}', ${baseTable}.start_datetime, ${baseTable}.end_datetime)`
     const parts: string[] = []
     if (minDays != null) parts.push(`${durExpr} >= ${minDays}`)
     if (maxDays != null) parts.push(`${durExpr} <= ${maxDays}`)
@@ -670,19 +618,19 @@ function buildDurationCriteria(
   }
 
   // Otherwise use a subquery (e.g. patient level filtering on visit duration)
-  const durExpr = `DATE_DIFF('${datePart}', "${targetTable}"."${targetStartCol}", "${targetTable}"."${targetEndCol}")`
+  const durExpr = `DATE_DIFF('${datePart}', ${targetTable}.start_datetime, ${targetTable}.end_datetime)`
   const durConditions: string[] = []
   if (minDays != null) durConditions.push(`${durExpr} >= ${minDays}`)
   if (maxDays != null) durConditions.push(`${durExpr} <= ${maxDays}`)
   if (durConditions.length === 0) return '1=1'
 
   // Link target to base table
-  const linkCondition = buildSubqueryLink(level, targetLevel, mapping, baseTable, targetTable)
+  const linkCondition = buildSubqueryLink(level, targetLevel, baseTable, targetTable)
   if (!linkCondition) return '1=1'
 
   return [
     `EXISTS (`,
-    `    SELECT 1 FROM "${targetTable}"`,
+    `    SELECT 1 FROM ${targetTable}`,
     `    WHERE ${linkCondition}`,
     `      AND ${durConditions.join(' AND ')}`,
     `)`,
@@ -690,6 +638,20 @@ function buildDurationCriteria(
 }
 
 // --- Care Site ---
+
+/**
+ * The column a care-site criterion compares its values with. The picker lists
+ * the looked-up names when the mapping has a lookup, else the raw codes — at
+ * the stay level that is exactly `unit_category`.
+ */
+export function careSiteColumn(rel: ClassRelation | undefined): string | null {
+  if (!rel) return null
+  if (rel.cls === 'visit') {
+    if (has(rel, 'care_site_name')) return 'care_site_name'
+    return has(rel, 'care_site_id') ? 'care_site_id' : null
+  }
+  return has(rel, 'unit_category') ? 'unit_category' : null
+}
 
 function buildCareSiteCriteria(
   config: CareSiteCriteriaConfig,
@@ -700,42 +662,12 @@ function buildCareSiteCriteria(
   if (config.values.length === 0) return '1=1'
 
   const targetLevel = config.careSiteLevel ?? 'visit_detail'
+  const target = classRelation(mapping, targetLevel)
+  const column = careSiteColumn(target)
+  if (!target || !column) return '1=1'
+
   const vals = config.values.map((v) => `'${escSql(v)}'`).join(', ')
-
-  // Get the care site column info for the target level
-  let careSiteCol: string | undefined
-  let targetTable: string | undefined
-  let lookupTable: string | undefined
-  let lookupIdCol: string | undefined
-  let lookupNameCol: string | undefined
-
-  if (targetLevel === 'visit') {
-    const vt = mapping.visitTable
-    careSiteCol = vt?.careSiteColumn
-    targetTable = vt?.table
-    lookupTable = vt?.careSiteNameTable
-    lookupIdCol = vt?.careSiteNameIdColumn
-    lookupNameCol = vt?.careSiteNameColumn
-  } else {
-    const vdt = mapping.visitDetailTable
-    careSiteCol = vdt?.unitColumn
-    targetTable = vdt?.table
-    lookupTable = vdt?.unitNameTable
-    lookupIdCol = vdt?.unitNameIdColumn
-    lookupNameCol = vdt?.unitNameColumn
-  }
-
-  if (!careSiteCol || !targetTable) return '1=1'
-
-  // Build the match condition: if there's a lookup table, match by name; otherwise match directly
-  let matchCondition: string
-  if (lookupTable && lookupIdCol && lookupNameCol) {
-    // Match via lookup table (name-based matching)
-    matchCondition = `"${targetTable}"."${careSiteCol}" IN (SELECT "${lookupIdCol}" FROM "${lookupTable}" WHERE "${lookupNameCol}" IN (${vals}))`
-  } else {
-    // Direct match on the column value
-    matchCondition = `"${targetTable}"."${careSiteCol}" IN (${vals})`
-  }
+  const matchCondition = `${target.name}.${column} IN (${vals})`
 
   // If target level matches cohort level, filter directly
   if (targetLevel === level) {
@@ -743,12 +675,12 @@ function buildCareSiteCriteria(
   }
 
   // Otherwise use a subquery
-  const linkCondition = buildSubqueryLink(level, targetLevel, mapping, baseTable, targetTable)
+  const linkCondition = buildSubqueryLink(level, targetLevel, baseTable, target.name)
   if (!linkCondition) return '1=1'
 
   return [
     `EXISTS (`,
-    `    SELECT 1 FROM "${targetTable}"`,
+    `    SELECT 1 FROM ${target.name}`,
     `    WHERE ${linkCondition}`,
     `      AND ${matchCondition}`,
     `)`,
@@ -789,7 +721,7 @@ function stayWindowClause(
   const start = getStartDateColumn(level, mapping)
   if (!eventDate || !start) return null
   const end = getEndDateColumn(level, mapping)
-  return withinStaySql(eventDate, `"${baseTable}"."${start}"`, end ? `"${baseTable}"."${end}"` : null)
+  return withinStaySql(eventDate, `${baseTable}.${start}`, end ? `${baseTable}.${end}` : null)
 }
 
 /** Whether a concept criterion on this event table can be kept to the stay at
@@ -800,8 +732,7 @@ export function conceptCriterionBoundToStay(
   eventTableLabel: string,
 ): boolean {
   if (level !== 'visit' && level !== 'visit_detail') return true
-  const et = mapping.eventTables?.[eventTableLabel]
-  return Boolean(et?.dateColumn && getStartDateColumn(level, mapping))
+  return has(eventRelation(mapping, eventTableLabel), 'start_datetime') && Boolean(getStartDateColumn(level, mapping))
 }
 
 // --- Concept ---
@@ -814,41 +745,38 @@ function buildConceptCriteria(
 ): string {
   if (config.conceptIds.length === 0) return '1=1'
   if (!validateIntegerIds(config.conceptIds)) return '1=1'
-  const eventTables = mapping.eventTables
-  if (!eventTables) return '1=1'
-  const et: EventTable | undefined = eventTables[config.eventTableLabel]
-  if (!et) return '1=1'
+  const event = eventRelation(mapping, config.eventTableLabel)
+  if (!event || !has(event, 'patient_id')) return '1=1'
 
   const ids = config.conceptIds.join(', ')
-  const patientIdCol = getPatientIdColumn(level, mapping)
-  if (!patientIdCol) return '1=1'
 
   // Build concept match condition
-  let conceptMatch = `e."${et.conceptIdColumn}" IN (${ids})`
-  if (et.sourceConceptIdColumn) {
-    conceptMatch = `(${conceptMatch} OR e."${et.sourceConceptIdColumn}" IN (${ids}))`
+  let conceptMatch = `e.concept_id IN (${ids})`
+  if (has(event, 'source_concept_id')) {
+    conceptMatch = `(${conceptMatch} OR e.source_concept_id IN (${ids}))`
   }
 
   // Build additional conditions
   const conditions: string[] = [conceptMatch]
 
   // Link to base table patient
-  conditions.push(`e."${et.patientIdColumn ?? patientIdCol}" = "${baseTable}"."${patientIdCol}"`)
-  const window = stayWindowClause(level, mapping, baseTable, et.dateColumn ? `e."${et.dateColumn}"` : undefined)
+  conditions.push(`e.patient_id = ${baseTable}.patient_id`)
+  const window = stayWindowClause(level, mapping, baseTable, has(event, 'start_datetime') ? 'e.start_datetime' : undefined)
   if (window) conditions.push(window)
 
   // Multiple value filters (ANDed together). Operator and bounds are both
   // validated: an imported cohort can put arbitrary strings in either.
-  if (config.valueFilters && config.valueFilters.length > 0 && et.valueColumn) {
+  const hasValue = has(event, 'value_number')
+  if (config.valueFilters && config.valueFilters.length > 0 && hasValue) {
     for (const vf of config.valueFilters) {
       const op = sqlOperator(vf.operator, VALUE_FILTER_OPERATORS)
       const value = sqlNumber(vf.value)
       if (!op || value == null) continue
       const value2 = sqlNumber(vf.value2)
       if (op === 'between' && value2 != null) {
-        conditions.push(`e."${et.valueColumn}" BETWEEN ${value} AND ${value2}`)
+        conditions.push(`e.value_number BETWEEN ${value} AND ${value2}`)
       } else if (op !== 'between') {
-        conditions.push(`e."${et.valueColumn}" ${op} ${value}`)
+        conditions.push(`e.value_number ${op} ${value}`)
       }
     }
   }
@@ -856,15 +784,15 @@ function buildConceptCriteria(
   // Legacy single valueFilter support (for existing saved cohorts). The field
   // no longer exists on the current type, so read it through `unknown`.
   const legacyVf = (config as unknown as Record<string, unknown>).valueFilter as { operator: string; value: number; value2?: number } | undefined
-  if (legacyVf && et.valueColumn && (!config.valueFilters || config.valueFilters.length === 0)) {
+  if (legacyVf && hasValue && (!config.valueFilters || config.valueFilters.length === 0)) {
     const op = sqlOperator(legacyVf.operator, VALUE_FILTER_OPERATORS)
     const value = sqlNumber(legacyVf.value)
     const value2 = sqlNumber(legacyVf.value2)
     if (op && value != null) {
       if (op === 'between' && value2 != null) {
-        conditions.push(`e."${et.valueColumn}" BETWEEN ${value} AND ${value2}`)
+        conditions.push(`e.value_number BETWEEN ${value} AND ${value2}`)
       } else if (op !== 'between') {
-        conditions.push(`e."${et.valueColumn}" ${op} ${value}`)
+        conditions.push(`e.value_number ${op} ${value}`)
       }
     }
   }
@@ -880,13 +808,12 @@ function buildConceptCriteria(
   const ocOperator = sqlOperator(oc?.operator, COUNT_OPERATORS)
   const ocCount = sqlNumber(oc?.count)
   if (oc && ocOperator && ocCount != null) {
-    const pidCol = et.patientIdColumn ?? patientIdCol
     return [
-      `"${baseTable}"."${patientIdCol}" IN (`,
-      `    SELECT e."${pidCol}"`,
-      `    FROM ${qualify(et)} e`,
+      `${baseTable}.patient_id IN (`,
+      `    SELECT e.patient_id`,
+      `    FROM ${event.name} e`,
       `    WHERE ${whereStr}`,
-      `    GROUP BY e."${pidCol}"`,
+      `    GROUP BY e.patient_id`,
       `    HAVING COUNT(*) ${ocOperator} ${ocCount}`,
       `)`,
     ].join('\n')
@@ -896,7 +823,7 @@ function buildConceptCriteria(
   return [
     `EXISTS (`,
     `    SELECT 1`,
-    `    FROM ${qualify(et)} e`,
+    `    FROM ${event.name} e`,
     `    WHERE ${whereStr}`,
     `)`,
   ].join('\n')
@@ -916,16 +843,13 @@ function buildFromClause(
   baseTable: string,
   forcePatientJoin = false,
 ): string {
-  const parts = [`"${baseTable}"`]
+  const parts = [baseTable]
 
   // Join patient table when querying visit/visit_detail level and criteria need
   // patient data — or when the caller selects patient columns regardless.
-  const pt = mapping.patientTable
-  if (level !== 'patient' && pt && (forcePatientJoin || (tree && needsPatientJoin(tree)))) {
-    const patientIdCol = getPatientIdColumn(level, mapping) ?? pt.idColumn
-    parts.push(
-      `INNER JOIN ${qualify(pt)} p\n    ON "${baseTable}"."${patientIdCol}" = p."${pt.idColumn}"`,
-    )
+  const patient = classRelation(mapping, 'patient')
+  if (level !== 'patient' && patient && (forcePatientJoin || (tree && needsPatientJoin(tree)))) {
+    parts.push(`INNER JOIN ${patient.name} p\n    ON ${baseTable}.patient_id = p.patient_id`)
   }
 
   return parts.join('\n  ')
@@ -934,9 +858,8 @@ function buildFromClause(
 /** Whether the result SELECT emits a `p.`-qualified column. Must stay in step
  *  with the patient-derived columns in `buildSelectColumns` (gender, age). */
 function selectNeedsPatientAlias(mapping: SchemaMapping): boolean {
-  const pt = mapping.patientTable
-  if (!pt) return false
-  return Boolean(pt.genderColumn || pt.birthDateColumn || birthYearSql(pt))
+  const patient = classRelation(mapping, 'patient')
+  return has(patient, 'gender_source_value') || has(patient, 'birth_year')
 }
 
 /** Check if any criterion in the tree needs patient table access */
@@ -952,71 +875,29 @@ function needsPatientJoin(node: CriteriaTreeNode): boolean {
 // Helpers
 // ---------------------------------------------------------------------------
 
+// 'event' has no single base table (it spans every event relation); callers
+// that need one resolve it by label elsewhere.
+function levelRelation(level: CohortLevel, mapping: SchemaMapping): ClassRelation | undefined {
+  return level === 'event' ? undefined : classRelation(mapping, level)
+}
+
 function getBaseTable(level: CohortLevel, mapping: SchemaMapping): string | null {
-  switch (level) {
-    case 'patient':
-      return mapping.patientTable?.table ?? null
-    case 'visit':
-      return mapping.visitTable?.table ?? null
-    case 'visit_detail':
-      return mapping.visitDetailTable?.table ?? null
-    // 'event' has no single base table (it spans mapping.eventTables); callers
-    // that need an event table resolve it by label elsewhere.
-    case 'event':
-      return null
-  }
+  return levelRelation(level, mapping)?.name ?? null
 }
 
 function getIdColumn(level: CohortLevel, mapping: SchemaMapping): string | null {
-  switch (level) {
-    case 'patient':
-      return mapping.patientTable?.idColumn ?? null
-    case 'visit':
-      return mapping.visitTable?.idColumn ?? null
-    case 'visit_detail':
-      return mapping.visitDetailTable?.idColumn ?? null
-    case 'event':
-      return null
-  }
-}
-
-function getPatientIdColumn(level: CohortLevel, mapping: SchemaMapping): string | null {
-  switch (level) {
-    case 'patient':
-      return mapping.patientTable?.idColumn ?? null
-    case 'visit':
-      return mapping.visitTable?.patientIdColumn ?? null
-    case 'visit_detail':
-      return mapping.visitDetailTable?.patientIdColumn ?? null
-    case 'event':
-      return null
-  }
+  if (!levelRelation(level, mapping)) return null
+  return level === 'patient' ? 'patient_id' : level === 'visit' ? 'visit_id' : 'visit_detail_id'
 }
 
 function getStartDateColumn(level: CohortLevel, mapping: SchemaMapping): string | null {
-  switch (level) {
-    case 'patient':
-      return null
-    case 'visit':
-      return mapping.visitTable?.startDateColumn ?? null
-    case 'visit_detail':
-      return mapping.visitDetailTable?.startDateColumn ?? null
-    case 'event':
-      return null
-  }
+  if (level === 'patient') return null
+  return has(levelRelation(level, mapping), 'start_datetime') ? 'start_datetime' : null
 }
 
 function getEndDateColumn(level: CohortLevel, mapping: SchemaMapping): string | null {
-  switch (level) {
-    case 'patient':
-      return null
-    case 'visit':
-      return mapping.visitTable?.endDateColumn ?? null
-    case 'visit_detail':
-      return mapping.visitDetailTable?.endDateColumn ?? null
-    case 'event':
-      return null
-  }
+  if (level === 'patient') return null
+  return has(levelRelation(level, mapping), 'end_datetime') ? 'end_datetime' : null
 }
 
 /**
@@ -1026,30 +907,12 @@ function getEndDateColumn(level: CohortLevel, mapping: SchemaMapping): string | 
 function buildSubqueryLink(
   cohortLevel: CohortLevel,
   targetLevel: 'visit' | 'visit_detail',
-  mapping: SchemaMapping,
   baseTable: string,
   targetTable: string,
 ): string | null {
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
-  const vdt = mapping.visitDetailTable
-
-  if (cohortLevel === 'patient' && targetLevel === 'visit') {
-    if (!pt || !vt) return null
-    return `"${targetTable}"."${vt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}"`
-  }
-  if (cohortLevel === 'patient' && targetLevel === 'visit_detail') {
-    if (!pt || !vdt) return null
-    return `"${targetTable}"."${vdt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}"`
-  }
-  if (cohortLevel === 'visit' && targetLevel === 'visit_detail') {
-    if (!vt || !vdt) return null
-    return `"${targetTable}"."${vdt.visitIdColumn}" = "${baseTable}"."${vt.idColumn}"`
-  }
-  if (cohortLevel === 'visit_detail' && targetLevel === 'visit') {
-    if (!vt || !vdt) return null
-    return `"${targetTable}"."${vt.idColumn}" = "${baseTable}"."${vdt.visitIdColumn}"`
-  }
+  if (cohortLevel === 'patient') return `${targetTable}.patient_id = ${baseTable}.patient_id`
+  if (cohortLevel === 'visit' && targetLevel === 'visit_detail') return `${targetTable}.visit_id = ${baseTable}.visit_id`
+  if (cohortLevel === 'visit_detail' && targetLevel === 'visit') return `${targetTable}.visit_id = ${baseTable}.visit_id`
   return null
 }
 
@@ -1057,43 +920,40 @@ function buildSubqueryLink(
  * Build SELECT columns for result rows based on level.
  */
 function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTable: string): string {
-  const cols: string[] = [`"${baseTable}"."${getIdColumn(level, mapping)}" AS id`]
-  const pt = mapping.patientTable
-  const gv = mapping.genderValues
+  const cols: string[] = [`${baseTable}.${getIdColumn(level, mapping)} AS id`]
+  const patient = classRelation(mapping, 'patient')
+  const gv = mapping.patient?.genderValues
+  const ref = level === 'patient' ? baseTable : 'p'
 
   // Patient ID (for visit/visit_detail levels)
-  if (level !== 'patient') {
-    const patientIdCol = getPatientIdColumn(level, mapping)
-    if (patientIdCol) cols.push(`"${baseTable}"."${patientIdCol}" AS patient_id`)
-  }
+  if (level !== 'patient') cols.push(`${baseTable}.patient_id AS patient_id`)
 
   // Gender — use CASE WHEN to show human-readable labels from genderValues mapping
-  if (pt?.genderColumn) {
-    const ref = level === 'patient' ? `"${baseTable}"` : 'p'
+  if (has(patient, 'gender_source_value')) {
+    const src = `${ref}.gender_source_value`
     if (gv) {
       const cases: string[] = []
-      cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${escSql(gv.male)}' THEN 'Male'`)
-      cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${escSql(gv.female)}' THEN 'Female'`)
-      if (gv.unknown) cases.push(`WHEN ${ref}."${pt.genderColumn}" = '${escSql(gv.unknown)}' THEN 'Unknown'`)
-      cols.push(`CASE ${cases.join(' ')} ELSE CAST(${ref}."${pt.genderColumn}" AS TEXT) END AS gender`)
+      cases.push(`WHEN ${src} = '${escSql(gv.male)}' THEN 'Male'`)
+      cases.push(`WHEN ${src} = '${escSql(gv.female)}' THEN 'Female'`)
+      if (gv.unknown) cases.push(`WHEN ${src} = '${escSql(gv.unknown)}' THEN 'Unknown'`)
+      cols.push(`CASE ${cases.join(' ')} ELSE CAST(${src} AS TEXT) END AS gender`)
     } else {
-      cols.push(`${ref}."${pt.genderColumn}" AS gender`)
+      cols.push(`${src} AS gender`)
     }
   }
 
-  // Age at admission (not current age) — use visit start date when available
-  if (pt && (pt.birthDateColumn || birthYearSql(pt))) {
-    const ref = level === 'patient' ? `"${baseTable}"` : 'p'
-
-    // Determine the date reference for age calculation
+  // Age at admission (not current age) — use visit start date when available.
+  // `birth_year` already falls back from the birth date to the year per row:
+  // MIMIC-IV's person.birth_datetime is NULL for all 364k patients.
+  if (patient && has(patient, 'birth_year')) {
     let dateRef: string
     let ageLabel: string
 
     if (level === 'patient') {
       // Patient level: use earliest visit start date
-      const vt = mapping.visitTable
-      if (vt?.startDateColumn) {
-        dateRef = `(SELECT MIN("${vt.startDateColumn}") FROM ${qualify(vt)} WHERE ${qualify(vt)}."${vt.patientIdColumn}" = "${baseTable}"."${pt.idColumn}")`
+      const visit = classRelation(mapping, 'visit')
+      if (visit) {
+        dateRef = `(SELECT MIN(start_datetime) FROM ${visit.name} WHERE ${visit.name}.patient_id = ${baseTable}.patient_id)`
         ageLabel = 'age_at_admission'
       } else {
         dateRef = 'CURRENT_DATE'
@@ -1102,38 +962,21 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
     } else {
       const startDateCol = getStartDateColumn(level, mapping)
       if (startDateCol) {
-        dateRef = `"${baseTable}"."${startDateCol}"`
+        dateRef = `${baseTable}.${startDateCol}`
         ageLabel = 'age_at_admission'
       } else {
         dateRef = 'CURRENT_DATE'
         ageLabel = 'age_current'
       }
     }
-
-    // A mapping can name both a birth date and a birth year. Preferring the date
-    // outright yields NULL for every row when that column is empty — MIMIC-IV's
-    // person.birth_datetime is NULL for all 364k patients while year_of_birth is
-    // fully populated — so fall back to the year per row rather than per mapping.
-    const birthYear = birthYearSql(pt, ref)
-    const byYear = birthYear ? `DATE_PART('year', ${dateRef}::TIMESTAMP) - ${birthYear}` : null
-    const byDate = pt.birthDateColumn
-      ? `DATE_PART('year', ${dateRef}) - DATE_PART('year', ${ref}."${pt.birthDateColumn}")`
-      : null
-
-    if (byDate && byYear) {
-      cols.push(`COALESCE(${byDate}, ${byYear}) AS ${ageLabel}`)
-    } else if (byDate) {
-      cols.push(`${byDate} AS ${ageLabel}`)
-    } else if (byYear) {
-      cols.push(`${byYear} AS ${ageLabel}`)
-    }
+    cols.push(`DATE_PART('year', ${dateRef}::TIMESTAMP) - ${ref}.birth_year AS ${ageLabel}`)
   }
 
   // Start/end dates (for visit/visit_detail)
   const startCol = getStartDateColumn(level, mapping)
   const endCol = getEndDateColumn(level, mapping)
-  if (startCol) cols.push(`"${baseTable}"."${startCol}" AS start_date`)
-  if (endCol) cols.push(`"${baseTable}"."${endCol}" AS end_date`)
+  if (startCol) cols.push(`${baseTable}.${startCol} AS start_date`)
+  if (endCol) cols.push(`${baseTable}.${endCol} AS end_date`)
 
   return cols.join(',\n  ')
 }
@@ -1158,7 +1001,7 @@ export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): s
       // property of the mapping (8532 is OMOP's female, another CDM's is not).
       // The picker named them when they were chosen, so an attrition step must
       // not read back "Sex: 8532".
-      const gv = mapping?.genderValues
+      const gv = mapping?.patient?.genderValues
       const name = (v: string) =>
         v === gv?.male ? 'Male' : v === gv?.female ? 'Female' : v === gv?.unknown ? 'Unknown' : v
       return `${prefix}Sex: ${c.values.map(name).join(', ')}`

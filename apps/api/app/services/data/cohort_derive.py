@@ -63,7 +63,59 @@ class IdColumns:
     visit_detail_visit_id: str | None = None
 
 
+def _v2_relations(mapping: dict) -> list[tuple[str, dict]]:
+    """(relation key, spec) for every relation of a format-v2 mapping."""
+    out = [(k, mapping[k]) for k in ("patient", "visit", "visitDetail", "note") if isinstance(mapping.get(k), dict)]
+    for lst in ("concepts", "events", "drugs"):
+        out += [(lst, r) for r in mapping.get(lst) or [] if isinstance(r, dict)]
+    return out
+
+
+def _field_column(spec: dict, field_name: str) -> str | None:
+    """The source column a v2 field reads directly from the relation's grain
+    table (`alias.column` on the `from` alias); None for an expression, a
+    constant, a joined table or a relation written in SQL."""
+    if not isinstance(spec, dict) or (spec.get("customSql") or "").strip():
+        return None
+    ref = (spec.get("fields") or {}).get(field_name)
+    grain = spec.get("from") or {}
+    if not isinstance(ref, str) or "." not in ref or not grain.get("alias"):
+        return None
+    alias, column = ref.split(".", 1)
+    return column if alias.lower() == str(grain["alias"]).lower() else None
+
+
+def effective_mapping(mapping: dict, overrides: dict | None) -> dict:
+    """The mapping with a database's relation overrides applied — what the app
+    queries (effectiveMapping, lib/schema-classes/overrides.ts). Parameters do
+    not change column names, so only relations matter here."""
+    relations = (overrides or {}).get("relations") or {}
+    if mapping.get("formatVersion") != 2 or not relations:
+        return mapping
+    out = dict(mapping)
+    for key, spec in relations.items():
+        head, _, name = key.partition(".")
+        if head in ("patient", "visit", "visitDetail", "note"):
+            out[head] = spec
+            continue
+        if head not in ("concepts", "events", "drugs"):
+            continue
+        id_field = "key" if head == "concepts" else "label"
+        items = list(out.get(head) or [])
+        idx = next((i for i, r in enumerate(items) if isinstance(r, dict) and r.get(id_field) == name), None)
+        if idx is None:
+            items.append(spec)
+        else:
+            items[idx] = spec
+        out[head] = items
+    return out
+
+
 def id_columns(mapping: dict) -> IdColumns:
+    if mapping.get("formatVersion") == 2:
+        return _id_columns_v2(mapping)
+    # A mapping stored before format v2: the app converts it when it loads the
+    # database and writes it back, but the server reads whatever is stored.
     cols = IdColumns()
     pt = mapping.get("patientTable") or {}
     vt = mapping.get("visitTable") or {}
@@ -86,8 +138,36 @@ def id_columns(mapping: dict) -> IdColumns:
     return cols
 
 
+def _id_columns_v2(mapping: dict) -> IdColumns:
+    cols = IdColumns()
+    for key, spec in _v2_relations(mapping):
+        if key == "concepts":
+            continue
+        if (c := _field_column(spec, "patient_id")):
+            cols.patient.add(c.lower())
+    for key in ("visit", "visitDetail"):
+        if (c := _field_column(mapping.get(key) or {}, "visit_id")):
+            cols.visit.add(c.lower())
+    vd = mapping.get("visitDetail") or {}
+    vd_id = _field_column(vd, "visit_detail_id")
+    vd_visit = _field_column(vd, "visit_id")
+    if vd_id:
+        cols.visit_detail.add(vd_id.lower())
+    grain = vd.get("from") or {}
+    if vd_id and vd_visit and grain.get("table"):
+        cols.visit_detail_table = (grain.get("schema"), grain["table"])
+        cols.visit_detail_id = vd_id
+        cols.visit_detail_visit_id = vd_visit
+    return cols
+
+
 def mapping_schemas(mapping: dict) -> set[str]:
     """The schemas a mapping names its tables in, besides the default one."""
+    if mapping.get("formatVersion") == 2:
+        tables = []
+        for _key, spec in _v2_relations(mapping):
+            tables += [spec.get("from") or {}, *(spec.get("joins") or [])]
+        return {t["schema"] for t in tables if isinstance(t, dict) and t.get("schema")}
     refs = [mapping.get(k) or {} for k in ("patientTable", "visitTable", "visitDetailTable", "noteTable", "deathTable")]
     refs += list((mapping.get("eventTables") or {}).values())
     return {r["schema"] for r in refs if isinstance(r, dict) and r.get("schema")}

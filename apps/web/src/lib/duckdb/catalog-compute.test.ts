@@ -1,16 +1,16 @@
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, expect, it } from 'vitest'
-import type { SchemaMapping } from '@/types/schema-mapping'
 import type { CatalogCrossingResult, DataCatalog } from '@/types'
 import { defaultCatalogVariables } from '@/lib/data-catalog/config'
 import { orderModalities, planCrossings } from './catalog-compute'
 
-const mapping = {
+const mapping = mappingV1ToV2({
   patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth', genderColumn: 'gender' },
   visitTable: { table: 'visit', idColumn: 'visit_id', patientIdColumn: 'person_id', startDateColumn: 'start', typeColumn: 'type' },
   conceptTables: [{ key: 'concept', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name' }],
   eventTables: { M: { table: 'measurement', conceptIdColumn: 'cid', patientIdColumn: 'person_id', dateColumn: 'd' } },
   genderValues: { male: 'M', female: 'F' },
-} as unknown as SchemaMapping
+} as unknown as SchemaMappingV1)
 
 function catalog(patch: Partial<DataCatalog> = {}): DataCatalog {
   return {

@@ -1,5 +1,6 @@
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, it, expect } from 'vitest'
-import type { CatalogResultCache, DataCatalog, SchemaMapping } from '@/types'
+import type { CatalogResultCache, DataCatalog } from '@/types'
 import { generateCatalogHtml } from './export-html'
 import { TABLE_HELPERS } from './export-html-script'
 
@@ -44,7 +45,7 @@ function fixture(mode: 'replace' | 'suppress' = 'replace') {
     totalConcepts: 2, totalPatients: 500, totalVisits: 640,
   } as unknown as CatalogResultCache
 
-  const schemaMapping = {
+  const schemaMapping = mappingV1ToV2({
     patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth', genderColumn: 'gender_concept_id' },
     visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_start_date' },
     conceptTables: [{ key: 'concept', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name', extraColumns: { domain_id: 'domain_id' } }],
@@ -52,7 +53,7 @@ function fixture(mode: 'replace' | 'suppress' = 'replace') {
       Measurements: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', patientIdColumn: 'person_id', valueColumn: 'value_as_number', dateColumn: 'measurement_date' },
       Conditions: { table: 'condition_occurrence', conceptIdColumn: 'condition_concept_id', patientIdColumn: 'person_id', dateColumn: 'condition_start_date' },
     },
-  } as unknown as SchemaMapping
+  } as unknown as SchemaMappingV1)
 
   const fullSchema = [
     { name: 'person', columns: [{ name: 'person_id', type: 'BIGINT' }, { name: 'year_of_birth', type: 'INTEGER' }] },
@@ -93,7 +94,8 @@ describe('generateCatalogHtml', () => {
 
   it('draws the mapped tables as a diagram', () => {
     expect(html).toContain('class="erd"')
-    expect(html.match(/class="edge"/g)?.length).toBe(5)
+    // visit → patient, and each event table → patient, dictionary and visit.
+    expect(html.match(/class="edge"/g)?.length).toBe(7)
   })
 
   const data = (page: string) => JSON.parse(/var DATA = (.*);/.exec(page)![1].replace(/\\u003c/g, '<'))

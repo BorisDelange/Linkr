@@ -84,7 +84,7 @@ export function registerCohortExtraTools(server: Server): void {
     const dbs = await projectDatabases(project_uid)
     const db = database_id
       ? dbs.find((d) => d.id === database_id)
-      : dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patientTable)
+      : dbs.find((d) => d.status === 'connected' && d.schemaMapping?.patient)
     if (!db) return failure(database_id ? `Database ${database_id} is not linked to this project.` : 'No usable database in this project.')
     const pointer = db.lineageId || db.entityId
       ? { ...(db.lineageId ? { lineageId: db.lineageId } : {}), ...(db.entityId ? { entityId: db.entityId } : {}), label: db.name }

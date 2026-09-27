@@ -24,6 +24,7 @@ import {
   type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
 import type { DataSource } from './api.js'
+import { conceptRelations, has } from '@/lib/schema-classes/relations'
 import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
 
 const MAX_WRITE = 200
@@ -35,7 +36,7 @@ async function vocabularyOf(project: MappingProject): Promise<Vocabulary> {
   const sources = await Promise.all(ids.map((id) => api.getDataSource(id).catch(() => null)))
   const [vocabDs, sourceDs] = project.vocabularyDataSourceId ? [sources[0], sources[1]] : [null, sources[0]]
   const target = resolveVocabularyTarget(project, sourceDs, sources.filter((d): d is DataSource => !!d))
-  if (!target || !isOmopConceptTable(target.dictionary)) {
+  if (!target || !target.mapping.concepts?.[0] || !isOmopConceptTable(target.mapping.concepts[0])) {
     const ds = vocabDs ?? sourceDs
     throw new Error(`${project.vocabularyDataSourceId ? 'The vocabulary database' : 'This project has no vocabulary database, and its source database'} `
       + `${ds ? `"${loc(ds.name)}" ` : ''}has no OMOP concept table. Ask the user to pick an OMOP vocabulary database `
@@ -71,14 +72,14 @@ async function sourceOf(project: MappingProject): Promise<Source> {
   }
   if (!project.dataSourceId) throw new Error('This mapping project has no source database.')
   const ds = await api.getDataSource(project.dataSourceId)
-  const dicts = ds.schemaMapping?.conceptTables ?? []
+  const dicts = ds.schemaMapping ? conceptRelations(ds.schemaMapping) : []
   const relation = ds.schemaMapping ? buildSourceConceptsRelation(ds.schemaMapping) : ''
   if (!relation) throw new Error(`The source database "${loc(ds.name)}" has no concept dictionary in its schema mapping.`)
   return {
     query: (sql) => api.query(ds.id, `WITH source_concepts AS (${relation}) ${sql}`),
     extracted: false,
     columns: {
-      vocabulary: true, category: dicts.some((d) => d.categoryColumn), subcategory: dicts.some((d) => d.subcategoryColumn),
+      vocabulary: true, category: dicts.some((d) => has(d, 'category')), subcategory: dicts.some((d) => has(d, 'subcategory')),
       records: false, patients: false, info: false,
     },
   }

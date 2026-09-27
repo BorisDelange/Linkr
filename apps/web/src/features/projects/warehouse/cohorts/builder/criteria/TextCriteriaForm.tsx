@@ -1,4 +1,5 @@
 import { useTranslation } from 'react-i18next'
+import { classRelation, has } from '@/lib/schema-classes/relations'
 import { Info, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DebouncedInput } from '@/components/ui/debounced-input'
@@ -45,8 +46,9 @@ function parseTerms(raw: string, mode: TextMatchMode): string[] {
 export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriteriaFormProps) {
   const { t } = useTranslation()
   const searches = config.searches ?? []
-  const hasTitle = Boolean(schemaMapping?.noteTable?.titleColumn)
-  const hasNotes = Boolean(schemaMapping?.noteTable?.textColumn)
+  const note = schemaMapping ? classRelation(schemaMapping, 'note') : undefined
+  const hasTitle = has(note, 'title')
+  const hasNotes = has(note, 'text')
 
   const update = (patch: Partial<TextCriteriaConfig>) => onChange({ ...config, ...patch })
 

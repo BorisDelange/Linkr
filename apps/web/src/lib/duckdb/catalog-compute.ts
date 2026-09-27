@@ -28,6 +28,7 @@ import type {
   DataCatalog,
 } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { conceptRelations } from '@/lib/schema-classes/relations'
 
 export type ComputeStep = 'mounting' | 'building' | 'executing' | 'processing' | 'saving'
 
@@ -164,7 +165,7 @@ export async function planCrossings(
   let conceptRows: CatalogCrossingRow[] = []
   let conceptFilter: ConceptFilter | null = null
   const concept = variables.concept
-  const dictKeys = (mapping.conceptTables ?? []).map((d) => d.key)
+  const dictKeys = conceptRelations(mapping).map((d) => d.key ?? '')
   if (used.has('concept') && concept) {
     const sql = buildConceptRankQuery(mapping, concept)
     const ranked = sql ? await query(sql) : []

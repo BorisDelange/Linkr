@@ -5,10 +5,8 @@
  * and none of them is written by hand per data model: column names come from
  * the schema mapping, as the cohort builder's own SQL does.
  */
-import { birthYearSql, qualify } from '@/lib/schema-helpers'
-import type { CohortLevel, ConceptCriteriaConfig, EventTable, SchemaMapping } from '@/types'
-
-const col = (alias: string, column: string) => `${alias}."${column}"`
+import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping } from '@/types'
+import { classRelation, eventRelation, eventRelations, has } from '@/lib/schema-classes/relations'
 
 /** `SELECT … FROM (membership) m`, the shape every query below starts from. */
 function members(membershipSql: string): string {
@@ -36,20 +34,20 @@ export function buildVisitCountSql(
   level: CohortLevel,
   mapping: SchemaMapping,
 ): string | null {
-  if (level === 'patient' && mapping.visitTable) {
-    const vt = mapping.visitTable
+  const visit = classRelation(mapping, 'visit')
+  if (level === 'patient' && visit) {
     return [
       'SELECT COUNT(*) AS visits',
-      `FROM ${qualify(vt)} v`,
-      `WHERE ${col('v', vt.patientIdColumn)} IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
+      `FROM ${visit.name} v`,
+      `WHERE v.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
     ].join('\n')
   }
-  if (level === 'visit_detail' && mapping.visitDetailTable) {
-    const vd = mapping.visitDetailTable
+  const vd = classRelation(mapping, 'visit_detail')
+  if (level === 'visit_detail' && vd) {
     return [
-      `SELECT COUNT(DISTINCT ${col('vd', vd.visitIdColumn)}) AS visits`,
-      `FROM ${qualify(vd)} vd`,
-      `WHERE ${col('vd', vd.idColumn)} IN (SELECT m.id FROM ${members(membershipSql)})`,
+      'SELECT COUNT(DISTINCT vd.visit_id) AS visits',
+      `FROM ${vd.name} vd`,
+      `WHERE vd.visit_detail_id IN (SELECT m.id FROM ${members(membershipSql)})`,
     ].join('\n')
   }
   return null
@@ -65,28 +63,27 @@ export function buildIndexSql(
   level: CohortLevel,
   mapping: SchemaMapping,
 ): string | null {
-  if (level === 'visit_detail' && mapping.visitDetailTable) {
-    const vd = mapping.visitDetailTable
+  const vd = classRelation(mapping, 'visit_detail')
+  if (level === 'visit_detail' && vd) {
     return [
-      `SELECT m.id, m.patient_id, ${col('vd', vd.startDateColumn)} AS index_date`,
+      'SELECT m.id, m.patient_id, vd.start_datetime AS index_date',
       `FROM ${members(membershipSql)}`,
-      `JOIN ${qualify(vd)} vd ON ${col('vd', vd.idColumn)} = m.id`,
+      `JOIN ${vd.name} vd ON vd.visit_detail_id = m.id`,
     ].join('\n')
   }
-  if (level === 'visit' && mapping.visitTable) {
-    const vt = mapping.visitTable
+  const visit = classRelation(mapping, 'visit')
+  if (level === 'visit' && visit) {
     return [
-      `SELECT m.id, m.patient_id, ${col('v', vt.startDateColumn)} AS index_date`,
+      'SELECT m.id, m.patient_id, v.start_datetime AS index_date',
       `FROM ${members(membershipSql)}`,
-      `JOIN ${qualify(vt)} v ON ${col('v', vt.idColumn)} = m.id`,
+      `JOIN ${visit.name} v ON v.visit_id = m.id`,
     ].join('\n')
   }
-  if (level === 'patient' && mapping.visitTable) {
-    const vt = mapping.visitTable
+  if (level === 'patient' && visit) {
     return [
-      `SELECT m.id, m.patient_id, MIN(${col('v', vt.startDateColumn)}) AS index_date`,
+      'SELECT m.id, m.patient_id, MIN(v.start_datetime) AS index_date',
       `FROM ${members(membershipSql)}`,
-      `LEFT JOIN ${qualify(vt)} v ON ${col('v', vt.patientIdColumn)} = m.patient_id`,
+      `LEFT JOIN ${visit.name} v ON v.patient_id = m.patient_id`,
       'GROUP BY m.id, m.patient_id',
     ].join('\n')
   }
@@ -95,24 +92,20 @@ export function buildIndexSql(
 
 /** Members per 10-year age band at their index date, `bin` = the band's lower bound. */
 export function buildAgeSql(indexSql: string, mapping: SchemaMapping): string | null {
-  const pt = mapping.patientTable
-  const birthYear = birthYearSql(pt, 'p')
-  if (!pt || (!pt.birthDateColumn && !birthYear)) return null
-  const fromDate = pt.birthDateColumn
-    ? `EXTRACT(YEAR FROM age(CAST(i.index_date AS TIMESTAMP), CAST(${col('p', pt.birthDateColumn)} AS TIMESTAMP)))`
-    : null
-  const fromYear = birthYear
-    ? `(EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) - ${birthYear})`
-    : null
+  const patient = classRelation(mapping, 'patient')
+  if (!patient || !has(patient, 'birth_year')) return null
+  const fromYear = '(EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) - p.birth_year)'
   // OMOP maps both, and many databases fill only the year (MIMIC-IV leaves
   // birth_datetime empty): the exact date when present, the year otherwise.
-  const age = fromDate && fromYear ? `COALESCE(${fromDate}, ${fromYear})` : (fromDate ?? fromYear)
+  const age = has(patient, 'birth_date')
+    ? `COALESCE(EXTRACT(YEAR FROM age(CAST(i.index_date AS TIMESTAMP), CAST(p.birth_date AS TIMESTAMP))), ${fromYear})`
+    : fromYear
   return [
     'SELECT CAST(FLOOR(a.age / 10) * 10 AS INTEGER) AS bin, COUNT(*) AS n',
     'FROM (',
     `  SELECT ${age} AS age`,
     `  FROM (\n${indexSql}\n) i`,
-    `  JOIN ${qualify(pt)} p ON ${col('p', pt.idColumn)} = i.patient_id`,
+    `  JOIN ${patient.name} p ON p.patient_id = i.patient_id`,
     '  WHERE i.index_date IS NOT NULL',
     ') a',
     'WHERE a.age IS NOT NULL AND a.age >= 0',
@@ -123,12 +116,12 @@ export function buildAgeSql(indexSql: string, mapping: SchemaMapping): string | 
 
 /** Patients per raw gender value; the report names them through `genderValues`. */
 export function buildSexSql(membershipSql: string, mapping: SchemaMapping): string | null {
-  const pt = mapping.patientTable
-  if (!pt?.genderColumn) return null
+  const patient = classRelation(mapping, 'patient')
+  if (!has(patient, 'gender_source_value')) return null
   return [
-    `SELECT CAST(${col('p', pt.genderColumn)} AS VARCHAR) AS gender, COUNT(*) AS n`,
-    `FROM ${qualify(pt)} p`,
-    `WHERE ${col('p', pt.idColumn)} IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
+    'SELECT CAST(p.gender_source_value AS VARCHAR) AS gender, COUNT(*) AS n',
+    `FROM ${patient!.name} p`,
+    `WHERE p.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
     'GROUP BY 1',
     'ORDER BY 2 DESC',
   ].join('\n')
@@ -147,13 +140,8 @@ export function buildMonthSql(indexSql: string): string {
 
 /** Every patient of the database, cohort or not. */
 export function buildDatabasePatientsSql(mapping: SchemaMapping): string | null {
-  const pt = mapping.patientTable
-  if (!pt) return null
-  return `SELECT COUNT(*) AS n FROM ${qualify(pt)}`
-}
-
-function eventPatientColumn(et: EventTable, mapping: SchemaMapping): string | undefined {
-  return et.patientIdColumn ?? mapping.patientTable?.idColumn
+  const patient = classRelation(mapping, 'patient')
+  return patient ? `SELECT COUNT(*) AS n FROM ${patient.name}` : null
 }
 
 /**
@@ -161,15 +149,13 @@ function eventPatientColumn(et: EventTable, mapping: SchemaMapping): string | un
  * cohort actually has. One UNION ALL, so the database is asked once.
  */
 export function buildEventTablesSql(membershipSql: string, mapping: SchemaMapping): string | null {
-  const parts = Object.entries(mapping.eventTables ?? {}).flatMap(([label, et]) => {
-    const pid = eventPatientColumn(et, mapping)
-    if (!pid) return []
-    return [[
-      `SELECT '${label.replace(/'/g, "''")}' AS label, COUNT(*) AS rows, COUNT(DISTINCT ${col('e', pid)}) AS patients`,
-      `FROM ${qualify(et)} e`,
-      `WHERE ${col('e', pid)} IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
-    ].join('\n')]
-  })
+  const parts = eventRelations(mapping)
+    .filter((e) => has(e, 'patient_id'))
+    .map((e) => [
+      `SELECT '${(e.key ?? '').replace(/'/g, "''")}' AS label, COUNT(*) AS rows, COUNT(DISTINCT e.patient_id) AS patients`,
+      `FROM ${e.name} e`,
+      `WHERE e.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
+    ].join('\n'))
   return parts.length ? parts.join('\nUNION ALL\n') : null
 }
 
@@ -183,22 +169,22 @@ export function buildConceptSql(
   mapping: SchemaMapping,
   config: ConceptCriteriaConfig,
 ): string | null {
-  const et = mapping.eventTables?.[config.eventTableLabel]
-  const pid = et ? eventPatientColumn(et, mapping) : undefined
+  const event = eventRelation(mapping, config.eventTableLabel)
   const ids = config.conceptIds.filter((n) => Number.isFinite(n))
-  if (!et || !pid || ids.length === 0) return null
+  if (!event || !has(event, 'patient_id') || ids.length === 0) return null
   const list = ids.join(', ')
-  const concept = et.sourceConceptIdColumn
-    ? `CASE WHEN ${col('e', et.conceptIdColumn)} IN (${list}) THEN ${col('e', et.conceptIdColumn)} ELSE ${col('e', et.sourceConceptIdColumn)} END`
-    : col('e', et.conceptIdColumn)
-  const match = et.sourceConceptIdColumn
-    ? `(${col('e', et.conceptIdColumn)} IN (${list}) OR ${col('e', et.sourceConceptIdColumn)} IN (${list}))`
-    : `${col('e', et.conceptIdColumn)} IN (${list})`
+  const withSource = has(event, 'source_concept_id')
+  const concept = withSource
+    ? `CASE WHEN e.concept_id IN (${list}) THEN e.concept_id ELSE e.source_concept_id END`
+    : 'e.concept_id'
+  const match = withSource
+    ? `(e.concept_id IN (${list}) OR e.source_concept_id IN (${list}))`
+    : `e.concept_id IN (${list})`
   return [
-    `SELECT ${concept} AS concept_id, COUNT(*) AS rows, COUNT(DISTINCT ${col('e', pid)}) AS patients`,
-    `FROM ${qualify(et)} e`,
+    `SELECT ${concept} AS concept_id, COUNT(*) AS rows, COUNT(DISTINCT e.patient_id) AS patients`,
+    `FROM ${event.name} e`,
     `WHERE ${match}`,
-    `  AND ${col('e', pid)} IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
+    `  AND e.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
     'GROUP BY 1',
   ].join('\n')
 }
@@ -213,16 +199,15 @@ export function buildCareUnitSql(
   level: CohortLevel,
   mapping: SchemaMapping,
 ): string | null {
-  const vd = mapping.visitDetailTable
-  const unit = vd?.unitSourceValueColumn ?? vd?.unitColumn
-  if (!vd || !unit) return null
+  const vd = classRelation(mapping, 'visit_detail')
+  if (!vd || !has(vd, 'unit_name')) return null
   const scope =
-    level === 'visit_detail' ? `${col('vd', vd.idColumn)} IN (SELECT m.id FROM ${members(membershipSql)})`
-      : level === 'visit' ? `${col('vd', vd.visitIdColumn)} IN (SELECT m.id FROM ${members(membershipSql)})`
-        : `${col('vd', vd.patientIdColumn)} IN (SELECT m.patient_id FROM ${members(membershipSql)})`
+    level === 'visit_detail' ? `vd.visit_detail_id IN (SELECT m.id FROM ${members(membershipSql)})`
+      : level === 'visit' ? `vd.visit_id IN (SELECT m.id FROM ${members(membershipSql)})`
+        : `vd.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`
   return [
-    `SELECT CAST(${col('vd', unit)} AS VARCHAR) AS unit, COUNT(DISTINCT ${col('vd', vd.idColumn)}) AS n`,
-    `FROM ${qualify(vd)} vd`,
+    'SELECT vd.unit_name AS unit, COUNT(DISTINCT vd.visit_detail_id) AS n',
+    `FROM ${vd.name} vd`,
     `WHERE ${scope}`,
     'GROUP BY 1',
     'ORDER BY 2 DESC',

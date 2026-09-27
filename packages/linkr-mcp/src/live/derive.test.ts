@@ -1,13 +1,14 @@
 import { describe, expect, it } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import type { Job } from '@/lib/api/environments'
-import type { Cohort, DataSource, SchemaMapping } from '@/types'
+import type { Cohort, DataSource } from '@/types'
 import { formatDerivePlan, formatJob, planDerivation } from './derive'
 
-const mapping = {
+const mapping = mappingV1ToV2({
   presetId: 'omop',
   patientTable: { table: 'person', idColumn: 'person_id' },
   visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'd' },
-} as SchemaMapping
+} as never)
 
 const db = (over: Partial<DataSource> = {}): DataSource => ({
   id: 'src', alias: 'mimic', name: { en: 'MIMIC' }, sourceType: 'database', workspaceId: 'ws', status: 'connected',

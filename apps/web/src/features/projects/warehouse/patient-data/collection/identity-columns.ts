@@ -8,6 +8,7 @@
  * with.
  */
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { fieldColumn } from '@/lib/schema-classes/spec'
 
 export interface IdentityColumn {
   name: string
@@ -35,14 +36,14 @@ const FALLBACK: Record<IdentityColumn['role'], string> = {
  */
 export function identityColumnsFromMapping(mapping: SchemaMapping | undefined): IdentityColumn[] {
   const out: IdentityColumn[] = [
-    { name: mapping?.patientTable?.idColumn || FALLBACK.person, role: 'person', type: 'number' },
+    { name: fieldColumn(mapping?.patient, 'patient_id')?.column || FALLBACK.person, role: 'person', type: 'number' },
   ]
-  if (!mapping || mapping.visitTable) {
-    out.push({ name: mapping?.visitTable?.idColumn || FALLBACK.visit, role: 'visit', type: 'number' })
+  if (!mapping || mapping.visit) {
+    out.push({ name: fieldColumn(mapping?.visit, 'visit_id')?.column || FALLBACK.visit, role: 'visit', type: 'number' })
   }
-  if (!mapping || mapping.visitDetailTable) {
+  if (!mapping || mapping.visitDetail) {
     out.push({
-      name: mapping?.visitDetailTable?.idColumn || FALLBACK.visitDetail,
+      name: fieldColumn(mapping?.visitDetail, 'visit_detail_id')?.column || FALLBACK.visitDetail,
       role: 'visitDetail',
       type: 'number',
     })

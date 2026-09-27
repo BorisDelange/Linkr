@@ -75,7 +75,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
   const connectedSources = useMemo(
     () =>
       dataSources.filter(
-        (ds) => ds.status === 'connected' && !ds.isVocabularyReference && !!ds.schemaMapping?.patientTable,
+        (ds) => ds.status === 'connected' && !ds.isVocabularyReference && !!ds.schemaMapping?.patient,
       ),
     [dataSources],
   )

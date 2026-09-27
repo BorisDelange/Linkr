@@ -1,20 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import { buildJsonLd } from './jsonld'
 import { EHDS_LEGISLATION, normalizeDcatMetadata, vocabularyIri } from './schema'
-import type { CatalogResultCache, DataCatalog, SchemaMapping } from '@/types'
+import type { CatalogResultCache, DataCatalog } from '@/types'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 
 type Node = Record<string, unknown>
 const dataset = (doc: Node) => doc['dcat:dataset'] as Node
 
-const mapping = {
+const mapping = mappingV1ToV2({
   presetLabel: { en: 'OMOP CDM 5.4' },
   patientTable: { table: 'person', idColumn: 'person_id', genderColumn: 'gender_concept_id' },
   visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_start_datetime' },
-} as unknown as SchemaMapping
+} as unknown as SchemaMappingV1)
 
 const cache = {
   concepts: [{ conceptId: 1, conceptName: 'x', patientCount: 20, visitCount: 20, recordCount: 40 }],
-  dimensions: [],
+  crossings: [],
 } as unknown as CatalogResultCache
 const catalog = { anonymization: { threshold: 10, mode: 'replace' } } as unknown as DataCatalog
 

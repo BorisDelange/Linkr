@@ -266,7 +266,9 @@ export function AddDatabaseDialog({
       // Resolve through the list, by lineage first — see findSourcePreset.
       const match = findSourcePreset(editingSource, customPresets)
       const storedPresetId = editingSource.schemaMapping?.presetId
-      setSchemaPresetId((match ? presetKey(match) : storedPresetId) as SchemaPresetId ?? '__none__')
+      const initial = ((match ? presetKey(match) : storedPresetId) ?? '__none__') as SchemaPresetId
+      setSchemaPresetId(initial)
+      setInitialPresetId(initial)
     }
   }, [open, editingSource, language, customPresets])
 
@@ -281,6 +283,11 @@ export function AddDatabaseDialog({
 
   // Schema preset
   const [schemaPresetId, setSchemaPresetId] = useState<SchemaPresetId>('__none__')
+  /** The preset an edited database opened with. Saving the dialog re-copies a
+   *  mapping only when the user picked ANOTHER preset: re-copying the same one
+   *  silently replaced the database's mapping with whatever the preset had
+   *  become — updating from the preset is an explicit action on the Mapping tab. */
+  const [initialPresetId, setInitialPresetId] = useState<SchemaPresetId | null>(null)
 
   // File upload — or, in server mode, a path to data already on the server.
   const [fileOrigin, setFileOrigin] = useState<FileOrigin>('upload')
@@ -391,8 +398,9 @@ export function AddDatabaseDialog({
           await updateDataSource(editingSource.id, { connectionConfig: moved.connectionConfig })
         }
         // Edit mode — update metadata + optionally re-import files
-        const mapping = resolveMapping()
-        const schemaSource = resolveSchemaSource()
+        const presetChanged = schemaPresetId !== initialPresetId
+        const mapping = presetChanged ? resolveMapping() : (editingSource.schemaBaseMapping ?? editingSource.schemaMapping)
+        const schemaSource = presetChanged ? resolveSchemaSource() : editingSource.schemaSource
         const hasNewFiles = uploadedFiles.length > 0 || fsHandles.length > 0
 
         if (hasNewFiles) {
@@ -440,6 +448,9 @@ export function AddDatabaseDialog({
               connectionConfig,
               schemaMapping: mapping,
               schemaSource,
+              // Another preset is another schema: its overrides would name
+              // relations that are not there.
+              schemaOverrides: presetChanged ? undefined : editingSource.schemaOverrides,
               files: fsHandles.length > 0 ? undefined : (uploadedFiles.length > 0 ? uploadedFiles : undefined),
               fileHandles: fsHandles.length > 0 ? fsHandles : undefined,
               alias: alias.trim() || undefined,
@@ -456,8 +467,7 @@ export function AddDatabaseDialog({
             name: setLocalized(editingSource.name, language, name.trim()),
             alias: alias.trim() || editingSource.alias,
             description: setLocalized(editingSource.description, language, description.trim()),
-            schemaMapping: mapping,
-            schemaSource,
+            ...(presetChanged ? { schemaMapping: mapping, schemaSource, schemaOverrides: null } : {}),
             badges,
             version: version.trim() || '0.1.0',
             // Spread last and only what was re-attributed: an untouched

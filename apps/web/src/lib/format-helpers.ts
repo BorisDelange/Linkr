@@ -1,4 +1,4 @@
-import type { SchemaMapping } from '@/types/schema-mapping'
+import type { PatientSpec } from '@/types/schema-mapping'
 import type { TFunction } from 'i18next'
 
 // ---------------------------------------------------------------------------
@@ -95,7 +95,7 @@ export function formatDateTime(d: string): string {
 /** Format a gender concept value to a localized label. */
 export function formatGender(
   gender: string | undefined,
-  genderValues: SchemaMapping['genderValues'],
+  genderValues: PatientSpec['genderValues'],
   t: TFunction,
 ): string {
   if (!gender || !genderValues) return gender ?? '—'
@@ -107,7 +107,7 @@ export function formatGender(
 /** Short gender label (M/F). */
 export function formatGenderShort(
   gender: string | undefined,
-  genderValues: SchemaMapping['genderValues'],
+  genderValues: PatientSpec['genderValues'],
   t: TFunction,
 ): string {
   if (!gender || !genderValues) return gender ?? '—'

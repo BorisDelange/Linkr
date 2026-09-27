@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { classRelation, conceptRelations, has } from '@/lib/schema-classes/relations'
+import { fieldColumn } from '@/lib/schema-classes/spec'
 import { useTranslation } from 'react-i18next'
 import {
   AlertCircle, Calendar, Check, Gauge, Info, Layers, Loader2, Pause, Play, RotateCcw, Search, Stethoscope, Tag, Trash2, Users, X,
@@ -222,6 +224,7 @@ export function CatalogConfigTab({ catalog }: Props) {
     }
   }
   const label = (v: CatalogVariableId) => t(`data_catalog.var_${v}`)
+  const hasGender = !!mapping && has(classRelation(mapping, 'patient'), 'gender')
 
   return (
     // Option-row tooltips need a beat before the first one appears, none between
@@ -256,8 +259,8 @@ export function CatalogConfigTab({ catalog }: Props) {
           <AgeBracketsEditor brackets={variables.age?.brackets ?? DEFAULT_AGE_BRACKETS} canEdit={editable} onChange={(brackets) => setVariable('age', { brackets })} />
         </VariableRow>
 
-        <VariableRow id="sex" enabled={!!variables.sex?.enabled} disabled={!editable || !mapping?.genderValues} onToggle={(v) => setVariable('sex', { enabled: v })}
-          summary={!mapping?.genderValues ? t('data_catalog.sex_no_mapping') : undefined} />
+        <VariableRow id="sex" enabled={!!variables.sex?.enabled} disabled={!editable || !hasGender} onToggle={(v) => setVariable('sex', { enabled: v })}
+          summary={!hasGender ? t('data_catalog.sex_no_mapping') : undefined} />
 
         <VariableRow id="service" enabled={!!variables.service?.enabled} disabled={!editable} onToggle={(v) => setVariable('service', { enabled: v })}
           summary={variables.service?.enabled ? t(`data_catalog.service_grouping_${variables.service.grouping}_summary`, { n: variables.service.topN }) : undefined}>
@@ -589,8 +592,8 @@ function ServiceSettings({
   const { t } = useTranslation()
   const [services, setServices] = useState<{ name: string; patients: number }[] | null>(null)
   const [search, setSearch] = useState('')
-  const canVisit = !!mapping?.visitTable?.typeColumn
-  const canDetail = !!mapping?.visitDetailTable
+  const canVisit = !!mapping && has(classRelation(mapping, 'visit'), 'visit_type')
+  const canDetail = !!mapping && !!classRelation(mapping, 'visit_detail')
 
   useEffect(() => {
     if (config.grouping !== 'manual' || !mapping) return
@@ -736,10 +739,14 @@ function ConceptSettings({
   const { t } = useTranslation()
   const columns = useMemo(() => {
     const keys = new Set<string>()
-    for (const d of mapping?.conceptTables ?? []) {
-      if (d.categoryColumn) keys.add(d.categoryColumn)
-      if (d.subcategoryColumn) keys.add(d.subcategoryColumn)
-      for (const key of Object.keys(d.extraColumns ?? {})) keys.add(key)
+    // The dictionaries' category and subcategory, by the source column they read
+    // (what a saved catalog config names), and their extra columns.
+    for (const d of mapping ? conceptRelations(mapping) : []) {
+      const spec = mapping?.concepts?.find((c) => c.key === d.key)
+      for (const column of ['category', 'subcategory'] as const) {
+        if (has(d, column)) keys.add(fieldColumn(spec, column)?.column ?? column)
+      }
+      for (const key of Object.keys(d.extras ?? {})) keys.add(key)
     }
     return [...keys].sort()
   }, [mapping])

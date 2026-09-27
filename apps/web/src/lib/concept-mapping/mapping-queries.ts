@@ -1,9 +1,68 @@
-import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
-import {
-  getEventTablesForDictionary,
-} from '@/lib/schema-helpers'
+import type { SchemaMapping } from '@/types/schema-mapping'
+import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
+import { conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+
+/** A mapped dictionary with its relation. The mapping is still read for what
+ *  makes a source concept's identity (id column present? table name as the
+ *  fallback vocabulary?), the relation for everything the SQL reads. */
+interface DictSource {
+  dict: ConceptIdentity
+  rel: ClassRelation
+}
+
+function dictSources(mapping: SchemaMapping): DictSource[] {
+  return (mapping.concepts ?? []).flatMap(({ key }) => {
+    const rel = conceptRelation(mapping, key)
+    const dict = conceptIdentity(mapping, key)
+    return rel && dict ? [{ dict, rel }] : []
+  })
+}
+
+/**
+ * A source concept's id. With no id column (code-only tables like
+ * d_icd_diagnoses) a deterministic integer hash of the code stands in, so the
+ * rest of the pipeline — which expects concept_id as a number — keeps working.
+ * Mapping projects store these ids: the expression must not change.
+ */
+function sourceIdExpr({ dict }: DictSource, alias = 'd'): string {
+  if (dict.ownId) return `${alias}.concept_id`
+  return `(hash(${alias}.${dict.hasCode ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
+}
+
+/** A source concept's vocabulary: its terminology column, else the table name —
+ *  a stable identifier, part of the (vocabulary, code) identity of a concept. */
+function sourceVocabExpr({ dict, rel }: DictSource, alias = 'd'): string {
+  return has(rel, 'terminology_id') ? `${alias}.terminology_id` : `'${esc(dict.table)}'`
+}
+
+/**
+ * The (vocabulary, code) a concept of dictionary `dictKey` is known by — in
+ * mapping projects and in the vocabulary the ETL generates — as expressions over
+ * a row of its relation aliased `alias`. What a generated ETL script joins on.
+ */
+export function sourceConceptKeyExprs(
+  mapping: SchemaMapping, dictKey: string, alias = 'd',
+): { vocabulary: string; code: string } | null {
+  const source = dictSources(mapping).find((s) => s.dict.key === dictKey)
+  if (!source) return null
+  return {
+    vocabulary: sourceVocabExpr(source, alias),
+    code: source.dict.hasCode ? `${alias}.concept_code` : `CAST(${sourceIdExpr(source, alias)} AS VARCHAR)`,
+  }
+}
+
+/** The relation column behind a source-concept column alias, or null. */
+function sourceColumn({ rel }: DictSource, alias: string): string | null {
+  switch (alias) {
+    case 'vocabulary_id': return has(rel, 'terminology_id') ? 'terminology_id' : null
+    case 'terminology_name': return has(rel, 'terminology_name') ? 'terminology_name' : null
+    case 'category': return has(rel, 'category') ? 'category' : null
+    case 'subcategory': return has(rel, 'subcategory') ? 'subcategory' : null
+    default: return rel.extras?.[alias] ? `"${rel.extras[alias]}"` : null
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Source concept filters
@@ -91,10 +150,8 @@ export function buildSourceConceptsQuery(
   limit: number,
   offset: number,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
-
-  const unionParts = buildConceptUnionParts(dicts)
+  const unionParts = buildConceptUnionParts(dictSources(mapping))
+  if (unionParts.length === 0) return ''
   const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
   const fuzzy = filters.searchTextFuzzy ? fuzzySearchClauses(filters.searchTextFuzzy) : null
 
@@ -144,8 +201,7 @@ export function buildSourceConceptsQuery(
  * concept dictionary.
  */
 export function buildSourceConceptsRelation(mapping: SchemaMapping): string {
-  const parts = buildConceptUnionParts(mapping.conceptTables ?? [])
-  return parts.join(' UNION ALL ')
+  return buildConceptUnionParts(dictSources(mapping)).join(' UNION ALL ')
 }
 
 /**
@@ -158,25 +214,15 @@ export function buildSourceConceptsRelation(mapping: SchemaMapping): string {
 export function buildAllConceptCountsQuery(
   mapping: SchemaMapping,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
-
-  // For each dictionary, build a UNION ALL of event table records grouped by concept_id
+  // For each dictionary, a UNION ALL of its event records grouped by concept id,
+  // through the concept and the source-concept column alike.
   const allParts: string[] = []
-
-  for (const dict of dicts) {
-    const eventTables = getEventTablesForDictionary(mapping, dict.key)
-    if (eventTables.length === 0) continue
-
-    for (const { eventTable: et } of eventTables) {
-      const patientCol = et.patientIdColumn ?? 'person_id'
-      // Build conditions: conceptIdColumn = concept_id [OR sourceConceptIdColumn = concept_id]
-      const idCols: string[] = [et.conceptIdColumn]
-      if (et.sourceConceptIdColumn) idCols.push(et.sourceConceptIdColumn)
-
+  for (const { rel } of dictSources(mapping)) {
+    for (const event of eventRelations(mapping).filter((e) => e.dictionary === rel.name)) {
+      const idCols = has(event, 'source_concept_id') ? ['concept_id', 'source_concept_id'] : ['concept_id']
       for (const col of idCols) {
         allParts.push(
-          `SELECT evt."${col}" AS concept_id, COUNT(*) AS record_count, COUNT(DISTINCT evt."${patientCol}") AS patient_count FROM ${et.table} evt WHERE evt."${col}" IS NOT NULL GROUP BY evt."${col}"`
+          `SELECT evt.${col} AS concept_id, COUNT(*) AS record_count, COUNT(DISTINCT evt.patient_id) AS patient_count FROM ${event.name} evt WHERE evt.${col} IS NOT NULL GROUP BY evt.${col}`,
         )
       }
     }
@@ -195,10 +241,8 @@ export function buildSourceConceptsAllQuery(
   mapping: SchemaMapping,
   filters: SourceConceptFilters,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
-
-  const unionParts = buildConceptUnionParts(dicts)
+  const unionParts = buildConceptUnionParts(dictSources(mapping))
+  if (unionParts.length === 0) return ''
 
   let sql = unionParts.length === 1
     ? `SELECT * FROM (${unionParts[0]}) AS src`
@@ -216,10 +260,8 @@ export function buildSourceConceptsCountQuery(
   mapping: SchemaMapping,
   filters: SourceConceptFilters,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
-
-  const unionParts = buildConceptUnionParts(dicts)
+  const unionParts = buildConceptUnionParts(dictSources(mapping))
+  if (unionParts.length === 0) return ''
 
   let sql = unionParts.length === 1
     ? `SELECT COUNT(*) AS total FROM (${unionParts[0]}) AS src`
@@ -239,12 +281,12 @@ export function buildSourceConceptsGroupCountQuery(
   mapping: SchemaMapping,
   dimension: BreakdownDimension,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
+  const sources = dictSources(mapping)
+  if (sources.length === 0) return ''
   // vocabulary_id is always projected (falls back to the table name); category is
   // only present when at least one dictionary maps a category column.
-  if (dimension === 'category' && !dicts.some((d) => d.categoryColumn)) return ''
-  const unionParts = buildConceptUnionParts(dicts)
+  if (dimension === 'category' && !sources.some((d) => has(d.rel, 'category'))) return ''
+  const unionParts = buildConceptUnionParts(sources)
   const inner = unionParts.length === 1 ? unionParts[0] : unionParts.join(' UNION ALL ')
   return `SELECT ${dimension} AS group_key, COUNT(*) AS total FROM (${inner}) AS src GROUP BY ${dimension}`
 }
@@ -267,57 +309,36 @@ export function buildFileSourceConceptsGroupCountQuery(
 // ---------------------------------------------------------------------------
 
 /** Build SELECT parts for concept dictionaries (no counts). */
-function buildConceptUnionParts(dicts: ConceptDictionary[]): string[] {
+function buildConceptUnionParts(sources: DictSource[]): string[] {
   // Optional columns must be emitted by EVERY branch (NULL when the dictionary
   // lacks them) or the UNION ALL has heterogeneous column sets and DuckDB throws.
-  const hasTermName = dicts.some((d) => d.terminologyNameColumn)
-  const hasCategory = dicts.some((d) => d.categoryColumn)
-  const hasSubcategory = dicts.some((d) => d.subcategoryColumn)
-  const extraAliases = [...new Set(dicts.flatMap((d) => Object.keys(d.extraColumns ?? {})))]
-  return dicts.map((dict) => {
-    // When idColumn is absent (code-only tables like d_icd_diagnoses), generate a
-    // deterministic integer hash from the code column so the rest of the pipeline
-    // (which expects concept_id as number) keeps working.
-    const idValue = dict.idColumn
-      ? `d.${dict.idColumn}`
-      : `(hash(d.${dict.codeColumn ?? 'id'}) % 2147483647)::INTEGER`
-    const idExpr = `${idValue} AS concept_id`
-    const nameCol = dict.nameColumn ?? 'concept_name'
+  const hasTermName = sources.some((s) => has(s.rel, 'terminology_name'))
+  const hasCategory = sources.some((s) => has(s.rel, 'category'))
+  const hasSubcategory = sources.some((s) => has(s.rel, 'subcategory'))
+  const extraAliases = [...new Set(sources.flatMap((s) => Object.keys(s.rel.extras ?? {})))]
+  return sources.map((source) => {
+    const idValue = sourceIdExpr(source)
+    const optional = (alias: string, present: boolean) =>
+      present ? `, ${sourceColumn(source, alias) ? `d.${sourceColumn(source, alias)}` : 'NULL'} AS ${alias}` : ''
     // Without a code column the id is the code, as the extraction writes it
     // (buildDictionaryPageQuery): an empty code gave every concept of the table
     // the same (vocabulary, code) key, so one mapping marked them all mapped.
-    const codeCol = dict.codeColumn ? `, d.${dict.codeColumn} AS concept_code` : `, CAST(${idValue} AS VARCHAR) AS concept_code`
-
-    // Backward compat: support both terminologyIdColumn and deprecated vocabularyColumn.
-    // When neither exists, use the table name as a stable vocabulary identifier.
-    const termIdCol = dict.terminologyIdColumn ?? dict.vocabularyColumn
-    const vocabCol = termIdCol ? `, d.${termIdCol} AS vocabulary_id` : `, '${dict.table}' AS vocabulary_id`
-
-    const termNameCol = hasTermName
-      ? `, ${dict.terminologyNameColumn ? `d.${dict.terminologyNameColumn}` : 'NULL'} AS terminology_name`
-      : ''
-    const categoryCol = hasCategory
-      ? `, ${dict.categoryColumn ? `d.${dict.categoryColumn}` : 'NULL'} AS category`
-      : ''
-    const subcategoryCol = hasSubcategory
-      ? `, ${dict.subcategoryColumn ? `d.${dict.subcategoryColumn}` : 'NULL'} AS subcategory`
-      : ''
-
+    const code = source.dict.hasCode ? 'd.concept_code' : `CAST(${idValue} AS VARCHAR)`
     const extraCols = extraAliases.map((alias) => {
-      const col = dict.extraColumns?.[alias]
-      return `, ${col ? `d.${col}` : 'NULL'} AS ${alias}`
+      const col = source.rel.extras?.[alias]
+      return `, ${col ? `d."${col}"` : 'NULL'} AS ${alias}`
     })
 
     return `SELECT
-      ${idExpr},
-      d.${nameCol} AS concept_name
-      ${codeCol}
-      ${vocabCol}
-      ${termNameCol}
-      ${categoryCol}
-      ${subcategoryCol}
+      ${idValue} AS concept_id,
+      d.concept_name AS concept_name,
+      ${code} AS concept_code,
+      ${sourceVocabExpr(source)} AS vocabulary_id
+      ${optional('terminology_name', hasTermName)}
+      ${optional('category', hasCategory)}
+      ${optional('subcategory', hasSubcategory)}
       ${extraCols.join('')}
-    FROM ${dict.table} d`
+    FROM ${source.rel.name} d`
   })
 }
 
@@ -516,75 +537,82 @@ export function buildStandardConceptSearchQuery(
   filters?: StandardConceptSearchFilters,
   limit = 1000,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
-
-  const dict = dicts[0]
-  const idCol = dict.idColumn ?? 'concept_id'
-  const nameCol = dict.nameColumn ?? 'concept_name'
-  const codeCol = dict.codeColumn ?? 'concept_code'
-  const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
-  const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-  const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-  const stdCol = dict.extraColumns?.standard_concept
-  const invalidCol = dict.extraColumns?.invalid_reason
-
-  // Build shared filter conditions (vocabulary, domain, class, standard)
-  const filterConds: string[] = []
-  if (filters?.vocabularyIds?.length) {
-    filterConds.push(`d.${vocabCol} IN (${filters.vocabularyIds.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.domainIds?.length && domainCol) {
-    filterConds.push(`d.${domainCol} IN (${filters.domainIds.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.conceptClassIds?.length && classCol) {
-    filterConds.push(`d.${classCol} IN (${filters.conceptClassIds.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.standardConcepts?.length && stdCol) {
-    filterConds.push(`d.${stdCol} IN (${filters.standardConcepts.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
-    filterConds.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
-  }
-  if (filters?.conceptIds) {
-    const ids = filters.conceptIds.filter((id) => Number.isInteger(id))
-    filterConds.push(ids.length ? `d.${idCol} IN (${ids.join(',')})` : 'FALSE')
-  }
-  const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
-
-  const selectCols = `d.${idCol} AS concept_id, d.${nameCol} AS concept_name, d.${codeCol} AS concept_code, d.${vocabCol} AS vocabulary_id${domainCol ? `, d.${domainCol} AS domain_id` : ''}${classCol ? `, d.${classCol} AS concept_class_id` : ''}${stdCol ? `, d.${stdCol} AS standard_concept` : ''}${invalidCol ? `, d.${invalidCol} AS invalid_reason` : ''}`
+  const source = dictSources(mapping)[0]
+  if (!source) return ''
+  const search = standardSearchParts(source, filters)
+  const { selectCols, filterConds, from } = search
 
   const term = searchTerm.trim()
 
   // Empty search term: return first N rows matching filters only
   if (!term) {
     const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
-    return `SELECT ${selectCols} FROM ${dict.table} d${wherePart} ORDER BY d.${idCol} LIMIT ${limit}`
+    return `SELECT ${selectCols} FROM ${from}${wherePart} ORDER BY d.concept_id LIMIT ${limit}`
   }
 
   // Delegate to the shared fuzzy-search helper (see CLAUDE.md → Fuzzy Search).
   // The single combined WHERE selects every match, and `rankExpr` slots each
   // row into the right tier so a top-N ORDER BY surfaces the best matches.
-  const fuzzy = buildFuzzySearchSql(term, {
-    nameColumn: nameCol,
-    codeColumn: codeCol,
-    idColumn: idCol,
-    alias: 'd',
-  })
+  const fuzzy = buildFuzzySearchSql(term, search.fuzzyColumns)
   if (!fuzzy) {
     const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
-    return `SELECT ${selectCols} FROM ${dict.table} d${wherePart} LIMIT ${limit}`
+    return `SELECT ${selectCols} FROM ${from}${wherePart} LIMIT ${limit}`
   }
 
   // Paging a ranked search needs a total order: `_rank` alone leaves ties in
   // whatever order the scan produced, so a row could repeat on page 2 or be
   // skipped entirely. concept_id breaks the tie deterministically.
-  const where = `${fuzzy.where}${filterClause}`
+  const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
   return `SELECT ${selectCols}, ${fuzzy.rankExpr} AS _rank
-  FROM ${dict.table} d
-  WHERE ${where}
-  ORDER BY _rank, d.${idCol}
+  FROM ${from}
+  WHERE ${fuzzy.where}${filterClause}
+  ORDER BY _rank, d.concept_id
   LIMIT ${limit}`
+}
+
+/** The columns and filter predicates both standard-concept searches share, so
+ *  the COUNT and the ranked query never drift apart. */
+function standardSearchParts(source: DictSource, filters?: StandardConceptSearchFilters) {
+  const { rel } = source
+  const col = (alias: string) => sourceColumn(source, alias)
+  const vocabCol = has(rel, 'terminology_id') ? 'terminology_id' : null
+  const domainCol = col('domain_id') ?? col('category')
+  const classCol = col('concept_class_id') ?? col('subcategory')
+  const stdCol = col('standard_concept')
+  const invalidCol = col('invalid_reason')
+  const validEndCol = col('valid_end_date')
+  const inList = (values: string[]) => values.map((v) => `'${esc(v)}'`).join(',')
+
+  const filterConds: string[] = []
+  if (filters?.vocabularyIds?.length) {
+    filterConds.push(vocabCol ? `d.${vocabCol} IN (${inList(filters.vocabularyIds)})` : 'FALSE')
+  }
+  if (filters?.domainIds?.length && domainCol) filterConds.push(`d.${domainCol} IN (${inList(filters.domainIds)})`)
+  if (filters?.conceptClassIds?.length && classCol) filterConds.push(`d.${classCol} IN (${inList(filters.conceptClassIds)})`)
+  if (filters?.standardConcepts?.length && stdCol) filterConds.push(`d.${stdCol} IN (${inList(filters.standardConcepts)})`)
+  if (filters?.validConcept === 'valid' && validEndCol) filterConds.push(`d.${validEndCol} > CURRENT_DATE`)
+  if (filters?.conceptIds) {
+    const ids = filters.conceptIds.filter((id) => Number.isInteger(id))
+    filterConds.push(ids.length ? `d.concept_id IN (${ids.join(',')})` : 'FALSE')
+  }
+
+  const selectCols = [
+    'd.concept_id AS concept_id',
+    'd.concept_name AS concept_name',
+    'd.concept_code AS concept_code',
+    `${vocabCol ? `d.${vocabCol}` : 'NULL'} AS vocabulary_id`,
+    domainCol ? `d.${domainCol} AS domain_id` : null,
+    classCol ? `d.${classCol} AS concept_class_id` : null,
+    stdCol ? `d.${stdCol} AS standard_concept` : null,
+    invalidCol ? `d.${invalidCol} AS invalid_reason` : null,
+  ].filter(Boolean).join(', ')
+
+  return {
+    selectCols,
+    filterConds,
+    from: `${rel.name} d`,
+    fuzzyColumns: { nameColumn: 'concept_name', codeColumn: 'concept_code', idColumn: 'concept_id', alias: 'd' },
+  }
 }
 
 /**
@@ -597,61 +625,25 @@ export function buildStandardConceptSearchCountQuery(
   searchTerm: string,
   filters?: StandardConceptSearchFilters,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
-
-  const dict = dicts[0]
-  const idCol = dict.idColumn ?? 'concept_id'
-  const nameCol = dict.nameColumn ?? 'concept_name'
-  const codeCol = dict.codeColumn ?? 'concept_code'
-  const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
-  const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-  const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-  const stdCol = dict.extraColumns?.standard_concept
-
-  const filterConds: string[] = []
-  if (filters?.vocabularyIds?.length) {
-    filterConds.push(`d.${vocabCol} IN (${filters.vocabularyIds.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.domainIds?.length && domainCol) {
-    filterConds.push(`d.${domainCol} IN (${filters.domainIds.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.conceptClassIds?.length && classCol) {
-    filterConds.push(`d.${classCol} IN (${filters.conceptClassIds.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.standardConcepts?.length && stdCol) {
-    filterConds.push(`d.${stdCol} IN (${filters.standardConcepts.map((v) => `'${esc(v)}'`).join(',')})`)
-  }
-  if (filters?.validConcept === 'valid' && dict.extraColumns?.valid_end_date) {
-    filterConds.push(`d.${dict.extraColumns.valid_end_date} > CURRENT_DATE`)
-  }
-  if (filters?.conceptIds) {
-    const ids = filters.conceptIds.filter((id) => Number.isInteger(id))
-    filterConds.push(ids.length ? `d.${idCol} IN (${ids.join(',')})` : 'FALSE')
-  }
+  const source = dictSources(mapping)[0]
+  if (!source) return ''
+  const { filterConds, from, fuzzyColumns } = standardSearchParts(source, filters)
 
   const term = searchTerm.trim()
 
   // Empty search term: count all rows matching filters
   if (!term) {
     const wherePart = filterConds.length > 0 ? ` WHERE ${filterConds.join(' AND ')}` : ''
-    return `SELECT COUNT(*) AS total FROM ${dict.table} d${wherePart}`
+    return `SELECT COUNT(*) AS total FROM ${from}${wherePart}`
   }
 
-  // Same matcher as the search query — share the helper so the COUNT and the
-  // ORDER BY query never drift apart.
-  const fuzzy = buildFuzzySearchSql(term, {
-    nameColumn: nameCol,
-    codeColumn: codeCol,
-    idColumn: idCol,
-    alias: 'd',
-  })
+  const fuzzy = buildFuzzySearchSql(term, fuzzyColumns)
   const filterClause = filterConds.length > 0 ? ` AND ${filterConds.join(' AND ')}` : ''
   const where = fuzzy
     ? `WHERE ${fuzzy.where}${filterClause}`
     : (filterConds.length > 0 ? `WHERE ${filterConds.join(' AND ')}` : '')
 
-  return `SELECT COUNT(DISTINCT d.${idCol}) AS total FROM ${dict.table} d ${where}`
+  return `SELECT COUNT(DISTINCT d.concept_id) AS total FROM ${from} ${where}`
 }
 
 /** Optional scoping of filter options to a selected vocabulary/terminology.
@@ -669,40 +661,30 @@ export function buildFilterOptionsQuery(
   columnAlias: string,
   vocabScope?: FilterOptionsVocabScope,
 ): string {
-  const dicts = mapping.conceptTables ?? []
-  if (dicts.length === 0) return ''
-
   const scoped = vocabScope && vocabScope.values.length > 0 ? vocabScope : undefined
 
-  const unionParts = dicts.map((dict) => {
-    let col: string | undefined
-    if (columnAlias === 'vocabulary_id') col = dict.terminologyIdColumn ?? dict.vocabularyColumn
-    else if (columnAlias === 'terminology_name') col = dict.terminologyNameColumn
-    else if (columnAlias === 'category') col = dict.categoryColumn
-    else if (columnAlias === 'subcategory') col = dict.subcategoryColumn
-    else if (dict.extraColumns?.[columnAlias]) col = dict.extraColumns[columnAlias]
+  const unionParts = dictSources(mapping).map((source) => {
+    const col = sourceColumn(source, columnAlias)
     // When no column exists for vocabulary_id, use the table name as a static value
     if (!col) {
       if (columnAlias === 'vocabulary_id') {
         // Static vocabulary_id = table name: honour the scope by dropping tables
         // whose implicit vocabulary isn't in the selected set.
-        if (scoped?.column === 'vocabulary_id' && !scoped.values.includes(dict.table)) return null
-        return `SELECT '${dict.table}' AS val`
+        if (scoped?.column === 'vocabulary_id' && !scoped.values.includes(source.dict.table)) return null
+        return `SELECT '${esc(source.dict.table)}' AS val`
       }
       return null
     }
 
     const where = [`${col} IS NOT NULL`]
     if (scoped) {
-      const scopeCol = scoped.column === 'vocabulary_id'
-        ? (dict.terminologyIdColumn ?? dict.vocabularyColumn)
-        : dict.terminologyNameColumn
+      const scopeCol = sourceColumn(source, scoped.column)
       // No matching vocabulary column on this dictionary → it can't satisfy the
       // scope, so exclude it entirely rather than returning unscoped values.
       if (!scopeCol) return null
       where.push(inListClause(scopeCol, scoped.values))
     }
-    return `SELECT DISTINCT ${col} AS val FROM ${dict.table} WHERE ${where.join(' AND ')}`
+    return `SELECT DISTINCT ${col} AS val FROM ${source.rel.name} WHERE ${where.join(' AND ')}`
   }).filter(Boolean)
 
   if (unionParts.length === 0) return ''

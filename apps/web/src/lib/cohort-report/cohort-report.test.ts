@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import type { TFunction } from 'i18next'
-import type { Cohort, SchemaMapping } from '@/types'
+import type { Cohort } from '@/types'
 import { columnChart, donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
 import { describeCriteria } from './describe'
 import { buildCohortReportModel, CohortReportUnavailable, fillMonths } from './model'
@@ -8,12 +9,13 @@ import { buildAgeSql, buildCareUnitSql, buildConceptSql, buildIndexSql, buildVis
 import { renderReportHtml } from './render-html'
 import { suppress, suppressedShare } from './suppress'
 import { tokenizeSql } from './sql-highlight'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // A key-echoing t: the text shows which key and values a sentence was built from.
 const t = ((key: string, opts?: Record<string, unknown>) =>
   opts ? `${key}(${Object.entries(opts).map(([k, v]) => `${k}=${v}`).join(',')})` : key) as unknown as TFunction
 
-const mapping: SchemaMapping = {
+const mapping_V1: SchemaMappingV1 = {
   presetId: 'omop', presetLabel: { en: 'OMOP' },
   patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', genderColumn: 'gender_concept_id' },
   visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_start_datetime' },
@@ -25,7 +27,8 @@ const mapping: SchemaMapping = {
     Measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', sourceConceptIdColumn: 'measurement_source_concept_id', patientIdColumn: 'person_id' },
   },
   genderValues: { male: '8507', female: '8532' },
-} as SchemaMapping
+}
+const mapping = mappingV1ToV2(mapping_V1)
 
 const criteriaTree = {
   kind: 'group', id: 'root', operator: 'AND', exclude: false, enabled: true,
@@ -83,32 +86,34 @@ describe('queries', () => {
   const m = 'SELECT 1 AS id, 1 AS patient_id'
 
   it('dates each member from its own level', () => {
-    expect(buildIndexSql(m, 'visit_detail', mapping)).toContain('JOIN "visit_detail" vd ON vd."visit_detail_id" = m.id')
-    expect(buildIndexSql(m, 'patient', mapping)).toContain('MIN(v."visit_start_datetime")')
+    expect(buildIndexSql(m, 'visit_detail', mapping)).toContain('JOIN linkr_visit_detail vd ON vd.visit_detail_id = m.id')
+    expect(buildIndexSql(m, 'patient', mapping)).toContain('MIN(v.start_datetime)')
   })
 
   it('counts the parent stays of unit stays, and nothing at visit level', () => {
-    expect(buildVisitCountSql(m, 'visit_detail', mapping)).toContain('COUNT(DISTINCT vd."visit_occurrence_id")')
+    expect(buildVisitCountSql(m, 'visit_detail', mapping)).toContain('COUNT(DISTINCT vd.visit_id)')
     expect(buildVisitCountSql(m, 'visit', mapping)).toBeNull()
   })
 
   it('matches concepts on either column, as the criterion does', () => {
     const sql = buildConceptSql(m, mapping, { eventTableLabel: 'Measurement', conceptIds: [1, 2], conceptNames: {} })!
-    expect(sql).toContain('(e."measurement_concept_id" IN (1, 2) OR e."measurement_source_concept_id" IN (1, 2))')
+    expect(sql).toContain('(e.concept_id IN (1, 2) OR e.source_concept_id IN (1, 2))')
     expect(buildConceptSql(m, mapping, { eventTableLabel: 'Nope', conceptIds: [1], conceptNames: {} })).toBeNull()
   })
 
   it('falls back to the birth year when the birth date is empty, as in MIMIC-IV', () => {
     const idx = buildIndexSql(m, 'visit', mapping)!
-    const both = { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth' }
-    expect(buildAgeSql(idx, { ...mapping, patientTable: both })).toMatch(/COALESCE\(EXTRACT\(YEAR FROM age\(.*p\."year_of_birth"\)\)/s)
+    const both = mappingV1ToV2({ ...mapping_V1, patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth' } })
+    const sql = buildAgeSql(idx, both)!
+    expect(sql).toMatch(/COALESCE\(EXTRACT\(YEAR FROM age\(.*p\.birth_year\)\)/s)
+    expect(withClassRelations(sql, both)).toContain('p."year_of_birth") AS birth_year')
   })
 
   it('needs a birth column for ages and a unit column for care units', () => {
     const idx = buildIndexSql(m, 'visit', mapping)!
-    expect(buildAgeSql(idx, { ...mapping, patientTable: { table: 'person', idColumn: 'person_id' } })).toBeNull()
-    expect(buildCareUnitSql(m, 'visit', mapping)).toContain('vd."visit_occurrence_id" IN')
-    expect(buildCareUnitSql(m, 'visit', { ...mapping, visitDetailTable: undefined })).toBeNull()
+    expect(buildAgeSql(idx, mappingV1ToV2({ ...mapping_V1, patientTable: { table: 'person', idColumn: 'person_id' } }))).toBeNull()
+    expect(buildCareUnitSql(m, 'visit', mapping)).toContain('vd.visit_id IN')
+    expect(buildCareUnitSql(m, 'visit', mappingV1ToV2({ ...mapping_V1, visitDetailTable: undefined }))).toBeNull()
   })
 })
 

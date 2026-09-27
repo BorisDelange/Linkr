@@ -7,6 +7,9 @@
  */
 import type { SchemaMapping } from '@/types'
 import { escapeXml as esc } from '@/lib/cohort-report/charts'
+import { CLASS_CONTRACTS, type ClassName } from '@/lib/schema-classes/contracts'
+import { conceptRelations, eventRelation } from '@/lib/schema-classes/relations'
+import { fieldRef, specEntries, specTables } from '@/lib/schema-classes/spec'
 import { svgIcon, type IconName } from './export-html-style'
 
 export type TableType = 'patient' | 'visit' | 'concept' | 'event'
@@ -55,44 +58,62 @@ const MAX_PER_ROW = 4
 
 const nodeHeight = (n: ErdNode) => HEADER_H + PAD_Y * 2 + n.columns.length * ROW_H
 
+/** Contract column → the role badge the ERD and the column list give its source column. */
+const PK_FIELD: Partial<Record<ClassName, string>> = {
+  patient: 'patient_id', visit: 'visit_id', visit_detail: 'visit_detail_id', concept: 'concept_id',
+}
+const FK_FIELDS = new Set(['patient_id', 'visit_id', 'concept_id', 'source_concept_id'])
+const VALUE_FIELDS = new Set(['value_number', 'value_string'])
+
+const TYPE_OF: Partial<Record<ClassName, TableType>> = {
+  patient: 'patient', visit: 'visit', visit_detail: 'visit', concept: 'concept', event: 'event', drug: 'event',
+}
+
+interface MappedTable {
+  id: string
+  cls: ClassName
+  key?: string
+  table: string
+  type: TableType
+  /** Contract field → source column, for the fields read straight from the grain table. */
+  fields: Map<string, string>
+}
+
+/** The grain table of each visual relation, with the columns its fields read as is. */
+function mappedTables(mapping: SchemaMapping): MappedTable[] {
+  const out: MappedTable[] = []
+  for (const { cls, spec, key } of specEntries(mapping)) {
+    const type = TYPE_OF[cls]
+    const grain = specTables(spec)[0]
+    if (!type || !grain) continue
+    const fields = new Map<string, string>()
+    for (const [field, f] of Object.entries(spec.fields ?? {})) {
+      const ref = fieldRef(f)
+      if (ref && ref.alias.toLowerCase() === grain.alias.toLowerCase()) fields.set(field, ref.column)
+    }
+    out.push({ id: `${cls}-${key ?? ''}`, cls, key, table: grain.table, type, fields })
+  }
+  return out
+}
+
+function roleOf(cls: ClassName, field: string): ColumnRole | undefined {
+  if (PK_FIELD[cls] === field) return 'pk'
+  if (FK_FIELDS.has(field)) return 'fk'
+  if (VALUE_FIELDS.has(field)) return 'value'
+  const kind = CLASS_CONTRACTS[cls].find((c) => c.name === field)?.kind
+  return kind === 'datetime' || kind === 'date' ? 'date' : undefined
+}
+
 /** Role of each mapped column, per table: shared by the ERD and the column list. */
 export function mappingColumnRoles(mapping: SchemaMapping): Map<string, Map<string, ColumnRole>> {
   const roles = new Map<string, Map<string, ColumnRole>>()
-  const set = (table: string, col: string | undefined, role: ColumnRole) => {
-    if (!col) return
-    if (!roles.has(table)) roles.set(table, new Map())
-    const cols = roles.get(table)!
-    if (!cols.has(col)) cols.set(col, role)
-  }
-  const pt = mapping.patientTable
-  if (pt) {
-    set(pt.table, pt.idColumn, 'pk')
-    set(pt.table, pt.birthDateColumn, 'date')
-    set(pt.table, pt.deathDateColumn, 'date')
-  }
-  const vt = mapping.visitTable
-  if (vt) {
-    set(vt.table, vt.idColumn, 'pk')
-    set(vt.table, vt.patientIdColumn, 'fk')
-    set(vt.table, vt.startDateColumn, 'date')
-    set(vt.table, vt.endDateColumn, 'date')
-  }
-  const vd = mapping.visitDetailTable
-  if (vd) {
-    set(vd.table, vd.idColumn, 'pk')
-    set(vd.table, vd.visitIdColumn, 'fk')
-    set(vd.table, vd.patientIdColumn, 'fk')
-    set(vd.table, vd.startDateColumn, 'date')
-    set(vd.table, vd.endDateColumn, 'date')
-  }
-  for (const cd of mapping.conceptTables ?? []) set(cd.table, cd.idColumn, 'pk')
-  for (const et of Object.values(mapping.eventTables ?? {})) {
-    set(et.table, et.conceptIdColumn, 'fk')
-    set(et.table, et.sourceConceptIdColumn, 'fk')
-    set(et.table, et.patientIdColumn, 'fk')
-    set(et.table, et.valueColumn, 'value')
-    set(et.table, et.valueStringColumn, 'value')
-    set(et.table, et.dateColumn, 'date')
+  for (const t of mappedTables(mapping)) {
+    if (!roles.has(t.table)) roles.set(t.table, new Map())
+    const cols = roles.get(t.table)!
+    for (const [field, column] of t.fields) {
+      const role = roleOf(t.cls, field)
+      if (role && !cols.has(column)) cols.set(column, role)
+    }
   }
   return roles
 }
@@ -100,67 +121,44 @@ export function mappingColumnRoles(mapping: SchemaMapping): Map<string, Map<stri
 /** Display type of each mapped table (visit detail shares the visit colour). */
 export function mappingTableTypes(mapping: SchemaMapping): Map<string, TableType> {
   const types = new Map<string, TableType>()
-  for (const et of Object.values(mapping.eventTables ?? {})) types.set(et.table, 'event')
-  for (const cd of mapping.conceptTables ?? []) types.set(cd.table, 'concept')
-  if (mapping.visitDetailTable) types.set(mapping.visitDetailTable.table, 'visit')
-  if (mapping.visitTable) types.set(mapping.visitTable.table, 'visit')
-  if (mapping.patientTable) types.set(mapping.patientTable.table, 'patient')
+  // Most specific last, so a table playing several roles shows as its main one.
+  const order: TableType[] = ['event', 'concept', 'visit', 'patient']
+  const tables = mappedTables(mapping).sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type))
+  for (const t of tables) types.set(t.table, t.type)
   return types
 }
 
 function buildGraph(mapping: SchemaMapping): { nodes: ErdNode[]; edges: ErdEdge[] } {
-  const nodes: ErdNode[] = []
+  const tables = mappedTables(mapping)
   const edges: ErdEdge[] = []
-  const pt = mapping.patientTable
-  const vt = mapping.visitTable
-  const patientRef = pt ? `${pt.table}.${pt.idColumn}` : undefined
+  const pkOf = (t: MappedTable | undefined) => (t ? t.fields.get(PK_FIELD[t.cls] ?? '') : undefined)
+  const patient = tables.find((t) => t.cls === 'patient')
+  const visit = tables.find((t) => t.cls === 'visit')
+  const dictByRelation = new Map(conceptRelations(mapping).map((r) => [r.name, tables.find((t) => t.cls === 'concept' && t.key === r.key)]))
 
-  const top: Omit<ErdNode, 'x' | 'y'>[] = []
-  if (pt) {
-    const columns: ErdColumn[] = [{ name: pt.idColumn, role: 'pk' }]
-    if (pt.birthDateColumn) columns.push({ name: pt.birthDateColumn, role: 'date' })
-    for (const c of [pt.birthYearColumn, pt.anchorAgeColumn, pt.anchorYearColumn, pt.genderColumn]) {
-      if (c) columns.push({ name: c })
-    }
-    top.push({ id: 'patient', table: pt.table, label: pt.table, type: 'patient', columns })
+  const toNode = (t: MappedTable, label: string): Omit<ErdNode, 'x' | 'y'> => {
+    let target: MappedTable | undefined
+    const columns: ErdColumn[] = [...t.fields].map(([field, name]) => {
+      const role = roleOf(t.cls, field)
+      target = field === 'patient_id' && t.cls !== 'patient' ? patient
+        : field === 'visit_id' && t.cls !== 'visit' ? visit
+        : field === 'concept_id' && (t.cls === 'event' || t.cls === 'drug') ? dictByRelation.get(eventRelation(mapping, t.key ?? '')?.dictionary ?? '')
+        : undefined
+      const toCol = pkOf(target)
+      if (target && toCol && role === 'fk') edges.push({ from: t.id, fromCol: name, to: target.id, toCol })
+      return { name, role, fkTarget: target && toCol ? `${target.table}.${toCol}` : undefined }
+    })
+    // Keys first, then dates and values, then the rest: the rows edges attach to stay on top.
+    const rank = (c: ErdColumn) => ['pk', 'fk', 'date', 'value'].indexOf(c.role ?? '') + 1 || 9
+    columns.sort((x, y) => rank(x) - rank(y))
+    return { id: t.id, table: t.table, label, type: t.type, columns }
   }
-  if (vt) {
-    const columns: ErdColumn[] = [
-      { name: vt.idColumn, role: 'pk' },
-      { name: vt.patientIdColumn, role: 'fk', fkTarget: patientRef },
-      { name: vt.startDateColumn, role: 'date' },
-    ]
-    if (vt.endDateColumn) columns.push({ name: vt.endDateColumn, role: 'date' })
-    top.push({ id: 'visit', table: vt.table, label: vt.table, type: 'visit', columns })
-    if (pt) edges.push({ from: 'visit', fromCol: vt.patientIdColumn, to: 'patient', toCol: pt.idColumn })
-  }
 
-  const dicts = (mapping.conceptTables ?? []).map((d): Omit<ErdNode, 'x' | 'y'> => {
-    const columns: ErdColumn[] = [{ name: d.idColumn ?? '', role: 'pk' }, { name: d.nameColumn }]
-    if (d.codeColumn) columns.push({ name: d.codeColumn })
-    if (d.vocabularyColumn) columns.push({ name: d.vocabularyColumn })
-    for (const c of Object.values(d.extraColumns ?? {})) columns.push({ name: c })
-    return { id: `concept-${d.key}`, table: d.table, label: d.table, type: 'concept', columns }
-  })
+  const top = tables.filter((t) => t.cls === 'patient' || t.cls === 'visit' || t.cls === 'visit_detail').map((t) => toNode(t, t.table))
+  const dicts = tables.filter((t) => t.cls === 'concept').map((t) => toNode(t, t.table))
+  const events = tables.filter((t) => t.type === 'event').map((t) => toNode(t, t.key && t.key !== t.table ? `${t.table} (${t.key})` : t.table))
 
-  const events = Object.entries(mapping.eventTables ?? {}).map(([label, et]): Omit<ErdNode, 'x' | 'y'> => {
-    const dictKey = et.conceptDictionaryKey ?? mapping.conceptTables?.[0]?.key
-    const dict = mapping.conceptTables?.find((d) => d.key === dictKey)
-    const columns: ErdColumn[] = [{
-      name: et.conceptIdColumn, role: 'fk',
-      fkTarget: dict ? `${dict.table}.${dict.idColumn ?? ''}` : undefined,
-    }]
-    if (et.sourceConceptIdColumn) columns.push({ name: et.sourceConceptIdColumn, role: 'fk' })
-    if (et.patientIdColumn) columns.push({ name: et.patientIdColumn, role: 'fk', fkTarget: patientRef })
-    if (et.valueColumn) columns.push({ name: et.valueColumn, role: 'value' })
-    if (et.valueStringColumn) columns.push({ name: et.valueStringColumn, role: 'value' })
-    if (et.dateColumn) columns.push({ name: et.dateColumn, role: 'date' })
-    const id = `event-${label}`
-    if (dict) edges.push({ from: id, fromCol: et.conceptIdColumn, to: `concept-${dict.key}`, toCol: dict.idColumn ?? '' })
-    if (et.patientIdColumn && pt) edges.push({ from: id, fromCol: et.patientIdColumn, to: 'patient', toCol: pt.idColumn })
-    return { id, table: et.table, label: `${et.table} (${label})`, type: 'event', columns }
-  })
-
+  const nodes: ErdNode[] = []
   const rows: Omit<ErdNode, 'x' | 'y'>[][] = []
   if (top.length) rows.push(top)
   for (let i = 0; i < dicts.length; i += MAX_PER_ROW) rows.push(dicts.slice(i, i + MAX_PER_ROW))

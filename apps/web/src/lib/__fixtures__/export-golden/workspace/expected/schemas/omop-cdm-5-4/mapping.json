@@ -1,7 +1,13 @@
 {
-  "patientTable": {
-    "table": "person",
-    "idColumn": "person_id"
+  "formatVersion": 2,
+  "patient": {
+    "from": {
+      "table": "person",
+      "alias": "p"
+    },
+    "fields": {
+      "patient_id": "p.person_id"
+    }
   },
   "knownTables": [
     "person",

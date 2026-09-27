@@ -1,6 +1,11 @@
-import { useMemo, useCallback, useState, useEffect, useRef } from 'react'
+import { createContext, useContext, useMemo, useCallback, useState, useEffect, useRef } from 'react'
 import {
   ReactFlow,
+  BaseEdge,
+  getSmoothStepPath,
+  useStore,
+  type EdgeProps,
+  type ReactFlowState,
   Background,
   BackgroundVariant,
   Controls,
@@ -19,12 +24,15 @@ import { Table2, ChevronDown, ChevronRight } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
 import { Checkbox } from '@/components/ui/checkbox'
-import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
+import { Tooltip, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip'
 import type { ErdGroup } from '@/types/schema-mapping'
 import {
-  parseDdl, matchesTableName, lookupByTableName,
+  parseDdl, matchesTableName, lookupByTableName, indexTables, resolveTableRef,
   type ParsedColumn, type ParsedTable,
 } from '@/lib/ddl-parse'
+import { ErdHighlightProvider, useErdHighlight, useErdHighlightState, useHandleHover } from './erd-highlight'
+import { HandleTooltipContent } from './erd-tooltip'
+import { roundedPath, routeOrthogonal, type Rect } from './erd-route'
 import { DdlERDGroupPanel } from './DdlERDGroupPanel'
 
 // ---------------------------------------------------------------------------
@@ -45,6 +53,8 @@ interface DdlNodeData {
   schema?: string
   columns: ParsedColumn[]
   fks: ParsedTable['fks']
+  /** Columns another table's foreign key points at: only these get an incoming handle. */
+  referenced: string[]
 }
 
 interface DdlGroupNodeData {
@@ -77,7 +87,9 @@ const ROLE_BADGES: Record<string, string> = {
   fk: 'bg-blue-200 text-blue-800 dark:bg-blue-800 dark:text-blue-200',
 }
 
-function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
+function DdlTableNode({ id, data }: NodeProps<Node<DdlNodeData>>) {
+  const { selected, related } = useErdHighlight()
+  const faded = !!selected && selected !== id && !related.has(id)
   // Build FK lookup: column name → "refTable.refColumn"
   const fkMap = useMemo(() => {
     const map = new Map<string, string>()
@@ -91,7 +103,10 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
 
   return (
     <TooltipProvider>
-      <div className="rounded-lg border-2 shadow-lg bg-card border-border" style={{ width: 260 }}>
+      <div
+        className={`rounded-lg border-2 shadow-lg bg-card transition-opacity ${selected === id ? 'border-primary' : 'border-border'} ${faded ? 'opacity-30' : ''}`}
+        style={{ width: 260 }}
+      >
         <div className="flex items-center gap-2 rounded-t-md px-3 py-2 bg-muted/60">
           <Table2 size={13} className="text-muted-foreground shrink-0" />
           {/* The schema prefixes the name rather than replacing it: on a DDL with
@@ -107,6 +122,8 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
         <div className="px-2 py-1.5 space-y-px">
           {data.columns.map((col) => {
             const isPk = col.isPk
+            // A point only where a link lands: a primary key nothing references gets none.
+            const isTarget = data.referenced.includes(col.name)
             const fkTarget = fkMap.get(col.name)
             const isFk = !!fkTarget
 
@@ -121,22 +138,8 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
                 )}
                 <code className="text-[10px] text-foreground/80 font-mono truncate flex-1">{col.name}</code>
                 <span className="text-[9px] text-muted-foreground/60 font-mono shrink-0">{col.type.toLowerCase()}</span>
-                {isPk && (
-                  <Handle
-                    type="target"
-                    position={Position.Left}
-                    id={`pk-${col.name}`}
-                    className="!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px]"
-                  />
-                )}
-                {isFk && (
-                  <Handle
-                    type="source"
-                    position={Position.Right}
-                    id={`fk-${col.name}`}
-                    className="!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px]"
-                  />
-                )}
+                {isTarget && <HoverHandle node={id} id={`pk-${col.name}`} type="target" />}
+                {isFk && <HoverHandle node={id} id={`fk-${col.name}`} type="source" />}
               </div>
             )
 
@@ -145,14 +148,14 @@ function DdlTableNode({ data }: NodeProps<Node<DdlNodeData>>) {
             return (
               <Tooltip key={col.name}>
                 <TooltipTrigger asChild>{row}</TooltipTrigger>
-                <TooltipContent side={isFk ? 'right' : 'left'} sideOffset={12}>
+                <HandleTooltipContent side={isFk ? 'right' : 'left'}>
                   <div className="space-y-0.5">
                     <div className="font-mono font-semibold">{col.name}</div>
                     <div className="font-mono text-[10px] opacity-70">{col.type}{col.nullable ? '' : ' NOT NULL'}</div>
                     {isPk && <div className="text-[10px] opacity-80">Primary Key</div>}
                     {isFk && <div className="text-[10px] opacity-80">FK &rarr; {fkTarget}</div>}
                   </div>
-                </TooltipContent>
+                </HandleTooltipContent>
               </Tooltip>
             )
           })}
@@ -177,6 +180,43 @@ function DdlGroupNode({ data, selected }: NodeProps<Node<DdlGroupNodeData>>) {
 }
 
 const nodeTypes = { ddlTable: DdlTableNode, ddlGroup: DdlGroupNode }
+
+// ---------------------------------------------------------------------------
+// Links routed around the tables
+// ---------------------------------------------------------------------------
+
+/** The tables' boxes on the canvas, which links run around. */
+const ObstaclesContext = createContext<readonly Rect[]>([])
+
+const selectTableRects = (s: ReactFlowState): Rect[] => {
+  const rects: Rect[] = []
+  for (const n of s.nodeLookup.values()) {
+    if (n.type !== 'ddlTable' || !n.measured.width || !n.measured.height) continue
+    const { x, y } = n.internals.positionAbsolute
+    rects.push({ x, y, w: n.measured.width, h: n.measured.height })
+  }
+  return rects
+}
+
+const sameRects = (a: Rect[], b: Rect[]) =>
+  a.length === b.length && a.every((r, i) => r.x === b[i].x && r.y === b[i].y && r.w === b[i].w && r.h === b[i].h)
+
+/**
+ * A foreign-key link that runs around the tables rather than under them: under
+ * them, a link to a table further along surfaced as a stray stub beside its
+ * own table. Falls back to a smooth step when the tables wall it in.
+ */
+function RoutedEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, style, interactionWidth }: EdgeProps) {
+  const obstacles = useContext(ObstaclesContext)
+  const path = useMemo(() => {
+    const side = (p: Position) => (p === Position.Left ? -1 : 1)
+    const pts = routeOrthogonal({ x: sourceX, y: sourceY }, side(sourcePosition), { x: targetX, y: targetY }, side(targetPosition), obstacles)
+    return pts ? roundedPath(pts) : getSmoothStepPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition })[0]
+  }, [sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, obstacles])
+  return <BaseEdge id={id} path={path} style={style} interactionWidth={interactionWidth} />
+}
+
+const edgeTypes = { routed: RoutedEdge }
 
 // ---------------------------------------------------------------------------
 // Build graph with group-aware layout
@@ -210,6 +250,10 @@ interface BuildGraphOpts {
 function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }: BuildGraphOpts): { nodes: Node[]; edges: Edge[] } {
   const tables = hiddenTables ? allTables.filter((t) => !hiddenTables.has(t.name.toLowerCase())) : allTables
   const nodes: Node[] = []
+  const { edges, referenced } = buildFkEdges(tables)
+  const nodeData = (t: ParsedTable): DdlNodeData => ({
+    label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks, referenced: [...(referenced.get(t.name) ?? [])],
+  })
 
   const hasLayout = erdLayout && Object.keys(erdLayout).length > 0
   const groups = erdGroups ?? []
@@ -224,8 +268,9 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
       tableNodes.push({
         id: t.name,
         type: 'ddlTable',
+        zIndex: 2,
         position: pos ?? { x: 0, y: 0 },
-        data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
+        data: nodeData(t),
       })
     }
 
@@ -256,6 +301,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
       nodes.push({
         id: `group-${group.id}`,
         type: 'ddlGroup',
+        zIndex: 0,
         position: { x: gx, y: gy },
         data: { label: group.label, color: group.color, groupId: group.id } as DdlGroupNodeData,
         style: { width: gw, height: gh },
@@ -302,8 +348,9 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
         nodes.push({
           id: t.name,
           type: 'ddlTable',
+          zIndex: 2,
           position: { x: gx, y: gy },
-          data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
+          data: nodeData(t),
           parentId: `group-${group.id}`,
           expandParent: true,
         })
@@ -329,6 +376,7 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
       nodes.push({
         id: `group-${group.id}`,
         type: 'ddlGroup',
+        zIndex: 0,
         position: { x: metaX, y: metaY },
         data: { label: group.label, color: group.color, groupId: group.id } as DdlGroupNodeData,
         style: { width: groupW, height: groupH },
@@ -360,8 +408,9 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
         nodes.push({
           id: t.name,
           type: 'ddlTable',
+          zIndex: 2,
           position: { x: ux, y: uy },
-          data: { label: t.bareName, schema: t.schema, columns: t.columns, fks: t.fks } as DdlNodeData,
+          data: nodeData(t),
         })
         uRowH = Math.max(uRowH, h)
         uColIdx++
@@ -380,7 +429,66 @@ function buildDdlGraph({ tables: allTables, erdGroups, erdLayout, hiddenTables }
   // Sort parents before children (ReactFlow requirement)
   const sortedNodes = sortParentsFirst(nodes)
 
-  return { nodes: sortedNodes, edges: [] }
+  return { nodes: sortedNodes, edges }
+}
+
+/**
+ * A connection point that lights up its links on hover. React Flow turns
+ * pointer events off on handles of a diagram nobody can connect in, so they are
+ * turned back on; the hit area is widened by a pseudo-element, and hovering
+ * rings the point rather than resizing it, which would move it from under the
+ * cursor.
+ */
+function HoverHandle({ node, id, type }: { node: string; id: string; type: 'source' | 'target' }) {
+  const hover = useHandleHover(node, id)
+  return (
+    <Handle
+      type={type}
+      position={type === 'target' ? Position.Left : Position.Right}
+      id={id}
+      {...hover}
+      className={
+        type === 'target'
+          ? "!w-2 !h-2 !bg-yellow-500 !border-[1px] !border-background !left-[-9px] !pointer-events-auto after:absolute after:-inset-1.5 after:content-[''] hover:!shadow-[0_0_0_3px_var(--color-primary)]"
+          : "!w-2 !h-2 !bg-blue-500 !border-[1px] !border-background !right-[-9px] !pointer-events-auto after:absolute after:-inset-1.5 after:content-[''] hover:!shadow-[0_0_0_3px_var(--color-primary)]"
+      }
+    />
+  )
+}
+
+/**
+ * One edge per foreign-key column, from its table to the column it references.
+ * A reference that names a table the diagram does not show (hidden, or absent
+ * from the DDL) draws nothing.
+ */
+function buildFkEdges(tables: ParsedTable[]): { edges: Edge[]; referenced: Map<string, Set<string>> } {
+  const { byQualified, byBare } = indexTables(tables)
+  const edges: Edge[] = []
+  const referenced = new Map<string, Set<string>>()
+  for (const t of tables) {
+    for (const fk of t.fks) {
+      const dot = fk.refTable.lastIndexOf('.')
+      const ref = dot > 0 ? { schema: fk.refTable.slice(0, dot), table: fk.refTable.slice(dot + 1) } : { table: fk.refTable }
+      const target = resolveTableRef(byQualified, byBare, ref, t.schema)
+      if (!target) continue
+      fk.columns.forEach((col, i) => {
+        const refCol = fk.refColumns[i] ?? target.pkColumns[i]
+        if (!refCol) return
+        if (!referenced.has(target.name)) referenced.set(target.name, new Set())
+        referenced.get(target.name)!.add(refCol)
+        edges.push({
+          id: `${t.name}.${col}->${target.name}.${refCol}`,
+          source: t.name,
+          sourceHandle: `fk-${col}`,
+          target: target.name,
+          targetHandle: `pk-${refCol}`,
+          type: 'routed',
+          zIndex: 1,
+        })
+      })
+    }
+  }
+  return { edges, referenced }
 }
 
 // ---------------------------------------------------------------------------
@@ -406,6 +514,8 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
   )
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes)
+  const highlight = useErdHighlightState(edges, false)
+  const obstacles = useStore(selectTableRects, sameRects)
 
   // Re-sync when graph data changes
   useEffect(() => {
@@ -439,11 +549,20 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
   )
 
   return (
+    <ErdHighlightProvider value={highlight.context}>
+    <ObstaclesContext.Provider value={obstacles}>
     <ReactFlow
       nodes={nodes}
-      edges={edges}
+      edges={highlight.shown}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onInit={onInit}
+      // A group's background is a node too: clicking it is clicking away.
+      onNodeClick={(_, node) => (node.type === 'ddlTable' ? highlight.toggle(node.id) : highlight.clear())}
+      // Groups under links under tables, set by hand: the automatic mode lifts a
+      // grouped table's links above every other table.
+      zIndexMode="manual"
+      onPaneClick={highlight.clear}
       onNodesChange={isEditing ? onNodesChange : undefined}
       onNodeDragStop={isEditing ? onNodeDragStop : undefined}
       fitView
@@ -463,6 +582,8 @@ function DdlCanvas({ tables, erdGroups, erdLayout, isEditing, hiddenTables, onLa
         className="!bg-card !border-border !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!text-muted-foreground [&>button:hover]:!bg-muted"
       />
     </ReactFlow>
+    </ObstaclesContext.Provider>
+    </ErdHighlightProvider>
   )
 }
 

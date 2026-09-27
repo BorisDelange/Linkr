@@ -101,7 +101,7 @@ export function ConceptPickerDialog({
   const hook = useConcepts(open ? dataSourceId : undefined, open ? schemaMapping : undefined)
 
   // Dict key for the stats popover (multi-dict picks the row's own).
-  const dicts = schemaMapping?.conceptTables ?? []
+  const dicts = schemaMapping?.concepts ?? []
 
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     () => Object.fromEntries(PICKER_HIDDEN_COLUMNS.map((id) => [id, false])),

@@ -15,6 +15,7 @@ import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
 import { escapeXml as esc } from '@/lib/cohort-report/charts'
 import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from './jsonld'
+import { mappedTableDocs } from './mapped-tables'
 import { localized } from '@/lib/localized'
 import { DCAT_FIELDS, DCAT_VOCABULARIES, HEALTHDCATAP_RELEASE, normalizeDcatMetadata, type DcatClass } from './schema'
 import en from '@/locales/en.json'
@@ -222,33 +223,20 @@ const anchorId = (table: string) => `tbl-${table.replace(/[^a-zA-Z0-9_-]/g, '_')
 
 function mappingRoleLabels(mapping: SchemaMapping): Map<string, string> {
   const labels = new Map<string, string>()
-  for (const [label, et] of Object.entries(mapping.eventTables ?? {})) labels.set(et.table, label)
-  for (const cd of mapping.conceptTables ?? []) labels.set(cd.table, 'Concept dictionary')
-  if (mapping.visitDetailTable) labels.set(mapping.visitDetailTable.table, 'Visit details / unit stays')
-  if (mapping.visitTable) labels.set(mapping.visitTable.table, 'Visits / encounters')
-  if (mapping.patientTable) labels.set(mapping.patientTable.table, 'Patient demographics')
+  // The first relation reading a table names its role (patient before visit before events).
+  for (const t of mappedTableDocs(mapping)) if (!labels.has(t.table)) labels.set(t.table, t.role)
   return labels
 }
 
 /** The mapped columns only, for a source whose full schema was not introspected. */
 function tablesFromMapping(m: SchemaMapping): SchemaTable[] {
-  const tables: SchemaTable[] = []
-  const cols = (...names: (string | undefined)[]) => names.filter((n): n is string => !!n).map((name) => ({ name }))
-  if (m.patientTable) {
-    const p = m.patientTable
-    tables.push({ name: p.table, columns: cols(p.idColumn, p.birthDateColumn, p.birthYearColumn, p.genderColumn) })
+  const byTable = new Map<string, SchemaTable>()
+  for (const t of mappedTableDocs(m)) {
+    const table = byTable.get(t.table) ?? { name: t.table, columns: [] }
+    for (const c of t.columns) if (!table.columns.some((x) => x.name === c.name)) table.columns.push({ name: c.name })
+    byTable.set(t.table, table)
   }
-  if (m.visitTable) {
-    const v = m.visitTable
-    tables.push({ name: v.table, columns: cols(v.idColumn, v.patientIdColumn, v.startDateColumn, v.endDateColumn, v.typeColumn) })
-  }
-  for (const cd of m.conceptTables ?? []) {
-    if (cd.idColumn) tables.push({ name: cd.table, columns: cols(cd.idColumn, cd.nameColumn, cd.codeColumn, cd.vocabularyColumn) })
-  }
-  for (const et of Object.values(m.eventTables ?? {})) {
-    tables.push({ name: et.table, columns: cols(et.conceptIdColumn, et.patientIdColumn, et.dateColumn) })
-  }
-  return tables
+  return [...byTable.values()]
 }
 
 function buildSchemaSection(fullSchema?: IntrospectedTable[] | null, mapping?: SchemaMapping | null): { html: string; tableCount: number } {

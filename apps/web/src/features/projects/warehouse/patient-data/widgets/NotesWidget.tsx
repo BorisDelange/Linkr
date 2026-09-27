@@ -456,7 +456,7 @@ export function NotesWidget({
   }, [selectedNoteId])
 
   // No note table in schema
-  if (!schemaMapping?.noteTable) {
+  if (!schemaMapping?.note) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-xs text-muted-foreground">

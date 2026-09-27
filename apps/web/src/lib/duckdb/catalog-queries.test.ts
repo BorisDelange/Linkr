@@ -1,5 +1,5 @@
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, it, expect } from 'vitest'
-import type { SchemaMapping } from '@/types/schema-mapping'
 import type { CatalogVariables, ServiceVariableConfig } from '@/types/catalog'
 import { ageBucketLabels, defaultCatalogVariables } from '@/lib/data-catalog/config'
 import {
@@ -11,7 +11,7 @@ import {
   serviceGroupingExpr,
 } from './catalog-queries'
 
-const mapping = {
+const v1 = {
   patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth', genderColumn: 'gender_concept_id' },
   visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_start_datetime', endDateColumn: 'visit_end_datetime', typeColumn: 'visit_source_value' },
   visitDetailTable: { table: 'visit_detail', idColumn: 'visit_detail_id', visitIdColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_detail_start_datetime', endDateColumn: 'visit_detail_end_datetime', unitSourceValueColumn: 'visit_detail_source_value' },
@@ -20,7 +20,8 @@ const mapping = {
     Measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', sourceConceptIdColumn: 'measurement_source_concept_id', patientIdColumn: 'person_id', dateColumn: 'measurement_datetime' },
   },
   genderValues: { male: '8507', female: '8532' },
-} as unknown as SchemaMapping
+}
+const mapping = mappingV1ToV2(v1 as unknown as SchemaMappingV1)
 
 const service = (patch: Partial<ServiceVariableConfig>): ServiceVariableConfig => ({
   enabled: true, level: 'visit_detail', grouping: 'all', topN: 10, groups: {}, unassigned: 'other', ...patch,
@@ -71,12 +72,12 @@ describe('buildCrossingQuery', () => {
   it('counts patients and records over events with it, never a row twice', () => {
     const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } } }, ['concept', 'sex'])!
     expect(sql).toContain('COUNT(*)::BIGINT AS records')
-    expect(sql).toContain('IS DISTINCT FROM e."measurement_concept_id"')
+    expect(sql).toContain('e.source_concept_id IS DISTINCT FROM e.concept_id')
   })
 
   it('attaches events to the unit stay containing them', () => {
     const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } } }, ['concept', 'service'])!
-    expect(sql).toContain('ev.edate >= CAST(vd."visit_detail_start_datetime" AS TIMESTAMP)')
+    expect(sql).toMatch(/JOIN linkr_visit_detail vd ON vd.patient_id = ev.pid AND ev.edate >= CAST\(vd.start_datetime AS TIMESTAMP\)/)
   })
 
   it('restricts to the concepts of a chunk', () => {
@@ -89,7 +90,8 @@ describe('buildCrossingQuery', () => {
   })
 
   it('gives up when a variable cannot be expressed on this mapping', () => {
-    expect(buildCrossingQuery({ mapping: { ...mapping, genderValues: undefined } as SchemaMapping, variables }, ['sex'])).toBeNull()
+    const noGender = mappingV1ToV2({ ...v1, patientTable: { ...v1.patientTable, genderColumn: undefined } } as unknown as SchemaMappingV1)
+    expect(buildCrossingQuery({ mapping: noGender, variables }, ['sex'])).toBeNull()
   })
 
   it('estimates within the periods the publication keeps', () => {
@@ -104,7 +106,7 @@ describe('buildConceptListQueries', () => {
     const q = buildConceptListQueries(mapping, 'domain_id')!
     const sql = q.batchTemplates[0].buildSql([1, 2])
     expect(sql).toMatch(/per_concept AS \(\s*SELECT cid, COUNT\(\*\)::BIGINT AS record_count/)
-    expect(sql).toContain('e.edate >= CAST(v."visit_start_datetime" AS TIMESTAMP)')
+    expect(sql).toContain('ev.edate >= CAST(v.start_datetime AS TIMESTAMP)')
     expect(sql).toContain('WHERE cid IN (1, 2)')
   })
 })
