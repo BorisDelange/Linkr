@@ -62,7 +62,8 @@ Dismissed after checking: published HTML escapes every title/DCAT field/ERD labe
 Notes / follow-ups:
 - Strong work: `relations.ts` as the single mapping→SQL gate, fail-loud custom SQL, typed-array suppression engine, one `buildPublishedCatalog` for every output, resumable catalog runner, MCP gateway design, `EntityNotFound`/`NumberInput`/`StatCard` consolidations, extend-not-fork dropdown density.
 - Missing tests: suppression regression for the concept-list margin; overrides import/sanitize; transitive relation refs; validator on database `mapping.json` + overrides; catalog results GET/PUT.
-- **Still open from 2026-09-25 — all 4 🔴 re-checked at 33d07544, none fixed:** `query_cached_parquet` (`db_connect.py:899`) and `materialize_parquet` (`:863`) never call `_forbid_file_access`; `compute_members` (`cohort_derive.py:265`) calls only `_lock_down_user_sql`; `new-database` derive still gated on `is_managed(target)` alone (`cohort_derive_service.py:83`); `replace_schema` still `DROP SCHEMA … CASCADE` on any regex-valid name (`cohort_derive.py:442`). These outrank everything in this entry.
+- 2026-09-25 🔴s: fixed on `feature/review-fixes` (26/09, not yet merged when this review ran — the "none fixed" first written here looked only at `feature/fastapi-backend`).
+- **Resolution (2026-09-27, `feature/review-fixes`, 28 commits after merging 33d07544):** every 🔴/🟠 and every 🟡 above fixed, except the file-size splits (only `tools-lab-extra.ts` split) and the `disabledCheckIds` release note. Follow-ups left: `workspace-import.ts`/`seed-loader.ts` still write DQ checks one by one after a delete; MCP DQ tools don't use the new batch endpoints; the JSONB migration `a37446b84515` (also the merge of two alembic heads) is untested on a real PostgreSQL; UI changes not clicked through in a browser. Gates after the fixes: web 3609 · format 357 · MCP 246 · backend 1257 passed / 2 skipped · tsc 0 · lint 0 errors (195 warnings) · en/fr 6039 keys identical.
 
 ---
 
