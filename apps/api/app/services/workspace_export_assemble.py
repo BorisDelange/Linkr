@@ -55,7 +55,9 @@ from app.services.entity_docs import license_meta
 from app.services.export_layout import (
     CONTENT_PLUGIN_MANIFEST,
     order_provenance,
+    CONTENT_SCHEMA_DDL as SCHEMA_PRESET_DDL_FILE,
     CONTENT_SCHEMA_MAPPING as SCHEMA_PRESET_MAPPING_FILE,
+    CONTENT_SCHEMA_OVERRIDES as SCHEMA_OVERRIDES_FILE,
     ENTITY_MANIFEST,
     SCRIPTS_DIR,
     SIDECAR_TREE,
@@ -947,11 +949,6 @@ async def build_sql_collection_tree(db: AsyncSession, collection) -> dict[str, b
 # DATA_FILE_EXTENSIONS. No `.cache/` and no `!path` exceptions: a standalone
 # pipeline has no per-file versioning marks.
 _DATA_FILE_GITIGNORE = b"**/*.csv\n**/*.parquet\n**/*.pq\n**/*.xlsx\n**/*.xls\n"
-
-# Mirrors SCHEMA_PRESET_DDL_FILE in entity-io.ts.
-SCHEMA_PRESET_DDL_FILE = "schema.ddl"
-# Mirrors SCHEMA_OVERRIDES_FILE in entity-io.ts (CONTENT_FILE.schemaOverrides).
-SCHEMA_OVERRIDES_FILE = "mapping-overrides.json"
 
 
 async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
