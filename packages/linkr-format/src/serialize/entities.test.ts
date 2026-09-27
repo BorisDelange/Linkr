@@ -27,7 +27,8 @@ const SPECS: { [K in SerializableEntityKind]: EntitySpecMap[K] } = {
   },
   'data-catalog': {
     name: { en: 'ICU catalog' },
-    dimensions: ['age', 'sex'],
+    variables: { age: { enabled: true, brackets: [18, 65] }, sex: { enabled: true } },
+    crossings: [['age', 'sex']],
   },
   'mapping-project': {
     name: { en: 'MIMIC-IV → OMOP' },

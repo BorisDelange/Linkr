@@ -167,7 +167,7 @@ def _portable_catalog(data: dict) -> dict:
         data.pop("dataSourceRef", None)
     # The offset of a run paused on THIS instance: exported, it would tell the
     # importing one a computation is half-done that it has no results for.
-    data.pop("computedPeriods", None)
+    data.pop("computedSteps", None)
     # Unset (null) server-side, absent client-side: same byte-parity rule as dataSourceRef.
     if data.get("pagesDeployment") is None:
         data.pop("pagesDeployment", None)

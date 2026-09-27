@@ -21,17 +21,15 @@ class DataCatalogCreate(CamelModel):
     data_source_id: str = ""
     # Portable pointer to the database; the import resolves it to a local id.
     data_source_ref: dict | None = None
-    dimensions: list = []
+    variables: dict = {}
+    crossings: list = []
     anonymization: dict = {}
-    category_column: str | None = None
-    subcategory_column: str | None = None
-    period_config: dict | None = None
     status: str = "draft"
     last_error: str | None = None
     last_computed_at: str | None = None
     last_compute_duration_ms: int | None = None
-    # Period rows a paused computation has written, so a resume picks up there.
-    computed_periods: int | None = None
+    # Units of its plan a paused computation has written, so a resume picks up there.
+    computed_steps: int | None = None
     dcat_ap_metadata: dict | None = None
     origin: str = "user"
     created_by_id: int | None = None
@@ -56,16 +54,14 @@ class DataCatalogUpdate(CamelModel):
     license: dict | None = None
     data_source_id: str | None = None
     data_source_ref: dict | None = None
-    dimensions: list | None = None
+    variables: dict | None = None
+    crossings: list | None = None
     anonymization: dict | None = None
-    category_column: str | None = None
-    subcategory_column: str | None = None
-    period_config: dict | None = None
     status: str | None = None
     last_error: str | None = None
     last_computed_at: str | None = None
     last_compute_duration_ms: int | None = None
-    computed_periods: int | None = None
+    computed_steps: int | None = None
     dcat_ap_metadata: dict | None = None
     # Editable authoring provenance (author re-attribution + org snapshot).
     created_by_id: int | None = None
@@ -93,16 +89,14 @@ class DataCatalogResponse(CamelModel):
     license: dict | None = None
     data_source_id: str
     data_source_ref: dict | None = None
-    dimensions: list
+    variables: dict
+    crossings: list
     anonymization: dict
-    category_column: str | None = None
-    subcategory_column: str | None = None
-    period_config: dict | None = None
     status: str
     last_error: str | None = None
     last_computed_at: str | None = None
     last_compute_duration_ms: int | None = None
-    computed_periods: int | None = None
+    computed_steps: int | None = None
     dcat_ap_metadata: dict | None = None
     origin: str
     created_by_id: int | None = None

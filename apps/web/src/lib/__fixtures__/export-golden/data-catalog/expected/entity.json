@@ -10,33 +10,53 @@
     "fr": "Indicateurs agrégés"
   },
   "dataSourceId": "",
-  "dimensions": [
-    {
-      "id": "dim-age",
-      "column": "age",
-      "label": {
-        "en": "Age",
-        "fr": "Âge"
-      }
+  "variables": {
+    "concept": {
+      "enabled": false,
+      "level": "category",
+      "scope": "all",
+      "topN": 100,
+      "categoryColumn": "department"
     },
-    {
-      "id": "dim-sex",
-      "column": "sex",
-      "label": {
-        "en": "Sex",
-        "fr": "Sexe"
-      }
+    "period": {
+      "enabled": true,
+      "granularity": "month"
+    },
+    "service": {
+      "enabled": false,
+      "level": "visit_detail",
+      "grouping": "all",
+      "topN": 10,
+      "groups": {},
+      "unassigned": "other"
+    },
+    "age": {
+      "enabled": false,
+      "brackets": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90
+      ]
+    },
+    "sex": {
+      "enabled": true
     }
+  },
+  "crossings": [
+    [
+      "period",
+      "sex"
+    ]
   ],
   "anonymization": {
     "minCellCount": 5,
     "method": "suppression"
-  },
-  "categoryColumn": "department",
-  "subcategoryColumn": null,
-  "periodConfig": {
-    "column": "admission_date",
-    "granularity": "month"
   },
   "status": "draft",
   "lastError": null,

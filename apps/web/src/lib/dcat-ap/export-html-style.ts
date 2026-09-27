@@ -300,6 +300,7 @@ ${TABLE_TYPES.map((t) => `.tbl.t-${t} .tbl-head{background:var(--${t}-bg);border
 .hm-t td.masked{background:repeating-linear-gradient(45deg,var(--hatch) 0 2px,transparent 2px 6px);color:var(--muted);font-size:10px}
 .hm-t td.masked.m2{font-style:italic}
 .hm-t td.all,.hm-t th.all{background:var(--soft);color:var(--ink);font-weight:600}
+.hm-t th.all{max-width:none}
 .hm-t tr.all-row th.row{color:var(--ink);font-weight:600}
 .hm-scale{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:10px;font-size:10px;color:var(--muted)}
 .hm-scale .spacer{flex:1}

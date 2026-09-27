@@ -275,9 +275,8 @@ async def test_data_catalog_matches_golden(db):
     catalog = DataCatalog(
         id=c["id"], workspace_id=c["workspaceId"], entity_id=c["entityId"],
         name=c["name"], description=c["description"], data_source_id=c["dataSourceId"],
-        dimensions=c["dimensions"], anonymization=c["anonymization"],
-        category_column=c["categoryColumn"], subcategory_column=c["subcategoryColumn"],
-        period_config=c["periodConfig"], status=c["status"], last_error=c["lastError"],
+        variables=c["variables"], crossings=c["crossings"], anonymization=c["anonymization"],
+        status=c["status"], last_error=c["lastError"],
         last_computed_at=c["lastComputedAt"],
         last_compute_duration_ms=c["lastComputeDurationMs"],
         dcat_ap_metadata=c["dcatApMetadata"], origin=c["origin"],
@@ -299,7 +298,7 @@ async def test_data_catalog_tree_carries_pages_site(db):
     await _seed_ws_org(db, data)
     catalog = DataCatalog(
         id="cat-pages", workspace_id=data["workspace"]["id"], name={"en": "C"},
-        description={}, data_source_id="ds", dimensions=[], anonymization={},
+        description={}, data_source_id="ds", variables={}, crossings=[], anonymization={},
         status="draft", origin="user", version="0.1.0",
     )
     db.add(catalog)

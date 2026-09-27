@@ -14,23 +14,47 @@
     "lineageId": "lin-ds1",
     "entityId": "warehouse"
   },
-  "dimensions": [
-    {
-      "id": "d1",
-      "column": "gender",
-      "label": {
-        "en": "Gender",
-        "fr": "Sexe"
-      }
+  "variables": {
+    "concept": {
+      "enabled": false,
+      "level": "category",
+      "scope": "all",
+      "topN": 100,
+      "categoryColumn": "domain"
+    },
+    "period": {
+      "enabled": true,
+      "granularity": "year"
+    },
+    "service": {
+      "enabled": false,
+      "level": "visit_detail",
+      "grouping": "all",
+      "topN": 10,
+      "groups": {},
+      "unassigned": "other"
+    },
+    "age": {
+      "enabled": false,
+      "brackets": [
+        10,
+        20,
+        30,
+        40,
+        50,
+        60,
+        70,
+        80,
+        90
+      ]
+    },
+    "sex": {
+      "enabled": false
     }
-  ],
+  },
+  "crossings": [],
   "anonymization": {
     "minCellSize": 5
-  },
-  "categoryColumn": "domain",
-  "subcategoryColumn": null,
-  "periodConfig": {
-    "granularity": "year"
   },
   "status": "ready",
   "lastError": null,
