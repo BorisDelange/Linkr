@@ -61,9 +61,13 @@ export function DqCheckDetailPanel({ item }: Props) {
             <span className={cn('inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', CATEGORY_COLORS[check.category])}>
               {t(`data_quality.category_${check.category}`)}
             </span>
+            {check.subcategory && (
+              <span className="text-muted-foreground">{t(`data_quality.subcategory_${check.subcategory}`)}</span>
+            )}
+            <span className="text-muted-foreground">·</span>
             <span className="text-muted-foreground">{t(`data_quality.severity_${check.severity}`)}</span>
             <span className="text-muted-foreground">·</span>
-            <span className="text-muted-foreground">{t(`data_quality.source_${check.source}`)}</span>
+            <span className="text-muted-foreground">{t(`data_quality.origin_${check.origin}`)}</span>
           </div>
 
           {/* Violation bar */}
@@ -91,7 +95,6 @@ export function DqCheckDetailPanel({ item }: Props) {
             <StatRow label={t('data_quality.detail_total_rows')} value={result.totalRows.toLocaleString()} />
             <StatRow label={t('data_quality.detail_execution_time')} value={`${result.executionTimeMs} ms`} />
             {check.tableName && <StatRow label={t('data_quality.col_table')} value={check.tableName} />}
-            {check.fieldName && <StatRow label={t('data_quality.col_field')} value={check.fieldName} />}
           </div>
 
           {/* Error message */}

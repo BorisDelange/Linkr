@@ -443,6 +443,37 @@ their own table, companion `INSERT OR IGNORE` for tables a target relation joins
 of its body (`generatedScriptState`): regenerating overwrites an untouched
 script and asks before an edited one.
 
+## Data quality rule sets (as-built)
+
+A rule set is a list of **stored** SQL checks run against one database
+(`dataSourceId` + portable `dataSourceRef`, resolved by lineage on import). There
+are no built-in checks computed at run time: when a rule set is created from a
+schema preset, `lib/dq-templates.ts` writes that schema's checks into it once,
+and from then on they are ordinary checks — editable, disableable, deletable.
+
+- **From the DDL** (raw tables): columns exist, NOT NULL, primary key unique,
+  foreign keys resolve. Checked rather than assumed: Parquet/CSV sources enforce
+  no constraint, and OMOP loads usually skip the constraint scripts.
+- **From the mapping** (`linkr_*` relations, so they follow each database's
+  effective mapping): required contract columns, one row per id, orphans,
+  end ≥ start, during life (after birth, ≤ 60 days after death), plausible age,
+  unmapped codes (`concept_id = 0`, OMOP-style relations only), values with a
+  unit, no negative dose. A mapping check a DDL constraint already covers is
+  skipped (`DdlFacts`).
+- Every check returns one row `violated_rows`, `total_rows`; it fails when
+  `violated / total × 100 > threshold` (0 = zero tolerance), `total = 0` → N/A
+  (`checkStatus`, shared by Test and Run).
+- **Taxonomy**: Kahn et al. 2016 (the one OHDSI DQD uses) — category
+  conformance / completeness / plausibility, subcategory value · relational ·
+  computational / — / uniqueness · atemporal · temporal (`lib/dq-taxonomy.ts`).
+  The pre-Kahn names (validity, consistency, uniqueness) and severity `info` are
+  mapped on read.
+- `templateKey` records which schema rule produced a check and `schemaPresetRef`
+  which preset the rule set came from, so a "add the schema checks that are
+  missing" action can be built later without re-adding deleted ones.
+- Check key order is the server's `DqCustomCheckResponse` order (`makeCheck`):
+  client and server exports must be byte-identical (dq-rule-set golden).
+
 ## OMOP CDM Patterns
 
 Clinical tables: `measurement`, `condition_occurrence`, `drug_exposure`, `procedure_occurrence`, `observation`.

@@ -167,3 +167,31 @@ async def test_create_run_requires_rule_set_and_membership(client, db):
         "dataSourceId": "src-1", "startedAt": "2026-07-14T10:00:00Z", "status": "success",
     })).json()
     assert created["workspaceId"] == ws
+
+
+
+async def test_create_checks_in_one_request(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    rs_id = (await _rule_set(client, headers, ws))["id"]
+    checks = [
+        {
+            "id": f"c{i}", "ruleSetId": rs_id, "name": f"check {i}", "category": "conformance",
+            "subcategory": "relational", "severity": "error",
+            "sql": "SELECT 0 AS violated_rows, 1 AS total_rows",
+            "order": i, "origin": "ddl", "templateKey": f"ddl.not_null:t.c{i}", "tableName": "t",
+        }
+        for i in range(3)
+    ]
+    r = await client.post(f"{API}/dq-rule-sets/{rs_id}/checks", headers=headers, json=checks)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert [c["id"] for c in body] == ["c0", "c1", "c2"]
+    assert body[0]["origin"] == "ddl" and body[0]["disabled"] is False
+
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"disabled": True})
+    assert p.json()["disabled"] is True
+
+    stray = [{**checks[0], "id": "x", "ruleSetId": "other"}]
+    r = await client.post(f"{API}/dq-rule-sets/{rs_id}/checks", headers=headers, json=stray)
+    assert r.status_code == 400

@@ -89,6 +89,20 @@ async def create_check(db: AsyncSession, data: DqCustomCheckCreate) -> DqCustomC
     return check
 
 
+async def create_checks(
+    db: AsyncSession, data: list[DqCustomCheckCreate]
+) -> list[DqCustomCheck]:
+    checks = [DqCustomCheck(**d.model_dump(exclude_none=True)) for d in data]
+    db.add_all(checks)
+    await db.commit()
+    result = await db.execute(
+        select(DqCustomCheck)
+        .where(DqCustomCheck.id.in_([c.id for c in checks]))
+        .order_by(DqCustomCheck.order)
+    )
+    return list(result.scalars().all())
+
+
 async def update_check(
     db: AsyncSession, check: DqCustomCheck, data: DqCustomCheckUpdate
 ) -> DqCustomCheck:

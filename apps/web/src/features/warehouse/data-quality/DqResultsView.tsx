@@ -12,12 +12,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
-import { generateChecks, runAllChecks } from '@/lib/duckdb/data-quality'
+import { runAllChecks, runnableChecks } from '@/lib/duckdb/data-quality'
 import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality'
-import type { SchemaMapping } from '@/types/schema-mapping'
 import type { DqCustomCheck } from '@/types'
-import { useDqStore } from '@/stores/dq-store'
 import { cn } from '@/lib/utils'
+import { normalizeDqCheck } from '@/lib/dq-taxonomy'
 import { DqScoreBadge } from './DqScoreBadge'
 import { DqCheckDetailPanel } from './DqCheckDetailPanel'
 import { DqCategoryCharts } from './DqCategoryCharts'
@@ -28,7 +27,6 @@ interface Props {
   /** Rule set the history modal is scoped to. */
   ruleSetId?: string
   dataSourceId: string
-  schemaMapping?: SchemaMapping
   customChecks?: DqCustomCheck[]
   /** Called after a successful scan with the full report. */
   onScanComplete?: (report: DqReport) => void
@@ -41,12 +39,9 @@ interface Row {
   result: DqCheckResult
 }
 
-export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customChecks, onScanComplete, onBeforeScan }: Props) {
+export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanComplete, onBeforeScan }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
-  const disabledCheckIds = useDqStore(
-    (s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.disabledCheckIds,
-  )
 
   const [report, setReport] = useState<DqReport | null>(null)
   const [loading, setLoading] = useState(false)
@@ -74,14 +69,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     try {
       if (onBeforeScan) await onBeforeScan()
 
-      const generated = await generateChecks(
-        dataSourceId,
-        schemaMapping,
-        customChecks && customChecks.length > 0 ? customChecks : undefined,
-      )
-      // Disabled checks (custom or built-in) are excluded from the run and score.
-      const disabled = new Set(disabledCheckIds ?? [])
-      const checks = disabled.size > 0 ? generated.filter((c) => !disabled.has(c.id)) : generated
+      const checks = runnableChecks(customChecks ?? [])
       setProgress({ done: 0, total: checks.length })
 
       const result = await runAllChecks(dataSourceId, checks, (done, total) => {
@@ -99,11 +87,13 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     } finally {
       setLoading(false)
     }
-  }, [dataSourceId, schemaMapping, customChecks, disabledCheckIds, loading, onBeforeScan, onScanComplete])
+  }, [dataSourceId, customChecks, loading, onBeforeScan, onScanComplete])
 
   const handleRestore = useCallback((entry: { report?: unknown; startedAt: string }) => {
     if (!entry.report) return
-    setReport(entry.report as DqReport)
+    const past = entry.report as DqReport
+    // A run saved before the Kahn categories still names the old ones.
+    setReport({ ...past, checks: past.checks.map((c) => normalizeDqCheck({ ...c, subcategory: c.subcategory ?? null })) })
     setSelectedCheckId(null)
     setViewedRunAt(entry.startedAt)
   }, [])
@@ -141,7 +131,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
     {
       id: 'check',
       header: t('data_quality.col_check'),
-      accessor: (r) => r.check.description,
+      accessor: (r) => r.check.name || r.check.description,
       filter: 'text',
       size: 260, minSize: 120,
       tooltip: 'font-medium',
@@ -157,6 +147,16 @@ export function DqResultsView({ ruleSetId, dataSourceId, schemaMapping, customCh
           {t(`data_quality.category_${r.check.category}`)}
         </span>
       ),
+    },
+    {
+      id: 'subcategory',
+      header: t('data_quality.col_subcategory'),
+      accessor: (r) => (r.check.subcategory ? t(`data_quality.subcategory_${r.check.subcategory}`) : ''),
+      filter: 'select',
+      size: 110, minSize: 70,
+      cell: (r) => (r.check.subcategory
+        ? <span className="text-muted-foreground">{t(`data_quality.subcategory_${r.check.subcategory}`)}</span>
+        : <span className="text-muted-foreground/50">—</span>),
     },
     {
       id: 'table',

@@ -1,4 +1,5 @@
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import false as sa_false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import JSONB_or_JSON, Base, TimestampMixin
@@ -30,6 +31,9 @@ class DqRuleSet(Base, TimestampMixin):
     # data_source_id is this instance's local UUID and means nothing elsewhere, so
     # this is what the export carries and the import resolves back to a local row.
     data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # Schema preset the rule set was generated from, as a portable pointer only
+    # ({lineageId?, entityId?, label?}): informative, resolved where it is shown.
+    schema_preset_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_run_at: Mapped[str | None] = mapped_column(String(40))
     last_run_duration_ms: Mapped[int | None] = mapped_column(Integer)
@@ -77,8 +81,9 @@ class DqRunHistory(Base):
 
 
 class DqCustomCheck(Base, TimestampMixin):
-    """A single SQL data-quality check within a rule set. Plain-string name/
-    description (not localized); short inline SQL. Has createdAt + updatedAt."""
+    """A single SQL data-quality check within a rule set, generated from a schema
+    or written by hand. Plain-string name/description (not localized). Category
+    and subcategory follow Kahn et al. (2016)."""
 
     __tablename__ = "dq_custom_checks"
 
@@ -89,7 +94,13 @@ class DqCustomCheck(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(255), default="")
     description: Mapped[str] = mapped_column(Text, default="")
     category: Mapped[str] = mapped_column(String(20))
+    subcategory: Mapped[str | None] = mapped_column(String(20))
     severity: Mapped[str] = mapped_column(String(10))
     threshold: Mapped[float] = mapped_column(Float, default=0)
     sql: Mapped[str] = mapped_column(Text, default="")
     order: Mapped[int] = mapped_column(Integer, default=0)
+    # ddl | mapping | manual
+    origin: Mapped[str] = mapped_column(String(10), default="manual", server_default="manual")
+    template_key: Mapped[str | None] = mapped_column(Text)
+    table_name: Mapped[str | None] = mapped_column(String(255))
+    disabled: Mapped[bool] = mapped_column(Boolean, default=False, server_default=sa_false())

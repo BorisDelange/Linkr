@@ -18,6 +18,13 @@
       "fr": "MIMIC-IV démo"
     }
   },
+  "schemaPresetRef": {
+    "lineageId": "schema-lin-1",
+    "entityId": "omop-cdm-5-4",
+    "label": {
+      "en": "OMOP CDM 5.4"
+    }
+  },
   "status": "draft",
   "lastRunAt": null,
   "lastRunDurationMs": null,

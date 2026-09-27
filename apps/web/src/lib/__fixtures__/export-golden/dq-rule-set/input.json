@@ -24,6 +24,13 @@
         "fr": "MIMIC-IV démo"
       }
     },
+    "schemaPresetRef": {
+      "lineageId": "schema-lin-1",
+      "entityId": "omop-cdm-5-4",
+      "label": {
+        "en": "OMOP CDM 5.4"
+      }
+    },
     "status": "draft",
     "lastRunAt": null,
     "lastRunDurationMs": null,
@@ -57,10 +64,15 @@
       "name": "Non-null person id",
       "description": "person_id must be present",
       "category": "completeness",
+      "subcategory": null,
       "severity": "error",
       "threshold": 0.02,
       "sql": "SELECT COUNT(*) FROM person WHERE person_id IS NULL;",
       "order": 0,
+      "origin": "manual",
+      "templateKey": null,
+      "tableName": "person",
+      "disabled": false,
       "createdAt": "2026-01-02T03:04:05.000Z",
       "updatedAt": "2026-01-02T03:04:05.000Z"
     },
@@ -70,10 +82,15 @@
       "name": "Valid birth year",
       "description": "year_of_birth in range",
       "category": "plausibility",
+      "subcategory": "atemporal",
       "severity": "warning",
       "threshold": 100,
       "sql": "SELECT COUNT(*) FROM person WHERE year_of_birth < 1900;",
       "order": 1,
+      "origin": "manual",
+      "templateKey": null,
+      "tableName": "person",
+      "disabled": false,
       "createdAt": "2026-01-02T03:04:05.000Z",
       "updatedAt": "2026-01-02T03:04:05.000Z"
     }

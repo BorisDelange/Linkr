@@ -8,6 +8,7 @@ import {
   Info,
   FileText,
   Pencil,
+  Table2,
 } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useUrlTab } from '@/hooks/use-url-tab'
@@ -66,7 +67,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     addRunHistory,
     loadRunHistory,
   } = useDqStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
@@ -112,7 +112,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   useEffect(() => {
     if (fullRuleSetId) void loadRunHistory(fullRuleSetId)
   }, [fullRuleSetId, loadRunHistory])
-  const activeSource = dataSources.find((ds) => ds.id === ruleSet?.dataSourceId)
 
   const handleBack = useCallback(() => {
     // Navigate to the data-quality list page using absolute path
@@ -262,7 +261,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
             <DqResultsView
               ruleSetId={ruleSet.id}
               dataSourceId={ruleSet.dataSourceId}
-              schemaMapping={activeSource?.schemaMapping}
               customChecks={customChecks}
               onScanComplete={handleScanComplete}
               onBeforeScan={() => ensureMounted(ruleSet.dataSourceId)}
@@ -384,6 +382,15 @@ function DqIdentityCard({
       {description && <p className="text-xs break-words text-muted-foreground">{description}</p>}
 
       {!!ruleSet.badges?.length && <BadgeStrip badges={ruleSet.badges} />}
+
+      {ruleSet.schemaPresetRef && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Table2 size={12} className="shrink-0" />
+          {t('data_quality.generated_from_schema', {
+            schema: localized(ruleSet.schemaPresetRef.label, i18n.language) || ruleSet.schemaPresetRef.entityId,
+          })}
+        </p>
+      )}
 
       {ruleSet.version && (
         <div className="flex">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -17,6 +17,9 @@ import {
   ListChecks,
   X,
   Database,
+  ChevronDown,
+  ChevronRight,
+  AlertTriangle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -40,6 +43,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuCheckboxItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import {
@@ -65,21 +70,32 @@ import { InlineRenameField } from '@/components/InlineRenameField'
 import {
   SidebarSearchField,
   SidebarSearchToggle,
+  matchesSidebarSearch,
   useSidebarSearch,
 } from '@/components/SidebarSearch'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { cn } from '@/lib/utils'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { generateChecks } from '@/lib/duckdb/data-quality'
-import type { DqCheck, DqCategory, DqSeverity } from '@/lib/duckdb/data-quality'
+import { checkStatus } from '@/lib/duckdb/data-quality'
+import {
+  DQ_CATEGORIES,
+  DQ_SEVERITIES,
+  DQ_SUBCATEGORIES,
+  subcategoryFor,
+  type DqCategory,
+  type DqCheckOrigin,
+  type DqSeverity,
+  type DqSubcategory,
+} from '@/lib/dq-taxonomy'
+import { makeCheck } from '@/lib/dq-templates'
 import { useDqStore } from '@/stores/dq-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDatabaseOptions } from '@/hooks/use-database-options'
-import { CATEGORIES, SEVERITIES, CATEGORY_COLORS } from './DqConstants'
+import { CATEGORY_COLORS } from './DqConstants'
 import type { DqCustomCheck } from '@/types'
 
 interface Props {
@@ -87,24 +103,23 @@ interface Props {
   dataSourceId: string
 }
 
-type SidebarFilter = 'all' | 'builtin' | 'custom'
+type OriginFilter = 'all' | DqCheckOrigin
+type CategoryFilter = 'all' | DqCategory
+
+const ORIGINS: DqCheckOrigin[] = ['ddl', 'mapping', 'manual']
+const NO_SUBCATEGORY = '__none__'
+// Up to this many checks every group starts open; beyond, they start folded.
+const OPEN_GROUPS_UP_TO = 40
 
 interface TestResult {
   success: boolean
-  message: string
+  lines: string[]
 }
 
-// Simple fuzzy match: every character of the query must appear in order in the target
-function fuzzyMatch(target: string, query: string): boolean {
-  const t = target.toLowerCase()
-  const q = query.toLowerCase()
-  let ti = 0
-  for (let qi = 0; qi < q.length; qi++) {
-    const idx = t.indexOf(q[qi], ti)
-    if (idx === -1) return false
-    ti = idx + 1
-  }
-  return true
+interface CheckGroup {
+  key: string
+  label: string
+  checks: DqCustomCheck[]
 }
 
 export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
@@ -123,115 +138,89 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     setChecksDisabled,
     _dirtyVersion,
   } = useDqStore()
-  const disabledCheckIds = useDqStore(
-    (s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.disabledCheckIds,
-  )
-  const isDisabled = useCallback(
-    (id: string) => !!disabledCheckIds?.includes(id),
-    [disabledCheckIds],
-  )
   const ruleSetWorkspaceId = useDqStore(
     (s) => s.dqRuleSets.find((rs) => rs.id === ruleSetId)?.workspaceId,
   )
-  const dataSources = useDataSourceStore((s) => s.dataSources)
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const updateRuleSet = useDqStore((s) => s.updateRuleSet)
   // Resolving the CURRENT database stays unscoped, so one selected earlier is
   // still nameable; only what the picker OFFERS is scoped to the rule set's
   // own workspace.
-  const activeSource = dataSources.find((ds) => ds.id === dataSourceId)
-  const updateRuleSet = useDqStore((s) => s.updateRuleSet)
   const dbSources = useDatabaseOptions(ruleSetWorkspaceId)
+  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const [sidebarVisible, setSidebarVisible] = useState(true)
-  const [sidebarFilter, setSidebarFilter] = useState<SidebarFilter>('all')
+  const [originFilter, setOriginFilter] = useState<OriginFilter>('all')
+  const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>('all')
   const search = useSidebarSearch()
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<TestResult | null>(null)
-  const [builtinChecks, setBuiltinChecks] = useState<DqCheck[]>([])
-  const [builtinLoading, setBuiltinLoading] = useState(false)
-  // Local overrides for built-in check SQL (in-memory, not persisted)
-  const [builtinSqlOverrides, setBuiltinSqlOverrides] = useState<Map<string, string>>(new Map())
+  // Groups the user folded or unfolded, against the default for the list size.
+  const [toggledGroups, setToggledGroups] = useState<Set<string>>(new Set())
 
   // Sidebar edit mode: multi-select via checkboxes + bulk enable/disable/delete.
   const [editMode, setEditMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  // Inline rename of a custom check name (IDE-style).
   const [renamingId, setRenamingId] = useState<string | null>(null)
-  // Delete confirmation: a single custom check id, or 'bulk' for the selection.
+  // Delete confirmation: a single check id, or 'bulk' for the selection.
   const [deleteTarget, setDeleteTarget] = useState<string | 'bulk' | null>(null)
 
   // Force re-render when dirty state changes
   void _dirtyVersion
 
-  // Load built-in checks for this data source
-  useEffect(() => {
-    let cancelled = false
-    // The database is optional until the user picks one — nothing to discover yet.
-    if (!dataSourceId) { setBuiltinChecks([]); return }
-    const loadBuiltin = async () => {
-      setBuiltinLoading(true)
-      try {
-        // The source may have been unmounted since it was seeded — remount before
-        // discovering tables/columns, or generateChecks sees an empty database.
-        await ensureMounted(dataSourceId)
-        const checks = await generateChecks(dataSourceId, activeSource?.schemaMapping)
-        if (!cancelled) {
-          setBuiltinChecks(checks)
-          setBuiltinSqlOverrides(new Map())
-        }
-      } catch {
-        // Ignore errors — built-in checks are optional display
-      } finally {
-        if (!cancelled) setBuiltinLoading(false)
+  const selectedCheck = customChecks.find((c) => c.id === selectedCheckId)
+
+  const filteredChecks = useMemo(() => customChecks.filter((c) =>
+    (originFilter === 'all' || c.origin === originFilter)
+    && (categoryFilter === 'all' || c.category === categoryFilter)
+    && (matchesSidebarSearch(c.name, search.query) || matchesSidebarSearch(c.tableName ?? '', search.query)),
+  ), [customChecks, originFilter, categoryFilter, search.query])
+
+  // One group per table or relation, in list order; hand-written checks that
+  // name none share a last group.
+  const groups = useMemo<CheckGroup[]>(() => {
+    const byKey = new Map<string, CheckGroup>()
+    for (const check of filteredChecks) {
+      const key = check.tableName ?? ''
+      let group = byKey.get(key)
+      if (!group) {
+        group = { key, label: check.tableName ?? t('data_quality.group_other'), checks: [] }
+        byKey.set(key, group)
       }
+      group.checks.push(check)
     }
-    loadBuiltin()
-    return () => { cancelled = true }
-  }, [dataSourceId, activeSource?.schemaMapping, ensureMounted])
+    const other = byKey.get('')
+    byKey.delete('')
+    return other ? [...byKey.values(), other] : [...byKey.values()]
+  }, [filteredChecks, t])
 
-  // Selected item: could be a custom check or a built-in check
-  const selectedCustomCheck = customChecks.find((c) => c.id === selectedCheckId)
-  const selectedBuiltinCheck = !selectedCustomCheck ? builtinChecks.find((c) => c.id === selectedCheckId) : null
-
-  // Filtered + searched sidebar items
-  const filteredCustomChecks = useMemo(() => {
-    if (sidebarFilter === 'builtin') return []
-    if (!search.query) return customChecks
-    return customChecks.filter((c) => fuzzyMatch(c.name, search.query))
-  }, [sidebarFilter, search.query, customChecks])
-
-  const filteredBuiltinChecks = useMemo(() => {
-    if (sidebarFilter === 'custom') return []
-    if (!search.query) return builtinChecks
-    return builtinChecks.filter((c) => fuzzyMatch(c.description || c.name, search.query))
-  }, [sidebarFilter, search.query, builtinChecks])
+  const groupsOpenByDefault = customChecks.length <= OPEN_GROUPS_UP_TO
+  const isGroupOpen = (key: string) =>
+    !!search.query || groups.length === 1 || (groupsOpenByDefault !== toggledGroups.has(key))
+  const toggleGroup = (key: string) => setToggledGroups((prev) => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
 
   const handleNewCheck = useCallback(async () => {
-    const id = crypto.randomUUID()
-    const now = new Date().toISOString()
-    const check: DqCustomCheck = {
-      id,
-      ruleSetId,
-      name: `Check ${customChecks.length + 1}`,
+    const check = makeCheck(ruleSetId, customChecks.reduce((max, c) => Math.max(max, c.order + 1), 0), {
+      name: t('data_quality.new_check_name', { n: customChecks.filter((c) => c.origin === 'manual').length + 1 }),
       description: '',
       category: 'plausibility',
+      subcategory: 'atemporal',
       severity: 'warning',
       threshold: 0,
-      sql: '-- Write SQL that returns violated_rows and total_rows\nSELECT\n  COUNT(*) FILTER (WHERE 1=0)::BIGINT AS violated_rows,\n  COUNT(*)::BIGINT AS total_rows\nFROM "your_table"',
-      order: customChecks.length,
-      createdAt: now,
-      updatedAt: now,
-    }
+      sql: t('data_quality.new_check_sql'),
+      origin: 'manual',
+      templateKey: null,
+      tableName: null,
+    })
     await createCustomCheck(check)
-    selectCheck(id)
-    setSidebarFilter((f) => f === 'builtin' ? 'all' : f)
-  }, [ruleSetId, customChecks.length, createCustomCheck, selectCheck])
-
-  // --- Inline rename (custom checks only) ---
-  // The field owns its own draft, so this only records which row is editing.
-  const startRename = useCallback((id: string, _name: string) => {
-    setRenamingId(id)
-  }, [])
+    selectCheck(check.id)
+    setOriginFilter((f) => (f === 'all' || f === 'manual' ? f : 'all'))
+    setCategoryFilter((f) => (f === 'all' || f === check.category ? f : 'all'))
+  }, [ruleSetId, customChecks, createCustomCheck, selectCheck, t])
 
   const commitRename = useCallback((name: string) => {
     if (!renamingId || !name) return
@@ -239,16 +228,8 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
     setRenamingId(null)
   }, [renamingId, updateCustomCheck])
 
-  // --- Enable/disable ---
-  const toggleDisabled = useCallback((id: string) => {
-    void setChecksDisabled(ruleSetId, [id], !isDisabled(id))
-  }, [ruleSetId, isDisabled, setChecksDisabled])
-
   // --- Multi-select (edit mode) ---
-  const allVisibleIds = useMemo(
-    () => [...filteredCustomChecks.map((c) => c.id), ...filteredBuiltinChecks.map((c) => c.id)],
-    [filteredCustomChecks, filteredBuiltinChecks],
-  )
+  const allVisibleIds = useMemo(() => filteredChecks.map((c) => c.id), [filteredChecks])
   const allSelected = allVisibleIds.length > 0 && allVisibleIds.every((id) => selectedIds.has(id))
 
   const toggleSelected = useCallback((id: string) => {
@@ -261,27 +242,16 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
   }, [])
 
   const toggleSelectAll = useCallback(() => {
-    setSelectedIds((prev) => (prev.size === allVisibleIds.length ? new Set() : new Set(allVisibleIds)))
-  }, [allVisibleIds])
+    setSelectedIds(allSelected ? new Set() : new Set(allVisibleIds))
+  }, [allSelected, allVisibleIds])
 
   const exitEditMode = useCallback(() => {
     setEditMode(false)
     setSelectedIds(new Set())
   }, [])
 
-  const handleBulkSetDisabled = useCallback((disabled: boolean) => {
-    if (selectedIds.size === 0) return
-    void setChecksDisabled(ruleSetId, [...selectedIds], disabled)
-  }, [selectedIds, ruleSetId, setChecksDisabled])
-
-  // Only custom checks can be deleted; built-in ones in the selection are ignored.
-  const selectedCustomIds = useMemo(
-    () => [...selectedIds].filter((id) => customChecks.some((c) => c.id === id)),
-    [selectedIds, customChecks],
-  )
-
   const handleConfirmDelete = useCallback(async () => {
-    const ids = deleteTarget === 'bulk' ? selectedCustomIds : deleteTarget ? [deleteTarget] : []
+    const ids = deleteTarget === 'bulk' ? [...selectedIds] : deleteTarget ? [deleteTarget] : []
     for (const id of ids) await deleteCustomCheck(id)
     setDeleteTarget(null)
     setSelectedIds((prev) => {
@@ -289,103 +259,77 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
       ids.forEach((id) => next.delete(id))
       return next
     })
-  }, [deleteTarget, selectedCustomIds, deleteCustomCheck])
+  }, [deleteTarget, selectedIds, deleteCustomCheck])
 
-  const getEffectiveSql = useCallback((check: DqCheck): string => {
-    return builtinSqlOverrides.get(check.id) ?? check.sql
-  }, [builtinSqlOverrides])
+  const formatPct = useCallback(
+    (n: number) => n.toLocaleString(i18n.language, { maximumFractionDigits: 2 }),
+    [i18n.language],
+  )
 
   const handleTest = useCallback(async () => {
-    const sql = selectedCustomCheck?.sql ?? (selectedBuiltinCheck ? getEffectiveSql(selectedBuiltinCheck) : null)
-    if (!sql || testing) return
+    if (!selectedCheck || testing || !dataSourceId) return
     setTesting(true)
     setTestResult(null)
-
     try {
-      const rows = await queryDataSource(dataSourceId, sql)
+      await ensureMounted(dataSourceId)
+      const rows = await queryDataSource(dataSourceId, selectedCheck.sql)
       if (!rows.length) {
-        setTestResult({ success: false, message: t('data_quality.test_result_no_rows') })
+        setTestResult({ success: false, lines: [t('data_quality.test_result_no_rows'), t('data_quality.test_expected_shape')] })
         return
       }
-      const violated = Number(rows[0].violated_rows ?? 0)
-      const total = Number(rows[0].total_rows ?? 0)
-      const threshold = selectedCustomCheck?.threshold ?? selectedBuiltinCheck?.threshold ?? 0
-      const pct = total > 0 ? ((violated / total) * 100).toFixed(1) : '0'
-      const passed = threshold === 0 ? violated === 0 : Number(pct) <= threshold
-
-      const stats = t('data_quality.test_result_stats', { violated, total, pct, threshold })
-      if (passed) {
-        setTestResult({ success: true, message: `${t('data_quality.test_result_pass')}\n${stats}` })
+      const row = rows[0]
+      if (!('violated_rows' in row) || !('total_rows' in row)) {
+        setTestResult({
+          success: false,
+          lines: [
+            t('data_quality.test_result_missing_columns', { columns: Object.keys(row).join(', ') }),
+            t('data_quality.test_expected_shape'),
+          ],
+        })
+        return
+      }
+      const violated = Number(row.violated_rows ?? 0)
+      const total = Number(row.total_rows ?? 0)
+      const status = checkStatus(violated, total, selectedCheck.threshold)
+      const pct = total > 0 ? (violated / total) * 100 : 0
+      const counts = t('data_quality.test_result_counts', {
+        violated: violated.toLocaleString(i18n.language),
+        total: total.toLocaleString(i18n.language),
+        pct: formatPct(pct),
+      })
+      const rule = selectedCheck.threshold === 0
+        ? t('data_quality.test_rule_zero')
+        : t('data_quality.test_rule_threshold', { threshold: formatPct(selectedCheck.threshold) })
+      if (status === 'not_applicable') {
+        setTestResult({ success: true, lines: [t('data_quality.test_result_not_applicable'), counts] })
       } else {
-        setTestResult({ success: false, message: `${t('data_quality.test_result_fail', { pct, violated, total })}\n${stats}` })
+        setTestResult({
+          success: status === 'pass',
+          lines: [status === 'pass' ? t('data_quality.test_result_pass') : t('data_quality.test_result_fail'), counts, rule],
+        })
       }
     } catch (err) {
       setTestResult({
         success: false,
-        message: t('data_quality.test_result_error', { message: err instanceof Error ? err.message : String(err) }),
+        lines: [t('data_quality.test_result_error', { message: err instanceof Error ? err.message : String(err) })],
       })
     } finally {
       setTesting(false)
     }
-  }, [selectedCustomCheck, selectedBuiltinCheck, getEffectiveSql, dataSourceId, testing, t])
+  }, [selectedCheck, testing, dataSourceId, ensureMounted, formatPct, i18n.language, t])
 
   const handleSave = useCallback(async () => {
-    if (selectedCheckId && selectedCustomCheck) await saveCheck(selectedCheckId)
-  }, [selectedCheckId, selectedCustomCheck, saveCheck])
+    if (selectedCheck) await saveCheck(selectedCheck.id)
+  }, [selectedCheck, saveCheck])
 
-  // The SQL to display in the editor
-  const editorSql = selectedCustomCheck?.sql
-    ?? (selectedBuiltinCheck ? getEffectiveSql(selectedBuiltinCheck) : '')
-
-  const handleEditorChange = useCallback((value: string | undefined) => {
-    if (selectedCustomCheck) {
-      updateCheckSql(selectedCustomCheck.id, value ?? '')
-    } else if (selectedBuiltinCheck) {
-      setBuiltinSqlOverrides((prev) => {
-        const next = new Map(prev)
-        next.set(selectedBuiltinCheck.id, value ?? '')
-        return next
-      })
-    }
-  }, [selectedCustomCheck, selectedBuiltinCheck, updateCheckSql])
-
-  const filterCount = filteredCustomChecks.length + filteredBuiltinChecks.length
-
-  // One sidebar row, shared by custom and built-in checks. `name` is truncated with
-  // an ellipsis and revealed in full via a tooltip, so the action cluster on the
-  // right stays pinned to the visible edge of the (resizable) sidebar.
-  const renderRow = (opts: {
-    id: string
-    category: DqCategory
-    name: string
-    isCustom: boolean
-    dirty: boolean
-  }) => {
-    const { id, category, name, isCustom, dirty } = opts
-    return (
-      <DqCheckRow
-        key={id}
-        id={id}
-        name={name}
-        category={category}
-        isCustom={isCustom}
-        dirty={dirty}
-        disabled={isDisabled(id)}
-        selected={selectedCheckId === id && !editMode}
-        editMode={editMode}
-        checked={selectedIds.has(id)}
-        canWrite={canWrite}
-        renaming={renamingId === id}
-        onSelect={() => (editMode ? toggleSelected(id) : selectCheck(id))}
-        onToggleSelected={() => toggleSelected(id)}
-        onStartRename={() => startRename(id, name)}
-        onRename={(next) => commitRename(next)}
-        onCancelRename={() => setRenamingId(null)}
-        onToggleDisabled={() => toggleDisabled(id)}
-        onDelete={() => setDeleteTarget(id)}
-      />
-    )
+  const handleCategoryChange = (check: DqCustomCheck, category: DqCategory) => {
+    void updateCustomCheck(check.id, {
+      category,
+      subcategory: subcategoryFor(category, check.subcategory) ?? DQ_SUBCATEGORIES[category][0] ?? null,
+    })
   }
+
+  const filtered = originFilter !== 'all' || categoryFilter !== 'all'
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -405,26 +349,21 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
             <TooltipContent>{t('data_quality.checks')}</TooltipContent>
           </Tooltip>
 
-          {(selectedCustomCheck || selectedBuiltinCheck) && (
+          {selectedCheck && (
             <>
               <Button
                 size="sm"
                 variant="default"
                 onClick={handleTest}
-                disabled={testing || !canWrite}
+                disabled={testing || !dataSourceId}
                 className="h-6 gap-1 px-2 text-xs"
               >
                 {testing ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}
                 {testing ? t('data_quality.testing') : t('data_quality.test_check')}
               </Button>
 
-              {selectedCheckId && selectedCustomCheck && isCheckDirty(selectedCheckId) && (
-                <Button
-                  size="icon-xs"
-                  variant="ghost"
-                  disabled={!canWrite}
-                  onClick={handleSave}
-                >
+              {isCheckDirty(selectedCheck.id) && (
+                <Button size="icon-xs" variant="ghost" disabled={!canWrite} onClick={handleSave}>
                   <Save size={14} />
                 </Button>
               )}
@@ -443,7 +382,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
               })}
               disabled={!canWrite}
             >
-              <SelectTrigger className="h-7 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
+              <SelectTrigger size="xs" className="w-auto gap-1.5 border-0 bg-transparent px-2 text-xs shadow-none hover:bg-accent/50">
                 <Database size={12} className="text-muted-foreground" />
                 <SelectValue placeholder={t('data_quality.select_database')} />
               </SelectTrigger>
@@ -462,38 +401,42 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
         <div className="min-h-0 flex-1">
           <Allotment proportionalLayout={false}>
             {/* Check list sidebar */}
-            <Allotment.Pane preferredSize={280} minSize={180} maxSize={600} visible={sidebarVisible}>
+            <Allotment.Pane preferredSize={300} minSize={180} maxSize={600} visible={sidebarVisible}>
               <div className="flex h-full min-h-0 flex-col border-r">
                 <div className="flex items-center justify-between border-b px-3 py-1.5">
                   <SectionLabel>
                     {t('data_quality.checks')}
+                    <span className="ml-1.5 font-normal tabular-nums text-muted-foreground/70">
+                      {filtered || search.query ? `${filteredChecks.length}/${customChecks.length}` : customChecks.length}
+                    </span>
                   </SectionLabel>
                   <div className="flex items-center gap-0.5">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-xs">
+                        <Button variant={filtered ? 'secondary' : 'ghost'} size="icon-xs">
                           <Filter size={12} />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuCheckboxItem
-                          checked={sidebarFilter === 'all'}
-                          onCheckedChange={() => setSidebarFilter('all')}
-                        >
+                        <DropdownMenuLabel>{t('data_quality.filter_origin')}</DropdownMenuLabel>
+                        <DropdownMenuCheckboxItem checked={originFilter === 'all'} onCheckedChange={() => setOriginFilter('all')}>
                           {t('data_quality.filter_all')}
                         </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={sidebarFilter === 'custom'}
-                          onCheckedChange={() => setSidebarFilter('custom')}
-                        >
-                          {t('data_quality.filter_custom_only')}
+                        {ORIGINS.map((o) => (
+                          <DropdownMenuCheckboxItem key={o} checked={originFilter === o} onCheckedChange={() => setOriginFilter(o)}>
+                            {t(`data_quality.origin_${o}`)}
+                          </DropdownMenuCheckboxItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuLabel>{t('data_quality.filter_category')}</DropdownMenuLabel>
+                        <DropdownMenuCheckboxItem checked={categoryFilter === 'all'} onCheckedChange={() => setCategoryFilter('all')}>
+                          {t('data_quality.filter_all')}
                         </DropdownMenuCheckboxItem>
-                        <DropdownMenuCheckboxItem
-                          checked={sidebarFilter === 'builtin'}
-                          onCheckedChange={() => setSidebarFilter('builtin')}
-                        >
-                          {t('data_quality.filter_builtin_only')}
-                        </DropdownMenuCheckboxItem>
+                        {DQ_CATEGORIES.map((c) => (
+                          <DropdownMenuCheckboxItem key={c} checked={categoryFilter === c} onCheckedChange={() => setCategoryFilter(c)}>
+                            {t(`data_quality.category_${c}`)}
+                          </DropdownMenuCheckboxItem>
+                        ))}
                       </DropdownMenuContent>
                     </DropdownMenu>
                     {canWrite && (
@@ -544,7 +487,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                     </span>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => handleBulkSetDisabled(false)}>
+                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => void setChecksDisabled([...selectedIds], false)}>
                           <Eye size={12} />
                         </Button>
                       </TooltipTrigger>
@@ -552,7 +495,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => handleBulkSetDisabled(true)}>
+                        <Button variant="ghost" size="icon-xs" disabled={selectedIds.size === 0} onClick={() => void setChecksDisabled([...selectedIds], true)}>
                           <EyeOff size={12} />
                         </Button>
                       </TooltipTrigger>
@@ -563,7 +506,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                         <Button
                           variant="ghost"
                           size="icon-xs"
-                          disabled={selectedCustomIds.length === 0}
+                          disabled={selectedIds.size === 0}
                           onClick={() => setDeleteTarget('bulk')}
                           className="text-muted-foreground hover:text-destructive"
                         >
@@ -582,59 +525,61 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                     force it to a full-width block so rows can't grow past the sidebar
                     (and thus truncate + pin their action cluster to the visible edge). */}
                 <ScrollArea className="min-h-0 flex-1 overflow-hidden [&>[data-slot=scroll-area-viewport]>div]:!block">
-                  <div className="space-y-0.5 p-1.5">
-                    {filterCount === 0 ? (
+                  <div className="p-1.5">
+                    {filteredChecks.length === 0 ? (
                       <div className="py-8 text-center">
                         <ShieldCheck size={20} className="mx-auto text-muted-foreground/50" />
                         <p className="mt-2 text-[10px] text-muted-foreground">
-                          {search.query ? t('common.no_results') : t('data_quality.no_checks')}
+                          {search.query || filtered ? t('common.no_results') : t('data_quality.no_checks')}
                         </p>
                       </div>
-                    ) : (
-                      <>
-                        {/* Custom checks */}
-                        {filteredCustomChecks.length > 0 && (
-                          <>
-                            {sidebarFilter === 'all' && (
-                              <div className="mb-1 mt-1 px-2 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                                {t('data_quality.source_custom')}
-                              </div>
-                            )}
-                            {filteredCustomChecks.map((check) => renderRow({
-                              id: check.id,
-                              category: check.category,
-                              name: check.name,
-                              isCustom: true,
-                              dirty: isCheckDirty(check.id),
-                            }))}
-                          </>
-                        )}
-
-                        {/* Built-in checks */}
-                        {filteredBuiltinChecks.length > 0 && (
-                          <>
-                            {sidebarFilter === 'all' && (
-                              <div className="mb-1 mt-2 px-2 text-[9px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                                {t('data_quality.source_builtin')}
-                              </div>
-                            )}
-                            {builtinLoading ? (
-                              <div className="flex items-center justify-center py-4">
-                                <Loader2 size={14} className="animate-spin text-muted-foreground" />
-                              </div>
-                            ) : (
-                              filteredBuiltinChecks.map((check) => renderRow({
-                                id: check.id,
-                                category: check.category,
-                                name: check.description || check.name,
-                                isCustom: false,
-                                dirty: builtinSqlOverrides.has(check.id),
-                              }))
-                            )}
-                          </>
-                        )}
-                      </>
-                    )}
+                    ) : groups.map((group) => {
+                      const open = isGroupOpen(group.key)
+                      const disabledCount = group.checks.filter((c) => c.disabled).length
+                      return (
+                        <div key={group.key || '__other__'} className="mb-0.5">
+                          {groups.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => toggleGroup(group.key)}
+                              className="flex w-full items-center gap-1 rounded px-1 py-1 text-left text-[10px] font-semibold text-muted-foreground hover:bg-accent/50"
+                            >
+                              {open ? <ChevronDown size={12} className="shrink-0" /> : <ChevronRight size={12} className="shrink-0" />}
+                              <span className={cn('min-w-0 flex-1 truncate', group.key && 'font-mono')}>{group.label}</span>
+                              <span className="shrink-0 font-normal tabular-nums text-muted-foreground/70">
+                                {disabledCount ? `${group.checks.length - disabledCount}/${group.checks.length}` : group.checks.length}
+                              </span>
+                            </button>
+                          )}
+                          {open && (
+                            <div className={cn('space-y-0.5', groups.length > 1 && 'pl-3')}>
+                              {group.checks.map((check) => (
+                                <DqCheckRow
+                                  key={check.id}
+                                  id={check.id}
+                                  name={check.name}
+                                  category={check.category}
+                                  dirty={isCheckDirty(check.id)}
+                                  disabled={check.disabled}
+                                  selected={selectedCheckId === check.id && !editMode}
+                                  editMode={editMode}
+                                  checked={selectedIds.has(check.id)}
+                                  canWrite={canWrite}
+                                  renaming={renamingId === check.id}
+                                  onSelect={() => (editMode ? toggleSelected(check.id) : selectCheck(check.id))}
+                                  onToggleSelected={() => toggleSelected(check.id)}
+                                  onStartRename={() => setRenamingId(check.id)}
+                                  onRename={commitRename}
+                                  onCancelRename={() => setRenamingId(null)}
+                                  onToggleDisabled={() => void setChecksDisabled([check.id], !check.disabled)}
+                                  onDelete={() => setDeleteTarget(check.id)}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </ScrollArea>
               </div>
@@ -642,79 +587,104 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
 
             {/* Editor area */}
             <Allotment.Pane minSize={400}>
-              {(selectedCustomCheck || selectedBuiltinCheck) ? (
+              {selectedCheck ? (
                 <div className="flex h-full flex-col">
-                  {/* Check metadata bar */}
-                  <div className="flex items-center gap-2 border-b px-3 py-1.5">
-                    {selectedCustomCheck ? (
-                      <>
-                        <div className="flex items-center gap-1.5">
-                          <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_category')}:</Label>
-                          <Select
-                            value={selectedCustomCheck.category}
-                            onValueChange={(v) => updateCustomCheck(selectedCustomCheck.id, { category: v as DqCategory })}
-                          >
-                            <SelectTrigger className="w-36 data-[size=xs]:h-6">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent position="popper" side="bottom">
-                              {CATEGORIES.map((c) => (
-                                <SelectItem key={c} value={c}>{t(`data_quality.category_${c}`)}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_severity')}:</Label>
-                          <Select
-                            value={selectedCustomCheck.severity}
-                            onValueChange={(v) => updateCustomCheck(selectedCustomCheck.id, { severity: v as DqSeverity })}
-                          >
-                            <SelectTrigger className="w-32 data-[size=xs]:h-6">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent position="popper" side="bottom">
-                              {SEVERITIES.map((s) => (
-                                <SelectItem key={s} value={s}>{t(`data_quality.severity_${s}`)}</SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <Label className="text-[10px] text-muted-foreground">{t('data_quality.custom_threshold')}:</Label>
-                          <Input
-                            type="number"
-                            min={0}
-                            max={100}
-                            step={5}
-                            value={selectedCustomCheck.threshold}
-                            onChange={(e) => updateCustomCheck(selectedCustomCheck.id, { threshold: Number(e.target.value) })}
-                            className="h-6 w-16 text-[13px] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                          />
-                        </div>
-                      </>
-                    ) : selectedBuiltinCheck && (
-                      <>
-                        <span className="text-xs font-medium truncate">{selectedBuiltinCheck.description || selectedBuiltinCheck.name}</span>
-                        <Badge variant="outline" className="shrink-0">
-                          {selectedBuiltinCheck.source === 'schema' ? t('data_quality.source_schema') : t('data_quality.source_builtin')}
+                  {/* Check metadata */}
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b px-3 py-1.5">
+                    <div className="flex items-center gap-1.5">
+                      <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_category')}</Label>
+                      <Select
+                        value={selectedCheck.category}
+                        onValueChange={(v) => handleCategoryChange(selectedCheck, v as DqCategory)}
+                        disabled={!canWrite}
+                      >
+                        <SelectTrigger size="xs" className="w-32 px-2 text-xs data-[size=xs]:h-6">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent position="popper" side="bottom">
+                          {DQ_CATEGORIES.map((c) => (
+                            <SelectItem key={c} value={c}>{t(`data_quality.category_${c}`)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_subcategory')}</Label>
+                      <Select
+                        value={selectedCheck.subcategory ?? NO_SUBCATEGORY}
+                        onValueChange={(v) => updateCustomCheck(selectedCheck.id, { subcategory: v === NO_SUBCATEGORY ? null : v as DqSubcategory })}
+                        disabled={!canWrite || DQ_SUBCATEGORIES[selectedCheck.category].length === 0}
+                      >
+                        <SelectTrigger size="xs" className="w-32 px-2 text-xs data-[size=xs]:h-6">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent position="popper" side="bottom">
+                          {DQ_SUBCATEGORIES[selectedCheck.category].length === 0 && (
+                            <SelectItem value={NO_SUBCATEGORY}>—</SelectItem>
+                          )}
+                          {DQ_SUBCATEGORIES[selectedCheck.category].map((sc) => (
+                            <SelectItem key={sc} value={sc}>{t(`data_quality.subcategory_${sc}`)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Label className="text-[10px] text-muted-foreground">{t('data_quality.col_severity')}</Label>
+                      <Select
+                        value={selectedCheck.severity}
+                        onValueChange={(v) => updateCustomCheck(selectedCheck.id, { severity: v as DqSeverity })}
+                        disabled={!canWrite}
+                      >
+                        <SelectTrigger size="xs" className="w-28 px-2 text-xs data-[size=xs]:h-6">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent position="popper" side="bottom">
+                          {DQ_SEVERITIES.map((sv) => (
+                            <SelectItem key={sv} value={sv}>{t(`data_quality.severity_${sv}`)}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <ThresholdField
+                      key={selectedCheck.id}
+                      value={selectedCheck.threshold}
+                      disabled={!canWrite}
+                      onCommit={(threshold) => updateCustomCheck(selectedCheck.id, { threshold })}
+                    />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Badge variant="outline" className="ml-auto shrink-0">
+                          {t(`data_quality.origin_${selectedCheck.origin}`)}
                         </Badge>
-                        <Badge variant="outline" className="shrink-0">
-                          {t(`data_quality.category_${selectedBuiltinCheck.category}`)}
-                        </Badge>
-                        <Badge variant="outline" className="shrink-0">
-                          {t(`data_quality.severity_${selectedBuiltinCheck.severity}`)}
-                        </Badge>
-                      </>
-                    )}
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {selectedCheck.templateKey
+                          ? <span className="font-mono">{selectedCheck.templateKey}</span>
+                          : t('data_quality.origin_manual_hint')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </div>
+                  <div className="border-b px-3 py-1">
+                    <Input
+                      key={selectedCheck.id}
+                      defaultValue={selectedCheck.description}
+                      placeholder={t('data_quality.check_description_placeholder')}
+                      disabled={!canWrite}
+                      onBlur={(e) => {
+                        const description = e.target.value.trim()
+                        if (description !== selectedCheck.description) void updateCustomCheck(selectedCheck.id, { description })
+                      }}
+                      className="h-6 border-0 px-0 text-xs text-muted-foreground shadow-none focus-visible:ring-0"
+                    />
                   </div>
 
                   {/* Monaco editor */}
                   <div className="min-h-0 flex-1">
                     <CodeEditor
-                      value={editorSql}
-                      onChange={handleEditorChange}
+                      value={selectedCheck.sql}
+                      onChange={(value) => updateCheckSql(selectedCheck.id, value ?? '')}
                       language="sql"
+                      readOnly={!canWrite}
                       onSave={() => handleSave()}
                       onRunSelectionOrLine={() => handleTest()}
                       onRunFile={() => handleTest()}
@@ -724,14 +694,19 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                   {/* Output pane */}
                   {testResult && (
                     <div className={cn(
-                      'border-t px-3 py-2 text-xs',
+                      'flex items-start gap-2 border-t px-3 py-2 text-xs',
                       testResult.success
                         ? 'border-emerald-500/30 bg-emerald-500/5'
                         : 'border-red-500/30 bg-red-500/5',
                     )}>
-                      <pre className="whitespace-pre-wrap font-mono text-xs text-muted-foreground">
-                        {testResult.message}
-                      </pre>
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        {testResult.lines.map((line, i) => (
+                          <p key={i} className={cn(i === 0 ? 'font-medium' : 'text-muted-foreground', 'whitespace-pre-wrap')}>{line}</p>
+                        ))}
+                      </div>
+                      <Button variant="ghost" size="icon-xs" onClick={() => setTestResult(null)}>
+                        <X size={12} />
+                      </Button>
                     </div>
                   )}
                 </div>
@@ -739,8 +714,12 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
                 <div className="flex h-full items-center justify-center">
                   <div className="text-center">
                     <ShieldCheck size={32} className="mx-auto text-muted-foreground/50" />
-                    <p className="mt-3 text-sm font-medium">{t('data_quality.no_checks')}</p>
-                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">{t('data_quality.no_checks_description')}</p>
+                    <p className="mt-3 text-sm font-medium">
+                      {customChecks.length ? t('data_quality.select_check') : t('data_quality.no_checks')}
+                    </p>
+                    <p className="mt-1 max-w-xs text-xs text-muted-foreground">
+                      {customChecks.length ? t('data_quality.select_check_description') : t('data_quality.no_checks_description')}
+                    </p>
                     <Button variant="outline" size="sm" className="mt-4 gap-1.5" disabled={!canWrite} onClick={handleNewCheck}>
                       <Plus size={14} />
                       {t('data_quality.new_check')}
@@ -759,7 +738,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
             <AlertDialogTitle>{t('data_quality.delete_check_title')}</AlertDialogTitle>
             <AlertDialogDescription>
               {deleteTarget === 'bulk'
-                ? t('data_quality.delete_checks_confirm', { count: selectedCustomIds.length })
+                ? t('data_quality.delete_checks_confirm', { count: selectedIds.size })
                 : t('data_quality.delete_check_confirm', {
                     name: customChecks.find((c) => c.id === deleteTarget)?.name ?? '',
                   })}
@@ -778,6 +757,55 @@ export function DqChecksTab({ ruleSetId, dataSourceId }: Props) {
 }
 
 /**
+ * The threshold, 0–100 %. Typed as free text so the field can be emptied while
+ * editing; only a valid value is saved, and an invalid one says why beside the
+ * field instead of snapping back. Keyed by check, so switching checks resets it.
+ */
+function ThresholdField({ value, disabled, onCommit }: {
+  value: number
+  disabled: boolean
+  onCommit: (threshold: number) => void
+}) {
+  const { t } = useTranslation()
+  const [draft, setDraft] = useState(String(value))
+  const trimmed = draft.trim().replace(',', '.')
+  const parsed = Number(trimmed)
+  const error = trimmed === ''
+    ? t('data_quality.threshold_required')
+    : !Number.isFinite(parsed)
+      ? t('data_quality.threshold_invalid')
+      : parsed < 0 || parsed > 100
+        ? t('data_quality.threshold_range')
+        : null
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <Label className="text-[10px] text-muted-foreground">{t('data_quality.custom_threshold')}</Label>
+      <Input
+        type="text"
+        inputMode="decimal"
+        value={draft}
+        disabled={disabled}
+        aria-invalid={!!error}
+        onChange={(e) => {
+          const next = e.target.value
+          setDraft(next)
+          const n = Number(next.trim().replace(',', '.'))
+          if (next.trim() !== '' && Number.isFinite(n) && n >= 0 && n <= 100 && n !== value) onCommit(n)
+        }}
+        className="h-6 w-14 px-2 text-xs tabular-nums"
+      />
+      {error && (
+        <span className="flex items-center gap-1 text-[10px] text-destructive">
+          <AlertTriangle size={11} className="shrink-0" />
+          {error}
+        </span>
+      )}
+    </div>
+  )
+}
+
+/**
  * One check in the sidebar. Rename, enable/disable and delete live on the
  * right-click menu rather than hover icons, matching the IDE and plugin file
  * sidebars — hover clusters competed with the name for the row's width.
@@ -786,7 +814,6 @@ function DqCheckRow({
   id,
   name,
   category,
-  isCustom,
   dirty,
   disabled,
   selected,
@@ -805,7 +832,6 @@ function DqCheckRow({
   id: string
   name: string
   category: DqCategory
-  isCustom: boolean
   dirty: boolean
   disabled: boolean
   selected: boolean
@@ -884,27 +910,19 @@ function DqCheckRow({
         </ContextMenuTrigger>
         {canWrite && !editMode && (
           <ContextMenuContent>
-            {/* Built-in checks ship with the app: they can be turned off for a
-                rule set, but never renamed or removed. */}
-            {isCustom && (
-              <ContextMenuItem onClick={onStartRename}>
-                <Pencil size={14} />
-                {t('common.rename')}
-              </ContextMenuItem>
-            )}
+            <ContextMenuItem onClick={onStartRename}>
+              <Pencil size={14} />
+              {t('common.rename')}
+            </ContextMenuItem>
             <ContextMenuItem onClick={onToggleDisabled}>
               {disabled ? <Eye size={14} /> : <EyeOff size={14} />}
               {disabled ? t('data_quality.enable_check') : t('data_quality.disable_check')}
             </ContextMenuItem>
-            {isCustom && (
-              <>
-                <ContextMenuSeparator />
-                <ContextMenuItem variant="destructive" onClick={onDelete}>
-                  <Trash2 size={14} />
-                  {t('common.delete')}
-                </ContextMenuItem>
-              </>
-            )}
+            <ContextMenuSeparator />
+            <ContextMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 size={14} />
+              {t('common.delete')}
+            </ContextMenuItem>
           </ContextMenuContent>
         )}
       </ContextMenu>

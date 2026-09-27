@@ -344,6 +344,8 @@ export interface DqCustomCheckStorage {
   getByRuleSet(ruleSetId: string): Promise<DqCustomCheck[]>
   getById(id: string): Promise<DqCustomCheck | undefined>
   create(check: DqCustomCheck): Promise<void>
+  /** All of a rule set's checks in one write. */
+  createMany(ruleSetId: string, checks: DqCustomCheck[]): Promise<void>
   update(id: string, changes: Partial<DqCustomCheck>): Promise<void>
   delete(id: string): Promise<void>
   deleteByRuleSet(ruleSetId: string): Promise<void>

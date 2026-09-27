@@ -14,7 +14,12 @@ import { filesIn, readJson, type EntityTree } from '../tree.js'
 import { CONTENT_FILE, MANIFEST } from '../layout.js'
 import { manifestPath } from './entities.js'
 
-const DQ_SEVERITIES = ['error', 'warning', 'info'] as const
+// `info` is what exports written before `notice` carry; the app reads it as `notice`.
+const DQ_SEVERITIES = ['error', 'warning', 'notice', 'info'] as const
+// Kahn et al. (2016), plus the pre-Kahn names the app maps onto them on read.
+const DQ_CATEGORIES = ['conformance', 'completeness', 'plausibility', 'validity', 'consistency', 'uniqueness'] as const
+const DQ_SUBCATEGORIES = ['value', 'relational', 'computational', 'uniqueness', 'atemporal', 'temporal'] as const
+const DQ_ORIGINS = ['ddl', 'mapping', 'manual'] as const
 const COHORT_LEVELS = ['patient', 'visit', 'visit_detail', 'event'] as const
 const MAPPING_STATUSES = ['approved', 'pending', 'rejected', 'draft'] as const
 
@@ -64,6 +69,15 @@ export function validateDqRuleSet(tree: EntityTree, bag: IssueBag): void {
       checkEnum(bag, checksPath, `${pointer}/severity`, check.severity, DQ_SEVERITIES, {
         label: 'severity',
       })
+    }
+    if (check.category != null) {
+      checkEnum(bag, checksPath, `${pointer}/category`, check.category, DQ_CATEGORIES, { label: 'category' })
+    }
+    if (check.subcategory != null) {
+      checkEnum(bag, checksPath, `${pointer}/subcategory`, check.subcategory, DQ_SUBCATEGORIES, { label: 'subcategory' })
+    }
+    if (check.origin != null) {
+      checkEnum(bag, checksPath, `${pointer}/origin`, check.origin, DQ_ORIGINS, { label: 'origin' })
     }
     if (check.threshold != null) {
       checkNumber(bag, checksPath, `${pointer}/threshold`, check.threshold, { label: 'threshold' })

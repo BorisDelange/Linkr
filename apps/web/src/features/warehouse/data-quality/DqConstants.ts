@@ -9,14 +9,9 @@ import {
 } from 'lucide-react'
 import type { DqCategory, DqSeverity, DqCheckStatus } from '@/lib/duckdb/data-quality'
 
-export const CATEGORIES: DqCategory[] = ['completeness', 'validity', 'uniqueness', 'consistency', 'plausibility']
-export const SEVERITIES: DqSeverity[] = ['error', 'warning', 'notice']
-
 export const CATEGORY_COLORS: Record<DqCategory, string> = {
+  conformance: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
   completeness: 'bg-blue-500/15 text-blue-700 dark:text-blue-400',
-  validity: 'bg-violet-500/15 text-violet-700 dark:text-violet-400',
-  uniqueness: 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-400',
-  consistency: 'bg-orange-500/15 text-orange-700 dark:text-orange-400',
   plausibility: 'bg-rose-500/15 text-rose-700 dark:text-rose-400',
 }
 

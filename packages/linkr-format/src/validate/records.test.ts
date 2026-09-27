@@ -69,6 +69,17 @@ describe('dq rule set', () => {
     expect(wrong?.hint).toContain('warning')
   })
 
+  it('accepts the app\'s notice severity and the Kahn categories', () => {
+    const check = { ...CHECK, severity: 'notice', category: 'conformance', subcategory: 'relational', origin: 'ddl' }
+    const issues = validateEntity(ruleSet([check]), 'dq-rule-set')
+    expect(issues.filter((i) => i.code === 'wrong-type')).toEqual([])
+  })
+
+  it('rejects an unknown subcategory', () => {
+    const issues = validateEntity(ruleSet([{ ...CHECK, subcategory: 'spatial' }]), 'dq-rule-set')
+    expect(issues.find((i) => i.code === 'wrong-type')?.hint).toContain('temporal')
+  })
+
   it('flags duplicate check ids', () => {
     const issues = validateEntity(ruleSet([CHECK, CHECK]), 'dq-rule-set')
     expect(issues.some((i) => i.code === 'duplicate-key')).toBe(true)
