@@ -58,6 +58,20 @@ def test_cancel_before_start_refuses_to_run():
     assert isinstance(outcome.get("error"), query_cancel.QueryCancelled)
 
 
+def test_interrupt_happens_while_the_query_is_still_registered():
+    # The tracking block unregisters under the same lock, so an interrupt sent
+    # under it cannot reach the next query the pooled connection runs.
+    class Con:
+        held = None
+
+        def interrupt(self):
+            Con.held = query_cancel._lock.locked()
+
+    query_cancel._running["q4"] = ("7", Con())
+    assert query_cancel.cancel("q4", "7") is True
+    assert Con.held is True
+
+
 def test_untagged_query_is_untouched():
     assert db_connect._run_read(duckdb.connect(), "memory", "SELECT 42 AS x", False) == [{"x": 42}]
 

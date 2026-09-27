@@ -69,9 +69,10 @@ def cancel(query_id: str, owner: str) -> bool:
             return False
         if entry[0] != owner:
             return False
-        con = entry[1]
-    try:
-        con.interrupt()
-    except Exception:  # noqa: BLE001 — a query finishing as we interrupt is fine
-        return False
+        # Under the lock: once released, the query could finish and the pooled
+        # connection start another request's query, which would be interrupted.
+        try:
+            entry[1].interrupt()
+        except Exception:  # noqa: BLE001 — a query finishing as we interrupt is fine
+            return False
     return True
