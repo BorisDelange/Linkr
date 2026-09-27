@@ -4,7 +4,9 @@ import type { CatalogVariables, ServiceVariableConfig } from '@/types/catalog'
 import { ageBucketLabels, defaultCatalogVariables } from '@/lib/data-catalog/config'
 import {
   ageBucketExpr,
-  buildConceptListQueries,
+  buildConceptCountQueries,
+  buildPatientBoundsQuery,
+  rangeCondition,
   buildCrossingEstimateQuery,
   buildCrossingQuery,
   periodExpr,
@@ -101,12 +103,36 @@ describe('buildCrossingQuery', () => {
   })
 })
 
-describe('buildConceptListQueries', () => {
+describe('buildConceptCountQueries', () => {
   it('counts records on the events alone, visits only when an event falls within one', () => {
-    const q = buildConceptListQueries(mapping, 'domain_id')!
-    const sql = q.batchTemplates[0].buildSql([1, 2])
-    expect(sql).toMatch(/per_concept AS \(\s*SELECT cid, COUNT\(\*\)::BIGINT AS record_count/)
-    expect(sql).toContain('ev.edate >= CAST(v.start_datetime AS TIMESTAMP)')
-    expect(sql).toContain('WHERE cid IN (1, 2)')
+    const [q] = buildConceptCountQueries(mapping, 'domain_id')!
+    expect(q.sql).toMatch(/per_concept AS \(\s*SELECT cid, COUNT\(\*\)::BIGINT AS record_count/)
+    expect(q.sql).toContain('ev.edate >= CAST(v.start_datetime AS TIMESTAMP)')
+    // A join on the dictionary, never its ids spelled out: a vocabulary holds millions.
+    expect(q.sql).toContain('WHERE cid IN (SELECT concept_id FROM linkr_concept')
+  })
+
+  it('counts one slice of the patients', () => {
+    const [q] = buildConceptCountQueries(mapping, undefined, undefined, { lo: 10, hi: "O'1" })!
+    expect(q.sql).toContain("e.patient_id >= 10 AND e.patient_id < 'O''1'")
+  })
+})
+
+describe('patient slices', () => {
+  it('writes open-ended ranges', () => {
+    expect(rangeCondition('p', { hi: 5 })).toBe('p < 5')
+    expect(rangeCondition('p', { lo: 5 })).toBe('p >= 5')
+    expect(rangeCondition('p', null)).toBe('')
+  })
+
+  it('restricts a crossing to the slice, visits and events alike', () => {
+    const variables: CatalogVariables = { ...defaultCatalogVariables(), concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } }
+    expect(buildCrossingQuery({ mapping, variables, range: { lo: 1, hi: 9 } }, ['period'])).toContain('AND v.patient_id >= 1 AND v.patient_id < 9')
+    expect(buildCrossingQuery({ mapping, variables, range: { lo: 1 } }, ['concept', 'period'])).toContain('AND e.patient_id >= 1')
+  })
+
+  it('cuts the patients at quantiles', () => {
+    expect(buildPatientBoundsQuery(mapping, 4)).toContain('quantile_disc(patient_id, [0.250000, 0.500000, 0.750000])')
+    expect(buildPatientBoundsQuery(mapping, 1)).toBeNull()
   })
 })

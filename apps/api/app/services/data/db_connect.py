@@ -7,6 +7,7 @@ dependency (DuckDB is already required). The password is passed in per call and
 never stored: it lives only for the duration of the connection.
 """
 
+import contextvars
 import datetime
 import os
 import re
@@ -20,13 +21,24 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
-from app.services.data import connection_pool, file_reader
+from app.services.data import connection_pool, file_reader, query_cancel
 
 _ATTACH_ALIAS = "ext"
 
 # Safety cap on rows returned to the browser. The UI paginates/displays far less;
 # an uncapped SELECT * on a huge table would otherwise overwhelm the response.
 MAX_QUERY_ROWS = 10_000
+
+# Ceiling on a request that asks for more than MAX_QUERY_ROWS (a data catalog's
+# crossing can hold hundreds of thousands of cells). Paging would re-run the
+# whole aggregate once per page, which over a large warehouse costs far more
+# than the payload.
+MAX_QUERY_ROWS_ALL = 2_000_000
+
+# The row cap of the query the current request runs; the route raises it for a
+# caller that needs the whole result. Read in the worker thread, which inherits
+# the request's context through `asyncio.to_thread`.
+row_cap: contextvars.ContextVar[int] = contextvars.ContextVar("row_cap", default=MAX_QUERY_ROWS)
 
 # Per-engine wiring: the DuckDB extension, the ATTACH TYPE, and the passthrough
 # query function used to read the source's own information_schema.
@@ -391,7 +403,8 @@ def _run_statements(
 
 
 def _run_read(con: duckdb.DuckDBPyConnection, search_path: str, sql: str, arrow: bool):
-    return _run_to_arrow(con, search_path, sql) if arrow else _run_statements(con, search_path, sql)
+    with query_cancel.tracking(con):
+        return _run_to_arrow(con, search_path, sql) if arrow else _run_statements(con, search_path, sql, row_cap.get())
 
 
 def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):

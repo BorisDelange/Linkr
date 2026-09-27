@@ -489,11 +489,29 @@ export async function registerVirtualCsv(
   }
 }
 
+export interface QueryOptions {
+  /**
+   * Interrupts the query while it runs — not only before it starts — and makes
+   * the call reject with the signal's reason. Server mode asks the server to
+   * interrupt it; the browser cancels DuckDB-WASM's pending query.
+   */
+  signal?: AbortSignal
+  /**
+   * Every row of the result. The server caps a response at 10,000 rows unless
+   * asked; the browser never caps. Paging (`queryDataSourceAll`) would re-run
+   * an aggregate once per page instead.
+   */
+  allRows?: boolean
+}
+
 /** Run an arbitrary SQL query against a data source schema. */
 export async function queryDataSource(
   dataSourceId: string,
   sql: string,
+  options: QueryOptions = {},
 ): Promise<Record<string, unknown>[]> {
+  const { signal, allRows } = options
+  signal?.throwIfAborted()
   sql = injectClassRelations(sql, mappingResolver?.(dataSourceId))
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
@@ -504,7 +522,7 @@ export async function queryDataSource(
     if (dataSourceId.startsWith('filesrc_')) {
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
-    return queryDataSourceOnServer(dataSourceId, sql)
+    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows })
   }
   // Wait for the source to be in DuckDB before naming its schema. Callers used
   // to have to do this themselves, and the ones that forgot raced the mount on
@@ -540,9 +558,9 @@ export async function queryDataSource(
     // treated as statement separators.
     const statements = splitSqlStatements(sql)
 
-    let result: Awaited<ReturnType<typeof conn.query>> | null = null
+    let result: Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'> | null = null
     for (const stmt of statements) {
-      result = await conn.query(stmt)
+      result = signal ? await cancellableQuery(conn, stmt, signal) : await conn.query(stmt)
     }
 
     if (!result) return []
@@ -561,6 +579,34 @@ export async function queryDataSource(
     )
   } finally {
     await conn.close()
+  }
+}
+
+/**
+ * `conn.query` blocks the worker until the query ends; `send` runs it as a
+ * pending query polled step by step, which `cancelSent` can stop in between.
+ */
+async function cancellableQuery(
+  conn: duckdb.AsyncDuckDBConnection,
+  stmt: string,
+  signal: AbortSignal,
+): Promise<Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'>> {
+  signal.throwIfAborted()
+  const onAbort = () => { void conn.cancelSent().catch(() => {}) }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    const reader = await conn.send(stmt, true)
+    const rows: unknown[] = []
+    for await (const batch of reader) {
+      signal.throwIfAborted()
+      for (const row of batch.toArray()) rows.push(row)
+    }
+    return { schema: reader.schema, toArray: () => rows } as Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'>
+  } catch (err) {
+    signal.throwIfAborted()
+    throw err
+  } finally {
+    signal.removeEventListener('abort', onAbort)
   }
 }
 

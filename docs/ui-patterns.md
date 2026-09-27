@@ -563,6 +563,17 @@ leaving the screen blank).
 detail pages bypass it and degrade to a bare grey `<p>` with no icon and no way
 back; don't copy them.
 
+**Long computations** — under the overall `Progress` bar, list the phases with
+**`RunSteps`** (`components/ui/run-steps.tsx`): one line per step, done /
+running / to come, with the running step's `done / total` and what it is on.
+For jobs whose phases differ in kind (sizing, counting, crossing), where a bar
+alone says how far but not what is happening. First user: the data catalog run
+(`CatalogConfigTab`).
+
+```tsx
+<RunSteps steps={[{ id: 'concepts', label: t('...'), status: 'active', progress: { done: 3, total: 12 }, detail: 'patients 3/12' }]} />
+```
+
 ### Section headers (uppercase group labels)
 
 Use **`SectionLabel`** (`components/ui/section-label.tsx`), with `as` to keep the

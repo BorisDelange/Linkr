@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 
+import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,8 @@ from app.schemas.data_source import (
     DeriveRequest,
     EtlRunRequest,
     IntrospectedTable,
+    QueryCancelRequest,
+    QueryCancelResult,
     QueryRequest,
     QueryResult,
     TestConnectionRequest,
@@ -53,7 +56,7 @@ from app.services import (
     notification_service,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db
+from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db, query_cancel
 from app.services.execution import jobs
 from app.schemas.execution import JobResponse
 
@@ -255,13 +258,35 @@ async def query_data_source(
     queryDataSource — the raw tables never reach the client, only results."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
+    tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
+    cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
     try:
         rows = await data_source_service.query(db, source, login, body.sql)
+    except (query_cancel.QueryCancelled, duckdb.InterruptException):
+        raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    finally:
+        if tag is not None:
+            query_cancel.current_query.reset(tag)
+        if cap is not None:
+            db_connect.row_cap.reset(cap)
     return QueryResult(rows=rows)
+
+
+@router.post("/{source_id}/query/cancel", response_model=QueryCancelResult)
+async def cancel_query(
+    source_id: str,
+    body: QueryCancelRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Interrupt a query this user tagged with `queryId` and is still running (or
+    about to run). Answers whether a running query was hit."""
+    await _load_source(db, source_id, user, "databases:read")
+    return QueryCancelResult(cancelled=query_cancel.cancel(body.query_id, str(user.id)))
 
 
 @router.post("/{source_id}/derive-plan")

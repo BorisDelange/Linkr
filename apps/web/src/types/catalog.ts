@@ -254,6 +254,16 @@ export interface CatalogResultCache {
   modalities: Partial<Record<CatalogVariableId, string[]>>
   /** Display labels of modalities that are ids (concept ids → concept names). */
   labels?: Partial<Record<CatalogVariableId, Record<string, string>>>
-  /** Units of the run's plan written to `crossings`, for a resume. */
+  /** Units of the run's plan already added into this cache, for a resume. */
   completedSteps?: number
+  /**
+   * What a run in progress needs to carry on: the patient slices it counts in,
+   * and the rankings the crossings are planned from (summed over the slices
+   * done so far), as [modality, patients(, records)].
+   */
+  work?: {
+    slices: { lo?: string | number; hi?: string | number }[]
+    services: [string, number][]
+    concepts: [string, number, number][]
+  }
 }
