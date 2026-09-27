@@ -5,7 +5,8 @@ import type { DashboardWidget } from '@/types'
 import { formatRows } from './cohorts.js'
 import { columnId } from '@linkr/format'
 import {
-  bilingual, buildFilter, columnMetaMap, findColumn, placeWidget, resolveColumns, type DatasetColumn, type Layout,
+  bilingual, buildFilter, columnMetaMap, findColumn, matchDatasetPath, placeWidget, resolveColumns,
+  type DatasetColumn, type Layout,
 } from './lab.js'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
 import {
@@ -17,6 +18,14 @@ const LAYOUT_SCHEMA = {
   description: 'Position on the 48-column grid: x 0–47, w in columns (24 = half width, 48 = full), y and h in 20px rows (h 12 ≈ 240px).',
   properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } },
 } as const
+
+/** A dataset path as the project stores it; throws a readable error for an unknown one. */
+async function datasetPath(projectUid: string, ref: string): Promise<string> {
+  const files = (await api.listDatasets(projectUid)).filter((n) => n.type === 'file')
+  const match = matchDatasetPath(files, ref)
+  if ('error' in match) throw new Error(match.error)
+  return match.path
+}
 
 async function datasetColumns(projectUid: string, path: string): Promise<DatasetColumn[]> {
   const meta = await api.getDatasetMeta(projectUid, path)
@@ -205,9 +214,10 @@ export function registerLabTools(server: Server): void {
       required: ['project_uid', 'name'],
     }),
   }, guard(async ({ project_uid, name, dataset_path, first_tab }) => {
+    const dataset = dataset_path ? await datasetPath(project_uid, dataset_path) : undefined
     const dashboard = await api.createDashboard({
       id: randomUUID(), projectUid: project_uid, name: bilingual(name), gridV: 2,
-      ...(dataset_path ? { defaultDatasetFileId: dataset_path } : {}),
+      ...(dataset ? { defaultDatasetFileId: dataset } : {}),
     })
     const tab = await api.createTab({
       id: randomUUID(), dashboardId: dashboard.id, name: bilingual(first_tab ?? 'Overview'), displayOrder: 0,
@@ -269,7 +279,7 @@ export function registerLabTools(server: Server): void {
     const manifest = findPlugin(plugin_id)
     if (!manifest) return failure(`Unknown plugin "${plugin_id}". See list_plugins.`)
     const { dashboard } = await tabContext(tab_id)
-    const dataset = dataset_path ?? dashboard.defaultDatasetFileId
+    const dataset = dataset_path ? await datasetPath(dashboard.projectUid, dataset_path) : dashboard.defaultDatasetFileId
     if (!dataset) return failure('No dataset: give dataset_path (the dashboard has no default dataset).')
     const resolved = resolveColumns(config, manifest, await datasetColumns(dashboard.projectUid, dataset))
     if (resolved.errors.length) return failure(`Not added:\n- ${resolved.errors.join('\n- ')}`)
@@ -304,7 +314,11 @@ export function registerLabTools(server: Server): void {
     const widget = await api.getWidget(widget_id)
     const changes: Record<string, unknown> = {}
     if (name !== undefined) changes.name = bilingual(name)
-    if (dataset_path !== undefined) changes.datasetFileId = dataset_path
+    if (dataset_path !== undefined) {
+      const { dashboard } = await tabContext(widget.tabId)
+      dataset_path = await datasetPath(dashboard.projectUid, dataset_path)
+      changes.datasetFileId = dataset_path
+    }
     if (layout) changes.layout = placeWidget([], { ...widget.layout, ...layout })
     if (config) {
       if (widget.source.type !== 'plugin') return failure('This widget is not a plugin widget; its config cannot be edited here.')
@@ -364,7 +378,9 @@ export function registerLabTools(server: Server): void {
     const changes: Record<string, unknown> = {}
     if (name !== undefined) changes.name = bilingual(name)
     if (description !== undefined) changes.description = bilingual(description)
-    if (dataset_path !== undefined) changes.defaultDatasetFileId = dataset_path
+    if (dataset_path !== undefined) {
+      changes.defaultDatasetFileId = await datasetPath((await api.getDashboard(dashboard_id)).projectUid, dataset_path)
+    }
     if (Object.keys(changes).length === 0) return failure('Nothing to change: give name, description or dataset_path.')
     const dashboard = await api.updateDashboard(dashboard_id, changes)
     return text(`Updated dashboard "${loc(dashboard.name)}".`)
@@ -408,7 +424,7 @@ export function registerLabTools(server: Server): void {
     }),
   }, guard(async ({ dashboard_id, column, dataset_path, input_type, label, tab_ids }) => {
     const dashboard = await api.getDashboard(dashboard_id)
-    const dataset = dataset_path ?? dashboard.defaultDatasetFileId
+    const dataset = dataset_path ? await datasetPath(dashboard.projectUid, dataset_path) : dashboard.defaultDatasetFileId
     if (!dataset) return failure('This dashboard has no default dataset: give dataset_path.')
     const built = buildFilter({
       id: randomUUID(), datasetPath: dataset, column,

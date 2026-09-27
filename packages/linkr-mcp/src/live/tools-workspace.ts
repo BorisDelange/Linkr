@@ -221,7 +221,7 @@ export function registerWorkspaceTools(server: Server): void {
   server.registerTool('update_project', {
     description:
       'Edit a project: name, description, short description, status, version, badges, README (Markdown), notes, and '
-      + 'its task list (add, complete, reopen, rename, remove by task id from get_project_summary). Only what is given changes.',
+      + 'its task (to-do) list: add, complete, reopen, rename, remove by task id from get_project_summary. Only what is given changes.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       project_uid: string; name?: string; description?: string; short_description?: string; status?: ProjectStatus
