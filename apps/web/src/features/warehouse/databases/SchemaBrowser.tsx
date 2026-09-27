@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Allotment, LayoutPriority } from 'allotment'
+import { Allotment, LayoutPriority, type AllotmentHandle } from 'allotment'
 import 'allotment/dist/style.css'
 import {
   BarChart3,
@@ -204,6 +204,14 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
   const [tablesVisible, setTablesVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(defaultStatsVisible)
+  // Allotment lays its panes out before the container has its final width, and
+  // the table list then opens wider than its preferred size. Resetting once
+  // laid out gives it that size, as a double-click on the separator does.
+  const allotmentRef = useRef<AllotmentHandle>(null)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => allotmentRef.current?.reset())
+    return () => cancelAnimationFrame(frame)
+  }, [])
   const [loading, setLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
   const [rowCount, setRowCount] = useState<number | null>(null)
@@ -626,7 +634,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
 
         {/* Content: table sidebar + columns table + stats sidebar */}
         <div className="min-h-0 flex-1">
-          <Allotment proportionalLayout={false}>
+          <Allotment ref={allotmentRef} proportionalLayout={false}>
             {/* Table list sidebar */}
             {/* 250, not 220: the row-count column needs to clear the right edge
                 with a little breathing room at the default (double-click) width. */}
