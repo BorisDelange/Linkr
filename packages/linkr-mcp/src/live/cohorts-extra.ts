@@ -62,7 +62,7 @@ export function freezeBlocker(cohort: Pick<Cohort, 'projectUid' | 'level'>): str
 
 /** What freezing did, for the model. */
 export function describeFreeze(
-  name: string, mat: CohortMaterialization, previous: CohortMaterialization | null | undefined, customSql: boolean,
+  name: string, mat: CohortMaterialization, previous: CohortMaterialization | null | undefined,
 ): string {
   const lines = [
     `Froze "${name}": ${mat.count} ${mat.level}(s)`
@@ -70,8 +70,5 @@ export function describeFreeze(
     'Patient data now reads this frozen list; it no longer follows data changes until frozen again or unfrozen.',
   ]
   if (previous) lines.push(`It replaces the snapshot of ${previous.materializedAt} (${previous.count}).`)
-  if (customSql) {
-    lines.push('Note: this cohort has custom SQL, which only gives a count — as in the app, the membership was frozen from its criteria.')
-  }
   return lines.join('\n')
 }

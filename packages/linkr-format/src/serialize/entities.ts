@@ -85,11 +85,22 @@ export interface DqCheckSpec {
   name: string
   /** The query the check runs. Without it the check scores nothing. */
   sql: string
+  /** Lists the rows breaking the rule, to investigate a failure. */
+  exploreSql?: string | null
   description?: string
-  category?: string
-  severity?: 'error' | 'warning' | 'info'
-  /** Failure threshold; its meaning is the check's own (a count or a ratio). */
+  /** Kahn et al. (2016): conformance | completeness | plausibility. */
+  category?: 'conformance' | 'completeness' | 'plausibility'
+  /** Conformance: value | relational | computational. Plausibility: uniqueness | atemporal | temporal. */
+  subcategory?: 'value' | 'relational' | 'computational' | 'uniqueness' | 'atemporal' | 'temporal' | null
+  severity?: 'error' | 'warning' | 'notice'
+  /** Max % of violated rows allowed, 0-100 (0 = zero tolerance). */
   threshold?: number
+  origin?: 'ddl' | 'mapping' | 'manual'
+  /** Schema rule that generated the check, null when written by hand. */
+  templateKey?: string | null
+  /** Table or relation the check is about. */
+  tableName?: string | null
+  disabled?: boolean
 }
 
 export interface DqRuleSetSpec extends EntityIdentity {
@@ -101,10 +112,10 @@ export interface DqRuleSetSpec extends EntityIdentity {
 export interface DataCatalogSpec extends EntityIdentity {
   name: LocalizedInput
   description?: LocalizedInput
-  /** Columns the catalog counts over. Empty means it computes nothing. */
-  dimensions: string[]
-  categoryColumn?: string
-  subcategoryColumn?: string
+  /** What the catalog breaks counts down by (concept, period, service, age, sex), each with its parameters. */
+  variables: Record<string, unknown>
+  /** Variables counted together, 1 to 3 ids each. */
+  crossings: string[][]
 }
 
 export interface ConceptMappingSpec {
@@ -380,10 +391,16 @@ export function serializeEntity<K extends SerializableEntityKind>(
             name: check.name,
             ...(check.description ? { description: check.description } : {}),
             category: check.category ?? 'completeness',
+            subcategory: check.subcategory ?? null,
             severity: check.severity ?? 'error',
             ...(check.threshold != null ? { threshold: check.threshold } : {}),
             sql: check.sql,
+            exploreSql: check.exploreSql ?? null,
             order: i,
+            origin: check.origin ?? 'manual',
+            templateKey: check.templateKey ?? null,
+            tableName: check.tableName ?? null,
+            disabled: check.disabled ?? false,
           }))),
         },
       ]
@@ -399,9 +416,8 @@ export function serializeEntity<K extends SerializableEntityKind>(
             name: localized(s.name),
             ...(s.description ? { description: localized(s.description) } : {}),
             ...badgesField(s),
-            dimensions: s.dimensions,
-            ...(s.categoryColumn ? { categoryColumn: s.categoryColumn } : {}),
-            ...(s.subcategoryColumn ? { subcategoryColumn: s.subcategoryColumn } : {}),
+            variables: s.variables,
+            crossings: s.crossings,
             status: 'draft',
             ...provenanceTail(s),
           }, s.extra)),

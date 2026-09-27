@@ -135,6 +135,7 @@ SIDECAR_ATTACHMENT_META = "_meta.json"
 # Files that are content, not metadata, and are read by name.
 CONTENT_SCHEMA_DDL = "schema.ddl"
 CONTENT_SCHEMA_MAPPING = "mapping.json"
+CONTENT_SCHEMA_OVERRIDES = "mapping-overrides.json"
 CONTENT_DQ_CHECKS = "checks.json"
 CONTENT_PLUGIN_MANIFEST = "plugin.json"
 CONTENT_SOURCE_CONCEPTS = "source-concepts.csv"

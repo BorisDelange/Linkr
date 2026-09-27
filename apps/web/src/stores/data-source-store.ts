@@ -6,11 +6,15 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { createFromDdlOnServer, deleteDataSourceOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import { derivedDatabaseRow } from '@/lib/cohort-derive'
+import type { SchemaOverrides } from '@/types/schema-mapping'
 import type { DeriveRequest } from '@/lib/api/data-sources'
 import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
-import { qualify, sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { isMappingV1 } from '@/lib/schema-classes/v1'
+import { effectiveMapping } from '@/lib/schema-classes/overrides'
+import { classRelation } from '@/lib/schema-classes/relations'
 import { localized } from '@/lib/localized'
 import { createConcurrencyLimit } from '@/lib/concurrency-limit'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
@@ -42,9 +46,28 @@ import type {
  * stale id (unlinked since, or deleted) resolves to the fallback instead of to
  * nothing, so the screen keeps working while the user fixes the choice.
  *
- * The fallback requires `schemaMapping.patientTable` because every caller reads
+ * The fallback requires `schemaMapping.patient` because every caller reads
  * patient-scoped OMOP tables through it; an unmapped database cannot answer.
  */
+/**
+ * The row as the store publishes it: `schemaMapping` is the EFFECTIVE mapping
+ * (the stored base with the database's overrides applied) — what every query
+ * reads — and `schemaBaseMapping` keeps the base. Storage always holds the base
+ * in `schemaMapping` and never `schemaBaseMapping`: see `persisted`.
+ */
+function published(ds: DataSource): DataSource {
+  const base = ds.schemaBaseMapping ?? ds.schemaMapping
+  if (!base) return ds
+  return { ...ds, schemaBaseMapping: base, schemaMapping: effectiveMapping(base, ds.schemaOverrides) }
+}
+
+/** Changes as storage takes them: the published-only field dropped. */
+function persisted<T extends Partial<DataSource>>(changes: T): T {
+  if (!('schemaBaseMapping' in changes)) return changes
+  const { schemaBaseMapping: _inMemory, ...rest } = changes
+  return rest as T
+}
+
 export function resolveProjectSource(
   dataSources: DataSource[],
   linkedIds: string[],
@@ -57,7 +80,7 @@ export function resolveProjectSource(
     const asked = eligible.find((ds) => ds.id === dataSourceId)
     if (asked) return asked
   }
-  return eligible.find((ds) => !!ds.schemaMapping?.patientTable)
+  return eligible.find((ds) => !!ds.schemaMapping?.patient)
 }
 
 /**
@@ -105,6 +128,8 @@ interface DataSourceState {
     /** Which published schema the mapping was copied from. The mapping is inlined
      *  into the row, so this is the only record of where it came from. */
     schemaSource?: SchemaSource
+    /** Kept when a database's files are re-imported under the same preset. */
+    schemaOverrides?: SchemaOverrides | null
     files?: File[]
     /** File System Access API handles for zero-copy import (Chrome/Edge). */
     fileHandles?: { fileName: string; handle: FileSystemFileHandle; fileSize: number }[]
@@ -191,6 +216,8 @@ interface DataSourceState {
     name: LocalizedString
     description: LocalizedString
     schemaMapping: SchemaMapping
+    /** Which published schema the DDL and mapping came from. */
+    schemaSource?: SchemaSource
     ddl: string
     alias?: string
     /** Server mode: a new `.duckdb` in a server folder, instead of Linkr's data
@@ -334,14 +361,20 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
           // without passing through this store, and every warehouse query
           // interpolates these table/column names straight into SQL. This array
           // is what those queries read, so this is the one gate they all share.
-          if (ds.schemaMapping) ds.schemaMapping = sanitizeSchemaMapping(ds.schemaMapping)
+          if (ds.schemaMapping) {
+            const wasV1 = isMappingV1(ds.schemaMapping)
+            ds.schemaMapping = sanitizeSchemaMapping(ds.schemaMapping)
+            // Converted from format v1 on read: written back once, so storage
+            // (and the server's exports) only ever hold v2.
+            if (wasV1) getStorage().dataSources.update(ds.id, { schemaMapping: ds.schemaMapping }).catch(() => {})
+          }
         }
         // Only the newest load may publish. In server mode `getAll()` is an HTTP
         // request, so a plain read that started first can resolve AFTER a forced
         // reload and overwrite it with pre-write rows — putting back exactly the
         // staleness `force` was added to clear.
         if (loadingToken !== token) return
-        set({ dataSources: all, dataSourcesLoaded: true })
+        set({ dataSources: all.map(published), dataSourcesLoaded: true })
         // Re-check what is marked broken, once per session load. `status:
         // 'error'` is written by whichever call failed and nothing clears it, so
         // a transient cause — a file locked by a running ETL, a server that was
@@ -496,6 +529,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       // the field was missing from this signature, so a database installed from a
       // published schema recorded nothing about where its schema came from.
       ...(source.schemaSource ? { schemaSource: source.schemaSource } : {}),
+      ...(source.schemaOverrides ? { schemaOverrides: source.schemaOverrides } : {}),
       status: 'configuring' as DataSourceStatus,
       ...(source.isVocabularyReference ? { isVocabularyReference: true } : {}),
       ...(source.requireSessionOnly ? { requireSessionOnly: true } : {}),
@@ -516,8 +550,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       ...(source.inherit ? definedOnly(source.inherit) : {}),
     }
 
-    await getStorage().dataSources.create(newSource)
-    set((s) => ({ dataSources: [...s.dataSources, newSource] }))
+    await getStorage().dataSources.create(persisted(newSource))
+    set((s) => ({ dataSources: [...s.dataSources, published(newSource)] }))
 
     // Now that the source row exists on the server, stream its files up. Doing
     // this before creation would 404 (the import endpoint loads the source).
@@ -603,11 +637,13 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       : rawChanges
     // Await persistence: a follow-up retest reads the stored (encrypted)
     // password server-side, so the write must land before it runs.
-    await getStorage().dataSources.update(id, changes)
+    await getStorage().dataSources.update(id, persisted(changes))
+    // `schemaMapping` in `changes` is a new BASE (a preset copy): re-applied the
+    // overrides on top, like every published row.
     set((s) => ({
       dataSources: s.dataSources.map((d) =>
         d.id === id
-          ? { ...d, ...changes, updatedAt: new Date().toISOString() }
+          ? published({ ...d, schemaMapping: d.schemaBaseMapping ?? d.schemaMapping, ...persisted(changes), schemaBaseMapping: undefined, updatedAt: new Date().toISOString() })
           : d,
       ),
     }))
@@ -628,12 +664,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
   refreshPatientCount: async (id, opts) => {
     const ds = get().dataSources.find((d) => d.id === id)
-    const patientTable = ds?.schemaMapping?.patientTable
-    if (!ds || !patientTable || ds.status !== 'connected' || countingSources.has(id)) return
+    const patient = ds?.schemaMapping ? classRelation(ds.schemaMapping, 'patient') : undefined
+    if (!ds || !patient || ds.status !== 'connected' || countingSources.has(id)) return
     if (!opts?.force && ds.stats?.patientCount != null) return
     countingSources.add(id)
     try {
-      const rows = await inCountQueue(() => engine.queryDataSource(id, `SELECT COUNT(*) AS n FROM ${qualify(patientTable)}`))
+      const rows = await inCountQueue(() => engine.queryDataSource(id, `SELECT COUNT(*) AS n FROM ${patient.name}`))
       const n = Number(rows[0]?.n)
       if (Number.isFinite(n)) await get().recordRowCounts(id, { patientCount: n })
     } catch {
@@ -790,8 +826,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       createdAt: now,
       updatedAt: now,
     }
-    await getStorage().dataSources.create(created)
-    set((s) => ({ dataSources: [...s.dataSources, created] }))
+    await getStorage().dataSources.create(persisted(created))
+    set((s) => ({ dataSources: [...s.dataSources, published(created)] }))
     try {
       const job = await deriveOnServer(parentId, { ...request, target: { kind: 'new-database', dataSourceId: id, path } })
       return { job, dataSourceId: id }
@@ -845,6 +881,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       sourceType: 'database',
       connectionConfig: connectionConfig as unknown as ConnectionConfig,
       schemaMapping: sanitizeSchemaMapping(source.schemaMapping),
+      ...(source.schemaSource ? { schemaSource: source.schemaSource } : {}),
       status: 'configuring' as DataSourceStatus,
       workspaceId: useWorkspaceStore.getState().activeWorkspaceId ?? undefined,
       ...stampAuthored(),
@@ -855,8 +892,8 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       updatedAt: now,
     }
 
-    await getStorage().dataSources.create(newSource)
-    set((s) => ({ dataSources: [...s.dataSources, newSource] }))
+    await getStorage().dataSources.create(persisted(newSource))
+    set((s) => ({ dataSources: [...s.dataSources, published(newSource)] }))
 
     try {
       if (isServerMode()) {
@@ -1180,3 +1217,4 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 // Every front-only query now waits for its source to be mounted, instead of
 // each caller having to remember to call ensureMounted first.
 engine.setMountGuard((id) => useDataSourceStore.getState().ensureMounted(id))
+engine.setMappingResolver((id) => useDataSourceStore.getState().dataSources.find((d) => d.id === id)?.schemaMapping)

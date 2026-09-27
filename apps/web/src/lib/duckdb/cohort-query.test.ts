@@ -1,20 +1,29 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import {
+  buildCustomSqlOutputSql,
   buildAttritionQueries,
   buildCohortCountSql,
+  buildCohortCriteriaSql,
   buildCohortMembershipSql,
   buildCohortResultsSql,
   conceptCriterionBoundToStay,
   getNodeLabel,
+  cohortRunError,
+  sqlComment,
   withinStaySql,
+  CUSTOM_SQL_STEP_ID,
 } from './cohort-query'
-import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
+import type { Cohort, CohortLevel } from '@/types'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // The membership query freezes cohort content into a snapshot (materialization).
 // It must return both the level id and a patient_id, and must NOT cap rows with
 // a LIMIT — a truncated snapshot would silently lose members.
 
-const mapping: SchemaMapping = {
+const mapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'person', idColumn: 'person_id' },
   visitTable: {
     table: 'visit',
@@ -23,7 +32,12 @@ const mapping: SchemaMapping = {
     startDateColumn: 'start',
     endDateColumn: 'end',
   },
-} as unknown as SchemaMapping
+}
+const mapping = mappingV1ToV2(mapping_V1)
+
+/** The SQL on one line, for assertions that are about content, not layout. */
+const squash = (sql: string) => sql.replace(/\s+/g, ' ')
+const withoutComments = (sql: string) => sql.replace(/--[^\n]*/g, '')
 
 function makeCohort(level: CohortLevel): Cohort {
   return {
@@ -49,15 +63,15 @@ function makeCohort(level: CohortLevel): Cohort {
 describe('buildCohortMembershipSql', () => {
   it('at patient level returns id + patient_id from the same column, no LIMIT', () => {
     const sql = buildCohortMembershipSql(makeCohort('patient'), mapping)!
-    expect(sql).toContain('"person"."person_id" AS id')
-    expect(sql).toContain('"person"."person_id" AS patient_id')
+    expect(sql).toContain('linkr_patient.patient_id AS id')
+    expect(sql).toContain('linkr_patient.patient_id AS patient_id')
     expect(sql).not.toMatch(/LIMIT/i)
   })
 
   it('at visit level returns the visit id but the patient FK as patient_id', () => {
     const sql = buildCohortMembershipSql(makeCohort('visit'), mapping)!
-    expect(sql).toContain('"visit"."visit_id" AS id')
-    expect(sql).toContain('"visit"."person_id" AS patient_id')
+    expect(sql).toContain('linkr_visit.visit_id AS id')
+    expect(sql).toContain('linkr_visit.patient_id AS patient_id')
   })
 
   it('returns null for event level (no single base table)', () => {
@@ -70,35 +84,35 @@ describe('buildCohortMembershipSql', () => {
 // answered `Binder Error: Referenced table "p" not found!` — and because only
 // this query (not the count) failed, the run looked like it had never happened.
 describe('buildCohortResultsSql patient join', () => {
-  const withPatientCols = {
-    ...mapping,
+  const withPatientCols = mappingV1ToV2({
+    ...mapping_V1,
     patientTable: {
       table: 'person',
       idColumn: 'person_id',
       genderColumn: 'gender_concept_id',
       birthYearColumn: 'year_of_birth',
     },
-  } as unknown as SchemaMapping
+  } as never)
 
   it('joins the patient table whenever a p.-qualified column is selected', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), withPatientCols)!
-    expect(sql).toContain('INNER JOIN "person" p')
+    expect(sql).toContain('INNER JOIN linkr_patient p')
     // Every `p.` reference must be covered by that join.
-    expect(sql).toMatch(/p\."gender_concept_id"/)
+    expect(sql).toContain('p.gender_source_value')
   })
 
   it('never emits a p. reference without the join', () => {
     for (const level of ['patient', 'visit'] as CohortLevel[]) {
       const sql = buildCohortResultsSql(makeCohort(level), withPatientCols)
       if (!sql) continue
-      if (/\bp\."/.test(sql)) expect(sql).toContain('INNER JOIN "person" p')
+      if (/\bp\./.test(sql)) expect(sql).toContain('INNER JOIN linkr_patient p')
     }
   })
 
   it('leaves the join out when the mapping exposes no patient-derived column', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), mapping)!
-    expect(sql).not.toContain('INNER JOIN "person" p')
-    expect(sql).not.toMatch(/\bp\."/)
+    expect(sql).not.toContain('INNER JOIN linkr_patient p')
+    expect(sql).not.toMatch(/\bp\./)
   })
 })
 
@@ -106,42 +120,40 @@ describe('buildCohortResultsSql patient join', () => {
 // NULL for all 364k rows — preferring the date outright made age_at_admission
 // NULL for every result.
 describe('buildCohortResultsSql age column', () => {
-  const withBoth = {
-    ...mapping,
+  const withBoth = mappingV1ToV2({
+    ...mapping_V1,
     patientTable: {
       table: 'person',
       idColumn: 'person_id',
       birthDateColumn: 'birth_datetime',
       birthYearColumn: 'year_of_birth',
     },
-  } as unknown as SchemaMapping
+  } as never)
 
   it('falls back to the birth year per row when both are mapped', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), withBoth)!
-    expect(sql).toContain('COALESCE(')
-    expect(sql).toContain('"birth_datetime"')
-    expect(sql).toContain('"year_of_birth"')
-    expect(sql).toMatch(/AS age_at_admission/)
+    expect(sql).toContain('p.birth_year AS age_at_admission')
+    expect(withClassRelations(sql, withBoth)).toContain(`COALESCE(DATE_PART('year', p."birth_datetime"::TIMESTAMP), p."year_of_birth") AS birth_year`)
   })
 
   it('emits a single expression when only one of the two is mapped', () => {
-    const yearOnly = {
-      ...mapping,
+    const yearOnly = mappingV1ToV2({
+      ...mapping_V1,
       patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth' },
-    } as unknown as SchemaMapping
-    const sql = buildCohortResultsSql(makeCohort('visit'), yearOnly)!
+    } as never)
+    const sql = withClassRelations(buildCohortResultsSql(makeCohort('visit'), yearOnly)!, yearOnly)
     expect(sql).not.toContain('COALESCE(')
-    expect(sql).toContain('"year_of_birth"')
+    expect(sql).toContain('p."year_of_birth" AS birth_year')
   })
 })
 
 // MIMIC-IV has neither a birth date nor a birth year, only anchor_age (the age
 // in anchor_year). Unmapped, an age criterion compiled to 1=1 and kept everyone.
 describe('age from the MIMIC-IV anchor pair', () => {
-  const anchored = {
-    ...mapping,
+  const anchored = mappingV1ToV2({
+    ...mapping_V1,
     patientTable: { table: 'patients', idColumn: 'subject_id', anchorAgeColumn: 'anchor_age', anchorYearColumn: 'anchor_year' },
-  } as unknown as SchemaMapping
+  } as never)
   const withAge = (level: CohortLevel): Cohort => ({
     ...makeCohort(level),
     criteriaTree: {
@@ -155,12 +167,13 @@ describe('age from the MIMIC-IV anchor pair', () => {
 
   it('filters on the age derived from anchor_year - anchor_age', () => {
     const sql = buildCohortCountSql(withAge('visit'), anchored)!
-    expect(sql).toContain(`DATE_PART('year', "visit"."start"::TIMESTAMP) - (p."anchor_year" - p."anchor_age") >= 50`)
+    expect(sql).toContain(`DATE_PART('year', linkr_visit.start_datetime::TIMESTAMP) - p.birth_year >= 50`)
+    expect(withClassRelations(sql, anchored)).toContain('(p."anchor_year" - p."anchor_age") AS birth_year')
   })
 
   it('shows the age in the results', () => {
     const sql = buildCohortResultsSql(makeCohort('visit'), anchored)!
-    expect(sql).toMatch(/\(p\."anchor_year" - p\."anchor_age"\) AS age_at_admission/)
+    expect(sql).toContain('p.birth_year AS age_at_admission')
   })
 })
 
@@ -168,8 +181,8 @@ describe('age from the MIMIC-IV anchor pair', () => {
 // a real DuckDB: `word` matches "art" but not "artere", `contains` matches both,
 // and quoted input cannot escape the literal.
 describe('buildCohortCountSql free-text criterion', () => {
-  const withNotes = {
-    ...mapping,
+  const withNotes_V1: SchemaMappingV1 = {
+    ...mapping_V1,
     noteTable: {
       table: 'note',
       idColumn: 'note_id',
@@ -179,7 +192,8 @@ describe('buildCohortCountSql free-text criterion', () => {
       titleColumn: 'note_title',
       textColumn: 'note_text',
     },
-  } as unknown as SchemaMapping
+  }
+  const withNotes = mappingV1ToV2(withNotes_V1)
 
   function textCohort(config: Record<string, unknown>): Cohort {
     const c = makeCohort('visit')
@@ -237,9 +251,9 @@ describe('buildCohortCountSql free-text criterion', () => {
       }),
       withNotes,
     )!
-    expect(sql).toContain('"note_title"')
-    expect(sql).toContain('"note_text"')
-    expect(sql).toContain('EXISTS (SELECT 1 FROM "note" n')
+    expect(sql).toContain('strip_accents(n.title) ILIKE')
+    expect(sql).toContain('strip_accents(n.text) ILIKE')
+    expect(sql).toMatch(/EXISTS \(\s*SELECT 1\s*FROM linkr_note n/)
   })
 
   it('ORs several terms by default and ANDs them when asked', () => {
@@ -270,7 +284,8 @@ describe('buildCohortCountSql free-text criterion', () => {
     expect(sql).toContain("x''); DROP")
     // What must not appear is a SINGLE quote closing the literal early — i.e.
     // an odd number of quotes before the payload.
-    expect(sql).not.toMatch(/[^']'\); DROP/)
+    // The criterion's comment names the term too; a comment is not SQL.
+    expect(withoutComments(sql)).not.toMatch(/[^']'\); DROP/)
   })
 
   it('treats LIKE wildcards in a term as literal characters', () => {
@@ -310,14 +325,14 @@ describe('buildCohortCountSql free-text criterion', () => {
     expect(sql).toContain('AND')
     // The note link must stay ANDed with the whole disjunction, never absorbed
     // into one branch of it (which would match unrelated patients' notes).
-    expect(sql).toMatch(/n\."person_id" = "visit"\."person_id" AND .*\(/s)
+    expect(sql).toMatch(/n\.patient_id = linkr_visit\.patient_id\s+AND .*\(/s)
   })
 
   it('drops a title search when the mapping has no title column', () => {
-    const noTitle = {
-      ...withNotes,
-      noteTable: { ...withNotes.noteTable, titleColumn: undefined },
-    } as unknown as SchemaMapping
+    const noTitle = mappingV1ToV2({
+      ...withNotes_V1,
+      noteTable: { ...withNotes_V1.noteTable, titleColumn: undefined },
+    } as never)
     const sql = buildCohortCountSql(
       textCohort({ description: '', searches: [{ field: 'title', terms: ['x'] }] }),
       noTitle,
@@ -327,30 +342,31 @@ describe('buildCohortCountSql free-text criterion', () => {
   })
 
   const heparin = { description: '', searches: [{ field: 'text', terms: ['heparin'] }] }
-  const stayWindow = withinStaySql('n."note_datetime"', '"visit"."start"', '"visit"."end"')
+  const stayWindow = squash(withinStaySql('n.note_datetime', 'linkr_visit.start_datetime', 'linkr_visit.end_datetime'))
 
   it('ties a note to the stay by its visit id when the mapping has one', () => {
-    const sql = buildCohortCountSql(textCohort(heparin), withNotes)!
-    expect(sql).toContain('n."visit_occurrence_id" = "visit"."visit_id"')
-    expect(sql).not.toContain(stayWindow)
+    const sql = squash(buildCohortCountSql(textCohort(heparin), withNotes)!)
+    expect(sql).toContain('n.visit_id = linkr_visit.visit_id')
+    expect(sql).not.toContain('Within the stay')
   })
 
   it('falls back to the stay dates when notes carry no visit id', () => {
-    const noVisitId = {
-      ...withNotes,
-      noteTable: { ...withNotes.noteTable, visitIdColumn: undefined },
-    } as unknown as SchemaMapping
-    const sql = buildCohortCountSql(textCohort(heparin), noVisitId)!
+    const noVisitId = mappingV1ToV2({
+      ...withNotes_V1,
+      noteTable: { ...withNotes_V1.noteTable, visitIdColumn: undefined },
+    } as never)
+    const sql = squash(buildCohortCountSql(textCohort(heparin), noVisitId)!)
     // Without it, "stays with a note saying heparin" kept every stay of anyone
     // who ever had one.
     expect(sql).toContain(stayWindow)
+    expect(sql).not.toContain('n.visit_id')
   })
 
   it('applies no stay window at patient level', () => {
     const cohort = { ...textCohort(heparin), level: 'patient' } as Cohort
     const sql = buildCohortCountSql(cohort, withNotes)!
-    expect(sql).toContain('EXISTS (SELECT 1 FROM "note" n')
-    expect(sql).not.toContain('visit_occurrence_id')
+    expect(squash(sql)).toContain('EXISTS ( SELECT 1 FROM linkr_note n')
+    expect(sql).not.toContain('visit_id')
     expect(sql).not.toContain('note_datetime')
   })
 })
@@ -373,7 +389,7 @@ describe('buildAttritionQueries', () => {
     const queries = buildAttritionQueries(withSexCriterion('visit'), mapping)
     expect(queries.map((q) => q.nodeId)).toEqual(['__total__', 's1'])
     for (const q of queries) {
-      expect(q.sql).toContain('COUNT(DISTINCT "visit"."visit_id") AS cnt')
+      expect(q.sql).toContain('COUNT(DISTINCT linkr_visit.visit_id) AS cnt')
       expect(q.sql).not.toContain('AS patients')
     }
   })
@@ -381,14 +397,14 @@ describe('buildAttritionQueries', () => {
   it('also counts distinct patients at every step when asked', () => {
     const queries = buildAttritionQueries(withSexCriterion('visit'), mapping, { withPatients: true })
     for (const q of queries) {
-      expect(q.sql).toContain('COUNT(DISTINCT "visit"."visit_id") AS cnt')
-      expect(q.sql).toContain('COUNT(DISTINCT "visit"."person_id") AS patients')
+      expect(q.sql).toContain('COUNT(DISTINCT linkr_visit.visit_id) AS cnt')
+      expect(q.sql).toContain('COUNT(DISTINCT linkr_visit.patient_id) AS patients')
     }
   })
 
   it('counts patients on the patient id itself at patient level', () => {
     const [total] = buildAttritionQueries(makeCohort('patient'), mapping, { withPatients: true })
-    expect(total.sql).toContain('COUNT(DISTINCT "person"."person_id") AS patients')
+    expect(total.sql).toContain('COUNT(DISTINCT linkr_patient.patient_id) AS patients')
   })
 })
 
@@ -397,8 +413,8 @@ describe('buildAttritionQueries', () => {
 // field below can arrive from a shared ZIP or a cloned repo carrying whatever
 // the author put there. The forms coerce and constrain; import does not.
 describe('criteria from an untrusted cohort JSON', () => {
-  const eventMapping = {
-    ...mapping,
+  const eventMapping = mappingV1ToV2({
+    ...mapping_V1,
     eventTables: {
       Measurement: {
         table: 'measurement',
@@ -408,7 +424,7 @@ describe('criteria from an untrusted cohort JSON', () => {
         dateColumn: 'measurement_date',
       },
     },
-  } as unknown as SchemaMapping
+  } as never)
 
   function conceptCohort(config: unknown): Cohort {
     const c = makeCohort('patient')
@@ -507,17 +523,17 @@ describe('criteria from an untrusted cohort JSON', () => {
       }),
       eventMapping,
     )!
-    expect(sql).toContain('"value_as_number" >= 3')
+    expect(sql).toContain('e.value_number >= 3')
     expect(sql).toContain('BETWEEN 1 AND 9')
     expect(sql).toContain('HAVING COUNT(*) >= 2')
   })
 
-  it('keeps a valid duration range, parenthesized so an OR group cannot split it', () => {
+  it('keeps a valid duration range', () => {
     const sql = buildCohortCountSql(
       durationCohort({ durationLevel: 'visit', durationUnit: 'days', minDays: 2, maxDays: 10 }),
       eventMapping,
     )!
-    expect(sql).toMatch(/\(DATE_DIFF\('day'.*>= 2 AND DATE_DIFF\('day'.*<= 10\)/s)
+    expect(squash(sql)).toMatch(/DATE_DIFF\('day'[^)]*\) >= 2 AND DATE_DIFF\('day'[^)]*\) <= 10/)
   })
 })
 
@@ -525,7 +541,7 @@ describe('criteria from an untrusted cohort JSON', () => {
 // criterion stores gender CONCEPT IDS, and which id means what belongs to the
 // mapping — so the label must resolve them, or the chart reads "Sex: 8532".
 describe('getNodeLabel — sex', () => {
-  const omop = { genderValues: { male: '8507', female: '8532', unknown: '0' } } as SchemaMapping
+  const omop = mappingV1ToV2({ genderValues: { male: '8507', female: '8532', unknown: '0' } } as never)
   const node = (values: string[], exclude = false) =>
     ({ kind: 'criterion', type: 'sex', config: { values }, exclude }) as unknown as Parameters<typeof getNodeLabel>[0]
 
@@ -541,7 +557,7 @@ describe('getNodeLabel — sex', () => {
 
   it('resolves against the mapping, not a hard-coded OMOP table', () => {
     // MIMIC stores letters, eHOP digits: the same id means different things.
-    const mimic = { genderValues: { male: 'M', female: 'F' } } as SchemaMapping
+    const mimic = mappingV1ToV2({ genderValues: { male: 'M', female: 'F' } } as never)
     expect(getNodeLabel(node(['F']), mimic)).toBe('Sex: Female')
     // 8532 is not a gender value here, so it is left as-is rather than mislabelled.
     expect(getNodeLabel(node(['8532']), mimic)).toBe('Sex: 8532')
@@ -561,8 +577,8 @@ describe('getNodeLabel — sex', () => {
 // had one. The exact day/time semantics are checked against DuckDB by hand
 // (timestamp vs DATE bounds, open end); here we pin where the window goes.
 describe('concept criteria bound to the stay', () => {
-  const stayMapping = {
-    ...mapping,
+  const stayMapping = mappingV1ToV2({
+    ...mapping_V1,
     visitDetailTable: {
       table: 'icu', idColumn: 'stay_id', visitIdColumn: 'visit_id', patientIdColumn: 'person_id',
       startDateColumn: 'intime', endDateColumn: 'outtime',
@@ -571,7 +587,7 @@ describe('concept criteria bound to the stay', () => {
       Lab: { table: 'lab', conceptIdColumn: 'itemid', patientIdColumn: 'person_id', dateColumn: 'charttime' },
       Undated: { table: 'undated', conceptIdColumn: 'itemid', patientIdColumn: 'person_id' },
     },
-  } as unknown as SchemaMapping
+  } as never)
 
   function cohortOn(level: CohortLevel, eventTableLabel: string, extra: object = {}): Cohort {
     const c = makeCohort(level)
@@ -584,18 +600,18 @@ describe('concept criteria bound to the stay', () => {
 
   it('compares the event date with the visit bounds at visit level', () => {
     const sql = buildCohortCountSql(cohortOn('visit', 'Lab'), stayMapping)!
-    expect(sql).toContain(withinStaySql('e."charttime"', '"visit"."start"', '"visit"."end"'))
+    expect(squash(sql)).toContain(squash(withinStaySql('e.start_datetime', 'linkr_visit.start_datetime', 'linkr_visit.end_datetime')))
   })
 
   it('uses the unit stay bounds at visit_detail level, occurrence counts included', () => {
     const sql = buildCohortCountSql(
       cohortOn('visit_detail', 'Lab', { occurrenceCount: { operator: '>=', count: 2 } }), stayMapping)!
-    expect(sql).toContain(withinStaySql('e."charttime"', '"icu"."intime"', '"icu"."outtime"'))
+    expect(squash(sql)).toContain(squash(withinStaySql('e.start_datetime', 'linkr_visit_detail.start_datetime', 'linkr_visit_detail.end_datetime')))
     expect(sql).toContain('HAVING COUNT(*) >= 2')
   })
 
   it('adds no window at patient level, nor when the event table has no date', () => {
-    expect(buildCohortCountSql(cohortOn('patient', 'Lab'), stayMapping)).not.toContain('CAST(e."charttime"')
+    expect(buildCohortCountSql(cohortOn('patient', 'Lab'), stayMapping)).not.toContain('CAST(e.start_datetime')
     expect(buildCohortCountSql(cohortOn('visit', 'Undated'), stayMapping)).not.toContain('AS TIMESTAMP')
     expect(conceptCriterionBoundToStay('visit', stayMapping, 'Undated')).toBe(false)
     expect(conceptCriterionBoundToStay('visit', stayMapping, 'Lab')).toBe(true)
@@ -604,5 +620,204 @@ describe('concept criteria bound to the stay', () => {
 
   it('leaves an open end when the stay has no end column', () => {
     expect(withinStaySql('e.d', 's', null)).not.toContain('<=')
+  })
+})
+
+// The SQL tab's query is the cohort's MEMBERSHIP (an `id` column), not its
+// count: every other query wraps it, so an edit reaches the count, the results,
+// the freeze and the derivation alike. It used to replace the count only, and
+// freezing silently fell back to the criteria.
+describe('hand-written membership query', () => {
+  const vdMapping = mappingV1ToV2({
+    ...mapping_V1,
+    visitDetailTable: {
+      table: 'icu', idColumn: 'stay_id', visitIdColumn: 'visit_id', patientIdColumn: 'person_id',
+      startDateColumn: 'intime', endDateColumn: 'outtime',
+    },
+  } as never)
+  const custom = (customSql: string, level: CohortLevel = 'visit_detail'): Cohort => ({ ...makeCohort(level), customSql })
+  // On the database's own table: the id is renamed to the Linkr name, the one rule.
+  const SQL = 'SELECT stay_id AS visit_detail_id FROM icu WHERE stay_id IN (101, 205)'
+
+  it('filters every query of the cohort on it', () => {
+    const c = custom(SQL)
+    for (const sql of [
+      buildCohortCountSql(c, vdMapping)!,
+      buildCohortResultsSql(c, vdMapping)!,
+      buildCohortMembershipSql(c, vdMapping)!,
+    ]) {
+      expect(squash(sql)).toContain(
+        `linkr_visit_detail.visit_detail_id IN ( SELECT COLUMNS('(?i)^visit_detail_id$') FROM ( ${SQL} ) AS custom_members )`)
+    }
+  })
+
+  it('still returns id and patient_id for the freeze and the derivation', () => {
+    const sql = buildCohortMembershipSql(custom(SQL), vdMapping)!
+    expect(sql).toContain('linkr_visit_detail.visit_detail_id AS id')
+    expect(sql).toContain('linkr_visit_detail.patient_id AS patient_id')
+  })
+
+  it('survives a final semicolon and a trailing comment', () => {
+    const sql = buildCohortCountSql(custom(`${SQL} -- the two stays;\n;`), vdMapping)!
+    expect(withoutComments(sql)).not.toMatch(/;/)
+    // The comment ends its line; the closing parentheses are on lines of their own.
+    expect(sql).toMatch(/-- the two stays;\s*\n\s*\) AS custom_members/)
+  })
+
+  it('never re-indents a line inside one of its string literals', () => {
+    const sql = buildCohortCountSql(custom("SELECT 1 AS visit_detail_id WHERE 'a\nb' <> ''"), vdMapping)!
+    expect(sql).toContain("'a\nb'")
+  })
+
+  it('gives attrition a single step, and the SQL tab the criteria query to start from', () => {
+    const steps = buildAttritionQueries(custom(SQL), vdMapping)
+    expect(steps.map((s) => s.nodeId)).toEqual(['__total__', CUSTOM_SQL_STEP_ID])
+    const generated = buildCohortCriteriaSql(custom(SQL), vdMapping)!
+    expect(generated).not.toContain('custom_members')
+    // The level's id under its own name: nothing renamed to `id`.
+    expect(generated).toMatch(/SELECT DISTINCT\n {2}linkr_visit_detail\.visit_detail_id\nFROM/)
+  })
+
+  it('explains a query that returns no column named after the level\'s id', () => {
+    const duckdb = 'Binder Error: No matching columns found that match regex "(?i)^visit_detail_id$"'
+    expect(cohortRunError(custom(SQL), duckdb)).toBe('CUSTOM_SQL_NO_ID:visit_detail_id')
+    expect(cohortRunError(custom(SQL, 'patient'), duckdb)).toBe('CUSTOM_SQL_NO_ID:patient_id')
+    // Any other error, or one from the criteria, is left as DuckDB said it.
+    expect(cohortRunError(custom(SQL), 'Parser Error: syntax error')).toBe('Parser Error: syntax error')
+    expect(cohortRunError(makeCohort('visit'), duckdb)).toBe(duckdb)
+  })
+
+  it('cannot define an event-level cohort', () => {
+    expect(buildCohortCountSql(custom(SQL, 'event'), vdMapping)).toBeNull()
+  })
+})
+
+describe('identifier list criterion', () => {
+  const vdMapping = mappingV1ToV2({
+    ...mapping_V1,
+    visitDetailTable: {
+      table: 'icu', idColumn: 'stay_id', visitIdColumn: 'visit_id', patientIdColumn: 'person_id',
+      startDateColumn: 'intime', endDateColumn: 'outtime',
+    },
+  } as never)
+  function idCohort(level: CohortLevel, config: unknown, exclude = false): Cohort {
+    const c = makeCohort(level)
+    c.criteriaTree.children = [
+      { kind: 'criterion', id: 'x', type: 'id_list', enabled: true, operator: 'AND', exclude, config },
+    ] as never
+    return c
+  }
+
+  it('matches the level\'s own id as text', () => {
+    const sql = buildCohortCountSql(idCohort('visit_detail', { idLevel: 'visit_detail', ids: ['101', '205'] }), vdMapping)!
+    expect(sql).toContain("CAST(linkr_visit_detail.visit_detail_id AS VARCHAR) IN ('101', '205')")
+  })
+
+  it('matches patient ids on the row\'s own patient_id at any level', () => {
+    const sql = buildCohortCountSql(idCohort('visit', { idLevel: 'patient', ids: ['7'] }), vdMapping)!
+    expect(sql).toContain("CAST(linkr_visit.patient_id AS VARCHAR) IN ('7')")
+  })
+
+  it('keeps the unit stays of listed stays, and the patients of listed unit stays', () => {
+    const vd = squash(buildCohortCountSql(idCohort('visit_detail', { idLevel: 'visit', ids: ['12'] }), vdMapping)!)
+    expect(vd).toContain('FROM linkr_visit WHERE linkr_visit.visit_id = linkr_visit_detail.visit_id')
+    expect(vd).toContain("CAST(linkr_visit.visit_id AS VARCHAR) IN ('12')")
+    const patient = squash(buildCohortCountSql(idCohort('patient', { idLevel: 'visit_detail', ids: ['101'] }), vdMapping)!)
+    expect(patient).toContain('FROM linkr_visit_detail WHERE linkr_visit_detail.patient_id = linkr_patient.patient_id')
+  })
+
+  it('trims, deduplicates and escapes the ids an imported file holds', () => {
+    const sql = buildCohortCountSql(
+      idCohort('visit', { idLevel: 'visit', ids: [' 1 ', '1', "x') OR 1=1 --", '', null, { a: 1 }, 2] }), vdMapping)!
+    expect(sql).toContain("IN ('1', 'x'') OR 1=1 --', '2')")
+  })
+
+  it('selects everyone while the list is empty, like any incomplete criterion', () => {
+    expect(buildCohortCountSql(idCohort('visit', { idLevel: 'visit', ids: [] }), vdMapping)).not.toContain('WHERE')
+  })
+
+  it('negates the list when excluded', () => {
+    const sql = buildCohortCountSql(idCohort('visit', { idLevel: 'visit', ids: ['1'] }, true), vdMapping)!
+    expect(sql).toContain("NOT (CAST(linkr_visit.visit_id AS VARCHAR) IN ('1'))")
+  })
+})
+
+describe('text criterion: case and accents', () => {
+  const noteMapping = mappingV1ToV2({
+    ...mapping_V1,
+    noteTable: { table: 'note', idColumn: 'note_id', patientIdColumn: 'person_id', dateColumn: 'd', textColumn: 't' },
+  } as never)
+  const textSql = (search: Record<string, unknown>) => {
+    const c = makeCohort('patient')
+    c.criteriaTree.children = [{
+      kind: 'criterion', id: 'x', type: 'text', enabled: true, operator: 'AND', exclude: false,
+      config: { description: '', searches: [{ field: 'text', terms: ['Hémorragie'], ...search }] },
+    }] as never
+    return buildCohortCountSql(c, noteMapping)!
+  }
+
+  it('ignores case and accents by default, in every mode', () => {
+    expect(textSql({})).toContain("strip_accents(n.text) ILIKE '%Hemorragie%'")
+    expect(textSql({ mode: 'word' })).toContain("regexp_matches(strip_accents(n.text), '(?i)")
+    expect(textSql({ mode: 'regex' })).toContain("'(?i)Hemorragie'")
+  })
+
+  it('matches the case as typed when asked', () => {
+    expect(textSql({ caseSensitive: true })).toContain("strip_accents(n.text) LIKE '%Hemorragie%'")
+    expect(textSql({ caseSensitive: true, mode: 'regex' })).toContain("'Hemorragie'")
+    expect(textSql({ caseSensitive: true, mode: 'regex' })).not.toContain('(?i)')
+  })
+
+  it('keeps accents when they are to count', () => {
+    expect(textSql({ ignoreAccents: false })).toContain("n.text ILIKE '%Hémorragie%'")
+    expect(textSql({ ignoreAccents: false })).not.toContain('strip_accents')
+  })
+})
+
+describe('layout of the generated SQL', () => {
+  const tree = (children: unknown[]): Cohort => {
+    const c = makeCohort('patient')
+    c.criteriaTree.children = children as never
+    return c
+  }
+  const sex = (values: string[], operator = 'AND') =>
+    ({ kind: 'criterion', id: values.join(), type: 'sex', enabled: true, operator, exclude: false, config: { values } })
+  const sexMapping = mappingV1ToV2({ ...mapping_V1, patientTable: { ...mapping_V1.patientTable, genderColumn: 'sex' } } as never)
+
+  it('names each criterion in a comment above it', () => {
+    const sql = buildCohortCountSql(tree([sex(['M']), sex(['F'])]), sexMapping)!
+    expect(sql).toMatch(/-- Sex: M\n\s*linkr_patient\.gender_source_value IN \('M'\)/)
+    expect(sql).toMatch(/AND -- Sex: F\n/)
+  })
+
+  it('wraps an OR group joined by AND, and nothing else', () => {
+    const group = { kind: 'group', id: 'g', operator: 'AND', exclude: false, enabled: true, children: [sex(['F']), sex(['X'], 'OR')] }
+    const sql = squash(buildCohortCountSql(tree([sex(['M']), group]), sexMapping)!)
+    expect(sql).toMatch(/AND \( -- Sex: F linkr_patient\.gender_source_value IN \('F'\) OR -- Sex: X .* \)/)
+    expect(sql).not.toMatch(/\(\s*linkr_patient\.gender_source_value IN \('M'\)/)
+  })
+
+  it('keeps a label from breaking out of its comment', () => {
+    expect(sqlComment('Adults\nOR 1=1 --')).toBe('-- Adults OR 1=1 --')
+    const group = { kind: 'group', id: 'g', label: 'x\r\nOR 1=1', operator: 'AND', exclude: false, enabled: true, children: [sex(['F'])] }
+    const sql = buildCohortCountSql(tree([sex(['M']), group]), sexMapping)!
+    expect(sql).not.toMatch(/\n\s*OR 1=1/)
+  })
+
+  it('writes no comment for a criterion whose imported config it cannot name', () => {
+    const broken = { kind: 'criterion', id: 'b', type: 'care_site', enabled: true, operator: 'AND', exclude: false, config: { careSiteLevel: 'visit', values: 'x' } }
+    expect(() => buildCohortCountSql(tree([sex(['M']), broken]), sexMapping)).not.toThrow()
+  })
+})
+
+describe('buildCustomSqlOutputSql', () => {
+  it('caps the hand-written query as written, whatever it returns', () => {
+    const sql = buildCustomSqlOutputSql({ customSql: 'SELECT * FROM measurement -- all\n;' }, 100)
+    expect(sql).toBe('SELECT * FROM (\nSELECT * FROM measurement -- all\n) AS custom_output\nLIMIT 100')
+  })
+
+  it('has nothing to run for the criteria', () => {
+    expect(buildCustomSqlOutputSql({ customSql: '  ' }, 100)).toBeNull()
+    expect(buildCustomSqlOutputSql({}, 100)).toBeNull()
   })
 })

@@ -966,6 +966,7 @@ function exportCriterion(
     case 'period':
     case 'duration':
     case 'care_site':
+    case 'id_list':
       warnings.push(`Criterion type "${node.type}" has no direct ATLAS equivalent and was skipped.`)
       return null
 

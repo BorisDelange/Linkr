@@ -1,3 +1,5 @@
+import { withClassRelations } from '@/lib/schema-classes/inject'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -23,7 +25,7 @@ import {
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 /** An OMOP-shaped mapping: FK join, both concept id columns, a ward lookup. */
-const OMOP: SchemaMapping = {
+const OMOP_V1: SchemaMappingV1 = {
   presetId: 'omop-5.4',
   presetLabel: { en: 'OMOP CDM 5.4' },
   patientTable: { table: 'person', idColumn: 'person_id' },
@@ -59,6 +61,7 @@ const OMOP: SchemaMapping = {
     },
   },
 }
+const OMOP = mappingV1ToV2(OMOP_V1)
 
 function source(mapping: SchemaMapping = OMOP, key = 'concept'): ProfileSource {
   const resolved = resolveProfileSource(mapping, key)
@@ -70,7 +73,7 @@ describe('resolveProfileSource', () => {
   it('picks the event table that can support the richest profile', () => {
     // Both tables reference the same dictionary; only one carries values, and a
     // profile built from condition_occurrence would have no distribution at all.
-    expect(source().eventTable.table).toBe('measurement')
+    expect(source().event.key).toBe('Measurements')
   })
 
   it('yields nothing when the schema describes no such dictionary', () => {
@@ -78,7 +81,7 @@ describe('resolveProfileSource', () => {
   })
 
   it('yields nothing when no event table references the dictionary', () => {
-    const orphan: SchemaMapping = { ...OMOP, eventTables: {} }
+    const orphan = mappingV1ToV2({ ...OMOP_V1, eventTables: {} } as never)
     expect(resolveProfileSource(orphan, 'concept')).toBeNull()
   })
 })
@@ -91,11 +94,11 @@ describe('availableSections', () => {
   it('withholds the sections a bare schema cannot produce', () => {
     // The whole point of the preset-driven design: a model with only a code
     // column gets a profile of what it has, not a crash or an empty chart.
-    const bare: SchemaMapping = {
-      ...OMOP,
+    const bare = mappingV1ToV2({
+      ...OMOP_V1,
       visitDetailTable: undefined,
       eventTables: { Events: { table: 'ev', conceptIdColumn: 'concept_id' } },
-    }
+    } as never)
     expect(availableSections(bare, source(bare))).toEqual({
       numeric: false, histogram: false, categorical: false, unit: false,
       frequency: false, temporal: false, hospitalUnits: false, missingRate: false,
@@ -171,9 +174,11 @@ describe('query builders', () => {
     // A source concept is named by measurement_concept_id OR
     // measurement_source_concept_id; matching one alone silently halves counts.
     const sql = buildProfileBaseQuery(OMOP, source(), 42)
-    expect(sql).toContain('"measurement_concept_id" = 42')
-    expect(sql).toContain('"measurement_source_concept_id" = 42')
-    expect(sql).toContain('COUNT(DISTINCT e."person_id")')
+    expect(sql).toContain('e.concept_id = 42 OR e.source_concept_id = 42')
+    expect(sql).toContain('COUNT(DISTINCT e.patient_id)')
+    const full = withClassRelations(sql, OMOP)
+    expect(full).toContain('e."measurement_source_concept_id" AS source_concept_id')
+    expect(full).toContain('e."person_id" AS patient_id')
   })
 
   it('never interpolates a concept id as text', () => {
@@ -204,28 +209,28 @@ describe('query builders', () => {
   })
 
   it('joins the ward through its lookup table', () => {
-    const sql = buildHospitalUnitsQuery(OMOP, source(), 42, 10)
+    const sql = withClassRelations(buildHospitalUnitsQuery(OMOP, source(), 42, 10)!, OMOP)
     expect(sql).toContain('"care_site"')
-    expect(sql).toContain('cs."care_site_name"')
+    expect(sql).toContain('un."care_site_name"')
   })
 
   it('prefers the verbatim ward over the coarser lookup', () => {
     // visit_detail_source_value holds the real unit where the standard concept
     // is far coarser, and many ETLs leave care_site_id NULL entirely.
-    const withSourceValue: SchemaMapping = {
-      ...OMOP,
-      visitDetailTable: { ...OMOP.visitDetailTable!, unitSourceValueColumn: 'visit_detail_source_value' },
-    }
-    const sql = buildHospitalUnitsQuery(withSourceValue, source(withSourceValue), 42, 10)
-    expect(sql).toContain('visit_detail_source_value')
-    expect(sql).not.toContain('care_site_name')
+    const withSourceValue = mappingV1ToV2({
+      ...OMOP_V1,
+      visitDetailTable: { ...OMOP_V1.visitDetailTable!, unitSourceValueColumn: 'visit_detail_source_value' },
+    } as never)
+    const sql = withClassRelations(buildHospitalUnitsQuery(withSourceValue, source(withSourceValue), 42, 10)!, withSourceValue)
+    // Per row: the verbatim ward first, the looked-up name only where it is empty.
+    expect(sql).toMatch(/COALESCE\(NULLIF\(CAST\(vd\."visit_detail_source_value" AS VARCHAR\), ''\), NULLIF\(CAST\(un\."care_site_name"/)
   })
 
   it('counts records per patient by grouping on the patient, not the rows', () => {
     // The distribution is over patients: a plain COUNT(*) would answer "how many
     // records" again, which the base query already reports.
     const sql = buildPerPatientQuery(OMOP, source(), 42)
-    expect(sql).toContain('GROUP BY e."person_id"')
+    expect(sql).toContain('GROUP BY e.patient_id')
     expect(sql).toContain('MIN(n) AS min')
     expect(sql).toContain('MAX(n) AS max')
   })
@@ -256,11 +261,11 @@ describe('query builders', () => {
 
   it('returns nothing for a block the schema cannot back', () => {
     // An empty string, not broken SQL: the caller skips it.
-    const bare: SchemaMapping = {
-      ...OMOP,
+    const bare = mappingV1ToV2({
+      ...OMOP_V1,
       visitDetailTable: undefined,
       eventTables: { Events: { table: 'ev', conceptIdColumn: 'concept_id' } },
-    }
+    } as never)
     const s = source(bare)
     expect(buildNumericStatsQuery(s, 42, null)).toBe('')
     expect(buildCategoricalQuery(s, 42, { minCategoryCount: 50, topN: 10 })).toBe('')

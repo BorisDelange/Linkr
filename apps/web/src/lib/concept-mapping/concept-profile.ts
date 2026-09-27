@@ -10,7 +10,7 @@
  *
  * The reference implementation is ehop-tools' `profile_concept()` (R), written
  * against eHOP's single flat `document_data` table. This is a port, not a copy:
- * everything it hardcoded as a column name is read from the SchemaMapping
+ * everything it hardcoded as a column name is read from the class relations
  * instead, so the same code profiles OMOP, MIMIC or any other model the app can
  * already describe. A block whose backing column the preset does not declare is
  * skipped rather than guessed — a schema without a date column simply has no
@@ -25,8 +25,9 @@
  * not to invent a second format.
  */
 
-import type { SchemaMapping, ConceptDictionary, EventTable } from '@/types/schema-mapping'
-import { buildConceptMatchCondition, getEventTablesForDictionary, qualify, qualifyIn } from '@/lib/schema-helpers'
+import type { SchemaMapping } from '@/types/schema-mapping'
+import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
+import { classRelation, conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
 // ---------------------------------------------------------------------------
 // Options
@@ -128,28 +129,31 @@ export const DEFAULT_PROFILE_OPTIONS: ProfileOptions = {
  */
 export interface ProfileSource {
   label: string
-  eventTable: EventTable
-  dictionary: ConceptDictionary
+  dictionary: ConceptIdentity
+  /** The event table's relation (`linkr_event_*`). */
+  event: ClassRelation
+  /** The dictionary's relation (`linkr_concept_*`). */
+  dict: ClassRelation
 }
 
 /** Score an event table by how much of a profile it can support. */
-function sourceRichness(et: EventTable): number {
-  return (et.valueColumn ? 4 : 0)
-    + (et.valueStringColumn ? 2 : 0)
-    + (et.dateColumn ? 1 : 0)
+function sourceRichness(event: ClassRelation): number {
+  return (has(event, 'value_number') ? 4 : 0)
+    + (has(event, 'value_string') ? 2 : 0)
+    + (has(event, 'start_datetime') ? 1 : 0)
 }
 
 export function resolveProfileSource(
   mapping: SchemaMapping,
   dictionaryKey: string,
 ): ProfileSource | null {
-  const dictionary = (mapping.conceptTables ?? []).find((d) => d.key === dictionaryKey)
-  if (!dictionary) return null
-  const candidates = getEventTablesForDictionary(mapping, dictionaryKey)
+  const dictionary = conceptIdentity(mapping, dictionaryKey)
+  const dict = conceptRelation(mapping, dictionaryKey)
+  if (!dictionary || !dict) return null
+  const candidates = eventRelations(mapping).filter((e) => e.dictionary === dict.name)
   if (candidates.length === 0) return null
-  const best = candidates.reduce((a, b) =>
-    sourceRichness(b.eventTable) > sourceRichness(a.eventTable) ? b : a)
-  return { label: best.label, eventTable: best.eventTable, dictionary }
+  const best = candidates.reduce((a, b) => (sourceRichness(b) > sourceRichness(a) ? b : a))
+  return { label: best.key ?? '', dictionary, event: best, dict }
 }
 
 /**
@@ -162,18 +166,19 @@ export function availableSections(
   mapping: SchemaMapping,
   source: ProfileSource,
 ): ProfileSections {
-  const et = source.eventTable
-  const hasDate = !!et.dateColumn
+  const e = source.event
+  const hasDate = has(e, 'start_datetime')
+  const hasPatient = has(e, 'patient_id')
   return {
-    numeric: !!et.valueColumn,
-    histogram: !!et.valueColumn,
-    categorical: !!et.valueStringColumn,
-    unit: !!et.valueUnitColumn,
-    frequency: hasDate && !!resolvePatientColumn(mapping, et),
+    numeric: has(e, 'value_number'),
+    histogram: has(e, 'value_number'),
+    categorical: has(e, 'value_string'),
+    unit: has(e, 'unit'),
+    frequency: hasDate && hasPatient,
     temporal: hasDate,
-    hospitalUnits: !!resolveWardExpr(mapping, et),
-    missingRate: !!(et.valueColumn || et.valueStringColumn),
-    perPatient: !!resolvePatientColumn(mapping, et),
+    hospitalUnits: !!resolveWardExpr(mapping, e),
+    missingRate: has(e, 'value_number') || has(e, 'value_string'),
+    perPatient: hasPatient,
   }
 }
 
@@ -191,18 +196,9 @@ export function effectiveSections(
   return out
 }
 
-/** The event table's patient column, falling back to the patient table's key. */
-function resolvePatientColumn(mapping: SchemaMapping, et: EventTable): string | null {
-  return et.patientIdColumn ?? mapping.patientTable?.idColumn ?? null
-}
-
 /**
  * How to reach a human-readable ward name from an event row, or null when the
  * schema describes no ward at all.
- *
- * Three shapes, in the order of preference the visit-detail mapping documents:
- * the verbatim source value (the actual unit, where the standard concept is far
- * coarser), then a lookup join, then a bare column that already holds names.
  */
 interface WardJoin {
   /** SQL expression yielding the ward name, relative to the joins below. */
@@ -211,35 +207,19 @@ interface WardJoin {
   joins: string
 }
 
-function resolveWardExpr(mapping: SchemaMapping, et: EventTable): WardJoin | null {
-  const vd = mapping.visitDetailTable
-  const patientCol = resolvePatientColumn(mapping, et)
-  if (!vd || !patientCol) return null
-
+function resolveWardExpr(mapping: SchemaMapping, event: ClassRelation): WardJoin | null {
+  const vd = classRelation(mapping, 'visit_detail')
   // The event table has no visit-detail FK of its own, so the link is by patient
   // and time: the ward a record belongs to is the stay that contains its date.
   // Without a date there is nothing to contain it.
-  if (!et.dateColumn) return null
-
-  const stayJoin = `LEFT JOIN ${qualify(vd)} vd
-      ON vd."${vd.patientIdColumn}" = e."${patientCol}"
-     AND e."${et.dateColumn}" >= vd."${vd.startDateColumn}"
-     ${vd.endDateColumn ? `AND e."${et.dateColumn}" <= vd."${vd.endDateColumn}"` : ''}`
-
-  if (vd.unitSourceValueColumn) {
-    return { expr: `vd."${vd.unitSourceValueColumn}"`, joins: stayJoin }
+  if (!vd || !has(vd, 'unit_name') || !has(event, 'patient_id') || !has(event, 'start_datetime')) return null
+  return {
+    expr: 'vd.unit_name',
+    joins: `LEFT JOIN ${vd.name} vd
+      ON vd.patient_id = e.patient_id
+     AND e.start_datetime >= vd.start_datetime
+     ${has(vd, 'end_datetime') ? 'AND e.start_datetime <= vd.end_datetime' : ''}`,
   }
-  if (vd.unitColumn && vd.unitNameTable && vd.unitNameIdColumn && vd.unitNameColumn) {
-    return {
-      expr: `cs."${vd.unitNameColumn}"`,
-      joins: `${stayJoin}
-    LEFT JOIN ${qualifyIn(vd, vd.unitNameTable)} cs ON cs."${vd.unitNameIdColumn}" = vd."${vd.unitColumn}"`,
-    }
-  }
-  if (vd.unitColumn) {
-    return { expr: `vd."${vd.unitColumn}"`, joins: stayJoin }
-  }
-  return null
 }
 
 // ---------------------------------------------------------------------------
@@ -247,31 +227,39 @@ function resolveWardExpr(mapping: SchemaMapping, et: EventTable): WardJoin | nul
 // ---------------------------------------------------------------------------
 
 /**
- * The FROM + WHERE that isolates one concept's records in its event table.
- *
  * `conceptId` is the dictionary's own key. OMOP rows can name a concept through
  * either `*_concept_id` or `*_source_concept_id`, which is why the match is a
- * disjunction rather than an equality — `buildConceptMatchCondition` owns that
- * rule, shared with the counts query so both agree on what "this concept's
- * records" means.
+ * disjunction rather than an equality — shared with the counts query so both
+ * agree on what "this concept's records" means.
  */
-function eventScope(et: EventTable, conceptId: number): string {
-  const match = buildConceptMatchCondition('e', et, String(Math.trunc(conceptId)))
-  return `FROM ${qualify(et)} e WHERE (${match})`
+function conceptMatch(event: ClassRelation, conceptId: number): string {
+  const id = Math.trunc(conceptId)
+  return has(event, 'source_concept_id') ? `e.concept_id = ${id} OR e.source_concept_id = ${id}` : `e.concept_id = ${id}`
+}
+
+/** The FROM + WHERE that isolates one concept's records in its event table. */
+function eventScope(event: ClassRelation, conceptId: number): string {
+  return `FROM ${event.name} e WHERE (${conceptMatch(event, conceptId)})`
+}
+
+const patientsExpr = (event: ClassRelation) => (has(event, 'patient_id') ? 'COUNT(DISTINCT e.patient_id)' : 'NULL')
+
+/** The "no value at all" predicate over whichever value columns the event has. */
+function emptyValue(event: ClassRelation): string | null {
+  const empty: string[] = []
+  if (has(event, 'value_number')) empty.push('e.value_number IS NULL')
+  if (has(event, 'value_string')) empty.push(`(e.value_string IS NULL OR TRIM(CAST(e.value_string AS VARCHAR)) = '')`)
+  return empty.length ? empty.join(' AND ') : null
 }
 
 /** Records and distinct patients for one concept. Always computed. */
 export function buildProfileBaseQuery(
-  mapping: SchemaMapping,
+  _mapping: SchemaMapping,
   source: ProfileSource,
   conceptId: number,
 ): string {
-  const patientCol = resolvePatientColumn(mapping, source.eventTable)
-  const patients = patientCol
-    ? `COUNT(DISTINCT e."${patientCol}")`
-    : 'NULL'
-  return `SELECT COUNT(*) AS rows_count, ${patients} AS patients_count
-  ${eventScope(source.eventTable, conceptId)}`
+  return `SELECT COUNT(*) AS rows_count, ${patientsExpr(source.event)} AS patients_count
+  ${eventScope(source.event, conceptId)}`
 }
 
 /**
@@ -284,17 +272,12 @@ export function buildMissingRateQuery(
   source: ProfileSource,
   conceptId: number,
 ): string {
-  const et = source.eventTable
-  const empty: string[] = []
-  if (et.valueColumn) empty.push(`e."${et.valueColumn}" IS NULL`)
-  if (et.valueStringColumn) {
-    empty.push(`(e."${et.valueStringColumn}" IS NULL OR TRIM(CAST(e."${et.valueStringColumn}" AS VARCHAR)) = '')`)
-  }
-  if (empty.length === 0) return ''
+  const empty = emptyValue(source.event)
+  if (!empty) return ''
   return `SELECT ROUND(
-    SUM(CASE WHEN ${empty.join(' AND ')} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 1
+    SUM(CASE WHEN ${empty} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 1
   ) AS missing_rate
-  ${eventScope(et, conceptId)}`
+  ${eventScope(source.event, conceptId)}`
 }
 
 /**
@@ -308,16 +291,15 @@ export function buildPercentileQuery(
   source: ProfileSource,
   conceptId: number,
 ): string {
-  const et = source.eventTable
-  if (!et.valueColumn) return ''
+  if (!has(source.event, 'value_number')) return ''
   return `SELECT
-    PERCENTILE_CONT(0.01) WITHIN GROUP (ORDER BY e."${et.valueColumn}") AS p1,
-    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY e."${et.valueColumn}") AS p25,
-    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY e."${et.valueColumn}") AS median,
-    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY e."${et.valueColumn}") AS p75,
-    PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY e."${et.valueColumn}") AS p99,
-    COUNT(e."${et.valueColumn}") AS numeric_count
-  ${eventScope(et, conceptId)} AND e."${et.valueColumn}" IS NOT NULL`
+    PERCENTILE_CONT(0.01) WITHIN GROUP (ORDER BY e.value_number) AS p1,
+    PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY e.value_number) AS p25,
+    PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY e.value_number) AS median,
+    PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY e.value_number) AS p75,
+    PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY e.value_number) AS p99,
+    COUNT(e.value_number) AS numeric_count
+  ${eventScope(source.event, conceptId)} AND e.value_number IS NOT NULL`
 }
 
 /**
@@ -337,32 +319,22 @@ export function buildPercentileQuery(
  * discarded — the point is to scan less, not to scan the same and ask once.
  */
 export function buildCombinedScalarQuery(
-  mapping: SchemaMapping,
+  _mapping: SchemaMapping,
   source: ProfileSource,
   conceptId: number,
   sections: ProfileSections,
 ): string {
-  const et = source.eventTable
-  const patientCol = resolvePatientColumn(mapping, et)
-  const parts: string[] = ['COUNT(*) AS rows_count']
+  const event = source.event
+  const hasPatient = has(event, 'patient_id')
+  const parts: string[] = ['COUNT(*) AS rows_count', `${patientsExpr(event)} AS patients_count`]
 
-  parts.push(patientCol
-    ? `COUNT(DISTINCT e."${patientCol}") AS patients_count`
-    : 'NULL AS patients_count')
-
-  if (sections.missingRate) {
-    const empty: string[] = []
-    if (et.valueColumn) empty.push(`e."${et.valueColumn}" IS NULL`)
-    if (et.valueStringColumn) {
-      empty.push(`(e."${et.valueStringColumn}" IS NULL OR TRIM(CAST(e."${et.valueStringColumn}" AS VARCHAR)) = '')`)
-    }
-    if (empty.length > 0) {
-      parts.push(`ROUND(SUM(CASE WHEN ${empty.join(' AND ')} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 1) AS missing_rate`)
-    }
+  const empty = sections.missingRate ? emptyValue(event) : null
+  if (empty) {
+    parts.push(`ROUND(SUM(CASE WHEN ${empty} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 1) AS missing_rate`)
   }
 
-  if (sections.numeric && et.valueColumn) {
-    const v = `e."${et.valueColumn}"`
+  if (sections.numeric && has(event, 'value_number')) {
+    const v = 'e.value_number'
     // FILTER, not a WHERE: the other aggregates here count all rows, and
     // restricting the scan would silently change what they report.
     const within = `FILTER (WHERE ${v} IS NOT NULL)`
@@ -376,30 +348,30 @@ export function buildCombinedScalarQuery(
     )
   }
 
-  if (sections.unit && et.valueUnitColumn) {
-    const u = `CAST(e."${et.valueUnitColumn}" AS VARCHAR)`
+  if (sections.unit && has(event, 'unit')) {
+    const u = 'CAST(e.unit AS VARCHAR)'
     // The most frequent unit. mode() reads the same rows the aggregates above
     // already visit, where the standalone query needed its own GROUP BY pass.
     parts.push(`mode(${u}) FILTER (WHERE ${u} IS NOT NULL AND TRIM(${u}) <> '') AS unit`)
   }
 
-  const scope = eventScope(et, conceptId)
+  const scope = eventScope(event, conceptId)
 
   // Per-patient counts and inter-record delays are aggregates over GROUPS, so
   // they cannot sit beside the row-level ones — they ride as scalar subqueries
   // over the same scope, which still costs one round trip rather than three.
   const subqueries: string[] = []
-  if (sections.perPatient && patientCol) {
-    subqueries.push(`(SELECT ROUND(AVG(n), 1) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_mean`)
-    subqueries.push(`(SELECT MEDIAN(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_median`)
-    subqueries.push(`(SELECT MIN(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_min`)
-    subqueries.push(`(SELECT MAX(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e."${patientCol}")) AS per_patient_max`)
+  if (sections.perPatient && hasPatient) {
+    subqueries.push(`(SELECT ROUND(AVG(n), 1) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e.patient_id)) AS per_patient_mean`)
+    subqueries.push(`(SELECT MEDIAN(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e.patient_id)) AS per_patient_median`)
+    subqueries.push(`(SELECT MIN(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e.patient_id)) AS per_patient_min`)
+    subqueries.push(`(SELECT MAX(n) FROM (SELECT COUNT(*) AS n ${scope} GROUP BY e.patient_id)) AS per_patient_max`)
   }
-  if (sections.frequency && et.dateColumn && patientCol) {
+  if (sections.frequency && has(event, 'start_datetime') && hasPatient) {
     subqueries.push(`(SELECT MEDIAN(hours) FROM (
       SELECT EXTRACT(EPOCH FROM (ts - LAG(ts) OVER (PARTITION BY patient_id ORDER BY ts))) / 3600.0 AS hours
-      FROM (SELECT e."${patientCol}" AS patient_id, CAST(e."${et.dateColumn}" AS TIMESTAMP) AS ts
-            ${scope} AND e."${et.dateColumn}" IS NOT NULL)
+      FROM (SELECT e.patient_id AS patient_id, CAST(e.start_datetime AS TIMESTAMP) AS ts
+            ${scope} AND e.start_datetime IS NOT NULL)
     ) WHERE hours > 0) AS median_hours`)
   }
 
@@ -451,15 +423,15 @@ export function outlierBounds(
   return { lower: row.p25 - coef * iqr, upper: row.p75 + coef * iqr }
 }
 
-/** Append the outlier filter to a scope that already has a WHERE. */
-function withinBounds(column: string, bounds: OutlierBounds | null): string {
+/** Append the outlier filter on the value to a scope that already has a WHERE. */
+function withinBounds(bounds: OutlierBounds | null): string {
   if (!bounds) return ''
   // A non-finite bound would emit `>= NaN`, which DuckDB refuses to parse — and
   // `run` swallows that, so the concept would silently lose its numeric block and
   // histogram. `num()` yields NaN for any value the driver hands back unparsed,
   // and NaN != null passes every guard above, so check here.
   if (!Number.isFinite(bounds.lower) || !Number.isFinite(bounds.upper)) return ''
-  return ` AND e."${column}" >= ${bounds.lower} AND e."${column}" <= ${bounds.upper}`
+  return ` AND e.value_number >= ${bounds.lower} AND e.value_number <= ${bounds.upper}`
 }
 
 /**
@@ -474,9 +446,8 @@ export function buildNumericStatsQuery(
   conceptId: number,
   bounds: OutlierBounds | null,
 ): string {
-  const et = source.eventTable
-  if (!et.valueColumn) return ''
-  const v = `e."${et.valueColumn}"`
+  if (!has(source.event, 'value_number')) return ''
+  const v = 'e.value_number'
   return `SELECT
     MIN(${v}) AS min,
     MAX(${v}) AS max,
@@ -488,7 +459,7 @@ export function buildNumericStatsQuery(
     ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${v}), 1) AS p75,
     ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${v}), 1) AS p95,
     COUNT(${v}) AS numeric_count
-  ${eventScope(et, conceptId)} AND ${v} IS NOT NULL${withinBounds(et.valueColumn, bounds)}`
+  ${eventScope(source.event, conceptId)} AND ${v} IS NOT NULL${withinBounds(bounds)}`
 }
 
 /**
@@ -516,12 +487,10 @@ export function buildHistogramQuery(
   bounds: OutlierBounds | null,
   bins: number,
 ): string {
-  const et = source.eventTable
-  if (!et.valueColumn) return ''
-  const v = `e."${et.valueColumn}"`
+  if (!has(source.event, 'value_number')) return ''
   return `WITH filtered AS (
-    SELECT ${v} AS value
-    ${eventScope(et, conceptId)} AND ${v} IS NOT NULL${withinBounds(et.valueColumn, bounds)}
+    SELECT e.value_number AS value
+    ${eventScope(source.event, conceptId)} AND e.value_number IS NOT NULL${withinBounds(bounds)}
   ),
   bounds AS (
     SELECT MIN(value) AS min_val, (MAX(value) - MIN(value)) / ${bins} AS bin_width FROM filtered
@@ -546,12 +515,11 @@ export function buildCategoricalQuery(
   conceptId: number,
   options: Pick<ProfileOptions, 'minCategoryCount' | 'topN'>,
 ): string {
-  const et = source.eventTable
-  if (!et.valueStringColumn) return ''
-  const v = `CAST(e."${et.valueStringColumn}" AS VARCHAR)`
+  if (!has(source.event, 'value_string')) return ''
+  const v = 'CAST(e.value_string AS VARCHAR)'
   return `SELECT category, count, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
     SELECT ${v} AS category, COUNT(*) AS count
-    ${eventScope(et, conceptId)} AND ${v} IS NOT NULL AND TRIM(${v}) <> ''
+    ${eventScope(source.event, conceptId)} AND ${v} IS NOT NULL AND TRIM(${v}) <> ''
     GROUP BY ${v}
     HAVING COUNT(*) >= ${Math.trunc(options.minCategoryCount)}
   ) ORDER BY count DESC, category ASC LIMIT ${Math.trunc(options.topN)}`
@@ -559,11 +527,10 @@ export function buildCategoricalQuery(
 
 /** The most frequent unit recorded for this concept. */
 export function buildUnitQuery(source: ProfileSource, conceptId: number): string {
-  const et = source.eventTable
-  if (!et.valueUnitColumn) return ''
-  const u = `CAST(e."${et.valueUnitColumn}" AS VARCHAR)`
+  if (!has(source.event, 'unit')) return ''
+  const u = 'CAST(e.unit AS VARCHAR)'
   return `SELECT ${u} AS unit, COUNT(*) AS count
-  ${eventScope(et, conceptId)} AND ${u} IS NOT NULL AND TRIM(${u}) <> ''
+  ${eventScope(source.event, conceptId)} AND ${u} IS NOT NULL AND TRIM(${u}) <> ''
   GROUP BY ${u} ORDER BY count DESC, unit ASC LIMIT 1`
 }
 
@@ -574,16 +541,15 @@ export function buildUnitQuery(source: ProfileSource, conceptId: number): string
  * the median to zero and report a per-minute frequency for a daily lab.
  */
 export function buildFrequencyQuery(
-  mapping: SchemaMapping,
+  _mapping: SchemaMapping,
   source: ProfileSource,
   conceptId: number,
 ): string {
-  const et = source.eventTable
-  const patientCol = resolvePatientColumn(mapping, et)
-  if (!et.dateColumn || !patientCol) return ''
+  const event = source.event
+  if (!has(event, 'start_datetime') || !has(event, 'patient_id')) return ''
   return `WITH times AS (
-    SELECT e."${patientCol}" AS patient_id, CAST(e."${et.dateColumn}" AS TIMESTAMP) AS ts
-    ${eventScope(et, conceptId)} AND e."${et.dateColumn}" IS NOT NULL
+    SELECT e.patient_id AS patient_id, CAST(e.start_datetime AS TIMESTAMP) AS ts
+    ${eventScope(event, conceptId)} AND e.start_datetime IS NOT NULL
   ),
   intervals AS (
     SELECT EXTRACT(EPOCH FROM (ts - LAG(ts) OVER (PARTITION BY patient_id ORDER BY ts))) / 3600.0 AS hours
@@ -601,17 +567,15 @@ export function buildFrequencyQuery(
  * one patient has 9 901.
  */
 export function buildPerPatientQuery(
-  mapping: SchemaMapping,
+  _mapping: SchemaMapping,
   source: ProfileSource,
   conceptId: number,
 ): string {
-  const et = source.eventTable
-  const patientCol = resolvePatientColumn(mapping, et)
-  if (!patientCol) return ''
+  if (!has(source.event, 'patient_id')) return ''
   return `WITH per_patient AS (
     SELECT COUNT(*) AS n
-    ${eventScope(et, conceptId)}
-    GROUP BY e."${patientCol}"
+    ${eventScope(source.event, conceptId)}
+    GROUP BY e.patient_id
   )
   SELECT ROUND(AVG(n), 1) AS mean, MEDIAN(n) AS median, MIN(n) AS min, MAX(n) AS max
   FROM per_patient`
@@ -619,11 +583,10 @@ export function buildPerPatientQuery(
 
 /** Date range plus the per-year share of records. */
 export function buildTemporalQuery(source: ProfileSource, conceptId: number): string {
-  const et = source.eventTable
-  if (!et.dateColumn) return ''
+  if (!has(source.event, 'start_datetime')) return ''
   return `WITH times AS (
-    SELECT CAST(e."${et.dateColumn}" AS TIMESTAMP) AS ts
-    ${eventScope(et, conceptId)} AND e."${et.dateColumn}" IS NOT NULL
+    SELECT CAST(e.start_datetime AS TIMESTAMP) AS ts
+    ${eventScope(source.event, conceptId)} AND e.start_datetime IS NOT NULL
   )
   SELECT EXTRACT(YEAR FROM ts) AS year, COUNT(*) AS count,
          ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS percentage,
@@ -639,15 +602,13 @@ export function buildHospitalUnitsQuery(
   conceptId: number,
   topN: number,
 ): string {
-  const et = source.eventTable
-  const ward = resolveWardExpr(mapping, et)
+  const ward = resolveWardExpr(mapping, source.event)
   if (!ward) return ''
-  const match = buildConceptMatchCondition('e', et, String(Math.trunc(conceptId)))
   return `SELECT unit, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
     SELECT ${ward.expr} AS unit, COUNT(*) AS count
-    FROM ${qualify(et)} e
+    FROM ${source.event.name} e
     ${ward.joins}
-    WHERE (${match}) AND ${ward.expr} IS NOT NULL
+    WHERE (${conceptMatch(source.event, conceptId)}) AND ${ward.expr} IS NOT NULL
     GROUP BY ${ward.expr}
   ) ORDER BY count DESC, unit ASC LIMIT ${Math.trunc(topN)}`
 }

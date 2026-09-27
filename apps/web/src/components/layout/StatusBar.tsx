@@ -19,6 +19,7 @@ import { useSessionStore } from '@/stores/session-store'
 import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 import { APP_VERSION } from '@/lib/version'
 import { JobsIndicator } from '@/components/layout/JobsIndicator'
+import { CiteDialog } from '@/components/layout/CiteDialog'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
 
 function usageColor(pct: number) {
@@ -129,9 +130,10 @@ export function StatusBar() {
           <GitBranch size={11} />
           <span>{t('footer.source')}</span>
         </a>
+        <CiteDialog />
       </div>
       <div className="flex items-center gap-3">
-        <JobsIndicator />
+        <JobsIndicator atRightEdge={server && !activeProjectUid} />
         {/* Environments + kernels are per-project (server mode). Off a project
             there's nothing project-scoped to show, so hide them entirely (not just
             disable). In front-only mode the metric shows browser runtimes, so it

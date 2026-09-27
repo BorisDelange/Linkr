@@ -1,187 +1,190 @@
-import { useState, useRef, useMemo, useCallback } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Download, Eye, FileText, Archive, ShieldCheck } from 'lucide-react'
-import JSZip from 'jszip'
+import { Archive, Download, Eye, FileCode, Languages, Loader2, Upload } from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { useDataSourceStore } from '@/stores/data-source-store'
-import { generateCatalogHtml, buildConceptsCsv, buildDimensionsCsv } from '@/lib/dcat-ap/export-html'
-import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
-import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
-import { localized } from '@/lib/localized'
+import { FieldInfo } from '@/components/ui/field-info'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { PAGE_LOCALES, pageLocaleOf, type PageLocale } from '@/lib/dcat-ap/page-text'
 import type { DataCatalog, CatalogResultCache } from '@/types'
+import { useCatalogPublish } from './use-catalog-publish'
+import { PAGE_DATA_MESSAGE, PAGE_READY_MESSAGE, type CatalogPageData } from '@/lib/dcat-ap/export-html'
+import { CatalogPagesCard } from './CatalogPagesCard'
 
 interface Props {
   catalog: DataCatalog
   cache: CatalogResultCache
+  /** The tab stays mounted once visited; the preview is only rebuilt while it shows. */
+  active: boolean
+  onOpenVersioning?: () => void
 }
 
-export function CatalogExportTab({ catalog, cache }: Props) {
-  const { t } = useTranslation()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
-  const schemaMapping = dataSources.find((ds) => ds.id === catalog.dataSourceId)?.schemaMapping
-  const [previewHtml, setPreviewHtml] = useState<string | null>(null)
-  const [zipLoading, setZipLoading] = useState(false)
+/** Each language in its own name, as language pickers show them. */
+const LOCALE_NAMES: Record<PageLocale, string> = { en: 'English', fr: 'Français' }
 
-  // Cache introspected schema across exports (fetched once per session)
-  const schemaCache = useRef<IntrospectedTable[] | null>(null)
+export function CatalogExportTab({ catalog, cache, active, onOpenVersioning }: Props) {
+  const { t, i18n } = useTranslation()
+  const { buildPreview, downloadHtml, downloadZip, zipLoading, publishSite, disableSite, siteSaving } = useCatalogPublish(catalog, cache)
+  const [preview, setPreview] = useState<{ html: string; data: CatalogPageData } | null>(null)
+  const frame = useRef<HTMLIFrameElement>(null)
+  const [view, setView] = useState<'preview' | 'export'>('preview')
+  // The preview follows the app; what leaves the app is in the language picked here.
+  const previewLocale = pageLocaleOf(i18n.language)
+  const [exportLocale, setExportLocale] = useState<PageLocale>(previewLocale)
+  // What the masks hide, in the preview only: the files never carry it.
+  const [reveal, setReveal] = useState(false)
 
-  const getFullSchema = async (): Promise<IntrospectedTable[] | null> => {
-    if (schemaCache.current) return schemaCache.current
-    try {
-      const schema = await discoverFullSchema(catalog.dataSourceId)
-      schemaCache.current = schema
-      return schema
-    } catch {
-      return null
+  useEffect(() => {
+    if (!active) return
+    let cancelled = false
+    void buildPreview(previewLocale, { reveal }).then((p) => { if (!cancelled) setPreview(p) })
+    return () => { cancelled = true }
+  }, [active, buildPreview, previewLocale, reveal])
+
+  // The page asks for its data once its script runs; it answers only this frame.
+  useEffect(() => {
+    if (!preview) return
+    const onMessage = (e: MessageEvent) => {
+      if (e.source !== frame.current?.contentWindow || (e.data as { type?: string } | null)?.type !== PAGE_READY_MESSAGE) return
+      frame.current?.contentWindow?.postMessage({ type: PAGE_DATA_MESSAGE, data: preview.data }, '*')
     }
-  }
-
-  const threshold = catalog.anonymization.threshold
-  const mode = catalog.anonymization.mode ?? 'replace'
-
-  // Anonymization impact preview
-  const impact = useMemo(() => {
-    const allRows = [...cache.concepts, ...cache.dimensions]
-    const affected = allRows.filter((r) => r.patientCount < threshold)
-    const unaffected = allRows.length - affected.length
-    const retainedConcepts = mode === 'suppress'
-      ? cache.concepts.filter((r) => r.patientCount >= threshold).length
-      : cache.concepts.length
-    const totalConcepts = cache.concepts.length
-    return { affected: affected.length, unaffected, retainedConcepts, totalConcepts }
-  }, [cache.concepts, cache.dimensions, threshold, mode])
-
-  const downloadBlob = (blob: Blob, filename: string) => {
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const baseName = localized(catalog.name, 'en').replace(/\s+/g, '-').toLowerCase()
-
-  const handleDownload = useCallback(async () => {
-    const fullSchema = await getFullSchema()
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema })
-    downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${baseName}-catalog.html`)
-  }, [catalog, cache, schemaMapping, baseName])
-
-  const handlePreview = useCallback(async () => {
-    const fullSchema = await getFullSchema()
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema })
-    setPreviewHtml(html)
-  }, [catalog, cache, schemaMapping])
-
-  const handleDownloadZip = useCallback(async () => {
-    setZipLoading(true)
-    try {
-      const fullSchema = await getFullSchema()
-      const zip = new JSZip()
-
-      // HTML catalog
-      const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema })
-      zip.file('catalog.html', html)
-
-      // CSV files
-      zip.file('concepts.csv', buildConceptsCsv(cache.concepts, catalog))
-      zip.file('dimensions.csv', buildDimensionsCsv(cache.dimensions, catalog))
-
-      // JSON-LD metadata
-      const metadata = catalog.dcatApMetadata ?? {}
-      const jsonld = buildJsonLd({ metadata, schemaMapping, cache, catalog, fullSchema })
-      zip.file('metadata.jsonld', JSON.stringify(jsonld, null, 2))
-
-      const blob = await zip.generateAsync({ type: 'blob' })
-      downloadBlob(blob, `${baseName}-catalog.zip`)
-    } finally {
-      setZipLoading(false)
-    }
-  }, [catalog, cache, schemaMapping, baseName])
+    window.addEventListener('message', onMessage)
+    return () => window.removeEventListener('message', onMessage)
+  }, [preview])
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
-      {/* Export options */}
-      <Card className="p-4">
-        <div className="flex items-center gap-2">
-          <FileText size={14} className="text-muted-foreground" />
-          <h3 className="text-sm font-semibold">{t('data_catalog.export_html_title')}</h3>
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">
-          {t('data_catalog.export_html_description')}
-        </p>
+    <Tabs value={view} onValueChange={(v) => setView(v as 'preview' | 'export')} className="flex h-full min-h-0 w-full flex-col gap-3 py-4">
+      <div className="relative flex shrink-0 justify-center">
+        <TabsList>
+          <TabsTrigger value="preview"><Eye size={14} />{t('data_catalog.publish_preview')}</TabsTrigger>
+          <TabsTrigger value="export"><Upload size={14} />{t('data_catalog.publish_export')}</TabsTrigger>
+        </TabsList>
+        {view === 'preview' && (
+          <div className="absolute top-1/2 right-0 flex -translate-y-1/2 items-center gap-2">
+            <Switch id="catalog-preview-reveal" checked={reveal} onCheckedChange={setReveal} />
+            <Label htmlFor="catalog-preview-reveal">{t('data_catalog.preview_reveal')}</Label>
+            <FieldInfo text={t('data_catalog.preview_reveal_hint')} />
+          </div>
+        )}
+      </div>
 
-        <div className="mt-4 space-y-3">
-          {/* Anonymization summary */}
-          <div className="flex items-center gap-2 rounded-lg border p-3">
-            <ShieldCheck size={14} className="shrink-0 text-muted-foreground" />
-            <div className="flex-1 text-xs">
-              <span className="font-medium">{t('data_catalog.threshold')}: {threshold}</span>
-              <span className="ml-2 text-muted-foreground">
-                ({mode === 'replace' ? t('data_catalog.anon_mode_replace') : t('data_catalog.anon_mode_suppress')})
-              </span>
-              {impact.affected > 0 && (
-                <span className="ml-3">
-                  {mode === 'replace' ? (
-                    <span className="text-amber-500">
-                      {impact.affected.toLocaleString()} {t('data_catalog.export_rows_replaced')}
-                    </span>
-                  ) : (
-                    <span className="text-red-500">
-                      {impact.affected.toLocaleString()} {t('data_catalog.export_rows_suppressed')}
-                    </span>
-                  )}
-                </span>
-              )}
-              <span className="ml-3 text-muted-foreground">
-                {impact.retainedConcepts} / {impact.totalConcepts} {t('data_catalog.export_concepts')}
-              </span>
+      <TabsContent value="preview" className="m-0 min-h-0 flex-1">
+        {/* The preview is the downloaded file itself. */}
+        <div className="relative h-full min-h-[480px] overflow-hidden rounded-md border bg-muted">
+          {preview ? (
+            // Scripts run (tabs, filters, sorting) and the page's CSV buttons may
+            // download, but nothing else: no same-origin access to the app, no
+            // navigation, no forms.
+            <iframe ref={frame} srcDoc={preview.html} className="h-full w-full border-0" title={t('data_catalog.export_preview_title')} sandbox="allow-scripts allow-downloads allow-popups" />
+          ) : (
+            <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-muted-foreground">
+              <Loader2 size={14} className="animate-spin" />
+              {t('data_catalog.export_generating')}
             </div>
-          </div>
-
-          {/* Action buttons */}
-          <div className="flex items-center gap-2">
-            <Button onClick={handleDownloadZip} disabled={zipLoading}>
-              <Archive size={14} />
-              {zipLoading ? t('data_catalog.export_generating') : t('data_catalog.export_download_zip')}
-            </Button>
-            <Button variant="outline" onClick={handleDownload}>
-              <Download size={14} />
-              {t('data_catalog.export_download_html')}
-            </Button>
-            <Button variant="outline" onClick={handlePreview}>
-              <Eye size={14} />
-              {t('data_catalog.export_preview')}
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {t('data_catalog.export_zip_contents')}
-          </p>
+          )}
         </div>
-      </Card>
+      </TabsContent>
 
-      {/* HTML preview modal */}
-      <Dialog open={previewHtml !== null} onOpenChange={(open) => { if (!open) setPreviewHtml(null) }}>
-        <DialogContent className="!top-0 !left-0 !translate-x-0 !translate-y-0 !max-w-none flex h-screen max-h-screen w-screen flex-col gap-0 rounded-none border-0 p-0">
-          <DialogHeader className="shrink-0 border-b px-4 py-3">
-            <DialogTitle>{t('data_catalog.export_preview_title')}</DialogTitle>
-          </DialogHeader>
-          <iframe
-            srcDoc={previewHtml ?? undefined}
-            className="min-h-0 flex-1 border-0"
-            title="Catalog preview"
-            sandbox="allow-scripts"
+      <TabsContent value="export" className="m-0">
+        <div className="mx-auto grid w-full max-w-4xl gap-3">
+          <Card className="flex flex-row items-center gap-3 p-4">
+            <Languages size={14} className="text-muted-foreground" />
+            <Label htmlFor="catalog-page-locale">{t('data_catalog.export_language')}</Label>
+            <FieldInfo text={t('data_catalog.export_language_hint')} />
+            <span className="flex-1" />
+            <Select value={exportLocale} onValueChange={(v) => setExportLocale(v as PageLocale)}>
+              <SelectTrigger id="catalog-page-locale" className="h-8 w-36 text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PAGE_LOCALES.map((l) => <SelectItem key={l} value={l} className="text-xs">{LOCALE_NAMES[l]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Card>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ExportCard
+              icon={<Archive size={16} className="shrink-0 text-amber-500" />}
+              headClassName="bg-amber-50 dark:bg-amber-950/30"
+              title={t('data_catalog.export_zip_title')}
+              extension=".zip"
+              description={t('data_catalog.export_zip_description')}
+              files={[
+                ['catalog.html', t('data_catalog.export_file_html')],
+                ['concepts.csv', t('data_catalog.export_file_concepts')],
+                ['crossings/*.csv', t('data_catalog.export_file_crossings')],
+                ['metadata.jsonld', t('data_catalog.export_file_jsonld')],
+              ]}
+              action={
+                <Button className="w-full" variant="outline" size="sm" onClick={() => void downloadZip(exportLocale)} disabled={zipLoading}>
+                  {zipLoading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  {zipLoading ? t('data_catalog.export_generating') : t('data_catalog.export_download_zip')}
+                </Button>
+              }
+            />
+            <ExportCard
+              icon={<FileCode size={16} className="shrink-0 text-sky-500" />}
+              headClassName="bg-sky-50 dark:bg-sky-950/30"
+              title={t('data_catalog.export_html_title')}
+              extension=".html"
+              description={t('data_catalog.export_html_description')}
+              action={
+                <Button className="w-full" variant="outline" size="sm" onClick={() => void downloadHtml(exportLocale)}>
+                  <Download size={14} />
+                  {t('data_catalog.export_download_html')}
+                </Button>
+              }
+            />
+          </div>
+
+          <CatalogPagesCard
+            catalog={catalog}
+            publishSite={(provider) => publishSite(provider, exportLocale)}
+            disableSite={disableSite}
+            siteSaving={siteSaving}
+            onOpenVersioning={onOpenVersioning}
           />
-        </DialogContent>
-      </Dialog>
-    </div>
+        </div>
+      </TabsContent>
+    </Tabs>
+  )
+}
+
+/** One download format, laid out like the concept-mapping export cards. */
+function ExportCard({ icon, headClassName, title, extension, description, files, action }: {
+  icon: ReactNode
+  headClassName: string
+  title: string
+  extension: string
+  description: string
+  /** What the download holds, as [file, what it is]. */
+  files?: [string, string][]
+  action: ReactNode
+}) {
+  return (
+    <Card className="flex flex-col justify-between gap-0 overflow-hidden p-0">
+      <div className={cn('flex items-center gap-2.5 px-4 py-3', headClassName)}>
+        {icon}
+        <span className="text-sm font-medium">{title}</span>
+        <Badge variant="outline" className="ml-auto">{extension}</Badge>
+      </div>
+      <div className="flex-1 space-y-2 px-4 py-3">
+        <p className="text-xs text-muted-foreground">{description}</p>
+        {files && (
+          <ul className="space-y-1">
+            {files.map(([file, what]) => (
+              <li key={file} className="flex gap-2 text-xs">
+                <code className="shrink-0 font-mono text-foreground">{file}</code>
+                <span className="text-muted-foreground">{what}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div className="px-4 pb-4">{action}</div>
+    </Card>
   )
 }

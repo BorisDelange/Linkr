@@ -32,7 +32,7 @@ async def _workspace(client, headers) -> str:
 async def _catalog(client, headers, ws: str, cid="cat1") -> dict:
     return (await client.post(f"{API}/data-catalogs", headers=headers, json={
         "id": cid, "workspaceId": ws, "name": {"en": "Catalog"}, "description": {},
-        "dataSourceId": "src-1", "dimensions": [{"type": "age"}], "anonymization": {"mode": "none"},
+        "dataSourceId": "src-1", "variables": {"age": {"enabled": True, "brackets": [18]}}, "crossings": [["age"]], "anonymization": {"mode": "none"},
     })).json()
 
 
@@ -41,7 +41,8 @@ async def test_catalog_crud(client):
     ws = await _workspace(client, headers)
     c = await _catalog(client, headers, ws)
     assert c["workspaceId"] == ws and c["status"] == "draft"
-    assert c["dimensions"] == [{"type": "age"}] and c["anonymization"] == {"mode": "none"}
+    assert c["variables"] == {"age": {"enabled": True, "brackets": [18]}} and c["crossings"] == [["age"]]
+    assert c["anonymization"] == {"mode": "none"}
 
     listed = (await client.get(f"{API}/data-catalogs?workspaceId={ws}", headers=headers)).json()
     assert [x["id"] for x in listed] == [c["id"]]

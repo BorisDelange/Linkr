@@ -6,6 +6,7 @@
 import { ensureUniqueAlias, generateAlias } from '@/lib/alias'
 import type { DeriveRequest } from '@/lib/api/data-sources'
 import { buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import { localized } from '@/lib/localized'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import type {
@@ -47,6 +48,9 @@ export function derivedDatabaseRow(parent: DataSource, name: LocalizedString, ex
     description: {},
     sourceType: 'database',
     connectionConfig: { engine: 'duckdb', managed: true } as unknown as ConnectionConfig,
+    // The EFFECTIVE mapping (the parent's base with its overrides applied), as
+    // the derived database's own base: a subset reads its tables the way the
+    // parent did, and has no overrides of its own yet.
     schemaMapping: sanitizeSchemaMapping(parent.schemaMapping),
     ...(parent.schemaSource ? { schemaSource: parent.schemaSource } : {}),
     status: 'configuring',
@@ -58,15 +62,12 @@ export function derivedDatabaseRow(parent: DataSource, name: LocalizedString, ex
 /** What a derivation is built from: a cohort, or the snapshot a derived database keeps. */
 export type DerivationDefinition = Pick<Cohort, 'level' | 'criteriaTree' | 'customSql' | 'name'>
 
-export type NotDerivable = 'custom-sql' | 'event-level' | 'no-mapping'
+export type NotDerivable = 'event-level' | 'no-mapping'
 
 /** Why this cohort cannot be derived, or null when it can. */
 export function derivableReason(definition: DerivationDefinition, source: DataSource): NotDerivable | null {
-  // The membership is rebuilt from the criteria; a hand-written query returns
-  // rows in no known shape, so there is nothing to filter the tables on.
-  if (definition.customSql) return 'custom-sql'
   if (definition.level === 'event') return 'event-level'
-  if (!source.schemaMapping?.patientTable) return 'no-mapping'
+  if (!source.schemaMapping?.patient) return 'no-mapping'
   if (!buildCohortMembershipSql(definition as Cohort, source.schemaMapping)) return 'no-mapping'
   return null
 }
@@ -80,8 +81,10 @@ export function derivationRequest(input: {
   target: DerivedFrom['target']
 }): Omit<DeriveRequest, 'target'> {
   const { cohort, source } = input
-  const membershipSql = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping) : null
-  if (!membershipSql) throw new Error('this cohort has no membership query')
+  const built = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping) : null
+  if (!built) throw new Error('this cohort has no membership query')
+  // The server runs it on the source as sent, outside queryDataSource.
+  const membershipSql = withClassRelations(built, source.schemaMapping)
   const derivedFrom: DerivedFrom = {
     database: {
       ...(source.lineageId ? { lineageId: source.lineageId } : {}),
@@ -91,6 +94,7 @@ export function derivationRequest(input: {
     cohort: { key: input.cohortKey, name: cohort.name },
     level: cohort.level,
     criteriaTree: cohort.criteriaTree,
+    ...(cohort.customSql?.trim() ? { customSql: cohort.customSql } : {}),
     target: input.target,
     copyPersonless: input.copyPersonless,
   }

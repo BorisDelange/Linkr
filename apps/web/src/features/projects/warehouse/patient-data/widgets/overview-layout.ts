@@ -29,6 +29,8 @@ export interface OverviewConceptRow {
   unitCount?: number
   eventCount: number
   durational: boolean
+  /** Read from a drug relation: labelled and described as a drug. */
+  drug?: boolean
 }
 
 export type OverviewRowKind = 'units' | 'table' | 'class' | 'concept' | 'other'
@@ -53,6 +55,8 @@ export interface OverviewRow {
   /** The concept's own id, on single-concept rows only. */
   conceptId?: string | null
   durational: boolean
+  /** Single-concept row read from a drug relation. */
+  drug?: boolean
   /** For "other" rows that are scrolled: how many concepts sit outside the window. */
   scrolledAbove?: number
   scrolledBelow?: number
@@ -223,6 +227,7 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
     conceptCode: c.conceptCode,
     conceptId: c.conceptId,
     durational: c.durational,
+    drug: c.drug,
   })
 
   const otherRow = (
@@ -402,10 +407,8 @@ export function medianGapPx(timestamps: number[], plotW: number, span: number): 
  * Does this label look like an RxNorm-style drug name — quantity, dose form, or
  * a bracketed brand?
  *
- * Triggering on the table's name instead would be a guess about the schema:
- * OMOP calls it "Drug", MIMIC "Prescriptions", and the next model something
- * else. The name's own shape is the thing that actually needs shortening, and it
- * is the same shape wherever it comes from.
+ * The fallback for drugs mapped as a plain event relation (a mapping converted
+ * from the v1 format); a drug relation says so by its class.
  */
 export function looksLikeDrugName(name: string): boolean {
   // A leading quantity, or a dose form at the end. NOT a bracketed suffix on its

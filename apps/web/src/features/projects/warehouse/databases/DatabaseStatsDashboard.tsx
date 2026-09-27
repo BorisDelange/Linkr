@@ -40,10 +40,10 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const recordRowCounts = useDataSourceStore((s) => s.recordRowCounts)
   const keepCounts = useCallback((stats: DatabaseStatsCache) => {
-    if (!schemaMapping.patientTable) return
+    if (!schemaMapping.patient) return
     recordRowCounts(dataSourceId, {
       patientCount: stats.summary.patientCount,
-      visitCount: schemaMapping.visitTable ? stats.summary.visitCount : undefined,
+      visitCount: schemaMapping.visit ? stats.summary.visitCount : undefined,
     }).catch(() => {})
   }, [dataSourceId, schemaMapping, recordRowCounts])
   const keepCountsRef = useRef(keepCounts)
@@ -126,7 +126,9 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     }
   }, [cache, cacheLoaded, isLoading, refresh, sourceStatus])
 
-  return { cache, isLoading, refresh }
+  // `cacheLoaded`: the stored statistics have been looked up — until then an
+  // empty `cache` means "not read yet", not "never computed".
+  return { cache, isLoading, refresh, cacheLoaded }
 }
 
 export function DatabaseStatsDashboard({

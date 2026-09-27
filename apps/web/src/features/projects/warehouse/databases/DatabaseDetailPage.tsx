@@ -1,10 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
-  ArrowLeft,
   ArrowUpRight,
   Pencil,
   BarChart3,
@@ -19,6 +18,7 @@ import {
   Table,
   Table2,
   SquareTerminal,
+  Network,
   Users,
   UsersRound,
 } from 'lucide-react'
@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { DatabaseMappingTab } from './DatabaseMappingTab'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Progress } from '@/components/ui/progress'
@@ -85,18 +86,19 @@ import { useCohortStore } from '@/stores/cohort-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
-const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
+const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
 
 /** What a project may open. `resolveTab` falls back to the default for anything
  *  outside this list, so a bookmarked `?tab=readme` lands on the overview rather
  *  than on an empty body. */
-const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema', 'sql'] as const
+const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema', 'mapping', 'sql'] as const
 
 /** Stand-in for a source with no data model: every clinical table is unknown, so
  *  only the table row counts can be computed. */
-const EMPTY_MAPPING: SchemaMapping = { presetId: 'none', presetLabel: { en: '', fr: '' } }
+const EMPTY_MAPPING: SchemaMapping = { formatVersion: 2, presetId: 'none', presetLabel: { en: '', fr: '' } }
 
 const statusColors: Record<string, string> = {
   connected: 'bg-green-500',
@@ -141,8 +143,7 @@ interface DatabaseDetailPageProps {
  */
 export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId, siblingIds = [] }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const { wsUid } = useResolvedParams()
+  const { wsUid, raw } = useResolvedParams()
   const dbActions = useDatabaseActions()
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
@@ -194,24 +195,21 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const shownTab: DatabaseTabId = onCohortRoute ? 'cohorts' : activeTab
   const selectTab = (tab: DatabaseTabId) => {
     if (!onCohortRoute || !source) return setActiveTab(tab)
-    const base = paths.warehouseDatabase(wsUid ?? '', source.id, siblingIds)
-    navigate(tab === 'overview' ? base : `${base}?tab=${tab}`)
+    setActiveTab(tab, { pathname: paths.warehouseDatabase(wsUid ?? '', source.id, siblingIds) })
   }
 
   if (!source) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
-        <DatabaseIcon size={32} className="text-muted-foreground/50" />
-        <p className="mt-3 text-sm text-muted-foreground">{t('databases.not_found')}</p>
-        <Button variant="outline" size="sm" onClick={onBack} className="mt-4 gap-1.5">
-          <ArrowLeft size={14} />
-          {t('common.back')}
-        </Button>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_database')}
+        entityId={raw.dbId}
+        onBack={onBack}
+        backLabel={t('common.back_to_databases')}
+      />
     )
   }
 
-  const hasMappedSchema = !!source.schemaMapping?.patientTable
+  const hasMappedSchema = !!source.schemaMapping?.patient
   // Without a data model there are no patient/visit tables to count, but table
   // row counts still make sense — and that is where the refresh button lives.
   const statsMapping = source.schemaMapping ?? EMPTY_MAPPING
@@ -237,6 +235,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
             <TabsTrigger value="schema">
               <Table2 size={14} />
               {t('databases.detail_schema')}
+            </TabsTrigger>
+            <TabsTrigger value="mapping">
+              <Network size={14} />
+              {t('schema_mapping.db_tab')}
             </TabsTrigger>
             <TabsTrigger value="sql">
               <SquareTerminal size={14} />
@@ -321,6 +323,11 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               </p>
             </div>
           )}
+        </TabsContent>
+        {/* Read-only in a project, like the rest of the page: the override is
+            the database's, edited where the database is managed. */}
+        <TabsContent value="mapping" className="m-0 min-h-0 flex-1 overflow-auto p-0">
+          <DatabaseMappingTab source={source} readOnly={readOnly} />
         </TabsContent>
         <TabsContent value="sql" className="m-0 min-h-0 flex-1 p-0">
           {source.status === 'connected' || source.status === 'configuring' ? (
@@ -818,7 +825,7 @@ function OverviewTab({
   // Mounted here rather than inside the cards: the "not computed yet" banner sits
   // above them as a sibling in this grid, and both need the same state. One
   // instance, so the cards keep reading the very numbers the banner speaks for.
-  const { cache, isLoading: statsLoading, refresh: refreshStats } = useDatabaseStats(
+  const { cache, isLoading: statsLoading, refresh: refreshStats, cacheLoaded } = useDatabaseStats(
     source.id, statsMapping, source.status,
   )
   // A rebuildable database is one that is not working and still holds the DDL it
@@ -834,7 +841,9 @@ function OverviewTab({
   // without a word here the tab looked like a database with nothing in it.
   // Not while the status banner is up: a database that cannot connect has no
   // statistics to run, and saying so twice buries the reason that matters.
-  const showStatsBanner = !cache && !statsLoading && !showStatusBanner
+  // Only once the stored statistics have been looked up: before that the banner
+  // flashed on every visit to a database that does have them.
+  const showStatsBanner = cacheLoaded && !cache && !statsLoading && !showStatusBanner
 
   const handleRetest = async () => {
     setRetesting(true)

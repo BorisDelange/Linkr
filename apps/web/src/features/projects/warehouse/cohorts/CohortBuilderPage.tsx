@@ -19,6 +19,7 @@ import {
   Split,
   Eye,
   EyeOff,
+  Square,
 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
@@ -43,7 +44,9 @@ import {
 import { CriteriaPanel } from './builder/CriteriaPanel'
 import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
+import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { CohortPatientsPanel } from './results/CohortPatientsPanel'
+import { CohortTablesPanel } from './results/CohortTablesPanel'
 import { CohortReportDialog } from './report/CohortReportDialog'
 import { CohortDeriveDialog } from './derive/CohortDeriveDialog'
 import { isServerMode } from '@/lib/api-client'
@@ -53,14 +56,14 @@ import { ExportAtlasDialog } from './atlas/ExportAtlasDialog'
 import { formatDateTime } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import type { CohortLevel, CriteriaGroupNode } from '@/types'
-import { qualify } from '@/lib/schema-helpers'
+import { classRelation } from '@/lib/schema-classes/relations'
 import { ProjectCohortHost, useCohortHost, useCohortSource } from './cohort-host'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
   { value: 'visit', labelKey: 'cohorts.level_visit' },
   { value: 'visit_detail', labelKey: 'cohorts.level_visit_detail' },
-  { value: 'event', labelKey: 'cohorts.level_event' },
 ]
 
 /** A project cohort's page. */
@@ -84,10 +87,13 @@ export function CohortBuilder() {
     updateCohort,
     setCustomSql,
     executeCohort,
+    cancelExecution,
     materializeCohort,
     executionResults,
     executionLoading,
     executionErrors,
+    customSqlOutputs,
+    executionAborts,
   } = useCohortStore()
 
   // Among this host's own cohorts only: a database route must not open a
@@ -121,20 +127,23 @@ export function CohortBuilder() {
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
   const loading = cohortId ? executionLoading.get(cohortId) ?? false : false
+  // A run, as opposed to a freeze, which cannot be interrupted.
+  const running = cohortId ? executionAborts.has(cohortId) : false
+  const handleCancel = useCallback(() => { if (cohortId) cancelExecution(cohortId) }, [cohortId, cancelExecution])
   const executionError = cohortId ? executionErrors.get(cohortId) ?? null : null
+  const customSqlOutput = cohortId ? customSqlOutputs.get(cohortId) ?? null : null
 
   const eventTableLabels = useMemo(
-    () => Object.keys(mapping?.eventTables ?? {}),
+    () => [...(mapping?.events ?? []), ...(mapping?.drugs ?? [])].map((e) => e.label),
     [mapping],
   )
 
   // Load min/max visit dates for period criteria defaults
   const [visitDateRange, setVisitDateRange] = useState<{ minDate: string; maxDate: string } | undefined>()
   useEffect(() => {
-    if (!activeSource || !mapping?.visitTable) return
-    const vt = mapping.visitTable
-    if (!vt.startDateColumn) return
-    const sql = `SELECT MIN("${vt.startDateColumn}")::DATE::TEXT AS min_date, MAX("${vt.startDateColumn}")::DATE::TEXT AS max_date FROM ${qualify(vt)}`
+    const visit = mapping ? classRelation(mapping, 'visit') : undefined
+    if (!activeSource || !visit) return
+    const sql = `SELECT MIN(start_datetime)::DATE::TEXT AS min_date, MAX(start_datetime)::DATE::TEXT AS max_date FROM ${visit.name}`
     engine.queryDataSource(activeSource.id, sql).then((rows) => {
       if (rows[0]?.min_date && rows[0]?.max_date) {
         setVisitDateRange({
@@ -143,7 +152,7 @@ export function CohortBuilder() {
         })
       }
     }).catch(() => {})
-  }, [activeSource, mapping?.visitTable])
+  }, [activeSource, mapping])
 
 
   const handleUpdateTree = useCallback(
@@ -185,14 +194,21 @@ export function CohortBuilder() {
     [cohortId, setCustomSql],
   )
 
-  const handleExecute = useCallback(async () => {
+  // The SQL tab's unsaved text: every Run runs what the editor shows.
+  const sqlDraftRef = useRef<string | null | undefined>(undefined)
+  const handleSqlDraftChange = useCallback((sql: string | null | undefined) => {
+    sqlDraftRef.current = sql
+  }, [])
+
+  const runCohort = useCallback(async (customSqlDraft: string | null | undefined) => {
     if (!cohortId || !activeSource) return
     try {
-      await executeCohort(cohortId, activeSource.id, activeSource.schemaMapping)
+      await executeCohort(cohortId, activeSource.id, activeSource.schemaMapping, customSqlDraft)
     } catch {
       // Error handled by store
     }
   }, [cohortId, activeSource, executeCohort])
+  const handleExecute = useCallback(() => runCohort(sqlDraftRef.current), [runCohort])
 
   const runMaterialize = useCallback(async () => {
     if (!cohortId || !activeSource) return
@@ -251,9 +267,12 @@ export function CohortBuilder() {
 
   if (!cohort) {
     return (
-      <div className="flex h-full items-center justify-center text-muted-foreground">
-        <p>{t('cohorts.not_found')}</p>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_cohort')}
+        entityId={raw.cohortId}
+        backTo={host.listPath}
+        backLabel={t('common.back_to_cohorts')}
+      />
     )
   }
 
@@ -411,16 +430,23 @@ export function CohortBuilder() {
           </Button>
         )}
 
-        {/* Execute */}
-        <Button
-          size="sm"
-          onClick={handleExecute}
-          disabled={loading || !activeSource || !can('cohorts:write')}
-          className="h-6 gap-1 text-xs"
-        >
-          {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-          {t('cohorts.execute')}
-        </Button>
+        {/* Execute, or stop the run in progress */}
+        {running ? (
+          <Button variant="destructive" size="sm" onClick={handleCancel} className="h-6 gap-1 text-xs">
+            <Square size={12} />
+            {t('cohorts.stop')}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={handleExecute}
+            disabled={loading || !activeSource || !can('cohorts:write')}
+            className="h-6 gap-1 text-xs"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {t('cohorts.execute')}
+          </Button>
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -449,7 +475,7 @@ export function CohortBuilder() {
                   criteriaTree={cohort.criteriaTree}
                   onChange={handleUpdateTree}
                   eventTableLabels={eventTableLabels}
-                  genderValues={mapping?.genderValues}
+                  genderValues={mapping?.patient?.genderValues}
                   visitDateRange={visitDateRange}
                   dataSourceId={activeSource?.id}
                   schemaMapping={mapping}
@@ -461,7 +487,8 @@ export function CohortBuilder() {
                 cohort={cohort}
                 mapping={mapping}
                 onCustomSqlChange={handleCustomSqlChange}
-                onExecute={handleExecute}
+                onExecute={runCohort}
+                onDraftChange={handleSqlDraftChange}
               />
             )}
           </Allotment.Pane>
@@ -469,11 +496,13 @@ export function CohortBuilder() {
             <ResultsPanel
               result={result}
               loading={loading}
+              onCancel={running ? handleCancel : undefined}
               error={executionError}
+              output={customSqlOutput}
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
               renderPatients={
-                activeSource && mapping?.patientTable && cohort.level !== 'event'
+                activeSource && mapping?.patient && cohort.level !== 'event'
                   ? (r) => (
                       <CohortPatientsPanel
                         dataSourceId={activeSource.id}
@@ -484,6 +513,12 @@ export function CohortBuilder() {
                     )
                   : undefined
               }
+              renderTables={
+                activeSource && mapping && cohort.level !== 'event'
+                  ? () => <CohortTablesPanel dataSourceId={activeSource.id} cohort={cohort} schemaMapping={mapping} />
+                  : undefined
+              }
+              renderSchema={activeSource ? () => <SchemaBrowser dataSourceId={activeSource.id} defaultStatsVisible={false} /> : undefined}
             />
           </Allotment.Pane>
         </Allotment>

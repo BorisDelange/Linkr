@@ -30,7 +30,6 @@ interface CohortReportDialogProps {
 
 /** Why this cohort cannot have a report at all, before anything runs. */
 function unavailableReason(cohort: Cohort): string | null {
-  if (cohort.customSql) return 'custom-sql'
   if (cohort.level === 'event') return 'event-level'
   return null
 }

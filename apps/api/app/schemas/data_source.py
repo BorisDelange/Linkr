@@ -24,6 +24,7 @@ class DataSourceCreate(CamelModel):
     require_session_only: bool = False
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    schema_overrides: dict | None = None
     derived_from: dict | None = None
     status: str = "configuring"
     stats: dict | None = None
@@ -56,6 +57,7 @@ class DataSourceUpdate(CamelModel):
     require_session_only: bool | None = None
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    schema_overrides: dict | None = None
     derived_from: dict | None = None
     status: str | None = None
     stats: dict | None = None
@@ -91,6 +93,7 @@ class DataSourceResponse(CamelModel):
     require_session_only: bool = False
     schema_mapping: dict | None = None
     schema_source: dict | None = None
+    schema_overrides: dict | None = None
     derived_from: dict | None = None
     status: str
     stats: dict | None = None
@@ -159,6 +162,18 @@ class TestConnectionResult(CamelModel):
 
 class QueryRequest(CamelModel):
     sql: str
+    # Tags the query so `POST /query/cancel` can interrupt it while it runs.
+    query_id: str | None = None
+    # Every row, up to db_connect.MAX_QUERY_ROWS_ALL, instead of the usual cap.
+    all_rows: bool = False
+
+
+class QueryCancelRequest(CamelModel):
+    query_id: str
+
+
+class QueryCancelResult(CamelModel):
+    cancelled: bool
 
 
 class QueryResult(CamelModel):

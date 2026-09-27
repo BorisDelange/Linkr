@@ -100,6 +100,12 @@ describe('fmtEventValue', () => {
   it('skips the rate when the span is not a real duration', () => {
     expect(fmtEventValue(500, null, 'mg', 5000, 5000)).toBe('500 mg')
   })
+
+  it('prefers the rate the source recorded over the derived average', () => {
+    const end = 2 * 3_600_000
+    expect(fmtEventValue(500, null, 'mg', 0, end, { rate: 12.5, rateUnit: 'mL/h' })).toBe('500 mg · 12.5 mL/h')
+    expect(fmtEventValue(500, null, 'mg', 0, end, { rate: null })).toBe('500 mg · 250 mg/h')
+  })
 })
 
 // Stamps read as LOCAL wall-clock, like the rest of the app's datetimes and like

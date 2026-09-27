@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { InitiallyCollapsedContext, criterionIds } from './initial-collapse'
 import { useTranslation } from 'react-i18next'
 import { arrayMove } from '@dnd-kit/sortable'
 import {
@@ -21,13 +22,14 @@ import { CriteriaGroupNodeComponent } from './CriteriaGroupNodeComponent'
 import { CriterionCard } from './CriterionCard'
 import { AddCriterionMenu } from './AddCriterionMenu'
 import { OperatorSeparator } from './OperatorSeparator'
+import { defaultCriterionConfig } from './criteria-defaults'
 import type {
   CriteriaGroupNode,
   CriteriaTreeNode,
   CriterionNode,
   CriteriaType,
-  CriteriaConfig,
   SchemaMapping,
+  PatientSpec,
   CohortLevel,
 } from '@/types'
 
@@ -35,7 +37,7 @@ interface CriteriaPanelProps {
   criteriaTree: CriteriaGroupNode
   onChange: (tree: CriteriaGroupNode) => void
   eventTableLabels: string[]
-  genderValues?: SchemaMapping['genderValues']
+  genderValues?: PatientSpec['genderValues']
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
@@ -195,10 +197,7 @@ export function CriteriaPanel({
   }
 
   const handleAddCriterion = (type: CriteriaType) => {
-    let config = getDefaultConfig(type)
-    if (type === 'period' && visitDateRange) {
-      config = { startDate: visitDateRange.minDate, endDate: visitDateRange.maxDate }
-    }
+    const config = defaultCriterionConfig(type, { cohortLevel, visitDateRange })
     const newNode: CriterionNode = {
       kind: 'criterion',
       id: crypto.randomUUID(),
@@ -223,122 +222,107 @@ export function CriteriaPanel({
     handleAddNode(criteriaTree.id, newGroup)
   }
 
-  const [collapseSignal, setCollapseSignal] = useState({ seq: 0, collapsed: false })
+  // Per cohort: opening another one collapses its criteria in turn.
+  const [initial, setInitial] = useState(() => ({ root: criteriaTree.id, ids: criterionIds(criteriaTree) }))
+  if (initial.root !== criteriaTree.id) setInitial({ root: criteriaTree.id, ids: criterionIds(criteriaTree) })
+  const [collapseSignal, setCollapseSignal] = useState({ seq: 0, collapsed: criteriaTree.children.length > 0 })
   // Any node still on means the button offers to turn everything off — the
   // label follows this, so naming it `allEnabled` read as the opposite rule.
   const someEnabled = anyEnabled(criteriaTree)
 
   return (
-    <div className="p-3 space-y-0">
-      {criteriaTree.children.length > 0 && (
-        <div className="mb-2 flex items-center justify-end gap-1">
-          <Button
-            variant="ghost"
-            size="sm-tight"
-            className="text-muted-foreground"
-            onClick={() => setCollapseSignal((s) => ({ seq: s.seq + 1, collapsed: !s.collapsed }))}
+    <InitiallyCollapsedContext.Provider value={initial.ids}>
+      <div className="p-3 space-y-0">
+        {criteriaTree.children.length > 0 && (
+          <div className="mb-2 flex items-center justify-end gap-1">
+            <Button
+              variant="ghost"
+              size="sm-tight"
+              className="text-muted-foreground"
+              onClick={() => setCollapseSignal((s) => ({ seq: s.seq + 1, collapsed: !s.collapsed }))}
+            >
+              {collapseSignal.collapsed ? <ChevronsUpDown size={12} /> : <ChevronsDownUp size={12} />}
+              {collapseSignal.collapsed ? t('cohorts.expand_all') : t('cohorts.collapse_all')}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm-tight"
+              className="text-muted-foreground"
+              onClick={() => onChange(setAllEnabled(criteriaTree, !someEnabled))}
+            >
+              <Power size={12} />
+              {someEnabled ? t('cohorts.disable_all') : t('cohorts.enable_all')}
+            </Button>
+          </div>
+        )}
+        {criteriaTree.children.length > 0 ? (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragEnd={handleDragEnd}
           >
-            {collapseSignal.collapsed ? <ChevronsUpDown size={12} /> : <ChevronsDownUp size={12} />}
-            {collapseSignal.collapsed ? t('cohorts.expand_all') : t('cohorts.collapse_all')}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm-tight"
-            className="text-muted-foreground"
-            onClick={() => onChange(setAllEnabled(criteriaTree, !someEnabled))}
-          >
-            <Power size={12} />
-            {someEnabled ? t('cohorts.disable_all') : t('cohorts.enable_all')}
-          </Button>
-        </div>
-      )}
-      {criteriaTree.children.length > 0 ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToVerticalAxis]}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={criteriaTree.children.map((c) => c.id)}
-            strategy={verticalListSortingStrategy}
-          >
-            {criteriaTree.children.map((child, index) => (
-              <div key={child.id}>
-                {index > 0 && (
-                  <OperatorSeparator
-                    operator={child.operator}
-                    onToggle={() => handleToggleOperator(child.id)}
-                  />
-                )}
-                {child.kind === 'criterion' ? (
-                  <CriterionCard
-                    node={child}
-                    onUpdate={handleUpdateNode as (id: string, changes: Partial<CriterionNode>) => void}
-                    onRemove={handleRemoveNode}
-                    eventTableLabels={eventTableLabels}
-                    genderValues={genderValues}
-                    visitDateRange={visitDateRange}
-                    dataSourceId={dataSourceId}
-                    schemaMapping={schemaMapping}
-                    cohortLevel={cohortLevel}
-                    collapseSignal={collapseSignal}
-                  />
-                ) : (
-                  <CriteriaGroupNodeComponent
-                    node={child}
-                    depth={1}
-                    onUpdate={handleUpdateGroup}
-                    onRemove={handleRemoveNode}
-                    onAddNode={handleAddNode}
-                    onRemoveNode={handleRemoveNode}
-                    onUpdateNode={handleUpdateNode}
-                    onMoveNode={handleMoveNode}
-                    eventTableLabels={eventTableLabels}
-                    genderValues={genderValues}
-                    visitDateRange={visitDateRange}
-                    dataSourceId={dataSourceId}
-                    schemaMapping={schemaMapping}
-                    cohortLevel={cohortLevel}
-                  />
-                )}
-              </div>
-            ))}
-          </SortableContext>
-        </DndContext>
-      ) : (
-        <p className="py-8 text-center text-xs text-muted-foreground">
-          {t('cohorts.group_empty')}
-        </p>
-      )}
+            <SortableContext
+              items={criteriaTree.children.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
+            >
+              {criteriaTree.children.map((child, index) => (
+                <div key={child.id}>
+                  {index > 0 && (
+                    <OperatorSeparator
+                      operator={child.operator}
+                      onToggle={() => handleToggleOperator(child.id)}
+                    />
+                  )}
+                  {child.kind === 'criterion' ? (
+                    <CriterionCard
+                      node={child}
+                      onUpdate={handleUpdateNode as (id: string, changes: Partial<CriterionNode>) => void}
+                      onRemove={handleRemoveNode}
+                      eventTableLabels={eventTableLabels}
+                      genderValues={genderValues}
+                      visitDateRange={visitDateRange}
+                      dataSourceId={dataSourceId}
+                      schemaMapping={schemaMapping}
+                      cohortLevel={cohortLevel}
+                      collapseSignal={collapseSignal}
+                    />
+                  ) : (
+                    <CriteriaGroupNodeComponent
+                      node={child}
+                      depth={1}
+                      onUpdate={handleUpdateGroup}
+                      onRemove={handleRemoveNode}
+                      onAddNode={handleAddNode}
+                      onRemoveNode={handleRemoveNode}
+                      onUpdateNode={handleUpdateNode}
+                      onMoveNode={handleMoveNode}
+                      eventTableLabels={eventTableLabels}
+                      genderValues={genderValues}
+                      visitDateRange={visitDateRange}
+                      dataSourceId={dataSourceId}
+                      schemaMapping={schemaMapping}
+                      cohortLevel={cohortLevel}
+                    />
+                  )}
+                </div>
+              ))}
+            </SortableContext>
+          </DndContext>
+        ) : (
+          <p className="py-8 text-center text-xs text-muted-foreground">
+            {t('cohorts.group_empty')}
+          </p>
+        )}
 
-      <div className="pt-2">
-        <AddCriterionMenu
-          onAddCriterion={handleAddCriterion}
-          onAddGroup={handleAddGroup}
-        />
+        <div className="pt-2">
+          <AddCriterionMenu
+            onAddCriterion={handleAddCriterion}
+            onAddGroup={handleAddGroup}
+          />
+        </div>
       </div>
-    </div>
+    </InitiallyCollapsedContext.Provider>
   )
 }
 
-function getDefaultConfig(type: CriteriaType): CriteriaConfig {
-  switch (type) {
-    case 'age':
-      return { ageReference: 'admission', min: undefined, max: undefined }
-    case 'sex':
-      return { values: [] }
-    case 'death':
-      return { isDead: true }
-    case 'period':
-      return { startDate: undefined, endDate: undefined }
-    case 'duration':
-      return { durationLevel: 'visit', minDays: undefined, maxDays: undefined }
-    case 'care_site':
-      return { careSiteLevel: 'visit_detail', values: [] }
-    case 'concept':
-      return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
-    case 'text':
-      return { description: '' }
-  }
-}

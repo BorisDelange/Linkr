@@ -25,12 +25,23 @@ describe('splitSqlStatements', () => {
     ])
   })
 
-  it('handles backslash escapes inside single quotes', () => {
+  it('handles backslash escapes inside an E-string', () => {
     // An escaped quote must not end the literal early and expose the `;`.
-    expect(splitSqlStatements("SELECT 'a\\'; b'; SELECT 2")).toEqual([
-      "SELECT 'a\\'; b'",
+    expect(splitSqlStatements("SELECT E'a\\'; b'; SELECT 2")).toEqual([
+      "SELECT E'a\\'; b'",
       'SELECT 2',
     ])
+  })
+
+  it('reads a backslash in a plain string as a character, as DuckDB does', () => {
+    // `'\'` is a whole one-character string: DuckDB runs the INSTALL, so the
+    // splitter must see it, or the forbidden-statement guard never does.
+    expect(splitSqlStatements("SELECT '\\'; INSTALL httpfs; --'")).toEqual([
+      "SELECT '\\'",
+      'INSTALL httpfs',
+      "--'",
+    ])
+    expect(splitSqlStatements("SELECT x LIKE 'a\\%' ESCAPE '\\'; SELECT 2")).toHaveLength(2)
   })
 
   it('does not split inside a block comment', () => {

@@ -28,7 +28,7 @@ const MANIFEST_KEYS = [
   'lineageId', 'parentLineageId', 'createdAt', 'version',
   // Kind-specific fields the specs model; listing them here keeps them out of
   // `extra`, where they would be written twice.
-  'status', 'sourceType', 'dimensions', 'categoryColumn', 'subcategoryColumn', 'checks',
+  'status', 'sourceType', 'variables', 'crossings', 'checks',
 ]
 
 /** Kinds this module can read back. */
@@ -189,9 +189,8 @@ export function readEntity(tree: EntityTree, kind: ReadableEntityKind): ReadEnti
         spec: {
           ...head,
           ...tail,
-          dimensions: (meta.dimensions as string[]) ?? [],
-          ...(meta.categoryColumn ? { categoryColumn: meta.categoryColumn as string } : {}),
-          ...(meta.subcategoryColumn ? { subcategoryColumn: meta.subcategoryColumn as string } : {}),
+          variables: (meta.variables as Record<string, unknown>) ?? {},
+          crossings: (meta.crossings as string[][]) ?? [],
         } as DataCatalogSpec,
       }
 

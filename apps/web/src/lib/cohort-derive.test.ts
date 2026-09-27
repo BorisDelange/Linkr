@@ -1,15 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import type { Cohort, DataSource, SchemaMapping } from '@/types'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
+import type { Cohort, DataSource } from '@/types'
 import {
   DERIVE_SCHEMA_NAME, createdData, defaultDeriveSchemaName, derivableReason, derivationRequest, derivedDatabaseRow,
   isWritableTarget, rebuildRequest,
 } from './cohort-derive'
 
-const mapping = {
+const mapping = mappingV1ToV2({
   presetId: 'omop',
   patientTable: { table: 'person', idColumn: 'person_id' },
   visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'd' },
-} as SchemaMapping
+} as never)
 
 const db = (over: Partial<DataSource> = {}): DataSource => ({
   id: 'db1', alias: 'db', name: { en: 'Parent' }, sourceType: 'database', workspaceId: 'ws',
@@ -33,11 +34,11 @@ describe('isWritableTarget', () => {
 })
 
 describe('derivableReason', () => {
-  it('refuses custom SQL, the event level and a schema without patients', () => {
+  it('refuses the event level and a schema without patients', () => {
     expect(derivableReason(cohort(), db())).toBeNull()
-    expect(derivableReason(cohort({ customSql: 'SELECT 1' }), db())).toBe('custom-sql')
+    expect(derivableReason(cohort({ customSql: 'SELECT 1 AS id' }), db())).toBeNull()
     expect(derivableReason(cohort({ level: 'event' }), db())).toBe('event-level')
-    expect(derivableReason(cohort(), db({ schemaMapping: { presetId: 'x' } as SchemaMapping }))).toBe('no-mapping')
+    expect(derivableReason(cohort(), db({ schemaMapping: mappingV1ToV2({ presetId: 'x' } as never) }))).toBe('no-mapping')
   })
 })
 
@@ -63,6 +64,14 @@ describe('derivationRequest', () => {
     })
     // No local id in what is exported with the derived database.
     expect(JSON.stringify(r.derivedFrom)).not.toContain('db1')
+  })
+
+  it('filters on a hand-written query, and records it so a rebuild runs it again', () => {
+    const customSql = 'SELECT visit_id FROM linkr_visit WHERE visit_id < 10'
+    const r = derivationRequest({ cohort: cohort({ customSql }), cohortKey: 'icu', source: db(), copyPersonless: false, target: 'new-database' })
+    expect(r.membershipSql).toContain('WHERE visit_id < 10')
+    expect(r.membershipSql).toMatch(/AS patient_id/)
+    expect(r.derivedFrom?.customSql).toBe(customSql)
   })
 })
 

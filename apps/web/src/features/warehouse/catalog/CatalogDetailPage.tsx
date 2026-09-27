@@ -1,17 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate } from 'react-router'
 import {
-  ArrowLeft,
   BookOpen,
   Database,
   Info,
   Settings2,
-  Table2,
+  Loader2,
   ShieldCheck,
   Tags,
   Upload,
   FileText,
+  FileBarChart,
   Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -36,14 +35,14 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { useCatalogActions } from './use-catalog-actions'
 import { CreateCatalogDialog } from './CreateCatalogDialog'
 import { CatalogConfigTab } from './CatalogConfigTab'
-import { CatalogDataTab } from './CatalogDataTab'
 import { CatalogAnonymizationTab } from './CatalogAnonymizationTab'
 import { CatalogDcatTab } from './CatalogDcatTab'
 import { CatalogExportTab } from './CatalogExportTab'
-import type { DataCatalog } from '@/types'
+import type { CatalogResultCache, DataCatalog } from '@/types'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
 const TAB_IDS = [
-  'overview', 'config', 'data', 'anonymization', 'dcat', 'export',
+  'overview', 'config', 'anonymization', 'dcat', 'export',
   'readme', 'license', 'versioning',
 ] as const
 type TabId = (typeof TAB_IDS)[number]
@@ -51,7 +50,6 @@ type TabId = (typeof TAB_IDS)[number]
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'overview', labelKey: 'databases.detail_overview', icon: Info },
   { id: 'config', labelKey: 'data_catalog.tab_config', icon: Settings2 },
-  { id: 'data', labelKey: 'data_catalog.tab_data', icon: Table2 },
   { id: 'anonymization', labelKey: 'data_catalog.tab_anonymization', icon: ShieldCheck },
   { id: 'dcat', labelKey: 'data_catalog.tab_dcat', icon: Tags },
   // Publishes the catalog as a DCAT-AP site (HTML + CSV + JSON-LD). Named
@@ -90,8 +88,12 @@ export function CatalogDetailPage({ catalogId }: Props) {
       setReadmeEditing(false)
     }
   }, [activeTab])
-  const navigate = useNavigate()
-  const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, loadResultCache, updateCatalog } = useCatalogStore()
+  // Publish is costly to build (the whole page): once opened it stays
+  // mounted, hidden, so coming back is instant.
+  const [kept, setKept] = useState<ReadonlySet<TabId>>(new Set())
+  if (activeTab === 'export' && !kept.has(activeTab)) setKept(new Set([...kept, activeTab]))
+  const { catalogs, catalogsLoaded, loadCatalogs, activeResultCache, resultCacheLoadedFor, loadResultCache, updateCatalog } = useCatalogStore()
+  const resultsLoaded = resultCacheLoadedFor === catalogId
   const catalogActions = useCatalogActions()
   const canWrite = useMyWorkspaceRole().can('catalog:write')
   // Reinstalling replaces the whole entity's content, so it takes the same role
@@ -113,20 +115,12 @@ export function CatalogDetailPage({ catalogId }: Props) {
 
   if (!catalog) {
     return (
-      <div className="h-full overflow-auto">
-        <div className="px-6 py-6">
-          <Button variant="ghost" size="sm" onClick={() => navigate(catalogListPath)}>
-            <ArrowLeft size={14} />
-            {t('data_catalog.back_to_list')}
-          </Button>
-          <Card className="mt-4">
-            <div className="flex flex-col items-center py-12">
-              <BookOpen size={40} className="text-muted-foreground" />
-              <p className="mt-4 text-sm font-medium">{t('data_catalog.not_found')}</p>
-            </div>
-          </Card>
-        </div>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_data_catalog')}
+        entityId={catalogId}
+        backTo={catalogListPath}
+        backLabel={t('common.back_to_data_catalogs')}
+      />
     )
   }
 
@@ -137,8 +131,8 @@ export function CatalogDetailPage({ catalogId }: Props) {
     <div className="flex h-full flex-col overflow-hidden">
       {/* No page header: the catalog's name lives in the global header badge
           like every other entity, and its source database has its own card in
-          the overview. Run status belongs to the Data tab, which is where a
-          failure can actually be acted on. */}
+          the overview. Run status belongs to the Configuration tab, which is
+          where a failure can actually be acted on. */}
       <Tabs
         value={activeTab}
         onValueChange={(v) => setActiveTab(v as TabId)}
@@ -167,6 +161,8 @@ export function CatalogDetailPage({ catalogId }: Props) {
               onEditReadme={() => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={() => setActiveTab('license')}
               onEditSource={() => setEditingSource(true)}
+              onOpenPublish={() => setActiveTab('export')}
+              onOpenData={() => setActiveTab('config')}
             />
           </div>
         </TabsContent>
@@ -208,56 +204,20 @@ export function CatalogDetailPage({ catalogId }: Props) {
           <CatalogConfigTab catalog={catalog} />
         </TabsContent>
 
-        <TabsContent value="data" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
-          {activeResultCache ? (
-            <CatalogDataTab catalog={catalog} cache={activeResultCache} />
-          ) : (
-            <Card>
-              <div className="flex flex-col items-center py-12">
-                <BookOpen size={40} className="text-muted-foreground" />
-                <p className="mt-4 text-sm font-medium">{t('data_catalog.no_data')}</p>
-                <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
-                  {t('data_catalog.no_data_description')}
-                </p>
-              </div>
-            </Card>
-          )}
-        </TabsContent>
-
         <TabsContent value="anonymization" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
-          {activeResultCache ? (
-            <CatalogAnonymizationTab catalog={catalog} cache={activeResultCache} />
-          ) : (
-            <Card>
-              <div className="flex flex-col items-center py-12">
-                <BookOpen size={40} className="text-muted-foreground" />
-                <p className="mt-4 text-sm font-medium">{t('data_catalog.no_data')}</p>
-                <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
-                  {t('data_catalog.no_data_description')}
-                </p>
-              </div>
-            </Card>
-          )}
+          <ResultsGate loaded={resultsLoaded} cache={activeResultCache}>
+            {(cache) => <CatalogAnonymizationTab catalog={catalog} cache={cache} />}
+          </ResultsGate>
         </TabsContent>
 
         <TabsContent value="dcat" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
           <CatalogDcatTab catalog={catalog} cache={activeResultCache} />
         </TabsContent>
 
-        <TabsContent value="export" className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5">
-          {activeResultCache ? (
-            <CatalogExportTab catalog={catalog} cache={activeResultCache} />
-          ) : (
-            <Card>
-              <div className="flex flex-col items-center py-12">
-                <BookOpen size={40} className="text-muted-foreground" />
-                <p className="mt-4 text-sm font-medium">{t('data_catalog.no_data')}</p>
-                <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
-                  {t('data_catalog.no_data_description')}
-                </p>
-              </div>
-            </Card>
-          )}
+        <TabsContent value="export" forceMount={kept.has('export') || undefined} className="m-0 min-h-0 flex-1 overflow-auto px-6 pb-1.5 data-[state=inactive]:hidden">
+          <ResultsGate loaded={resultsLoaded} cache={activeResultCache}>
+            {(cache) => <CatalogExportTab catalog={catalog} cache={cache} active={activeTab === 'export'} onOpenVersioning={() => setActiveTab('versioning')} />}
+          </ResultsGate>
         </TabsContent>
       </Tabs>
 
@@ -273,6 +233,38 @@ export function CatalogDetailPage({ catalogId }: Props) {
   )
 }
 
+/**
+ * A tab that needs the computed results: a spinner while they are read, the
+ * "nothing computed yet" card only once it is known there are none.
+ */
+function ResultsGate({ loaded, cache, children }: {
+  loaded: boolean
+  cache: CatalogResultCache | null
+  children: (cache: CatalogResultCache) => React.ReactNode
+}) {
+  const { t } = useTranslation()
+  if (cache) return <>{children(cache)}</>
+  if (!loaded) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-16 text-xs text-muted-foreground">
+        <Loader2 size={14} className="animate-spin" />
+        {t('common.loading')}
+      </div>
+    )
+  }
+  return (
+    <Card>
+      <div className="flex flex-col items-center py-12">
+        <BookOpen size={40} className="text-muted-foreground" />
+        <p className="mt-4 text-sm font-medium">{t('data_catalog.no_data')}</p>
+        <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
+          {t('data_catalog.no_data_description')}
+        </p>
+      </div>
+    </Card>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Overview, licence tabs
 // ---------------------------------------------------------------------------
@@ -282,11 +274,15 @@ function CatalogOverviewTab({
   onEditReadme,
   onSeeLicense,
   onEditSource,
+  onOpenPublish,
+  onOpenData,
 }: {
   catalog: DataCatalog
   onEditReadme: () => void
   onSeeLicense: () => void
   onEditSource: () => void
+  onOpenPublish: () => void
+  onOpenData: () => void
 }) {
   const { i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments(
@@ -309,6 +305,7 @@ function CatalogOverviewTab({
         />
         <div className="flex flex-col gap-4 self-start">
           <CatalogSourceCard catalog={catalog} onEditSource={onEditSource} />
+          <CatalogReportCard catalog={catalog} onOpenPublish={onOpenPublish} onOpenData={onOpenData} />
           <CatalogIdentityCard catalog={catalog} onSeeLicense={onSeeLicense} />
         </div>
       </div>
@@ -419,6 +416,53 @@ function CatalogSourceCard({
               : t('data_catalog.overview_source_detail')}
         </p>
       </div>
+    </div>
+  )
+}
+
+/** The published HTML catalog: whether there is one to show yet, and a way straight to it. */
+function CatalogReportCard({
+  catalog,
+  onOpenPublish,
+  onOpenData,
+}: {
+  catalog: DataCatalog
+  onOpenPublish: () => void
+  onOpenData: () => void
+}) {
+  const { t, i18n } = useTranslation()
+  const cache = useCatalogStore((s) => (s.activeResultCache?.catalogId === catalog.id ? s.activeResultCache : null))
+  return (
+    <div className="flex min-w-0 shrink-0 flex-col gap-3 rounded-xl border bg-card p-5 shadow-sm">
+      <div className="-my-1 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <FileBarChart size={14} className="shrink-0 text-muted-foreground" />
+          <h3 className="truncate text-sm font-semibold">{t('data_catalog.overview_report_title')}</h3>
+        </div>
+        {cache && (
+          <Button variant="ghost" size="xs" className="shrink-0" onClick={onOpenPublish}>
+            <Upload />
+            {t('data_catalog.tab_publish')}
+          </Button>
+        )}
+      </div>
+      {cache ? (
+        <p className="text-[10px] text-muted-foreground">
+          {t('data_catalog.overview_report_detail', {
+            concepts: cache.totalConcepts.toLocaleString(i18n.language),
+            patients: cache.totalPatients.toLocaleString(i18n.language),
+            date: new Date(cache.computedAt).toLocaleDateString(i18n.language),
+          })}
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={onOpenData}
+          className="text-left text-[10px] text-muted-foreground underline-offset-2 hover:underline"
+        >
+          {t('data_catalog.overview_report_none')}
+        </button>
+      )}
     </div>
   )
 }

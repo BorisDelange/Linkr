@@ -42,11 +42,8 @@ interface CohortCardProps {
   onSelectClick?: (e: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }) => boolean
 }
 
-const levelColors: Record<string, string> = {
-  patient: 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300',
-  visit: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950 dark:text-cyan-300',
-  visit_detail: 'bg-violet-100 text-violet-700 dark:bg-violet-950 dark:text-violet-300',
-}
+// One colour for every level: the label tells them apart.
+const LEVEL_BADGE = 'bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300'
 
 export function CohortCard({
   cohort,
@@ -93,7 +90,7 @@ export function CohortCard({
             <UsersRound size={20} className={ENTITY_COLORS.cohorts.icon} />
           </div>
           <TruncatedText text={localized(cohort.name, i18n.language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
-          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${levelColors[cohort.level] ?? ''}`}>
+          <span className={`inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${LEVEL_BADGE}`}>
             {levelLabel}
           </span>
           <DropdownMenu>

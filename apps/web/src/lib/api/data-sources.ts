@@ -42,12 +42,39 @@ export function testConnectionOnServer(
 export async function queryDataSourceOnServer(
   dataSourceId: string,
   sql: string,
+  { signal, allRows }: { signal?: AbortSignal; allRows?: boolean } = {},
 ): Promise<Record<string, unknown>[]> {
-  const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
-    `/data-sources/${dataSourceId}/query`,
-    { method: 'POST', body: JSON.stringify({ sql }) },
-  )
-  return res.rows
+  if (!signal) {
+    const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
+      `/data-sources/${dataSourceId}/query`,
+      { method: 'POST', body: JSON.stringify({ sql, allRows }) },
+    )
+    return res.rows
+  }
+  signal.throwIfAborted()
+  // Aborting the fetch alone would leave the query running on the server; the
+  // cancel route interrupts it, and this request then fails with a 409.
+  const queryId = crypto.randomUUID()
+  const onAbort = () => {
+    void apiRequest(`/data-sources/${dataSourceId}/query/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ queryId }),
+    }).catch(() => {})
+  }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
+      `/data-sources/${dataSourceId}/query`,
+      { method: 'POST', body: JSON.stringify({ sql, queryId, allRows }) },
+    )
+    signal.throwIfAborted()
+    return res.rows
+  } catch (err) {
+    signal.throwIfAborted()
+    throw err
+  } finally {
+    signal.removeEventListener('abort', onAbort)
+  }
 }
 
 /**

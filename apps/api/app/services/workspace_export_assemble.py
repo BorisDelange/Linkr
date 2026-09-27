@@ -167,7 +167,12 @@ def _portable_catalog(data: dict) -> dict:
         data.pop("dataSourceRef", None)
     # The offset of a run paused on THIS instance: exported, it would tell the
     # importing one a computation is half-done that it has no results for.
-    data.pop("computedPeriods", None)
+    data.pop("computedSteps", None)
+    # Unset (null) server-side, absent client-side: same byte-parity rule as dataSourceRef.
+    if data.get("pagesDeployment") is None:
+        data.pop("pagesDeployment", None)
+    if data.get("counts") is None:
+        data.pop("counts", None)
     return data
 
 
@@ -192,7 +197,10 @@ def _portable_rule_set(data: dict) -> dict:
     position) while ``dataSourceRef`` is what travels.
     """
     data["dataSourceId"] = ""
-    return _drop_null_refs(data, "dataSourceRef")
+    # Only a rule set that has empty groups carries the key, as on the front.
+    if not data.get("checkGroups"):
+        data.pop("checkGroups", None)
+    return _drop_null_refs(data, "dataSourceRef", "schemaPresetRef")
 
 
 def _portable_collection(data: dict) -> dict:
@@ -942,6 +950,8 @@ _DATA_FILE_GITIGNORE = b"**/*.csv\n**/*.parquet\n**/*.pq\n**/*.xlsx\n**/*.xls\n"
 
 # Mirrors SCHEMA_PRESET_DDL_FILE in entity-io.ts.
 SCHEMA_PRESET_DDL_FILE = "schema.ddl"
+# Mirrors SCHEMA_OVERRIDES_FILE in entity-io.ts (CONTENT_FILE.schemaOverrides).
+SCHEMA_OVERRIDES_FILE = "mapping-overrides.json"
 
 
 async def build_etl_pipeline_tree(db: AsyncSession, pipeline) -> dict[str, bytes]:
@@ -985,6 +995,28 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     return tree
 
 
+# Mirrors isPagesTreePath (lib/dcat-ap/pages-deployment.ts): a site attachment's
+# file_name is its repo path and is client-supplied, so only site/** and the two
+# CI files may be written — never entity.json, ../x or .git/config.
+_PAGES_TREE_PATH = re.compile(
+    r"\.gitlab-ci\.yml|\.github/workflows/pages\.yml"
+    r"|site/[A-Za-z0-9_-][A-Za-z0-9._-]*(/[A-Za-z0-9_-][A-Za-z0-9._-]*)*"
+)
+
+
+async def _pages_site_files(db: AsyncSession, catalog_id: str) -> dict[str, bytes]:
+    """The GitLab/GitHub Pages site of a catalog, rendered by the Publish tab (the
+    HTML generator is TypeScript) and stored as attachments, copied verbatim.
+    Server equivalent of ``writePagesSiteFiles`` (pages-site-files.ts)."""
+    tree: dict[str, bytes] = {}
+    for att in await attachment_service.list_readme_by_owner(db, "data-catalog-site", catalog_id):
+        if not _PAGES_TREE_PATH.fullmatch(att.file_name):
+            continue
+        if att.blob_sha and blob_store.exists(att.blob_sha):
+            tree[att.file_name] = await blob_store.read_bytes(att.blob_sha)
+    return tree
+
+
 async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]:
     tree: dict[str, bytes] = {}
     dumped = _portable_catalog(_badged_dump(DataCatalogResponse, catalog))
@@ -994,6 +1026,8 @@ async def build_data_catalog_tree(db: AsyncSession, catalog) -> dict[str, bytes]
         )
     )
     tree.update(await _entity_docs(db, "", dumped, "data-catalog", catalog.id))
+    if catalog.pages_deployment:
+        tree.update(await _pages_site_files(db, catalog.id))
     await _attach_org(db, tree, ENTITY_MANIFEST, catalog)
     return tree
 
@@ -1057,6 +1091,84 @@ def _order_keys(obj: dict, order: list[str]) -> dict:
     return {k: obj[k] for k in [*order, *rest] if k in obj}
 
 
+# Format v2 (one relation per class). Twin of canonicalSchemaMappingV2
+# (packages/linkr-format/src/schema-mapping.ts): same orders, same bytes.
+_MAPPING_V2_FIELD_ORDER = [
+    "formatVersion", "presetId", "presetLabel", "patient", "visit", "visitDetail", "note",
+    "concepts", "events", "drugs", "knownTables", "erdGroups", "description",
+]
+_RELATION_FIELD_ORDER = [
+    "key", "label", "drugKind", "conceptDictionaryKey", "genderValues", "from", "joins",
+    "where", "fields", "customSql", "sqlColumns",
+]
+_TABLE_FIELD_ORDER = ["type", "schema", "table", "alias", "on"]
+_RELATION_COLUMN_ORDER = {
+    "patient": ["patient_id", "birth_date", "birth_year", "gender", "gender_source_value", "death_datetime"],
+    "visit": ["visit_id", "patient_id", "start_datetime", "end_datetime", "visit_type", "care_site_id", "care_site_name"],
+    "visitDetail": ["visit_detail_id", "visit_id", "patient_id", "start_datetime", "end_datetime", "unit_id", "unit_name", "unit_category"],
+    "note": ["note_id", "patient_id", "visit_id", "note_datetime", "title", "text", "note_type"],
+    "concepts": ["concept_id", "concept_terminology", "concept_name", "concept_code", "terminology_id", "terminology_name", "category", "subcategory"],
+    "events": [
+        "patient_id", "concept_id", "start_datetime", "visit_id", "visit_detail_id", "concept_terminology", "concept_code",
+        "source_concept_id", "concept_name", "end_datetime", "value_number", "value_string", "unit", "unit_concept_id",
+        "route", "route_concept_id",
+    ],
+    "drugs": [
+        "patient_id", "concept_id", "start_datetime", "drug_kind", "drug_id", "visit_id", "visit_detail_id",
+        "concept_terminology", "concept_code", "source_concept_id", "concept_name", "end_datetime", "value_number",
+        "value_string", "unit", "unit_concept_id", "quantity", "amount_value", "amount_unit", "rate_value", "rate_unit",
+        "concentration_value", "concentration_unit", "duration_value", "duration_unit", "is_continuous", "route",
+        "route_concept_id", "dose_source_value",
+    ],
+}
+
+
+def _canonical_relation(rel, columns: list[str]):
+    if not isinstance(rel, dict):
+        return rel
+    out = _order_keys(rel, _RELATION_FIELD_ORDER)
+    if isinstance(out.get("from"), dict):
+        out["from"] = _order_keys(out["from"], _TABLE_FIELD_ORDER)
+    if isinstance(out.get("joins"), list):
+        out["joins"] = [_order_keys(j, _TABLE_FIELD_ORDER) if isinstance(j, dict) else j for j in out["joins"]]
+    if isinstance(out.get("fields"), dict):
+        out["fields"] = _order_keys(out["fields"], columns)
+    return out
+
+
+def _canonical_schema_mapping_v2(mapping: dict) -> dict:
+    """A v2 mapping in deterministic order; arrays keep their order (the first
+    dictionary is the default one)."""
+    out = _order_keys(mapping, _MAPPING_V2_FIELD_ORDER)
+    for key in ("patient", "visit", "visitDetail", "note"):
+        if key in out:
+            out[key] = _canonical_relation(out[key], _RELATION_COLUMN_ORDER[key])
+    for key in ("concepts", "events", "drugs"):
+        if isinstance(out.get(key), list):
+            out[key] = [_canonical_relation(r, _RELATION_COLUMN_ORDER[key]) for r in out[key]]
+    return out
+
+
+def _canonical_schema_overrides(overrides: dict) -> dict:
+    """A database's mapping-overrides.json in deterministic order. Twin of
+    canonicalSchemaOverrides (packages/linkr-format/src/schema-mapping.ts)."""
+    def by_name(obj, f=lambda _k, v: v):
+        return {k: f(k, obj[k]) for k in sorted(obj)} if isinstance(obj, dict) else obj
+
+    def relation(spec_key, rel):
+        return _canonical_relation(rel, _RELATION_COLUMN_ORDER.get(spec_key.split(".")[0], []))
+
+    out: dict = {}
+    if "relations" in overrides:
+        out["relations"] = by_name(overrides["relations"], relation)
+    if "baseAtOverride" in overrides:
+        out["baseAtOverride"] = by_name(overrides["baseAtOverride"])
+    for k in sorted(overrides):
+        if k not in out:
+            out[k] = overrides[k]
+    return out
+
+
 def _canonical_schema_mapping(mapping: dict) -> dict:
     """Mapping with its top-level keys, event tables, and their keys ordered.
 
@@ -1065,7 +1177,11 @@ def _canonical_schema_mapping(mapping: dict) -> dict:
     presetLabel in entity.json rather than mapping.json, so a database installed
     from one wrote them at the END of its copy while the same mapping exported
     anywhere else had them first — a pure reordering diff.
+
+    A v1 mapping (stored before format v2) is ordered the way it was written.
     """
+    if mapping.get("formatVersion") == 2:
+        return _canonical_schema_mapping_v2(mapping)
     out = _order_keys(mapping, _MAPPING_FIELD_ORDER)
     tables = out.get("eventTables")
     if not isinstance(tables, dict):
@@ -1152,6 +1268,7 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
     stripped.pop("stats", None)
     connection_config = stripped.pop("connectionConfig", None)
     schema_mapping = stripped.pop("schemaMapping", None)
+    schema_overrides = stripped.pop("schemaOverrides", None)
     meta = {
         **strip_entity_docs(stripped),
         "connectionConfig": (
@@ -1180,6 +1297,10 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
         tree[SCHEMA_PRESET_MAPPING_FILE] = _json(_canonical_schema_mapping(mapping))
         if isinstance(ddl, str) and ddl:
             tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
+    # Its overrides on top of the preset, beside the mapping — only when there are
+    # some. Twin of the SCHEMA_OVERRIDES_FILE branch of buildDataSourceFolder.
+    if isinstance(schema_overrides, dict) and schema_overrides.get("relations"):
+        tree[SCHEMA_OVERRIDES_FILE] = _json(_canonical_schema_overrides(schema_overrides))
     # `organization` is stripped as an instance field, and every other entity puts
     # its provenance snapshot back. A database did not, so each re-export silently
     # dropped the publishing organization from the repo — the same bug schema

@@ -2,12 +2,13 @@ import { useEffect, useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
 import {
-  ArrowLeft,
   Code,
   BarChart3,
   Info,
   FileText,
   Pencil,
+  Table2,
+  Search,
 } from 'lucide-react'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useUrlTab } from '@/hooks/use-url-tab'
@@ -35,17 +36,20 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useDqRuleSetActions } from './use-dq-rule-set-actions'
 import { DqChecksTab } from './DqChecksTab'
 import { DqResultsView } from './DqResultsView'
+import { DatabaseSqlTab } from '@/features/projects/warehouse/databases/DatabaseSqlTab'
 import type { DqReport } from '@/lib/duckdb/data-quality'
 import type { DqRuleSet } from '@/types'
 import { localized } from '@/lib/localized'
+import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
-const TAB_IDS = ['overview', 'checks', 'results', 'readme', 'license', 'versioning'] as const
+const TAB_IDS = ['overview', 'checks', 'results', 'investigate', 'readme', 'license', 'versioning'] as const
 type TabId = (typeof TAB_IDS)[number]
 
 const TABS: { id: TabId; labelKey: string; icon: React.ComponentType<{ size?: number; className?: string }> }[] = [
   { id: 'overview', labelKey: 'databases.detail_overview', icon: Info },
   { id: 'checks', labelKey: 'data_quality.tab_checks', icon: Code },
   { id: 'results', labelKey: 'data_quality.tab_results', icon: BarChart3 },
+  { id: 'investigate', labelKey: 'data_quality.tab_investigate', icon: Search },
 ]
 
 interface Props {
@@ -55,7 +59,7 @@ interface Props {
 export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { wsUid } = useResolvedParams()
+  const { wsUid, raw } = useResolvedParams()
   const {
     dqRuleSets,
     dqRuleSetsLoaded,
@@ -66,7 +70,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     addRunHistory,
     loadRunHistory,
   } = useDqStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const [activeTab, setActiveTab] = useUrlTab<TabId>({
@@ -79,6 +82,12 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   // Cleared on the way out, or reaching the tab through its own trigger later
   // would land in the editor unasked.
   const [readmeEditing, setReadmeEditing] = useState(false)
+  // The query sent from Checks or Results; `n` remounts the console to load it.
+  const [investigation, setInvestigation] = useState<{ sql: string; n: number } | null>(null)
+  const handleInvestigate = useCallback((sql: string) => {
+    setInvestigation((prev) => ({ sql: sql.trim(), n: (prev?.n ?? 0) + 1 }))
+    setActiveTab('investigate')
+  }, [setActiveTab])
   // Cleared only once the Readme tab has actually been left. Checking
   // `activeTab !== 'readme'` during render would fire immediately instead:
   // setActiveTab writes the URL, so activeTab is still the previous tab on the
@@ -112,7 +121,6 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
   useEffect(() => {
     if (fullRuleSetId) void loadRunHistory(fullRuleSetId)
   }, [fullRuleSetId, loadRunHistory])
-  const activeSource = dataSources.find((ds) => ds.id === ruleSet?.dataSourceId)
 
   const handleBack = useCallback(() => {
     // Navigate to the data-quality list page using absolute path
@@ -131,7 +139,8 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
     const durationMs = report.results.reduce((sum, r) => sum + r.executionTimeMs, 0)
 
     void updateRuleSet(ruleSet.id, {
-      status: report.summary.failed > 0 ? 'error' : 'success',
+      // The scan ran: failing checks are the score's business, not the status's.
+      status: 'success',
       lastRunAt: report.computedAt,
       lastRunDurationMs: durationMs,
       lastScore: score,
@@ -159,13 +168,12 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
 
   if (!ruleSet) {
     return (
-      <div className="flex h-full flex-col items-center justify-center">
-        <p className="text-sm text-muted-foreground">{t('data_quality.rs_not_found')}</p>
-        <Button variant="ghost" size="sm" className="mt-2" onClick={handleBack}>
-          <ArrowLeft size={14} />
-          {t('data_quality.back_to_list')}
-        </Button>
-      </div>
+      <EntityNotFound
+        entityLabel={t('common.entity_dq_rule_set')}
+        entityId={raw.ruleSetId}
+        onBack={handleBack}
+        backLabel={t('common.back_to_dq_rule_sets')}
+      />
     )
   }
 
@@ -246,26 +254,41 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
           </div>
         </TabsContent>
 
-        {/* Checks and Results stay MOUNTED (hidden when inactive) so their in-tab
-            state — scan report, filters, selection, search — survives switching
-            tabs, which a TabsContent would discard. */}
+        {/* Checks, Results and Investigation stay MOUNTED (hidden when inactive)
+            so their in-tab state — scan report, filters, selection, search, the
+            query being written — survives switching tabs, which a TabsContent
+            would discard. */}
         <div
           className={cn(
-            'min-h-0 flex-1 overflow-hidden border-t',
-            activeTab !== 'checks' && activeTab !== 'results' && 'hidden',
+            'min-h-0 flex-1 overflow-hidden',
+            activeTab !== 'investigate' && 'border-t',
+            activeTab !== 'checks' && activeTab !== 'results' && activeTab !== 'investigate' && 'hidden',
           )}
         >
           <div className={cn('h-full', activeTab !== 'checks' && 'hidden')}>
-            <DqChecksTab ruleSetId={ruleSet.id} dataSourceId={ruleSet.dataSourceId} />
+            <DqChecksTab ruleSetId={ruleSet.id} dataSourceId={ruleSet.dataSourceId} onInvestigate={handleInvestigate} />
+          </div>
+          <div className={cn('h-full', activeTab !== 'investigate' && 'hidden')}>
+            {ruleSet.dataSourceId ? (
+              <DatabaseSqlTab
+                key={investigation?.n ?? 0}
+                dataSourceId={ruleSet.dataSourceId}
+                draftKey={`dq:${ruleSet.id}`}
+                initialSql={investigation?.sql}
+                runOnMount={!!investigation}
+              />
+            ) : (
+              <p className="p-6 text-sm text-muted-foreground">{t('data_quality.investigate_no_database')}</p>
+            )}
           </div>
           <div className={cn('h-full', activeTab !== 'results' && 'hidden')}>
             <DqResultsView
               ruleSetId={ruleSet.id}
               dataSourceId={ruleSet.dataSourceId}
-              schemaMapping={activeSource?.schemaMapping}
               customChecks={customChecks}
               onScanComplete={handleScanComplete}
               onBeforeScan={() => ensureMounted(ruleSet.dataSourceId)}
+              onInvestigate={handleInvestigate}
             />
           </div>
         </div>
@@ -384,6 +407,15 @@ function DqIdentityCard({
       {description && <p className="text-xs break-words text-muted-foreground">{description}</p>}
 
       {!!ruleSet.badges?.length && <BadgeStrip badges={ruleSet.badges} />}
+
+      {ruleSet.schemaPresetRef && (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Table2 size={12} className="shrink-0" />
+          {t('data_quality.generated_from_schema', {
+            schema: localized(ruleSet.schemaPresetRef.label, i18n.language) || ruleSet.schemaPresetRef.entityId,
+          })}
+        </p>
+      )}
 
       {ruleSet.version && (
         <div className="flex">

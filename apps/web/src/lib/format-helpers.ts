@@ -1,4 +1,4 @@
-import type { SchemaMapping } from '@/types/schema-mapping'
+import type { PatientSpec } from '@/types/schema-mapping'
 import type { TFunction } from 'i18next'
 
 // ---------------------------------------------------------------------------
@@ -45,7 +45,7 @@ export function formatDateShort(d: string | undefined, lang: string): string {
  * French browser kept printing French dates after switching the app to English.
  * The app's language is the only thing the user can actually see and control.
  */
-export function formatDateTimeLocale(d: string | undefined, lang: string): string {
+export function formatDateTimeLocale(d: string | undefined, lang: string, opts: { seconds?: boolean } = {}): string {
   if (!d) return '—'
   try {
     return new Date(d).toLocaleString(lang.startsWith('fr') ? 'fr-FR' : 'en-US', {
@@ -54,6 +54,7 @@ export function formatDateTimeLocale(d: string | undefined, lang: string): strin
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
+      ...(opts.seconds ? { second: '2-digit' } : {}),
     })
   } catch {
     return d
@@ -95,7 +96,7 @@ export function formatDateTime(d: string): string {
 /** Format a gender concept value to a localized label. */
 export function formatGender(
   gender: string | undefined,
-  genderValues: SchemaMapping['genderValues'],
+  genderValues: PatientSpec['genderValues'],
   t: TFunction,
 ): string {
   if (!gender || !genderValues) return gender ?? '—'
@@ -107,7 +108,7 @@ export function formatGender(
 /** Short gender label (M/F). */
 export function formatGenderShort(
   gender: string | undefined,
-  genderValues: SchemaMapping['genderValues'],
+  genderValues: PatientSpec['genderValues'],
   t: TFunction,
 ): string {
   if (!gender || !genderValues) return gender ?? '—'

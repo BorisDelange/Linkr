@@ -20,11 +20,13 @@ const STYLE = `
 body{background:#dde4ec;font-family:system-ui,-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;color:var(--text)}
 .page{width:210mm;min-height:297mm;margin:24px auto;padding:14mm;background:#fff;box-shadow:0 12px 32px rgba(15,27,45,.14)}
 .num{font-variant-numeric:tabular-nums}
-header{display:flex;align-items:center;gap:12px;padding-bottom:10px;border-bottom:2px solid var(--blue)}
-header .eyebrow{font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
-header .meta{font-size:9px;color:var(--muted);margin-top:2px}
-h1{font-size:23px;line-height:1.2;color:var(--ink);margin:22px 0 26px;letter-spacing:-.01em}
-.objective{margin:-12px 0 26px}
+/* The data catalog's masthead: logo left, title and eyebrow centred. */
+.brand{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:14px;padding-bottom:14px;border-bottom:2px solid var(--blue);margin-bottom:26px}
+.brand svg{flex-shrink:0;justify-self:start}
+.brand-t{min-width:0;text-align:center}
+.eyebrow{font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin-top:3px}
+h1{font-size:22px;line-height:1.2;color:var(--ink);letter-spacing:-.01em}
+.objective{margin:0 0 26px}
 h2{font-size:19px;color:var(--blue);margin:0 0 10px;padding-bottom:6px;border-bottom:2px solid #d8e7f3;break-after:avoid}
 h3{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan);margin:14px 0 8px;break-after:avoid}
 p,li{font-size:13px;line-height:1.6}
@@ -56,7 +58,8 @@ ${Object.entries(SQL_COLORS).map(([k, c]) => `.sql .${k}{color:${c}}`).join('')}
 .sql .keyword{font-weight:600}.sql .comment{font-style:italic}
 
 pre{font-family:ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace;font-size:9.5px;line-height:1.45;background:var(--soft);padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;break-inside:auto}
-footer{margin-top:26px;padding-top:8px;border-top:1px solid var(--line);font-size:9px;color:var(--muted);text-align:center}
+footer{margin-top:26px;padding-top:10px;border-top:1px solid var(--line);font-size:9px;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px 18px;justify-content:center}
+footer a{color:var(--blue2);text-decoration:none}
 @page{size:A4;margin:14mm}
 @media print{body{background:#fff}.page{width:auto;min-height:0;margin:0;padding:0;box-shadow:none}}
 `
@@ -96,6 +99,9 @@ export function sourceRows(model: CohortReportModel, t: TFunction): [string, str
     ...(s.databasePatients ? [[t('cohort_report.source_patients'), s.databasePatients.label] as [string, string]] : []),
   ]
 }
+
+/** The cohorts page of the user documentation, in the report's language. */
+const docUrl = (lang: string) => `https://linkr.interhop.org/${lang === 'fr' ? '' : 'en/'}docs/project/cohorts`
 
 export interface RenderOptions {
   /** Append the membership SQL under Methodology. */
@@ -227,11 +233,13 @@ export function renderReportHtml(model: CohortReportModel, t: TFunction, opts: R
 </head>
 <body>
 <div class="page">
-<header>${LINKR_LOGO_SVG}<div><div class="eyebrow">${esc(t('cohort_report.eyebrow'))}</div><div class="meta">${esc(generated)} · ${esc(model.databaseName)} · v${esc(model.version)}</div></div></header>
-<h1>${esc(model.title)}</h1>
+<header class="brand">${LINKR_LOGO_SVG}<div class="brand-t"><h1>${esc(model.title)}</h1><div class="eyebrow">${esc(t('cohort_report.eyebrow'))}</div></div></header>
 ${model.description ? `<div class="objective"><h3>${esc(t('cohort_report.objective'))}</h3><p>${esc(model.description)}</p></div>` : ''}
 ${sections.map((s, i) => `<section><h2>${i + 1}. ${esc(s.title)}</h2>${s.body}</section>`).join('\n')}
-<footer>${esc(t('cohort_report.footer'))}</footer>
+<footer>
+  <span>${[generated, model.databaseName, `v${model.version}`].map(esc).join(' · ')}</span>
+  <span>${esc(t('cohort_report.generated_with'))} <a href="${docUrl(lang)}" target="_blank" rel="noopener">Linkr</a></span>
+</footer>
 </div>
 </body>
 </html>

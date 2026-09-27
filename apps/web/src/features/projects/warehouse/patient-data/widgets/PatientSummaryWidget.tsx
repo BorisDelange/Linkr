@@ -789,7 +789,7 @@ export function PatientSummaryWidget() {
     }
   }, [visible, dataSourceId, schemaMapping, patientId])
 
-  const gv = schemaMapping?.genderValues
+  const gv = schemaMapping?.patient?.genderValues
   const formatGender = (g: string | undefined) => fmtGender(g, gv, t)
   const formatDate = useCallback((d: string | undefined) => fmtDate(d, i18n.language), [i18n.language])
   const formatDateShort = useCallback((d: string | undefined) => fmtDateShort(d, i18n.language), [i18n.language])

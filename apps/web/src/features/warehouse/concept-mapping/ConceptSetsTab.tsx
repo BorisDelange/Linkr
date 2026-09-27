@@ -28,6 +28,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -104,20 +105,22 @@ const ATHENA_KNOWN_TABLES = [...VOCAB_TABLES]
  * a dependency that does not exist and never did).
  */
 const ATHENA_SCHEMA_MAPPING: SchemaMapping = {
+  formatVersion: 2,
   presetId: 'athena-vocabulary' as SchemaPresetId,
   presetLabel: { en: 'ATHENA Vocabulary', fr: 'Vocabulaire ATHENA' },
-  conceptTables: [{
+  concepts: [{
     key: 'concept',
-    table: 'concept',
-    idColumn: 'concept_id',
-    nameColumn: 'concept_name',
-    codeColumn: 'concept_code',
-    vocabularyColumn: 'vocabulary_id',
-    extraColumns: {
-      domain_id: 'domain_id',
-      concept_class_id: 'concept_class_id',
-      standard_concept: 'standard_concept',
-      invalid_reason: 'invalid_reason',
+    from: { table: 'concept', alias: 'd' },
+    fields: {
+      concept_id: 'd.concept_id',
+      concept_name: 'd.concept_name',
+      concept_code: 'd.concept_code',
+      concept_terminology: 'd.vocabulary_id',
+      terminology_id: 'd.vocabulary_id',
+      extra_domain_id: 'd.domain_id',
+      extra_concept_class_id: 'd.concept_class_id',
+      extra_standard_concept: 'd.standard_concept',
+      extra_invalid_reason: 'd.invalid_reason',
     },
   }],
   knownTables: ATHENA_KNOWN_TABLES,
@@ -1616,13 +1619,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         {/* Max results */}
                         <div className="space-y-1">
                           <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.search_max_results')}</label>
-                          <Input
-                            type="number"
+                          <NumberInput
                             className="h-7 text-xs"
                             value={browseMaxResults}
                             min={1}
                             max={100000}
-                            onChange={(e) => setBrowseMaxResults(Math.max(1, parseInt(e.target.value) || BROWSE_MAX_RESULTS))}
+                            onValueChange={setBrowseMaxResults}
                           />
                           {browseMaxResults > 10000 && (
                             <p className="text-[10px] text-destructive">{t('concept_mapping.search_max_results_warning')}</p>

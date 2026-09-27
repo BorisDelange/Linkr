@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, ChevronRight, X, Plus, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { FormField } from '@/components/ui/form-field'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
@@ -167,10 +168,10 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
                   ))}
                 </SelectContent>
               </Select>
-              <Input
-                type="number"
-                value={vf.value ?? ''}
-                onChange={(e) => updateValueFilter(index, { value: e.target.value ? Number(e.target.value) : 0 })}
+              <NumberInput
+                integer={false}
+                value={vf.value}
+                onValueChange={(value) => updateValueFilter(index, { value })}
                 className="h-8 text-xs flex-1"
               />
               {vf.operator === 'between' && (
@@ -233,15 +234,14 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
                 ))}
               </SelectContent>
             </Select>
-            <Input
-              type="number"
-              value={config.occurrenceCount?.count ?? ''}
-              onChange={(e) =>
+            <NumberInput
+              value={config.occurrenceCount?.count ?? 1}
+              onValueChange={(count) =>
                 onChange({
                   ...config,
                   occurrenceCount: {
                     operator: config.occurrenceCount?.operator ?? '>=',
-                    count: e.target.value ? Number(e.target.value) : 1,
+                    count,
                   },
                 })
               }

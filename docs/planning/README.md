@@ -60,14 +60,14 @@ client. The former provider config (and its proxy) is deleted.
 | ✅ | Files server `linkr-files` and its `linkr-authoring` / `create-project` skills deleted — `linkr` over a running instance is the only MCP | S |
 | ✅ | Security: read-query connections cut off the server filesystem (`COPY TO` / `read_csv` any path were open) | S |
 | ✅ | Frame: notification WS + live refresh + header notification centre for cohorts, dashboards (tab/widget detail), datasets; `get_ui_context` (focused tab); **per-change undo** (latest change per item only) — writes marked `X-Linkr-Client: mcp`; in-process hub (single worker) | M |
-| ✅ | HTTP transport + personal API keys (`lnk_…`, Profile → API keys; each LibreChat user sends their own) + tool annotations → local LibreChat beside Linkr. Not built: project-scoped and read-only keys | M |
+| ✅ | HTTP transport + personal API keys (`lnk_…`, Profile → API keys; each LibreChat user sends their own) + tool annotations → local LibreChat beside Linkr. A key has its owner's rights: no project-scoped or read-only keys, by decision | M |
 | ✅ | `linkr` extended: datasets (incl. `create_dataset_from_query`, written server-side) and dashboards (plugins documented from manifests; key-indicator missing — inline manifest, see plugin-model harmonisation) | M |
 | ✅ | Gaps closed: IDE scripts + R/Python runs (figures as `ui://`), dataset column edits / metadata / duplicate / move / delete, concept sets (read) + concept lists, delete cohort, dashboard update / delete / filters; scripts, dataset edits and concept lists now notify. Not done: derive a database from a cohort (needs a managed target DB created first), cohort materialization (front-only logic), Atlas import | L |
 | ✅ | `cohort_report`: the cohort report in the chat — summary to the model, HTML as an MCP-UI `ui://` resource rendered inline by LibreChat | S |
 | 🔜 | Skills entity + project selection + generated `AGENTS.md` + `.agents/skills/` | M |
 | ✅ | Delete `lib/agent/` + `DashboardAgentSidebar.tsx` (plugin docs salvaged into the MCP), then the LLM provider config + proxy + `llm-config` permission | S |
 | 🤔 | Embedded chat — (a) Linkr UI over LibreChat Agents API · (b) server loop · (c) ACP + OpenCode | L |
-| 💤 | Workspace agent (narrow tools) | M |
+| ✅ | Full coverage (2026-09-27, ~230 tools; the client sees a core of ~30 + a gateway `find_linkr_tools` / `run_linkr_read|write|delete_tool` — ~6k tokens instead of ~40k, zero client config; `LINKR_MCP_TOOLSETS=all` for Claude Code): workspaces / projects / databases (create, link, presets), data quality, ETL pipelines + SQL collections, wiki + data catalogs + READMEs, dataset editing + analyses, Pipeline page, patient-data boards, workspace plugins, dashboard extras, kernels / environments / jobs, mapping projects + reviews + source concept ids, git read-only. Out by design: permissions, members, project/workspace deletion, git push, secrets | L |
 
 ## Reports — [reports-plan.md](reports-plan.md)
 
@@ -156,10 +156,13 @@ the inverted target preset mapping.
 | ✅ | Arbitrated 2026-09-25: phases A→D, `linkr_*` names, no roles in class SQL, per-database override | — |
 | ✅ | Arbitrated 2026-09-25: preset required, single `from`, `drug_kind`, OMOP-only ETL generation, the 7 contracts, v1 converted then forgotten | — |
 | ✅ | CTE injection, parameters as escaped literals only | — |
-| 🔜 | A. Generator from v1 + port the consumers to the contract, parity-checked on the demo DBs | L |
-| 🔜 | B. Format v2 (+ linkr-format, Python twin, goldens) + visual editor + Code modal + contract check + parameters + database *Mapping* tab | L |
-| 🔜 | C. Drug class + EAV administrations (attribute codes as parameters) and the OMOP twin as acceptance tests | M |
-| 🔜 | D. Generate OMOP scripts into an ETL pipeline from a source schema | L |
+| ✅ | A. Generator from v1 + consumers ported to the contract, parity-checked on MIMIC-IV demo + full MIMIC-IV OMOP (branch `feature/schema-classes`); fixed 7 pre-existing bugs on the way | L |
+| 🔜 | A'. **[TO TEST]** Manual pass in the app, both modes (plan step 2b) | M |
+| ✅ | B. Format v2 (+ linkr-format, Python twin, goldens) + visual editor + Code modal + contract check + parameters + database *Mapping* tab | L |
+| ✅ | C. Drug class + EAV administrations (attribute codes as parameters) and the OMOP twin as acceptance tests | M |
+| ✅ | D. Generate OMOP scripts into an ETL pipeline from a source schema | L |
+| 🔜 | **[TO TEST]** Manual pass in the app on B–D: Schemas editor, database Mapping tab, drug widgets, ETL generation run in both modes | M |
+| 🔜 | User docs in `linkr-website` (schema presets, Mapping tab, ETL generation) | S/M |
 
 ## eCRF / survey plugin — [survey-plugin-plan.md](survey-plugin-plan.md)
 

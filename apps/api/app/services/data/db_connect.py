@@ -7,6 +7,7 @@ dependency (DuckDB is already required). The password is passed in per call and
 never stored: it lives only for the duration of the connection.
 """
 
+import contextvars
 import datetime
 import os
 import re
@@ -20,13 +21,24 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
-from app.services.data import connection_pool, file_reader
+from app.services.data import connection_pool, file_reader, query_cancel
 
 _ATTACH_ALIAS = "ext"
 
 # Safety cap on rows returned to the browser. The UI paginates/displays far less;
 # an uncapped SELECT * on a huge table would otherwise overwhelm the response.
 MAX_QUERY_ROWS = 10_000
+
+# Ceiling on a request that asks for more than MAX_QUERY_ROWS (a data catalog's
+# crossing can hold hundreds of thousands of cells). Paging would re-run the
+# whole aggregate once per page, which over a large warehouse costs far more
+# than the payload.
+MAX_QUERY_ROWS_ALL = 2_000_000
+
+# The row cap of the query the current request runs; the route raises it for a
+# caller that needs the whole result. Read in the worker thread, which inherits
+# the request's context through `asyncio.to_thread`.
+row_cap: contextvars.ContextVar[int] = contextvars.ContextVar("row_cap", default=MAX_QUERY_ROWS)
 
 # Per-engine wiring: the DuckDB extension, the ATTACH TYPE, and the passthrough
 # query function used to read the source's own information_schema.
@@ -262,6 +274,14 @@ def _strip_leading_noise(stmt: str) -> str:
     return stmt[i:]
 
 
+def _is_escape_string_prefix(sql: str, quote: int) -> bool:
+    """Whether the quote at `quote` opens an E'...' literal — an E right before
+    it that does not end a longer word. Mirrors sql-tokenizer.ts."""
+    before = sql[quote - 1] if quote >= 1 else ""
+    earlier = sql[quote - 2] if quote >= 2 else ""
+    return before in ("e", "E") and not (earlier.isalnum() or earlier in "_$")
+
+
 def _split_statements(sql: str) -> list[str]:
     """Split SQL on top-level semicolons — those not inside a string, a quoted
     identifier, a comment or a dollar-quoted block.
@@ -297,11 +317,13 @@ def _split_statements(sql: str) -> list[str]:
             current += sql[i:stop]
             i = stop
         elif ch in ("'", '"', "`"):
+            # A backslash escapes the next char inside an E'...\'...' literal
+            # only: in a plain one DuckDB reads '\' as a whole string, and taking
+            # its quote as escaped hid the statements after it from the guards.
+            backslash_escapes = ch == "'" and _is_escape_string_prefix(sql, i)
             j = i + 1
             while j < n:
-                # Backslash escapes the next char inside a single-quoted run
-                # (DuckDB's E'...\'...'), so it does not end the literal early.
-                if ch == "'" and sql[j] == "\\" and j + 1 < n:
+                if backslash_escapes and sql[j] == "\\" and j + 1 < n:
                     j += 2
                     continue
                 if sql[j] == ch:
@@ -420,7 +442,8 @@ def _run_statements(
 
 
 def _run_read(con: duckdb.DuckDBPyConnection, search_path: str, sql: str, arrow: bool):
-    return _run_to_arrow(con, search_path, sql) if arrow else _run_statements(con, search_path, sql)
+    with query_cancel.tracking(con):
+        return _run_to_arrow(con, search_path, sql) if arrow else _run_statements(con, search_path, sql, row_cap.get())
 
 
 def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):

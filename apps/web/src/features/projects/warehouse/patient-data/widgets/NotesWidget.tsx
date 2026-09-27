@@ -12,6 +12,7 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { usePatientChartContext } from '../PatientChartContext'
 import { useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore, type NotesConfig } from '@/stores/patient-chart-store'
@@ -281,6 +282,10 @@ export function NotesWidget({
   const [selectedNoteId, setSelectedNoteId] = useState<number | null>(null)
   const [nameFilter, setNameFilter] = useState('')
   const [textSearch, setTextSearch] = useState('')
+  // The inputs answer each keystroke; the fuzzy match over every note and the
+  // highlighting follow once typing pauses, so a long chart does not stall typing.
+  const nameQuery = useDebouncedValue(nameFilter, 250)
+  const textQuery = useDebouncedValue(textSearch, 250)
   // null keeps the query's own order (newest first), which is what a clinician
   // expects to land on.
   const [sort, setSort] = useState<SortState | null>(null)
@@ -344,25 +349,25 @@ export function NotesWidget({
 
   // Filtered notes (by name/title)
   const filteredNotes = useMemo(() => {
-    if (!nameFilter.trim()) return notes
+    if (!nameQuery.trim()) return notes
     return notes.filter(
       (n) =>
-        fuzzyMatch(n.note_title || '', nameFilter) ||
-        fuzzyMatch(n.note_type || '', nameFilter),
+        fuzzyMatch(n.note_title || '', nameQuery) ||
+        fuzzyMatch(n.note_type || '', nameQuery),
     )
-  }, [notes, nameFilter])
+  }, [notes, nameQuery])
 
   // Text search — further filter notes that contain the search text, then sort
   const displayNotes = useMemo(() => {
     let result = filteredNotes
-    if (textSearch.trim()) {
-      result = result.filter((n) => fuzzyMatch(n.note_text, textSearch))
+    if (textQuery.trim()) {
+      result = result.filter((n) => fuzzyMatch(n.note_text, textQuery))
     }
     if (filterToApplied) {
       result = result.filter((n) => matchesAppliedSets(n.note_text, wordSets, appliedIds))
     }
     return sortNotes(result, sort)
-  }, [filteredNotes, textSearch, sort, filterToApplied, wordSets, appliedIds])
+  }, [filteredNotes, textQuery, sort, filterToApplied, wordSets, appliedIds])
 
   // Resolved against the filtered list, so a note excluded by the current
   // search stops being displayed instead of lingering from before.
@@ -406,8 +411,8 @@ export function NotesWidget({
   const coloredWords = useMemo<ColoredWord[]>(() => {
     const words: ColoredWord[] = []
     // Text search tokens → yellow (index 0)
-    if (textSearch.trim()) {
-      for (const token of textSearch.trim().split(/\s+/)) {
+    if (textQuery.trim()) {
+      for (const token of textQuery.trim().split(/\s+/)) {
         if (token) words.push({ word: token, colorIndex: SEARCH_COLOR_INDEX })
       }
     }
@@ -417,7 +422,7 @@ export function NotesWidget({
       words.push({ word, colorIndex: wordSetColorIndex(setIndex, wordSets[setIndex]?.color) })
     }
     return words
-  }, [textSearch, wordSets, appliedIds])
+  }, [textQuery, wordSets, appliedIds])
 
   const handleToggleSet = useCallback(
     (id: string) => {
@@ -456,7 +461,7 @@ export function NotesWidget({
   }, [selectedNoteId])
 
   // No note table in schema
-  if (!schemaMapping?.noteTable) {
+  if (!schemaMapping?.note) {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-xs text-muted-foreground">

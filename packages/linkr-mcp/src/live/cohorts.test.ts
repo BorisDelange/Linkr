@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildCohortCountSql } from '@/lib/duckdb/cohort-query'
-import type { Cohort, CriterionNode, SchemaMapping } from '@/types'
+import type { Cohort, CriterionNode } from '@/types'
 import {
-  applyConceptNames, conceptIdsByTable, describeMapping, formatRows, normalizeCriteria, renderTree,
+  applyConceptNames, conceptIdsByTable, customSqlIdHint, describeMapping, formatRows, normalizeCriteria, renderTree,
 } from './cohorts'
 
-const MAPPING = {
+const MAPPING = mappingV1ToV2({
   presetId: 'mimic-iv',
   presetLabel: { en: 'MIMIC-IV' },
   patientTable: { schema: 'hosp', table: 'patients', idColumn: 'subject_id', genderColumn: 'gender', deathDateColumn: 'dod' },
@@ -21,7 +22,7 @@ const MAPPING = {
     },
   },
   genderValues: { male: 'M', female: 'F' },
-} as unknown as SchemaMapping
+} as never)
 
 const cohort = (tree: Cohort['criteriaTree']): Cohort => ({
   id: 'c1', projectUid: 'p1', name: { en: 'x' }, description: {}, level: 'visit',
@@ -67,7 +68,7 @@ describe('normalizeCriteria', () => {
     expect(errors).toHaveLength(6)
     expect(errors.join('\n')).toMatch(/unknown criterion type "weight"/)
     expect(errors.join('\n')).toMatch(/female not in genderValues/)
-    expect(errors.join('\n')).toMatch(/not an event table \(Lab events\)/)
+    expect(errors.join('\n')).toMatch(/not an event or drug table \(Lab events\)/)
     expect(errors.join('\n')).toMatch(/no visit-detail/)
   })
 
@@ -82,7 +83,7 @@ describe('normalizeCriteria', () => {
   })
 
   it('rejects a value filter on a table without a numeric value', () => {
-    const noValue = { ...MAPPING, eventTables: { Notes: { table: 'n', conceptIdColumn: 'c' } } } as unknown as SchemaMapping
+    const noValue = mappingV1ToV2({ ...MAPPING, eventTables: { Notes: { table: 'n', conceptIdColumn: 'c' } } } as never)
     const { errors } = normalizeCriteria([
       { type: 'concept', config: { eventTableLabel: 'Notes', conceptIds: [1], valueFilters: [{ operator: '>', value: 2 }] } },
     ], noValue)
@@ -150,5 +151,20 @@ describe('rendering', () => {
     expect(out.split('\n')).toHaveLength(5)
     expect(out).toContain('x y')
     expect(out).toContain('7 more row(s)')
+  })
+})
+
+describe('customSqlIdHint', () => {
+  const duckdb = 'Binder Error: No matching columns found that match regex "(?i)^visit_detail_id$"'
+
+  it('tells the agent which column its custom SQL must return', () => {
+    const hint = customSqlIdHint({ customSql: 'SELECT * FROM measurement', level: 'visit_detail' }, duckdb)
+    expect(hint).toContain('returns no visit_detail_id column')
+    expect(hint).toContain('AS visit_detail_id')
+  })
+
+  it('leaves any other error, and a cohort on its criteria, alone', () => {
+    expect(customSqlIdHint({ customSql: 'SELECT 1', level: 'patient' }, 'Parser Error: syntax error')).toBeNull()
+    expect(customSqlIdHint({ customSql: null, level: 'patient' }, duckdb)).toBeNull()
   })
 })

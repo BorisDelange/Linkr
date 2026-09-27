@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, useTransition } from 'react'
+import { has } from '@/lib/schema-classes/relations'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -11,6 +12,7 @@ import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, Che
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
+import { NumberInput } from '@/components/ui/number-input'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -624,15 +626,18 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     if (!vocabTarget) return
     const targetDsId = vocabTarget.dsId
     const dict = vocabTarget.dictionary
-    const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
-    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-    const stdCol = dict.extraColumns?.standard_concept
+    const column = (extra: string, fallback: 'category' | 'subcategory' | null) =>
+      dict.extras?.[extra] ? `"${dict.extras[extra]}"` : fallback && has(dict, fallback) ? fallback : undefined
+    const vocabCol = 'terminology_id'
+    const domainCol = column('domain_id', 'category')
+    const classCol = column('concept_class_id', 'subcategory')
+    const stdCol = column('standard_concept', null)
     const parts: string[] = []
-    parts.push(`SELECT DISTINCT d.${vocabCol} AS v FROM ${dict.table} d WHERE d.${vocabCol} IS NOT NULL ORDER BY v`)
-    if (domainCol) parts.push(`SELECT DISTINCT d.${domainCol} AS v FROM ${dict.table} d WHERE d.${domainCol} IS NOT NULL ORDER BY v`)
-    if (classCol) parts.push(`SELECT DISTINCT d.${classCol} AS v FROM ${dict.table} d WHERE d.${classCol} IS NOT NULL ORDER BY v`)
-    if (stdCol) parts.push(`SELECT DISTINCT d.${stdCol} AS v FROM ${dict.table} d WHERE d.${stdCol} IS NOT NULL ORDER BY v`)
+    const distinct = (col: string) => `SELECT DISTINCT d.${col} AS v FROM ${dict.name} d WHERE d.${col} IS NOT NULL ORDER BY v`
+    parts.push(distinct(vocabCol))
+    if (domainCol) parts.push(distinct(domainCol))
+    if (classCol) parts.push(distinct(classCol))
+    if (stdCol) parts.push(distinct(stdCol))
     ;(async () => {
       try {
         await ensureMounted(targetDsId)
@@ -1888,25 +1893,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     // database's mapping (d_items…) found no concept, so every name was missing.
     if (!vocabTarget) { setEnrichedSuggestions(suggestions); return }
     const dsId = vocabTarget.dsId
-    const dict = vocabTarget.dictionary
-
-    const ids = suggestions.map((s) => s.concept_id).join(', ')
-    const table = dict.table
-    const idCol = dict.idColumn ?? 'concept_id'
-    const nameCol = dict.nameColumn ?? 'concept_name'
-    const codeCol = dict.codeColumn ?? 'concept_code'
-    const vocabCol = dict.terminologyIdColumn ?? dict.vocabularyColumn ?? 'vocabulary_id'
-    const domainCol = dict.extraColumns?.domain_id ?? dict.categoryColumn
-    const classCol = dict.extraColumns?.concept_class_id ?? dict.subcategoryColumn
-    const stdCol = dict.extraColumns?.standard_concept
-    const invalidCol = dict.extraColumns?.invalid_reason
-    const extraCols = [
-      domainCol ? `${domainCol} AS domain_id` : null,
-      classCol ? `${classCol} AS concept_class_id` : null,
-      stdCol ? `${stdCol} AS standard_concept` : null,
-      invalidCol ? `${invalidCol} AS invalid_reason` : null,
-    ].filter(Boolean).join(', ')
-    const sql = `SELECT ${idCol} AS concept_id, ${nameCol} AS concept_name, ${codeCol} AS concept_code, ${vocabCol} AS vocabulary_id${extraCols ? ', ' + extraCols : ''} FROM ${table} WHERE ${idCol} IN (${ids})`
+    const ids = suggestions.map((s) => s.concept_id)
+    const sql = buildStandardConceptSearchQuery(vocabTarget.mapping, '', { conceptIds: ids }, ids.length)
+    if (!sql) { setEnrichedSuggestions(suggestions); return }
 
     ensureMounted(dsId).then(() =>
       queryDataSource(dsId, sql) as Promise<Record<string, unknown>[]>
@@ -2109,13 +2098,12 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
             {/* Max results */}
             <div className="space-y-1">
               <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.search_max_results')}</label>
-              <Input
-                type="number"
+              <NumberInput
                 className="h-7 text-xs"
                 value={searchMaxResults}
                 min={1}
                 max={100000}
-                onChange={(e) => setSearchMaxResults(Math.max(1, parseInt(e.target.value) || 1000))}
+                onValueChange={setSearchMaxResults}
               />
               {searchMaxResults > 10000 && (
                 <p className="text-[10px] text-destructive">{t('concept_mapping.search_max_results_warning')}</p>

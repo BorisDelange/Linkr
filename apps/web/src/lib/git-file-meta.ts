@@ -46,6 +46,8 @@ const CAT = {
   scores: 11,
   checks: 12,
   config: 13,
+  // A catalog's GitLab/GitHub Pages site (site/ + the CI file that deploys it).
+  site: 14,
   // Workspace-level entity groups (one box per entity kind in the workspace's
   // Details list — see the 'workspaces' rules below).
   projects: 20,
@@ -171,6 +173,8 @@ const RULES: Partial<Record<GitScope, Rule[]>> = {
   ],
   'data-catalogs': [
     { test: /^(entity|catalog)\.json$/, category: 'general', order: CAT.general, descriptionKey: 'versioning.file_desc_catalog_json' },
+    { test: /^site\//, category: 'site', order: CAT.site, descriptionKey: 'versioning.file_desc_catalog_site' },
+    { test: /^(\.gitlab-ci\.yml|\.github\/workflows\/pages\.yml)$/, category: 'site', order: CAT.site, descriptionKey: 'versioning.file_desc_pages_ci' },
     README_RULE,
     LICENSE_RULE,
     ATTACHMENTS_RULE,

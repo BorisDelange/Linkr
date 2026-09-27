@@ -2,8 +2,12 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
+import { PAGES_SITE_OWNER_TYPE } from '@/lib/dcat-ap/pages-deployment'
+import { isLegacyCatalog, LEGACY_CATALOG_FIELDS, normalizeCatalog } from '@/lib/data-catalog/config'
 import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
+
+const resultLoads = new Map<string, Promise<CatalogResultCache | undefined>>()
 
 interface CatalogState {
   // Catalog CRUD
@@ -28,6 +32,8 @@ interface CatalogState {
   computeRunning: boolean
   computeProgress: ComputeProgress | null
   activeResultCache: CatalogResultCache | null
+  /** The catalog whose results have been read (found or not); until then they are loading. */
+  resultCacheLoadedFor: string | null
   loadResultCache: (catalogId: string) => Promise<void>
   setResultCache: (cache: CatalogResultCache | null) => void
   startCompute: () => void
@@ -65,7 +71,16 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
           storage.dataCatalogs.update(c.id, { name: c.name, description: c.description }).catch(() => {})
         }
       }
-      set({ catalogs: all, catalogsLoaded: true })
+      // Catalogs from before variables and crossings: converted once, and the
+      // old fields cleared so nothing reads them again.
+      const catalogs = all.map((c) => {
+        if (!isLegacyCatalog(c)) return normalizeCatalog(c)
+        const converted = normalizeCatalog(c)
+        const cleared = Object.fromEntries(LEGACY_CATALOG_FIELDS.map((k) => [k, k === 'dimensions' ? [] : null]))
+        storage.dataCatalogs.update(c.id, { ...cleared, variables: converted.variables, crossings: converted.crossings } as Partial<DataCatalog>).catch(() => {})
+        return converted
+      })
+      set({ catalogs, catalogsLoaded: true })
     } catch {
       // IDB store may not exist yet (upgrade pending); mark loaded so app doesn't block
       set({ catalogsLoaded: true })
@@ -75,22 +90,35 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   getWorkspaceCatalogs: (workspaceId) =>
     get().catalogs.filter((c) => c.workspaceId === workspaceId),
 
-  createCatalog: async (catalog) => {
+  createCatalog: async (raw) => {
+    const catalog = normalizeCatalog(raw)
     await getStorage().dataCatalogs.create(catalog)
     set((s) => ({ catalogs: [...s.catalogs, catalog] }))
   },
 
+  // Applied before the save so a toggle answers at once rather than after the
+  // round trip; a failed save puts back what it overwrote.
   updateCatalog: async (id, changes) => {
-    await getStorage().dataCatalogs.update(id, changes)
+    const before = get().catalogs.find((c) => c.id === id)
     set((s) => ({
       catalogs: s.catalogs.map((c) =>
         c.id === id ? { ...c, ...changes, updatedAt: new Date().toISOString() } : c,
       ),
     }))
+    try {
+      await getStorage().dataCatalogs.update(id, changes)
+    } catch (e) {
+      if (before) {
+        const restore = Object.fromEntries(Object.keys(changes).map((k) => [k, before[k as keyof DataCatalog]]))
+        set((s) => ({ catalogs: s.catalogs.map((c) => (c.id === id ? { ...c, ...restore } : c)) }))
+      }
+      throw e
+    }
   },
 
   deleteCatalog: async (id) => {
     await getStorage().catalogResults.delete(id)
+    await getStorage().readmeAttachments.deleteByOwner(PAGES_SITE_OWNER_TYPE, id).catch(() => {})
     await getStorage().dataCatalogs.delete(id)
     set((s) => ({
       catalogs: s.catalogs.filter((c) => c.id !== id),
@@ -139,10 +167,20 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   computeRunning: false,
   computeProgress: null,
   activeResultCache: null,
+  resultCacheLoadedFor: null,
 
   loadResultCache: async (catalogId) => {
-    const cache = await getStorage().catalogResults.get(catalogId)
-    set({ activeResultCache: cache ?? null })
+    if (get().resultCacheLoadedFor !== catalogId) set({ resultCacheLoadedFor: null, activeResultCache: null })
+    // One request per catalog at a time: the page mounting twice (StrictMode,
+    // a quick back-and-forth) would otherwise download the results twice, in
+    // parallel, each one slowing the other.
+    let pending = resultLoads.get(catalogId)
+    if (!pending) {
+      pending = getStorage().catalogResults.get(catalogId).catch(() => undefined).finally(() => resultLoads.delete(catalogId))
+      resultLoads.set(catalogId, pending)
+    }
+    const cache = await pending
+    set({ activeResultCache: cache ?? null, resultCacheLoadedFor: catalogId })
   },
 
   setResultCache: (cache) => {

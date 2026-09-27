@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SchemaMapping } from '@/types'
+import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { normalizeCriteria } from './cohorts.js'
 import { convertAtlas, describeFreeze, freezeBlocker, readAtlasInput } from './cohorts-extra.js'
 
@@ -46,15 +46,15 @@ describe('convertAtlas', () => {
     const read = readAtlasInput(ATLAS)
     if (!('definition' in read)) throw new Error('unreadable')
     const { tree } = convertAtlas(read.definition)
-    const omop = {
+    const omop = mappingV1ToV2({
       patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime' },
       genderValues: { male: '8507', female: '8532' },
       eventTables: { measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id' } },
-    } as unknown as SchemaMapping
+    } as never)
     expect(normalizeCriteria(tree, omop).errors).toEqual([])
-    const mimic = { ...omop, genderValues: { male: 'M', female: 'F' }, eventTables: { labevents: {} } } as unknown as SchemaMapping
+    const mimic = mappingV1ToV2({ ...omop, genderValues: { male: 'M', female: 'F' }, eventTables: { labevents: {} } } as never)
     const errors = normalizeCriteria(tree, mimic).errors.join('\n')
-    expect(errors).toContain('"measurement" is not an event table')
+    expect(errors).toContain('"measurement" is not an event or drug table')
     expect(errors).toContain('8507 not in genderValues')
   })
 })
@@ -66,12 +66,11 @@ describe('freeze helpers', () => {
     expect(freezeBlocker({ level: 'patient' })).toContain('project')
   })
 
-  it('describes the snapshot, what it replaced, and the custom SQL caveat', () => {
+  it('describes the snapshot and what it replaced', () => {
     const mat = { level: 'visit' as const, ids: ['1', '2', '3'], patientIds: ['7', '8'], count: 3, materializedAt: '2026-09-24T12:00:00.000Z' }
-    const out = describeFreeze('ICU stays', mat, { ...mat, count: 2, materializedAt: 'earlier' }, true)
+    const out = describeFreeze('ICU stays', mat, { ...mat, count: 2, materializedAt: 'earlier' })
     expect(out).toContain('Froze "ICU stays": 3 visit(s) of 2 patient(s)')
     expect(out).toContain('replaces the snapshot of earlier (2)')
-    expect(out).toContain('custom SQL')
-    expect(describeFreeze('x', { ...mat, level: 'patient' }, null, false)).not.toMatch(/of \d+ patient|replaces|custom/)
+    expect(describeFreeze('x', { ...mat, level: 'patient' }, null)).not.toMatch(/of \d+ patient|replaces/)
   })
 })

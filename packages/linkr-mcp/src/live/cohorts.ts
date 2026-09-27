@@ -3,16 +3,18 @@
  * into the exact tree the app stores, and describe trees and schema mappings in
  * words a model can act on. No I/O here — the server does the calls.
  */
-import { birthYearSql } from '@/lib/schema-helpers'
+import { classRelation, eventRelations, has } from '@/lib/schema-classes/relations'
+import { fieldRef, specEntries } from '@/lib/schema-classes/spec'
 import { randomUUID } from 'node:crypto'
-import { getNodeLabel } from '@/lib/duckdb/cohort-query'
+import { CUSTOM_SQL_NO_ID, cohortRunError, getNodeLabel } from '@/lib/duckdb/cohort-query'
 import type {
-  CohortLevel, CriteriaGroupNode, CriteriaTreeNode, CriteriaType, SchemaMapping,
+  Cohort, CohortLevel, CriteriaGroupNode, CriteriaTreeNode, CriteriaType, SchemaMapping,
 } from '@/types'
 
-export const COHORT_LEVELS: CohortLevel[] = ['patient', 'visit', 'visit_detail', 'event']
+// 'event' stays in the type for cohorts stored before it was withdrawn; it is not offered.
+export const COHORT_LEVELS: CohortLevel[] = ['patient', 'visit', 'visit_detail']
 const CRITERIA_TYPES: CriteriaType[] = [
-  'age', 'sex', 'death', 'period', 'duration', 'care_site', 'concept', 'text',
+  'age', 'sex', 'death', 'period', 'duration', 'care_site', 'concept', 'text', 'id_list',
 ]
 const VALUE_OPERATORS = ['>', '>=', '=', '<=', '<', '!=', 'between']
 const COUNT_OPERATORS = ['>=', '>', '=', '<=', '<']
@@ -43,7 +45,10 @@ Criterion types and their config:
               "occurrenceCount"?: {"operator": ">="|">"|"="|"<="|"<", "count": n}}
              conceptIds come from search_concepts; names are filled in for you.
 - text:      {"searches": [{"field": "title"|"text", "terms": ["..."], "mode"?: "contains"|"word"|"regex",
-              "anyTerm"?: true, "exclude"?: false}], "label"?: "..."}  (needs a note table)
+              "anyTerm"?: true, "exclude"?: false, "caseSensitive"?: false, "ignoreAccents"?: true}], "label"?: "..."}  (needs a note table)
+- id_list:   {"idLevel": "patient"|"visit"|"visit_detail", "ids": ["<id>", ...]}
+             keeps the rows whose patient_id / visit_id / visit_detail_id is listed (compared as text);
+             at another level, the rows linked to a listed id (patients with a listed stay, unit stays of a listed stay…)
 
 At visit and visit_detail level, a concept or text criterion only counts events dated within the stay
 (between its start and end); use the patient level for "at any time".`
@@ -153,7 +158,7 @@ function checkConfig(
     c[key] = (c[key] as unknown[]).map(String)
   }
   const needsVisitDetail = (key: string) => {
-    if (c[key] === 'visit_detail' && !mapping.visitDetailTable) {
+    if (c[key] === 'visit_detail' && !mapping.visitDetail) {
       errors.push(`${at}.${key}: this database's mapping has no visit-detail (unit stay) table.`)
     }
   }
@@ -164,20 +169,20 @@ function checkConfig(
       oneOf('ageUnit', ['years', 'months', 'days'], false)
       optionalNumbers('min', 'max')
       if (c.min === undefined && c.max === undefined) errors.push(`${at}: give min and/or max.`)
-      const pt = mapping.patientTable
-      if (!pt || (!pt.birthDateColumn && !birthYearSql(pt))) {
+      const patient = classRelation(mapping, 'patient')
+      if (!has(patient, 'birth_year')) {
         warnings.push(
           `${path}: the schema mapping has no birth date, birth year or anchor age/year columns, so this age criterion `
           + 'is IGNORED (it matches everyone). Express age with run_sql / custom SQL on the real columns instead.',
         )
-      } else if ((c.ageUnit ?? 'years') !== 'years' && !pt.birthDateColumn) {
+      } else if ((c.ageUnit ?? 'years') !== 'years' && !has(patient, 'birth_date')) {
         warnings.push(`${path}: ages in ${String(c.ageUnit)} need a birth date column; this criterion will match nobody.`)
       }
       break
     }
     case 'sex': {
       stringList('values')
-      const gv = mapping.genderValues
+      const gv = mapping.patient?.genderValues
       const known = gv ? [gv.male, gv.female, gv.unknown].filter(Boolean) as string[] : []
       if (Array.isArray(c.values) && known.length) {
         const bad = (c.values as string[]).filter((v) => !known.includes(v))
@@ -210,11 +215,11 @@ function checkConfig(
       stringList('values')
       break
     case 'concept': {
-      const tables = Object.keys(mapping.eventTables ?? {})
+      const tables = [...(mapping.events ?? []), ...(mapping.drugs ?? [])].map((e) => e.label)
       const label = c.eventTableLabel
       const exact = tables.find((t) => t === label)
         ?? tables.find((t) => typeof label === 'string' && t.toLowerCase() === label.toLowerCase())
-      if (!exact) errors.push(`${at}.eventTableLabel: ${JSON.stringify(label)} is not an event table (${tables.join(', ')}).`)
+      if (!exact) errors.push(`${at}.eventTableLabel: ${JSON.stringify(label)} is not an event or drug table (${tables.join(', ')}).`)
       else c.eventTableLabel = exact
       const ids = c.conceptIds
       if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => !Number.isInteger(Number(v)))) {
@@ -231,7 +236,7 @@ function checkConfig(
             errors.push(`${at}.valueFilters[${i}]: {"operator": one of ${VALUE_OPERATORS.join(' ')}, "value": n, "value2" when between}.`)
           }
         })
-        if (exact && !mapping.eventTables?.[exact]?.valueColumn) {
+        if (exact && !eventRelations(mapping).some((e) => e.key === exact && has(e, 'value_number'))) {
           errors.push(`${at}.valueFilters: the "${exact}" table has no numeric value column.`)
         }
       }
@@ -243,8 +248,14 @@ function checkConfig(
       }
       break
     }
+    case 'id_list':
+      oneOf('idLevel', ['patient', 'visit', 'visit_detail'], true)
+      needsVisitDetail('idLevel')
+      stringList('ids')
+      if (Array.isArray(c.ids) && (c.ids as string[]).every((v) => !v.trim())) errors.push(`${at}.ids: a non-empty array of ids.`)
+      break
     case 'text':
-      if (!mapping.noteTable) errors.push(`${path}: this database's mapping has no note table.`)
+      if (!mapping.note) errors.push(`${path}: this database's mapping has no note table.`)
       if (!Array.isArray(c.searches) || c.searches.length === 0) {
         errors.push(`${at}.searches: a non-empty array of {"field", "terms"}.`)
       }
@@ -311,57 +322,40 @@ export function renderTree(tree: CriteriaGroupNode, mapping: SchemaMapping): str
   return lines.length ? lines.join('\n') : '(no criteria: every row at this level)'
 }
 
-/** The schema mapping in plain words: which table is what, for a model that has never seen it. */
+/** The schema mapping in plain words: which relation reads what, for a model that has never seen it. */
 export function describeMapping(m: SchemaMapping): string {
   const q = (t?: { schema?: string; table: string }) => (t ? (t.schema ? `${t.schema}.${t.table}` : t.table) : '')
-  const out: string[] = [`Data model: ${m.presetLabel?.en ?? m.presetId}`]
-  const pt = m.patientTable
-  if (pt) {
-    const cols = [
-      `id ${pt.idColumn}`,
-      pt.genderColumn && `sex ${pt.genderColumn}`,
-      pt.birthDateColumn && `birth date ${pt.birthDateColumn}`,
-      pt.birthYearColumn && `birth year ${pt.birthYearColumn}`,
-      !pt.birthYearColumn && birthYearSql(pt) && `birth year = ${pt.anchorYearColumn} - ${pt.anchorAgeColumn}`,
-      pt.deathDateColumn && `death date ${pt.deathDateColumn}`,
-    ].filter(Boolean)
-    out.push(`Patients: ${q(pt)} (${cols.join(', ')})`)
-    if (!pt.birthDateColumn && !birthYearSql(pt)) {
+  const out: string[] = [
+    `Data model: ${m.presetLabel?.en ?? m.presetId}`,
+    'Queries read the class relations below (linkr_patient, linkr_visit, …): SELECT … FROM linkr_visit works in run_sql and custom SQL.',
+  ]
+  const relations = new Map(
+    [...(classRelation(m, 'patient') ? [classRelation(m, 'patient')!] : []), ...eventRelations(m)].map((r) => [r.specKey, r]),
+  )
+  const names: Record<string, string> = {
+    patient: 'Patients', visit: 'Visits (hospital stays, level "visit")',
+    visit_detail: 'Visit details (unit stays, level "visit_detail")', note: 'Notes',
+  }
+  for (const { specKey, cls, spec, key } of specEntries(m)) {
+    const source = spec.customSql?.trim()
+      ? 'custom SQL'
+      : [q(spec.from), ...(spec.joins ?? []).map((j) => `${j.type} join ${q(j)}`)].filter(Boolean).join(', ')
+    const cols = Object.entries(spec.fields ?? {}).map(([f, v]) => {
+      const ref = fieldRef(v)
+      return ref ? `${f} ← ${ref.column}` : `${f} ← expression`
+    })
+    const label = cls === 'concept' ? `Concept dictionary "${key}"`
+      : cls === 'event' ? `  "${key}"`
+        : cls === 'drug' ? `  drug "${key}"`
+          : names[cls] ?? cls
+    out.push(`${label}: ${source}${cols.length ? ` (${cols.join(', ')})` : ''}`)
+    if (cls === 'patient' && !relations.get(specKey)?.mapped.has('birth_year')) {
       out.push('  ⚠ no birth date/year mapped: the "age" criterion cannot work on this database.')
     }
   }
-  if (m.genderValues) {
-    out.push(`Sex values: male=${m.genderValues.male}, female=${m.genderValues.female}`
-      + (m.genderValues.unknown ? `, unknown=${m.genderValues.unknown}` : ''))
-  }
-  const vt = m.visitTable
-  if (vt) {
-    out.push(`Visits (hospital stays, level "visit"): ${q(vt)} (id ${vt.idColumn}, patient ${vt.patientIdColumn}, `
-      + `start ${vt.startDateColumn}${vt.endDateColumn ? `, end ${vt.endDateColumn}` : ''}`
-      + `${vt.typeColumn ? `, type ${vt.typeColumn}` : ''})`)
-  }
-  const vd = m.visitDetailTable
-  if (vd) {
-    out.push(`Visit details (unit stays, level "visit_detail"): ${q(vd)} (id ${vd.idColumn}, visit ${vd.visitIdColumn}, `
-      + `start ${vd.startDateColumn}${vd.endDateColumn ? `, end ${vd.endDateColumn}` : ''}`
-      + `${vd.unitColumn ? `, unit ${vd.unitColumn}` : ''})`)
-  }
-  if (m.deathTable) out.push(`Deaths: ${q(m.deathTable)} (patient ${m.deathTable.patientIdColumn}, date ${m.deathTable.dateColumn})`)
-  if (m.noteTable) out.push(`Notes: ${q(m.noteTable)} (text ${m.noteTable.textColumn})`)
-  for (const d of m.conceptTables ?? []) {
-    out.push(`Concept dictionary "${d.key}": ${q(d)} (id ${d.idColumn ?? '—'}, name ${d.nameColumn}`
-      + `${d.codeColumn ? `, code ${d.codeColumn}` : ''}${d.terminologyIdColumn ? `, vocabulary ${d.terminologyIdColumn}` : ''})`)
-  }
-  const events = Object.entries(m.eventTables ?? {})
-  if (events.length) {
-    out.push('Event tables (use the quoted label as eventTableLabel in a concept criterion):')
-    for (const [label, e] of events) {
-      const dict = (e as { conceptDictionaryKey?: string }).conceptDictionaryKey
-      out.push(`  "${label}": ${q(e)} (concept ${e.conceptIdColumn}${dict ? ` → dictionary ${dict}` : ''}`
-        + `${e.valueColumn ? `, value ${e.valueColumn}` : ''}${e.valueUnitColumn ? `, unit ${e.valueUnitColumn}` : ''}`
-        + `${e.dateColumn ? `, date ${e.dateColumn}` : ''})`)
-    }
-  }
+  const gv = m.patient?.genderValues
+  if (gv) out.push(`Sex values: male=${gv.male}, female=${gv.female}${gv.unknown ? `, unknown=${gv.unknown}` : ''}`)
+  if (m.events?.length || m.drugs?.length) out.push('Use an event or drug label above, quoted, as eventTableLabel in a concept criterion.')
   return out.join('\n')
 }
 
@@ -383,4 +377,15 @@ export function formatRows(rows: Record<string, unknown>[], maxRows: number, max
   }
   if (shown < rows.length) lines.push(`… ${rows.length - shown} more row(s) not shown (${rows.length} total).`)
   return lines.join('\n')
+}
+
+/** What to tell the agent when a cohort's hand-written query returns no id
+ *  column for its level (DuckDB's error names a COLUMNS regex); null for any
+ *  other error. */
+export function customSqlIdHint(cohort: Pick<Cohort, 'customSql' | 'level'>, message: string): string | null {
+  const error = cohortRunError(cohort, message)
+  if (!error.startsWith(`${CUSTOM_SQL_NO_ID}:`)) return null
+  const column = error.slice(CUSTOM_SQL_NO_ID.length + 1)
+  return `The cohort's custom SQL returns no ${column} column. At ${cohort.level} level it must: name the id `
+    + `column ${column} in its SELECT (e.g. SELECT stay_id AS ${column} FROM …). run_sql shows what it returns.`
 }

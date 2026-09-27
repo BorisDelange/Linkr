@@ -66,10 +66,13 @@ export function fmtEventValue(
   unit: string | null | undefined,
   startMs: number,
   endMs: number | null,
+  recorded?: { rate?: number | null; rateUnit?: string | null },
 ): string | null {
   if (value == null) return text || null
   const suffix = unit ? ` ${unit}` : ''
   const total = `${fmtValue(value)}${suffix}`
+  // A rate the source recorded (a drug relation's rate_value) beats an average.
+  if (recorded?.rate != null) return `${total} · ${fmtValue(recorded.rate)}${recorded.rateUnit ? ` ${recorded.rateUnit}` : ''}`
   const rate = hourlyRate(value, startMs, endMs)
   if (rate == null || unitIsRate(unit)) return total
   return `${total} · ${fmtValue(rate)} ${unit ? `${unit}/h` : '/h'}`

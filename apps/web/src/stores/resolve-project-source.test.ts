@@ -12,7 +12,7 @@ const ds = (over: Partial<DataSource>): DataSource =>
     connectionConfig: { engine: 'duckdb' },
     status: 'connected',
     workspaceId: 'ws-1',
-    schemaMapping: { patientTable: { table: 'person' } },
+    schemaMapping: { formatVersion: 2, patient: { from: { table: 'person', alias: 'p' } } },
     createdAt: '',
     updatedAt: '',
     ...over,

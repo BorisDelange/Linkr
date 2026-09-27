@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router'
+import { useNavigate, useSearchParams } from 'react-router'
 import { resolveTab, restorableTab } from './url-tab'
 
 /**
@@ -32,9 +32,10 @@ export function useUrlTab<T extends string>(options: {
   key: string
   tabs: readonly T[]
   defaultTab: T
-}): [T, (tab: T) => void] {
+}): [T, (tab: T, options?: { pathname?: string }) => void] {
   const { key, tabs, defaultTab } = options
   const [searchParams, setSearchParams] = useSearchParams()
+  const navigate = useNavigate()
 
   // Read on mount only: once the user acts, the memory must not override them.
   const [restored] = useState<T | null>(() => restorableTab(lastTabByKey.get(key), tabs, defaultTab))
@@ -51,10 +52,18 @@ export function useUrlTab<T extends string>(options: {
     restorePending,
   })
 
+  // `pathname` leaves a sub-route of the page (e.g. a drill-down) for its tab.
+  // It has to go through the setter, not a bare navigate: a tab chosen that way
+  // leaves the restore pending, so an empty `?tab=` (the default tab) would
+  // still resolve to the remembered one and the click would seem ignored.
   const setActiveTab = useCallback(
-    (tab: T) => {
+    (tab: T, options?: { pathname?: string }) => {
       setRestorePending(false)
       lastTabByKey.set(key, tab)
+      if (options?.pathname) {
+        navigate({ pathname: options.pathname, search: tab === defaultTab ? '' : `?tab=${tab}` })
+        return
+      }
       setSearchParams(
         (prev) => {
           if (tab === defaultTab) prev.delete('tab')
@@ -64,7 +73,7 @@ export function useUrlTab<T extends string>(options: {
         { replace: true },
       )
     },
-    [key, defaultTab, setSearchParams],
+    [key, defaultTab, navigate, setSearchParams],
   )
 
   useEffect(() => {

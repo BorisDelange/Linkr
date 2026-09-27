@@ -311,7 +311,9 @@ server instead. `serializeProject` is left without a caller.
 - **Storage modes**: IndexedDB copy ("Browser copy") or File System Access API handles ("Direct link", Chrome/Edge only).
 - **Statistics**: `database-stats.ts`, cached in IndexedDB (`databaseStatsCache`). Sections: Patients (count + gender pie) + Visits (descriptive stats, age histogram, admission timeline). The patient/visit counts of the last run are also kept on `DataSource.stats`, which is what the database cards show (server mode counts nothing on connect).
 - **Database cohorts**: a cohort has exactly one owner — a project (`projectUid`) or a database (`ownerDataSourceId`, its detail page's *Cohorts* tab, route `…/databases/:dbId/cohorts/:cohortId`); a database's cohort always runs on it. Same entity, builder and SQL as a project's: the cohort pages read a `CohortHost` context (`cohorts/cohort-host.tsx`: owner, permissions, source, links) instead of the route. Server: `owner_data_source_id` FK cascades with the database, gated by `databases:read/write`. Export: `databases/<eid>/cohorts/<key>.json`, same shape and keys as a project's (`cohortExportShape` / `_cohort_export_shape` — never `materialization`, the frozen patient ids); import and pull make the database's cohorts exactly the tree's (`replaceDatabaseCohorts`, ids `deterministicId(dataSourceId, key)`), except a tree with none, which leaves them alone (git keeps no empty folder, so it cannot say "all deleted").
-- **Cohort report** (`lib/cohort-report/`, *Report* button of any cohort): `buildCohortReportModel` runs the report's queries (`queries.ts`, all over the cohort's membership SQL, column names from the mapping) and suppresses small cells **in the model** (`suppress.ts`, default 11, `<N` and no bar), so no renderer can leak one; `renderReportHtml` writes one self-contained A4 file (inline CSS/SVG/logo), printed for the PDF (`printHtml`), and `renderReportDocx` (lazy `docx`) lays out the same model with the same SVG charts rasterised. Custom-SQL and event-level cohorts are refused: the report needs the builder's `(id, patient_id)` membership.
+- **Cohort SQL** (`lib/duckdb/cohort-query.ts`): a cohort is its level (*One row per*: the base relation and its id) plus its criteria tree, compiled into one FROM + WHERE (`buildCohortQueryParts`) that four queries dress differently — count, attrition (one per top-level criterion, cumulated), results page, membership `(id, patient_id)` (freeze, derivation, report). The SQL tab shows and edits one query, the **membership** query, the level's id under its Linkr name, in one of two formats picked above it: on the database's own tables (default, `buildCohortNativeSql` → `lib/schema-classes/native-sql.ts`: each relation in a FROM becomes its source table, each of its columns the expression the mapping gives it, a relation with joins, a filter or hand-written SQL a subquery of the columns read — `inlineRelation`; null, and Linkr only, when a reference cannot be followed), or on the `linkr_*` relations (`buildCohortCriteriaSql`, portable). A saved query is shown in the format it was written in, with no way back. A saved edit (`customSql`) may read the `linkr_*` relations or the database's own tables, and must return that column — `patient_id`, `visit_id` or `visit_detail_id`, case-insensitive (a native `stay_id` is aliased); it replaces the criteria inside `buildCohortQueryParts` as `<level id> IN (SELECT COLUMNS('(?i)^<level id>$') FROM (<customSql>))`, and a query missing the column fails as `CUSTOM_SQL_NO_ID:<column>` (`cohortRunError`), explained in the results panel — so the count, results, freeze, derivation (`derivedFrom.customSql` for rebuilds), report and Patient data all follow it; attrition is then a single `CUSTOM_SQL_STEP_ID` step. The generated SQL is laid out for reading (a `--` comment per criterion via `sqlComment`, which strips line breaks from user labels; one condition per line; parentheses only where AND > OR needs them); the user's own SQL is never re-indented inside a string literal. The `id_list` criterion matches pasted patient / visit / visit-detail ids as text (`CAST(… AS VARCHAR) IN (…)`), through an EXISTS when the list's level differs from the cohort's.
+- **Cohort Tables tab** (`lib/cohort-tables.ts`, `results/CohortTablesPanel.tsx`): every table of the database filtered on the cohort the way a derivation filters it — the finest id the table carries at or above the level (unit stay → parent stay → patient), read from the mapping's native column names; mirror of `cohort_derive.id_columns` / `classify`, keep both in step. Per table, on demand: the cohort's rows over all rows and the distinct patient / stay / unit-stay ids they cover, and the first rows to browse.
+- **Cohort report** (`lib/cohort-report/`, *Report* button of any cohort): `buildCohortReportModel` runs the report's queries (`queries.ts`, all over the cohort's membership SQL, column names from the mapping) and suppresses small cells **in the model** (`suppress.ts`, default 11, `<N` and no bar), so no renderer can leak one; `renderReportHtml` writes one self-contained A4 file (inline CSS/SVG/logo), printed for the PDF (`printHtml`), and `renderReportDocx` (lazy `docx`) lays out the same model with the same SVG charts rasterised. Event-level cohorts are refused (no single id); a custom-SQL cohort reports like any other — its attrition is one step and its criteria section is empty, since the SQL replaces them — and the methodology shows the SQL the SQL tab shows.
 - **Cohort boards**: `PatientDashboard` has the same one-owner rule, and every cohort — a database's or a project's — has **its own board, one per cohort** (`ownerCohortId`, cascading with the cohort; the server refuses a second, 409, and a cohort of another owner, 422), created lazily (`ensureCohortBoard`) and shown in the cohort's *Patients* results tab (`CohortPatientsPanel`: the last execution's rows as the patient list, the board beside it). A database's boards are all its cohorts' (`ownerDataSourceId` for access and cleanup, reading that database). A project cohort's board is a project row (`projectUid` + `ownerCohortId`, reading the database the cohort runs on) that is **not** a Patient data board: `loadProjectDashboards` / `isProjectBoard` leave it out, and so do the project export's `patient-dashboards/` and the pull's patient-board group. Store maps are keyed `cohortBoardKey(id)` = `cohort:<id>` in place of a project uid (`boardOwnerKey`: `ownerCohortId` wins); the selection a project cohort's widgets read stays under the project uid, since they still resolve its datasets, concept lists and sessions. `PatientChartContext.can` / `codeWidgets` carry the role (project `patient-data:*`, database `databases:*`) and the fact that server-mode R/Python needs a project session (so a database cohort's board offers only SQL widgets there). Exported as `cohort-boards/<cohort key>.json` beside `cohorts/<cohort key>.json` — under `databases/<eid>/` or in the project tree — the shape of a project's `patient-dashboards/*.json` (shared `patientBoardBundle` / `_build_patient_dashboard_json`, no `dataSourceRef`: the file name is the link and the cohort names the database); read back by `readCohortBoards` onto the cohort the same key lands on, ids derived from the owner, the cohort key and the content keys (`replaceDatabaseBoards` for a database, `projectCohortBoardKeyId` in `importProjectContent` and the seed loader for a project). A project pull carries a cohort's board with its cohort: a changed board offers its cohort, and pulling the cohort replaces the board (`deleteCohortBoard`, which also backs `removeCohort` in IndexedDB mode, where nothing cascades).
 
 ---
@@ -347,6 +349,139 @@ server instead. `serializeProject` is left without a caller.
 Types in `types/index.ts`: `OrganizationInfo`, `CatalogVisibility`, `PluginOrigin`, `ParentRef`, `ChangelogEntry`.
 
 ---
+
+## Schema classes: queries read a contract, not the mapping (as-built)
+
+A database's schema mapping is turned, in ONE place, into one SQL relation per
+clinical class: `linkr_patient`, `linkr_visit`, `linkr_visit_detail`,
+`linkr_note`, `linkr_concept_<key>`, `linkr_event_<label slug>`,
+`linkr_drug_<label slug>`. Each relation
+exposes a fixed column contract (`patient_id`, `start_datetime`, `unit_name`,
+`concept_id`, `value_number`…); every query builder writes against those
+columns and never reads `patientTable` / `eventTables` itself. Plan and
+decisions: `docs/planning/schema-classes-plan.md`.
+
+- **Where**: `lib/schema-classes/` — `contracts.ts` (the columns, required or
+  not), `relations.ts` (generation from the mapping, `has(rel, column)` for what
+  a mapping fills), `inject.ts` (`withClassRelations` / `injectClassRelations`).
+- **Injection at execution, never in builders**: builders return
+  `… FROM linkr_visit …`; `queryDataSource` prepends the referenced relations as
+  `WITH linkr_x AS NOT MATERIALIZED (…)`, resolving the mapping through
+  `setMappingResolver` (registered by the data-source store, like the mount
+  guard). So any user SQL (cohort custom SQL, widget SQL) can use them too.
+  `NOT MATERIALIZED` is required: DuckDB materialises a CTE referenced twice,
+  which stops a per-patient filter from reaching the table.
+- **SQL that bypasses `queryDataSource` must inject itself**: server-side cohort
+  materialization, cohort derivation, the concept cache refresh (`COPY (…) TO`),
+  and the MCP's `api.ts` routes. Injection is idempotent.
+- **Tolerant by construction**: every mapped column is padded with an empty
+  `UNION ALL BY NAME SELECT NULL AS "<col>" … WHERE false` branch, so a column
+  the table lacks (a stale preset) reads as NULL instead of failing the whole
+  relation. Free under a filter or GROUP BY; only a bare whole-table `COUNT(*)`
+  loses DuckDB's metadata shortcut.
+- **Semantics centralised here**: birth year (date first, else year, else
+  MIMIC-IV anchor pair), death (patient column, else `MIN` over the death
+  table), normalised `gender` beside the raw `gender_source_value` (saved cohorts
+  still store raw codes), ward name (`unit_name` = source value, else lookup
+  name, else raw code) and `unit_category` (lookup name, else raw code — what the
+  care-site criterion and the catalog services compare with).
+- **Concept identity untouched**: a dictionary with no id column still gets
+  `hash(code) % 2147483647` in the concept-mapping builders, and a missing
+  vocabulary still falls back to the table name — mapping projects store both.
+
+### The mapping format (v2)
+
+`SchemaMapping` (`formatVersion: 2`, `types/schema-mapping.ts`) holds the
+relations themselves: singletons `patient`, `visit`, `visitDetail`, `note`, and
+lists `concepts[]` (by `key`), `events[]` and `drugs[]` (by `label`, one
+namespace for both). Each is a `RelationSpec`: either visual — `from`, `joins`,
+`where`, `fields` (`'alias.column'`, `{ expr }` or `{ value }`) — or hand-written
+`customSql` (+ `sqlColumns`, what the contract check recorded), the Cohort
+"Modified" pattern. The form edits the simple case only — one table, its
+columns or constants, a filter; joins and expressions (a v1 conversion) are kept
+and shown read-only, and anything specific is written in SQL.
+
+- **v1 is converted, then forgotten**: `mappingV1ToV2` (`schema-classes/v1.ts`)
+  runs only at the trust boundary — `sanitizeSchemaMapping`, entity import (after
+  the DDL is merged back), the MCP's `api.ts`. Stores write converted rows back
+  once. `packages/linkr-format` still reads v1 with a `legacy-format` warning and
+  orders v2 canonically (`RELATION_COLUMN_ORDER` mirrors `CLASS_CONTRACTS`; a
+  test keeps them equal, and the Python twin in `workspace_export_assemble.py`).
+- **Custom SQL is projected onto the contract** through a padded `_c` wrapper:
+  a column it does not return reads NULL, one beyond the contract is dropped, a
+  non-single statement becomes an `error()` relation.
+- **Drug relations carry the event columns** (`value_number` ← amount_value ??
+  quantity, `unit` ← amount_unit, `value_string` ← dose_source_value, unless
+  mapped), so `eventRelations()` returns them too and drugs work wherever events
+  do. The patient widgets tell a drug by its class (`is_drug`), keeping the name
+  heuristic only for drugs mapped as plain events.
+
+### Per-database override
+
+A database stores its preset's mapping as its base plus `schemaOverrides`
+(whole `relations`, replaced or added, and `baseAtOverride` fingerprints) — a
+site that records a code differently overrides that relation's SQL. The
+data-source store publishes `schemaMapping` = `effectiveMapping(base,
+overrides)` and keeps the base in memory as `schemaBaseMapping`; storage holds
+the base (`published()` / `persisted()`). A preset update is an explicit action
+that keeps the overrides and flags those whose base relation changed
+(`staleOverrides`, FNV fingerprints over the canonical relation). Exported as
+`mapping-overrides.json`; the server stores it in `data_sources.schema_overrides`
+and cohort derivation reads the effective mapping too.
+
+### OMOP ETL generation
+
+`generateOmopEtl` (`schema-classes/omop-etl.ts`) inverts the target preset's
+visual mapping (a plain column reference names the OMOP column a contract column
+fills) and composes it with the source database's relations: one script per
+class, the source relation inlined as a CTE, written through the Scripts tab's
+"Generate from the schemas" dialog. OMOP rules live there only: `*_date` from
+`*_datetime`, an unknown end date = the start, `*_type_concept_id` constant,
+NOT NULL concept ids to 0, gender through the target's `genderValues`, deaths in
+their own table, companion `INSERT OR IGNORE` for tables a target relation joins
+(care sites). Concepts resolve through the pipeline's generated vocabulary —
+`(vocabulary_id, concept_code)` as `sourceConceptKeyExprs` keys them, then
+'Maps to' (or STCM) — or are kept as is. Each script's header ends with the hash
+of its body (`generatedScriptState`): regenerating overwrites an untouched
+script and asks before an edited one.
+
+## Data quality rule sets (as-built)
+
+A rule set is a list of **stored** SQL checks run against one database
+(`dataSourceId` + portable `dataSourceRef`, resolved by lineage on import). There
+are no built-in checks computed at run time: when a rule set is created from a
+schema preset, `lib/dq-templates.ts` writes that schema's checks into it once,
+and from then on they are ordinary checks — editable, disableable, deletable.
+
+- **From the DDL** (raw tables): columns exist, NOT NULL, primary key unique,
+  foreign keys resolve. Checked rather than assumed: Parquet/CSV sources enforce
+  no constraint, and OMOP loads usually skip the constraint scripts.
+- **From the mapping** (`linkr_*` relations, so they follow each database's
+  effective mapping): required contract columns, one row per id, orphans,
+  end ≥ start, during life (after birth, ≤ 60 days after death), plausible age,
+  unmapped codes (`concept_id = 0`, OMOP-style relations only), values with a
+  unit, no negative dose. A mapping check a DDL constraint already covers is
+  skipped (`DdlFacts`).
+- Every check returns one row `violated_rows`, `total_rows`; it fails when
+  `violated / total × 100 > threshold` (0 = zero tolerance), `total = 0` → N/A
+  (`checkStatus`, shared by Test and Run).
+- A check has a second, optional query, `exploreSql`, listing the rows it counts
+  as violations (OHDSI DQD's "violated rows" query). Generated checks get both
+  from one definition (`rowsBreaking` / `duplicatedKeys`), so they cannot
+  disagree. **Investigate** (Checks toolbar, Results detail) opens it — or the
+  count query when there is none — in the rule set's Investigation tab, which is
+  the database SQL console (`DatabaseSqlTab`, own `draftKey`, `initialSql`).
+- **Taxonomy**: Kahn et al. 2016 (the one OHDSI DQD uses) — category
+  conformance / completeness / plausibility, subcategory value · relational ·
+  computational / — / uniqueness · atemporal · temporal (`lib/dq-taxonomy.ts`).
+  The pre-Kahn names (validity, consistency, uniqueness) and severity `info` are
+  mapped on read.
+- `templateKey` records which schema rule produced a check and `schemaPresetRef`
+  which preset the rule set came from. **+ › From the DDL / From the mapping**
+  (`AddSchemaChecksDialog`) offers only the schema checks the rule set does not
+  hold, matched on `templateKey`.
+- Check key order is the server's `DqCustomCheckResponse` order (`makeCheck`):
+  client and server exports must be byte-identical (dq-rule-set golden).
 
 ## OMOP CDM Patterns
 

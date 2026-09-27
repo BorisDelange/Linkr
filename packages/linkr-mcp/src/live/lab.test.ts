@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { PluginManifest } from '@/types/plugin'
-import { GRID_COLUMNS, buildFilter, columnMetaMap, findColumn, placeWidget, resolveColumns } from './lab'
+import { GRID_COLUMNS, buildFilter, columnMetaMap, findColumn, matchDatasetPath, placeWidget, resolveColumns } from './lab'
 import { findPlugin, listPlugins, pluginDoc } from './plugins'
 
 const MANIFEST = {
@@ -106,5 +106,23 @@ describe('columnMetaMap', () => {
     expect(findColumn(columns, 'SEX')?.id).toBe('col_sex')
     expect(findColumn(columns, 'col_age')?.name).toBe('age')
     expect(findColumn(columns, 'weight')).toBeUndefined()
+  })
+})
+
+describe('matchDatasetPath', () => {
+  const files = [{ path: 'cohort/admissions.parquet' }, { path: 'los.parquet' }, { path: 'other/los.csv' }]
+
+  it('takes the exact path, or the same path without extension or case', () => {
+    expect(matchDatasetPath(files, 'los.parquet')).toEqual({ path: 'los.parquet' })
+    expect(matchDatasetPath(files, 'cohort/Admissions')).toEqual({ path: 'cohort/admissions.parquet' })
+  })
+
+  it('falls back on a unique file name', () => {
+    expect(matchDatasetPath(files, 'admissions')).toEqual({ path: 'cohort/admissions.parquet' })
+  })
+
+  it('refuses an ambiguous or unknown name, listing the datasets', () => {
+    expect(matchDatasetPath([{ path: 'a/x.parquet' }, { path: 'b/x.csv' }], 'x')).toMatchObject({ error: expect.stringMatching(/several datasets/) })
+    expect(matchDatasetPath(files, 'nope')).toMatchObject({ error: expect.stringMatching(/No dataset "nope".*los\.parquet/) })
   })
 })

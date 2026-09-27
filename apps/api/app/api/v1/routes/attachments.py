@@ -27,6 +27,8 @@ _OWNER_MODELS: dict[str, tuple[type, str]] = {
     "etl-pipeline": (EtlPipeline, "etl"),
     "dq-rule-set": (DqRuleSet, "data-quality"),
     "data-catalog": (DataCatalog, "catalog"),
+    # The rendered GitLab/GitHub Pages site of a catalog (file_name = repo path).
+    "data-catalog-site": (DataCatalog, "catalog"),
     "schema-preset": (SchemaPreset, "schemas"),
     "user-plugin": (UserPlugin, "plugins"),
     # A database carries a README and a licence like every other entity — it is

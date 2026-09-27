@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { conceptRelations, type ClassRelation } from '@/lib/schema-classes/relations'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import { queryDataSource, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
@@ -51,7 +52,7 @@ interface MappingEditorTabProps {
 }
 
 const PAGE_SIZE = 50
-const EMPTY_CONCEPT_DICTS: import('@/types/schema-mapping').ConceptDictionary[] = []
+const EMPTY_CONCEPT_DICTS: readonly ClassRelation[] = []
 
 
 export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: MappingEditorTabProps) {
@@ -633,7 +634,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
         </div>
       )
     }
-    if (!dataSource.schemaMapping.conceptTables?.length) {
+    if (!dataSource.schemaMapping.concepts?.length) {
       return (
         <div className="flex h-full items-center justify-center">
           <p className="text-sm text-muted-foreground">{t('concept_mapping.no_concept_tables')}</p>
@@ -708,7 +709,7 @@ export function MappingEditorTab({ project, dataSource, onGoToConceptSets }: Map
             filters={filters}
             sorting={sorting}
             filterOptions={filterOptions}
-            conceptDicts={isFileSource ? EMPTY_CONCEPT_DICTS : (dataSource?.schemaMapping?.conceptTables ?? EMPTY_CONCEPT_DICTS)}
+            conceptDicts={isFileSource || !dataSource?.schemaMapping ? EMPTY_CONCEPT_DICTS : conceptRelations(dataSource.schemaMapping)}
             mappingStatusMap={mappingStatusMap}
             mappedElsewhereIds={mappedElsewhereIds}
             projectMappings={mappings.filter((m) => m.projectId === project.id)}

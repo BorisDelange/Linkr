@@ -28,6 +28,7 @@ vi.mock('@/lib/duckdb/engine', () => ({
   generateAlias: (s: string) => s,
   ensureUniqueAlias: (s: string) => s,
   setMountGuard: () => {},
+  setMappingResolver: () => {},
   unmountDataSource: async () => {},
 }))
 

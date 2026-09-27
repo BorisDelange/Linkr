@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { cn } from '@/lib/utils'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { Keyboard, Loader2, Play } from 'lucide-react'
@@ -12,31 +13,74 @@ import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShort
 import type { ShortcutActionId } from '@/types/shortcuts'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { formatApiError } from '@/lib/api-client'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
 
 /** Rows shown; the query itself is capped server-side too. */
 const SHOWN_ROWS = 1000
 
 const SHORTCUT_ACTIONS: ShortcutActionId[] = ['run_selection_or_line', 'run_file']
 
+/** `at`: when the query was sent (ISO). */
 type Outcome =
-  | { kind: 'rows'; headers: string[]; rows: string[][]; total: number; ms: number }
-  | { kind: 'error'; message: string; ms: number }
+  | { kind: 'rows'; headers: string[]; rows: string[][]; total: number; ms: number; at: string }
+  | { kind: 'error'; message: string; ms: number; at: string }
 
 /** The draft of each database's query, kept while the app is open — this tab
  *  saves nothing, but leaving it for the Schema tab must not lose the query. */
 const drafts = new Map<string, string>()
 
+interface Props {
+  dataSourceId: string
+  /** Whose draft this console keeps; defaults to the database's own. */
+  draftKey?: string
+  /** Replaces the draft on mount — remount (a new `key`) to load another query. */
+  initialSql?: string
+  /** Runs `initialSql` as soon as the console mounts. */
+  runOnMount?: boolean
+}
+
 /** A scratch SQL console on one database: write, run, read the result. No
  *  scripts, no files, no saving — the SQL scripts page is for that. */
-export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
-  const { t } = useTranslation()
+export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialSql, runOnMount = false }: Props) {
+  const { t, i18n } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   // Controlled: CodeEditor feeds Monaco this value back once its debounced
   // onChange lands, so a value that never follows the typing erases it.
-  const [sql, setSql] = useState(() => drafts.get(dataSourceId) ?? '')
+  const [sql, setSql] = useState(() => {
+    if (initialSql !== undefined) drafts.set(draftKey, initialSql)
+    return drafts.get(draftKey) ?? ''
+  })
   const [running, setRunning] = useState(false)
   const [outcome, setOutcome] = useState<Outcome | null>(null)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+
+  const execute = useCallback(async (sql: string) => {
+    setRunning(true)
+    const at = new Date().toISOString()
+    const start = performance.now()
+    try {
+      const rows = await queryDataSource(dataSourceId, sql)
+      const headers = rows.length > 0 ? Object.keys(rows[0]) : []
+      setOutcome({
+        kind: 'rows',
+        headers,
+        rows: rows.slice(0, SHOWN_ROWS).map((row) => headers.map((h) => (row[h] == null ? '' : String(row[h])))),
+        total: rows.length,
+        ms: Math.round(performance.now() - start),
+        at,
+      })
+    } catch (err) {
+      const f = formatApiError(err)
+      setOutcome({
+        kind: 'error',
+        message: f.summaryKey ? t(f.summaryKey, { count: f.summaryCount ?? 0 }) : (f.summary ?? String(err)),
+        ms: Math.round(performance.now() - start),
+        at,
+      })
+    } finally {
+      setRunning(false)
+    }
+  }, [dataSourceId, t])
 
   /** `line`: the selection, else the line under the cursor. `all`: the whole editor. */
   const run = async (scope: 'line' | 'all') => {
@@ -51,40 +95,23 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
         : model.getLineContent(editor.getPosition()?.lineNumber ?? 1)
     }
     sql = sql.trim()
-    if (!sql) return
-    setRunning(true)
-    const start = performance.now()
-    try {
-      const rows = await queryDataSource(dataSourceId, sql)
-      const headers = rows.length > 0 ? Object.keys(rows[0]) : []
-      setOutcome({
-        kind: 'rows',
-        headers,
-        rows: rows.slice(0, SHOWN_ROWS).map((row) => headers.map((h) => (row[h] == null ? '' : String(row[h])))),
-        total: rows.length,
-        ms: Math.round(performance.now() - start),
-      })
-    } catch (err) {
-      const f = formatApiError(err)
-      setOutcome({
-        kind: 'error',
-        message: f.summaryKey ? t(f.summaryKey, { count: f.summaryCount ?? 0 }) : (f.summary ?? String(err)),
-        ms: Math.round(performance.now() - start),
-      })
-    } finally {
-      setRunning(false)
-    }
+    if (sql) await execute(sql)
   }
+
+  useEffect(() => {
+    const sql = initialSql?.trim()
+    if (runOnMount && sql) void execute(sql)
+  }, [runOnMount, initialSql, execute])
 
   return (
     <TooltipProvider>
     <div className="flex h-full min-h-0 flex-col px-6 pb-4">
       <div className="flex shrink-0 items-center gap-2 pb-2">
         {outcome && (
-          <span className={outcome.kind === 'error' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+          <span className={cn('self-end text-xs leading-none', outcome.kind === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
             {outcome.kind === 'error'
-              ? t('databases.sql_failed', { ms: outcome.ms })
-              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms })}
+              ? t('databases.sql_failed', { ms: outcome.ms, at: formatDateTimeLocale(outcome.at, i18n.language, { seconds: true }) })
+              : t('databases.sql_rows', { count: outcome.total, ms: outcome.ms, at: formatDateTimeLocale(outcome.at, i18n.language, { seconds: true }) })}
           </span>
         )}
         <div className="flex-1" />
@@ -110,7 +137,7 @@ export function DatabaseSqlTab({ dataSourceId }: { dataSourceId: string }) {
               editorRef={editorRef}
               onChange={(v) => {
                 setSql(v ?? '')
-                drafts.set(dataSourceId, v ?? '')
+                drafts.set(draftKey, v ?? '')
               }}
               onRunSelectionOrLine={() => void run('line')}
               onRunFile={() => void run('all')}

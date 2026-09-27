@@ -235,7 +235,22 @@
     "username": "reader",
     "password": "SECRET"
    },
-   "schemaMapping": null,
+   "schemaMapping": {
+    "formatVersion": 2,
+    "presetId": "mimic-iv",
+    "presetLabel": {
+     "en": "MIMIC-IV"
+    },
+    "patient": {
+     "from": {
+      "table": "patients",
+      "alias": "p"
+     },
+     "fields": {
+      "patient_id": "p.subject_id"
+     }
+    }
+   },
    "status": "connected",
    "stats": null,
    "errorMessage": null,
@@ -246,7 +261,26 @@
    "createdByDetails": null,
    "createdAt": "2026-01-01T00:00:00.000Z",
    "updatedAt": "2026-02-01T00:00:00.000Z",
-   "lineageId": "db-lin-1"
+   "lineageId": "db-lin-1",
+   "schemaOverrides": {
+    "baseAtOverride": {
+     "events.Site labs": "none"
+    },
+    "relations": {
+     "events.Site labs": {
+      "fields": {
+       "start_datetime": "e.d",
+       "patient_id": "e.pid",
+       "concept_id": "e.c"
+      },
+      "from": {
+       "table": "site_labs",
+       "alias": "e"
+      },
+      "label": "Site labs"
+     }
+    }
+   }
   },
   {
    "id": "ds2",
@@ -611,6 +645,16 @@
    "presetId": "omop-cdm-5-4",
    "workspaceId": "ws1",
    "mapping": {
+    "formatVersion": 2,
+    "patient": {
+     "from": {
+      "table": "person",
+      "alias": "p"
+     },
+     "fields": {
+      "patient_id": "p.person_id"
+     }
+    },
     "presetId": "omop-cdm-5-4",
     "presetLabel": {
      "en": "OMOP CDM 5.4",
@@ -619,10 +663,6 @@
     "description": {
      "en": "OMOP 5.4 subset.",
      "fr": "Sous-ensemble OMOP 5.4."
-    },
-    "patientTable": {
-     "table": "person",
-     "idColumn": "person_id"
     },
     "knownTables": [
      "person",
@@ -954,10 +994,16 @@
     },
     "description": null,
     "category": "completeness",
+    "subcategory": null,
     "severity": "error",
     "threshold": 0,
     "sql": "SELECT count(*) FROM person WHERE person_id IS NULL",
+    "exploreSql": null,
     "order": 0,
+    "origin": "ddl",
+    "templateKey": "ddl.not_null:person.person_id",
+    "tableName": "person",
+    "disabled": false,
     "createdAt": "2026-01-02T03:04:05.000Z",
     "updatedAt": "2026-06-01T00:00:00.000Z"
    }
@@ -981,23 +1027,47 @@
     "lineageId": "lin-ds1",
     "entityId": "warehouse"
    },
-   "dimensions": [
-    {
-     "id": "d1",
-     "column": "gender",
-     "label": {
-      "en": "Gender",
-      "fr": "Sexe"
-     }
+   "variables": {
+    "concept": {
+     "enabled": false,
+     "level": "category",
+     "scope": "all",
+     "topN": 100,
+     "categoryColumn": "domain"
+    },
+    "period": {
+     "enabled": true,
+     "granularity": "year"
+    },
+    "service": {
+     "enabled": false,
+     "level": "visit_detail",
+     "grouping": "all",
+     "topN": 10,
+     "groups": {},
+     "unassigned": "other"
+    },
+    "age": {
+     "enabled": false,
+     "brackets": [
+      10,
+      20,
+      30,
+      40,
+      50,
+      60,
+      70,
+      80,
+      90
+     ]
+    },
+    "sex": {
+     "enabled": false
     }
-   ],
+   },
+   "crossings": [],
    "anonymization": {
     "minCellSize": 5
-   },
-   "categoryColumn": "domain",
-   "subcategoryColumn": null,
-   "periodConfig": {
-    "granularity": "year"
    },
    "status": "ready",
    "lastError": null,

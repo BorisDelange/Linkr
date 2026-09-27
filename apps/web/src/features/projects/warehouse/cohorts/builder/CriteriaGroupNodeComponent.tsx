@@ -34,13 +34,14 @@ import {
 import { CriterionCard } from './CriterionCard'
 import { AddCriterionMenu } from './AddCriterionMenu'
 import { OperatorSeparator } from './OperatorSeparator'
+import { defaultCriterionConfig } from './criteria-defaults'
 import type {
   CriteriaGroupNode,
   CriteriaTreeNode,
   CriterionNode,
   CriteriaType,
-  CriteriaConfig,
   SchemaMapping,
+  PatientSpec,
   CohortLevel,
 } from '@/types'
 
@@ -54,7 +55,7 @@ interface CriteriaGroupNodeComponentProps {
   onUpdateNode: (id: string, changes: Partial<CriteriaTreeNode>) => void
   onMoveNode: (groupId: string, fromIdx: number, toIdx: number) => void
   eventTableLabels: string[]
-  genderValues?: SchemaMapping['genderValues']
+  genderValues?: PatientSpec['genderValues']
   visitDateRange?: { minDate: string; maxDate: string }
   dataSourceId?: string
   schemaMapping?: SchemaMapping
@@ -118,10 +119,7 @@ export function CriteriaGroupNodeComponent({
   }
 
   const handleAddCriterion = (type: CriteriaType) => {
-    let config = getDefaultConfigForType(type)
-    if (type === 'period' && visitDateRange) {
-      config = { startDate: visitDateRange.minDate, endDate: visitDateRange.maxDate }
-    }
+    const config = defaultCriterionConfig(type, { cohortLevel, visitDateRange })
     const newNode: CriteriaTreeNode = {
       kind: 'criterion',
       id: crypto.randomUUID(),
@@ -366,23 +364,3 @@ export function CriteriaGroupNodeComponent({
 
 // --- Helpers ---
 
-function getDefaultConfigForType(type: CriteriaType): CriteriaConfig {
-  switch (type) {
-    case 'age':
-      return { ageReference: 'admission', min: undefined, max: undefined }
-    case 'sex':
-      return { values: [] }
-    case 'death':
-      return { isDead: true }
-    case 'period':
-      return { startDate: undefined, endDate: undefined }
-    case 'duration':
-      return { durationLevel: 'visit', minDays: undefined, maxDays: undefined }
-    case 'care_site':
-      return { careSiteLevel: 'visit_detail', values: [] }
-    case 'concept':
-      return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
-    case 'text':
-      return { description: '' }
-  }
-}

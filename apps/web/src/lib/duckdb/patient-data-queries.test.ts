@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import {
   buildPatientDemographicsQuery,
   buildPatientSummaryQuery,
@@ -7,12 +8,14 @@ import {
   buildTimelineQuery,
 } from './patient-data-queries'
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // The age columns are the point of these tests. In OMOP CDM 5.4 `year_of_birth`
 // is NOT NULL while `birth_datetime` is nullable and very often empty, so an age
 // built from the precise column alone silently resolves to NULL for most real
 // datasets — which is exactly how the sidebar's age field came to render "—".
-// Both columns must therefore be COALESCEd, and both must reach the GROUP BY.
+// Both columns must therefore be COALESCEd — the patient relation's `birth_year`
+// does it, and the queries read that one column.
 
 const patientTable = {
   table: 'person',
@@ -29,53 +32,49 @@ const visitTable = {
 }
 
 /** The OMOP preset shape: both birth columns mapped. */
-const bothColumns = {
+const bothColumns = mappingV1ToV2({
   patientTable: { ...patientTable, birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth' },
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
-const yearOnly = {
+const yearOnly = mappingV1ToV2({
   patientTable: { ...patientTable, birthYearColumn: 'year_of_birth' },
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
-const dateOnly = {
+const dateOnly = mappingV1ToV2({
   patientTable: { ...patientTable, birthDateColumn: 'birth_datetime' },
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
-const noBirth = {
+const noBirth = mappingV1ToV2({
   patientTable,
   visitTable,
-} as unknown as SchemaMapping
+} as never)
 
 describe('patient age expression', () => {
+  const full = (m: SchemaMapping) => withClassRelations(buildPatientDemographicsQuery(m, '123')!, m)
+
   it('falls back to the year column when the birth datetime is null', () => {
-    const sql = buildPatientDemographicsQuery(bothColumns, '123')!
     // The whole bug: preferring birth_datetime alone yields NULL on OMOP data.
-    expect(sql).toContain('COALESCE')
-    expect(sql).toContain('birth_datetime')
-    expect(sql).toContain('year_of_birth')
+    expect(buildPatientDemographicsQuery(bothColumns, '123')).toContain('p.birth_year AS age')
+    expect(full(bothColumns)).toContain(`COALESCE(DATE_PART('year', p."birth_datetime"::TIMESTAMP), p."year_of_birth") AS birth_year`)
   })
 
-  it('groups by every birth column it reads', () => {
+  it('groups by the birth column it reads', () => {
     const sql = buildPatientDemographicsQuery(bothColumns, '123')!
-    const groupBy = sql.slice(sql.indexOf('GROUP BY'))
-    // Omitting either one is a DuckDB binder error, not a wrong number.
-    expect(groupBy).toContain('birth_datetime')
-    expect(groupBy).toContain('year_of_birth')
+    // Omitting it is a DuckDB binder error, not a wrong number.
+    expect(sql.slice(sql.indexOf('GROUP BY'))).toContain('p.birth_year')
   })
 
   it('uses the year column directly when it is the only one mapped', () => {
-    const sql = buildPatientDemographicsQuery(yearOnly, '123')!
-    expect(sql).toContain('year_of_birth')
-    expect(sql).not.toContain('COALESCE')
+    expect(full(yearOnly)).toContain('p."year_of_birth" AS birth_year')
+    expect(full(yearOnly)).not.toContain('COALESCE')
   })
 
   it('uses the birth date directly when it is the only one mapped', () => {
-    const sql = buildPatientDemographicsQuery(dateOnly, '123')!
-    expect(sql).toContain('birth_datetime')
-    expect(sql).not.toContain('COALESCE')
+    expect(full(dateOnly)).toContain(`DATE_PART('year', p."birth_datetime"::TIMESTAMP) AS birth_year`)
+    expect(full(dateOnly)).not.toContain('COALESCE')
   })
 
   it('omits the age column entirely when no birth column is mapped', () => {
@@ -83,21 +82,12 @@ describe('patient age expression', () => {
     expect(sql).not.toContain('AS age')
   })
 
-  it('qualifies both birth columns with the table alias', () => {
-    // An unqualified column is ambiguous once the visit table is joined.
-    const sql = buildPatientDemographicsQuery(bothColumns, '123')!
-    expect(sql).toContain('p."birth_datetime"')
-    expect(sql).toContain('p."year_of_birth"')
-  })
-
   it('applies the same fallback to the summary widget query', () => {
     const sql = buildPatientSummaryQuery(bothColumns, '123')!
     // Both age_first_visit and age_last_visit go through the same builder.
-    expect(sql).toContain('age_first_visit')
-    expect(sql).toContain('COALESCE')
-    const groupBy = sql.slice(sql.indexOf('GROUP BY'))
-    expect(groupBy).toContain('birth_datetime')
-    expect(groupBy).toContain('year_of_birth')
+    expect(sql).toContain('p.birth_year AS age_first_visit')
+    expect(sql).toContain('p.birth_year AS age_last_visit')
+    expect(sql.slice(sql.indexOf('GROUP BY'))).toContain('p.birth_year')
   })
 
   it('casts the reference date so a bare year subtraction stays valid', () => {
@@ -166,7 +156,9 @@ describe('patient id search', () => {
 // non-numeric row. Every table shares one UNION ALL, so that single error empties
 // the whole widget: the branch must not be emitted at all.
 
-const timelineMapping = {
+const timelineMapping_V1: SchemaMappingV1 = {
+  presetId: 'test',
+  presetLabel: { en: 'Test' },
   patientTable: { table: 'patients', idColumn: 'subject_id' },
   conceptTables: [
     { key: 'd_items', table: 'd_items', idColumn: 'itemid', nameColumn: 'label' },
@@ -189,10 +181,12 @@ const timelineMapping = {
       conceptDictionaryKey: 'none',
     },
   },
-} as unknown as SchemaMapping
+}
+const timelineMapping = mappingV1ToV2(timelineMapping_V1)
 
 describe('timeline query', () => {
-  const sql = () => buildTimelineQuery(timelineMapping, [220045, 220210], '10002495', null)
+  const sql = () => withClassRelations(buildTimelineQuery(timelineMapping, [220045, 220210], '10002495', null)!, timelineMapping)
+  const full = (m: SchemaMapping, ids: number[]) => withClassRelations(buildTimelineQuery(m, ids, '10002495', null)!, m)
 
   it('keeps the tables whose concepts are ids', () => {
     expect(sql()).toContain('"chartevents"')
@@ -203,7 +197,7 @@ describe('timeline query', () => {
     // The bug: this branch made the whole UNION fail, so a patient with 310 rows
     // of heart rate showed "no data".
     expect(sql()).not.toContain('"prescriptions"')
-    expect(sql()).not.toContain('drug')
+    expect(sql()).not.toContain('e."drug"')
   })
 
   it('still returns a query when only the id-keyed tables survive', () => {
@@ -211,10 +205,10 @@ describe('timeline query', () => {
   })
 
   it('returns null when no table can be filtered by concept id', () => {
-    const inlineOnly = {
-      ...timelineMapping,
-      eventTables: { Prescriptions: timelineMapping.eventTables!.Prescriptions },
-    } as SchemaMapping
+    const inlineOnly = mappingV1ToV2({
+      ...timelineMapping_V1,
+      eventTables: { Prescriptions: timelineMapping_V1.eventTables!.Prescriptions },
+    } as never)
     // Null is the honest answer: the widget reports a mapping problem instead of
     // rendering an error, which is what `missing` in buildWidgetQueries is for.
     expect(buildTimelineQuery(inlineOnly, [220045], '10002495', null)).toBeNull()
@@ -224,32 +218,34 @@ describe('timeline query', () => {
     // Without these the timeline can only ever plot numbers: a categorical
     // observation has nothing to put on a y axis, and an infusion that lasts
     // four hours would collapse to a dot at its start.
-    const withBoth = {
-      ...timelineMapping,
+    const withBoth = mappingV1ToV2({
+      ...timelineMapping_V1,
       eventTables: {
         Measurements: {
-          ...timelineMapping.eventTables!.Measurements,
+          ...timelineMapping_V1.eventTables!.Measurements,
           valueStringColumn: 'value',
           endDateColumn: 'endtime',
         },
       },
-    } as SchemaMapping
-    const sql = buildTimelineQuery(withBoth, [220045], '10002495', null)!
-    expect(sql).toContain('AS value_string')
-    expect(sql).toContain('AS end_date')
+    } as never)
+    const sql = full(withBoth, [220045])
+    expect(sql).toContain('e."value" AS value_string')
+    expect(sql).toContain('e."endtime" AS end_datetime')
+    expect(sql).toContain('e.end_datetime AS end_date')
   })
 
   it('still names both columns when the table maps neither, so the UNION lines up', () => {
-    // Every branch must expose the same columns or DuckDB rejects the UNION.
-    const sql = buildTimelineQuery(timelineMapping, [220045], '10002495', null)!
+    // Every branch must expose the same columns or DuckDB rejects the UNION; the
+    // relation emits every contract column, NULL where unmapped.
+    const sql = full(timelineMapping, [220045])
     expect(sql).toContain('NULL AS value_string')
-    expect(sql).toContain('NULL AS end_date')
+    expect(sql).toContain('NULL AS end_datetime')
   })
 
   it('keeps a row when only the categorical value is present', () => {
     // Filtering on the numeric column alone dropped every categorical event.
-    const stringOnly = {
-      ...timelineMapping,
+    const stringOnly = mappingV1ToV2({
+      ...timelineMapping_V1,
       eventTables: {
         Observations: {
           table: 'chartevents',
@@ -260,29 +256,31 @@ describe('timeline query', () => {
           conceptDictionaryKey: 'd_items',
         },
       },
-    } as unknown as SchemaMapping
+    } as never)
     const sql = buildTimelineQuery(stringOnly, [220048], '10002495', null)!
-    expect(sql).toContain('"value" IS NOT NULL')
-    expect(sql).toContain('NULL AS value')
+    expect(sql).toContain('(e.value_string IS NOT NULL)')
+    expect(sql).not.toContain('e.value_number IS NOT NULL')
   })
 
   it('selects the unit and route, without which a figure says nothing', () => {
     // "2.47" is not a dose. The unit makes it one, and the route is what tells a
     // drip from a single shot.
-    const withUnits = {
-      ...timelineMapping,
+    const withUnits = mappingV1ToV2({
+      ...timelineMapping_V1,
       eventTables: {
         Inputs: {
-          ...timelineMapping.eventTables!.Measurements,
+          ...timelineMapping_V1.eventTables!.Measurements,
           table: 'inputevents',
           valueUnitColumn: 'amountuom',
           routeColumn: 'route',
         },
       },
-    } as SchemaMapping
-    const sql = buildTimelineQuery(withUnits, [220045], '10002495', null)!
-    expect(sql).toContain('"amountuom" AS unit')
-    expect(sql).toContain('"route" AS route')
+    } as never)
+    const sql = full(withUnits, [220045])
+    expect(sql).toContain('e."amountuom" AS unit')
+    expect(sql).toContain('e."route" AS route')
+    expect(sql).toContain('e.unit AS unit')
+    expect(sql).toContain('e.route AS route')
   })
 
   it('names both columns even when the table maps neither, so the UNION lines up', () => {
@@ -295,7 +293,7 @@ describe('timeline query', () => {
     // Only the inline opt-out is dropped. A concept id column with no dictionary
     // is still an id column — OMOP `measurement_concept_id` with no vocabulary
     // loaded filters fine, it just labels the series with the raw id.
-    const noDict = {
+    const noDict = mappingV1ToV2({
       patientTable: { table: 'person', idColumn: 'person_id' },
       eventTables: {
         measurement: {
@@ -306,8 +304,8 @@ describe('timeline query', () => {
           valueColumn: 'value_as_number',
         },
       },
-    } as unknown as SchemaMapping
-    const sql = buildTimelineQuery(noDict, [3027018], '123', null)
+    } as never)
+    const sql = withClassRelations(buildTimelineQuery(noDict, [3027018], '123', null)!, noDict)
     expect(sql).toContain('"measurement"')
     expect(sql).toContain('IN (3027018)')
   })

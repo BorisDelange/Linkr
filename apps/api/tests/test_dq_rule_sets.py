@@ -167,3 +167,91 @@ async def test_create_run_requires_rule_set_and_membership(client, db):
         "dataSourceId": "src-1", "startedAt": "2026-07-14T10:00:00Z", "status": "success",
     })).json()
     assert created["workspaceId"] == ws
+
+
+
+async def test_create_checks_in_one_request(client):
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    rs_id = (await _rule_set(client, headers, ws))["id"]
+    checks = [
+        {
+            "id": f"c{i}", "ruleSetId": rs_id, "name": f"check {i}", "category": "conformance",
+            "subcategory": "relational", "severity": "error",
+            "sql": "SELECT 0 AS violated_rows, 1 AS total_rows",
+            "order": i, "origin": "ddl", "templateKey": f"ddl.not_null:t.c{i}", "tableName": "t",
+        }
+        for i in range(3)
+    ]
+    r = await client.post(f"{API}/dq-rule-sets/{rs_id}/checks", headers=headers, json=checks)
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert [c["id"] for c in body] == ["c0", "c1", "c2"]
+    assert body[0]["origin"] == "ddl" and body[0]["disabled"] is False
+
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"disabled": True})
+    assert p.json()["disabled"] is True
+
+    # Moving a check to another group, then out of every group.
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"tableName": "renamed"})
+    assert p.json()["tableName"] == "renamed"
+    p = await client.patch(f"{API}/dq-custom-checks/c1", headers=headers, json={"tableName": None})
+    assert p.json()["tableName"] is None
+    p = await client.patch(
+        f"{API}/dq-custom-checks/c2", headers=headers,
+        json={"exploreSql": "SELECT 1", "subcategory": None, "category": "completeness"},
+    )
+    assert p.json()["exploreSql"] == "SELECT 1" and p.json()["subcategory"] is None
+
+    stray = [{**checks[0], "id": "x", "ruleSetId": "other"}]
+    r = await client.post(f"{API}/dq-rule-sets/{rs_id}/checks", headers=headers, json=stray)
+    assert r.status_code == 400
+
+
+def _check(rid: str, cid: str = "c1", **over) -> dict:
+    return {"id": cid, "ruleSetId": rid, "name": "N", "category": "plausibility",
+            "subcategory": "temporal", "severity": "warning", "threshold": 0, "sql": "SELECT 1", **over}
+
+
+async def test_checks_follow_the_taxonomy(client):
+    headers = await _admin_headers(client)
+    r = await _rule_set(client, headers, await _workspace(client, headers))
+
+    def post(**over):
+        return client.post(f"{API}/dq-custom-checks", headers=headers, json=_check(r["id"], **over))
+
+    assert (await post(category="accuracy")).status_code == 422
+    assert (await post(subcategory="value")).status_code == 422  # a conformance subcategory
+    assert (await post(severity="fatal")).status_code == 422
+    assert (await post(threshold=150)).status_code == 422
+
+    # What older exports carry is read into the Kahn taxonomy.
+    legacy = (await post(cid="c2", category="validity", subcategory=None, severity="info")).json()
+    assert (legacy["category"], legacy["subcategory"], legacy["severity"]) == ("conformance", "value", "notice")
+
+
+async def test_check_update_refuses_null_and_refits_the_subcategory(client):
+    headers = await _admin_headers(client)
+    r = await _rule_set(client, headers, await _workspace(client, headers))
+    c = (await client.post(f"{API}/dq-custom-checks", headers=headers, json=_check(r["id"]))).json()
+
+    def patch(body):
+        return client.patch(f"{API}/dq-custom-checks/{c['id']}", headers=headers, json=body)
+
+    for field in ("category", "severity", "threshold", "sql", "disabled"):
+        assert (await patch({field: None})).status_code == 422, field
+    assert (await patch({"tableName": None})).status_code == 200  # nullable: "Other checks"
+
+    moved = (await patch({"category": "conformance"})).json()
+    assert (moved["category"], moved["subcategory"]) == ("conformance", "value")
+    assert (await patch({"subcategory": "temporal"})).status_code == 422
+    assert (await patch({"category": "completeness"})).json()["subcategory"] is None
+
+
+async def test_rule_set_keeps_its_empty_check_groups(client):
+    headers = await _admin_headers(client)
+    r = await _rule_set(client, headers, await _workspace(client, headers))
+    assert r["checkGroups"] is None
+    p = await client.patch(f"{API}/dq-rule-sets/{r['id']}", headers=headers, json={"checkGroups": ["Vitals"]})
+    assert p.json()["checkGroups"] == ["Vitals"]
+    assert (await client.get(f"{API}/dq-rule-sets/{r['id']}", headers=headers)).json()["checkGroups"] == ["Vitals"]

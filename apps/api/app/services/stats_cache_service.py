@@ -1,5 +1,5 @@
+from sqlalchemy import Text, cast, select
 from sqlalchemy import delete as sa_delete
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stats_cache import StatsCache
@@ -12,6 +12,21 @@ async def get(db: AsyncSession, scope: str, cache_key: str) -> StatsCache | None
         )
     )
     return result.scalar_one_or_none()
+
+
+async def get_raw(db: AsyncSession, scope: str, cache_key: str) -> tuple[str, str] | None:
+    """(computed_at, payload as JSON text), for a payload served as is.
+
+    A catalog's results run to tens of megabytes: parsing them into Python
+    objects only to validate and encode them back took seconds per read.
+    """
+    result = await db.execute(
+        select(StatsCache.computed_at, cast(StatsCache.payload, Text)).where(
+            StatsCache.scope == scope, StatsCache.cache_key == cache_key
+        )
+    )
+    row = result.first()
+    return (row[0], row[1]) if row else None
 
 
 async def save(

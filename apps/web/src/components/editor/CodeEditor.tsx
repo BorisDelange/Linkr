@@ -3,7 +3,8 @@ import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { useAppStore, resolveEditorTheme } from '@/stores/app-store'
 import { useShortcutStore } from '@/stores/shortcut-store'
-import type { KeyCombo } from '@/types/shortcuts'
+import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
+import { matchesCombo } from '@/hooks/use-shortcuts'
 import { defineLinkrThemes } from './monaco-themes'
 
 /**
@@ -204,38 +205,38 @@ export function CodeEditor({
         externalRef.current = editor
       }
 
-      // Register editor-scoped shortcuts from the store
+      // Save, run and comment act on THIS editor. Monaco's addCommand would
+      // register them in a keybinding service every editor on the page shares,
+      // where the last editor created wins: a hidden editor (the Checks tab
+      // behind a rule set's Investigation console) then ran instead of the
+      // focused one. A capture listener on the editor's own node runs first and
+      // only for it. Each run reads the file FROM THE STORE, so pending
+      // keystrokes are flushed before.
+      const own: [ShortcutActionId, () => (() => void) | undefined][] = [
+        ['save_file', () => onSaveRef.current],
+        ['run_selection_or_line', () => onRunSelectionOrLineRef.current],
+        ['run_file', () => onRunFileRef.current],
+        ['run_file_as_job', () => onRunFileAsJobRef.current],
+        ['toggle_comment', () => () => editor.getAction('editor.action.commentLine')?.run()],
+      ]
+      const onKeyDown = (e: KeyboardEvent) => {
+        const bindings = useShortcutStore.getState().shortcuts
+        for (const [id, handler] of own) {
+          if (!matchesCombo(e, bindings[id].binding)) continue
+          const run = handler()
+          if (!run) return
+          e.preventDefault()
+          e.stopPropagation()
+          flush()
+          run()
+          return
+        }
+      }
+      const node = editor.getDomNode()
+      node?.addEventListener('keydown', onKeyDown, true)
+      editor.onDidDispose(() => node?.removeEventListener('keydown', onKeyDown, true))
+
       const shortcuts = useShortcutStore.getState().shortcuts
-
-      // Every one of these reads the file's content FROM THE STORE, so the pending
-      // keystrokes have to land first — otherwise saving or running right after
-      // typing uses the text as it was up to 400ms ago.
-      editor.addCommand(
-        toMonacoKeybinding(monaco, shortcuts.save_file.binding),
-        () => { flush(); onSaveRef.current?.() }
-      )
-
-      editor.addCommand(
-        toMonacoKeybinding(monaco, shortcuts.run_selection_or_line.binding),
-        () => { flush(); onRunSelectionOrLineRef.current?.() }
-      )
-
-      editor.addCommand(
-        toMonacoKeybinding(monaco, shortcuts.run_file.binding),
-        () => { flush(); onRunFileRef.current?.() }
-      )
-
-      editor.addCommand(
-        toMonacoKeybinding(monaco, shortcuts.run_file_as_job.binding),
-        () => { flush(); onRunFileAsJobRef.current?.() }
-      )
-
-      // Toggle comment (Cmd+Shift+C by default) — triggers Monaco's built-in comment action
-      editor.addCommand(
-        toMonacoKeybinding(monaco, shortcuts.toggle_comment.binding),
-        () => editor.getAction('editor.action.commentLine')?.run()
-      )
-
       // Clear terminal / output (Cmd+K) — dispatch a global keydown so the
       // FilesPage global-shortcut handler fires. matchesCombo compares
       // event.code (e.g. 'KeyK') for letters, so the synthetic event MUST set

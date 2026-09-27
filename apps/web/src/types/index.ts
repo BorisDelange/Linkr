@@ -1,14 +1,14 @@
 // Core application types
-export type { SchemaMapping, SchemaPresetId, ConceptDictionary, EventTable, CustomSchemaPreset, ErdGroup } from './schema-mapping'
+export type { SchemaMapping, SchemaPresetId, CustomSchemaPreset, ErdGroup, PatientSpec, RelationSpec, ConceptSpec, EventSpec, DrugSpec, FieldSpec, SchemaOverrides } from './schema-mapping'
 export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, SourceExtraction, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
 export type { DataSourceRef, EntityRef } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
 import type { DataSourceRef, EffectiveMappingStatus, EntityRef } from './concept-mapping'
-export type { DataCatalog, CatalogStatus, DimensionType, DimensionConfig, AgeGroupConfig, AdmissionDateConfig, CareSiteConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogDimensionRow, CatalogGrandTotal, CatalogResultCache, PeriodConfig, CatalogPeriodRow } from './catalog'
-export { getDefaultDimensions } from './catalog'
+export type { DataCatalog, CatalogStatus, CatalogVariableId, CatalogVariables, PeriodGranularity, PeriodVariableConfig, AgeVariableConfig, SexVariableConfig, ServiceVariableConfig, ServiceGroupingMode, ConceptVariableConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogGrandTotal, CatalogCrossingRow, CatalogCrossingResult, CatalogResultCache, CatalogCounts, AnonymizationImpact } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
 import type { Authored, Lineaged } from './author'
 import type { DerivedFrom } from './cohort'
+import type { SchemaMapping, SchemaOverrides } from './schema-mapping'
 // The ops log is defined once, in the format package, because the replay engine
 // there is the shared contract between the client, the server and the validator.
 export type { DatasetOp } from '@linkr/format'
@@ -441,6 +441,18 @@ export interface DataSource extends Seedable, Authored, Lineaged {
    * mapping was hand-built rather than taken from a preset.
    */
   schemaSource?: SchemaSource
+  /**
+   * What this database changes on top of its preset's mapping (plan §7):
+   * parameter values and whole relations. Stored beside the base copy
+   * (`schemaMapping`); null clears it.
+   */
+  schemaOverrides?: SchemaOverrides | null
+  /**
+   * In memory only, never stored: the preset copy the overrides apply to. The
+   * store publishes `schemaMapping` as the EFFECTIVE mapping (base + overrides),
+   * which is what every query reads, and keeps the base here for the Mapping tab.
+   */
+  schemaBaseMapping?: SchemaMapping
   /** Set when this database is a cohort's derivation of another one. */
   derivedFrom?: DerivedFrom
   status: DataSourceStatus
@@ -514,6 +526,9 @@ export type ReadmeOwnerType =
   | 'etl-pipeline'
   | 'dq-rule-set'
   | 'data-catalog'
+  /** The published site + CI file of a catalog deployed with GitLab/GitHub
+   *  Pages; `fileName` is the path in the catalog repo (lib/dcat-ap/pages-deployment). */
+  | 'data-catalog-site'
   | 'schema-preset'
   | 'user-plugin'
   | 'data-source'
@@ -883,6 +898,8 @@ export type {
   ValueFilter,
   ConceptCriteriaConfig,
   TextCriteriaConfig,
+  IdListCriteriaConfig,
+  IdListLevel,
   TextFieldSearch,
   TextMatchMode,
   DurationUnit,
@@ -898,6 +915,7 @@ export type {
   DerivedFrom,
   AttritionStep,
   CohortExecutionResult,
+  CustomSqlOutput,
 } from './cohort'
 
 // --- IDE Connection Types ---
@@ -1430,17 +1448,20 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
    * resolved back to a local id on import.
    */
   dataSourceRef?: DataSourceRef
+  /**
+   * Schema preset the rule set was generated from, as a portable pointer only:
+   * it is informative (nothing re-reads the preset after creation), so it is
+   * resolved by lineage where it is shown rather than kept as a local id.
+   */
+  schemaPresetRef?: EntityRef
+  /** Check groups with no check yet — a group is otherwise the `tableName` its
+   *  checks share, so an empty one has nowhere else to live. */
+  checkGroups?: string[] | null
   status: DqRuleSetStatus
   lastRunAt?: string
   lastRunDurationMs?: number
   /** Score 0-100, percentage of passing checks */
   lastScore?: number
-  /**
-   * Ids of checks disabled for this rule set — custom check ids and built-in check
-   * ids (their deterministic `builtin_*`/`schema_*` ids). Disabled checks stay listed
-   * (greyed) but are excluded from the scan and the score.
-   */
-  disabledCheckIds?: string[]
   readme?: LocalizedString
   license?: EntityLicense
   /**
@@ -1458,16 +1479,33 @@ export interface DqRuleSet extends Seedable, Authored, Lineaged {
   updatedAt: string
 }
 
+/**
+ * One check of a rule set. Every check is stored — the ones generated from a
+ * schema at creation as much as those written by hand — so any of them can be
+ * edited, disabled or deleted. Key order matches the server's
+ * `DqCustomCheckResponse`: exports from both must be byte-identical.
+ */
 export interface DqCustomCheck {
   id: string
   ruleSetId: string
   name: string
   description: string
-  category: 'completeness' | 'validity' | 'uniqueness' | 'consistency' | 'plausibility'
-  severity: 'error' | 'warning' | 'notice'
+  category: import('@/lib/dq-taxonomy').DqCategory
+  subcategory: import('@/lib/dq-taxonomy').DqSubcategory | null
+  severity: import('@/lib/dq-taxonomy').DqSeverity
+  /** Max % of violated rows allowed, 0-100 (0 = zero tolerance). */
   threshold: number
   sql: string
+  /** Lists the rows breaking the rule, to investigate a failure; null falls back to `sql`. */
+  exploreSql: string | null
   order: number
+  origin: import('@/lib/dq-taxonomy').DqCheckOrigin
+  /** Which schema rule generated it (`ddl.not_null:person.person_id`); null when written by hand. */
+  templateKey: string | null
+  /** Table or relation the check is about, to group the list; null when it spans several. */
+  tableName: string | null
+  /** Kept in the list, left out of runs and of the score. */
+  disabled: boolean
   createdAt: string
   updatedAt: string
 }

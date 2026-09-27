@@ -22,6 +22,7 @@ import {
   TextSelect,
   CornerDownLeft,
   Upload,
+  Wand2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -74,6 +75,7 @@ import { useRoleSchemas } from './use-role-schemas'
 import { usePipelineRunner } from './use-pipeline-runner'
 import { RunAbortedError } from './run-pipeline-sql'
 import { EtlUploadDialog } from './EtlUploadDialog'
+import { GenerateOmopEtlDialog } from './GenerateOmopEtlDialog'
 import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
 import { inferEtlLanguage, nextEtlOrder } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
@@ -181,6 +183,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
   const [editorVisible, setEditorVisible] = useState(true)
   const [createFileOpen, setCreateFileOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
   const [newFileName, setNewFileName] = useState('')
   const [newFileType, setNewFileType] = useState('sql')
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
@@ -570,6 +573,14 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{t('etl.upload_files')}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button variant="ghost" size="icon-xs" disabled={!canWrite} onClick={() => setGenerateOpen(true)}>
+                        <Wand2 size={14} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>{t('etl.gen_open')}</TooltipContent>
                   </Tooltip>
                 </div>
                 <div className="flex items-center gap-0.5">
@@ -1101,6 +1112,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
         onOpenChange={setUploadOpen}
         pipelineId={pipelineId}
       />
+      {generateOpen && <GenerateOmopEtlDialog open onOpenChange={setGenerateOpen} pipelineId={pipelineId} />}
 
       <Dialog open={createFileOpen} onOpenChange={setCreateFileOpen}>
         <DialogContent className="sm:max-w-sm">

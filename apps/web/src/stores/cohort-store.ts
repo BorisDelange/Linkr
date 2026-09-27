@@ -7,13 +7,15 @@ import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
-import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
+import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortRunError } from '@/lib/duckdb/cohort-query'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
 import type {
   Cohort,
   CohortLevel,
   CriteriaGroupNode,
   CohortExecutionResult,
+  CustomSqlOutput,
   CohortMaterialization,
   AttritionStep,
   SchemaMapping,
@@ -184,6 +186,11 @@ interface CohortState {
   /** Why the last run failed, per cohort. Without this a failed run was
    *  indistinguishable from never having run one. */
   executionErrors: Map<string, string>
+  /** A hand-written query's own rows, from its last run — shown whether or not
+   *  it lists members. */
+  customSqlOutputs: Map<string, CustomSqlOutput>
+  /** The run in progress, per cohort, to stop it with `cancelExecution`. */
+  executionAborts: Map<string, AbortController>
 
   loadCohorts: () => Promise<void>
   getProjectCohorts: (projectUid: string) => Cohort[]
@@ -215,7 +222,12 @@ interface CohortState {
     id: string,
     dataSourceId: string,
     schemaMapping?: SchemaMapping,
+    /** Run this SQL in place of the saved one (an unsaved edit; null = the
+     *  criteria). Its count is shown, not stored on the cohort. */
+    customSqlDraft?: string | null,
   ) => Promise<number>
+  /** Interrupt the cohort's run in progress: it ends with `CANCELLED`. */
+  cancelExecution: (id: string) => void
 
   /** Freeze the cohort membership (full id set) into a persisted snapshot. */
   materializeCohort: (
@@ -253,6 +265,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
   executionResults: new Map(),
   executionLoading: new Map(),
   executionErrors: new Map(),
+  customSqlOutputs: new Map(),
+  executionAborts: new Map(),
 
   loadCohorts: async () => {
     const rawAll = await getStorage().cohorts.getAll()
@@ -391,65 +405,81 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     }))
   },
 
-  executeCohort: async (id, dataSourceId, schemaMapping) => {
-    const cohort = get().cohorts.find((c) => c.id === id)
-    if (!cohort || !schemaMapping) return 0
+  executeCohort: async (id, dataSourceId, schemaMapping, customSqlDraft) => {
+    const saved = get().cohorts.find((c) => c.id === id)
+    if (!saved || !schemaMapping) return 0
+    const draft = customSqlDraft !== undefined && customSqlDraft !== (saved.customSql ?? null)
+    const cohort = draft ? { ...saved, customSql: customSqlDraft } : saved
+
+    const controller = new AbortController()
+    const { signal } = controller
+    const query = (sql: string) => engine.queryDataSource(dataSourceId, sql, { signal })
 
     // Mark loading
     set((s) => {
       const errors = new Map(s.executionErrors)
       errors.delete(id)
+      const outputs = new Map(s.customSqlOutputs)
+      outputs.delete(id)
       return {
         executionLoading: new Map(s.executionLoading).set(id, true),
         executionErrors: errors,
+        customSqlOutputs: outputs,
+        executionAborts: new Map(s.executionAborts).set(id, controller),
       }
     })
 
     const startTime = Date.now()
 
     try {
-      // Use custom SQL or auto-generated
-      const countSql = cohort.customSql ?? buildCohortCountSql(cohort, schemaMapping)
+      // The query as written runs on its own, so its rows show even when they
+      // list no member — and its failure never hides the cohort's own error.
+      const outputSql = buildCustomSqlOutputSql(cohort, MAX_RESULT_ROWS)
+      if (outputSql) {
+        const start = Date.now()
+        let output: CustomSqlOutput
+        try {
+          const rows = await query(outputSql)
+          output = { rows, truncated: rows.length >= MAX_RESULT_ROWS, durationMs: Date.now() - start }
+        } catch (err) {
+          if (signal.aborted) throw err
+          output = { rows: [], truncated: false, error: err instanceof Error ? err.message : String(err), durationMs: Date.now() - start }
+        }
+        set((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
+      }
+
+      // A hand-written query stands in for the criteria inside every builder.
+      const countSql = buildCohortCountSql(cohort, schemaMapping)
       // No SQL means the criteria tree produced nothing runnable (an empty group,
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
       if (!countSql) throw new Error('EMPTY_QUERY')
 
       // Execute count
-      const countResults = await engine.queryDataSource(dataSourceId, countSql)
+      const countResults = await query(countSql)
       const totalCount = Number(countResults[0]?.cnt ?? 0)
 
-      // Execute attrition (only for auto-generated SQL)
       const attrition: AttritionStep[] = []
-      if (!cohort.customSql) {
-        const attritionQueries = buildAttritionQueries(cohort, schemaMapping)
-        let prevCount = 0
-        for (const aq of attritionQueries) {
-          const res = await engine.queryDataSource(dataSourceId, aq.sql)
-          const count = Number(res[0]?.cnt ?? 0)
-          attrition.push({
-            nodeId: aq.nodeId,
-            label: aq.label,
-            count,
-            excluded: aq.nodeId === '__total__' ? 0 : prevCount - count,
-          })
-          prevCount = count
-        }
+      let prevCount = 0
+      for (const aq of buildAttritionQueries(cohort, schemaMapping)) {
+        const res = await query(aq.sql)
+        const count = Number(res[0]?.cnt ?? 0)
+        attrition.push({
+          nodeId: aq.nodeId,
+          label: aq.label,
+          count,
+          excluded: aq.nodeId === '__total__' ? 0 : prevCount - count,
+        })
+        prevCount = count
       }
 
-      // Execute result rows (first page)
-      let rows: Record<string, unknown>[] = []
-      if (!cohort.customSql) {
-        // Fetch up to the server's own cap rather than a token 50: the results
-        // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
-        // cohort of 1500. Cost is flat in the row count (measured on a real
-        // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
-        // so the small limit bought nothing.
-        const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0)
-        if (resultsSql) {
-          rows = await engine.queryDataSource(dataSourceId, resultsSql)
-        }
-      }
+      // Fetch up to the server's own cap rather than a token 50: the results
+      // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
+      // cohort of 1500. Cost is flat in the row count (measured on a real
+      // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
+      // so the small limit bought nothing.
+      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0)
+      const rows = resultsSql ? await query(resultsSql) : []
 
       const durationMs = Date.now() - startTime
       const result: CohortExecutionResult = {
@@ -461,11 +491,11 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         durationMs,
       }
 
-      // Persist count + attrition to IDB
-      await getStorage().cohorts.update(id, { resultCount: totalCount, attrition })
+      // An unsaved draft's count describes no stored definition: shown, not kept.
+      if (!draft) await getStorage().cohorts.update(id, { resultCount: totalCount, attrition })
 
       set((s) => ({
-        cohorts: s.cohorts.map((c) =>
+        cohorts: draft ? s.cohorts : s.cohorts.map((c) =>
           c.id === id ? { ...c, resultCount: totalCount, attrition } : c,
         ),
         executionResults: new Map(s.executionResults).set(id, result),
@@ -485,12 +515,24 @@ export const useCohortStore = create<CohortState>((set, get) => ({
           executionLoading: new Map(s.executionLoading).set(id, false),
           executionErrors: new Map(s.executionErrors).set(
             id,
-            err instanceof Error ? err.message : String(err),
+            signal.aborted ? 'CANCELLED' : cohortRunError(cohort, err instanceof Error ? err.message : String(err)),
           ),
         }
       })
-      throw err
+      if (!signal.aborted) throw err
+      return 0
+    } finally {
+      set((s) => {
+        if (s.executionAborts.get(id) !== controller) return {}
+        const aborts = new Map(s.executionAborts)
+        aborts.delete(id)
+        return { executionAborts: aborts }
+      })
     }
+  },
+
+  cancelExecution: (id) => {
+    get().executionAborts.get(id)?.abort()
   },
 
   materializeCohort: async (id, dataSourceId, schemaMapping) => {
@@ -512,8 +554,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       let materialization: CohortMaterialization
       if (isServerMode()) {
         // The server runs the whole membership and stores it — the same endpoint
-        // an agent (MCP freeze_cohort) calls.
-        const saved = await materializeCohortOnServer(id, { membershipSql: sql, dataSourceId })
+        // an agent (MCP freeze_cohort) calls. It runs the SQL as sent, bypassing
+        // queryDataSource, so the class relations travel with it.
+        const saved = await materializeCohortOnServer(id, { membershipSql: withClassRelations(sql, schemaMapping), dataSourceId })
         if (!saved.materialization) throw new Error('The server stored no materialization')
         materialization = saved.materialization
       } else {
@@ -536,7 +579,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         executionLoading: new Map(s.executionLoading).set(id, false),
         executionErrors: new Map(s.executionErrors).set(
           id,
-          err instanceof Error ? err.message : String(err),
+          cohortRunError(cohort, err instanceof Error ? err.message : String(err)),
         ),
       }))
       throw err

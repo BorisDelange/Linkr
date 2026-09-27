@@ -2164,6 +2164,12 @@ class IDBDqCustomCheckStorage implements DqCustomCheckStorage {
     await db.add('dq_custom_checks', check)
   }
 
+  async createMany(_ruleSetId: string, checks: DqCustomCheck[]): Promise<void> {
+    const db = await getDB()
+    const tx = db.transaction('dq_custom_checks', 'readwrite')
+    await Promise.all([...checks.map((c) => tx.store.add(c)), tx.done])
+  }
+
   async update(id: string, changes: Partial<DqCustomCheck>): Promise<void> {
     const db = await getDB()
     const existing = await db.get('dq_custom_checks', id)

@@ -13,8 +13,8 @@ compatibility: >-
   Needs the Linkr MCP server (packages/linkr-mcp) connected with the user's
   Linkr API key. Works with any model and any MCP client that loads Agent Skills.
 metadata:
-  version: "2.0.0"
-  citation: Linkr concept-mapping skill v2.0.0
+  version: "2.1.0"
+  citation: Linkr concept-mapping skill v2.1.0
 ---
 
 # Concept mapping with Linkr
@@ -43,6 +43,13 @@ with `metadata.version` above. Any change to this folder bumps the version
 | `add_ai_suggestions` | **Default output.** Suggestions shown in the app's Suggestions panel (category AI). |
 | `create_mappings` | Mappings (status unchecked). **Only for picks the user confirmed one by one.** |
 | `remove_ai_suggestions` | Withdraw your suggestions (all of a model's, or some concepts'), e.g. after a wrong batch. |
+
+If these tools are not in your tool list, the server exposes them through its
+gateway: call them by name with `run_linkr_read_tool` (the `list_`, `get_`,
+`search_` and `find_` ones), `run_linkr_write_tool` (`add_ai_suggestions`,
+`create_mappings`) or `run_linkr_delete_tool` (`remove_ai_suggestions`), e.g.
+`run_linkr_read_tool({ tool: "list_source_concepts", arguments: { mapping_project_id: "…" } })`.
+`find_linkr_tools({ names: ["list_source_concepts"] })` gives a tool's arguments.
 
 ## Step 1 — Find the project and agree on the session
 

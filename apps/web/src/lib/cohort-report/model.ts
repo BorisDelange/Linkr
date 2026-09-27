@@ -6,7 +6,7 @@
  */
 import type { TFunction } from 'i18next'
 import { localized } from '@/lib/localized'
-import { buildAttritionQueries, buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
+import { buildAttritionQueries, buildCohortMembershipSql, CUSTOM_SQL_STEP_ID } from '@/lib/duckdb/cohort-query'
 import type { Cohort, CohortLevel, ConceptCriteriaConfig, CriteriaTreeNode, SchemaMapping } from '@/types'
 import type { ChartItem } from './charts'
 import { describeCriteria, describeCriterion, type DescribedCriterion } from './describe'
@@ -58,7 +58,7 @@ export interface CohortReportModel {
   sql: string
 }
 
-export type CohortReportUnavailableReason = 'custom-sql' | 'event-level' | 'no-query'
+export type CohortReportUnavailableReason = 'event-level' | 'no-query'
 
 /** Why a cohort cannot have a report; `message` is the reason, for the dialog to translate. */
 export class CohortReportUnavailable extends Error {
@@ -114,9 +114,8 @@ export async function buildCohortReportModel(args: {
   now?: Date
 }): Promise<CohortReportModel> {
   const { cohort, mapping, run, t, locale, threshold } = args
-  // A hand-written query returns whatever columns its author chose; the report
-  // needs the membership (`id`, `patient_id`) the criteria builder guarantees.
-  if (cohort.customSql) throw new CohortReportUnavailable('custom-sql')
+  // Hand-written SQL replaces the criteria: they stay stored, but select nothing.
+  const tree = cohort.customSql?.trim() ? { ...cohort.criteriaTree, children: [] } : cohort.criteriaTree
   if (cohort.level === 'event') throw new CohortReportUnavailable('event-level')
   const membership = buildCohortMembershipSql(cohort, mapping)
   if (!membership) throw new CohortReportUnavailable('no-query')
@@ -137,11 +136,13 @@ export async function buildCohortReportModel(args: {
 
   // Attrition, with patients beside the level's own count at every step.
   const flow: CohortReportModel['flow'] = []
-  const enabled = cohort.criteriaTree.children.filter((c) => c.enabled)
+  const enabled = tree.children.filter((c) => c.enabled)
   const attrition = buildAttritionQueries(cohort, mapping, { withPatients: true })
   for (const [i, q] of attrition.entries()) {
     const [row] = await run(q.sql)
-    const label = i === 0 ? t('cohort_report.flow_total') : describeCriterion(enabled[i - 1], t, mapping)
+    const label = i === 0 ? t('cohort_report.flow_total')
+      : q.nodeId === CUSTOM_SQL_STEP_ID ? t('cohort_report.flow_custom_sql')
+        : describeCriterion(enabled[i - 1], t, mapping)
     flow.push({
       label,
       units: count(row?.cnt),
@@ -150,7 +151,7 @@ export async function buildCohortReportModel(args: {
   }
 
   const concepts: CohortReportModel['concepts'] = []
-  for (const { node, config } of conceptCriteria(cohort.criteriaTree)) {
+  for (const { node, config } of conceptCriteria(tree)) {
     const sql = buildConceptSql(membership, mapping, config)
     if (!sql) continue
     const rows = await run(sql)
@@ -175,7 +176,7 @@ export async function buildCohortReportModel(args: {
     ? (await run(ageSql)).map((r) => ({ label: `${num(r.bin)}–${num(r.bin) + 9}`, count: count(r.n) }))
     : []
 
-  const gv = mapping.genderValues
+  const gv = mapping.patient?.genderValues
   const sexName = (v: string) =>
     v === gv?.male ? t('cohort_report.sex_male')
       : v === gv?.female ? t('cohort_report.sex_female')
@@ -220,7 +221,7 @@ export async function buildCohortReportModel(args: {
     locale,
     kpis,
     flow,
-    criteria: describeCriteria(cohort.criteriaTree, t, mapping),
+    criteria: describeCriteria(tree, t, mapping),
     concepts,
     age,
     sex,
@@ -233,6 +234,7 @@ export async function buildCohortReportModel(args: {
     },
     eventTables,
     careUnits,
-    sql: membership,
+    // What the cohort's SQL tab shows, not the wrapper the figures ran on.
+    sql: cohort.customSql?.trim() || membership,
   }
 }

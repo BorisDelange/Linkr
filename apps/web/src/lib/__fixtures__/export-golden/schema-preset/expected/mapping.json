@@ -1,29 +1,80 @@
 {
-  "eventTables": {
-    "Alpha drugs": {
-      "table": "drug_exposure",
-      "conceptIdColumn": "drug_concept_id",
-      "dateColumn": "drug_exposure_start_date",
-      "endDateColumn": "drug_exposure_end_date"
+  "formatVersion": 2,
+  "patient": {
+    "genderValues": {
+      "male": "8507",
+      "female": "8532"
     },
-    "Zeta labs": {
-      "table": "measurement",
-      "conceptIdColumn": "measurement_concept_id",
-      "dateColumn": "measurement_date",
-      "valueColumn": "value_as_number"
+    "from": {
+      "table": "person",
+      "alias": "p"
+    },
+    "fields": {
+      "patient_id": "p.person_id",
+      "birth_year": "p.year_of_birth",
+      "gender_source_value": "p.gender_concept_id"
     }
   },
-  "tables": {
-    "person": {
-      "columns": {
-        "person_id": "id",
-        "year_of_birth": "birth_year"
+  "visit": {
+    "from": {
+      "table": "visit_occurrence",
+      "alias": "v"
+    },
+    "joins": [
+      {
+        "type": "left",
+        "table": "care_site",
+        "alias": "cs",
+        "on": [
+          [
+            "v.care_site_id",
+            "cs.care_site_id"
+          ]
+        ]
+      }
+    ],
+    "fields": {
+      "visit_id": "v.visit_occurrence_id",
+      "patient_id": "v.person_id",
+      "start_datetime": {
+        "expr": "CAST(v.visit_start_date AS TIMESTAMP)"
+      },
+      "care_site_name": "cs.care_site_name"
+    }
+  },
+  "events": [
+    {
+      "label": "Zeta labs",
+      "from": {
+        "table": "measurement",
+        "alias": "e"
+      },
+      "fields": {
+        "patient_id": "e.person_id",
+        "concept_id": "e.measurement_concept_id",
+        "start_datetime": "e.measurement_date",
+        "value_number": "e.value_as_number"
       }
     },
-    "visit_occurrence": {
-      "columns": {
-        "visit_occurrence_id": "visit_id"
+    {
+      "label": "Alpha notes",
+      "customSql": "SELECT person_id AS patient_id, note_type_concept_id AS concept_id, note_date AS start_datetime FROM note WHERE note_class_concept_id = 44814637"
+    }
+  ],
+  "drugs": [
+    {
+      "label": "Alpha drugs",
+      "drugKind": "administration",
+      "from": {
+        "table": "drug_exposure",
+        "alias": "d"
+      },
+      "fields": {
+        "patient_id": "d.person_id",
+        "concept_id": "d.drug_concept_id",
+        "start_datetime": "d.drug_exposure_start_date",
+        "end_datetime": "d.drug_exposure_end_date"
       }
     }
-  }
+  ]
 }

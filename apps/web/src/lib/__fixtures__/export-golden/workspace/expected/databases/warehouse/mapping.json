@@ -1,0 +1,16 @@
+{
+  "formatVersion": 2,
+  "presetId": "mimic-iv",
+  "presetLabel": {
+    "en": "MIMIC-IV"
+  },
+  "patient": {
+    "from": {
+      "table": "patients",
+      "alias": "p"
+    },
+    "fields": {
+      "patient_id": "p.subject_id"
+    }
+  }
+}

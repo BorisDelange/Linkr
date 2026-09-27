@@ -9,6 +9,9 @@ import { columnLabel, formatDate, formatDateTimeLocale } from '@/lib/format-help
 
 interface ResultsTableProps {
   rows: Record<string, unknown>[]
+  /** Headers as the query names its columns, for a query's raw output. */
+  rawHeaders?: boolean
+  emptyMessage?: string
 }
 
 type Row = Record<string, unknown>
@@ -16,7 +19,7 @@ type Row = Record<string, unknown>
 /** Columns the cohort SELECT emits, in the order it emits them. Anything else a
  *  custom SQL returns falls through to a text column keyed on its own name. */
 const DATE_COLUMNS = new Set(['start_date', 'end_date'])
-const NUMERIC_COLUMNS = new Set(['id', 'patient_id', 'age_at_admission', 'age_current'])
+const NUMERIC_COLUMNS = new Set(['patient_id', 'visit_id', 'visit_detail_id', 'age_at_admission', 'age_current'])
 
 /** `2159-03-20T21:08:00`, with or without the time — what the engine serializes
  *  a DuckDB DATE/TIMESTAMP to. Detected by shape so a custom SQL's own date
@@ -36,10 +39,12 @@ function hasTime(v: string): boolean {
  *  prettified, since custom SQL can select anything. */
 function headerFor(key: string, t: (k: string) => string): string {
   switch (key) {
-    case 'id':
-      return t('cohorts.results_col_id')
     case 'patient_id':
       return t('cohorts.results_col_patient')
+    case 'visit_id':
+      return t('cohorts.results_col_visit')
+    case 'visit_detail_id':
+      return t('cohorts.results_col_visit_detail')
     case 'gender':
       return t('cohorts.criteria_sex')
     case 'age_at_admission':
@@ -55,7 +60,7 @@ function headerFor(key: string, t: (k: string) => string): string {
   }
 }
 
-export function ResultsTable({ rows }: ResultsTableProps) {
+export function ResultsTable({ rows, rawHeaders, emptyMessage }: ResultsTableProps) {
   const { t, i18n } = useTranslation()
 
   const columns = useMemo<DataTableColumn<Row>[]>(() => {
@@ -71,7 +76,7 @@ export function ResultsTable({ rows }: ResultsTableProps) {
 
       return {
         id: key,
-        header: headerFor(key, t),
+        header: rawHeaders ? key : headerFor(key, t),
         // Dates sort on the raw ISO value (lexicographic = chronological) but
         // are read in the app's language, so `display` carries the formatting
         // rather than a `cell` renderer, which the tooltip path would discard.
@@ -97,14 +102,17 @@ export function ResultsTable({ rows }: ResultsTableProps) {
         minSize: 70,
       }
     })
-  }, [rows, t, i18n.language])
+  }, [rows, rawHeaders, t, i18n.language])
+
+  const rowIndex = useMemo(() => new Map(rows.map((row, i) => [row, i])), [rows])
 
   return (
     <DataTable
       data={rows}
       columns={columns}
-      rowKey={(row) => String(row.id ?? JSON.stringify(row))}
-      emptyMessage={t('cohorts.results_none')}
+      // By position: a hand-written query's rows may repeat every value.
+      rowKey={(row) => rowIndex.get(row) ?? -1}
+      emptyMessage={emptyMessage ?? t('cohorts.results_none')}
       pageSize={100}
     />
   )

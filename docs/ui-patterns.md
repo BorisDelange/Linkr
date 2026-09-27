@@ -57,6 +57,7 @@ with no rationale gets "corrected" back to upstream:
 | `DialogDescription` / `SheetDescription` | `text-sm` | `text-xs` | matches the dense body |
 | `AlertDialogDescription` | `text-sm` | `text-sm` | an alert's description *is* its content — the consequences of a destructive action — not a subtitle over a dense form; nine call sites were already overriding `text-xs` back to `text-sm` |
 | `Button` | — | added `sm-tight` (h-7) | dozens of buttons hand-rolled `className="h-7"` |
+| `DropdownMenuContent` | — | added `density="compact"` (items `text-xs`, `py-1`) | two sizes, on purpose: page-level action menus ("…", right-click, More) keep `text-sm`; menus opened from an `icon-xs` button in a dense toolbar or sidebar header (filters, pickers, a sidebar's "+") take `compact`. Older filter menus still shrink each item with `className="text-xs"` — same result, prefer the prop in new code |
 
 Inside a dialog, labels and the description render at **13px** rather than 12px —
 the size `Input`, `Textarea`, `Select` and `Button` already use, so a dialog reads
@@ -159,6 +160,11 @@ Pass **`viewKey`** for a table inside a dialog: sort, filters, column sizes,
 order and visibility are remembered under that key, so reopening the dialog
 gives the user back the view they left. It is a module-level cache on purpose —
 meant to survive a remount, not a reload.
+
+**`pinnedRows`** holds rows above the body on every page — a totals row (`ALL`
+in the data catalog's period tables). They are not sorted, filtered, paged or
+counted, and their cells are opaque so a `pinned` column stays readable over
+them while the table scrolls sideways.
 
 Two escape hatches for what the table cannot know: **`filterCell`** places your
 own control in the filter row when a column's predicate isn't per-value (a row
@@ -554,9 +560,25 @@ the dominant size). Never hand-roll a CSS spinner — the ones that existed
 have been replaced — and never `return null` while loading (3 pages still do,
 leaving the screen blank).
 
-**Not found** — use `components/layout/EntityNotFound.tsx`. The 4 warehouse
-detail pages bypass it and degrade to a bare grey `<p>` with no icon and no way
-back; don't copy them.
+**Not found** — use `components/layout/EntityNotFound.tsx` for any URL whose
+entity does not resolve (every detail page and the project/workspace guards go
+through it): icon, "`<Entity>` not found", why, the id from the URL, and an
+outline "Back to `<list>`" button (`backTo` path, or `onBack` when the page
+already owns its back navigation). Labels are `common.entity_*` and
+`common.back_to_*`. It replaced ten hand-made variants — link vs ghost vs outline
+button, with or without icon, three text sizes, two hard-coded English strings,
+four with no way back.
+
+**Long computations** — under the overall `Progress` bar, list the phases with
+**`RunSteps`** (`components/ui/run-steps.tsx`): one line per step, done /
+running / to come, with the running step's `done / total` and what it is on.
+For jobs whose phases differ in kind (sizing, counting, crossing), where a bar
+alone says how far but not what is happening. First user: the data catalog run
+(`CatalogConfigTab`).
+
+```tsx
+<RunSteps steps={[{ id: 'concepts', label: t('...'), status: 'active', progress: { done: 3, total: 12 }, detail: 'patients 3/12' }]} />
+```
 
 ### Section headers (uppercase group labels)
 
@@ -586,6 +608,8 @@ Check this table before writing any form field.
 | `DateTimeField` | A date that also needs a time of day. Wraps `DatePickerField` and adds a time input, so a plain date still gets the shared calendar. Date and datetime are different questions — "when did the stay start" wants a day, "when was the drug given" wants a minute — so pick deliberately rather than always offering both. |
 | `DatabaseSelect` | **Any "choose a database" control.** Wraps `useDatabaseOptions` (workspace scoping + vocabulary exclusion) and says why the list is empty. Pass `projectUid` for a **project** feature (patient board, cohort, Concepts): it then offers only the databases that project has linked. Omit it for a **workspace** entity (ETL, DQ, catalog, SQL collection), which sees the whole workspace. |
 | `DatabaseLocationField` | **Where a DuckDB file Linkr creates is written** — Linkr's data folder, or a server folder + file name, checked live as a *new* `.duckdb` (`validate-path` `expect: new-file`). Server mode only (renders nothing in the browser build). Reports validity through `onValidityChange` so the dialog gates its confirm button; `databaseLocationPath()` gives the path to send. Used by Create from schema; the cohort derive dialog reuses it. |
+| `SuggestInput` | **A free-text field with suggestions** (table, column, schema names): a compact filtered list in the app's type scale, keyboard-navigable, committing on blur/Enter/pick. **Never `<datalist>`** — the browser's popup ignores the app's spacing and scale. The value stays free: the list only helps. |
+| `NumberInput` | **Any field bound to a required number.** It can be emptied while typing; leaving it restores the value, clamped to `min`/`max`. A plain `<Input type="number">` whose handler writes `parseInt(v) \|\| 1` back can never be cleared: the "1" returns on every keystroke. A number that may be absent (`value ?? ''`, empty → undefined) needs no wrapper. |
 | `PasswordInput` | Any secret input (reveal toggle). |
 | `RequiredMark` | The required-field asterisk. |
 | `GatedButton` | An action the user may lack permission for: renders disabled with an explanatory tooltip. **UX only — real enforcement is server-side.** |
@@ -597,7 +621,10 @@ Check this table before writing any form field.
 | `CopySelectButton` | The "Copy SELECT" button in every database schema view. |
 | `CopyablePath` / `ParquetFilesDialog` | A server path shown as copyable code, and the "N files" + Show dialog listing a Parquet source's table → blob paths (ETL sidebar, database Connection card). |
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
+| `GeneratedSqlEditor` | **SQL generated from a form, then editable** (the Cohort pattern): shows the generated SQL, saves an edit (Cmd+S) as `customSql` with a *Modified* badge and a Reset. Used by the cohort SQL tab and by schema-mapping relations. The overwrite prompt when the form changes under an edit stays with the caller, which knows whether its generated SQL changed. |
+| `MappingEditor` | A schema mapping edited class by class (visual relation or SQL, parameters, contract check and preview on a database). Used by the Schemas page and a database's Mapping tab (override mode: `relationExtra`, `canRemove`, `paramsSlot`). Don't build another mapping form. |
 | `ImageLightbox` / `ZoomableImage` | The full-screen image viewer (zoom, pan, reset) and the click-to-enlarge `<img>` built on it. **Every markdown view already enlarges its images** via `markdownComponents` (below) — you only reach for these directly for an image outside markdown, as `CellOutput` does for notebook figures. |
+| `StatCard` | A headline figure: tinted icon square, `text-2xl` value, label, optional `detail` line (a share, a progress bar). Link (`to`), button (`onClick`) or static. The workspace and project summaries, the catalog's Anonymization tab. Tint with an `ENTITY_COLORS` `bg` + `icon` pair. |
 | `LinkrLogo` | The logo. |
 
 ### Rendering markdown

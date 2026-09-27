@@ -1,133 +1,97 @@
-import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Copy, Check, RotateCcw } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { CodeEditor } from '@/components/editor/CodeEditor'
-import { buildCohortCountSql } from '@/lib/duckdb/cohort-query'
+import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn } from '@/lib/duckdb/cohort-query'
+import { namesRelation } from '@/lib/schema-classes/native-sql'
+import { localized } from '@/lib/localized'
 import type { Cohort, SchemaMapping } from '@/types'
 
 interface SqlPreviewPanelProps {
   cohort: Cohort
   mapping: SchemaMapping | undefined
   onCustomSqlChange: (sql: string | null) => void
-  onExecute: () => void
+  /** Runs the editor's text, saved or not (null: the criteria). */
+  onExecute: (sql: string | null) => void
+  onDraftChange: (sql: string | null | undefined) => void
 }
 
-export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute }: SqlPreviewPanelProps) {
-  const { t } = useTranslation()
-  const [copied, setCopied] = useState(false)
+/** Which tables the query is written on: the linkr_* relations, the same on
+ *  every mapped database, or this database's own. */
+type SqlFormat = 'native' | 'linkr'
 
-  // Auto-generated SQL from criteria tree
-  const autoSql = useMemo(() => {
-    if (!mapping) return null
-    return buildCohortCountSql(cohort, mapping)
-  }, [cohort, mapping])
+/** The format a saved query is written in: native unless it names a relation. */
+const formatOf = (sql: string): SqlFormat => (namesRelation(sql) ? 'linkr' : 'native')
 
-  // The SQL currently displayed in the editor (local draft)
-  // Initialize from customSql if it exists, otherwise from autoSql
-  const [editorValue, setEditorValue] = useState(cohort.customSql ?? autoSql ?? '')
+export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute, onDraftChange }: SqlPreviewPanelProps) {
+  const { t, i18n } = useTranslation()
+  const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(cohort, mapping) : null), [cohort, mapping])
+  const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(cohort, mapping) : null), [cohort, mapping])
+  const [chosen, setChosen] = useState<SqlFormat>('native')
+  const [hasDraft, setHasDraft] = useState(false)
 
-  // Track whether the editor has unsaved changes vs what's persisted
-  const savedSql = cohort.customSql
-  const hasUnsavedChanges = editorValue !== (savedSql ?? autoSql ?? '')
+  // A saved query is shown as written: there is no way back from the database's
+  // tables to Linkr's. Native is the default whenever the criteria translate.
+  const saved = cohort.customSql?.trim() ? formatOf(cohort.customSql) : null
+  const format: SqlFormat = saved ?? (chosen === 'native' && nativeSql ? 'native' : 'linkr')
+  const generated = format === 'native' ? nativeSql : linkrSql
 
-  // Is the persisted SQL different from auto-generated? (= "Modified" badge)
-  const isModified = savedSql != null
+  const handleDraftChange = useCallback((sql: string | null | undefined) => {
+    setHasDraft(sql !== undefined)
+    onDraftChange(sql)
+  }, [onDraftChange])
 
-  // Sync editor value when autoSql changes (criteria changed) and no customSql
-  const prevAutoSqlRef = useRef(autoSql)
-  useEffect(() => {
-    if (prevAutoSqlRef.current !== autoSql && !cohort.customSql) {
-      setEditorValue(autoSql ?? '')
-    }
-    prevAutoSqlRef.current = autoSql
-  }, [autoSql, cohort.customSql])
+  const schemaName = localized(mapping?.presetLabel, i18n.language) || t('cohorts.sql_format_native_fallback')
+  const lockedHint = saved
+    ? t('cohorts.sql_format_locked_saved')
+    : hasDraft ? t('cohorts.sql_format_locked_draft') : !nativeSql ? t('cohorts.sql_format_no_native') : undefined
 
-  // Sync editor value when customSql is reset externally (e.g., reset button)
-  const prevCustomSqlRef = useRef(cohort.customSql)
-  useEffect(() => {
-    if (prevCustomSqlRef.current !== cohort.customSql) {
-      if (cohort.customSql === null || cohort.customSql === undefined) {
-        // customSql was cleared → show autoSql
-        setEditorValue(autoSql ?? '')
-      } else {
-        setEditorValue(cohort.customSql)
-      }
-    }
-    prevCustomSqlRef.current = cohort.customSql
-  }, [cohort.customSql, autoSql])
-
-  const handleSave = useCallback(() => {
-    // If editor matches autoSql, clear customSql (back to auto)
-    if (editorValue === (autoSql ?? '')) {
-      onCustomSqlChange(null)
-    } else {
-      onCustomSqlChange(editorValue)
-    }
-  }, [editorValue, autoSql, onCustomSqlChange])
-
-  const handleReset = useCallback(() => {
-    onCustomSqlChange(null)
-    setEditorValue(autoSql ?? '')
-  }, [autoSql, onCustomSqlChange])
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(editorValue)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
-  }
+  const formatSelect = (
+    <Select value={format} onValueChange={(v) => setChosen(v as SqlFormat)} disabled={!!lockedHint}>
+      <SelectTrigger size="sm" className="h-6 w-72 shrink-0 text-xs">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value="native" className="text-xs" disabled={!nativeSql && !saved}>
+          {t('cohorts.sql_format_native', { schema: schemaName })}
+        </SelectItem>
+        <SelectItem value="linkr" className="text-xs">{t('cohorts.sql_format_linkr')}</SelectItem>
+      </SelectContent>
+    </Select>
+  )
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b px-3 py-1.5">
-        {/* Modified badge */}
-        {isModified && (
-          <Badge variant="outline" className="h-4 px-1.5 text-[9px] text-amber-600 border-amber-400/50 dark:text-amber-400">
-            {t('cohorts.sql_modified')}
-          </Badge>
+      <div className="space-y-0.5 border-b px-3 py-1.5">
+        <p className="text-xs text-muted-foreground">
+          {cohort.level === 'event'
+            ? t('cohorts.sql_contract_event')
+            : t('cohorts.sql_contract', {
+                column: cohortIdColumn(cohort.level),
+                level: t(`cohorts.level_${cohort.level}`).toLowerCase(),
+              })}
+        </p>
+        {format === 'native' && (
+          <p className="text-[10px] text-muted-foreground/80">{t('cohorts.sql_format_native_scope', { schema: schemaName })}</p>
         )}
-
-        {/* Unsaved dot */}
-        {hasUnsavedChanges && (
-          <span
-            className="size-2 rounded-full bg-orange-400 shrink-0"
-            title={t('cohorts.sql_unsaved')}
-          />
-        )}
-
-        <div className="flex-1" />
-
-        {/* Reset button (only when customSql is set) */}
-        {isModified && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleReset}
-            className="h-6 gap-1 text-xs"
-          >
-            <RotateCcw size={12} />
-            {t('cohorts.sql_reset')}
-          </Button>
-        )}
-
-        {/* Copy button */}
-        <Button variant="ghost" size="sm" onClick={handleCopy} className="h-6 gap-1 text-xs">
-          {copied ? <Check size={12} /> : <Copy size={12} />}
-          {copied ? t('common.copied') : t('cohorts.sql_copy')}
-        </Button>
       </div>
-
       <div className="flex-1 min-h-0">
-        <CodeEditor
-          language="sql"
-          value={editorValue}
-          onChange={(val) => {
-            if (val !== undefined) setEditorValue(val)
-          }}
-          onSave={handleSave}
-          onRunSelectionOrLine={onExecute}
-          onRunFile={onExecute}
+        <GeneratedSqlEditor
+          generatedSql={generated}
+          customSql={cohort.customSql}
+          onCustomSqlChange={onCustomSqlChange}
+          onRun={onExecute}
+          onDraftChange={handleDraftChange}
+          toolbarStart={lockedHint ? (
+            // A disabled trigger receives no pointer events: the span carries the hover.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0">{formatSelect}</span>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-72 text-xs">{lockedHint}</TooltipContent>
+            </Tooltip>
+          ) : formatSelect}
         />
       </div>
     </div>

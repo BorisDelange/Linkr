@@ -23,6 +23,7 @@ from app.models.sql_script import SqlScriptCollection, SqlScriptFile
 from app.models.user import User
 from app.models.user_plugin import UserPlugin
 from app.models.workspace import Workspace
+from app.services import attachment_service
 from app.services.workspace_export_assemble import (
     build_data_catalog_tree,
     build_dq_rule_set_tree,
@@ -243,7 +244,7 @@ async def test_dq_rule_set_matches_golden(db):
     rule_set = DqRuleSet(
         id=r["id"], workspace_id=r["workspaceId"], entity_id=r["entityId"],
         name=r["name"], description=r["description"], data_source_id=r["dataSourceId"],
-        data_source_ref=r.get("dataSourceRef"),
+        data_source_ref=r.get("dataSourceRef"), schema_preset_ref=r.get("schemaPresetRef"),
         status=r["status"], last_run_at=r["lastRunAt"],
         last_run_duration_ms=r["lastRunDurationMs"], last_score=r["lastScore"],
         origin=r["origin"], created_by_id=r["createdById"], created_by=r["createdBy"],
@@ -258,8 +259,11 @@ async def test_dq_rule_set_matches_golden(db):
     for c in data["checks"]:
         db.add(DqCustomCheck(
             id=c["id"], rule_set_id=c["ruleSetId"], name=c["name"],
-            description=c["description"], category=c["category"], severity=c["severity"],
-            threshold=c["threshold"], sql=c["sql"], order=c["order"],
+            description=c["description"], category=c["category"],
+            subcategory=c["subcategory"], severity=c["severity"],
+            threshold=c["threshold"], sql=c["sql"], explore_sql=c["exploreSql"],
+            order=c["order"], origin=c["origin"], template_key=c["templateKey"], table_name=c["tableName"],
+            disabled=c["disabled"],
             created_at=_dt(c["createdAt"]), updated_at=_dt(c["updatedAt"]),
         ))
     await db.commit()
@@ -274,9 +278,8 @@ async def test_data_catalog_matches_golden(db):
     catalog = DataCatalog(
         id=c["id"], workspace_id=c["workspaceId"], entity_id=c["entityId"],
         name=c["name"], description=c["description"], data_source_id=c["dataSourceId"],
-        dimensions=c["dimensions"], anonymization=c["anonymization"],
-        category_column=c["categoryColumn"], subcategory_column=c["subcategoryColumn"],
-        period_config=c["periodConfig"], status=c["status"], last_error=c["lastError"],
+        variables=c["variables"], crossings=c["crossings"], anonymization=c["anonymization"],
+        status=c["status"], last_error=c["lastError"],
         last_computed_at=c["lastComputedAt"],
         last_compute_duration_ms=c["lastComputeDurationMs"],
         dcat_ap_metadata=c["dcatApMetadata"], origin=c["origin"],
@@ -290,6 +293,47 @@ async def test_data_catalog_matches_golden(db):
     db.add(catalog)
     await db.commit()
     _assert_tree(await build_data_catalog_tree(db, catalog), expected)
+
+
+@pytest.mark.asyncio
+async def test_data_catalog_tree_carries_pages_site(db):
+    data, _ = _golden("data-catalog")
+    await _seed_ws_org(db, data)
+    catalog = DataCatalog(
+        id="cat-pages", workspace_id=data["workspace"]["id"], name={"en": "C"},
+        description={}, data_source_id="ds", variables={}, crossings=[], anonymization={},
+        status="draft", origin="user", version="0.1.0",
+    )
+    db.add(catalog)
+    await db.commit()
+    files = {
+        "site/index.html": b"<html></html>",
+        ".gitlab-ci.yml": b"pages:\n",
+        # A forged path must never reach the repo tree.
+        "entity.json": b"{}",
+        "site/../x": b"x",
+    }
+    for i, (name, content) in enumerate(files.items()):
+        await attachment_service.create_readme(
+            db, id=f"att-{i}", owner_type="data-catalog-site", owner_id=catalog.id,
+            workspace_id=catalog.workspace_id, file_name=name, mime_type="",
+            created_at=None, data=content,
+        )
+
+    await db.refresh(catalog)
+    # Not deployed: the stored site stays out of the repo.
+    tree = await build_data_catalog_tree(db, catalog)
+    assert "site/index.html" not in tree
+    assert b'"pagesDeployment"' not in tree["entity.json"]
+
+    catalog.pages_deployment = {"provider": "gitlab"}
+    await db.commit()
+    await db.refresh(catalog)
+    tree = await build_data_catalog_tree(db, catalog)
+    assert tree["site/index.html"] == b"<html></html>"
+    assert tree[".gitlab-ci.yml"] == b"pages:\n"
+    assert "site/../x" not in tree
+    assert json.loads(tree["entity.json"])["pagesDeployment"] == {"provider": "gitlab"}
 
 
 @pytest.mark.asyncio

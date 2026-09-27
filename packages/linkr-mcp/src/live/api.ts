@@ -16,7 +16,15 @@ import type {
 } from '@/types'
 import type { DerivePlanTable, DeriveRequest } from '@/lib/api/data-sources'
 import type { Job } from '@/lib/api/environments'
+import { injectClassRelations } from '@/lib/schema-classes/inject'
+import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
+
+
+function withV2Mapping(ds: DataSource): DataSource {
+  return ds?.schemaMapping ? { ...ds, schemaMapping: sanitizeSchemaMapping(ds.schemaMapping) } : ds
+}
 
 export interface Project {
   uid: string
@@ -152,17 +160,21 @@ export class LinkrApi {
     return true
   }
 
-  private async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
+  /** Any REST call as this user: `path` is under `/api/v1`. The domain modules
+   *  (`tools-*.ts`) build their own endpoints on it. A `FormData` body is sent as
+   *  multipart, for the routes that read `Form(...)` fields; anything else as JSON. */
+  async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
     if (!this.accessToken) await this.login()
+    const form = body instanceof FormData
     const res = await fetch(`${this.base}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
         // Marks the write as an agent's, so the server notifies the user's open tabs.
         'X-Linkr-Client': 'mcp',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined && !form ? { 'Content-Type': 'application/json' } : {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: form ? body : body !== undefined ? JSON.stringify(body) : undefined,
     })
     if (res.status === 401 && !retried) {
       // An expired access token: refresh, or log in again when that is not possible.
@@ -196,14 +208,38 @@ export class LinkrApi {
   listProjects = () => this.request<Project[]>('GET', '/projects')
   getProject = (uid: string) => this.request<Project>('GET', `/projects/${encodeURIComponent(uid)}`)
 
-  listDataSources = () => this.request<DataSource[]>('GET', '/data-sources')
-  getDataSource = (id: string) => this.request<DataSource>('GET', `/data-sources/${encodeURIComponent(id)}`)
+  // A mapping stored before format v2 is converted here, like the app does on
+  // read: every builder and tool below reads v2 only.
+  listDataSources = async () =>
+    (await this.request<DataSource[]>('GET', '/data-sources')).map(withV2Mapping)
+  getDataSource = async (id: string) =>
+    withV2Mapping(await this.request<DataSource>('GET', `/data-sources/${encodeURIComponent(id)}`))
   getSchema = (id: string) =>
     this.request<IntrospectedTable[]>('GET', `/data-sources/${encodeURIComponent(id)}/schema`)
   query = async (id: string, sql: string) =>
     (await this.request<{ rows: Record<string, unknown>[] }>(
-      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql },
+      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql) },
     )).rows
+
+  /**
+   * Resolve the `linkr_*` class relations a query names against the database's
+   * mapping. The web app does this in `queryDataSource`; the server runs SQL as
+   * sent, so every route carrying builder SQL must do it before sending.
+   */
+  private withRelations = async (dataSourceId: string, sql: string): Promise<string> => {
+    if (!sql.toLowerCase().includes(RELATION_PREFIX)) return sql
+    return injectClassRelations(sql, await this.mappingFor(dataSourceId))
+  }
+
+  // A run of hundreds of checks would otherwise re-read the database per query.
+  private readonly mappings = new Map<string, { at: number; mapping: SchemaMapping | null | undefined }>()
+  private mappingFor = async (dataSourceId: string): Promise<SchemaMapping | null | undefined> => {
+    const hit = this.mappings.get(dataSourceId)
+    if (hit && Date.now() - hit.at < 30_000) return hit.mapping
+    const mapping = (await this.getDataSource(dataSourceId)).schemaMapping
+    this.mappings.set(dataSourceId, { at: Date.now(), mapping })
+    return mapping
+  }
 
   listCohorts = (projectUid: string) =>
     this.request<Cohort[]>('GET', `/cohorts?projectUid=${encodeURIComponent(projectUid)}`)
@@ -323,8 +359,11 @@ export class LinkrApi {
 
   // Cohorts: freeze, ATLAS import
   /** The server runs the membership query whole and stores it as the cohort's materialization. */
-  materializeCohort = (id: string, body: { membershipSql: string; dataSourceId: string }) =>
-    this.request<Cohort>('POST', `/cohorts/${encodeURIComponent(id)}/materialize`, body)
+  materializeCohort = async (id: string, body: { membershipSql: string; dataSourceId: string }) =>
+    this.request<Cohort>('POST', `/cohorts/${encodeURIComponent(id)}/materialize`, {
+      ...body,
+      membershipSql: await this.withRelations(body.dataSourceId, body.membershipSql),
+    })
   clearCohortMaterialization = (id: string) =>
     this.request<Cohort>('DELETE', `/cohorts/${encodeURIComponent(id)}/materialization`)
 
@@ -336,8 +375,11 @@ export class LinkrApi {
   derivePlan = (id: string, level: string) =>
     this.request<DerivePlanTable[]>('POST', `/data-sources/${encodeURIComponent(id)}/derive-plan`, { level })
   /** Starts the copy as a job of the database's workspace; returns it queued. */
-  derive = (id: string, body: DeriveRequest) =>
-    this.request<Job>('POST', `/data-sources/${encodeURIComponent(id)}/derive`, body)
+  derive = async (id: string, body: DeriveRequest) =>
+    this.request<Job>('POST', `/data-sources/${encodeURIComponent(id)}/derive`, {
+      ...body,
+      membershipSql: await this.withRelations(id, body.membershipSql),
+    })
   getJob = (id: string) => this.request<Job>('GET', `/jobs/${encodeURIComponent(id)}`)
   cancelJob = (id: string) => this.request<void>('POST', `/jobs/${encodeURIComponent(id)}/cancel`)
 }

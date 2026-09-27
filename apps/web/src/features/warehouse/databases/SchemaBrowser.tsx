@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Allotment } from 'allotment'
+import { Allotment, LayoutPriority, type AllotmentHandle } from 'allotment'
 import 'allotment/dist/style.css'
 import {
   BarChart3,
@@ -171,6 +171,13 @@ const columnStatsCache = new Map<string, ColumnStats>()
 const columnStatsKey = (dataSourceId: string, table: string, col: string) =>
   `${dataSourceId}::${table}::${col}`
 
+/** Pane widths in pixels. The columns pane takes whatever is left, down to its
+ *  minimum; its opening size only has to be positive. */
+const TABLE_LIST_WIDTH = 250
+const STATS_WIDTH = 300
+const COLUMNS_MIN = 300
+const PANE_SIZES = [TABLE_LIST_WIDTH, 600, STATS_WIDTH]
+
 // --- Shared schema browser ---
 //
 // One component for the three schema views: the SQL-scripts / IDE "browse
@@ -186,9 +193,11 @@ interface Props {
   /** Rendered in the toolbar, after the table-list toggle. The ETL tab puts its
    *  database picker here so the browser itself stays source-agnostic. */
   toolbarExtra?: React.ReactNode
+  /** Whether the column-statistics panel starts open. Default true. */
+  defaultStatsVisible?: boolean
 }
 
-export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Props) {
+export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defaultStatsVisible = true }: Props) {
   const { t, i18n } = useTranslation()
 
   const [tables, setTables] = useState<string[]>([])
@@ -201,7 +210,28 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
   const [selectedColumn, setSelectedColumn] = useState<string | null>(null)
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
   const [tablesVisible, setTablesVisible] = useState(true)
-  const [statsVisible, setStatsVisible] = useState(true)
+  const [statsVisible, setStatsVisible] = useState(defaultStatsVisible)
+  // Allotment gives a pane its preferred size only on a double-click of its
+  // separator. On opening it lays the panes out with the stats pane counted in,
+  // hidden or not, then hides it: in a narrow container the table list is
+  // squeezed to its minimum and the freed width goes to the columns pane. So
+  // until the user drags a separator, each layout that leaves the table list
+  // short while the columns pane can spare the width gives it back.
+  const allotmentRef = useRef<AllotmentHandle>(null)
+  const userResized = useRef(false)
+  const tablesVisibleRef = useRef(tablesVisible)
+  useEffect(() => { tablesVisibleRef.current = tablesVisible }, [tablesVisible])
+  const fixTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const keepTableListWidth = useCallback((sizes: number[]) => {
+    if (userResized.current || !tablesVisibleRef.current) return
+    const [list, center, stats] = sizes
+    const missing = TABLE_LIST_WIDTH - list
+    if (missing <= 0 || center - missing < COLUMNS_MIN) return
+    clearTimeout(fixTimer.current)
+    // After Allotment's own layout pass, which this change is part of.
+    fixTimer.current = setTimeout(() => allotmentRef.current?.resize([TABLE_LIST_WIDTH, center - missing, stats]))
+  }, [])
+  useEffect(() => () => clearTimeout(fixTimer.current), [])
   const [loading, setLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
   const [rowCount, setRowCount] = useState<number | null>(null)
@@ -624,11 +654,17 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
 
         {/* Content: table sidebar + columns table + stats sidebar */}
         <div className="min-h-0 flex-1">
-          <Allotment proportionalLayout={false}>
+          <Allotment
+            ref={allotmentRef}
+            proportionalLayout={false}
+            defaultSizes={PANE_SIZES}
+            onChange={keepTableListWidth}
+            onDragStart={() => { userResized.current = true }}
+          >
             {/* Table list sidebar */}
             {/* 250, not 220: the row-count column needs to clear the right edge
                 with a little breathing room at the default (double-click) width. */}
-            <Allotment.Pane preferredSize={250} minSize={140} maxSize={360} visible={tablesVisible}>
+            <Allotment.Pane preferredSize={TABLE_LIST_WIDTH} minSize={140} maxSize={360} visible={tablesVisible}>
               <div className="flex h-full flex-col border-r">
                 <div className="flex items-center gap-2 border-b px-3 py-2">
                   <SortHeader
@@ -718,7 +754,8 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
             </Allotment.Pane>
 
             {/* Column overview table */}
-            <Allotment.Pane minSize={300}>
+            {/* Takes every resize: the side panels keep their width. */}
+            <Allotment.Pane minSize={COLUMNS_MIN} priority={LayoutPriority.High}>
               <div className="flex h-full flex-col">
                 <ScrollArea className="h-full flex-1">
                   <table className="w-full text-xs">
@@ -788,7 +825,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra }: Pr
             </Allotment.Pane>
 
             {/* Stats sidebar */}
-            <Allotment.Pane preferredSize={300} minSize={220} maxSize={440} visible={statsVisible}>
+            <Allotment.Pane preferredSize={STATS_WIDTH} minSize={220} maxSize={440} visible={statsVisible}>
               <div className="flex h-full min-h-0 flex-col border-l">
                 <ColumnStatsDetail
                   column={columns.find((c) => c.column_name === selectedColumn) ?? null}

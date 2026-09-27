@@ -6,6 +6,8 @@ import { Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
 import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
+import { injectClassRelations } from '@/lib/schema-classes/inject'
+import { grainTable } from '@/lib/schema-classes/spec'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -172,6 +174,17 @@ let mountGuard: ((dataSourceId: string) => Promise<void>) | undefined
 
 export function setMountGuard(guard: (dataSourceId: string) => Promise<void>): void {
   mountGuard = guard
+}
+
+/**
+ * The schema mapping of a data source, so `queryDataSource` can resolve the
+ * `linkr_*` class relations a query names. Injected by the store for the same
+ * reason as the mount guard.
+ */
+let mappingResolver: ((dataSourceId: string) => SchemaMapping | undefined) | undefined
+
+export function setMappingResolver(resolve: (dataSourceId: string) => SchemaMapping | undefined): void {
+  mappingResolver = resolve
 }
 
 // --- Mount / unmount ---
@@ -413,15 +426,11 @@ export async function computeStats(
   if (isServerMode()) {
     const tables = await fetchDataSourceSchema(dataSourceId)
     const stats: DataSourceStats = { tableCount: tables.length }
-    if (countRows && schemaMapping?.patientTable) {
-      stats.patientCount = await serverCount(
-        dataSourceId, schemaMapping.patientTable.table, schemaMapping.patientTable.schema,
-      )
-      if (schemaMapping.visitTable) {
-        stats.visitCount = await serverCount(
-          dataSourceId, schemaMapping.visitTable.table, schemaMapping.visitTable.schema,
-        )
-      }
+    const patients = grainTable(schemaMapping?.patient)
+    if (countRows && patients) {
+      stats.patientCount = await serverCount(dataSourceId, patients.table, patients.schema)
+      const visits = grainTable(schemaMapping?.visit)
+      if (visits) stats.visitCount = await serverCount(dataSourceId, visits.table, visits.schema)
     }
     return stats
   }
@@ -441,15 +450,13 @@ export async function computeStats(
     )
     const tableCount = Number(tablesResult.toArray()[0]?.cnt ?? 0)
 
-    if (schemaMapping?.patientTable) {
-      const patientCount = await safeCount(
-        conn, schema, schemaMapping.patientTable.table, schemaMapping.patientTable.schema,
-      )
-      const visitCount = schemaMapping.visitTable
-        ? await safeCount(
-            conn, schema, schemaMapping.visitTable.table, schemaMapping.visitTable.schema,
-          )
-        : 0
+    // A relation in SQL or filtered has no table to count: the counts are left
+    // to `refreshPatientCount`, which goes through the relation.
+    const patients = grainTable(schemaMapping?.patient)
+    if (patients) {
+      const patientCount = await safeCount(conn, schema, patients.table, patients.schema)
+      const visits = grainTable(schemaMapping?.visit)
+      const visitCount = visits ? await safeCount(conn, schema, visits.table, visits.schema) : 0
       return { patientCount, visitCount, tableCount }
     }
 
@@ -482,11 +489,30 @@ export async function registerVirtualCsv(
   }
 }
 
+export interface QueryOptions {
+  /**
+   * Interrupts the query while it runs — not only before it starts — and makes
+   * the call reject with the signal's reason. Server mode asks the server to
+   * interrupt it; the browser cancels DuckDB-WASM's pending query.
+   */
+  signal?: AbortSignal
+  /**
+   * Every row of the result. The server caps a response at 10,000 rows unless
+   * asked; the browser never caps. Paging (`queryDataSourceAll`) would re-run
+   * an aggregate once per page instead.
+   */
+  allRows?: boolean
+}
+
 /** Run an arbitrary SQL query against a data source schema. */
 export async function queryDataSource(
   dataSourceId: string,
   sql: string,
+  options: QueryOptions = {},
 ): Promise<Record<string, unknown>[]> {
+  const { signal, allRows } = options
+  signal?.throwIfAborted()
+  sql = injectClassRelations(sql, mappingResolver?.(dataSourceId))
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.
@@ -496,7 +522,7 @@ export async function queryDataSource(
     if (dataSourceId.startsWith('filesrc_')) {
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
-    return queryDataSourceOnServer(dataSourceId, sql)
+    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows })
   }
   // Wait for the source to be in DuckDB before naming its schema. Callers used
   // to have to do this themselves, and the ones that forgot raced the mount on
@@ -532,9 +558,9 @@ export async function queryDataSource(
     // treated as statement separators.
     const statements = splitSqlStatements(sql)
 
-    let result: Awaited<ReturnType<typeof conn.query>> | null = null
+    let result: Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'> | null = null
     for (const stmt of statements) {
-      result = await conn.query(stmt)
+      result = signal ? await cancellableQuery(conn, stmt, signal) : await conn.query(stmt)
     }
 
     if (!result) return []
@@ -553,6 +579,34 @@ export async function queryDataSource(
     )
   } finally {
     await conn.close()
+  }
+}
+
+/**
+ * `conn.query` blocks the worker until the query ends; `send` runs it as a
+ * pending query polled step by step, which `cancelSent` can stop in between.
+ */
+async function cancellableQuery(
+  conn: duckdb.AsyncDuckDBConnection,
+  stmt: string,
+  signal: AbortSignal,
+): Promise<Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'>> {
+  signal.throwIfAborted()
+  const onAbort = () => { void conn.cancelSent().catch(() => {}) }
+  signal.addEventListener('abort', onAbort, { once: true })
+  try {
+    const reader = await conn.send(stmt, true)
+    const rows: unknown[] = []
+    for await (const batch of reader) {
+      signal.throwIfAborted()
+      for (const row of batch.toArray()) rows.push(row)
+    }
+    return { schema: reader.schema, toArray: () => rows } as Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'>
+  } catch (err) {
+    signal.throwIfAborted()
+    throw err
+  } finally {
+    signal.removeEventListener('abort', onAbort)
   }
 }
 
