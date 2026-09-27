@@ -5661,6 +5661,7 @@
     "methods_text": "The cohort is built from the criteria above, applied to the database {{database}}; one record per {{unit}}. The index date is the start of that record. Every figure in this report is computed from the query below, run when the report was generated.",
     "suppression_text": "Small-cell rule: any count between 1 and {{threshold}} is replaced by <{{threshold}}, and percentages of such counts are withheld, so that no small group of patients can be singled out.",
     "footer": "Generated with Linkr — linkr.interhop.org",
+    "generated_with": "Generated with",
     "button": "Report",
     "title": "Cohort report",
     "description": "A self-contained summary of this cohort: counts, flowchart, criteria, characteristics and methodology, computed fresh from the database.",

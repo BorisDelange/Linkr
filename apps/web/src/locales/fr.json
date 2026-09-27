@@ -5661,6 +5661,7 @@
     "methods_text": "La cohorte est construite à partir des critères ci-dessus, appliqués à la base {{database}} ; un enregistrement par {{unit}}. La date d’index est le début de cet enregistrement. Tous les chiffres du rapport sont calculés par la requête ci-dessous, exécutée au moment de la génération.",
     "suppression_text": "Règle des petits effectifs : tout effectif compris entre 1 et {{threshold}} est remplacé par <{{threshold}}, et les pourcentages de ces effectifs ne sont pas donnés, afin qu’aucun petit groupe de patients ne puisse être isolé.",
     "footer": "Généré avec Linkr — linkr.interhop.org",
+    "generated_with": "Généré avec",
     "button": "Rapport",
     "title": "Rapport de cohorte",
     "description": "Une synthèse autonome de la cohorte : effectifs, flowchart, critères, caractéristiques et méthodologie, calculés à neuf sur la base.",
