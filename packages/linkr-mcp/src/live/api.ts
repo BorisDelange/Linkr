@@ -161,18 +161,20 @@ export class LinkrApi {
   }
 
   /** Any REST call as this user: `path` is under `/api/v1`. The domain modules
-   *  (`tools-*.ts`) build their own endpoints on it. */
+   *  (`tools-*.ts`) build their own endpoints on it. A `FormData` body is sent as
+   *  multipart, for the routes that read `Form(...)` fields; anything else as JSON. */
   async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
     if (!this.accessToken) await this.login()
+    const form = body instanceof FormData
     const res = await fetch(`${this.base}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
         // Marks the write as an agent's, so the server notifies the user's open tabs.
         'X-Linkr-Client': 'mcp',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined && !form ? { 'Content-Type': 'application/json' } : {}),
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: form ? body : body !== undefined ? JSON.stringify(body) : undefined,
     })
     if (res.status === 401 && !retried) {
       // An expired access token: refresh, or log in again when that is not possible.

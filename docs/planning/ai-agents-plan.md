@@ -191,7 +191,8 @@ CI validation is `@linkr/format`, not the MCP. So:
 - **the files server is announced as `linkr-files`** meanwhile (and the
   `linkr-authoring` skill updated);
 - **`src/files/` is deleted** (done, with the `linkr-authoring` and `create-project`
-  skills): project creation from outside Linkr goes, until `linkr` gains it.
+  skills): project creation from outside Linkr went with it; `linkr` has it again
+  (`create_project`, 2026-09-27).
 
 ### A public interface
 
@@ -245,9 +246,8 @@ permission prompts. Approving where the conversation happens is the right place 
 pushing confirmations into the Linkr tab would interrupt a user busy elsewhere.
 
 Linkr's part: **tool annotations** so the client can tell reads from writes, and
-**an action log + per-turn undo** in the tab (§4c) — visible, never blocking. For a
-client without approval: tokens read-only by default, write only when the token says
-so.
+**an action log + per-turn undo** in the tab (§4c) — visible, never blocking. There is
+no read-only key for clients without approval (decided 2026-09-27, see Authentication).
 
 ### Authentication
 
@@ -263,8 +263,11 @@ mcpServers:
 ```
 
 So `linkr` needs an **`ApiToken` entity** — created by the user in their settings,
-scoped to one project, expiring, revocable in one click, last-used-at. **Built**
-(Profile → API keys, `lnk_…`), except the project scope and a read-only variant. **Per-user,
+expiring, revocable in one click, last-used-at. **Built** (Profile → API keys, `lnk_…`).
+**A key carries exactly its owner's rights — no project scope, no read-only variant**
+(decided 2026-09-27): approval already lives in the client, steered by the tool
+annotations, and a leaked key is revoked in one click, checked again within a minute.
+A second, per-key permission layer would duplicate both. **Per-user,
 not a shared service token**: a global token makes every user act as one identity,
 losing traceability and §6's "never more than the user". Chat clients support
 per-user variables. OAuth 2.1 only if an institution asks.
@@ -337,14 +340,14 @@ it is the client's configuration (§2).
 
 ---
 
-## 7. Workspace agent — deliberately narrow
+## 7. Workspace tools — deliberately narrow
 
-Same engine, different tool set. Not symmetric with the project agent: workspace
-actions are administrative (create a project, install from the catalog, describe the
-workspace), rarer and far more sensitive.
-
-Ship it **after** the project agent, with a narrow tool set, and **never** permissions
-or members.
+Not symmetric with the project tools: workspace actions are administrative, rarer and
+more sensitive. **Built (2026-09-27)** in the same `linkr` server, as the `workspace`
+toolset: describe / create / edit workspaces, create and edit projects, link databases,
+create databases (no secret passes through the agent), schema presets. **Never**
+permissions or members, nor deleting a project or a workspace (§6). Catalog install
+is not there (a client-side git clone + import flow).
 
 ---
 
@@ -360,7 +363,7 @@ or members.
 | 6 | `linkr` extended: dashboards (salvage `dashboard-tools.ts`), datasets | M | Replicating a proven pattern. |
 | 7 | `Skill` entity + project selection + `AGENTS.md` + `.agents/skills/` | M | Useful to any harness, incl. LibreChat skills and the IDE terminal. |
 | 8 | Embedded chat (§5) — only if real use shows the need | L | Decided on evidence, option (a) first in line. |
-| 9 | Workspace agent (narrow tools) | M | After, and deliberately limited. |
+| 9 | Workspace tools (narrow) — ✅ 2026-09-27, `workspace` toolset | M | After, and deliberately limited. |
 
 ## 9. Skills materialised on disk
 
@@ -434,5 +437,7 @@ Revised 2026-09-23; the 2026-09-02 list (ACP-centred) is replaced, not appended 
 12. **Script execution by an agent is confirmed**, not free and not forbidden.
 13. **`linkr` is a public interface**; LibreChat and the like are consumers, never
     hosted by us.
-14. **Per-user `ApiToken`, scoped to one project**; OAuth 2.1 only on demand.
-15. **For a client without approval**, tokens are read-only by default.
+14. **Per-user `ApiToken`, with its owner's rights** — no project scope, no read-only
+    variant; OAuth 2.1 only on demand.
+15. **Approval is the client's**, steered by the tool annotations; no per-key permission
+    layer.
