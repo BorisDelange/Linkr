@@ -253,9 +253,10 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     for (const name of emptyGroups) names.add(name)
     return [...names]
   }, [customChecks, emptyGroups])
-  // Headers show as soon as one named group exists, so it can be managed.
-  const showGroupHeaders = groups.some((g) => g.key)
-  const idsInGroup = (name: string) => customChecks.filter((c) => c.tableName === name).map((c) => c.id)
+  // Always shown, "Other checks" included: a header is where a group is renamed or deleted.
+  const showGroupHeaders = groups.length > 0
+  /** `''` is "Other checks", the checks with no group. */
+  const idsInGroup = (name: string) => customChecks.filter((c) => (c.tableName ?? '') === name).map((c) => c.id)
 
   const renameGroup = async (from: string, to: string) => {
     setRenamingGroup(null)
@@ -701,11 +702,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                       const disabledCount = group.checks.filter((c) => c.disabled).length
                       return (
                         <div key={group.key || '__other__'} className="mb-0.5">
-                          {showGroupHeaders && (renamingGroup === group.key && group.key ? (
+                          {showGroupHeaders && (renamingGroup === group.key ? (
                             <div className="flex h-6 w-full items-center gap-1 rounded px-1 text-[10px] font-semibold text-muted-foreground">
                               <ChevronDown size={12} className="shrink-0" />
                               <InlineRenameField
-                                initialValue={group.key}
+                                initialValue={group.key || group.label}
                                 onSubmit={(next) => void renameGroup(group.key, next)}
                                 onCancel={() => setRenamingGroup(null)}
                                 hasClash={(candidate) => groupNames.some((g) => g !== group.key && g.toLowerCase() === candidate.toLowerCase())}
@@ -714,7 +715,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                             </div>
                           ) : (
                             <ContextMenu>
-                              <ContextMenuTrigger asChild disabled={!canWrite || !group.key}>
+                              <ContextMenuTrigger asChild disabled={!canWrite}>
                                 <button
                                   type="button"
                                   onClick={() => toggleGroup(group.key)}
@@ -1006,10 +1007,11 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
         onMove={(group) => { if (moving) void moveChecks(moving, group) }}
       />
       <DeleteGroupDialog
-        group={deletingGroup}
-        count={deletingGroup ? idsInGroup(deletingGroup).length : 0}
+        group={deletingGroup === null ? null : deletingGroup || t('data_quality.group_other')}
+        count={deletingGroup === null ? 0 : idsInGroup(deletingGroup).length}
+        canKeepChecks={!!deletingGroup}
         onOpenChange={(open) => { if (!open) setDeletingGroup(null) }}
-        onDelete={(withChecks) => { if (deletingGroup) void deleteGroup(deletingGroup, withChecks) }}
+        onDelete={(withChecks) => { if (deletingGroup !== null) void deleteGroup(deletingGroup, withChecks) }}
       />
 
       <AddSchemaChecksDialog

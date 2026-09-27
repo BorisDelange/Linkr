@@ -138,9 +138,11 @@ export function MoveChecksDialog({ open, onOpenChange, count, groups, current, o
  * Deleting a group asks what becomes of its checks: gone with it, or kept in
  * "Other checks". An empty group only needs the confirmation.
  */
-export function DeleteGroupDialog({ group, count, onOpenChange, onDelete }: {
+export function DeleteGroupDialog({ group, count, canKeepChecks = true, onOpenChange, onDelete }: {
   group: string | null
   count: number
+  /** False for "Other checks": keeping them would leave them where they are. */
+  canKeepChecks?: boolean
   onOpenChange: (open: boolean) => void
   onDelete: (withChecks: boolean) => void
 }) {
@@ -152,13 +154,13 @@ export function DeleteGroupDialog({ group, count, onOpenChange, onDelete }: {
           <AlertDialogTitle>{t('data_quality.delete_group_title')}</AlertDialogTitle>
           <AlertDialogDescription>
             {count > 0
-              ? t('data_quality.delete_group_confirm', { name: group ?? '', count })
+              ? t(canKeepChecks ? 'data_quality.delete_group_confirm' : 'data_quality.delete_other_group_confirm', { name: group ?? '', count })
               : t('data_quality.delete_empty_group_confirm', { name: group ?? '' })}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-          {count > 0 && (
+          {count > 0 && canKeepChecks && (
             <Button variant="outline" onClick={() => onDelete(false)}>
               {t('data_quality.delete_group_keep_checks')}
             </Button>

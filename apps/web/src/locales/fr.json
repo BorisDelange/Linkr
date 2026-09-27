@@ -1101,7 +1101,8 @@
     "sort_groups": "Trier les groupes",
     "sort_groups_list": "Ordre de la liste",
     "sort_groups_asc": "A → Z",
-    "sort_groups_desc": "Z → A"
+    "sort_groups_desc": "Z → A",
+    "delete_other_group_confirm": "Supprimer les {{count}} check(s) de « {{name}} » ? Cette action est irréversible."
   },
   "cohorts": {
     "results_patients": "Patients",

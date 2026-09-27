@@ -1101,7 +1101,8 @@
     "sort_groups": "Sort groups",
     "sort_groups_list": "List order",
     "sort_groups_asc": "A → Z",
-    "sort_groups_desc": "Z → A"
+    "sort_groups_desc": "Z → A",
+    "delete_other_group_confirm": "Delete the {{count}} check(s) of \"{{name}}\"? This cannot be undone."
   },
   "cohorts": {
     "results_patients": "Patients",
