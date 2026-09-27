@@ -1,7 +1,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { isProtected, protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import { RELATION_PREFIX } from './contracts'
-import { classRelations } from './relations'
+import { classRelations, type ClassRelation } from './relations'
 
 // Matches a relation name used as an identifier: `linkr_visit`, `linkr_event_lab_events`.
 const RELATION_REF = new RegExp(`(?<![\\w.])${RELATION_PREFIX}[a-z0-9_]+(?!\\w)`, 'gi')
@@ -51,6 +51,33 @@ function firstTokenIndex(sql: string): number {
 }
 
 /**
+ * The wanted relations and every relation their SQL reads in turn (a custom
+ * relation may read `linkr_patient`), each after the ones it reads: a CTE can
+ * only name the CTEs before it. `defined` are the statement's own, never added.
+ */
+function relationsInDependencyOrder(all: ClassRelation[], wanted: Set<string>, defined: Set<string>): ClassRelation[] {
+  const byName = new Map(all.map((r) => [r.name, r]))
+  const ordered: ClassRelation[] = []
+  const done = new Set<string>()
+  const path: string[] = []
+  const visit = (name: string) => {
+    if (done.has(name) || defined.has(name)) return
+    const rel = byName.get(name)
+    if (!rel) return
+    if (path.includes(name)) {
+      throw new Error(`Class relations read each other in a cycle: ${[...path.slice(path.indexOf(name)), name].join(' → ')}`)
+    }
+    path.push(name)
+    for (const dep of referencedRelations(rel.sql)) visit(dep)
+    path.pop()
+    done.add(name)
+    ordered.push(rel)
+  }
+  for (const rel of all) if (wanted.has(rel.name)) visit(rel.name)
+  return ordered
+}
+
+/**
  * Prepend the class relations a single statement references, as non-materialised
  * CTEs. `NOT MATERIALIZED` is required, not a hint: DuckDB materialises a CTE
  * referenced twice, which stops a per-patient filter from being pushed into it
@@ -65,8 +92,7 @@ export function withClassRelations(sql: string, mapping: SchemaMapping | undefin
   const wanted = referencedRelations(sql)
   for (const name of definedRelations(sql)) wanted.delete(name)
   if (wanted.size === 0) return sql
-  const ctes = classRelations(mapping)
-    .filter((r) => wanted.has(r.name))
+  const ctes = relationsInDependencyOrder(classRelations(mapping), wanted, definedRelations(sql))
     .map((r) => `${r.name} AS NOT MATERIALIZED (\n${r.sql}\n)`)
   if (ctes.length === 0) return sql
 

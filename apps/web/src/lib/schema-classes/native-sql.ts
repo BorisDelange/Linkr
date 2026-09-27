@@ -31,9 +31,22 @@ const QUALIFIED = /(?<![\w."])([A-Za-z_]\w*)\.([A-Za-z_]\w*)\b/g
 
 const PLAIN_IDENT = /^[a-z_][a-z0-9_]*$/
 
+// DuckDB's `reserved` and `type_function` keywords (`duckdb_keywords()`, 1.5):
+// neither names a table unquoted — `FROM order` is a parse error.
+const KEYWORDS = new Set((
+  'all analyse analyze and any array as asc asymmetric both case cast check collate column constraint create default '
+  + 'deferrable desc describe distinct do else end except false fetch for foreign from group having in initially '
+  + 'intersect into lambda lateral leading limit not null offset on only or order pivot pivot_longer pivot_wider '
+  + 'placing primary qualify references returning select show some summarize symmetric table then to trailing true '
+  + 'union unique unpivot using variadic when where window with '
+  + 'anti asof at authorization binary by collation columns concurrently cross freeze full generated glob ilike inner '
+  + 'is isnull join left like map natural notnull outer overlaps positional right semi similar struct tablesample '
+  + 'try_cast unpack verbose'
+).split(' '))
+
 /** `"hosp"."transfers"`, or `hosp.transfers` when neither part needs quotes. */
 function tableRef(t: { schema?: string; table: string }): string {
-  const part = (name: string) => (PLAIN_IDENT.test(name) ? name : quoteIdent(name))
+  const part = (name: string) => (PLAIN_IDENT.test(name) && !KEYWORDS.has(name) ? name : quoteIdent(name))
   return t.schema ? `${part(t.schema)}.${part(t.table)}` : part(t.table)
 }
 

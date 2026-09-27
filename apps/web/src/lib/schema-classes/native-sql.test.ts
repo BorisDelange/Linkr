@@ -68,6 +68,14 @@ describe('column resolution', () => {
     expect(sql).toContain('FROM hosp.transfers vd2 JOIN hosp.patients vd ON vd2.subject_id = vd.subject_id')
   })
 
+  it('quotes a table or schema named by a keyword, which DuckDB cannot read bare', () => {
+    const orders = mappingV1ToV2({
+      presetId: 'o', presetLabel: { en: 'o' },
+      patientTable: { schema: 'from', table: 'order', idColumn: 'id' },
+    } as never)
+    expect(toNativeSql('SELECT linkr_patient.patient_id FROM linkr_patient', orders)).toContain('FROM "from"."order" ')
+  })
+
   it('gives up rather than leave a relation it cannot follow', () => {
     expect(toNativeSql('SELECT linkr_visit.visit_id FROM admissions', mimic)).toBeNull()
     expect(toNativeSql('SELECT linkr_visit.no_such_column FROM linkr_visit', mimic)).toBeNull()

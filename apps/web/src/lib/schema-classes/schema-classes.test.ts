@@ -157,6 +157,22 @@ describe('withClassRelations', () => {
     expect(withClassRelations(once, omop)).toBe(once)
   })
 
+  it('adds the relations a custom relation reads, before it', () => {
+    const custom: SchemaMapping = { ...omop, visit: { customSql: 'SELECT v.* FROM visit_occurrence v JOIN linkr_patient p ON p.patient_id = v.person_id' } }
+    const out = withClassRelations('SELECT COUNT(*) FROM linkr_visit', custom)
+    expect(out.startsWith('WITH linkr_patient AS NOT MATERIALIZED (')).toBe(true)
+    expect(out.indexOf('linkr_patient AS')).toBeLessThan(out.indexOf('linkr_visit AS'))
+  })
+
+  it('refuses relations that read each other in a cycle, naming it', () => {
+    const cyclic: SchemaMapping = {
+      ...omop,
+      patient: { customSql: 'SELECT * FROM linkr_visit' },
+      visit: { customSql: 'SELECT * FROM linkr_patient' },
+    }
+    expect(() => withClassRelations('SELECT * FROM linkr_visit', cyclic)).toThrow('linkr_visit → linkr_patient → linkr_visit')
+  })
+
   it('rewrites each statement of a script', () => {
     const out = injectClassRelations('SET threads = 1; SELECT * FROM linkr_note', mappingV1ToV2({ ...omopV1, noteTable: { table: 'note', idColumn: 'note_id', patientIdColumn: 'person_id', dateColumn: 'note_datetime', textColumn: 'note_text' } }))
     expect(out.split(';\n')[0]).toBe('SET threads = 1')
