@@ -25,6 +25,7 @@ import {
 import { nodeToBlob, sanitizeFilename } from '@/features/projects/dashboard/figure-export'
 import { downloadBlob } from '@/lib/entity-io'
 import { copyTableToClipboard, toLatex, type ExportTable } from '@/lib/table-export'
+import { copyText } from '@/lib/clipboard'
 
 export function AnalysisExportMenu({
   name,
@@ -66,14 +67,14 @@ export function AnalysisExportMenu({
   const copyTable = useCallback(async () => {
     const table = getTable?.()
     if (!table) return
-    await copyTableToClipboard(table)
+    if (!(await copyTableToClipboard(table))) return
     flash('copy')
   }, [getTable, flash])
 
   const copyLatex = useCallback(async () => {
     const table = getTable?.()
     if (!table) return
-    await navigator.clipboard.writeText(toLatex(table))
+    if (!(await copyText(toLatex(table)))) return
     flash('latex')
   }, [getTable, flash])
 

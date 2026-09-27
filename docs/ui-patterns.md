@@ -31,6 +31,7 @@ one of them you never type:
 | Class | Use for | Never for |
 |---|---|---|
 | `text-2xl font-bold` | Page title (one per screen) | Anything inside a card or dialog |
+| `text-2xl font-bold` in `StatCard` | **Deliberate exception:** the headline number of a KPI tile | Any other figure — this one component owns it |
 | `text-base font-semibold` | Dialog / sheet titles — set by the primitive, don't type it | Body copy |
 | `text-sm` | Body copy, card titles, list rows | Dense table cells |
 | `text-xs` | Dense contexts: table cells + headers, form labels, buttons, badges, dialog descriptions | Page-level prose, alert-dialog descriptions |
@@ -493,8 +494,11 @@ Use **`PageHeader`** + **`PageContainer`** (`components/ui/page-header.tsx`):
 Don't hand-roll `<h1 className="text-2xl font-bold">` — most pages still do, which is
 why the title drifted. `ListPageTemplate` already consumes both.
 
-Two known gaps: `text-2xl` doubles as *page title* **and** *KPI number*, so a
-metric looks like a heading; and 4 detail pages
+`text-2xl` also sets the *KPI number* of a `StatCard` — the one documented
+exception to the type scale (see §1): a headline figure has to read at a glance
+across a row of tiles, so it keeps the title's size, inside that component only.
+
+One known gap: 4 detail pages
 (`EtlPipelinePage`, `MappingProjectPage`, `DqRuleSetDetailPage`,
 `SqlScriptsEditorPage`) render **no title at all** — they open straight on a
 `<Tabs>`, so the user never sees the name of what they opened.
@@ -618,6 +622,8 @@ Check this table before writing any form field.
 | `EditableBadge` / `BadgeEditor` / `BadgeColorButton` | Badge chips, the badge editor (offers badges already used on sibling entities), and the colour swatch. |
 | `ColorPickerPopover` / `IconPicker` | Colour and icon selection. |
 | `FileTypeIcon` / `LanguageIcon` / `FileTreeHeader` | File-tree chrome: per-extension icon, language brand logo, sortable column header. |
+| `copyText` (`lib/clipboard`) | **Every clipboard write.** Resolves to whether it worked and never throws: `navigator.clipboard` is undefined on a server reached over plain HTTP and rejects when permission is refused, so it falls back to a hidden textarea + `execCommand('copy')`. Show the "copied" tick only when it resolves `true`. Never call `navigator.clipboard.writeText` directly. |
+| `CopyIconButton` | A bare icon copy control with a tick after a successful copy (tooltips, list rows). |
 | `CopySelectButton` | The "Copy SELECT" button in every database schema view. |
 | `CopyablePath` / `ParquetFilesDialog` | A server path shown as copyable code, and the "N files" + Show dialog listing a Parquet source's table → blob paths (ETL sidebar, database Connection card). |
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |

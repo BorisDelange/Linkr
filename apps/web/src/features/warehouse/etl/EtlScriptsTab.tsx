@@ -99,6 +99,7 @@ import {
 } from '@/components/SidebarSearch'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import type { EtlFile } from '@/types'
+import { copyText } from '@/lib/clipboard'
 
 /** Shortcut actions surfaced in the ETL editor (subset of the IDE's set;
  * no terminal here, so no toggle/clear-terminal). */
@@ -769,7 +770,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                             variant="ghost"
                             size="xs"
                             className="gap-1 font-mono text-[10px]"
-                            onClick={() => void navigator.clipboard.writeText(`${selectedFileRole}.`)}
+                            onClick={() => void copyText(`${selectedFileRole}.`)}
                           >
                             <Copy size={10} className="shrink-0" />
                             {selectedFileRole}.
@@ -1297,7 +1298,8 @@ function EtlResultCard({ result }: { result: EtlExecutionResult }) {
   const hasCode = !!result.code
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(displayText).then(() => {
+    void copyText(displayText).then((ok) => {
+      if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })

@@ -32,6 +32,7 @@ import { localized } from '@/lib/localized'
 import { cn } from '@/lib/utils'
 import type { PatientDashboardWidget } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
+import { copyText } from '@/lib/clipboard'
 
 interface PatientWidgetEditorSheetProps {
   widgetId: string | null
@@ -411,9 +412,11 @@ function SqlTab({
   const [copied, setCopied] = useState(false)
 
   const copy = (sql: string) => {
-    navigator.clipboard.writeText(sql)
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1200)
+    void copyText(sql).then((ok) => {
+      if (!ok) return
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1200)
+    })
   }
 
   if (queries.length === 0) {

@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { CITATION_FORMATS, LINKR_DOI } from '@/lib/citation'
+import { copyText } from '@/lib/clipboard'
 
 const STYLE_FORMATS = CITATION_FORMATS.filter((f) => !f.file)
 const FILE_FORMATS = CITATION_FORMATS.filter((f) => f.file)
@@ -32,7 +33,8 @@ export function CiteDialog() {
   const format = CITATION_FORMATS.find((f) => f.id === formatId) ?? CITATION_FORMATS[0]
 
   const copy = () => {
-    void navigator.clipboard.writeText(format.text).then(() => {
+    void copyText(format.text).then((ok) => {
+      if (!ok) return
       setCopied(true)
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => setCopied(false), 1200)

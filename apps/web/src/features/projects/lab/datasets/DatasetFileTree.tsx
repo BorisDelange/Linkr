@@ -62,6 +62,7 @@ import { rawFileRepresentsDataset } from '@/lib/dataset-download-source'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
 import type { DatasetFile } from '@/types'
+import { copyText } from '@/lib/clipboard'
 
 /** Resolved server dirs (server mode) shared with every tree item so the context
  * menu can build an absolute "Copy path" and decide whether a relative path is
@@ -443,7 +444,7 @@ function DatasetTreeItem({
           {!bulk && resolvedDirs && (
             <ContextMenuItem
               onClick={() => {
-                navigator.clipboard.writeText(`${resolvedDirs.datasetsDir}/${nodeDsPath}`)
+                void copyText(`${resolvedDirs.datasetsDir}/${nodeDsPath}`)
               }}
             >
               <Clipboard size={14} />
@@ -454,7 +455,7 @@ function DatasetTreeItem({
             <ContextMenuItem
               onClick={() => {
                 const path = getNodePath(files, node.id)
-                navigator.clipboard.writeText(path)
+                void copyText(path)
               }}
             >
               <Clipboard size={14} />

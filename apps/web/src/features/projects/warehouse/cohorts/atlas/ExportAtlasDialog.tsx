@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { localized } from '@/lib/localized'
+import { copyText } from '@/lib/clipboard'
 import { exportToAtlas } from './atlas-converter'
 import type { Cohort } from '@/types'
 
@@ -49,7 +50,7 @@ export function ExportAtlasDialog({ open, onOpenChange, cohort }: ExportAtlasDia
   }
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(jsonStr)
+    if (!(await copyText(jsonStr))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

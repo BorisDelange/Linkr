@@ -43,6 +43,7 @@ import {
   type VocabularyOption,
 } from '@/lib/dcat-ap/schema'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
+import { copyText } from '@/lib/clipboard'
 import type { DataCatalog, CatalogResultCache, SchemaMapping } from '@/types'
 import { classRelation, conceptRelations, has } from '@/lib/schema-classes/relations'
 
@@ -427,7 +428,7 @@ function JsonLdDialog({ open, onOpenChange, json, fileName }: {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const copy = async () => {
-    await navigator.clipboard.writeText(json)
+    if (!(await copyText(json))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

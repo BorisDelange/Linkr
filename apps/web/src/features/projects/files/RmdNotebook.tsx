@@ -77,6 +77,7 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { foldAccents } from '@/lib/fold-accents'
+import { copyText } from '@/lib/clipboard'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1866,9 +1867,11 @@ const RmdCellBlock = memo(function RmdCellBlock({
             <button
               onClick={(e) => {
                 e.stopPropagation()
-                navigator.clipboard.writeText(liveContent)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1500)
+                void copyText(liveContent).then((ok) => {
+                  if (!ok) return
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1500)
+                })
               }}
               className="p-0.5 rounded hover:bg-accent text-muted-foreground"
               title={t('files.copy')}

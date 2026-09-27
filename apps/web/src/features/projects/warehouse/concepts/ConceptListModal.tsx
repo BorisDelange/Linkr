@@ -29,6 +29,7 @@ import { columnLabel } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import type { ConceptRow } from './use-concepts'
 import type { ConceptList } from '@/types'
+import { copyText } from '@/lib/clipboard'
 
 /** Which identifier the copied snippet carries. */
 type CopyField = 'concept_id' | 'concept_code'
@@ -164,7 +165,7 @@ export function ConceptListModal({
       }),
       format,
     )
-    await navigator.clipboard.writeText(text)
+    if (!(await copyText(text))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

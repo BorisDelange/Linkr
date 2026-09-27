@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { copyText } from '@/lib/clipboard'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { CATEGORY_COLORS, STATUS_CONFIG } from './DqConstants'
 import type { DqCheck, DqCheckResult } from '@/lib/duckdb/data-quality'
@@ -44,7 +45,7 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
   const shownSql = (dialogQuery === 'exploreSql' && exploreSql ? exploreSql : result.sql).trim()
 
   const handleCopySql = async () => {
-    await navigator.clipboard.writeText(shownSql)
+    if (!(await copyText(shownSql))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

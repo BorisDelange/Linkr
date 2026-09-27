@@ -15,6 +15,7 @@ import { FigureViewer } from './FigureViewer'
 import { Button } from '@/components/ui/button'
 import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 import { useStickToBottom } from '@/hooks/use-stick-to-bottom'
+import { copyText } from '@/lib/clipboard'
 
 export function getTabIcon(type: string) {
   switch (type) {
@@ -392,7 +393,8 @@ function ResultCard({ result, isLatest }: { result: ExecutionResult; isLatest?: 
 
   const handleCopy = useCallback(() => {
     // Copy the plain text — strip ANSI colour codes the log may carry.
-    navigator.clipboard.writeText(stripAnsi(displayText)).then(() => {
+    void copyText(stripAnsi(displayText)).then((ok) => {
+      if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })

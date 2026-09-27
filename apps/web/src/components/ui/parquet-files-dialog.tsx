@@ -7,6 +7,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { humanBytes } from '@/lib/format-helpers'
 import type { ParquetTablePath } from '@/lib/api/data-sources'
 import { cn } from '@/lib/utils'
+import { copyText } from '@/lib/clipboard'
 
 /** A value plus a copy button: it is meant to be pasted into another tool, and a
  *  long path is impractical to select by hand. */
@@ -15,7 +16,8 @@ export function CopyablePath({ value, mono = true }: { value: string; mono?: boo
   const [copied, setCopied] = useState(false)
 
   const copy = () => {
-    void navigator.clipboard.writeText(value).then(() => {
+    void copyText(value).then((ok) => {
+      if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })
@@ -66,7 +68,8 @@ function CopyPathButton({ value }: { value: string }) {
             // The row is not clickable, but the dialog behind it reacts to
             // stray clicks; keep the copy self-contained.
             e.stopPropagation()
-            void navigator.clipboard.writeText(value).then(() => {
+            void copyText(value).then((ok) => {
+              if (!ok) return
               setCopied(true)
               setTimeout(() => setCopied(false), 1500)
             })
@@ -133,9 +136,9 @@ export function ParquetFilesDialog({
   const rows = useMemo(() => toRows(tables), [tables])
 
   const copyAll = () => {
-    void navigator.clipboard
-      .writeText(tables.flatMap((tb) => tb.paths).join('\n'))
-      .then(() => {
+    void copyText(tables.flatMap((tb) => tb.paths).join('\n'))
+      .then((ok) => {
+        if (!ok) return
         setCopiedAll(true)
         setTimeout(() => setCopiedAll(false), 1500)
       })

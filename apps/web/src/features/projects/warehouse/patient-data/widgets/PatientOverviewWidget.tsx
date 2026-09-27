@@ -41,6 +41,7 @@ import {
 import { toMs } from '@/lib/duckdb/value-coercion'
 import { drawEventRow, shade, type OverviewEvent, type Mark as EventMark } from './event-marks'
 import { fmtValue, fmtDuration as fmtDur, fmtStamp } from './event-format'
+import { copyText } from '@/lib/clipboard'
 
 interface PatientOverviewWidgetProps {
   widgetId: string
@@ -2084,7 +2085,8 @@ function ConceptCopyMenu({
 
   // The menu stays open briefly after a copy so the tick is actually seen.
   const copy = (value: string, key: string) => () => {
-    void navigator.clipboard.writeText(value).then(() => {
+    void copyText(value).then((ok) => {
+      if (!ok) return
       setCopied(key)
       setTimeout(onClose, 600)
     })

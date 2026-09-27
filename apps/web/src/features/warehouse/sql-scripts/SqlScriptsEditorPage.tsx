@@ -91,6 +91,7 @@ import { buildPointer } from '@/lib/import-identity'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
 import { paths } from '@/lib/paths'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { copyText } from '@/lib/clipboard'
 
 /** Shortcut actions surfaced in the SQL editor (subset of the IDE's set;
  * no terminal here, so no toggle/clear-terminal). */
@@ -732,9 +733,11 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                           if (!activeDbId) return
                           const ds = dataSources.find((d) => d.id === activeDbId)
                           const ref = `"ds_${ds?.alias ?? activeDbId.replace(/[^a-zA-Z0-9]/g, '_')}"`
-                          navigator.clipboard.writeText(ref)
-                          setCopiedRef(ref)
-                          setTimeout(() => setCopiedRef(null), 2000)
+                          void copyText(ref).then((ok) => {
+                            if (!ok) return
+                            setCopiedRef(ref)
+                            setTimeout(() => setCopiedRef(null), 2000)
+                          })
                         }}
                       >
                         {copiedRef ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
@@ -1285,7 +1288,8 @@ function SqlResultCard({ result }: { result: SqlExecutionResult }) {
   const hasCode = !!result.code
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard.writeText(displayText).then(() => {
+    void copyText(displayText).then((ok) => {
+      if (!ok) return
       setCopied(true)
       setTimeout(() => setCopied(false), 1500)
     })

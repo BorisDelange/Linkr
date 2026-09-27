@@ -22,6 +22,7 @@ import {
   buildConceptAncestorCountQuery,
   buildConceptDescendantCountQuery,
 } from '@/lib/concept-mapping/concept-detail-queries'
+import { copyText } from '@/lib/clipboard'
 
 const MIN_WIDTH = 400
 const MAX_WIDTH = 1600
@@ -203,7 +204,8 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
       tip.querySelectorAll<HTMLButtonElement>('.ht-copy').forEach((btn) => {
         btn.addEventListener('click', (e) => {
           e.stopPropagation()
-          navigator.clipboard.writeText(btn.dataset.copy ?? '').then(() => {
+          void copyText(btn.dataset.copy ?? '').then((ok) => {
+            if (!ok) return
             btn.innerHTML = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>'
             btn.style.opacity = '1'
             setTimeout(() => {

@@ -45,6 +45,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Separator } from '@/components/ui/separator'
+import { copyText } from '@/lib/clipboard'
 
 // --- Markdown formatting types ---
 
@@ -359,7 +360,7 @@ export function MarkdownToolbar({ onFormat, showExtended = false }: MarkdownTool
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(text.replace(/\\n/g, '\n'))
+    if (!(await copyText(text.replace(/\\n/g, '\n')))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

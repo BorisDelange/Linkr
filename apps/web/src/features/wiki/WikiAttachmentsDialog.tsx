@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { isTypingTarget } from '@/lib/utils'
 import type { WikiAttachment } from '@/types'
+import { copyText } from '@/lib/clipboard'
 
 interface WikiAttachmentsDialogProps {
   open: boolean
@@ -72,7 +73,7 @@ export function WikiAttachmentsDialog({
 
   const copyMarkdown = useCallback((fileName: string) => {
     const md = `<img src="attachments/${fileName}" alt="${fileName}" width="300" />`
-    navigator.clipboard.writeText(md)
+    void copyText(md)
   }, [])
 
   return (

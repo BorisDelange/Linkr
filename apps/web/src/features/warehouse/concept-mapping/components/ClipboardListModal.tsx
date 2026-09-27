@@ -25,6 +25,7 @@ import {
   type ClipboardCopyFormat,
 } from '@/lib/concept-mapping/clipboard-list-format'
 import type { SourceConceptRow } from '../MappingEditorTab'
+import { copyText } from '@/lib/clipboard'
 
 interface ClipboardListModalProps {
   open: boolean
@@ -45,13 +46,9 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
   // sees in the table is exactly what lands on the clipboard.
   const handleCopy = async (rowsInOrder: SourceConceptRow[]) => {
     const text = formatClipboardList(rowsInOrder, format)
-    try {
-      await navigator.clipboard.writeText(text)
-      setCopied(true)
-      window.setTimeout(() => setCopied(false), 1200)
-    } catch {
-      // Clipboard write can fail (permissions / non-secure context) — no-op.
-    }
+    if (!(await copyText(text))) return
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1200)
   }
 
   const columns = useMemo<DataTableColumn<SourceConceptRow>[]>(() => {

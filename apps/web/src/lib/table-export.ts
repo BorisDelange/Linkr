@@ -10,6 +10,8 @@
  * Pure string work, kept out of the components so it can be tested directly.
  */
 
+import { copyText } from '@/lib/clipboard'
+
 export interface ExportTableCell {
   text: string
   /** Columns this cell spans, for a group header. */
@@ -201,19 +203,24 @@ export function toHtml(table: ExportTable): string {
  *
  * Both flavours in one write: the target decides which it takes, so Word gets a
  * real table while a plain-text editor gets readable columns. Falls back to
- * text alone where the async clipboard API is unavailable.
+ * text alone where the rich write is unavailable or refused. Resolves to
+ * whether anything was copied.
  */
-export async function copyTableToClipboard(table: ExportTable): Promise<void> {
+export async function copyTableToClipboard(table: ExportTable): Promise<boolean> {
   const text = toTsv(table)
   const html = toHtml(table)
   if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
-    await navigator.clipboard.write([
-      new ClipboardItem({
-        'text/html': new Blob([html], { type: 'text/html' }),
-        'text/plain': new Blob([text], { type: 'text/plain' }),
-      }),
-    ])
-    return
+    try {
+      await navigator.clipboard.write([
+        new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' }),
+        }),
+      ])
+      return true
+    } catch {
+      // Refused: the text-only path below may still get through.
+    }
   }
-  await navigator.clipboard.writeText(text)
+  return copyText(text)
 }

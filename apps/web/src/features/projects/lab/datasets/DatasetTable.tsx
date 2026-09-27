@@ -73,6 +73,7 @@ import { hasTimeComponent, columnTint, displayColumnName, displayCellValue } fro
 import { allLocalizedText } from '@/lib/localized'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
 import type { DatasetColumn, DatasetParseOptions } from '@/types'
+import { copyText } from '@/lib/clipboard'
 
 
 interface DatasetTableProps {
@@ -1145,7 +1146,7 @@ export function DatasetTable({ fileId, selectedColumnId, onSelectColumn, hiddenC
             <DropdownMenuItem
               className="text-xs"
               disabled={cellMenu?.value == null}
-              onClick={() => void navigator.clipboard?.writeText(String(cellMenu?.value ?? ''))}
+              onClick={() => void copyText(String(cellMenu?.value ?? ''))}
             >
               <Copy size={13} />
               {t('common.copy')}

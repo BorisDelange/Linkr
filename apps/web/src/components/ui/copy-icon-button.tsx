@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { copyText } from '@/lib/clipboard'
 
 interface CopyIconButtonProps {
   /** Value written to the clipboard. */
@@ -28,7 +29,8 @@ export function CopyIconButton({ text, size = 11, className }: CopyIconButtonPro
   const copy = (e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
-    void navigator.clipboard.writeText(text).then(() => {
+    void copyText(text).then((ok) => {
+      if (!ok) return
       setCopied(true)
       if (timerRef.current) clearTimeout(timerRef.current)
       timerRef.current = setTimeout(() => setCopied(false), 1200)

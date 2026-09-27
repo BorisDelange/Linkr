@@ -28,6 +28,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { SplitEditorPreview } from '@/components/editor/SplitEditorPreview'
 import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
+import { copyText } from '@/lib/clipboard'
 
 // ---------------------------------------------------------------------------
 // Markdown plugins & sanitization
@@ -435,7 +436,7 @@ function MarkdownToolbar({ onFormat }: { onFormat: (f: MarkdownFormat) => void }
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false)
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(text.replace(/\\n/g, '\n'))
+    if (!(await copyText(text.replace(/\\n/g, '\n')))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 1500)
   }

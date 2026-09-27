@@ -7,6 +7,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { copyText } from '@/lib/clipboard'
 
 interface CopySelectButtonProps {
   /** Called to produce the SQL to copy (lazy, so it uses the current selection). */
@@ -25,7 +26,8 @@ export function CopySelectButton({ getSql }: CopySelectButtonProps) {
   const handleCopy = () => {
     const sql = getSql()
     if (!sql) return
-    void navigator.clipboard.writeText(sql).then(() => {
+    void copyText(sql).then((ok) => {
+      if (!ok) return
       setCopied(true)
       window.setTimeout(() => setCopied(false), 1500)
     })

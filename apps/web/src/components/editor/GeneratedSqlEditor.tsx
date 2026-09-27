@@ -5,6 +5,7 @@ import { Copy, Check, RotateCcw, Save, Undo2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { copyText } from '@/lib/clipboard'
 
 interface GeneratedSqlEditorProps {
   /** SQL the app generates from a form; what the editor shows until edited. */
@@ -97,7 +98,7 @@ export function GeneratedSqlEditor({
   }, [generatedSql, onCustomSqlChange])
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(liveText())
+    if (!(await copyText(liveText()))) return
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }

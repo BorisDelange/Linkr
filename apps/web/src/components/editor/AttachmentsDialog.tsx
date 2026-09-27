@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { isTypingTarget } from '@/lib/utils'
+import { copyText } from '@/lib/clipboard'
 
 /** Structural shape shared by README and wiki attachments. */
 export interface AttachmentItem {
@@ -93,7 +94,7 @@ export function AttachmentsDialog({
 
   const copyMarkdown = useCallback((fileName: string) => {
     const md = `<img src="attachments/${fileName}" alt="${fileName}" width="300" />`
-    navigator.clipboard.writeText(md)
+    void copyText(md)
   }, [])
 
   return (

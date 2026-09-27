@@ -39,6 +39,7 @@ import { contentSize } from '@/lib/file-tree-sort'
 import { actionableTargets, isRowInBulkSelection } from '@/lib/tree-selection'
 import { downloadBlob } from '@/lib/entity-io'
 import { humanBytes } from '@/lib/format-helpers'
+import { copyText } from '@/lib/clipboard'
 
 interface FileTreeItemProps {
   node: TreeNode
@@ -474,7 +475,7 @@ export function FileTreeItem({
               <ContextMenuItem
                 onClick={() => {
                   const path = getNodePath(files as TreeNode[], node.id)
-                  navigator.clipboard.writeText(path)
+                  void copyText(path)
                 }}
               >
                 <Clipboard size={14} />
@@ -543,7 +544,7 @@ export function FileTreeItem({
                   <ContextMenuItem
                     onClick={() => {
                       const path = getNodePath(files as TreeNode[], node.id)
-                      navigator.clipboard.writeText(`/project/files/${path}`)
+                      void copyText(`/project/files/${path}`)
                     }}
                   >
                     <Clipboard size={14} />
@@ -552,7 +553,7 @@ export function FileTreeItem({
                   <ContextMenuItem
                     onClick={() => {
                       const path = getNodePath(files as TreeNode[], node.id)
-                      navigator.clipboard.writeText(path)
+                      void copyText(path)
                     }}
                   >
                     <Clipboard size={14} />
