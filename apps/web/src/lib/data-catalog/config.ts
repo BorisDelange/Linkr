@@ -1,5 +1,7 @@
 import {
   CATALOG_VARIABLE_ORDER,
+  DEFAULT_CATALOG_COUNTS,
+  type CatalogCounts,
   type CatalogVariableId,
   type CatalogVariables,
   type ConceptVariableConfig,
@@ -10,6 +12,11 @@ import {
 
 /** Modality of the cells a grouping folds together ("Other" services). */
 export const OTHER_MODALITY = '__other__'
+
+/** What the catalog counts beside patients, defaults filled in. */
+export function catalogCounts(catalog: Pick<DataCatalog, 'counts'>): CatalogCounts {
+  return { ...DEFAULT_CATALOG_COUNTS, ...catalog.counts }
+}
 
 export const SEX_MODALITIES = ['male', 'female', 'other'] as const
 

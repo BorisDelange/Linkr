@@ -23,6 +23,7 @@ class DataCatalogCreate(CamelModel):
     data_source_ref: dict | None = None
     variables: dict = {}
     crossings: list = []
+    counts: dict | None = None
     anonymization: dict = {}
     status: str = "draft"
     last_error: str | None = None
@@ -56,6 +57,7 @@ class DataCatalogUpdate(CamelModel):
     data_source_ref: dict | None = None
     variables: dict | None = None
     crossings: list | None = None
+    counts: dict | None = None
     anonymization: dict | None = None
     status: str | None = None
     last_error: str | None = None
@@ -91,6 +93,7 @@ class DataCatalogResponse(CamelModel):
     data_source_ref: dict | None = None
     variables: dict
     crossings: list
+    counts: dict | None = None
     anonymization: dict
     status: str
     last_error: str | None = None

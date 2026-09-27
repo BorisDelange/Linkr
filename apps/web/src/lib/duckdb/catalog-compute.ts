@@ -14,6 +14,7 @@ import {
 } from './catalog-queries'
 import {
   ageBucketLabels,
+  catalogCounts,
   crossingId,
   crossingParamsKey,
   effectiveCrossings,
@@ -128,6 +129,7 @@ function mergeCells(into: Map<string, CatalogCrossingRow>, rows: readonly Catalo
     if (!prev) { into.set(key, { ...row }); continue }
     prev.patients += row.patients
     if (row.stays != null) prev.stays = (prev.stays ?? 0) + row.stays
+    if (row.unitStays != null) prev.unitStays = (prev.unitStays ?? 0) + row.unitStays
     if (row.records != null) prev.records = (prev.records ?? 0) + row.records
   }
 }
@@ -228,10 +230,11 @@ const rangeOf = (s: SerializedRange): PatientRange | null => (s.lo == null && s.
  */
 export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: CatalogQuery, slices: readonly SerializedRange[]): CatalogRunUnit[] {
   const cfg = catalog.variables.concept
+  const counts = catalogCounts(catalog)
   const units: CatalogRunUnit[] = []
 
   slices.forEach((s, i) => {
-    const queries = buildConceptCountQueries(mapping, cfg?.categoryColumn, cfg?.subcategoryColumn, rangeOf(s))
+    const queries = buildConceptCountQueries(mapping, cfg?.categoryColumn, cfg?.subcategoryColumn, rangeOf(s), counts.visits)
     if (!queries) throw new Error(MISSING_MAPPING)
     for (const q of queries) {
       units.push({
@@ -246,13 +249,13 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
               subcategory: cfg?.subcategoryColumn ? (row.concept_subcategory as string | null) ?? null : undefined,
               patientCount: Number(row.patient_count ?? 0),
               recordCount: Number(row.record_count ?? 0),
-              visitCount: Number(row.visit_count ?? 0),
+              ...(counts.visits ? { visitCount: Number(row.visit_count ?? 0) } : {}),
             }
             const prev = state.concepts.get(conceptKey(r))
             if (!prev) { state.concepts.set(conceptKey(r), r); continue }
             prev.patientCount += r.patientCount
             prev.recordCount += r.recordCount
-            prev.visitCount += r.visitCount
+            if (r.visitCount != null) prev.visitCount = (prev.visitCount ?? 0) + r.visitCount
           }
         },
       })
@@ -260,7 +263,7 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
   })
 
   slices.forEach((s, i) => {
-    const sql = buildTotalsQuery(mapping, rangeOf(s))
+    const sql = buildTotalsQuery(mapping, rangeOf(s), counts)
     if (!sql) throw new Error(MISSING_MAPPING)
     units.push({
       info: { step: 'totals', slice: sliceOf(slices, i) },
@@ -269,6 +272,7 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
         state.totals.totalPatients += Number(row.total_patients ?? 0)
         state.totals.totalVisits += Number(row.total_visits ?? 0)
         state.totals.totalRecords += Number(row.total_records ?? 0)
+        if (row.total_unit_stays != null) state.totals.totalUnitStays = (state.totals.totalUnitStays ?? 0) + Number(row.total_unit_stays)
       },
     })
   })
@@ -353,7 +357,7 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, quer
   const conceptRows: CatalogCrossingRow[] = kept.map(([key, v]) => ({ values: [key], patients: v.patients, records: v.records }))
   const conceptFilter = concept?.level === 'concept' && concept.scope === 'top' ? conceptFilterOf(conceptRows.map((r) => r.values[0]), dictKeys) : null
 
-  const ctx: CrossingQueryContext = { mapping, variables, topServices, conceptFilter }
+  const ctx: CrossingQueryContext = { mapping, variables, topServices, conceptFilter, counts: catalogCounts(catalog) }
   const slices = state.slices
   const units: CatalogRunUnit[] = []
   const queryUnit = (vars: CatalogVariableId[], info: CatalogUnitInfo, unitCtx: CrossingQueryContext): CatalogRunUnit => ({
@@ -411,12 +415,13 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, quer
 async function runCrossingQuery(ctx: CrossingQueryContext, vars: CatalogVariableId[], query: CatalogQuery, signal?: AbortSignal): Promise<CatalogCrossingRow[]> {
   const sql = buildCrossingQuery(ctx, vars)
   if (!sql) return []
-  const withConcept = vars.includes('concept')
-  return (await query(sql, signal)).map((r) => ({
-    values: vars.map((v) => String(r[variableColumn(v)])),
-    patients: Number(r.patients ?? 0),
-    ...(withConcept ? { records: Number(r.records ?? 0) } : { stays: Number(r.stays ?? 0) }),
-  }))
+  return (await query(sql, signal)).map((r) => {
+    const row: CatalogCrossingRow = { values: vars.map((v) => String(r[variableColumn(v)])), patients: Number(r.patients ?? 0) }
+    if (r.records != null) row.records = Number(r.records)
+    if (r.stays != null) row.stays = Number(r.stays)
+    if (r.unit_stays != null) row.unitStays = Number(r.unit_stays)
+    return row
+  })
 }
 
 /**

@@ -3,7 +3,7 @@ import type { CatalogResultCache, DataCatalog } from '@/types'
 import { defaultCatalogVariables } from './config'
 import { ageDisplayName, buildCrossingCsv, buildPublishedCatalog } from './publish'
 
-const catalog = { variables: defaultCatalogVariables(), anonymization: { threshold: 10, mode: 'replace' } } as Pick<DataCatalog, 'variables' | 'anonymization'>
+const catalog = { variables: defaultCatalogVariables(), anonymization: { threshold: 10, mode: 'replace' } } as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts'>
 
 const cache = {
   concepts: [],
@@ -47,6 +47,29 @@ describe('buildPublishedCatalog', () => {
     // One protective cell per sex column: each holds a small cell, 2102·female
     // in its own and the trimmed 2100·male in the male one.
     expect(csv.filter((l) => l.endsWith('suppressed_secondary'))).toHaveLength(2)
+  })
+})
+
+describe('crossing measures', () => {
+  const both = { ...catalog, counts: { visits: true, unitStays: true } }
+  // A third small cell, so that masking the female one needs no secondary cell.
+  const withUnits = {
+    ...cache,
+    crossings: [{ id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 80, stays: 90, unitStays: 120 }, { values: ['female'], patients: 4, stays: 5, unitStays: 6 }, { values: ['other'], patients: 2, stays: 2, unitStays: 2 }] }],
+  } as unknown as CatalogResultCache
+
+  it('carries each counted measure after patients, masked alike', () => {
+    const [sex] = buildPublishedCatalog(both, withUnits).crossings
+    expect(sex.measures).toEqual(['stays', 'unit_stays'])
+    expect(sex.cells).toContainEqual([0, 80, 90, 120, 0])
+    expect(sex.cells).toContainEqual([1, null, null, null, 1])
+    expect(buildCrossingCsv(buildPublishedCatalog(both, withUnits), sex).split('\n')[0]).toBe('sex,patients,stays,unit_stays,status')
+  })
+
+  it('carries patients alone when the catalog counts nothing else', () => {
+    const [sex] = buildPublishedCatalog({ ...catalog, counts: { visits: false, unitStays: false } }, withUnits).crossings
+    expect(sex.measures).toEqual([])
+    expect(sex.cells).toContainEqual([0, 80, 0])
   })
 })
 

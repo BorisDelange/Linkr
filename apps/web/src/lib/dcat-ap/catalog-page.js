@@ -228,9 +228,16 @@ function renderSide() {
   var h = '<div class="xp-sec"><div class="xp-sec-t">Variables</div>' + crossingPicker() + '</div>';
   var ms = XP.measures();
   if (ms.indexOf(S.metric) === -1) S.metric = 'patients';
-  h += '<div class="xp-sec"><div class="xp-sec-t">Count</div><div class="seg full" data-act="metric">' + ms.map(function(m) {
-    return '<button type="button" data-v="' + m + '"' + (S.metric === m ? ' class="active"' : '') + '>' + escHtml(XP.measureLabel(m)) + '</button>';
-  }).join('') + '</div></div>';
+  // Patients alone leave nothing to choose; three labels no longer fit side by side.
+  if (ms.length === 2) {
+    h += '<div class="xp-sec"><div class="xp-sec-t">Count</div><div class="seg full" data-act="metric">' + ms.map(function(m) {
+      return '<button type="button" data-v="' + m + '"' + (S.metric === m ? ' class="active"' : '') + '>' + escHtml(XP.measureLabel(m)) + '</button>';
+    }).join('') + '</div></div>';
+  } else if (ms.length > 2) {
+    h += '<div class="xp-sec"><div class="xp-sec-t">Count</div><select class="select full" data-act="metric">' + ms.map(function(m) {
+      return '<option value="' + m + '"' + (S.metric === m ? ' selected' : '') + '>' + escHtml(XP.measureLabel(m)) + '</option>';
+    }).join('') + '</select></div>';
+  }
 
   var filters = (S.pin ? pinControl(vars) : '') + vars.filter(function(v) { return v !== S.pin; }).map(function(v) {
     if (v === 'period') return periodFilter();
@@ -277,6 +284,7 @@ side.addEventListener('change', function(e) {
   if (act === 'crossing') XP.setCrossing(el.value);
   else if (act === 'sel') XP.toggleSel(v, Number(el.dataset.i));
   else if (act === 'ccat') S.ccat = el.value;
+  else if (act === 'metric') S.metric = el.value;
   else if (act === 'pin') { S.pin = el.value; S.pinVal = null; }
   else if (act === 'pin-val') S.pinVal = el.value === '' ? null : Number(el.value);
   else if (act === 'cal') {

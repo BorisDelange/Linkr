@@ -1,5 +1,5 @@
 import { CATALOG_VARIABLE_ORDER, type CatalogResultCache, type CatalogVariableId, type DataCatalog, type PeriodGranularity } from '@/types/catalog'
-import { OTHER_MODALITY, periodLabel, trimPeriods } from './config'
+import { catalogCounts, OTHER_MODALITY, periodLabel, trimPeriods } from './config'
 import { computeCrossingMasks, PUBLISHED, SECONDARY, type CellStatus } from './suppression'
 
 /**
@@ -12,7 +12,16 @@ import { computeCrossingMasks, PUBLISHED, SECONDARY, type CellStatus } from './s
  * number: the raw value never reaches the published file, not even hidden.
  */
 
-export type PublishedMeasure = 'patients' | 'stays' | 'records'
+export type PublishedMeasure = 'patients' | 'stays' | 'unit_stays' | 'records'
+
+/** The measures a crossing's cells carry after patients: records over events, the counted stays over visits. */
+export function crossingMeasures(catalog: Pick<DataCatalog, 'counts'>, vars: readonly CatalogVariableId[]): Exclude<PublishedMeasure, 'patients'>[] {
+  if (vars.includes('concept')) return ['records']
+  const counts = catalogCounts(catalog)
+  return [...(counts.visits ? ['stays' as const] : []), ...(counts.unitStays ? ['unit_stays' as const] : [])]
+}
+
+const ROW_KEY = { stays: 'stays', unit_stays: 'unitStays', records: 'records' } as const
 
 export interface PublishedVariable {
   id: CatalogVariableId
@@ -39,14 +48,14 @@ export interface PublishedVariable {
   level?: 'concept' | 'category' | 'subcategory'
 }
 
-/** [modality index per variable…, patients, second measure, status]; numbers are null when masked. */
+/** [modality index per variable…, patients, each of the crossing's measures…, status]; numbers are null when masked. */
 export type PublishedCell = (number | null)[]
 
 export interface PublishedCrossing {
   id: string
   vars: CatalogVariableId[]
-  /** Stays for crossings over visits, records for crossings over events (with the concept variable). */
-  second: 'stays' | 'records'
+  /** What the cells count after patients, in cell order (`crossingMeasures`). */
+  measures: Exclude<PublishedMeasure, 'patients'>[]
   cells: PublishedCell[]
   masked: { primary: number; secondary: number }
 }
@@ -91,12 +100,13 @@ function modalityName(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVariab
 
 function partitionOf(catalog: Pick<DataCatalog, 'variables'>, id: CatalogVariableId): Record<PublishedMeasure, boolean> {
   switch (id) {
-    case 'sex': return { patients: true, stays: true, records: true }
+    case 'sex': return { patients: true, stays: true, unit_stays: true, records: true }
+    // A unit stay is counted with its visit, at the visit's start.
     case 'period':
-    case 'age': return { patients: false, stays: true, records: true }
+    case 'age': return { patients: false, stays: true, unit_stays: true, records: true }
     // A stay crossing several units counts once in each.
-    case 'service': return { patients: false, stays: catalog.variables.service?.level === 'visit', records: false }
-    case 'concept': return { patients: false, stays: false, records: true }
+    case 'service': return { patients: false, stays: catalog.variables.service?.level === 'visit', unit_stays: true, records: false }
+    case 'concept': return { patients: false, stays: false, unit_stays: false, records: true }
   }
 }
 
@@ -153,7 +163,7 @@ export function publishedVariables(
  * app's Data tab, which shows what the masks hide. Never for a published output.
  */
 export function buildPublishedCatalog(
-  catalog: Pick<DataCatalog, 'variables' | 'anonymization'>,
+  catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'counts'>,
   cache: CatalogResultCache,
   { reveal = false }: { reveal?: boolean } = {},
 ): PublishedCatalog {
@@ -167,7 +177,7 @@ export function buildPublishedCatalog(
   const published: PublishedCrossing[] = []
   for (const crossing of crossings) {
     const mask = masks.get(crossing.id)
-    const second = crossing.variables.includes('concept') ? 'records' : 'stays'
+    const measures = crossingMeasures(catalog, crossing.variables)
     const cells: PublishedCell[] = []
     let primary = 0
     let secondary = 0
@@ -178,11 +188,11 @@ export function buildPublishedCatalog(
       if (status === PUBLISHED || reveal) {
         if (status === SECONDARY) secondary++
         else if (status !== PUBLISHED) primary++
-        cells.push([...(idx as number[]), row.patients, (second === 'records' ? row.records : row.stays) ?? null, status])
+        cells.push([...(idx as number[]), row.patients, ...measures.map((m) => row[ROW_KEY[m]] ?? null), status])
       } else {
         if (status === SECONDARY) secondary++
         else primary++
-        cells.push([...(idx as number[]), null, null, status])
+        cells.push([...(idx as number[]), null, ...measures.map(() => null), status])
       }
     })
     const n = crossing.variables.length
@@ -190,7 +200,7 @@ export function buildPublishedCatalog(
       for (let i = 0; i < n; i++) if (x[i] !== y[i]) return (x[i] as number) - (y[i] as number)
       return 0
     })
-    published.push({ id: crossing.id, vars: crossing.variables, second, cells, masked: { primary, secondary } })
+    published.push({ id: crossing.id, vars: crossing.variables, measures, cells, masked: { primary, secondary } })
   }
   return { threshold, variables, crossings: published }
 }
@@ -212,7 +222,7 @@ export const crossingCsvPath = (id: string) => `crossings/${id}.csv`
 
 /**
  * One crossing as CSV: a column per variable (its code; concepts also get
- * their name), the patients and stays/records, and the cell's status. A
+ * their name), the patients and the crossing's measures, and the cell's status. A
  * masked cell has empty counts — a number column holds numbers only, and the
  * status says why one is missing.
  */
@@ -221,7 +231,7 @@ export function buildCrossingCsv(pub: PublishedCatalog, crossing: PublishedCross
     && pub.variables.concept.names.some((n, i) => n !== pub.variables.concept!.mods[i])
   const header = [
     ...crossing.vars.flatMap((v) => (v === 'concept' && withConceptName ? ['concept', 'concept_name'] : [v])),
-    'patients', crossing.second, 'status',
+    'patients', ...crossing.measures, 'status',
   ]
   const lines = [header.join(',')]
   const n = crossing.vars.length
@@ -232,7 +242,7 @@ export function buildCrossingCsv(pub: PublishedCatalog, crossing: PublishedCross
       const shown = code === OTHER_MODALITY ? 'Other' : code
       return v === 'concept' && withConceptName ? [shown, variable.names[cell[i] as number]] : [shown]
     })
-    lines.push([...values, cell[n], cell[n + 1], STATUS_CSV[cell[n + 2] as CellStatus]].map(csvField).join(','))
+    lines.push([...values, ...cell.slice(n, -1), STATUS_CSV[cell[cell.length - 1] as CellStatus]].map(csvField).join(','))
   }
   return `${lines.join('\n')}\n`
 }

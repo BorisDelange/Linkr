@@ -1,16 +1,17 @@
 import type { CatalogVariableId } from '@/types/catalog'
-import type { PublishedCatalog, PublishedVariable } from '@/lib/data-catalog/publish'
+import type { PublishedCatalog, PublishedMeasure, PublishedVariable } from '@/lib/data-catalog/publish'
 
 /** Types of catalog-explore.js, the explorer engine shared with the standalone page. */
 
 export interface ExploreData extends PublishedCatalog {
   concepts: { cols: { key: string; label: string; type: 'text' | 'number'; filter?: string; width?: number; className?: string }[]; rows: unknown[][] }
-  totals: { patients: number; stays: number; records: number; concepts?: number }
+  /** Stays and unit stays only when the catalog counts them. */
+  totals: { patients: number; stays?: number; unitStays?: number; records: number; concepts?: number }
 }
 
 export interface ExploreState {
   crossing: string | null
-  metric: 'patients' | 'stays' | 'records'
+  metric: PublishedMeasure
   sel: Partial<Record<CatalogVariableId, Record<number, true>>>
   range: [number, number] | null
   cq: string
@@ -69,7 +70,7 @@ export interface Explorer {
   varsOf(id: string | null): CatalogVariableId[]
   varLabel(v: CatalogVariableId): string
   plural(v: CatalogVariableId): string
-  measures(): ('patients' | 'stays' | 'records')[]
+  measures(): PublishedMeasure[]
   measureLabel(m: string): string
   isListView(): boolean
   canUnpin(): boolean

@@ -1,5 +1,5 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
-import type { CatalogVariableId, CatalogVariables, ConceptVariableConfig, PeriodGranularity, ServiceVariableConfig } from '@/types/catalog'
+import { DEFAULT_CATALOG_COUNTS, type CatalogCounts, type CatalogVariableId, type CatalogVariables, type ConceptVariableConfig, type PeriodGranularity, type ServiceVariableConfig } from '@/types/catalog'
 import { escSql as esc } from '@/lib/format-helpers'
 import { classRelation, conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { fieldColumn } from '@/lib/schema-classes/spec'
@@ -124,8 +124,8 @@ export interface ConceptCountQuery {
 }
 
 /**
- * Per dictionary, the patient / record / visit counts of every concept its
- * events use, with the concept's name and categories.
+ * Per dictionary, the patient / record counts of every concept its events
+ * use — and visits with `withVisits` — with the concept's name and categories.
  *
  * Concepts are matched with a join on the dictionary, never a literal list of
  * its ids: a full OMOP vocabulary holds millions of them.
@@ -135,6 +135,7 @@ export function buildConceptCountQueries(
   categoryColumn?: string,
   subcategoryColumn?: string,
   range?: PatientRange | null,
+  withVisits = true,
 ): ConceptCountQuery[] | null {
   const visit = classRelation(mapping, 'visit')
   if (!visit || !classRelation(mapping, 'patient')) return null
@@ -150,6 +151,13 @@ export function buildConceptCountQueries(
     // Records and patients come from the events alone; a visit counts when one
     // of the concept's events falls within it. Joining every event to all of its
     // patient's visits multiplied the records by the visits.
+    const perVisit = withVisits ? `,
+per_visit AS (
+  SELECT ev.cid, COUNT(DISTINCT v.visit_id)::BIGINT AS visit_count
+  FROM events ev
+  JOIN ${visit.name} v ON v.patient_id = ev.pid AND ${contains(visit, 'v')}
+  GROUP BY ev.cid
+)` : ''
     queries.push({
       dictKey,
       sql: `WITH events AS (
@@ -162,23 +170,15 @@ per_concept AS (
   SELECT cid, COUNT(*)::BIGINT AS record_count, COUNT(DISTINCT pid)::BIGINT AS patient_count
   FROM events
   GROUP BY cid
-),
-per_visit AS (
-  SELECT ev.cid, COUNT(DISTINCT v.visit_id)::BIGINT AS visit_count
-  FROM events ev
-  JOIN ${visit.name} v ON v.patient_id = ev.pid AND ${contains(visit, 'v')}
-  GROUP BY ev.cid
-)
+)${perVisit}
 SELECT
     pc.cid AS concept_id,
     d.concept_name AS concept_name,
     ${lit(dictKey)} AS dictionary_key${catSelect},
     pc.record_count,
-    pc.patient_count,
-    COALESCE(pv.visit_count, 0)::BIGINT AS visit_count
+    pc.patient_count${withVisits ? ',\n    COALESCE(pv.visit_count, 0)::BIGINT AS visit_count' : ''}
 FROM per_concept pc
-JOIN ${dict.name} d ON d.concept_id = pc.cid
-LEFT JOIN per_visit pv ON pv.cid = pc.cid`,
+JOIN ${dict.name} d ON d.concept_id = pc.cid${withVisits ? '\nLEFT JOIN per_visit pv ON pv.cid = pc.cid' : ''}`,
     })
   }
   return queries.length ? queries : null
@@ -188,16 +188,21 @@ LEFT JOIN per_visit pv ON pv.cid = pc.cid`,
 // Totals and modality lists
 // ---------------------------------------------------------------------------
 
-/** Patients with a visit, visits, and event rows: the catalog's headline figures. */
-export function buildTotalsQuery(mapping: SchemaMapping, range?: PatientRange | null): string | null {
+/**
+ * Patients with a visit, visits, and event rows: the catalog's headline
+ * figures — and unit stays when counted and mapped.
+ */
+export function buildTotalsQuery(mapping: SchemaMapping, range?: PatientRange | null, counts: CatalogCounts = DEFAULT_CATALOG_COUNTS): string | null {
   const visit = classRelation(mapping, 'visit')
   if (!visit) return null
   const events = eventUnion(mapping, { level: 'concept' }, null, false, range)
   const records = events ? `(SELECT COUNT(*) FROM (\n  ${events}\n) _ev)::BIGINT` : '0::BIGINT'
+  const vd = counts.unitStays ? classRelation(mapping, 'visit_detail') : undefined
+  const unitStays = vd ? `,\n  (SELECT COUNT(*) FROM ${vd.name} vd${whereRange('vd.patient_id', range)})::BIGINT AS total_unit_stays` : ''
   return `SELECT
   COUNT(DISTINCT v.patient_id)::BIGINT AS total_patients,
   COUNT(*)::BIGINT AS total_visits,
-  ${records} AS total_records
+  ${records} AS total_records${unitStays}
 FROM ${visit.name} v${whereRange('v.patient_id', range)}`
 }
 
@@ -414,6 +419,8 @@ export interface CrossingQueryContext {
   conceptFilter?: ConceptFilter | null
   /** The slice of patients to count; absent for all of them. */
   range?: PatientRange | null
+  /** What a cell over visits counts beside patients; absent = stays only. */
+  counts?: CatalogCounts
 }
 
 /** Column holding a variable's modality in a crossing query's result. */
@@ -421,11 +428,12 @@ export const variableColumn = (v: CatalogVariableId) => `v_${v}`
 
 /**
  * One crossing's non-empty cells: a `v_<variable>` column per variable, then
- * `patients` and `stays` (visits) — or `records` (event rows) when the concept
- * variable is part of it.
+ * `patients`, and `stays` (visits) and `unit_stays` as `ctx.counts` asks — or
+ * `records` (event rows) when the concept variable is part of it.
  *
  * Without the concept variable a cell counts visits: period and age at the
- * visit's start, the service of the visit or of each of its unit stays. With
+ * visit's start, the service of the visit or of each of its unit stays; its
+ * unit stays are those of its visits (of its unit, with the service). With
  * it, a cell counts events: period and age at the event's date, the service of
  * the stay containing it.
  */
@@ -489,16 +497,30 @@ WHERE ${notNull}
 GROUP BY ${columns.join(', ')}`
   }
 
+  const counts = ctx.counts ?? DEFAULT_CATALOG_COUNTS
+  const measures = ['COUNT(DISTINCT pid)::BIGINT AS patients']
+  const ids = ['v.patient_id AS pid']
+  if (counts.visits) {
+    ids.push('v.visit_id AS vid')
+    measures.push('COUNT(DISTINCT vid)::BIGINT AS stays')
+  }
+  const vd = counts.unitStays ? classRelation(mapping, 'visit_detail') : undefined
+  if (vd) {
+    // The service of a unit-level crossing already joined the unit stays.
+    const unitJoined = crossing.includes('service') && variables.service?.level === 'visit_detail'
+    if (!unitJoined) joins.push(`LEFT JOIN ${vd.name} uvd ON uvd.visit_id = v.visit_id`)
+    ids.push(`${unitJoined ? 'vd' : 'uvd'}.visit_detail_id AS uid`)
+    measures.push('COUNT(DISTINCT uid)::BIGINT AS unit_stays')
+  }
   return `WITH cells AS (
   SELECT ${selects.join(',\n    ')},
-    v.patient_id AS pid,
-    v.visit_id AS vid
+    ${ids.join(',\n    ')}
   FROM ${visit.name} v
   ${needsPatient ? patientJoin : ''}
   ${joins.join('\n  ')}
   WHERE v.start_datetime IS NOT NULL${andRange('v.patient_id', ctx.range)}
 )
-SELECT ${columns.join(', ')}, COUNT(DISTINCT pid)::BIGINT AS patients, COUNT(DISTINCT vid)::BIGINT AS stays
+SELECT ${columns.join(', ')}, ${measures.join(', ')}
 FROM cells
 WHERE ${notNull}
 GROUP BY ${columns.join(', ')}`
@@ -516,6 +538,8 @@ export function buildCrossingEstimateQuery(
   threshold: number,
 ): string | null {
   const crossing = canonicalCrossing(vars)
+  // The yield is about patients: no distinct count of stays to pay for.
+  ctx = { ...ctx, counts: { visits: false, unitStays: false } }
   const sql = buildCrossingQuery(ctx, crossing)
   if (!sql) return null
   const t = Math.max(0, Math.floor(threshold))

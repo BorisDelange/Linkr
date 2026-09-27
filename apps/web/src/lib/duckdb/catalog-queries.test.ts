@@ -76,6 +76,19 @@ describe('buildCrossingQuery', () => {
     expect(sql.indexOf('AS v_period')).toBeLessThan(sql.indexOf('AS v_age'))
   })
 
+  it('counts only patients, or unit stays too, as the catalog asks', () => {
+    const patientsOnly = buildCrossingQuery({ mapping, variables, counts: { visits: false, unitStays: false } }, ['period'])!
+    expect(patientsOnly).not.toContain('AS stays')
+    expect(patientsOnly).not.toContain('vid')
+    const units = buildCrossingQuery({ mapping, variables, counts: { visits: true, unitStays: true } }, ['period'])!
+    expect(units).toContain('LEFT JOIN linkr_visit_detail uvd ON uvd.visit_id = v.visit_id')
+    expect(units).toContain('COUNT(DISTINCT uid)::BIGINT AS unit_stays')
+    // A unit-level service already joined its unit stays: those are the ones counted.
+    const byUnit = buildCrossingQuery({ mapping, variables, counts: { visits: false, unitStays: true } }, ['service'])!
+    expect(byUnit).not.toContain('uvd')
+    expect(byUnit).toContain('vd.visit_detail_id AS uid')
+  })
+
   it('counts patients and records over events with it, never a row twice', () => {
     const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } } }, ['concept', 'sex'])!
     expect(sql).toContain('COUNT(*)::BIGINT AS records')
@@ -105,6 +118,8 @@ describe('buildCrossingQuery', () => {
     const sql = buildCrossingEstimateQuery({ mapping, variables }, ['period', 'age'], 10)!
     expect(sql).toContain('WHERE patients >= 10')
     expect(sql).toContain('v_period BETWEEN (SELECT lo FROM rng) AND (SELECT hi FROM rng)')
+    // A yield is about patients: no distinct count of stays to pay for.
+    expect(sql).not.toContain('AS stays')
   })
 })
 
@@ -115,6 +130,12 @@ describe('buildConceptCountQueries', () => {
     expect(q.sql).toContain('ev.edate >= CAST(v.start_datetime AS TIMESTAMP)')
     // A join on the dictionary, never its ids spelled out: a vocabulary holds millions.
     expect(q.sql).toContain('WHERE cid IN (SELECT concept_id FROM linkr_concept')
+  })
+
+  it('leaves the visits out when the catalog does not count them', () => {
+    const [q] = buildConceptCountQueries(mapping, 'domain_id', undefined, null, false)!
+    expect(q.sql).not.toContain('per_visit')
+    expect(q.sql).not.toContain('visit_count')
   })
 
   it('counts one slice of the patients', () => {

@@ -15,7 +15,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrig
 import { Slider } from '@/components/ui/slider'
 import { StatCard } from '@/components/ui/stat-card'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { OTHER_MODALITY, periodLabel } from '@/lib/data-catalog/config'
+import { catalogCounts, OTHER_MODALITY, periodLabel } from '@/lib/data-catalog/config'
 import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
 import { VARIABLE_COLORS } from '@/lib/data-catalog/variable-colors'
 import { createExplorer, EXPLORE_TEXT, type ExploreData, type ExploreTable, type Explorer } from '@/lib/dcat-ap/catalog-explore'
@@ -77,11 +77,18 @@ function useExplorer(catalog: DataCatalog, cache: CatalogResultCache): [Explorer
         return v.names[i]
       })
     }
+    const counts = catalogCounts(catalog)
     const concepts = buildConceptTable(cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold })))
     const data: ExploreData = {
       ...published,
       concepts,
-      totals: { patients: cache.totalPatients, stays: cache.totalVisits, records: cache.grandTotal.totalRecords, concepts: new Set(cache.concepts.map((r) => r.conceptId)).size },
+      totals: {
+        patients: cache.totalPatients,
+        ...(counts.visits ? { stays: cache.totalVisits } : {}),
+        ...(counts.unitStays && cache.grandTotal.totalUnitStays != null ? { unitStays: cache.grandTotal.totalUnitStays } : {}),
+        records: cache.grandTotal.totalRecords,
+        concepts: new Set(cache.concepts.map((r) => r.conceptId)).size,
+      },
     }
     const text = Object.fromEntries(Object.keys(EXPLORE_TEXT).map((k) => [k, t(`data_catalog.xp.${k}`)]))
     return createExplorer(data, {
@@ -276,14 +283,25 @@ function ExploreSidebar({ xp, update }: { xp: Explorer; update: (change?: (x: Ex
         <CrossingBadges vars={vars} />
       </div>
 
-      <div className="grid gap-2 border-t pt-3">
-        <SectionLabel>{t('data_catalog.xp_count')}</SectionLabel>
-        <Tabs value={measures.includes(S.metric) ? S.metric : 'patients'} onValueChange={(m) => update((x) => { x.S.metric = m as typeof S.metric })}>
-          <TabsList className="h-8 w-full">
-            {measures.map((m) => <TabsTrigger key={m} value={m} className="flex-1 text-xs">{xp.measureLabel(m)}</TabsTrigger>)}
-          </TabsList>
-        </Tabs>
-      </div>
+      {measures.length > 1 && (
+        <div className="grid gap-2 border-t pt-3">
+          <SectionLabel>{t('data_catalog.xp_count')}</SectionLabel>
+          {measures.length === 2 ? (
+            <Tabs value={measures.includes(S.metric) ? S.metric : 'patients'} onValueChange={(m) => update((x) => { x.S.metric = m as typeof S.metric })}>
+              <TabsList className="h-8 w-full">
+                {measures.map((m) => <TabsTrigger key={m} value={m} className="flex-1 text-xs">{xp.measureLabel(m)}</TabsTrigger>)}
+              </TabsList>
+            </Tabs>
+          ) : (
+            <Select value={measures.includes(S.metric) ? S.metric : 'patients'} onValueChange={(m) => update((x) => { x.S.metric = m as typeof S.metric })}>
+              <SelectTrigger className="h-8 w-full text-xs"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {measures.map((m) => <SelectItem key={m} value={m} className="text-xs">{xp.measureLabel(m)}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+      )}
 
       <div className="grid gap-4 border-t pt-3">
         <SectionLabel>{t('data_catalog.xp_filters')}</SectionLabel>

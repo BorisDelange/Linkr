@@ -3,8 +3,9 @@ import { classRelation, conceptRelations, has } from '@/lib/schema-classes/relat
 import { fieldColumn } from '@/lib/schema-classes/spec'
 import { useTranslation } from 'react-i18next'
 import {
-  AlertCircle, Check, Gauge, Info, Layers, Loader2, Pause, Play, RotateCcw, Search, Square, Trash2, X,
+  AlertCircle, Check, Gauge, Info, Layers, Loader2, Pause, Play, RotateCcw, Search, Sigma, Square, Trash2, X,
 } from 'lucide-react'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -27,7 +28,7 @@ import { getStorage } from '@/lib/storage'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildServiceListQuery } from '@/lib/duckdb/catalog-queries'
 import { estimateCrossings, estimateKey, getCachedEstimate, type CatalogUnitInfo, type CrossingEstimate, type EstimateProgress } from '@/lib/duckdb/catalog-compute'
-import { canonicalCrossing, crossingId, DEFAULT_AGE_BRACKETS, DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, enabledVariables } from '@/lib/data-catalog/config'
+import { canonicalCrossing, catalogCounts, crossingId, DEFAULT_AGE_BRACKETS, DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, enabledVariables } from '@/lib/data-catalog/config'
 import {
   clearCatalogRunError,
   getCatalogRunSnapshot,
@@ -38,7 +39,7 @@ import {
 } from '@/lib/duckdb/catalog-runner'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { cn } from '@/lib/utils'
-import type { CatalogResultCache, DataCatalog } from '@/types'
+import type { CatalogCounts, CatalogResultCache, DataCatalog } from '@/types'
 import {
   AGE_BRACKET_PRESETS,
   type CatalogVariableId,
@@ -290,6 +291,13 @@ export function CatalogConfigTab({ catalog }: Props) {
           <SectionLabel as="h3">{t('data_catalog.variables_title')}</SectionLabel>
           <InfoHint text={t('data_catalog.variables_hint')} />
         </div>
+
+        <CountsRow
+          counts={catalogCounts(catalog)}
+          disabled={!editable}
+          hasUnitStays={!!mapping && !!classRelation(mapping, 'visit_detail')}
+          onChange={(patch) => updateCatalog(catalog.id, { counts: { ...catalogCounts(catalog), ...patch } })}
+        />
 
         <VariableRow id="period" enabled={!!variables.period?.enabled} disabled={!editable} onToggle={(v) => setVariable('period', { enabled: v })}
           summary={variables.period?.enabled
@@ -572,6 +580,47 @@ function SelectAllNone({ onAll, onNone, disabled }: { onAll: () => void; onNone:
       <button type="button" onClick={onAll} className="hover:text-foreground">{t('common.select_all')}</button>
       <span className="text-muted-foreground/40">/</span>
       <button type="button" onClick={onNone} className="hover:text-foreground">{t('common.select_none')}</button>
+    </div>
+  )
+}
+
+/**
+ * What every cell counts: patients always, hospital stays and unit stays on
+ * demand — each is one more distinct count per cell, which a large warehouse
+ * pays for in time and memory.
+ */
+function CountsRow({ counts, disabled, hasUnitStays, onChange }: {
+  counts: CatalogCounts
+  disabled?: boolean
+  hasUnitStays: boolean
+  onChange: (patch: Partial<CatalogCounts>) => void
+}) {
+  const { t } = useTranslation()
+  const option = (id: string, label: string, checked: boolean, onToggle?: (on: boolean) => void, hint?: string) => (
+    <label htmlFor={id} className={cn('flex items-center gap-1.5 text-xs', !onToggle || disabled ? 'cursor-default' : 'cursor-pointer')} title={hint}>
+      <Checkbox id={id} checked={checked} disabled={!onToggle || disabled} onCheckedChange={(v) => onToggle?.(v === true)} />
+      <span className={cn(!onToggle && 'text-muted-foreground')}>{label}</span>
+    </label>
+  )
+  return (
+    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-2 border-t px-5 py-3">
+      <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
+        <Sigma size={13} />
+      </span>
+      <span className="text-sm font-medium">{t('data_catalog.counts_title')}</span>
+      <InfoHint text={t('data_catalog.counts_hint')} />
+      <div className="flex-1" />
+      <div className="flex flex-wrap items-center gap-4">
+        {option('catalog-count-patients', t('data_catalog.count_patients'), true)}
+        {option('catalog-count-visits', t('data_catalog.count_visits'), counts.visits, (on) => onChange({ visits: on }))}
+        {option(
+          'catalog-count-unit-stays',
+          t('data_catalog.count_unit_stays'),
+          counts.unitStays && hasUnitStays,
+          hasUnitStays ? (on) => onChange({ unitStays: on }) : undefined,
+          hasUnitStays ? undefined : t('data_catalog.count_unit_stays_no_mapping'),
+        )}
+      </div>
     </div>
   )
 }

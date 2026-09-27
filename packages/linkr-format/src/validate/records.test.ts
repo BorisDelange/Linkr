@@ -152,6 +152,12 @@ describe('data catalog', () => {
     expect(issues.map((i) => i.pointer)).toEqual(['/crossings/0', '/crossings/1'])
   })
 
+  it('accepts the counts beside patients, and rejects a non-boolean one', () => {
+    expect(validateEntity(catalog({ counts: { visits: false, unitStays: true } }), 'data-catalog')).toEqual([])
+    const issues = validateEntity(catalog({ counts: { visits: 'yes' } }), 'data-catalog')
+    expect(issues.map((i) => i.pointer)).toEqual(['/counts/visits'])
+  })
+
   it('flags a catalog written before variables, without failing it', () => {
     const tree = new MemoryTree({ 'entity.json': JSON.stringify({ type: 'data-catalog', name: { en: 'Catalog' }, dimensions: [{ type: 'sex', enabled: true }] }) })
     const issues = validateEntity(tree, 'data-catalog')

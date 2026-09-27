@@ -9,7 +9,8 @@
  * the threshold are capped (replace) or removed (suppress) before being inlined.
  */
 
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, SchemaMapping, AnonymizationMode } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, SchemaMapping, AnonymizationMode, CatalogCounts } from '@/types'
+import { catalogCounts } from '@/lib/data-catalog/config'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
 import { escapeXml as esc } from '@/lib/cohort-report/charts'
@@ -31,13 +32,13 @@ export interface ExportHtmlOptions {
   fullSchema?: IntrospectedTable[] | null
 }
 
-type Counted = { patientCount: number; recordCount: number; visitCount: number }
+type Counted = { patientCount: number; recordCount: number; visitCount?: number }
 export type Anonymized<T> = T & { _anonymized?: boolean }
 
 function anonymize<T extends Counted>(rows: T[], threshold: number, mode: AnonymizationMode): Anonymized<T>[] {
   if (mode === 'suppress') return rows.filter((r) => r.patientCount >= threshold)
   return rows.map((r) => (r.patientCount < threshold
-    ? { ...r, patientCount: threshold, recordCount: threshold, visitCount: threshold, _anonymized: true }
+    ? { ...r, patientCount: threshold, recordCount: threshold, ...(r.visitCount != null ? { visitCount: threshold } : {}), _anonymized: true }
     : r))
 }
 
@@ -66,9 +67,11 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
 
   const table = buildConceptTable(concepts)
   const schema = buildSchemaSection(fullSchema, schemaMapping)
+  const counts = catalogCounts(catalog)
   const totals = {
     patients: cache.totalPatients,
-    stays: cache.totalVisits,
+    ...(counts.visits ? { stays: cache.totalVisits } : {}),
+    ...(counts.unitStays && cache.grandTotal.totalUnitStays != null ? { unitStays: cache.grandTotal.totalUnitStays } : {}),
     concepts: new Set(concepts.map((r) => r.conceptId)).size,
     records: cache.grandTotal.totalRecords,
   }
@@ -135,7 +138,7 @@ ${schema.html}
   </section>
 
   <section id="tab-info" class="tab-content">
-${buildInfoHtml({ threshold, mode, crossings: published.crossings.map((c) => c.vars.map((v) => published.variables[v]?.label ?? v)), variables: Object.values(published.variables).map((v) => v!.label) })}
+${buildInfoHtml({ threshold, mode, counts, crossings: published.crossings.map((c) => c.vars.map((v) => published.variables[v]?.label ?? v)), variables: Object.values(published.variables).map((v) => v!.label) })}
   </section>
 
   <footer>
@@ -180,9 +183,10 @@ const LINKR_DOC_URL = 'https://linkr.interhop.org/en/docs/warehouse/data-catalog
 const EHDS_URL = 'https://eur-lex.europa.eu/eli/reg/2025/327/oj'
 
 /** What the page is, how its numbers were made and protected, and where to read more. */
-function buildInfoHtml({ threshold, mode, crossings, variables }: {
+function buildInfoHtml({ threshold, mode, counts, crossings, variables }: {
   threshold: number
   mode: AnonymizationMode
+  counts: CatalogCounts
   crossings: string[][]
   variables: string[]
 }): string {
@@ -190,12 +194,14 @@ function buildInfoHtml({ threshold, mode, crossings, variables }: {
   const card = (ico: IconName, title: string, body: string) =>
     `    <div class="card info-card"><div class="meta-card-head">${icon(ico, 15)}${title}</div><div class="info-body">${body}</div></div>`
   return [
-    card('bookOpen', 'About this catalog', `<p>This page describes the content of a clinical data warehouse without giving access to it: how many patients, stays and records it holds, for which concepts, over which periods and populations. Every number is an aggregate count; no row about a patient ever leaves the warehouse.</p>
+    card('bookOpen', 'About this catalog', `<p>This page describes the content of a clinical data warehouse without giving access to it: how many patients, hospitalizations and records it holds, for which concepts, over which periods and populations. Every number is an aggregate count; no row about a patient ever leaves the warehouse.</p>
 <p><b>Explore</b> reads the counts. Pick one, two or three variables in the sidebar, filter each of them, and the charts, key figures and table follow. <b>Metadata</b> describes the dataset in the Health-DCAT-AP vocabulary, and <b>Schema</b> the structure of the source warehouse.</p>`),
     card('barChart', 'How the counts are made', `<p>The warehouse is counted along ${variables.length ? variables.map((v) => `<b>${esc(v.toLowerCase())}</b>`).join(', ') : 'its concepts'}. Each variable is counted on its own${multi.length ? `, and these crossings were computed: ${multi.map((c) => esc(c.join(' × '))).join(', ')}` : ''}.</p>
 <ul><li><b>Patients</b> are distinct patients: one seen in two periods counts once in each, so patients never add up across the values of a variable.</li>
-<li><b>Stays</b> are visits; <b>records</b> are event rows (measurements, drugs, diagnoses…), counted when the concept variable is part of a crossing.</li>
-<li>Period and age are taken at the start of the stay, or at the date of the record.</li></ul>
+${counts.visits ? '<li><b>Hospitalizations</b> are hospital stays (visits).</li>' : ''}
+${counts.unitStays ? '<li><b>Unit stays</b> are the stays in a care unit within those hospitalizations.</li>' : ''}
+<li><b>Records</b> are event rows (measurements, drugs, diagnoses…), counted when the concept variable is part of a crossing.</li>
+<li>Period and age are taken at the start of the hospitalization, or at the date of the record.</li></ul>
 <p>Cells are never summed on this page: every figure shown is one computed cell.</p>`),
     card('shield', 'Anonymisation', `<p>Any count below <b>${threshold} patients</b> is ${mode === 'suppress' ? 'removed' : 'masked (shown as &lt; ' + threshold + ')'}. That alone is not enough when a total is published: a hidden cell could be recovered by subtracting the other cells from the total. So one more cell of that group is masked too (<em>secondary suppression</em>). Masked cells carry no number in any published file.</p>
 <p>Periods before the first and after the last one reaching the threshold are left out.</p>`),
@@ -230,7 +236,7 @@ export function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[]) {
     ...(concepts.some((r) => r.category != null) ? [select('category', 'Category')] : []),
     ...(concepts.some((r) => r.subcategory != null) ? [select('subcategory', 'Subcategory')] : []),
     { ...count('patientCount', 'Patients'), className: 'p' },
-    count('visitCount', 'Stays'),
+    ...(concepts.some((r) => r.visitCount != null) ? [count('visitCount', 'Hospitalizations')] : []),
     count('recordCount', 'Records'),
   ]
   const rows = concepts.map((r) => [
@@ -452,8 +458,9 @@ export function buildConceptsCsv(
   const threshold = catalog.anonymization.threshold
   const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
 
+  const withVisits = concepts.some((r) => r.visitCount != null)
   const header = ['concept_id', 'concept_name', 'vocabulary', 'category', 'subcategory',
-    'patient_count', 'visit_count', 'record_count']
+    'patient_count', ...(withVisits ? ['visit_count'] : []), 'record_count']
   const rows: string[] = [header.join(',')]
 
   for (const r of concepts) {
@@ -465,7 +472,7 @@ export function buildConceptsCsv(
     rows.push([
       csvEscape(r.conceptId), csvEscape(r.conceptName),
       csvEscape(r.dictionaryKey ?? ''), csvEscape(r.category ?? ''), csvEscape(r.subcategory ?? ''),
-      String(pc), String(vc), String(rc),
+      String(pc), ...(withVisits ? [String(vc ?? 0)] : []), String(rc),
     ].join(','))
   }
 

@@ -71,6 +71,18 @@ export interface ConceptVariableConfig {
   topN: number
 }
 
+/**
+ * What a cell counts beside its distinct patients, always counted. Stays are
+ * hospital stays (visit_occurrence), unit stays the stays in a care unit
+ * (visit_detail); each costs a distinct count per cell. Absent = stays only.
+ */
+export interface CatalogCounts {
+  visits: boolean
+  unitStays: boolean
+}
+
+export const DEFAULT_CATALOG_COUNTS: CatalogCounts = { visits: true, unitStays: false }
+
 export interface CatalogVariables {
   concept?: ConceptVariableConfig
   period?: PeriodVariableConfig
@@ -152,6 +164,8 @@ export interface DataCatalog extends Seedable, Authored, Lineaged {
    * Every enabled variable's 1-way marginal is computed whether listed or not.
    */
   crossings: CatalogVariableId[][]
+  /** Absent = DEFAULT_CATALOG_COUNTS. */
+  counts?: CatalogCounts
   anonymization: AnonymizationConfig
   status: CatalogStatus
   lastError?: string
@@ -201,7 +215,8 @@ export interface CatalogConceptRow {
   subcategory?: string | null
   patientCount: number
   recordCount: number
-  visitCount: number
+  /** Absent when the catalog does not count stays. */
+  visitCount?: number
 }
 
 /** Grand total from GROUPING SETS. */
@@ -209,6 +224,8 @@ export interface CatalogGrandTotal {
   totalPatients: number
   totalVisits: number
   totalRecords: number
+  /** Absent when the catalog does not count unit stays. */
+  totalUnitStays?: number
 }
 
 /**
@@ -222,8 +239,10 @@ export interface CatalogGrandTotal {
 export interface CatalogCrossingRow {
   values: string[]
   patients: number
-  /** Distinct visits — crossings without the concept variable. */
+  /** Distinct visits — crossings without the concept variable, when counted. */
   stays?: number
+  /** Distinct unit stays of those visits, when counted. */
+  unitStays?: number
   /** Event rows — crossings with the concept variable. */
   records?: number
 }

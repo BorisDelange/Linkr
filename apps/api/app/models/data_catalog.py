@@ -34,6 +34,8 @@ class DataCatalog(Base, TimestampMixin):
     # and which of them are counted together (lists of 1 to 3 variable ids).
     variables: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     crossings: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
+    # What cells count beside patients ({visits, unitStays}); NULL = visits only.
+    counts: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     anonymization: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_error: Mapped[str | None] = mapped_column(Text)

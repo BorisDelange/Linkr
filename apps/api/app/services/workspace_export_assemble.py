@@ -171,6 +171,8 @@ def _portable_catalog(data: dict) -> dict:
     # Unset (null) server-side, absent client-side: same byte-parity rule as dataSourceRef.
     if data.get("pagesDeployment") is None:
         data.pop("pagesDeployment", None)
+    if data.get("counts") is None:
+        data.pop("counts", None)
     return data
 
 

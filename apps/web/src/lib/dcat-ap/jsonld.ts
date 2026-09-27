@@ -11,7 +11,8 @@
  *   `healthdcatap:analytics`.
  */
 
-import { crossingCsvPath } from '@/lib/data-catalog/publish'
+import { crossingCsvPath, crossingMeasures } from '@/lib/data-catalog/publish'
+import { catalogCounts } from '@/lib/data-catalog/config'
 import type { SchemaMapping, CatalogResultCache, DataCatalog } from '@/types'
 import { mappedTableDocs } from './mapped-tables'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
@@ -229,13 +230,12 @@ function analyticsDistributions(
       `Browsable catalog of the warehouse: patient, stay and record counts per concept and crossed by period, care unit, age group and sex, with charts and the data schema.${suppression}`,
       'HTML', 'text/html'),
     dist(ANALYTICS_FILES.concepts, 'Concept counts',
-      `One row per concept: concept_id, concept_name, vocabulary, category, subcategory, patient_count, visit_count, record_count.${suppression}`,
+      `One row per concept: concept_id, concept_name, vocabulary, category, subcategory, patient_count, ${catalogCounts(catalog ?? {}).visits ? 'visit_count, ' : ''}record_count.${suppression}`,
       'CSV', 'text/csv'),
   ]
   for (const crossing of cache.crossings ?? []) {
-    const second = crossing.variables.includes('concept') ? 'records' : 'stays'
     out.push(dist(crossingCsvPath(crossing.id), `Counts by ${crossing.variables.join(' × ')}`,
-      `One row per non-empty cell: ${crossing.variables.join(', ')}, patients, ${second}, status.${cellSuppression}`,
+      `One row per non-empty cell: ${[...crossing.variables, 'patients', ...crossingMeasures(catalog ?? {}, crossing.variables)].join(', ')}, status.${cellSuppression}`,
       'CSV', 'text/csv'))
   }
   return out

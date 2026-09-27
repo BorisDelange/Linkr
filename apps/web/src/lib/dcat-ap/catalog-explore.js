@@ -9,7 +9,7 @@
  *
  * The data is a published catalog (lib/data-catalog/publish.ts): variables
  * with their modalities, and crossings as cells [index per variable…,
- * patients, second measure, status]. The page gets masked cells without their
+ * patients, each of the crossing's `measures`…, status]. The page gets masked cells without their
  * numbers; the app gets them with (`reveal`), to show what the masks hide.
  *
  * Reading rules:
@@ -27,7 +27,7 @@
 
 /** English texts, keys shared with the app's `data_catalog.xp.*` translations. Placeholders: {name}. */
 export var EXPLORE_TEXT = {
-  patients: 'Patients', stays: 'Stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
+  patients: 'Patients', stays: 'Hospitalizations', unit_stays: 'Unit stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
   masked: 'Masked', masked_sub: 'below {t} patients', masked_cells_sub: '{pct} of the cells', none: 'none',
   cells: 'Cells', cells_sub: '{rows} × {cols}', cells_sub_capped: '{rows} × {cols} shown',
   highest: 'Highest', largest_cell: 'Largest cell',
@@ -108,7 +108,7 @@ export function createExplorer(DATA, opts) {
   DATA.crossings.forEach(function(c) { X[c.id] = c; });
   var LIST = DATA.concepts || { cols: [], rows: [] };
   var hasList = LIST.rows.length > 0;
-  var MEASURE = { patients: tr('patients'), stays: tr('stays'), records: tr('records') };
+  var MEASURE = { patients: tr('patients'), stays: tr('stays'), unit_stays: tr('unit_stays'), records: tr('records') };
   var MASK_TEXT = { 1: '< ' + T, 2: tr('mask_secondary_short'), 3: '< ' + T };
   var MASK_TIP = { 1: tr('mask_primary', { t: T }), 2: tr('mask_secondary'), 3: tr('mask_absent', { t: T }) };
 
@@ -206,9 +206,9 @@ export function createExplorer(DATA, opts) {
   function sourceCrossing() { return X[keyOf(sourceVars())] || null; }
   function measuresOf() {
     derive();
-    if (isListView()) return ['patients', 'stays', 'records'];
+    if (isListView()) return LCOL.visitCount != null ? ['patients', 'stays', 'records'] : ['patients', 'records'];
     var c = sourceCrossing();
-    return c ? ['patients', c.second] : ['patients'];
+    return ['patients'].concat(c ? c.measures : []);
   }
 
   var conceptMatchCache = { key: null, ok: null };
@@ -266,11 +266,13 @@ export function createExplorer(DATA, opts) {
     var key = c.vars.map(function(v) { return v in at ? at[v] : D.slice[v]; }).join('|');
     return { cell: lookup(c)[key] || null, crossing: c };
   }
+  function statusOf(cell) { return cell[cell.length - 1]; }
   function measureAt(cell, c, metric) {
     var n = c.vars.length;
     if (!cell) return { v: null, st: 3 };
-    var st = cell[n + 2];
-    var raw = metric === 'patients' ? cell[n] : cell[n + 1];
+    var st = statusOf(cell);
+    var k = metric === 'patients' ? 0 : c.measures.indexOf(metric) + 1;
+    var raw = k ? cell[n + k] : metric === 'patients' ? cell[n] : null;
     if (st) return { v: null, st: st, raw: raw };
     return { v: raw, st: 0 };
   }
@@ -683,16 +685,23 @@ export function createExplorer(DATA, opts) {
     var title = tr('title_by', { unit: unit, vars: (isListView() ? ['concept'] : D.display).map(function(v) { return varLabel(v).toLowerCase(); }).join(' × ') });
     return { title: title, context: sliceText(), stats: globals().concat(stats), blocks: blocks, table: table, empty: empty };
   }
-  /** The catalog's own totals, unless the view counts the same thing. */
   /**
    * The warehouse's own totals: the first row of key figures, the view's three
-   * figures the second — six cards whatever is displayed.
+   * figures the second — six cards whatever is displayed. The middle card is
+   * the stays the catalog counts (unit stays beneath when both are), else its
+   * concepts.
    */
   function globals() {
+    var t = DATA.totals;
+    var middle = t.stays != null
+      ? { key: 'stays', label: tr('stays'), value: fmt(t.stays), sub: t.unitStays != null ? fmt(t.unitStays) + ' ' + tr('unit_stays').toLowerCase() : '', icon: 'stethoscope' }
+      : t.unitStays != null
+        ? { key: 'unit_stays', label: tr('unit_stays'), value: fmt(t.unitStays), sub: '', icon: 'stethoscope' }
+        : { key: 'concepts', label: tr('concepts'), value: fmt(t.concepts || 0), sub: '', icon: 'tags' };
     return [
-      { key: 'patients', label: tr('patients'), value: fmt(DATA.totals.patients), sub: '', icon: 'user' },
-      { key: 'stays', label: tr('stays'), value: fmt(DATA.totals.stays), sub: '', icon: 'stethoscope' },
-      { key: 'records', label: tr('records'), value: fmt(DATA.totals.records), sub: '', icon: 'activity' },
+      { key: 'patients', label: tr('patients'), value: fmt(t.patients), sub: '', icon: 'user' },
+      middle,
+      { key: 'records', label: tr('records'), value: fmt(t.records), sub: '', icon: 'activity' },
     ];
   }
 
@@ -717,7 +726,7 @@ export function createExplorer(DATA, opts) {
     if (metric !== 'patients') return null;
     if (!Object.keys(D.slice).length) return DATA.totals.patients;
     var m = marginCell([], {});
-    if (!m || !m.cell || m.cell[m.crossing.vars.length + 2]) return null;
+    if (!m || !m.cell || statusOf(m.cell)) return null;
     return m.cell[m.crossing.vars.length];
   }
   function maskNote(items) {
@@ -726,19 +735,19 @@ export function createExplorer(DATA, opts) {
   }
 
   function crossingTable(c, metric, displayed) {
-    var second = c.second;
     var n = c.vars.length;
     var cols = displayed.map(function(v) {
       return { key: v, label: V[v].label, type: 'text', variable: v, filter: V[v].mods.length > 30 ? 'text' : 'select', width: v === 'concept' ? 320 : 170, className: v === 'concept' ? 'name' : '' };
     }).concat([
-      { key: 'patients', label: MEASURE.patients, type: 'number', filter: 'min', className: 'p', measure: true },
-      { key: second, label: MEASURE[second], type: 'number', filter: 'min', measure: true },
-    ]);
+      { key: 'patients', label: MEASURE.patients, type: 'number', filter: 'min', className: 'p', measure: true, width: 130 },
+    ]).concat(c.measures.map(function(m) {
+      return { key: m, label: MEASURE[m], type: 'number', filter: 'min', measure: true, width: 150 };
+    }));
     var rows = viewCells(c).map(function(cell) {
-      var r = { _st: cell[n + 2] };
+      var r = { _st: statusOf(cell) };
       c.vars.forEach(function(v, i) { r[v] = V[v].names[cell[i]]; r['_i_' + v] = cell[i]; });
       r.patients = cell[n];
-      r[second] = cell[n + 1];
+      c.measures.forEach(function(m, k) { r[m] = cell[n + 1 + k]; });
       return r;
     });
     // Rows follow the variables' display order, not the alphabet.
@@ -849,7 +858,7 @@ export function createExplorer(DATA, opts) {
     var rows = ranked.map(function(i) { return { i: i, name: rv.names[i] }; });
     var colObjs = cols.map(function(i) { return { i: i, name: cv.names[i] }; });
 
-    var maskedCount = cells.filter(function(cell) { return cell[c.vars.length + 2]; }).length;
+    var maskedCount = cells.filter(statusOf).length;
     var biggest = null;
     cells.forEach(function(cell) { var m = measureAt(cell, c, metric); if (m.v != null && (!biggest || m.v > biggest.v)) biggest = { v: m.v, name: rv.names[cell[pos[rowVar]]] + ' · ' + cv.names[cell[pos[colVar]]] }; });
     stat('cells', tr('cells'), fmt(cells.length), tr(capped ? 'cells_sub_capped' : 'cells_sub', { rows: rows.length, cols: cols.length }), 'grid');

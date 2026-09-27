@@ -271,6 +271,20 @@ export function validateDataCatalog(tree: EntityTree, bag: IssueBag): void {
     }
   }
 
+  // What cells count beside patients; absent = hospital stays only.
+  if (catalog.counts != null) {
+    if (!isObject(catalog.counts)) {
+      bag.error(path, '/counts', 'wrong-type', 'counts must be an object.')
+    } else {
+      for (const key of ['visits', 'unitStays'] as const) {
+        const value = catalog.counts[key]
+        if (value != null && typeof value !== 'boolean') {
+          bag.error(path, `/counts/${key}`, 'wrong-type', `counts.${key} must be a boolean.`)
+        }
+      }
+    }
+  }
+
   // Variables are what the catalog breaks its counts down by, crossings which
   // of them are counted together.
   if (catalog.variables == null) {
