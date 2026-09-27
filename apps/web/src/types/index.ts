@@ -896,6 +896,8 @@ export type {
   ValueFilter,
   ConceptCriteriaConfig,
   TextCriteriaConfig,
+  IdListCriteriaConfig,
+  IdListLevel,
   TextFieldSearch,
   TextMatchMode,
   DurationUnit,

@@ -21,12 +21,12 @@ import { CriteriaGroupNodeComponent } from './CriteriaGroupNodeComponent'
 import { CriterionCard } from './CriterionCard'
 import { AddCriterionMenu } from './AddCriterionMenu'
 import { OperatorSeparator } from './OperatorSeparator'
+import { defaultCriterionConfig } from './criteria-defaults'
 import type {
   CriteriaGroupNode,
   CriteriaTreeNode,
   CriterionNode,
   CriteriaType,
-  CriteriaConfig,
   SchemaMapping,
   PatientSpec,
   CohortLevel,
@@ -196,10 +196,7 @@ export function CriteriaPanel({
   }
 
   const handleAddCriterion = (type: CriteriaType) => {
-    let config = getDefaultConfig(type)
-    if (type === 'period' && visitDateRange) {
-      config = { startDate: visitDateRange.minDate, endDate: visitDateRange.maxDate }
-    }
+    const config = defaultCriterionConfig(type, { cohortLevel, visitDateRange })
     const newNode: CriterionNode = {
       kind: 'criterion',
       id: crypto.randomUUID(),
@@ -323,23 +320,3 @@ export function CriteriaPanel({
   )
 }
 
-function getDefaultConfig(type: CriteriaType): CriteriaConfig {
-  switch (type) {
-    case 'age':
-      return { ageReference: 'admission', min: undefined, max: undefined }
-    case 'sex':
-      return { values: [] }
-    case 'death':
-      return { isDead: true }
-    case 'period':
-      return { startDate: undefined, endDate: undefined }
-    case 'duration':
-      return { durationLevel: 'visit', minDays: undefined, maxDays: undefined }
-    case 'care_site':
-      return { careSiteLevel: 'visit_detail', values: [] }
-    case 'concept':
-      return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
-    case 'text':
-      return { description: '' }
-  }
-}

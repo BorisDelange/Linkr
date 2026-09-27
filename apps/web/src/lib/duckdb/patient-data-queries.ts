@@ -425,7 +425,7 @@ GROUP BY ${PATIENT_GROUP_BY(alias)}`
     return perPatient('p', `${patient.name} p`, inList ? `\nWHERE p.patient_id IN (${inList})` : '\nWHERE 1=0')
   }
 
-  if (cohort && cohort.criteriaTree.children.length > 0) {
+  if (cohort && (cohort.criteriaTree.children.length > 0 || cohort.customSql?.trim())) {
     const parts = buildCohortQueryParts(cohort, mapping)
     if (!parts) return null
     const where = parts.whereClause ? `\nWHERE ${parts.whereClause}` : ''

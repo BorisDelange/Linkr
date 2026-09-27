@@ -66,12 +66,11 @@ describe('freeze helpers', () => {
     expect(freezeBlocker({ level: 'patient' })).toContain('project')
   })
 
-  it('describes the snapshot, what it replaced, and the custom SQL caveat', () => {
+  it('describes the snapshot and what it replaced', () => {
     const mat = { level: 'visit' as const, ids: ['1', '2', '3'], patientIds: ['7', '8'], count: 3, materializedAt: '2026-09-24T12:00:00.000Z' }
-    const out = describeFreeze('ICU stays', mat, { ...mat, count: 2, materializedAt: 'earlier' }, true)
+    const out = describeFreeze('ICU stays', mat, { ...mat, count: 2, materializedAt: 'earlier' })
     expect(out).toContain('Froze "ICU stays": 3 visit(s) of 2 patient(s)')
     expect(out).toContain('replaces the snapshot of earlier (2)')
-    expect(out).toContain('custom SQL')
-    expect(describeFreeze('x', { ...mat, level: 'patient' }, null, false)).not.toMatch(/of \d+ patient|replaces|custom/)
+    expect(describeFreeze('x', { ...mat, level: 'patient' }, null)).not.toMatch(/of \d+ patient|replaces/)
   })
 })

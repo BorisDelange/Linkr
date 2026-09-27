@@ -16,10 +16,12 @@ import {
   Building2,
   Beaker,
   FileText,
+  ListChecks,
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/format-helpers'
+import { cleanIdList } from '@/lib/duckdb/cohort-query'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -48,6 +50,8 @@ import { CareSiteCriteriaForm } from './criteria/CareSiteCriteriaForm'
 import { ConceptCriteriaForm } from './criteria/ConceptCriteriaForm'
 import { TextCriteriaForm } from './criteria/TextCriteriaForm'
 import { CohortConceptPickerDialog } from './criteria/CohortConceptPickerDialog'
+import { IdListCriteriaForm } from './criteria/IdListCriteriaForm'
+import { defaultCriterionConfig } from './criteria-defaults'
 import type {
   CriterionNode,
   CriteriaType,
@@ -60,6 +64,7 @@ import type {
   CareSiteCriteriaConfig,
   ConceptCriteriaConfig,
   TextCriteriaConfig,
+  IdListCriteriaConfig,
   SchemaMapping,
   PatientSpec,
   CohortLevel,
@@ -80,27 +85,6 @@ interface CriterionCardProps {
   collapseSignal?: { seq: number; collapsed: boolean }
 }
 
-function getDefaultConfig(type: CriteriaType): CriteriaConfig {
-  switch (type) {
-    case 'age':
-      return { ageReference: 'admission', min: undefined, max: undefined }
-    case 'sex':
-      return { values: [] }
-    case 'death':
-      return { isDead: true, deathReference: 'visit' }
-    case 'period':
-      return { startDate: undefined, endDate: undefined }
-    case 'duration':
-      return { durationLevel: 'visit', minDays: undefined, maxDays: undefined }
-    case 'care_site':
-      return { careSiteLevel: 'visit_detail', values: [] }
-    case 'concept':
-      return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
-    case 'text':
-      return { description: '' }
-  }
-}
-
 const criteriaTypeKeys: { value: CriteriaType; labelKey: string }[] = [
   { value: 'age', labelKey: 'cohorts.criteria_age' },
   { value: 'sex', labelKey: 'cohorts.criteria_sex' },
@@ -110,6 +94,7 @@ const criteriaTypeKeys: { value: CriteriaType; labelKey: string }[] = [
   { value: 'care_site', labelKey: 'cohorts.criteria_care_site' },
   { value: 'concept', labelKey: 'cohorts.criteria_concept' },
   { value: 'text', labelKey: 'cohorts.criteria_text' },
+  { value: 'id_list', labelKey: 'cohorts.criteria_id_list' },
 ]
 
 // --- Icon & color mapping per criteria type ---
@@ -169,6 +154,12 @@ const criteriaTypeMeta: Record<CriteriaType, CriteriaTypeMeta> = {
     color: 'text-gray-500 dark:text-gray-400',
     bgColor: 'bg-gray-500/5',
     borderColor: 'border-l-gray-500/50',
+  },
+  id_list: {
+    icon: ListChecks,
+    color: 'text-indigo-500 dark:text-indigo-400',
+    bgColor: 'bg-indigo-500/5',
+    borderColor: 'border-l-indigo-500/50',
   },
 }
 
@@ -285,6 +276,16 @@ function buildSummary(node: CriterionNode, t: (key: string) => string, lang: str
       )
       break
     }
+    case 'id_list': {
+      const c = node.config as IdListCriteriaConfig
+      const ids = cleanIdList(c.ids)
+      parts.push(
+        ids.length > 0
+          ? `${t(`cohorts.level_${c.idLevel ?? 'patient'}`)}: ${ids.slice(0, 3).join(', ')}${ids.length > 3 ? ` (+${ids.length - 3})` : ''}`
+          : t('cohorts.criteria_id_list'),
+      )
+      break
+    }
   }
 
   return parts.join(' ')
@@ -313,7 +314,7 @@ function CriteriaConfigForm({
   cohortLevel?: CohortLevel
   onOpenConceptPicker?: () => void
 }) {
-  // `type` and `config` are a matched pair (config is built via getDefaultConfig(type)),
+  // `type` and `config` are a matched pair (config is built via defaultCriterionConfig(type)),
   // but TS can't narrow `config` from the separate `type` discriminant — cast per branch.
   switch (type) {
     case 'age':
@@ -332,6 +333,8 @@ function CriteriaConfigForm({
       return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} cohortLevel={cohortLevel} schemaMapping={schemaMapping} />
     case 'text':
       return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
+    case 'id_list':
+      return <IdListCriteriaForm config={config as IdListCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
     default:
       return null
   }
@@ -378,7 +381,7 @@ export function CriterionCard({
   }
 
   const handleTypeChange = (newType: CriteriaType) => {
-    onUpdate(node.id, { type: newType, config: getDefaultConfig(newType) })
+    onUpdate(node.id, { type: newType, config: defaultCriterionConfig(newType, { cohortLevel, visitDateRange }) })
   }
 
   const handleConfigChange = (config: CriteriaConfig) => {

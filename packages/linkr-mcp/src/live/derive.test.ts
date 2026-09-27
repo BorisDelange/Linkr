@@ -71,7 +71,6 @@ describe('planDerivation', () => {
   })
 
   it('refuses what the app refuses, in words', () => {
-    expect(plan({ cohort: cohort({ customSql: 'SELECT 1' }) })).toEqual({ error: expect.stringMatching(/custom SQL/) })
     expect(plan({ cohort: cohort({ level: 'event' }) })).toEqual({ error: expect.stringMatching(/event-level/) })
     expect(plan({ source: db({ status: 'error' }) })).toEqual({ error: expect.stringMatching(/not connected/) })
     expect(plan({ source: db({ workspaceId: undefined }) })).toHaveProperty('error')

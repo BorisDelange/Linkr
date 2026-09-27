@@ -10,6 +10,7 @@ import {
   User,
   FileText,
   FolderTree,
+  ListChecks,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -37,6 +38,7 @@ const criteriaItems: { type: CriteriaType; labelKey: string; icon: typeof User }
   { type: 'care_site', labelKey: 'cohorts.criteria_care_site', icon: Building2 },
   { type: 'concept', labelKey: 'cohorts.criteria_concept', icon: Beaker },
   { type: 'text', labelKey: 'cohorts.criteria_text', icon: FileText },
+  { type: 'id_list', labelKey: 'cohorts.criteria_id_list', icon: ListChecks },
 ]
 
 export function AddCriterionMenu({ onAddCriterion, onAddGroup }: AddCriterionMenuProps) {

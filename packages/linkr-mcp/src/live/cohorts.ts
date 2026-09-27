@@ -13,7 +13,7 @@ import type {
 
 export const COHORT_LEVELS: CohortLevel[] = ['patient', 'visit', 'visit_detail', 'event']
 const CRITERIA_TYPES: CriteriaType[] = [
-  'age', 'sex', 'death', 'period', 'duration', 'care_site', 'concept', 'text',
+  'age', 'sex', 'death', 'period', 'duration', 'care_site', 'concept', 'text', 'id_list',
 ]
 const VALUE_OPERATORS = ['>', '>=', '=', '<=', '<', '!=', 'between']
 const COUNT_OPERATORS = ['>=', '>', '=', '<=', '<']
@@ -44,7 +44,10 @@ Criterion types and their config:
               "occurrenceCount"?: {"operator": ">="|">"|"="|"<="|"<", "count": n}}
              conceptIds come from search_concepts; names are filled in for you.
 - text:      {"searches": [{"field": "title"|"text", "terms": ["..."], "mode"?: "contains"|"word"|"regex",
-              "anyTerm"?: true, "exclude"?: false}], "label"?: "..."}  (needs a note table)
+              "anyTerm"?: true, "exclude"?: false, "caseSensitive"?: false, "ignoreAccents"?: false}], "label"?: "..."}  (needs a note table)
+- id_list:   {"idLevel": "patient"|"visit"|"visit_detail", "ids": ["<id>", ...]}
+             keeps the rows whose patient_id / visit_id / visit_detail_id is listed (compared as text);
+             at another level, the rows linked to a listed id (patients with a listed stay, unit stays of a listed stay…)
 
 At visit and visit_detail level, a concept or text criterion only counts events dated within the stay
 (between its start and end); use the patient level for "at any time".`
@@ -244,6 +247,12 @@ function checkConfig(
       }
       break
     }
+    case 'id_list':
+      oneOf('idLevel', ['patient', 'visit', 'visit_detail'], true)
+      needsVisitDetail('idLevel')
+      stringList('ids')
+      if (Array.isArray(c.ids) && (c.ids as string[]).every((v) => !v.trim())) errors.push(`${at}.ids: a non-empty array of ids.`)
+      break
     case 'text':
       if (!mapping.note) errors.push(`${path}: this database's mapping has no note table.`)
       if (!Array.isArray(c.searches) || c.searches.length === 0) {

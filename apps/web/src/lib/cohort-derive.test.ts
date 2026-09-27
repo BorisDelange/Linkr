@@ -34,9 +34,9 @@ describe('isWritableTarget', () => {
 })
 
 describe('derivableReason', () => {
-  it('refuses custom SQL, the event level and a schema without patients', () => {
+  it('refuses the event level and a schema without patients', () => {
     expect(derivableReason(cohort(), db())).toBeNull()
-    expect(derivableReason(cohort({ customSql: 'SELECT 1' }), db())).toBe('custom-sql')
+    expect(derivableReason(cohort({ customSql: 'SELECT 1 AS id' }), db())).toBeNull()
     expect(derivableReason(cohort({ level: 'event' }), db())).toBe('event-level')
     expect(derivableReason(cohort(), db({ schemaMapping: mappingV1ToV2({ presetId: 'x' } as never) }))).toBe('no-mapping')
   })
@@ -64,6 +64,14 @@ describe('derivationRequest', () => {
     })
     // No local id in what is exported with the derived database.
     expect(JSON.stringify(r.derivedFrom)).not.toContain('db1')
+  })
+
+  it('filters on a hand-written query, and records it so a rebuild runs it again', () => {
+    const customSql = 'SELECT visit_id AS id FROM linkr_visit WHERE visit_id < 10'
+    const r = derivationRequest({ cohort: cohort({ customSql }), cohortKey: 'icu', source: db(), copyPersonless: false, target: 'new-database' })
+    expect(r.membershipSql).toContain('WHERE visit_id < 10')
+    expect(r.membershipSql).toMatch(/AS patient_id/)
+    expect(r.derivedFrom?.customSql).toBe(customSql)
   })
 })
 

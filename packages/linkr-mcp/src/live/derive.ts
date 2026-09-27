@@ -28,7 +28,6 @@ export interface DerivationPlan {
 }
 
 export const NOT_DERIVABLE: Record<NotDerivable, string> = {
-  'custom-sql': 'it is defined by custom SQL; only a cohort built from criteria can be derived (the copy is filtered on its membership)',
   'event-level': 'it is an event-level cohort; derive a patient, visit or visit_detail cohort',
   'no-mapping': 'its database has no patient table in its schema mapping, or the criteria produce no membership query',
 }

@@ -409,8 +409,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     const startTime = Date.now()
 
     try {
-      // Use custom SQL or auto-generated
-      const countSql = cohort.customSql ?? buildCohortCountSql(cohort, schemaMapping)
+      // A hand-written query stands in for the criteria inside every builder.
+      const countSql = buildCohortCountSql(cohort, schemaMapping)
       // No SQL means the criteria tree produced nothing runnable (an empty group,
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
@@ -420,37 +420,27 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       const countResults = await engine.queryDataSource(dataSourceId, countSql)
       const totalCount = Number(countResults[0]?.cnt ?? 0)
 
-      // Execute attrition (only for auto-generated SQL)
       const attrition: AttritionStep[] = []
-      if (!cohort.customSql) {
-        const attritionQueries = buildAttritionQueries(cohort, schemaMapping)
-        let prevCount = 0
-        for (const aq of attritionQueries) {
-          const res = await engine.queryDataSource(dataSourceId, aq.sql)
-          const count = Number(res[0]?.cnt ?? 0)
-          attrition.push({
-            nodeId: aq.nodeId,
-            label: aq.label,
-            count,
-            excluded: aq.nodeId === '__total__' ? 0 : prevCount - count,
-          })
-          prevCount = count
-        }
+      let prevCount = 0
+      for (const aq of buildAttritionQueries(cohort, schemaMapping)) {
+        const res = await engine.queryDataSource(dataSourceId, aq.sql)
+        const count = Number(res[0]?.cnt ?? 0)
+        attrition.push({
+          nodeId: aq.nodeId,
+          label: aq.label,
+          count,
+          excluded: aq.nodeId === '__total__' ? 0 : prevCount - count,
+        })
+        prevCount = count
       }
 
-      // Execute result rows (first page)
-      let rows: Record<string, unknown>[] = []
-      if (!cohort.customSql) {
-        // Fetch up to the server's own cap rather than a token 50: the results
-        // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
-        // cohort of 1500. Cost is flat in the row count (measured on a real
-        // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
-        // so the small limit bought nothing.
-        const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0)
-        if (resultsSql) {
-          rows = await engine.queryDataSource(dataSourceId, resultsSql)
-        }
-      }
+      // Fetch up to the server's own cap rather than a token 50: the results
+      // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
+      // cohort of 1500. Cost is flat in the row count (measured on a real
+      // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
+      // so the small limit bought nothing.
+      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0)
+      const rows = resultsSql ? await engine.queryDataSource(dataSourceId, resultsSql) : []
 
       const durationMs = Date.now() - startTime
       const result: CohortExecutionResult = {

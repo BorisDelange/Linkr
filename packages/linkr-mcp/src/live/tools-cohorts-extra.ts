@@ -28,7 +28,7 @@ export function registerCohortExtraTools(server: Server): void {
     if (!sql) return failure('The criteria produce no runnable membership query (empty group, or a level table missing from the mapping).')
     const saved = await api.materializeCohort(cohort_id, { membershipSql: sql, dataSourceId: dbId })
     if (!saved.materialization) return failure('The server stored no frozen membership.')
-    return text(describeFreeze(loc(cohort.name), saved.materialization, cohort.materialization, !!cohort.customSql))
+    return text(describeFreeze(loc(cohort.name), saved.materialization, cohort.materialization))
   }))
 
   server.registerTool('unfreeze_cohort', {

@@ -20,6 +20,7 @@ export type CriteriaType =
   | 'care_site'
   | 'concept'
   | 'text'
+  | 'id_list'
 
 // --- Criteria Config Types ---
 
@@ -109,6 +110,10 @@ export interface TextFieldSearch {
   /** Terms to look for; combined with `anyTerm` below. */
   terms: string[]
   mode?: TextMatchMode
+  /** Match the case as typed. Default false: "Sepsis" finds "sepsis". */
+  caseSensitive?: boolean
+  /** Ignore accents on both sides: "hemorragie" finds "hémorragie". Default false. */
+  ignoreAccents?: boolean
   /** true = any term matches (OR), false = every term must (AND). Default OR. */
   anyTerm?: boolean
   /** Negate this search: the note must NOT match it. */
@@ -127,6 +132,16 @@ export interface TextCriteriaConfig {
   description: string
 }
 
+/** Levels an identifier list can name: every level with an id of its own. */
+export type IdListLevel = 'patient' | 'visit' | 'visit_detail'
+
+export interface IdListCriteriaConfig {
+  /** Which identifier the list holds: patient_id, visit_id or visit_detail_id. */
+  idLevel: IdListLevel
+  /** Kept as strings: ids are compared as text, so numeric and coded ids both work. */
+  ids: string[]
+}
+
 export type CriteriaConfig =
   | AgeCriteriaConfig
   | SexCriteriaConfig
@@ -136,6 +151,7 @@ export type CriteriaConfig =
   | CareSiteCriteriaConfig
   | ConceptCriteriaConfig
   | TextCriteriaConfig
+  | IdListCriteriaConfig
 
 // --- Criteria Tree Nodes ---
 
@@ -206,7 +222,12 @@ export interface Cohort extends Authored {
   level: CohortLevel
   /** Root criteria tree (always a group node acting as container) */
   criteriaTree: CriteriaGroupNode
-  /** User-edited SQL override (null = auto-generated) */
+  /**
+   * Hand-written membership query, in place of the criteria (null = generated
+   * from them). It returns the cohort's members as an `id` column — the level's
+   * id — and every query of the cohort (count, results, freeze, derivation,
+   * report, Patient data) keeps the level's rows whose id it lists.
+   */
   customSql?: string | null
   /** Cached result count from last execution */
   resultCount?: number

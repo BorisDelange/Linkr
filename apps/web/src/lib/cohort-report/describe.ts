@@ -7,6 +7,7 @@
  * the codes it rests on.
  */
 import type { TFunction } from 'i18next'
+import { cleanIdList } from '@/lib/duckdb/cohort-query'
 import type {
   AgeCriteriaConfig,
   CareSiteCriteriaConfig,
@@ -15,6 +16,7 @@ import type {
   CriteriaTreeNode,
   DeathCriteriaConfig,
   DurationCriteriaConfig,
+  IdListCriteriaConfig,
   PeriodCriteriaConfig,
   SchemaMapping,
   SexCriteriaConfig,
@@ -111,6 +113,12 @@ function describeLeaf(
       const c = config as TextCriteriaConfig
       const terms = (c.searches ?? []).flatMap((s) => s.terms).filter(Boolean)
       return t(`${K}text`, { terms: c.label || terms.join(', ') || c.description || '—' })
+    }
+    case 'id_list': {
+      const c = config as IdListCriteriaConfig
+      const ids = cleanIdList(c.ids)
+      const shown = ids.slice(0, 20).join(', ') + (ids.length > 20 ? ', …' : '')
+      return t(`${K}id_list`, { unit: t(`cohort_report.unit_${c.idLevel ?? 'patient'}`), count: ids.length, ids: shown })
     }
     default:
       return type

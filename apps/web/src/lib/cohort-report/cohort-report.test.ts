@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next'
 import type { Cohort } from '@/types'
 import { columnChart, donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
 import { describeCriteria } from './describe'
-import { buildCohortReportModel, CohortReportUnavailable, fillMonths } from './model'
+import { buildCohortReportModel, fillMonths } from './model'
 import { buildAgeSql, buildCareUnitSql, buildConceptSql, buildIndexSql, buildVisitCountSql } from './queries'
 import { renderReportHtml } from './render-html'
 import { suppress, suppressedShare } from './suppress'
@@ -167,9 +167,17 @@ describe('buildCohortReportModel', () => {
     expect(model.source).toEqual({ databaseName: 'eHOP', databasePatients: { value: 40000, label: '40,000' } })
   })
 
-  it('refuses a hand-written query and the event level', async () => {
-    await expect(buildCohortReportModel({ cohort: cohort({ customSql: 'SELECT 1' }), mapping, databaseName: 'x', run, t, locale: 'en', threshold: 11 }))
-      .rejects.toBeInstanceOf(CohortReportUnavailable)
+  it('reports a hand-written query as one step, with none of the criteria it replaces', async () => {
+    const model = await buildCohortReportModel({
+      cohort: cohort({ customSql: 'SELECT visit_id AS id FROM linkr_visit' }), mapping, databaseName: 'x', run, t, locale: 'en', threshold: 11,
+    })
+    expect(model.flow.map((f) => f.label)).toEqual(['cohort_report.flow_total', 'cohort_report.flow_custom_sql'])
+    expect(model.criteria).toEqual([])
+    expect(model.concepts).toEqual([])
+    expect(model.sql).toBe('SELECT visit_id AS id FROM linkr_visit')
+  })
+
+  it('refuses the event level', async () => {
     await expect(buildCohortReportModel({ cohort: cohort({ level: 'event' }), mapping, databaseName: 'x', run, t, locale: 'en', threshold: 11 }))
       .rejects.toMatchObject({ reason: 'event-level' })
   })
@@ -182,7 +190,8 @@ describe('buildCohortReportModel', () => {
     expect(html).not.toContain('ICU <adults>')
     // Nothing is fetched: no external stylesheet, script or image.
     expect(html).not.toMatch(/<(link|script)\b|src="http/)
-    expect(html).toContain('<pre class="sql"><span class="keyword">SELECT</span> <span class="keyword">DISTINCT</span>')
+    expect(html).toContain('<pre class="sql">')
+    expect(html).toContain('<span class="keyword">SELECT</span> <span class="keyword">DISTINCT</span>')
     expect(renderReportHtml(model, t, { includeSql: false })).not.toContain('<pre')
   })
 })

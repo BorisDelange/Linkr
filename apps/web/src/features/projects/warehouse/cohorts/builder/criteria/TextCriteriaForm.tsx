@@ -159,6 +159,32 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
               </TooltipContent>
             </Tooltip>
 
+            {/* Off by default: a clinical note spells a word every way it can. */}
+            <button
+              type="button"
+              onClick={() => updateSearch(index, { caseSensitive: !search.caseSensitive })}
+              title={t(search.caseSensitive ? 'cohorts.text_case_sensitive_on' : 'cohorts.text_case_sensitive_off')}
+              aria-pressed={!!search.caseSensitive}
+              className={cn(
+                'rounded px-1.5 py-0.5 font-mono text-[10px] font-bold transition-colors',
+                search.caseSensitive ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'text-muted-foreground hover:bg-accent',
+              )}
+            >
+              Aa
+            </button>
+            <button
+              type="button"
+              onClick={() => updateSearch(index, { ignoreAccents: !search.ignoreAccents })}
+              title={t(search.ignoreAccents ? 'cohorts.text_ignore_accents_on' : 'cohorts.text_ignore_accents_off')}
+              aria-pressed={!!search.ignoreAccents}
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[10px] font-bold transition-colors',
+                search.ignoreAccents ? 'bg-primary/10 text-primary hover:bg-primary/20' : 'text-muted-foreground hover:bg-accent',
+              )}
+            >
+              é=e
+            </button>
+
             <button
               type="button"
               onClick={() => update({ searches: searches.filter((_, i) => i !== index) })}

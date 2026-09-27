@@ -62,13 +62,10 @@ export function derivedDatabaseRow(parent: DataSource, name: LocalizedString, ex
 /** What a derivation is built from: a cohort, or the snapshot a derived database keeps. */
 export type DerivationDefinition = Pick<Cohort, 'level' | 'criteriaTree' | 'customSql' | 'name'>
 
-export type NotDerivable = 'custom-sql' | 'event-level' | 'no-mapping'
+export type NotDerivable = 'event-level' | 'no-mapping'
 
 /** Why this cohort cannot be derived, or null when it can. */
 export function derivableReason(definition: DerivationDefinition, source: DataSource): NotDerivable | null {
-  // The membership is rebuilt from the criteria; a hand-written query returns
-  // rows in no known shape, so there is nothing to filter the tables on.
-  if (definition.customSql) return 'custom-sql'
   if (definition.level === 'event') return 'event-level'
   if (!source.schemaMapping?.patient) return 'no-mapping'
   if (!buildCohortMembershipSql(definition as Cohort, source.schemaMapping)) return 'no-mapping'
@@ -97,6 +94,7 @@ export function derivationRequest(input: {
     cohort: { key: input.cohortKey, name: cohort.name },
     level: cohort.level,
     criteriaTree: cohort.criteriaTree,
+    ...(cohort.customSql?.trim() ? { customSql: cohort.customSql } : {}),
     target: input.target,
     copyPersonless: input.copyPersonless,
   }

@@ -13,7 +13,9 @@ import type {
   CareSiteCriteriaConfig,
   ConceptCriteriaConfig,
   TextCriteriaConfig,
+  TextFieldSearch,
   TextMatchMode,
+  IdListCriteriaConfig,
 } from '@/types'
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
@@ -42,6 +44,135 @@ const COUNT_OPERATORS = new Set(['>=', '>', '=', '<=', '<'])
  *  stored string directly: `IS NOT NULL OR 1=1 --` is a valid JSON string. */
 function sqlOperator(value: unknown, allowed: Set<string>): string | null {
   return typeof value === 'string' && allowed.has(value) ? value : null
+}
+
+// ---------------------------------------------------------------------------
+// Layout
+// ---------------------------------------------------------------------------
+//
+// The generated SQL is read and hand-edited in the SQL tab, so it is laid out:
+// one condition per line, each criterion under a `--` comment naming it,
+// subqueries indented, and parentheses only where precedence needs them.
+
+const INDENT = '  '
+
+/**
+ * Every non-empty line pushed right by `by` — except a line that continues a
+ * string literal, whose content the padding would change (a hand-written query
+ * may hold one).
+ */
+function indent(sql: string, by = INDENT, skipFirst = false): string {
+  let out = ''
+  let quote: string | null = null
+  let comment = false
+  let lineStart = !skipFirst
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i]
+    if (lineStart) {
+      if (quote === null && ch !== '\n') out += by
+      lineStart = false
+    }
+    out += ch
+    if (ch === '\n') {
+      comment = false
+      lineStart = true
+    } else if (comment) {
+      continue
+    } else if (quote !== null) {
+      if (ch === quote) quote = null
+    } else if (ch === "'" || ch === '"') {
+      quote = ch
+    } else if (ch === '-' && sql[i + 1] === '-') {
+      comment = true
+    }
+  }
+  return out
+}
+
+/** Every line but the first pushed right: a multi-line operand after a keyword. */
+function hang(sql: string, by = INDENT): string {
+  return indent(sql, by, true)
+}
+
+/**
+ * A label as a `--` comment. Line breaks are dropped: the label can be the
+ * user's (a concept name, a group label) and a line break would end the comment
+ * and let the rest of it run as SQL.
+ */
+export function sqlComment(label: string): string {
+  return `-- ${label.replace(/[\r\n\u0085\u2028\u2029\0]+/g, ' ').trim()}`
+}
+
+/** `WHERE a` then `  AND b` per condition. */
+function whereLines(conditions: string[]): string {
+  return conditions.map((c, i) => `${i === 0 ? 'WHERE' : '  AND'} ${hang(c)}`).join('\n')
+}
+
+/** `EXISTS (SELECT 1 FROM … WHERE …)`, one condition per line. */
+function existsSql(from: string, conditions: string[]): string {
+  return ['EXISTS (', indent(['SELECT 1', `FROM ${from}`, whereLines(conditions)].join('\n')), ')'].join('\n')
+}
+
+/**
+ * Walks `sql` outside string literals, quoted identifiers and comments,
+ * calling `visit` with the parenthesis depth at each position; stops when it
+ * returns true, and returns whether it did.
+ */
+function scanSql(sql: string, visit: (i: number, depth: number) => boolean): boolean {
+  let depth = 0
+  for (let i = 0; i < sql.length; i++) {
+    const ch = sql[i]
+    if (ch === "'" || ch === '"') {
+      const close = sql.indexOf(ch, i + 1)
+      if (close === -1) return false
+      i = close
+      continue
+    }
+    if (ch === '-' && sql[i + 1] === '-') {
+      const eol = sql.indexOf('\n', i)
+      if (eol === -1) return false
+      i = eol
+      continue
+    }
+    if (ch === '(') depth++
+    else if (ch === ')') depth--
+    if (visit(i, depth)) return true
+  }
+  return false
+}
+
+/** Whether an OR sits outside every parenthesis: such a clause must be wrapped
+ *  before an AND joins it. */
+function hasTopLevelOr(sql: string): boolean {
+  return scanSql(sql, (i, depth) =>
+    depth === 0
+    && /^or$/i.test(sql.slice(i, i + 2))
+    && !/\w/.test(sql[i - 1] ?? '')
+    && !/\w/.test(sql[i + 2] ?? ''))
+}
+
+/** Whether the whole clause is one parenthesised block, `(…)` or `EXISTS (…)`. */
+function isParenthesised(sql: string): boolean {
+  const open = /^(EXISTS\s*)?\(/.exec(sql)
+  if (!open) return false
+  const start = open[0].length - 1
+  let closedAt = -1
+  scanSql(sql, (i, depth) => {
+    if (i > start && depth === 0 && sql[i] === ')') {
+      closedAt = i
+      return true
+    }
+    return false
+  })
+  return closedAt === sql.length - 1
+}
+
+function wrapSql(sql: string): string {
+  return sql.includes('\n') ? `(\n${indent(sql)}\n)` : `(${sql})`
+}
+
+function notSql(sql: string): string {
+  return isParenthesised(sql) ? `NOT ${sql}` : `NOT ${wrapSql(sql)}`
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +206,16 @@ export function buildCohortQueryParts(
   const idColumn = getIdColumn(cohort.level, mapping)
   if (!baseTable || !idColumn) return null
 
+  const custom = customMembershipSql(cohort)
+  if (custom) {
+    return {
+      baseTable,
+      idColumn,
+      from: buildFromClause(cohort.level, mapping, null, baseTable, forcePatientJoin),
+      whereClause: customMembershipClause(custom, baseTable, idColumn),
+    }
+  }
+
   const where = buildTreeWhereClause(cohort.criteriaTree, cohort.level, mapping, baseTable)
   const from = buildFromClause(
     cohort.level,
@@ -92,6 +233,39 @@ export function buildCohortQueryParts(
   }
 }
 
+/** The hand-written membership query, trimmed and without its final `;`, or null. */
+function customMembershipSql(cohort: Pick<Cohort, 'customSql'>): string | null {
+  const sql = cohort.customSql?.trim().replace(/;\s*$/, '')
+  return sql || null
+}
+
+/**
+ * Keeps the level's rows the hand-written query lists. The query goes in as
+ * written — indenting it would change a multi-line string literal — on lines
+ * of its own, so a trailing `-- comment` cannot swallow the closing parenthesis.
+ */
+function customMembershipClause(sql: string, baseTable: string, idColumn: string): string {
+  return [
+    sqlComment('Members listed by the custom SQL'),
+    `${baseTable}.${idColumn} IN (`,
+    `  SELECT id FROM (`,
+    sql,
+    `  ) AS custom_members`,
+    `)`,
+  ].join('\n')
+}
+
+/** Attrition step standing for a hand-written membership query. */
+export const CUSTOM_SQL_STEP_ID = '__custom_sql__'
+
+/**
+ * The membership query generated from the criteria alone — what the SQL tab
+ * shows, and what a hand edit starts from.
+ */
+export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping): string | null {
+  return buildCohortMembershipSql({ ...cohort, customSql: null }, mapping)
+}
+
 /**
  * Build a COUNT(DISTINCT id) query from a Cohort definition.
  */
@@ -106,7 +280,7 @@ export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping): str
     `  ${parts.from}`,
   ]
   if (parts.whereClause) {
-    lines.push(`WHERE`, `  ${parts.whereClause}`)
+    lines.push(`WHERE`, indent(parts.whereClause))
   }
   return lines.join('\n')
 }
@@ -137,7 +311,7 @@ export function buildCohortResultsSql(
     `  ${parts.from}`,
   ]
   if (parts.whereClause) {
-    lines.push(`WHERE`, `  ${parts.whereClause}`)
+    lines.push(`WHERE`, indent(parts.whereClause))
   }
   lines.push(
     `ORDER BY`,
@@ -159,6 +333,7 @@ export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping)
   if (!parts) return null
 
   const lines = [
+    sqlComment(`Members of the cohort: one row per ${cohort.level}, its ${parts.idColumn} as id`),
     `SELECT DISTINCT`,
     `  ${parts.baseTable}.${parts.idColumn} AS id,`,
     `  ${parts.baseTable}.patient_id AS patient_id`,
@@ -166,13 +341,14 @@ export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping)
     `  ${parts.from}`,
   ]
   if (parts.whereClause) {
-    lines.push(`WHERE`, `  ${parts.whereClause}`)
+    lines.push(`WHERE`, indent(parts.whereClause))
   }
   return lines.join('\n')
 }
 
 /**
  * Build attrition queries: one COUNT per top-level child, progressively accumulated.
+ * A hand-written membership query gives a single step (`CUSTOM_SQL_STEP_ID`).
  */
 export function buildAttritionQueries(
   cohort: Cohort,
@@ -193,17 +369,26 @@ export function buildAttritionQueries(
   // Base FROM clause without criteria-dependent joins
   const baseFrom = buildFromClause(cohort.level, mapping, null, baseTable)
 
+  const countFrom = (from: string, where: string) =>
+    [`SELECT`, countCols, `FROM`, `  ${from}`, ...(where ? [`WHERE`, indent(where)] : [])].join('\n')
+
   // Total without any criteria
   queries.push({
     nodeId: '__total__',
     label: 'Total',
-    sql: [
-      `SELECT`,
-      countCols,
-      `FROM`,
-      `  ${baseFrom}`,
-    ].join('\n'),
+    sql: countFrom(baseFrom, ''),
   })
+
+  // A hand-written query has no criteria to unroll: one step from all to it.
+  const custom = customMembershipSql(cohort)
+  if (custom) {
+    queries.push({
+      nodeId: CUSTOM_SQL_STEP_ID,
+      label: 'Custom SQL',
+      sql: countFrom(baseFrom, customMembershipClause(custom, baseTable, idColumn)),
+    })
+    return queries
+  }
 
   // Progressive accumulation of top-level children
   const enabledChildren = cohort.criteriaTree.children.filter((c) => c.enabled)
@@ -214,19 +399,10 @@ export function buildAttritionQueries(
     }
     const from = buildFromClause(cohort.level, mapping, progressiveTree, baseTable)
     const where = buildTreeWhereClause(progressiveTree, cohort.level, mapping, baseTable)
-    const lines = [
-      `SELECT`,
-      countCols,
-      `FROM`,
-      `  ${from}`,
-    ]
-    if (where && where !== '1=1') {
-      lines.push(`WHERE`, `  ${where}`)
-    }
     queries.push({
       nodeId: enabledChildren[i].id,
       label: getNodeLabel(enabledChildren[i], mapping),
-      sql: lines.join('\n'),
+      sql: countFrom(from, where !== '1=1' ? where : ''),
     })
   }
 
@@ -247,65 +423,79 @@ function buildTreeWhereClause(
 
   if (node.kind === 'criterion') {
     const clause = buildCriterionClause(node, level, mapping, baseTable)
-    return node.exclude ? `NOT (${clause})` : clause
+    return node.exclude ? notSql(clause) : clause
   }
 
   // Group node: each child carries its own operator linking it to the previous sibling
-  const enabledChildren = node.children.filter((c) => c.enabled)
-  const childResults: { clause: string; operator: CriteriaOperator }[] = []
-
-  for (const child of enabledChildren) {
+  const items: ClauseItem[] = []
+  for (const child of node.children.filter((c) => c.enabled)) {
     const clause = buildTreeWhereClause(child, level, mapping, baseTable)
-    if (clause !== '1=1') {
-      childResults.push({ clause, operator: child.operator })
-    }
+    if (clause === '1=1') continue
+    const comment = child.kind === 'criterion' ? commentLabel(child, mapping) : child.label
+    items.push({ clause, operator: child.operator, ...(comment ? { comment } : {}) })
   }
+  if (items.length === 0) return '1=1'
 
-  if (childResults.length === 0) return '1=1'
-
-  // Build the combined clause respecting per-node operators and precedence
-  // AND has higher precedence than OR, so we group consecutive AND-linked clauses
-  const joined = buildPrecedenceClause(childResults)
-
-  return node.exclude ? `NOT (${joined})` : joined
+  const joined = buildPrecedenceClause(items)
+  return node.exclude ? notSql(joined) : joined
 }
 
 /**
- * Build a SQL clause respecting AND > OR precedence.
- * Groups consecutive AND-linked items, then joins those groups with OR.
+ * A criterion's label for its comment, or none. The config can be anything an
+ * imported file held, and a comment is never worth failing the query for.
  */
-function buildPrecedenceClause(items: { clause: string; operator: CriteriaOperator }[]): string {
-  if (items.length === 1) return items[0].clause
+function commentLabel(node: CriterionNode, mapping: SchemaMapping): string | undefined {
+  try {
+    return getNodeLabel(node, mapping)
+  } catch {
+    return undefined
+  }
+}
 
-  // Split into OR-separated groups of AND-linked items
-  const andGroups: { clause: string; operator: CriteriaOperator }[][] = [[items[0]]]
+interface ClauseItem {
+  clause: string
+  /** How it joins the previous item; ignored on the first. */
+  operator: CriteriaOperator
+  /** Written as a `--` line above the clause. */
+  comment?: string
+}
 
-  for (let i = 1; i < items.length; i++) {
-    if (items[i].operator === 'OR') {
-      andGroups.push([items[i]])
-    } else {
-      andGroups[andGroups.length - 1].push(items[i])
-    }
+/**
+ * Join clauses respecting AND > OR precedence: consecutive AND-linked items
+ * form a run, runs are joined with OR. A run of several items is wrapped only
+ * when an OR follows or precedes it, and a clause only when it carries an OR
+ * of its own into an AND.
+ */
+function buildPrecedenceClause(items: ClauseItem[]): string {
+  const runs: ClauseItem[][] = [[items[0]]]
+  for (const item of items.slice(1)) {
+    if (item.operator === 'OR') runs.push([item])
+    else runs[runs.length - 1].push(item)
   }
 
-  if (andGroups.length === 1) {
-    // All AND — join with line breaks
-    return andGroups[0]
-      .map((item) => `(${item.clause})`)
-      .join('\n  AND ')
+  const render = (item: ClauseItem, op: string | null, inAnd: boolean) => {
+    const clause = inAnd && hasTopLevelOr(item.clause) ? wrapSql(item.clause) : item.clause
+    const head = [op, item.comment ? sqlComment(item.comment) : null].filter(Boolean).join(' ')
+    if (!head) return clause
+    return item.comment ? `${head}\n${clause}` : `${head} ${clause}`
+  }
+  // A blank line between conditions once they span several lines each.
+  const gap = (parts: string[]) => (parts.some((p) => p.includes('\n')) ? '\n\n' : '\n')
+
+  const renderRun = (run: ClauseItem[]) => {
+    const parts = run.map((item, i) => render(item, i === 0 ? null : 'AND', run.length > 1))
+    return parts.join(gap(parts))
   }
 
-  // Multiple OR groups
-  const orParts = andGroups.map((group) => {
-    if (group.length === 1) return group[0].clause
-    return group
-      .map((item) => `(${item.clause})`)
-      .join('\n    AND ')
+  if (runs.length === 1) return renderRun(runs[0])
+
+  const parts = runs.map((run, i) => {
+    const op = i === 0 ? null : 'OR'
+    if (run.length === 1) return render(run[0], op, false)
+    const block = `(\n${indent(renderRun(run))}\n)`
+    return op ? `${op} ${block}` : block
   })
-
-  return orParts
-    .map((p) => `(${p})`)
-    .join('\n  OR ')
+  return parts.join(gap(parts))
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +525,8 @@ function buildCriterionClause(
       return buildConceptCriteria(criterion.config as ConceptCriteriaConfig, level, mapping, baseTable)
     case 'text':
       return buildTextCriteria(criterion.config as TextCriteriaConfig, level, mapping, baseTable)
+    case 'id_list':
+      return buildIdListCriteria(criterion.config as IdListCriteriaConfig, level, mapping, baseTable)
     default:
       return '1=1'
   }
@@ -359,7 +551,7 @@ function buildAgeCriteria(
       // Patient level: use earliest visit start date via subquery
       const visit = classRelation(mapping, 'visit')
       dateRef = visit
-        ? `(SELECT MIN(start_datetime) FROM ${visit.name} WHERE ${visit.name}.patient_id = ${patient.name}.patient_id)`
+        ? `(\n  SELECT MIN(start_datetime)\n  FROM ${visit.name}\n  WHERE ${visit.name}.patient_id = ${patient.name}.patient_id\n)`
         : 'CURRENT_DATE'
     } else {
       const startDateCol = getStartDateColumn(level, mapping)
@@ -387,7 +579,7 @@ function buildAgeCriteria(
   const parts: string[] = []
   if (min != null) parts.push(`${ageExpr} >= ${min}`)
   if (max != null) parts.push(`${ageExpr} <= ${max}`)
-  return parts.length > 0 ? `(${parts.join(' AND\n    ')})` : '1=1'
+  return parts.length > 0 ? parts.join('\nAND ') : '1=1'
 }
 
 /**
@@ -450,9 +642,12 @@ function buildDeathCriteria(
   // At the level being queried the window is the base row itself; otherwise it
   // is looked up through the patient.
   if (ref === level) {
-    return `${deathCol} IS NOT NULL AND ${deathCol} BETWEEN ${baseTable}.start_datetime AND ${baseTable}.end_datetime`
+    return `${deathCol} IS NOT NULL\nAND ${deathCol} BETWEEN ${baseTable}.start_datetime AND ${baseTable}.end_datetime`
   }
-  return `${deathCol} IS NOT NULL AND EXISTS (SELECT 1 FROM ${window.name} w WHERE w.patient_id = ${baseTable}.patient_id AND ${deathCol} BETWEEN w.start_datetime AND w.end_datetime)`
+  return `${deathCol} IS NOT NULL\nAND ${existsSql(`${window.name} w`, [
+    `w.patient_id = ${baseTable}.patient_id`,
+    `${deathCol} BETWEEN w.start_datetime AND w.end_datetime`,
+  ])}`
 }
 
 // --- Period ---
@@ -469,16 +664,10 @@ function buildPeriodCriteria(
     // Patient level: filter via subquery on visit table
     const visit = classRelation(mapping, 'visit')
     if (!visit) return '1=1'
-    const conditions: string[] = []
+    const conditions = [`${visit.name}.patient_id = ${baseTable}.patient_id`]
     if (config.startDate) conditions.push(`start_datetime >= '${escSql(config.startDate)}'`)
     if (config.endDate) conditions.push(`start_datetime <= '${escSql(config.endDate)}'`)
-    return [
-      `EXISTS (`,
-      `    SELECT 1 FROM ${visit.name}`,
-      `    WHERE ${visit.name}.patient_id = ${baseTable}.patient_id`,
-      `      AND ${conditions.join(' AND ')}`,
-      `)`,
-    ].join('\n')
+    return existsSql(visit.name, conditions)
   }
 
   const startDateCol = getStartDateColumn(level, mapping)
@@ -487,7 +676,7 @@ function buildPeriodCriteria(
   const parts: string[] = []
   if (config.startDate) parts.push(`${dateRef} >= '${escSql(config.startDate)}'`)
   if (config.endDate) parts.push(`${dateRef} <= '${escSql(config.endDate)}'`)
-  return parts.join(' AND ') || '1=1'
+  return parts.join('\nAND ') || '1=1'
 }
 
 // --- Duration ---
@@ -511,22 +700,35 @@ export function escPatternLiteral(pattern: string): string {
   return pattern.replace(/'/g, "''").replace(/\0/g, '')
 }
 
-/** One term against one column, in the requested matching mode. */
-function textTermClause(colRef: string, term: string, mode: TextMatchMode): string {
+/** A term without its accents, as DuckDB's strip_accents leaves a column. */
+function stripAccents(term: string): string {
+  return term.normalize('NFD').replace(/\p{M}/gu, '')
+}
+
+/** One term against one column, in the requested matching mode. Case-insensitive
+ *  unless asked, in every mode, so switching modes never changes that. */
+function textTermClause(
+  column: string,
+  rawTerm: string,
+  mode: TextMatchMode,
+  opts: Pick<TextFieldSearch, 'caseSensitive' | 'ignoreAccents'>,
+): string {
+  const colRef = opts.ignoreAccents ? `strip_accents(${column})` : column
+  const term = opts.ignoreAccents ? stripAccents(rawTerm) : rawTerm
+  const flags = opts.caseSensitive ? '' : '(?i)'
   if (mode === 'regex') {
-    // The pattern is the user's own; `(?i)` makes it case-insensitive to match
-    // the other two modes rather than surprising them with case sensitivity.
-    return `regexp_matches(${colRef}, '${escPatternLiteral(`(?i)${term}`)}')`
+    return `regexp_matches(${colRef}, '${escPatternLiteral(`${flags}${term}`)}')`
   }
   if (mode === 'word') {
     // \b is the word boundary DuckDB's RE2 engine understands (\y, the Postgres
     // spelling, raises "invalid escape sequence") — keeps "art" off "artère".
-    return `regexp_matches(${colRef}, '${escPatternLiteral(`(?i)\\b${escapeRegex(term)}\\b`)}')`
+    return `regexp_matches(${colRef}, '${escPatternLiteral(`${flags}\\b${escapeRegex(term)}\\b`)}')`
   }
   // escapeLikeTerm already added the LIKE escapes; running escSql over them
   // would double those backslashes and break the escape, so a term containing
   // "%" matched nothing at all. Only the quote still needs handling.
-  return `${colRef} ILIKE '${escPatternLiteral(`%${escapeLikeTerm(term)}%`)}' ESCAPE '\\'`
+  const like = opts.caseSensitive ? 'LIKE' : 'ILIKE'
+  return `${colRef} ${like} '${escPatternLiteral(`%${escapeLikeTerm(term)}%`)}' ESCAPE '\\'`
 }
 
 /** Neutralize regex metacharacters in a term used for whole-word matching. */
@@ -562,11 +764,12 @@ function buildTextCriteria(
     const terms = search.terms.map((t) => t.trim()).filter(Boolean)
     if (terms.length === 0) continue
     const mode = search.mode ?? 'contains'
-    const clauses = terms.map((term) => textTermClause(colRef, term, mode))
-    const joined = clauses.join(search.anyTerm === false ? ' AND ' : ' OR ')
-    const grouped = clauses.length > 1 ? `(${joined})` : joined
+    const clauses = terms.map((term) => textTermClause(colRef, term, mode, search))
+    const grouped = clauses.length > 1
+      ? `(\n${indent(clauses.join(search.anyTerm === false ? '\nAND ' : '\nOR '))}\n)`
+      : clauses[0]
     conditions.push({
-      clause: search.exclude ? `NOT (${grouped})` : grouped,
+      clause: search.exclude ? notSql(grouped) : grouped,
       operator: search.operator ?? 'AND',
     })
   }
@@ -584,7 +787,7 @@ function buildTextCriteria(
     if (window) links.push(window)
   }
 
-  return `EXISTS (SELECT 1 FROM ${note.name} n WHERE ${links.join(' AND ')} AND (${combined}))`
+  return existsSql(`${note.name} n`, [...links, hasTopLevelOr(combined) ? wrapSql(combined) : combined])
 }
 
 function buildDurationCriteria(
@@ -612,9 +815,8 @@ function buildDurationCriteria(
     const parts: string[] = []
     if (minDays != null) parts.push(`${durExpr} >= ${minDays}`)
     if (maxDays != null) parts.push(`${durExpr} <= ${maxDays}`)
-    // Wrapped so the clause survives being placed in an OR group, and so an
-    // empty join can never produce a bare `` in the WHERE.
-    return parts.length > 0 ? `(${parts.join(' AND ')})` : '1=1'
+    // An empty join must never produce a bare `` in the WHERE.
+    return parts.length > 0 ? parts.join('\nAND ') : '1=1'
   }
 
   // Otherwise use a subquery (e.g. patient level filtering on visit duration)
@@ -628,13 +830,7 @@ function buildDurationCriteria(
   const linkCondition = buildSubqueryLink(level, targetLevel, baseTable, targetTable)
   if (!linkCondition) return '1=1'
 
-  return [
-    `EXISTS (`,
-    `    SELECT 1 FROM ${targetTable}`,
-    `    WHERE ${linkCondition}`,
-    `      AND ${durConditions.join(' AND ')}`,
-    `)`,
-  ].join('\n')
+  return existsSql(targetTable, [linkCondition, ...durConditions])
 }
 
 // --- Care Site ---
@@ -678,13 +874,45 @@ function buildCareSiteCriteria(
   const linkCondition = buildSubqueryLink(level, targetLevel, baseTable, target.name)
   if (!linkCondition) return '1=1'
 
-  return [
-    `EXISTS (`,
-    `    SELECT 1 FROM ${target.name}`,
-    `    WHERE ${linkCondition}`,
-    `      AND ${matchCondition}`,
-    `)`,
-  ].join('\n')
+  return existsSql(target.name, [linkCondition, matchCondition])
+}
+
+// --- Identifier list ---
+
+/** The ids of a list, trimmed, deduplicated, blanks dropped. Anything not a
+ *  string or a number is dropped too: an imported cohort can hold anything. */
+export function cleanIdList(ids: unknown): string[] {
+  if (!Array.isArray(ids)) return []
+  const out = new Set<string>()
+  for (const id of ids) {
+    if (typeof id !== 'string' && !(typeof id === 'number' && Number.isFinite(id))) continue
+    const v = String(id).trim()
+    if (v) out.add(v)
+  }
+  return [...out]
+}
+
+function buildIdListCriteria(
+  config: IdListCriteriaConfig,
+  level: CohortLevel,
+  mapping: SchemaMapping,
+  baseTable: string,
+): string {
+  const ids = cleanIdList(config.ids)
+  if (ids.length === 0) return '1=1'
+  // Compared as text: a list pasted from a spreadsheet is text, and the id
+  // column may be an integer (OMOP) or a code (a hospital's own).
+  const list = ids.map((v) => `'${escSql(v)}'`).join(', ')
+  const matches = (col: string) => `CAST(${col} AS VARCHAR) IN (${list})`
+
+  const idLevel = config.idLevel ?? 'patient'
+  if (idLevel === 'patient') return matches(`${baseTable}.patient_id`)
+  if (idLevel === level) return matches(`${baseTable}.${getIdColumn(level, mapping)}`)
+
+  const target = classRelation(mapping, idLevel)
+  const link = target ? buildSubqueryLink(level, idLevel, baseTable, target.name) : null
+  if (!target || !link) return '1=1'
+  return existsSql(target.name, [link, matches(`${target.name}.${idLevel === 'visit' ? 'visit_id' : 'visit_detail_id'}`)])
 }
 
 // --- Stay window ---
@@ -699,10 +927,21 @@ function buildCareSiteCriteria(
 export function withinStaySql(eventDate: string, start: string, end: string | null): string {
   const ts = (x: string) => `CAST(${x} AS TIMESTAMP)`
   const dayOnly = (x: string) => `${ts(x)} = CAST(CAST(${x} AS DATE) AS TIMESTAMP)`
-  const bound = (b: string, op: '>=' | '<=') =>
-    `(${b} IS NULL OR CASE WHEN ${dayOnly(eventDate)} OR ${dayOnly(b)}`
-    + ` THEN CAST(${eventDate} AS DATE) ${op} CAST(${b} AS DATE) ELSE ${ts(eventDate)} ${op} ${ts(b)} END)`
-  return [bound(start, '>='), ...(end ? [bound(end, '<=')] : [])].join(' AND ')
+  const bound = (b: string, op: '>=' | '<=') => [
+    `(`,
+    `  ${b} IS NULL`,
+    `  OR CASE`,
+    `    WHEN ${dayOnly(eventDate)}`,
+    `      OR ${dayOnly(b)}`,
+    `    THEN CAST(${eventDate} AS DATE) ${op} CAST(${b} AS DATE)`,
+    `    ELSE ${ts(eventDate)} ${op} ${ts(b)}`,
+    `  END`,
+    `)`,
+  ].join('\n')
+  return [
+    sqlComment(end ? 'Within the stay' : 'From the stay start'),
+    [bound(start, '>='), ...(end ? [bound(end, '<=')] : [])].join('\nAND '),
+  ].join('\n')
 }
 
 /**
@@ -797,7 +1036,6 @@ function buildConceptCriteria(
     }
   }
 
-  const whereStr = conditions.join('\n      AND ')
 
   // Occurrence count → IN subquery with GROUP BY + HAVING. Both halves of the
   // HAVING are validated: an unchecked `count` here closes the subquery and
@@ -810,23 +1048,18 @@ function buildConceptCriteria(
   if (oc && ocOperator && ocCount != null) {
     return [
       `${baseTable}.patient_id IN (`,
-      `    SELECT e.patient_id`,
-      `    FROM ${event.name} e`,
-      `    WHERE ${whereStr}`,
-      `    GROUP BY e.patient_id`,
-      `    HAVING COUNT(*) ${ocOperator} ${ocCount}`,
+      indent([
+        `SELECT e.patient_id`,
+        `FROM ${event.name} e`,
+        whereLines(conditions),
+        `GROUP BY e.patient_id`,
+        `HAVING COUNT(*) ${ocOperator} ${ocCount}`,
+      ].join('\n')),
       `)`,
     ].join('\n')
   }
 
-  // Simple existence
-  return [
-    `EXISTS (`,
-    `    SELECT 1`,
-    `    FROM ${event.name} e`,
-    `    WHERE ${whereStr}`,
-    `)`,
-  ].join('\n')
+  return existsSql(`${event.name} e`, conditions)
 }
 
 // ---------------------------------------------------------------------------
@@ -1032,12 +1265,21 @@ export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): s
     }
     case 'concept': {
       const c = node.config as ConceptCriteriaConfig
-      const names = Object.values(c.conceptNames)
+      const names = Object.values(c.conceptNames ?? {})
       const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
       return `${prefix}${c.eventTableLabel}: ${label}`
     }
-    case 'text':
-      return `${prefix}(free text)`
+    case 'text': {
+      const c = node.config as TextCriteriaConfig
+      const terms = (c.searches ?? []).flatMap((s) => s.terms).filter((t) => t.trim())
+      return `${prefix}Notes: ${c.label?.trim() || terms.join(', ') || '(free text)'}`
+    }
+    case 'id_list': {
+      const c = node.config as IdListCriteriaConfig
+      const ids = cleanIdList(c.ids)
+      const shown = ids.slice(0, 3).join(', ') + (ids.length > 3 ? ` +${ids.length - 3}` : '')
+      return `${prefix}${c.idLevel ?? 'patient'}_id in (${shown})`
+    }
     default:
       return 'Unknown'
   }

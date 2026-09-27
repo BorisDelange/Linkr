@@ -2,7 +2,7 @@
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import {
-  buildAttritionQueries, buildCohortCountSql, buildCohortResultsSql,
+  buildAttritionQueries, buildCohortCountSql, buildCohortCriteriaSql, buildCohortResultsSql,
 } from '@/lib/duckdb/cohort-query'
 import {
   buildConceptsQuery, computeAvailableColumns,
@@ -286,8 +286,10 @@ export function registerWarehouseTools(server: Server): void {
     description:
       'Change a cohort: any of name, description, level, database, criteria (REPLACES the whole tree — '
       + 'read it with get_cohort first to keep existing criteria), or custom_sql. custom_sql, when set, '
-      + 'replaces the criteria entirely: it must return one row with a column "cnt" (the count), and '
-      + 'attrition is then unavailable; pass null to go back to the criteria.',
+      + 'replaces the criteria entirely: it is the MEMBERSHIP query, returning the members\' ids in a column '
+      + 'named "id" (patient_id, visit_id or visit_detail_id per the level; other columns are ignored). Count, '
+      + 'results, freeze, derivation, report and Patient data all follow it; attrition has a single step. '
+      + 'Start from preview_cohort_sql. Pass null to go back to the criteria.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       cohort_id: string; name?: string; description?: string; level?: CohortLevel; database_id?: string
@@ -297,7 +299,7 @@ export function registerWarehouseTools(server: Server): void {
       properties: {
         cohort_id: { type: 'string' },
         ...COHORT_FIELDS,
-        custom_sql: { type: ['string', 'null'], description: 'SELECT COUNT(DISTINCT …) AS cnt …, or null.' },
+        custom_sql: { type: ['string', 'null'], description: 'SELECT <level id> AS id FROM … WHERE …, or null.' },
       },
       required: ['cohort_id'],
     }),
@@ -350,8 +352,8 @@ export function registerWarehouseTools(server: Server): void {
 
   server.registerTool('preview_cohort_sql', {
     description:
-      'Show the SQL the app generates from a cohort\'s criteria (the count query, and one query per '
-      + 'attrition step), without running it. Useful to check the logic or as a starting point for custom_sql.',
+      'Show the membership query the app generates from a cohort\'s criteria (id, patient_id), without '
+      + 'running it — what the app\'s SQL tab shows. Useful to check the logic or as a starting point for custom_sql.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ cohort_id: string }>({
       type: 'object', properties: { cohort_id: { type: 'string' } }, required: ['cohort_id'],
@@ -359,10 +361,12 @@ export function registerWarehouseTools(server: Server): void {
   }, guard(async ({ cohort_id }) => {
     const cohort = await api.getCohort(cohort_id)
     const mapping = await mappingOf(await cohortDatabase(cohort))
-    if (cohort.customSql) return text(`This cohort uses custom SQL:\n${cohort.customSql}`)
-    const count = buildCohortCountSql(cohort, mapping)
-    if (!count) return failure('The criteria produce no runnable query (empty level table in the mapping?).')
-    return text(`Count query:\n${count}`)
+    const generated = buildCohortCriteriaSql(cohort, mapping)
+    if (cohort.customSql) {
+      return text(`This cohort uses custom SQL (in effect):\n${cohort.customSql}\n\nFrom its criteria (not in effect):\n${generated ?? '(none)'}`)
+    }
+    if (!generated) return failure('The criteria produce no runnable query (empty level table in the mapping?).')
+    return text(`Membership query:\n${generated}`)
   }))
 
   server.registerTool('run_cohort', {
@@ -386,27 +390,25 @@ export function registerWarehouseTools(server: Server): void {
     const cohort = await api.getCohort(cohort_id)
     const dbId = await cohortDatabase(cohort)
     const mapping = await mappingOf(dbId)
-    const countSql = cohort.customSql ?? buildCohortCountSql(cohort, mapping)
+    const countSql = buildCohortCountSql(cohort, mapping)
     if (!countSql) return failure('The criteria produce no runnable query.')
     const started = Date.now()
     const total = Number((await api.query(dbId, countSql))[0]?.cnt ?? NaN)
     if (Number.isNaN(total)) return failure('The count query returned no "cnt" column.')
 
     const attrition: AttritionStep[] = []
-    if (!cohort.customSql) {
-      let prev = 0
-      for (const step of buildAttritionQueries(cohort, mapping)) {
-        const count = Number((await api.query(dbId, step.sql))[0]?.cnt ?? 0)
-        attrition.push({ nodeId: step.nodeId, label: step.label, count, excluded: step.nodeId === '__total__' ? 0 : prev - count })
-        prev = count
-      }
+    let prev = 0
+    for (const step of buildAttritionQueries(cohort, mapping)) {
+      const count = Number((await api.query(dbId, step.sql))[0]?.cnt ?? 0)
+      attrition.push({ nodeId: step.nodeId, label: step.label, count, excluded: step.nodeId === '__total__' ? 0 : prev - count })
+      prev = count
     }
     // Rows are patient-level data; aggregates are the default (plan §2: with a
     // remote model, schema and aggregates only).
     const n = Math.min(sample_rows ?? 0, 50)
-    const sampleSql = !cohort.customSql && n > 0 ? buildCohortResultsSql(cohort, mapping, n, 0) : null
+    const sampleSql = n > 0 ? buildCohortResultsSql(cohort, mapping, n, 0) : null
     const sample = sampleSql ? await api.query(dbId, sampleSql) : []
-    await api.updateCohort(cohort_id, { resultCount: total, attrition: cohort.customSql ? null : attrition })
+    await api.updateCohort(cohort_id, { resultCount: total, attrition })
 
     const out = [`"${loc(cohort.name)}": ${total} ${cohort.level}(s) — ${Date.now() - started} ms`]
     if (attrition.length) {
