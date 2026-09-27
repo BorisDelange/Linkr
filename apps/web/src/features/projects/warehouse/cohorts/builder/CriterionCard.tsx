@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -52,6 +52,7 @@ import { TextCriteriaForm } from './criteria/TextCriteriaForm'
 import { CohortConceptPickerDialog } from './criteria/CohortConceptPickerDialog'
 import { IdListCriteriaForm } from './criteria/IdListCriteriaForm'
 import { defaultCriterionConfig } from './criteria-defaults'
+import { InitiallyCollapsedContext } from './initial-collapse'
 import type {
   CriterionNode,
   CriteriaType,
@@ -353,13 +354,15 @@ export function CriterionCard({
   collapseSignal,
 }: CriterionCardProps) {
   const { t, i18n } = useTranslation()
-  const [collapsed, setCollapsed] = useState(false)
+  const initiallyCollapsed = useContext(InitiallyCollapsedContext)
+  const [collapsed, setCollapsed] = useState(() => initiallyCollapsed.has(node.id))
   // Keyed on `seq` rather than on `collapsed` so a card stays individually
   // toggleable after a global expand/collapse — only a NEW click moves it.
+  // Seq 0 is no click yet: the card keeps its own initial state.
   const signalSeq = collapseSignal?.seq
   const signalCollapsed = collapseSignal?.collapsed
   useEffect(() => {
-    if (signalSeq === undefined || signalCollapsed === undefined) return
+    if (!signalSeq || signalCollapsed === undefined) return
     setCollapsed(signalCollapsed)
   }, [signalSeq, signalCollapsed])
   const [deleteOpen, setDeleteOpen] = useState(false)
