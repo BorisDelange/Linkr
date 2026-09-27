@@ -19,6 +19,7 @@ import {
   Split,
   Eye,
   EyeOff,
+  Square,
 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
@@ -86,11 +87,13 @@ export function CohortBuilder() {
     updateCohort,
     setCustomSql,
     executeCohort,
+    cancelExecution,
     materializeCohort,
     executionResults,
     executionLoading,
     executionErrors,
     customSqlOutputs,
+    executionAborts,
   } = useCohortStore()
 
   // Among this host's own cohorts only: a database route must not open a
@@ -124,6 +127,9 @@ export function CohortBuilder() {
 
   const result = cohortId ? executionResults.get(cohortId) ?? null : null
   const loading = cohortId ? executionLoading.get(cohortId) ?? false : false
+  // A run, as opposed to a freeze, which cannot be interrupted.
+  const running = cohortId ? executionAborts.has(cohortId) : false
+  const handleCancel = useCallback(() => { if (cohortId) cancelExecution(cohortId) }, [cohortId, cancelExecution])
   const executionError = cohortId ? executionErrors.get(cohortId) ?? null : null
   const customSqlOutput = cohortId ? customSqlOutputs.get(cohortId) ?? null : null
 
@@ -421,16 +427,23 @@ export function CohortBuilder() {
           </Button>
         )}
 
-        {/* Execute */}
-        <Button
-          size="sm"
-          onClick={handleExecute}
-          disabled={loading || !activeSource || !can('cohorts:write')}
-          className="h-6 gap-1 text-xs"
-        >
-          {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
-          {t('cohorts.execute')}
-        </Button>
+        {/* Execute, or stop the run in progress */}
+        {running ? (
+          <Button variant="destructive" size="sm" onClick={handleCancel} className="h-6 gap-1 text-xs">
+            <Square size={12} />
+            {t('cohorts.stop')}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={handleExecute}
+            disabled={loading || !activeSource || !can('cohorts:write')}
+            className="h-6 gap-1 text-xs"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+            {t('cohorts.execute')}
+          </Button>
+        )}
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -477,6 +490,7 @@ export function CohortBuilder() {
             <ResultsPanel
               result={result}
               loading={loading}
+              onCancel={running ? handleCancel : undefined}
               error={executionError}
               output={customSqlOutput}
               onExecute={handleExecute}

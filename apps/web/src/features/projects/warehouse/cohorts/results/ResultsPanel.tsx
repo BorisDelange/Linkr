@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree } from 'lucide-react'
+import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
@@ -15,6 +15,8 @@ interface ResultsPanelProps {
   /** The hand-written query's own rows, from the last run. */
   output?: CustomSqlOutput | null
   onExecute: () => void
+  /** Stops the run in progress, while there is one to stop. */
+  onCancel?: () => void
   onExportCsv: () => void
   /** A tab reviewing the result's patients, where the host has a board to
    *  show them through (a database's cohorts). Rendered only while it is open. */
@@ -31,7 +33,7 @@ type ResultsTab = 'results' | 'attrition' | 'patients' | 'tables' | 'output' | '
 const MEMBER_TABS: ResultsTab[] = ['results', 'attrition', 'patients', 'tables']
 
 export function ResultsPanel({
-  result, loading, error, output, onExecute, onExportCsv, renderPatients, renderTables, renderSchema,
+  result, loading, error, output, onExecute, onCancel, onExportCsv, renderPatients, renderTables, renderSchema,
 }: ResultsPanelProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<ResultsTab>('results')
@@ -58,7 +60,7 @@ export function ResultsPanel({
     }
   }
 
-  const errorText = !error
+  const errorText = !error || error === 'CANCELLED'
     ? null
     : error === 'EMPTY_QUERY'
       ? t('cohorts.results_empty_query')
@@ -97,7 +99,7 @@ export function ResultsPanel({
       return (
         <CenteredState>
           <Users size={32} className="opacity-30" />
-          <p className="text-sm">{t('cohorts.results_empty')}</p>
+          <p className="text-sm">{t(error === 'CANCELLED' ? 'cohorts.results_cancelled' : 'cohorts.results_empty')}</p>
           <Button size="sm" onClick={onExecute}>{t('cohorts.execute')}</Button>
         </CenteredState>
       )
@@ -166,10 +168,19 @@ export function ResultsPanel({
       {(loading || result) && (
         <div className="flex items-center gap-3 border-b px-4 py-3">
           {loading ? (
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <Loader2 size={14} className="animate-spin" />
-              {t('cohorts.executing')}
-            </div>
+            <>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 size={14} className="animate-spin" />
+                {t('cohorts.executing')}
+              </div>
+              <div className="flex-1" />
+              {onCancel && (
+                <Button variant="destructive" size="sm" onClick={onCancel} className="h-6 gap-1 text-xs">
+                  <Square size={12} />
+                  {t('cohorts.stop')}
+                </Button>
+              )}
+            </>
           ) : result ? (
             <>
               <div className="flex items-center gap-2">
