@@ -138,7 +138,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
       return <span className="tabular-nums">{ok ? render(ok) : '—'}</span>
     }
     return [
-      { id: 'name', header: t('cohorts.tables_col_table'), accessor: (r) => r.name, filter: 'text', size: 180, pinned: true },
+      { id: 'name', header: t('cohorts.tables_col_table'), accessor: (r) => r.name, filter: 'text', size: 180 },
       {
         id: 'filter',
         header: t('cohorts.tables_col_filter'),
