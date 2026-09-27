@@ -1,8 +1,13 @@
 /**
- * Behaviour of the standalone catalog page: the table helpers below, then
- * `catalog-page.js` (plain browser JavaScript, inlined as text), in one IIFE.
+ * Behaviour of the standalone catalog page: the table helpers below, the
+ * explorer engine (`catalog-explore.js`, shared with the app's Data tab), then
+ * `catalog-page.js` — plain browser JavaScript inlined as text, in one IIFE.
  */
+import EXPLORE_SCRIPT from './catalog-explore.js?raw'
 import PAGE_SCRIPT from './catalog-page.js?raw'
+
+/** The engine without its module syntax: in the page, its functions are plain declarations. */
+export const EXPLORE_INLINE = EXPLORE_SCRIPT.replace(/^export /gm, '')
 
 /**
  * Cell text and CSV serialisation shared by every table of the page. Kept apart
@@ -41,5 +46,6 @@ export const TABLE_HELPERS = `
 
 export const CATALOG_SCRIPT = `(function() {
 ${TABLE_HELPERS}
+${EXPLORE_INLINE}
 ${PAGE_SCRIPT}
 })();`

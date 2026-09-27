@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { classRelation, conceptRelations, has } from '@/lib/schema-classes/relations'
 import { fieldColumn } from '@/lib/schema-classes/spec'
 import { useTranslation } from 'react-i18next'
 import {
-  AlertCircle, Calendar, Check, Gauge, Info, Layers, Loader2, Pause, Play, RotateCcw, Search, Stethoscope, Tag, Trash2, Users, X,
+  AlertCircle, Check, Gauge, Info, Layers, Loader2, Pause, Play, RotateCcw, Search, Square, Trash2, X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import { Card } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Progress } from '@/components/ui/progress'
+import { RunSteps, type RunStepItem } from '@/components/ui/run-steps'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -25,7 +26,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildServiceListQuery } from '@/lib/duckdb/catalog-queries'
-import { estimateCrossings, estimateKey, getCachedEstimate, type CrossingEstimate } from '@/lib/duckdb/catalog-compute'
+import { estimateCrossings, estimateKey, getCachedEstimate, type CatalogUnitInfo, type CrossingEstimate, type EstimateProgress } from '@/lib/duckdb/catalog-compute'
 import { canonicalCrossing, crossingId, DEFAULT_AGE_BRACKETS, DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, enabledVariables } from '@/lib/data-catalog/config'
 import {
   clearCatalogRunError,
@@ -47,14 +48,15 @@ import {
   type ServiceVariableConfig,
 } from '@/types/catalog'
 import { yieldClass } from './yield-class'
+import { CrossingBadges, VariableBadge } from './variable-badge'
+import { VARIABLE_ICON } from './variable-icons'
+import { VARIABLE_COLORS } from '@/lib/data-catalog/variable-colors'
 
 interface Props {
   catalog: DataCatalog
 }
 
-const VARIABLE_ICON: Record<CatalogVariableId, React.ComponentType<{ size?: number; className?: string }>> = {
-  concept: Tag, period: Calendar, service: Stethoscope, age: Users, sex: Users,
-}
+const CARD_ORDER: CatalogVariableId[] = ['period', 'age', 'sex', 'service', 'concept']
 
 /**
  * Configure what the catalog counts, then compute it — resumably.
@@ -85,15 +87,17 @@ export function CatalogConfigTab({ catalog }: Props) {
     return watchCatalogRun(catalog.id, setSnapshot)
   }, [catalog.id])
 
-  const { running, error, phase } = snapshot
-  const preparing = phase === 'mounting' || phase === 'concepts'
+  const { running, error } = snapshot
+  // The crossing units are planned only once the rankings are in: until then the bar has no total.
+  const preparing = running && snapshot.total == null
 
   const variables = catalog.variables
   const crossings = useMemo(() => catalog.crossings ?? [], [catalog.crossings])
-  const enabled = useMemo(() => enabledVariables(variables), [variables])
-  const query = useCallback(async (sql: string) => {
+  // In the order of the Variables card, so the crossings read the same way.
+  const enabled = useMemo(() => enabledVariables(variables).sort((a, b) => CARD_ORDER.indexOf(a) - CARD_ORDER.indexOf(b)), [variables])
+  const query = useCallback(async (sql: string, signal?: AbortSignal) => {
     await ensureMounted(catalog.dataSourceId)
-    return queryDataSource(catalog.dataSourceId, sql)
+    return queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true })
   }, [catalog.dataSourceId, ensureMounted])
 
   // --- Config writers ---
@@ -119,11 +123,19 @@ export function CatalogConfigTab({ catalog }: Props) {
 
   // --- Yield estimates ---
   const [estimates, setEstimates] = useState<Record<string, CrossingEstimate>>({})
-  const [estimating, setEstimating] = useState(false)
+  // Null when idle. Each estimate is a whole aggregate over the warehouse, so
+  // the run can be stopped: the query in flight is interrupted.
+  const [estimating, setEstimating] = useState<EstimateProgress | null>(null)
+  const [estimateError, setEstimateError] = useState<string | null>(null)
+  const estimateAbort = useRef<AbortController | null>(null)
+  useEffect(() => () => estimateAbort.current?.abort(), [])
   const estimateOf = (vars: CatalogVariableId[]) => estimates[crossingId(vars)] ?? getCachedEstimate(estimateKey(catalog, vars))
   const estimate = async () => {
     if (!mapping) return
-    setEstimating(true)
+    const controller = new AbortController()
+    estimateAbort.current = controller
+    setEstimateError(null)
+    setEstimating({ done: 0, total: 0, current: null })
     try {
       // Every possible crossing of the enabled variables, not only the chosen
       // ones: the point is to choose.
@@ -134,9 +146,16 @@ export function CatalogConfigTab({ catalog }: Props) {
           for (let k = j + 1; k < enabled.length; k++) all.push([enabled[i], enabled[j], enabled[k]])
         }
       }
-      await estimateCrossings({ ...catalog, crossings: all }, mapping, query, (id, e) => setEstimates((prev) => ({ ...prev, [id]: e })))
+      await estimateCrossings({ ...catalog, crossings: all }, mapping, query, {
+        signal: controller.signal,
+        onEstimate: (id, e) => setEstimates((prev) => ({ ...prev, [id]: e })),
+        onProgress: setEstimating,
+      })
+    } catch (err) {
+      if (!controller.signal.aborted) setEstimateError(err instanceof Error ? err.message : String(err))
     } finally {
-      setEstimating(false)
+      if (estimateAbort.current === controller) estimateAbort.current = null
+      setEstimating(null)
     }
   }
 
@@ -168,17 +187,16 @@ export function CatalogConfigTab({ catalog }: Props) {
   const run = useCallback(async (restart: boolean) => {
     if (!mapping || !dataSource) return
     clearCatalogRunError(catalog.id)
-    // A resume needs the cells already computed; only a fresh cache is discarded.
+    // A resume needs the counts already made; only a fresh cache is discarded.
     const stored = restart ? null : await getStorage().catalogResults.get(catalog.id)
-    const offset = catalog.computedSteps ?? null
-    const resumeFrom = stored && offset != null ? { cache: stored, computed: offset } : null
+    const resumeFrom = stored && catalog.computedSteps != null ? { cache: stored } : null
     if (restart) await updateCatalog(catalog.id, clearedCatalogPatch({ computedSteps: null }))
 
     startCatalogRun({
       catalog,
       mapping,
       ensureMounted: () => ensureMounted(catalog.dataSourceId).then(() => {}),
-      query: (sql) => queryDataSource(catalog.dataSourceId, sql),
+      query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true }),
       resumeFrom,
       persist,
       persistError: async (message) => {
@@ -224,6 +242,34 @@ export function CatalogConfigTab({ catalog }: Props) {
     }
   }
   const label = (v: CatalogVariableId) => t(`data_catalog.var_${v}`)
+  const unitDetail = (u: CatalogUnitInfo | null): string | null => {
+    if (!u) return null
+    const parts: string[] = []
+    if (u.crossing) parts.push(u.crossing.map(label).join(' × '))
+    if (u.dictionary) parts.push(u.dictionary)
+    if (u.ranked) parts.push(t(`data_catalog.var_${u.ranked}`))
+    if (u.chunk) parts.push(t('data_catalog.run_chunk', { i: u.chunk[0], n: u.chunk[1] }))
+    if (u.slice) parts.push(t('data_catalog.run_slice', { i: u.slice[0], n: u.slice[1] }))
+    return parts.join(' · ') || null
+  }
+  const runSteps: RunStepItem[] = (['mounting', 'sizing', 'concepts', 'totals', 'ranking', 'crossings', 'saving'] as const)
+    .filter((id) => id === 'mounting' || id === 'saving' || id === 'sizing' || snapshot.steps[id] != null || !running)
+    .filter((id) => id !== 'ranking' || (snapshot.steps.ranking?.total ?? 0) > 0)
+    .map((id, _, list) => {
+      const order = list.indexOf(id)
+      const current = snapshot.phase ? list.indexOf(snapshot.phase) : -1
+      const progress = id !== 'mounting' && id !== 'saving' ? snapshot.steps[id] : undefined
+      const status = snapshot.phase === id ? 'active' as const
+        : (progress && progress.total != null && progress.done >= progress.total) || (current > order) ? 'done' as const
+        : 'pending' as const
+      return {
+        id,
+        label: t(`data_catalog.run_step_${id}`),
+        status,
+        progress,
+        detail: snapshot.phase === id ? unitDetail(snapshot.current) : undefined,
+      }
+    })
   const hasGender = !!mapping && has(classRelation(mapping, 'patient'), 'gender')
 
   return (
@@ -270,7 +316,7 @@ export function CatalogConfigTab({ catalog }: Props) {
         </VariableRow>
 
         <VariableRow id="concept" enabled={!!variables.concept?.enabled} disabled={!editable} onToggle={(v) => setVariable('concept', { enabled: v })}
-          summary={variables.concept?.enabled ? t(`data_catalog.concept_level_${variables.concept.level}`) : undefined} alwaysOpen last>
+          summary={variables.concept?.enabled ? t('data_catalog.concept_level_summary', { level: t(`data_catalog.concept_level_${variables.concept.level}`).toLowerCase() }) : undefined} alwaysOpen last>
           <ConceptSettings config={variables.concept ?? DEFAULT_CONCEPT_CONFIG} canEdit={editable} mapping={mapping} onChange={(patch) => setVariable('concept', patch)} />
         </VariableRow>
       </Card>
@@ -282,11 +328,30 @@ export function CatalogConfigTab({ catalog }: Props) {
           <SectionLabel as="h3">{t('data_catalog.crossings_title')}</SectionLabel>
           <InfoHint text={t('data_catalog.crossings_hint')} />
           <div className="flex-1" />
-          <Button variant="outline" size="sm" className="gap-1.5" disabled={!mapping || estimating || enabled.length < 2} onClick={() => void estimate()}>
-            {estimating ? <Loader2 size={14} className="animate-spin" /> : <Gauge size={14} />}
-            {t('data_catalog.estimate_yields')}
-          </Button>
+          {estimating && (
+            <span className="max-w-64 truncate text-[10px] tabular-nums text-muted-foreground">
+              {estimating.total > 0 && `${estimating.done} / ${estimating.total}`}
+              {estimating.current && ` · ${estimating.current === 'ranking' ? t('data_catalog.estimate_ranking') : estimating.current.map(label).join(' × ')}`}
+            </span>
+          )}
+          {estimating ? (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => estimateAbort.current?.abort()}>
+              <Square size={12} />
+              {t('data_catalog.estimate_stop')}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" className="gap-1.5" disabled={!mapping || enabled.length < 2} onClick={() => void estimate()}>
+              <Gauge size={14} />
+              {t('data_catalog.estimate_yields')}
+            </Button>
+          )}
         </div>
+        {estimateError && (
+          <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
+            <AlertCircle size={14} className="mt-px shrink-0" />
+            <span className="min-w-0 break-words">{estimateError}</span>
+          </div>
+        )}
 
         {enabled.length < 2 ? (
           <p className="text-xs text-muted-foreground">{t('data_catalog.crossings_need_two')}</p>
@@ -299,13 +364,13 @@ export function CatalogConfigTab({ catalog }: Props) {
                   <thead>
                     <tr>
                       <th />
-                      {enabled.slice(1).map((v) => <th key={v} className="px-2 pb-1 text-left font-medium text-muted-foreground">{label(v)}</th>)}
+                      {enabled.slice(1).map((v) => <th key={v} className="px-1 pb-1 text-left font-normal"><VariableBadge id={v} /></th>)}
                     </tr>
                   </thead>
                   <tbody>
                     {enabled.slice(0, -1).map((a, i) => (
                       <tr key={a}>
-                        <th className="pr-3 text-right font-medium whitespace-nowrap text-muted-foreground">{label(a)}</th>
+                        <th className="pr-2 text-right font-normal whitespace-nowrap"><VariableBadge id={a} /></th>
                         {enabled.slice(1).map((b, j) => (
                           <td key={b}>
                             {j >= i ? (
@@ -329,11 +394,12 @@ export function CatalogConfigTab({ catalog }: Props) {
             {triples.length > 0 && (
               <div className="grid gap-2">
                 <Label>{t('data_catalog.crossings_triples')}</Label>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {triples.map((vars) => (
                     <CrossingToggle
                       key={crossingId(vars)}
                       wide
+                      vars={vars}
                       checked={isCrossed(vars)}
                       disabled={!editable}
                       estimate={estimateOf(vars)}
@@ -361,13 +427,9 @@ export function CatalogConfigTab({ catalog }: Props) {
           <span className="text-xs text-muted-foreground">
             {/* Each phase says what it is doing: silence here reads as a button
                 that did nothing, and the concept pass alone can take minutes. */}
-            {phase === 'mounting'
-              ? t('data_catalog.step_mounting')
-              : phase === 'concepts'
-              ? t('data_catalog.compute_concepts')
-              : phase === 'saving'
-              ? t('data_catalog.step_saving')
-              : catalog.lastComputedAt && !running
+            {running
+              ? t('data_catalog.compute_running')
+              : catalog.lastComputedAt
                 ? (paused
                   ? t('data_catalog.compute_paused', { date: new Date(catalog.lastComputedAt).toLocaleString(i18n.language) })
                   : t('data_catalog.compute_complete', { date: new Date(catalog.lastComputedAt).toLocaleString(i18n.language) }))
@@ -379,12 +441,12 @@ export function CatalogConfigTab({ catalog }: Props) {
                 computed: computed.toLocaleString(i18n.language),
                 total: total.toLocaleString(i18n.language),
               })}
-              {snapshot.current && <span className="ml-1 text-muted-foreground/60">({snapshot.current})</span>}
             </span>
           )}
         </div>
 
         <Progress value={preparing ? 0 : percent} />
+        {running && <RunSteps steps={runSteps} className="mt-2" />}
 
         {error && (
           <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
@@ -487,21 +549,23 @@ function VariableRow({
   return (
     <div className={cn('border-t px-5 py-3', last && 'rounded-b-xl')}>
       <div className="flex items-center gap-2.5">
-        <Icon size={14} className="shrink-0 text-muted-foreground" />
+        <span className={cn('flex size-6 shrink-0 items-center justify-center rounded-md', VARIABLE_COLORS[id].bg, VARIABLE_COLORS[id].icon)}>
+          <Icon size={13} />
+        </span>
         <span className="text-sm font-medium">{t(`data_catalog.var_${id}`)}</span>
         <InfoHint text={t(`data_catalog.var_${id}_hint`)} />
         {summary && <span className="truncate text-xs text-muted-foreground">{summary}</span>}
         <div className="flex-1" />
         <Switch checked={enabled} disabled={disabled} onCheckedChange={onToggle} aria-label={t(`data_catalog.var_${id}`)} />
       </div>
-      {open && <div className="mt-3 pl-6">{children}</div>}
+      {open && <div className="mt-3 pl-8.5">{children}</div>}
     </div>
   )
 }
 
 /** A crossing to pick, with the share of its cells the publication would keep. */
 function CrossingToggle({
-  checked, disabled, estimate, onClick, title, wide,
+  checked, disabled, estimate, onClick, title, wide, vars,
 }: {
   checked: boolean
   disabled?: boolean
@@ -509,6 +573,8 @@ function CrossingToggle({
   onClick: () => void
   title: string
   wide?: boolean
+  /** Shown as badges on a wide toggle. */
+  vars?: CatalogVariableId[]
 }) {
   const { t } = useTranslation()
   const pct = estimate && estimate.cells > 0 ? Math.round((estimate.published / estimate.cells) * 100) : null
@@ -520,15 +586,15 @@ function CrossingToggle({
       aria-pressed={checked}
       aria-label={title}
       className={cn(
-        'flex h-9 items-center gap-2 rounded-md border px-2.5 text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60',
-        wide ? 'min-w-56' : 'w-28 justify-between',
-        checked ? 'border-primary bg-primary/10 text-foreground' : 'border-dashed text-muted-foreground hover:border-primary/60 hover:text-foreground',
+        'flex items-center gap-2 rounded-md border text-xs transition-colors disabled:cursor-not-allowed disabled:opacity-60',
+        wide ? 'min-h-9 w-full px-2.5 py-1.5' : 'h-7 w-20 justify-between px-2',
+        checked ? 'border-primary/50 text-foreground' : 'border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground',
       )}
     >
-      <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-sm border', checked && 'border-primary bg-primary text-primary-foreground')}>
-        {checked && <Check size={11} />}
+      <span className={cn('flex size-3.5 shrink-0 items-center justify-center rounded-[3px] border', checked ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground/40')}>
+        {checked && <Check size={10} />}
       </span>
-      {wide && <span className="truncate">{title}</span>}
+      {wide && (vars ? <CrossingBadges vars={vars} /> : <span className="truncate">{title}</span>)}
       {wide && <span className="flex-1" />}
       {pct != null && <span className={cn('font-semibold tabular-nums', yieldClass(pct))}>{`${pct} %`}</span>}
     </button>

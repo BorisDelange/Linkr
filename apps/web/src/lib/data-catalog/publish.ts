@@ -143,7 +143,15 @@ export function publishedVariables(
   return variables
 }
 
-export function buildPublishedCatalog(catalog: Pick<DataCatalog, 'variables' | 'anonymization'>, cache: CatalogResultCache): PublishedCatalog {
+/**
+ * `reveal` keeps the numbers of masked cells, their status unchanged: for the
+ * app's Data tab, which shows what the masks hide. Never for a published output.
+ */
+export function buildPublishedCatalog(
+  catalog: Pick<DataCatalog, 'variables' | 'anonymization'>,
+  cache: CatalogResultCache,
+  { reveal = false }: { reveal?: boolean } = {},
+): PublishedCatalog {
   const threshold = catalog.anonymization.threshold
   const crossings = cache.crossings ?? []
   const masks = computeCrossingMasks(crossings, threshold)
@@ -162,7 +170,9 @@ export function buildPublishedCatalog(catalog: Pick<DataCatalog, 'variables' | '
       const idx = crossing.variables.map((v, i) => index.get(v)?.get(row.values[i]))
       if (idx.some((i) => i == null)) return
       const status = (mask?.status[r] ?? PUBLISHED) as CellStatus
-      if (status === PUBLISHED) {
+      if (status === PUBLISHED || reveal) {
+        if (status === SECONDARY) secondary++
+        else if (status !== PUBLISHED) primary++
         cells.push([...(idx as number[]), row.patients, (second === 'records' ? row.records : row.stays) ?? null, status])
       } else {
         if (status === SECONDARY) secondary++

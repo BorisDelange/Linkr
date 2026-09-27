@@ -57,7 +57,7 @@ export function CatalogPreviewDialog({
           // Scripts run (tabs, filters, sorting) and the page's CSV buttons may
           // download, but nothing else: no same-origin access to the app, no
           // navigation, no forms.
-          <iframe srcDoc={html} className="h-full w-full border-0" title={t('data_catalog.export_preview_title')} sandbox="allow-scripts allow-downloads" />
+          <iframe srcDoc={html} className="h-full w-full border-0" title={t('data_catalog.export_preview_title')} sandbox="allow-scripts allow-downloads allow-popups" />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-muted-foreground">
             <Loader2 size={14} className="animate-spin" />

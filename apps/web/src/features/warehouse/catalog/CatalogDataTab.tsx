@@ -1,417 +1,534 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BedDouble, BookOpen, Search, SlidersHorizontal, Users, X } from 'lucide-react'
+import {
+  Activity, BarChart3, BookOpen, Download, Grid3x3, Layers, RotateCcw, Search, ShieldCheck, Sigma, Stethoscope, Tags, TrendingUp, User,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { StatCard } from '@/components/ui/stat-card'
+import { Card } from '@/components/ui/card'
+import { Checkbox } from '@/components/ui/checkbox'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
-import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EmptyState } from '@/components/ui/empty-state'
-import { ENTITY_COLORS } from '@/lib/entity-colors'
-import { fuzzyTextMatch } from '@/lib/fuzzy-search'
-import { cn } from '@/lib/utils'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { SectionLabel } from '@/components/ui/section-label'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
+import { StatCard } from '@/components/ui/stat-card'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { OTHER_MODALITY, periodLabel } from '@/lib/data-catalog/config'
-import { publishedVariables } from '@/lib/data-catalog/publish'
-import { computeCrossingMasks, PRIMARY, PUBLISHED, SECONDARY, type CellStatus } from '@/lib/data-catalog/suppression'
-import { CATALOG_VARIABLE_ORDER, type CatalogCrossingResult, type CatalogVariableId } from '@/types/catalog'
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow } from '@/types'
+import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
+import { VARIABLE_COLORS } from '@/lib/data-catalog/variable-colors'
+import { createExplorer, EXPLORE_TEXT, type ExploreData, type ExploreTable, type Explorer } from '@/lib/dcat-ap/catalog-explore'
+import { chartCss } from '@/lib/dcat-ap/export-html-style'
+import { buildConceptTable } from '@/lib/dcat-ap/export-html'
+import { cn } from '@/lib/utils'
+import type { CatalogVariableId } from '@/types/catalog'
+import type { CatalogResultCache, DataCatalog } from '@/types'
+import { CrossingBadges } from './variable-badge'
+import { VARIABLE_ICON } from './variable-icons'
 
 interface Props {
   catalog: DataCatalog
   cache: CatalogResultCache
 }
 
-const HUE = `${ENTITY_COLORS['data-catalog'].bg} ${ENTITY_COLORS['data-catalog'].icon}`
+type Row = Record<string, unknown>
 
-/** A count, or the threshold it hides under. Suppressed cells read in amber so they stand apart from real small numbers. */
-function Masked({ value, threshold }: { value: number | null | undefined; threshold: number }) {
-  if (value == null || value < threshold) {
-    return <span className="text-amber-600 dark:text-amber-400">{`< ${threshold}`}</span>
-  }
-  return <>{value.toLocaleString()}</>
+/*
+ * The Data tab reads the computed catalog the way the published page does —
+ * same engine (lib/dcat-ap/catalog-explore.js), same charts — but with the
+ * numbers the masks hide still there: a secondary-suppressed cell shows its
+ * value struck through, so the effect of the threshold can be checked before
+ * anything is published.
+ */
+
+/** The page's chart styles, mapped to the app's theme. */
+const EXPLORE_STYLE = `.catalog-explore{--card:var(--color-card);--ink:var(--color-foreground);--text:var(--color-foreground);--muted:var(--color-muted-foreground);--line:var(--color-border);--line-soft:var(--color-border);--soft:var(--color-muted);--blue:var(--color-primary);--blue2:var(--color-primary);--accent-soft:color-mix(in srgb,var(--color-primary) 12%,transparent);--hatch:var(--color-muted);--warn:#d97706}
+${chartCss('.catalog-explore')}`
+
+const STAT_ICON: Record<string, ReactNode> = {
+  user: <User size={18} />, stethoscope: <Stethoscope size={18} />, activity: <Activity size={18} />, tags: <Tags size={18} />,
+  layers: <Layers size={18} />, trendingUp: <TrendingUp size={18} />, barChart: <BarChart3 size={18} />, sigma: <Sigma size={18} />,
+  shield: <ShieldCheck size={18} />, grid: <Grid3x3 size={18} />,
 }
 
-function countColumn<T>(
-  id: string,
-  header: string,
-  get: (row: T) => number | null | undefined,
-  threshold: number,
-): DataTableColumn<T> {
-  return {
-    id,
-    header,
-    accessor: (r) => get(r) ?? null,
-    cell: (r) => <Masked value={get(r)} threshold={threshold} />,
-    align: 'right',
-    cellClassName: 'tabular-nums',
-    size: 110,
-    minSize: 70,
-  }
+function downloadCsv(name: string, text: string) {
+  const url = URL.createObjectURL(new Blob(['﻿' + text], { type: 'text/csv;charset=utf-8' }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = name
+  a.click()
+  setTimeout(() => URL.revokeObjectURL(url), 10000)
 }
 
-// ── Crossings ────────────────────────────────────────────────────
-
-interface Cell { v: number; st: CellStatus }
-interface PivotRow { key: string; name: string; cells: (Cell | null)[]; total: Cell | null; second?: Cell | null }
-
-const SEP = '\u0001'
-
-/** A crossing's cells by their modalities, with the status the publication gives each. */
-function indexCrossing(crossing: CatalogCrossingResult | undefined, status: Uint8Array | undefined, metric: 'patients' | 'second') {
-  const map = new Map<string, Cell>()
-  crossing?.rows.forEach((r, i) => {
-    const v = metric === 'patients' ? r.patients : (r.records ?? r.stays ?? 0)
-    map.set(r.values.join(SEP), { v, st: (status?.[i] ?? PUBLISHED) as CellStatus })
-  })
-  return map
-}
-
-function CountCell({ cell, threshold }: { cell: Cell | null | undefined; threshold: number }) {
-  const { t } = useTranslation()
-  if (!cell) return <span className="text-muted-foreground/50">{`< ${threshold}`}</span>
-  if (cell.st === PRIMARY) {
-    return (
-      <span className="text-amber-600 dark:text-amber-400" title={t('data_catalog.masked_primary', { threshold })}>{`< ${threshold}`}</span>
-    )
-  }
-  if (cell.st === SECONDARY) {
-    return (
-      <span className="text-amber-600 line-through decoration-dotted dark:text-amber-400" title={t('data_catalog.masked_secondary')}>
-        {cell.v.toLocaleString()}
-      </span>
-    )
-  }
-  return <>{cell.v.toLocaleString()}</>
-}
-
-function CrossingsView({ catalog, cache }: Props) {
+/** The engine over this catalog, with a render counter bumped by every state change. */
+function useExplorer(catalog: DataCatalog, cache: CatalogResultCache): [Explorer, (change?: (x: Explorer) => void) => void] {
   const { t, i18n } = useTranslation()
-  const threshold = catalog.anonymization.threshold
-  const crossings = useMemo(
-    () => [...(cache.crossings ?? [])].sort((x, y) => x.variables.length - y.variables.length
-      || CATALOG_VARIABLE_ORDER.indexOf(x.variables[0]) - CATALOG_VARIABLE_ORDER.indexOf(y.variables[0])),
-    [cache.crossings],
-  )
-  const variables = useMemo(() => publishedVariables(catalog, cache), [catalog, cache])
-  const masks = useMemo(() => computeCrossingMasks(cache.crossings ?? [], threshold), [cache.crossings, threshold])
-  const [picked, setPicked] = useState<string | null>(null)
-  const [metric, setMetric] = useState<'patients' | 'second'>('patients')
-  const [third, setThird] = useState<string>('')
-
-  const crossing = crossings.find((c) => c.id === picked) ?? crossings.find((c) => c.variables.length === 2) ?? crossings[0]
-  const varLabel = useCallback((v: CatalogVariableId) => t(`data_catalog.var_${v}`), [t])
-  const modName = useCallback((v: CatalogVariableId, code: string, fallback: string) => {
-    if (code === OTHER_MODALITY) return t('data_catalog.other_services')
-    if (v === 'sex') return t(`data_catalog.sex_${code}`)
-    if (v === 'period') return periodLabel(code, i18n.language)
-    return fallback
-  }, [t, i18n.language])
-
-  const view = useMemo(() => {
-    if (!crossing) return null
-    const [a, b, c] = crossing.variables
-    const withConcept = crossing.variables.includes('concept')
-    const sameFact = (vars: CatalogVariableId[]) => vars.includes('concept') === withConcept
-    const byId = (vars: CatalogVariableId[]) => cache.crossings.find((x) => x.id === vars.join('-'))
-    const fixed = c ? (third || variables[c]?.mods[0] || '') : ''
-    // "All" of the third variable reads the 2-way crossing without it.
-    const source = c && third === '__all__' ? byId([a, b]) : crossing
-    const useThird = !!c && third !== '__all__'
-    const cells = indexCrossing(source, source && masks.get(source.id)?.status, metric)
-    const keyOf = (values: Record<string, string>, vars: CatalogVariableId[]) => vars.map((v) => values[v]).join(SEP)
-    const margin = (vars: CatalogVariableId[]) => {
-      const withSlice = useThird ? [...vars, c!] : vars
-      const canon = CATALOG_VARIABLE_ORDER.filter((v) => withSlice.includes(v))
-      const m = sameFact(canon) ? byId(canon) : undefined
-      return m ? { vars: canon, cells: indexCrossing(m, masks.get(m.id)?.status, metric) } : null
+  const explorer = useMemo(() => {
+    const threshold = catalog.anonymization.threshold
+    const published = buildPublishedCatalog(catalog, cache, { reveal: true })
+    for (const v of Object.values(published.variables)) {
+      if (!v) continue
+      v.label = v.id === 'concept' && v.level && v.level !== 'concept' ? t(`data_catalog.concept_level_${v.level}`) : t(`data_catalog.var_${v.id}`)
+      v.names = v.mods.map((code, i) => {
+        if (code === OTHER_MODALITY) return t('data_catalog.other_services')
+        if (v.id === 'sex') return t(`data_catalog.sex_${code}`)
+        if (v.id === 'period') return periodLabel(code, i18n.language)
+        return v.names[i]
+      })
     }
-    const rowMargin = b ? margin([a]) : null
-    const colMargin = b ? margin([b]) : null
-    const rowVar = variables[a]!
-    const colVar = b ? variables[b]! : null
-    const rows: PivotRow[] = rowVar.mods.map((code, i) => {
-      const at = (colCode?: string): Record<string, string> => ({ [a]: code, ...(b && colCode != null ? { [b]: colCode } : {}), ...(useThird ? { [c!]: fixed } : {}) })
-      const srcVars = source?.variables ?? []
-      return {
-        key: code,
-        name: modName(a, code, rowVar.names[i]),
-        cells: colVar ? colVar.mods.map((cc) => cells.get(keyOf(at(cc), srcVars)) ?? null) : [cells.get(keyOf(at(), srcVars)) ?? null],
-        total: rowMargin ? rowMargin.cells.get(keyOf(at(), rowMargin.vars)) ?? null : null,
-      }
-    }).filter((r) => r.cells.some(Boolean) || r.total)
-    const allRow: PivotRow | null = colVar && colMargin
-      ? {
-        key: '__all__',
-        name: t('data_catalog.row_all', { label: varLabel(a) }),
-        cells: colVar.mods.map((cc) => colMargin.cells.get(keyOf({ [b!]: cc, ...(useThird ? { [c!]: fixed } : {}) }, colMargin.vars)) ?? null),
-        total: null,
-      }
-      : null
-    const mask = source ? masks.get(source.id) : undefined
-    return { a, b, c, colVar, rows, allRow, mask, hasTotal: !!rowMargin, second: withConcept ? 'records' as const : 'stays' as const }
-  }, [crossing, cache.crossings, variables, masks, metric, third, modName, varLabel, t])
-
-  const columns = useMemo<DataTableColumn<PivotRow>[]>(() => {
-    if (!view) return []
-    const first: DataTableColumn<PivotRow> = {
-      id: 'name', header: varLabel(view.a), accessor: (r) => r.name, filter: 'text', pinned: true, size: view.a === 'concept' ? 280 : 160,
+    const concepts = buildConceptTable(cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold })))
+    const data: ExploreData = {
+      ...published,
+      concepts,
+      totals: { patients: cache.totalPatients, stays: cache.totalVisits, records: cache.grandTotal.totalRecords, concepts: new Set(cache.concepts.map((r) => r.conceptId)).size },
     }
-    const count = (id: string, header: string, get: (r: PivotRow) => Cell | null | undefined): DataTableColumn<PivotRow> => ({
-      id, header, accessor: (r) => get(r)?.v ?? null, cell: (r) => <CountCell cell={get(r)} threshold={threshold} />,
-      align: 'right', cellClassName: 'tabular-nums', size: 96, minSize: 64,
+    const text = Object.fromEntries(Object.keys(EXPLORE_TEXT).map((k) => [k, t(`data_catalog.xp.${k}`)]))
+    return createExplorer(data, {
+      reveal: true,
+      text,
+      locale: i18n.language,
+      dark: () => document.documentElement.classList.contains('dark'),
+      fileBase: 'catalog',
     })
-    if (!view.colVar) return [first, count('value', metric === 'patients' ? t('data_catalog.col_patients') : t(`data_catalog.col_${view.second}`), (r) => r.cells[0])]
-    return [
-      first,
-      ...view.colVar.mods.map((code, j) => count(`c_${j}`, modName(view.b!, code, view.colVar!.names[j]), (r) => r.cells[j])),
-      ...(view.hasTotal ? [count('total', t('data_catalog.col_total'), (r) => r.total)] : []),
-    ]
-  }, [view, metric, threshold, modName, varLabel, t])
-
-  if (!crossing || !view) return <EmptyState icon={BookOpen} title={t('data_catalog.no_data')} />
-  const thirdVar = view.c ? variables[view.c] : null
-  const allOfThirdComputed = !!view.c && cache.crossings.some((x) => x.id === [view.a, view.b].join('-'))
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <Select value={crossing.id} onValueChange={(v) => { setPicked(v); setThird('') }}>
-          <SelectTrigger className="h-8 w-64 text-xs"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {crossings.map((c) => (
-              <SelectItem key={c.id} value={c.id} className="text-xs">{c.variables.map(varLabel).join(' × ')}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {thirdVar && (
-          <Select value={third || thirdVar.mods[0]} onValueChange={setThird}>
-            <SelectTrigger className="h-8 w-56 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {allOfThirdComputed && (
-                <SelectItem value="__all__" className="text-xs">{t('data_catalog.row_all', { label: varLabel(view.c!) })}</SelectItem>
-              )}
-              {thirdVar.mods.map((code, i) => (
-                <SelectItem key={code} value={code} className="text-xs">{`${varLabel(view.c!)} : ${modName(view.c!, code, thirdVar.names[i])}`}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-        {view.mask && (
-          <span className="text-xs text-muted-foreground">
-            {t('data_catalog.crossing_masked_summary', {
-              cells: view.mask.cells.toLocaleString(i18n.language),
-              primary: view.mask.primary.toLocaleString(i18n.language),
-              secondary: view.mask.secondary.toLocaleString(i18n.language),
-            })}
-          </span>
-        )}
-        <div className="flex-1" />
-        <Tabs value={metric} onValueChange={(v) => setMetric(v as 'patients' | 'second')}>
-          <TabsList className="h-8">
-            <TabsTrigger value="patients" className="text-xs">{t('data_catalog.col_patients')}</TabsTrigger>
-            <TabsTrigger value="second" className="text-xs">{t(`data_catalog.col_${view.second}`)}</TabsTrigger>
-          </TabsList>
-        </Tabs>
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-card">
-        <DataTable
-          key={`${crossing.id}|${third}`}
-          data={view.rows}
-          columns={columns}
-          rowKey={(r) => r.key}
-          pinnedRows={view.allRow ? [view.allRow] : undefined}
-          pageSize={100}
-          stickyHeader
-          emptyMessage={t('data_catalog.no_results')}
-        />
-      </div>
-      <p className="text-[10px] text-muted-foreground">{t('data_catalog.crossing_legend', { threshold })}</p>
-    </div>
-  )
+  }, [catalog, cache, t, i18n.language])
+  const [, setVersion] = useState(0)
+  const update = useCallback((change?: (x: Explorer) => void) => {
+    change?.(explorer)
+    setVersion((n) => n + 1)
+  }, [explorer])
+  return [explorer, update]
 }
-
-// ── Concepts view ────────────────────────────────────────────────
-
-function ConceptsView({ catalog, cache }: Props) {
-  const { t } = useTranslation()
-  const threshold = catalog.anonymization.threshold
-  const [search, setSearch] = useState('')
-  const [picked, setPicked] = useState<Record<'dictionaryKey' | 'category' | 'subcategory', string[]>>({
-    dictionaryKey: [],
-    category: [],
-    subcategory: [],
-  })
-
-  const hasDictionary = useMemo(
-    () => new Set(cache.concepts.map((r) => r.dictionaryKey).filter(Boolean)).size > 1,
-    [cache.concepts],
-  )
-  const hasCategory = useMemo(() => cache.concepts.some((r) => r.category != null), [cache.concepts])
-  const hasSubcategory = useMemo(() => cache.concepts.some((r) => r.subcategory != null), [cache.concepts])
-
-  const facets = useMemo(() => {
-    const collect = (get: (r: CatalogConceptRow) => string | null | undefined, rows = cache.concepts) =>
-      [...new Set(rows.map(get).filter((v): v is string => !!v))].sort((a, b) => a.localeCompare(b))
-    // Subcategories follow the picked categories, so the list only offers what can still match.
-    const underCategory = picked.category.length
-      ? cache.concepts.filter((r) => r.category != null && picked.category.includes(r.category))
-      : cache.concepts
-    return [
-      ...(hasDictionary ? [{ key: 'dictionaryKey' as const, label: t('data_catalog.col_vocabulary'), options: collect((r) => r.dictionaryKey) }] : []),
-      ...(hasCategory ? [{ key: 'category' as const, label: t('data_catalog.col_category'), options: collect((r) => r.category) }] : []),
-      ...(hasSubcategory ? [{ key: 'subcategory' as const, label: t('data_catalog.col_subcategory'), options: collect((r) => r.subcategory, underCategory) }] : []),
-    ]
-  }, [cache.concepts, hasDictionary, hasCategory, hasSubcategory, picked.category, t])
-
-  const activeFilterCount = facets.reduce((n, f) => n + picked[f.key].length, 0)
-
-  const rows = useMemo(() => {
-    const q = search.trim()
-    return cache.concepts.filter((r) => {
-      if (q && !fuzzyTextMatch(r.conceptName, q) && !String(r.conceptId).includes(q)) return false
-      for (const f of facets) {
-        const sel = picked[f.key]
-        if (sel.length && !sel.includes((r[f.key] ?? '') as string)) return false
-      }
-      return true
-    })
-  }, [cache.concepts, search, facets, picked])
-
-  const columns = useMemo<DataTableColumn<CatalogConceptRow>[]>(() => [
-    { id: 'conceptId', header: t('data_catalog.col_concept_id'), accessor: (r) => r.conceptId, filter: 'text', size: 100, cellClassName: 'font-mono' },
-    { id: 'conceptName', header: t('data_catalog.col_concept_name'), accessor: (r) => r.conceptName, filter: 'text', size: 320 },
-    ...(hasDictionary ? [{ id: 'dictionaryKey', header: t('data_catalog.col_vocabulary'), accessor: (r: CatalogConceptRow) => r.dictionaryKey ?? null, filter: 'select' as const, size: 140 }] : []),
-    ...(hasCategory ? [{ id: 'category', header: t('data_catalog.col_category'), accessor: (r: CatalogConceptRow) => r.category ?? null, filter: 'select' as const, size: 150 }] : []),
-    ...(hasSubcategory ? [{ id: 'subcategory', header: t('data_catalog.col_subcategory'), accessor: (r: CatalogConceptRow) => r.subcategory ?? null, filter: 'select' as const, size: 150 }] : []),
-    countColumn('patientCount', t('data_catalog.col_patients'), (r) => r.patientCount, threshold),
-    // Visits and records are masked on the row's patient count, as the export does:
-    // a row's small cohort is what identifies, whatever it is counted in.
-    { ...countColumn<CatalogConceptRow>('visitCount', t('data_catalog.col_visits'), (r) => r.visitCount, threshold), cell: (r) => <Masked value={r.patientCount < threshold ? null : r.visitCount} threshold={threshold} /> },
-    { ...countColumn<CatalogConceptRow>('recordCount', t('data_catalog.col_records'), (r) => r.recordCount, threshold), cell: (r) => <Masked value={r.patientCount < threshold ? null : r.recordCount} threshold={threshold} /> },
-  ], [hasDictionary, hasCategory, hasSubcategory, threshold, t])
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-1.5">
-        {facets.length > 0 && (
-          <Popover>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon-sm" className={cn('h-8 w-8 shrink-0', activeFilterCount > 0 && 'text-primary')}>
-                    <SlidersHorizontal size={14} />
-                  </Button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{t('common.filters')}</TooltipContent>
-            </Tooltip>
-            <PopoverContent align="start" className="w-[260px] space-y-3 p-3" onCloseAutoFocus={(e) => e.preventDefault()}>
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-medium">{t('common.filters')}</p>
-                {activeFilterCount > 0 && (
-                  <button
-                    type="button"
-                    className="text-[10px] text-muted-foreground hover:text-foreground"
-                    onClick={() => setPicked({ dictionaryKey: [], category: [], subcategory: [] })}
-                  >
-                    {t('common.clear')}
-                  </button>
-                )}
-              </div>
-              {facets.map((f) => (
-                <div key={f.key} className="space-y-1">
-                  <label className="text-[10px] font-medium tracking-wider text-muted-foreground uppercase">{f.label}</label>
-                  <MultiSelectFilter
-                    value={picked[f.key]}
-                    options={f.options}
-                    placeholder={f.label}
-                    onChange={(v) => setPicked((p) => ({
-                      ...p,
-                      [f.key]: v,
-                      // A subcategory picked under a category no longer selected would match nothing.
-                      ...(f.key === 'category' ? { subcategory: [] } : {}),
-                    }))}
-                    triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
-                    popoverWidthClass="w-[300px]"
-                  />
-                </div>
-              ))}
-            </PopoverContent>
-          </Popover>
-        )}
-        <div className="relative max-w-md min-w-0 flex-1">
-          <Search size={14} className="absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-8 pr-7 pl-8 text-xs"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Escape') setSearch('') }}
-            placeholder={t('data_catalog.search_concepts')}
-          />
-          {search && (
-            <button
-              type="button"
-              onClick={() => setSearch('')}
-              className="absolute top-1/2 right-2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label={t('common.clear')}
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-card">
-        <DataTable
-          data={rows}
-          columns={columns}
-          rowKey={(r) => `${r.dictionaryKey ?? ''}:${r.conceptId}`}
-          pageSize={100}
-          stickyHeader
-          cellTooltips="all"
-          initialSorting={{ columnId: 'patientCount', desc: true }}
-          emptyMessage={t('data_catalog.no_results')}
-        />
-      </div>
-    </div>
-  )
-}
-
-// ── Main component ───────────────────────────────────────────────
 
 export function CatalogDataTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
-  const [tab, setTab] = useState<'crossings' | 'concepts'>(cache.crossings?.length ? 'crossings' : 'concepts')
+  const [xp, update] = useExplorer(catalog, cache)
+  const view = xp.view()
+  const S = xp.S
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  if (!S.crossing) return <EmptyState icon={BookOpen} title={t('data_catalog.no_data')} />
+
+  // The engine's own controls inside the charts: heatmap scale and top N.
+  const onChartsClick = (e: React.MouseEvent) => {
+    const button = (e.target as HTMLElement).closest('[data-act] button') as HTMLButtonElement | null
+    const act = button?.closest<HTMLElement>('[data-act]')?.dataset.act
+    if (!button || !act) return
+    if (act === 'scale') update((x) => { x.S.scale = button.dataset.v as 'row' | 'all' })
+    else if (act === 'topn') update((x) => { x.S.topN = Number(button.dataset.v) })
+  }
 
   return (
-    <div className="flex flex-col gap-4 pb-4">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <StatCard icon={<BookOpen size={18} />} iconBg={HUE} value={cache.totalConcepts.toLocaleString()} label={t('data_catalog.total_concepts')} />
-        <StatCard icon={<Users size={18} />} iconBg={HUE} value={cache.totalPatients.toLocaleString()} label={t('data_catalog.total_patients')} />
-        <StatCard icon={<BedDouble size={18} />} iconBg={HUE} value={cache.totalVisits.toLocaleString()} label={t('data_catalog.total_visits')} />
+    <div ref={rootRef} className="catalog-explore grid grid-cols-1 items-start gap-4 py-4 lg:grid-cols-[16rem_minmax(0,1fr)]">
+      <style>{EXPLORE_STYLE}</style>
+      <ExploreSidebar xp={xp} update={update} />
+
+      <div className="flex min-w-0 flex-col gap-4" onClick={onChartsClick}>
+        {S.show.stats && view.stats.length > 0 && (
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">
+            {view.stats.map((s) => (
+              <StatCard
+                key={s.key}
+                className="p-3 shadow-none"
+                icon={STAT_ICON[s.icon] ?? STAT_ICON.activity}
+                iconBg="bg-primary/10 text-primary"
+                value={s.value}
+                label={s.label}
+                detail={s.sub ? <span className="text-[10px] text-muted-foreground" title={s.sub}>{s.sub}</span> : undefined}
+              />
+            ))}
+          </div>
+        )}
+
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold">{view.title}</h3>
+          {view.context.map((c) => (
+            <span key={c.v} className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', VARIABLE_COLORS[c.v].badge)}>
+              {`${c.label} : ${c.value}`}
+            </span>
+          ))}
+        </div>
+
+        {view.empty && view.blocks.length === 0 && (
+          <Card className="p-8 text-center text-xs text-muted-foreground">{view.empty}</Card>
+        )}
+
+        {S.show.charts && view.blocks.length > 0 && (
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {view.blocks.map((b, i) => (
+              <Card key={`${S.crossing}-${i}-${b.title}`} className={cn('min-w-0 gap-2 p-4', b.size === 'full' && 'xl:col-span-2')}>
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                  <h4 className="text-xs font-semibold">{b.title}</h4>
+                  {b.sub && <span className="text-[10px] text-muted-foreground">{b.sub}</span>}
+                  <span className="flex-1" />
+                  {/* Engine-rendered, trusted: the block's own segmented control. */}
+                  {b.head && <span dangerouslySetInnerHTML={{ __html: b.head }} />}
+                  {b.csv && (
+                    <Button variant="outline" size="xs" onClick={() => downloadCsv(b.csv!.name, b.csv!.text())}>
+                      <Download />CSV
+                    </Button>
+                  )}
+                </div>
+                <ChartBody render={b.render} />
+                {b.note && <p className="text-[10px] text-muted-foreground">{b.note}</p>}
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {S.show.table && view.table && (
+          <div className="overflow-hidden rounded-lg border bg-card">
+            <ExploreDataTable key={`${S.crossing}|${JSON.stringify(view.context)}|${S.metric}`} table={view.table} threshold={catalog.anonymization.threshold} />
+          </div>
+        )}
+      </div>
+      <DataTips root={rootRef} />
+    </div>
+  )
+}
+
+/** An engine chart, drawn at its container's width and redrawn when that changes. */
+function ChartBody({ render }: { render: (width: number) => string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [width, setWidth] = useState(0)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setWidth(Math.floor(el.clientWidth)))
+    ro.observe(el)
+    setWidth(Math.floor(el.clientWidth))
+    return () => ro.disconnect()
+  }, [])
+  // The markup comes from the engine, which escapes every data string it draws.
+  return <div ref={ref} className="min-w-0" dangerouslySetInnerHTML={{ __html: width > 0 ? render(width) : '' }} />
+}
+
+/** The charts' hover tooltips: any element carrying `data-tip` (engine-built, escaped HTML). */
+function DataTips({ root }: { root: React.RefObject<HTMLDivElement | null> }) {
+  const tip = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const el = root.current
+    const box = tip.current
+    if (!el || !box) return
+    let target: Element | null = null
+    const over = (e: MouseEvent) => {
+      const t = (e.target as Element | null)?.closest?.('[data-tip]') ?? null
+      if (t === target) return
+      target = t
+      if (!t) { box.classList.remove('on'); return }
+      box.innerHTML = t.getAttribute('data-tip') ?? ''
+      box.classList.add('on')
+    }
+    const move = (e: MouseEvent) => {
+      if (!target) return
+      const r = box.getBoundingClientRect()
+      let x = e.clientX + 14
+      let y = e.clientY + 14
+      if (x + r.width > window.innerWidth - 8) x = e.clientX - r.width - 14
+      if (y + r.height > window.innerHeight - 8) y = e.clientY - r.height - 14
+      box.style.transform = `translate(${Math.max(8, x)}px,${Math.max(8, y)}px)`
+    }
+    const leave = () => { target = null; box.classList.remove('on') }
+    el.addEventListener('mouseover', over)
+    el.addEventListener('mousemove', move)
+    el.addEventListener('mouseleave', leave)
+    return () => {
+      el.removeEventListener('mouseover', over)
+      el.removeEventListener('mousemove', move)
+      el.removeEventListener('mouseleave', leave)
+    }
+  }, [root])
+  return <div ref={tip} className="tip" />
+}
+
+// ── Sidebar ──────────────────────────────────────────────────────
+
+function ExploreSidebar({ xp, update }: { xp: Explorer; update: (change?: (x: Explorer) => void) => void }) {
+  const { t } = useTranslation()
+  const S = xp.S
+  const vars = xp.varsOf(S.crossing)
+  const measures = xp.measures()
+
+  return (
+    <Card className="flex max-h-[calc(100vh-10rem)] flex-col gap-4 overflow-y-auto p-4 lg:sticky lg:top-4">
+      <div className="grid gap-2">
+        <SectionLabel>{t('data_catalog.xp_variables')}</SectionLabel>
+        <Select value={S.crossing ?? ''} onValueChange={(id) => update((x) => x.setCrossing(id))}>
+          <SelectTrigger className="h-8 w-full text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {xp.options().map((g) => (
+              <SelectGroup key={g.size}>
+                <SelectLabel>{t(`data_catalog.xp_group_${g.size}`)}</SelectLabel>
+                {g.items.map((it) => (
+                  <SelectItem key={it.id} value={it.id} className="text-xs">{it.vars.map(xp.varLabel).join(' × ')}</SelectItem>
+                ))}
+              </SelectGroup>
+            ))}
+          </SelectContent>
+        </Select>
+        <CrossingBadges vars={vars} />
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as 'crossings' | 'concepts')} className="gap-3">
-        <div className="flex justify-center">
-          <TabsList>
-            <TabsTrigger value="crossings">{t('data_catalog.subtab_crossings')}</TabsTrigger>
-            <TabsTrigger value="concepts">{t('data_catalog.subtab_concepts')}</TabsTrigger>
+      <div className="grid gap-2 border-t pt-3">
+        <SectionLabel>{t('data_catalog.xp_count')}</SectionLabel>
+        <Tabs value={measures.includes(S.metric) ? S.metric : 'patients'} onValueChange={(m) => update((x) => { x.S.metric = m as typeof S.metric })}>
+          <TabsList className="h-8 w-full">
+            {measures.map((m) => <TabsTrigger key={m} value={m} className="flex-1 text-xs">{xp.measureLabel(m)}</TabsTrigger>)}
           </TabsList>
-        </div>
-        <TabsContent value="crossings" className="m-0">
-          <CrossingsView catalog={catalog} cache={cache} />
-        </TabsContent>
-        <TabsContent value="concepts" className="m-0">
-          {cache.concepts.length ? (
-            <ConceptsView catalog={catalog} cache={cache} />
-          ) : (
-            <EmptyState icon={BookOpen} title={t('data_catalog.no_data')} />
-          )}
-        </TabsContent>
-      </Tabs>
+        </Tabs>
+      </div>
+
+      <div className="grid gap-4 border-t pt-3">
+        <SectionLabel>{t('data_catalog.xp_filters')}</SectionLabel>
+        {S.pin && <PinFilter xp={xp} vars={vars} update={update} />}
+        {vars.filter((v) => v !== S.pin).map((v) => (
+          v === 'period' ? <PeriodFilter key={v} xp={xp} update={update} />
+            : v === 'concept' && (xp.isListView() || xp.V.concept?.level === 'concept') ? <ConceptFilter key={v} xp={xp} update={update} />
+            : <NominalFilter key={v} xp={xp} v={v} update={update} />
+        ))}
+      </div>
+
+      <div className="grid gap-2 border-t pt-3">
+        <SectionLabel>{t('data_catalog.xp_show')}</SectionLabel>
+        {(['stats', 'charts', 'table'] as const).map((k) => (
+          <label key={k} className="flex items-center gap-2 text-xs">
+            <Checkbox checked={S.show[k]} onCheckedChange={(c) => update((x) => { x.S.show[k] = c === true })} />
+            {t(`data_catalog.xp_show_${k}`)}
+          </label>
+        ))}
+      </div>
+
+      <Button variant="outline" size="sm" className="gap-1.5" onClick={() => update((x) => x.reset())}>
+        <RotateCcw size={14} />
+        {t('data_catalog.xp_reset')}
+      </Button>
+    </Card>
+  )
+}
+
+function FilterHead({ v, label, children }: { v: CatalogVariableId; label: string; children?: ReactNode }) {
+  const Icon = VARIABLE_ICON[v]
+  return (
+    <div className="flex items-center gap-1.5">
+      <Icon size={12} className={VARIABLE_COLORS[v].icon} />
+      <Label>{label}</Label>
+      <span className="flex-1" />
+      {children}
     </div>
+  )
+}
+
+function NominalFilter({ xp, v, update }: { xp: Explorer; v: CatalogVariableId; update: (change?: (x: Explorer) => void) => void }) {
+  const { t } = useTranslation()
+  const vr = xp.V[v]!
+  const sel = xp.S.sel[v]
+  const [search, setSearch] = useState('')
+  const many = vr.mods.length > 14 || vr.names.some((n) => n.length > 24)
+  const shown = vr.names.map((name, i) => ({ name, i })).filter((m) => !search || m.name.toLowerCase().includes(search.toLowerCase()))
+  return (
+    <div className="grid gap-1.5">
+      <FilterHead v={v} label={vr.label}>
+        {sel && <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => update((x) => { delete x.S.sel[v] })}>{t('data_catalog.xp_all')}</button>}
+        <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => update((x) => { x.S.sel[v] = {} })}>{t('data_catalog.xp_none')}</button>
+      </FilterHead>
+      {many && (
+        <div className="relative">
+          <Search size={12} className="absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-7 pl-7 text-xs" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('common.search')} />
+        </div>
+      )}
+      {many ? (
+        <div className="max-h-48 overflow-y-auto rounded-md border p-1">
+          {shown.map((m) => (
+            <label key={m.i} className="flex items-center gap-2 rounded px-1.5 py-1 text-xs hover:bg-accent">
+              <Checkbox checked={!sel || !!sel[m.i]} onCheckedChange={() => update((x) => x.toggleSel(v, m.i))} />
+              <span className="truncate">{m.name}</span>
+            </label>
+          ))}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1">
+          {shown.map((m) => {
+            const on = !sel || !!sel[m.i]
+            return (
+              <button
+                key={m.i}
+                type="button"
+                onClick={() => update((x) => x.toggleSel(v, m.i))}
+                className={cn('h-6 max-w-full truncate rounded-md border px-2 text-[10px] transition-colors', on ? VARIABLE_COLORS[v].badge : 'border-border text-muted-foreground opacity-70 hover:opacity-100')}
+              >
+                {m.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function periodBounds(code: string): [string, string] {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const last = (y: string, m: number) => pad(new Date(Date.UTC(Number(y), m, 0)).getUTCDate())
+  const q = /^(\d{4})-Q([1-4])$/.exec(code)
+  if (q) { const m0 = (Number(q[2]) - 1) * 3 + 1; return [`${q[1]}-${pad(m0)}-01`, `${q[1]}-${pad(m0 + 2)}-${last(q[1], m0 + 2)}`] }
+  const m = /^(\d{4})-(\d{2})$/.exec(code)
+  if (m) return [`${code}-01`, `${code}-${last(m[1], Number(m[2]))}`]
+  return [`${code}-01-01`, `${code}-12-31`]
+}
+
+function PeriodFilter({ xp, update }: { xp: Explorer; update: (change?: (x: Explorer) => void) => void }) {
+  const { t } = useTranslation()
+  const vr = xp.V.period!
+  const n = vr.mods.length
+  const r = xp.S.range ?? [0, n - 1]
+  const setRange = (next: [number, number]) => update((x) => { x.S.range = next[0] === 0 && next[1] === n - 1 ? null : next })
+  const fromDate = (end: 0 | 1, date: string) => {
+    const next: [number, number] = [...r]
+    if (!date) next[end] = end === 0 ? 0 : n - 1
+    else {
+      let idx = -1
+      for (let k = 0; k < n; k++) {
+        const b = periodBounds(vr.mods[k])
+        if (end === 0 ? b[1] >= date : b[0] <= date) { idx = k; if (end === 0) break }
+      }
+      if (idx !== -1) next[end] = idx
+    }
+    if (next[0] > next[1]) next[end === 0 ? 1 : 0] = next[end]
+    setRange(next)
+  }
+  return (
+    <div className="grid gap-2">
+      <FilterHead v="period" label={vr.label}>
+        <Tabs value={xp.S.periodMode} onValueChange={(m) => update((x) => { x.S.periodMode = m as 'slider' | 'calendar' })}>
+          <TabsList className="h-6">
+            <TabsTrigger value="slider" className="px-2 text-[10px]">{t('data_catalog.xp_slider')}</TabsTrigger>
+            <TabsTrigger value="calendar" className="px-2 text-[10px]">{t('data_catalog.xp_calendar')}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </FilterHead>
+      {xp.S.periodMode === 'slider' ? (
+        <>
+          <Slider min={0} max={Math.max(0, n - 1)} step={1} minStepsBetweenThumbs={0} value={r} onValueChange={(v) => setRange([v[0], v[1]])} />
+          <div className="flex justify-between text-[10px] font-medium"><span>{vr.names[r[0]]}</span><span>{vr.names[r[1]]}</span></div>
+        </>
+      ) : (
+        <div className="grid grid-cols-2 gap-2">
+          <Input type="date" className="h-7 px-1.5 text-xs" value={periodBounds(vr.mods[r[0]])[0]} min={periodBounds(vr.mods[0])[0]} max={periodBounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(0, e.target.value)} />
+          <Input type="date" className="h-7 px-1.5 text-xs" value={periodBounds(vr.mods[r[1]])[1]} min={periodBounds(vr.mods[0])[0]} max={periodBounds(vr.mods[n - 1])[1]} onChange={(e) => fromDate(1, e.target.value)} />
+        </div>
+      )}
+      <div className="flex gap-3">
+        <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setRange([0, n - 1])}>{t('data_catalog.xp_all')}</button>
+        {n > 12 && <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setRange([n - 12, n - 1])}>{t('data_catalog.xp_last', { n: 12 })}</button>}
+        {n > 5 && vr.granularity === 'year' && <button type="button" className="text-[10px] text-primary hover:underline" onClick={() => setRange([n - 5, n - 1])}>{t('data_catalog.xp_last', { n: 5 })}</button>}
+      </div>
+    </div>
+  )
+}
+
+function ConceptFilter({ xp, update }: { xp: Explorer; update: (change?: (x: Explorer) => void) => void }) {
+  const { t } = useTranslation()
+  const [q, setQ] = useState(xp.S.cq)
+  useEffect(() => {
+    const id = setTimeout(() => update((x) => { x.S.cq = q }), 200)
+    return () => clearTimeout(id)
+  }, [q, update])
+  const cats = xp.conceptCategories()
+  return (
+    <div className="grid gap-1.5">
+      <FilterHead v="concept" label={xp.varLabel('concept')} />
+      <div className="relative">
+        <Search size={12} className="absolute top-1/2 left-2 -translate-y-1/2 text-muted-foreground" />
+        <Input className="h-7 pl-7 text-xs" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('data_catalog.search_concepts')} />
+      </div>
+      {cats.length > 0 && (
+        <Select value={xp.S.ccat || '__all__'} onValueChange={(c) => update((x) => { x.S.ccat = c === '__all__' ? '' : c })}>
+          <SelectTrigger className="h-7 w-full text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__all__" className="text-xs">{t('data_catalog.xp_all_categories')}</SelectItem>
+            {cats.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      )}
+    </div>
+  )
+}
+
+/** A three-variable crossing: one of its variables is read one value at a time. */
+function PinFilter({ xp, vars, update }: { xp: Explorer; vars: CatalogVariableId[]; update: (change?: (x: Explorer) => void) => void }) {
+  const { t } = useTranslation()
+  const pin = xp.S.pin!
+  const vr = xp.V[pin]!
+  const canAll = xp.canUnpin()
+  return (
+    <div className="grid gap-1.5">
+      <FilterHead v={pin} label={t('data_catalog.xp_pin')} />
+      <Select value={pin} onValueChange={(v) => update((x) => { x.S.pin = v as CatalogVariableId; x.S.pinVal = null })}>
+        <SelectTrigger className="h-7 w-full text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {vars.map((v) => <SelectItem key={v} value={v} className="text-xs">{xp.varLabel(v)}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <Select value={xp.S.pinVal == null ? '__all__' : String(xp.S.pinVal)} onValueChange={(v) => update((x) => { x.S.pinVal = v === '__all__' ? null : Number(v) })}>
+        <SelectTrigger className="h-7 w-full text-xs"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          {canAll && <SelectItem value="__all__" className="text-xs">{t('data_catalog.xp_all')}</SelectItem>}
+          {vr.names.map((name, i) => <SelectItem key={i} value={String(i)} className="text-xs">{name}</SelectItem>)}
+        </SelectContent>
+      </Select>
+      <p className="text-[10px] text-muted-foreground">{t(canAll ? 'data_catalog.xp_pin_hint_all' : 'data_catalog.xp_pin_hint')}</p>
+    </div>
+  )
+}
+
+// ── Table ────────────────────────────────────────────────────────
+
+const CONCEPT_HEADER: Record<string, string> = {
+  conceptId: 'col_concept_id', conceptName: 'col_concept_name', dictionaryKey: 'col_vocabulary', category: 'col_category',
+  subcategory: 'col_subcategory', patientCount: 'col_patients', visitCount: 'col_visits', recordCount: 'col_records',
+}
+
+function ExploreDataTable({ table, threshold }: { table: ExploreTable; threshold: number }) {
+  const { t } = useTranslation()
+  const columns = useMemo<DataTableColumn<Row>[]>(() => {
+    const masked = <span className="text-amber-600 dark:text-amber-400">{`< ${threshold}`}</span>
+    return table.columns.map((c): DataTableColumn<Row> => {
+      const label = table.kind === 'concepts' && CONCEPT_HEADER[c.key] ? t(`data_catalog.${CONCEPT_HEADER[c.key]}`) : c.label
+      if (c.type !== 'number') {
+        return {
+          id: c.key, header: label, accessor: (r) => (r[c.key] as string | number | null) ?? null,
+          filter: c.filter === 'select' ? 'select' : 'text', size: c.width ?? 160, pinned: c.key === table.columns[0].key,
+          cellClassName: c.key === 'conceptId' ? 'font-mono' : undefined,
+        }
+      }
+      const value = (r: Row) => r[c.key] as number | null
+      return {
+        id: c.key, header: label, accessor: (r) => value(r), align: 'right', cellClassName: 'tabular-nums', size: 110, minSize: 70, filter: 'number',
+        cell: (r) => {
+          if (table.kind === 'concepts') return r._anon ? masked : (value(r) ?? 0).toLocaleString()
+          const st = r._st as number
+          if (st === 2) {
+            return (
+              <span className="text-amber-600 line-through decoration-dotted dark:text-amber-400" title={table.maskTip?.[2]}>{value(r)?.toLocaleString()}</span>
+            )
+          }
+          if (st) return <span title={table.maskTip?.[st]}>{masked}</span>
+          return value(r)?.toLocaleString() ?? ''
+        },
+      }
+    })
+  }, [table, threshold, t])
+  return (
+    <DataTable
+      data={table.rows}
+      columns={columns}
+      rowKey={(r) => table.columns.filter((c) => c.type !== 'number').map((c) => String(r[c.key])).join('|')}
+      pageSize={100}
+      stickyHeader
+      cellTooltips="all"
+      initialSorting={table.initialSort ? { columnId: table.initialSort.key, desc: table.initialSort.desc } : undefined}
+      emptyMessage={t('data_catalog.no_results')}
+    />
   )
 }

@@ -8,15 +8,25 @@ the user's manual test.
   `crossings` (1–3 variable ids). Every enabled variable's 1-way marginal is computed too. Legacy catalogs
   (dimensions + period table) are converted on load, on import and by the alembic migration `b7c1d9e3f5a2`.
 - **Engine**: `lib/duckdb/catalog-queries.ts` (reads the `linkr_*` class relations), `catalog-compute.ts`,
-  `catalog-runner.ts` (resumable per unit), `lib/data-catalog/{config,suppression,publish}.ts`.
+  `catalog-runner.ts`, `lib/data-catalog/{config,suppression,publish}.ts`. Built for very large warehouses:
+  - a run is steps (sizing → concept counts → totals → rankings → crossings), each a list of one-query units;
+    every unit adds into the run state, the cache holds exactly the units done, a resume carries on from there;
+  - above `SLICE_EVENT_ROWS` event rows the warehouse is counted in patient-id ranges (quantiles), since
+    patients, stays and records all add up over disjoint patients;
+  - Pause and the yield estimate's Stop interrupt the query in flight: `queryDataSource(..., { signal })`
+    (DuckDB-WASM `send` + `cancelSent`; server `POST /data-sources/{id}/query/cancel` → `con.interrupt()`);
+  - `allRows` lifts the server's 10,000-row cap (up to 2M) — crossings and concept lists are larger.
 - **Anonymisation**: primary suppression below the threshold + secondary suppression (a group whose total is
   published cannot hold a single masked cell). Published outputs never carry a masked cell's numbers.
-- **App UI**: Configuration (variables, crossings with yield estimates), Data (pivot per crossing, masks
-  shown), Anonymization (impact from the real masks), Publish (inline preview, GitLab/GitHub Pages).
-- **Published page** (`lib/dcat-ap/catalog-page.js`): Explore tab — display one or two variables, filter
-  them (period slider or calendar, modality picks, concept search), narrow the others to one value; charts
-  depend on the display (trends, heatmap, pyramid, stacked/100 % bars, pies only where modalities partition
-  the whole) + table + CSV. Never sums cells: distinct patients do not add up across periods, ages, units.
+- **One explorer, two hosts**: `lib/dcat-ap/catalog-explore.js` (ES module, ES5 inside) decides the charts,
+  key figures and table for a picked crossing and draws the SVG charts. The published page inlines it with
+  `export` stripped (`catalog-page.js` is the page's glue); the app's Data tab imports it (texts from
+  `data_catalog.xp.*`, masked values revealed struck through). The reader picks a crossing (1–3 variables)
+  and filters each variable; a variable filtered to one value becomes context; a 3-variable crossing is read
+  one value of one variable at a time. Never sums cells.
+- **App UI**: Configuration (coloured variables, crossings, stoppable yield estimate, run steps via
+  `RunSteps`), Data (the explorer), Anonymization (impact, explanations behind ⓘ), Publish (Preview | Export).
+- **Published page**: title in the header, Explore / Metadata / Schema / Info, generation line in the footer.
 - **Files**: `catalog.html`, `concepts.csv`, `crossings/<id>.csv` (empty counts + status for masked cells),
   `metadata.jsonld` (one analytics distribution per file).
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Copy, Download, ExternalLink, Eye, Info, Plus, Sparkles, X } from 'lucide-react'
+import { Check, Copy, Download, ExternalLink, FileJson, Info, Plus, Sparkles, X } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
@@ -274,9 +274,11 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
   return (
     <TooltipProvider delayDuration={0}>
       {/* The sections sit at the tab’s left edge; the form and its toolbar share one centred column. */}
-      <div className="flex gap-6 py-4">
+      {/* A phantom column as wide as the sections balances them, so the form sits
+          in the middle of the tab rather than of what the sections leave. */}
+      <div className="grid grid-cols-[12rem_minmax(0,1fr)] gap-6 py-4 xl:grid-cols-[12rem_minmax(0,1fr)_12rem]">
         {/* Sections — one at a time keeps a 50-field form readable; All is there to review everything */}
-        <nav className="sticky top-4 flex w-48 shrink-0 flex-col gap-1 self-start">
+        <nav className="sticky top-4 flex flex-col gap-1 self-start">
           {(['all', ...SECTIONS] as const).map((s) => {
             const p = s === 'all' ? progress.all : progress.bySection[s]
             const complete = p.total > 0 && p.filled === p.total
@@ -326,8 +328,8 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                 {t('dcat.mandatory_only')}
               </label>
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setPreviewOpen(true)}>
-                <Eye size={14} />
-                {t('dcat.preview')}
+                <FileJson size={14} />
+                JSON-LD
               </Button>
               <Button variant="outline" size="sm" disabled={!isDirty} onClick={() => setDraft(saved)}>
                 {t('common.cancel')}

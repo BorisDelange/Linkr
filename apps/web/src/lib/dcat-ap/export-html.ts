@@ -1,8 +1,8 @@
 /**
  * Standalone HTML export for concept catalogs: one self-contained page (inline
  * CSS, SVG and script, no network request) with the JSON-LD embedded for
- * machines, and three tabs — Explore, Metadata, Schema. Same visual language as
- * the cohort report.
+ * machines, and four tabs — Explore, Metadata, Schema, Info. Same visual
+ * language as the cohort report.
  *
  * Nothing unmasked reaches the page: the crossings come from
  * `buildPublishedCatalog` (masked cells carry no number), and concepts below
@@ -17,7 +17,7 @@ import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from './jsonld'
 import { mappedTableDocs } from './mapped-tables'
 import { localized } from '@/lib/localized'
-import { DCAT_FIELDS, DCAT_VOCABULARIES, HEALTHDCATAP_RELEASE, normalizeDcatMetadata, type DcatClass } from './schema'
+import { DCAT_FIELDS, DCAT_VOCABULARIES, HEALTHDCATAP_RELEASE, HEALTHDCATAP_SPEC_URL, normalizeDcatMetadata, type DcatClass } from './schema'
 import en from '@/locales/en.json'
 import { CATALOG_CSS, icon, type IconName } from './export-html-style'
 import { CATALOG_SCRIPT } from './export-html-script'
@@ -32,7 +32,7 @@ export interface ExportHtmlOptions {
 }
 
 type Counted = { patientCount: number; recordCount: number; visitCount: number }
-type Anonymized<T> = T & { _anonymized?: boolean }
+export type Anonymized<T> = T & { _anonymized?: boolean }
 
 function anonymize<T extends Counted>(rows: T[], threshold: number, mode: AnonymizationMode): Anonymized<T>[] {
   if (mode === 'suppress') return rows.filter((r) => r.patientCount >= threshold)
@@ -75,15 +75,13 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
 
   const tab = (id: string, label: string, ico: IconName, count?: number, active = false) =>
     `<button class="tab${active ? ' active' : ''}" data-tab="${id}" role="tab" aria-selected="${active}">${icon(ico)}${label}${count != null ? `<span class="count num">${fmt(count)}</span>` : ''}</button>`
-  const kpi = (value: number, label: string, ico: IconName) =>
-    `<div class="kpi"><div class="kpi-ico">${icon(ico, 16)}</div><div><div class="v num">${fmt(value)}</div><div class="l">${label}</div></div></div>`
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${esc(catalogTitle)} — Concept Catalog</title>
+<title>${esc(catalogTitle)} — Concept catalog</title>
 <script type="application/ld+json">
 ${jsonLd.replace(/</g, '\\u003c')}
 </script>
@@ -92,18 +90,17 @@ ${jsonLd.replace(/</g, '\\u003c')}
 <body>
 <div class="sheet">
   <header class="masthead">
-    <div class="brand">${LINKR_LOGO_SVG}<div><div class="eyebrow">Concept catalog</div><div class="meta-line">${[`Generated on ${generated}`, publisher, `Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE}`].filter(Boolean).map(esc).join(' · ')}</div></div></div>
-    <h1>${esc(catalogTitle)}</h1>
+    <div class="brand">${LINKR_LOGO_SVG}<div class="brand-t"><h1>${esc(catalogTitle)}</h1><div class="eyebrow">Concept catalog</div></div></div>
     ${catalogDesc ? `<p class="desc">${esc(catalogDesc)}</p>` : ''}
     <nav class="tabs" role="tablist">
       ${tab('explore', 'Explore', 'barChart', undefined, true)}
       ${tab('metadata', 'Metadata', 'fileText')}
       ${tab('schema', 'Schema', 'table', schema.tableCount || undefined)}
+      ${tab('info', 'Info', 'info')}
     </nav>
   </header>
 
   <section id="tab-explore" class="tab-content active">
-    <div class="kpis">${kpi(totals.patients, 'Patients', 'user')}${kpi(totals.stays, 'Stays', 'stethoscope')}${kpi(totals.concepts, 'Concepts', 'tags')}${kpi(totals.records, 'Records', 'activity')}</div>
     <div class="explore">
       <aside class="card xp-side" id="xp-side" aria-label="Display and filters"></aside>
       <div class="xp-main" id="xp-main"></div>
@@ -137,10 +134,15 @@ ${buildMetadataHtml(metadata)}
 ${schema.html}
   </section>
 
+  <section id="tab-info" class="tab-content">
+${buildInfoHtml({ threshold, mode, crossings: published.crossings.map((c) => c.vars.map((v) => published.variables[v]?.label ?? v)), variables: Object.values(published.variables).map((v) => v!.label) })}
+  </section>
+
   <footer>
-    <span>${icon('shield', 12)}Anonymisation: counts below ${threshold} patients are masked, and cells that would reveal them by subtraction too</span>
+    <span>${[`Generated on ${generated}`, publisher].filter(Boolean).map(esc).join(' · ')}</span>
+    <span>${icon('shield', 12)}Counts below ${threshold} patients are masked, and cells that would reveal them by subtraction too</span>
     <span>Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · EHDS Regulation (EU) 2025/327</span>
-    <span>Generated with Linkr</span>
+    <span>Generated with <a href="${LINKR_DOC_URL}" target="_blank" rel="noopener">Linkr</a></span>
   </footer>
 </div>
 
@@ -160,11 +162,46 @@ var ICONS = ${inlineJson({
     up: icon('arrowUp', 11), down: icon('arrowDown', 11), both: icon('arrowUpDown', 11),
     search: icon('search', 14), x: icon('x', 13), download: icon('download', 13),
     left: icon('chevronLeft', 14), right: icon('chevronRight', 14), shield: icon('shield', 13),
+    user: icon('user', 16), stethoscope: icon('stethoscope', 16), activity: icon('activity', 16), tags: icon('tags', 16),
+    layers: icon('layers', 16), trendingUp: icon('trendingUp', 16), barChart: icon('barChart', 16), sigma: icon('sigma', 16), table: icon('table', 16),
   })};
 ${CATALOG_SCRIPT}
 </script>
 </body>
 </html>`
+}
+
+// ---------------------------------------------------------------------------
+// Info
+// ---------------------------------------------------------------------------
+
+const LINKR_DOC_URL = 'https://linkr.interhop.org/en/docs/warehouse/data-catalog'
+const EHDS_URL = 'https://eur-lex.europa.eu/eli/reg/2025/327/oj'
+
+/** What the page is, how its numbers were made and protected, and where to read more. */
+function buildInfoHtml({ threshold, mode, crossings, variables }: {
+  threshold: number
+  mode: AnonymizationMode
+  crossings: string[][]
+  variables: string[]
+}): string {
+  const multi = crossings.filter((c) => c.length > 1)
+  const card = (ico: IconName, title: string, body: string) =>
+    `    <div class="card info-card"><div class="meta-card-head">${icon(ico, 15)}${title}</div><div class="info-body">${body}</div></div>`
+  return [
+    card('bookOpen', 'About this catalog', `<p>This page describes the content of a clinical data warehouse without giving access to it: how many patients, stays and records it holds, for which concepts, over which periods and populations. Every number is an aggregate count; no row about a patient ever leaves the warehouse.</p>
+<p><b>Explore</b> reads the counts. Pick one, two or three variables in the sidebar, filter each of them, and the charts, key figures and table follow. <b>Metadata</b> describes the dataset in the Health-DCAT-AP vocabulary, and <b>Schema</b> the structure of the source warehouse.</p>`),
+    card('barChart', 'How the counts are made', `<p>The warehouse is counted along ${variables.length ? variables.map((v) => `<b>${esc(v.toLowerCase())}</b>`).join(', ') : 'its concepts'}. Each variable is counted on its own${multi.length ? `, and these crossings were computed: ${multi.map((c) => esc(c.join(' × '))).join(', ')}` : ''}.</p>
+<ul><li><b>Patients</b> are distinct patients: one seen in two periods counts once in each, so patients never add up across the values of a variable.</li>
+<li><b>Stays</b> are visits; <b>records</b> are event rows (measurements, drugs, diagnoses…), counted when the concept variable is part of a crossing.</li>
+<li>Period and age are taken at the start of the stay, or at the date of the record.</li></ul>
+<p>Cells are never summed on this page: every figure shown is one computed cell.</p>`),
+    card('shield', 'Anonymisation', `<p>Any count below <b>${threshold} patients</b> is ${mode === 'suppress' ? 'removed' : 'masked (shown as &lt; ' + threshold + ')'}. That alone is not enough when a total is published: a hidden cell could be recovered by subtracting the other cells from the total. So one more cell of that group is masked too (<em>secondary suppression</em>). Masked cells carry no number in any published file.</p>
+<p>Periods before the first and after the last one reaching the threshold are left out.</p>`),
+    card('package', 'Standards and files', `<p>The metadata follows <a href="${HEALTHDCATAP_SPEC_URL}" target="_blank" rel="noopener">Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE}</a>, the European profile for describing health datasets under the <a href="${EHDS_URL}" target="_blank" rel="noopener">European Health Data Space regulation (EU) 2025/327</a>. It is embedded in this page as JSON-LD, readable by catalogues and search engines (Metadata › JSON-LD).</p>
+<p>The published site holds this page, <code>concepts.csv</code> (one row per concept), one CSV per crossing under <code>crossings/</code>, and <code>metadata.jsonld</code>.</p>`),
+    card('info', 'Made with Linkr', `<p>This catalog was computed and published with <a href="https://linkr.interhop.org" target="_blank" rel="noopener">Linkr</a>, an open-source platform for clinical data warehouses. How it is configured and computed: <a href="${LINKR_DOC_URL}" target="_blank" rel="noopener">Linkr documentation — Data catalog</a>.</p>`),
+  ].join('\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -181,7 +218,7 @@ interface ConceptCol {
   className?: string
 }
 
-function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[]) {
+export function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[]) {
   const hasDictionary = new Set(concepts.map((r) => r.dictionaryKey).filter(Boolean)).size > 1
   const select = (key: string, label: string): ConceptCol => ({ key, label, type: 'text', filter: 'select', width: 150 })
   const count = (key: string, label: string): ConceptCol => ({ key, label, type: 'number', filter: 'min', width: 130 })

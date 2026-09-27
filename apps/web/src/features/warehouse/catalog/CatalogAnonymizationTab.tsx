@@ -131,7 +131,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
               />
             )}
           </FormField>
-          <FormField label={t('data_catalog.anon_mode')}>
+          <FormField label={<span className="inline-flex items-center gap-1">{t('data_catalog.anon_mode')}<FieldInfo text={mode === 'replace' ? t('data_catalog.anon_replace_hint', { threshold: previewThreshold }) : t('data_catalog.anon_suppress_hint')} /></span>}>
             {({ id }) => (
               <Select value={mode} disabled={!canWrite} onValueChange={(v) => setMode(v as AnonymizationMode)}>
                 <SelectTrigger id={id} className="h-8 w-full text-xs">
@@ -148,45 +148,46 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
             {t('common.save')}
           </Button>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {mode === 'replace'
-            ? t('data_catalog.anon_replace_hint', { threshold: previewThreshold })
-            : t('data_catalog.anon_suppress_hint')}
-        </p>
       </Card>
 
       {/* Impact of the threshold being previewed, before it is saved */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <StatCard
           icon={<EyeOff size={18} />}
           iconBg="bg-amber-500/10 text-amber-600 dark:text-amber-400"
           value={impact.primary.toLocaleString()}
-          label={t('data_catalog.anon_primary_cells')}
+          label={<Hinted label={t('data_catalog.anon_primary_cells')} hint={t('data_catalog.anon_primary_cells_hint', { threshold: previewThreshold })} />}
           detail={<Share pct={impact.primaryPct} className="text-amber-600 dark:text-amber-400" />}
         />
         <StatCard
           icon={<Replace size={18} />}
           iconBg="bg-amber-500/10 text-amber-600 dark:text-amber-400"
           value={impact.secondary.toLocaleString()}
-          label={t('data_catalog.anon_secondary_cells')}
+          label={<Hinted label={t('data_catalog.anon_secondary_cells')} hint={t('data_catalog.anon_secondary_cells_hint')} />}
           detail={<Share pct={impact.secondaryPct} className="text-amber-600 dark:text-amber-400" />}
         />
         <StatCard
           icon={<AlertTriangle size={18} />}
           iconBg="bg-red-500/10 text-red-600 dark:text-red-400"
           value={impact.lostConcepts.toLocaleString()}
-          label={mode === 'suppress' ? t('data_catalog.anon_lost_concepts') : t('data_catalog.anon_masked_concepts')}
+          label={<Hinted label={mode === 'suppress' ? t('data_catalog.anon_lost_concepts') : t('data_catalog.anon_masked_concepts')} hint={t('data_catalog.anon_concepts_hint', { threshold: previewThreshold })} />}
           detail={<Share pct={impact.lostConceptsPct} className="text-red-600 dark:text-red-400" />}
         />
         <StatCard
           icon={<Eye size={18} />}
           iconBg={`${ENTITY_COLORS['data-catalog'].bg} ${ENTITY_COLORS['data-catalog'].icon}`}
           value={`${impact.publishedPct}%`}
-          label={t('data_catalog.anon_published_cells')}
+          label={<Hinted label={t('data_catalog.anon_published_cells')} hint={t('data_catalog.anon_published_cells_hint')} />}
           detail={<Progress value={impact.publishedPct} className="mt-1.5 h-1.5" />}
         />
       </div>
 
+      {rows.length > 0 && (
+        <div className="flex items-center gap-1.5 pt-2">
+          <SectionLabel as="h3">{t('data_catalog.anon_per_crossing')}</SectionLabel>
+          <FieldInfo text={t('data_catalog.anon_per_crossing_hint')} />
+        </div>
+      )}
       {rows.length > 0 && (
         <div className="overflow-hidden rounded-lg border bg-card">
           <DataTable
@@ -199,7 +200,6 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
           />
         </div>
       )}
-      <p className="text-xs text-muted-foreground">{t('data_catalog.anon_secondary_hint')}</p>
     </div>
   )
 }
@@ -215,6 +215,16 @@ interface CrossingImpact {
   patients: number
 }
 
+
+/** A stat label with its explanation behind an ⓘ. */
+function Hinted({ label, hint }: { label: string; hint: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      {label}
+      <FieldInfo text={hint} />
+    </span>
+  )
+}
 
 function Share({ pct, className }: { pct: number; className?: string }) {
   return <span className={cn('text-sm font-semibold tabular-nums', className)}>{pct}%</span>
