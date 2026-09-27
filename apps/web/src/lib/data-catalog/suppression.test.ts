@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { CatalogCrossingResult } from '@/types/catalog'
-import { computeCrossingMasks, PRIMARY, PUBLISHED, SECONDARY, publishedCellShare } from './suppression'
+import { computeAnonymizationImpact, computeCrossingMasks, PRIMARY, PUBLISHED, SECONDARY, publishedCellShare } from './suppression'
 
 const crossing = (id: string, rows: [string[], number][]): CatalogCrossingResult => ({
   id, variables: id.split('-') as CatalogCrossingResult['variables'], rows: rows.map(([values, patients]) => ({ values, patients })),
@@ -42,5 +42,16 @@ describe('computeCrossingMasks', () => {
     // concept-sex counts events, sex counts visits: the visit total reveals nothing about events.
     // The grand total (always published) still groups the concepts, so the 60 protects the 5.
     expect([...masks.get('concept-sex')!.status]).toEqual([PRIMARY, SECONDARY])
+  })
+})
+
+describe('computeAnonymizationImpact', () => {
+  it('sums up what the settings mask, crossing by crossing', () => {
+    const impact = computeAnonymizationImpact({
+      concepts: [{ conceptId: 1, conceptName: 'A', patientCount: 3, recordCount: 3 }, { conceptId: 2, conceptName: 'B', patientCount: 30, recordCount: 30 }],
+      crossings: [{ id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 40 }, { values: ['female'], patients: 4 }, { values: ['other'], patients: 2 }] }],
+    }, { threshold: 10, mode: 'suppress' })
+    expect(impact).toMatchObject({ threshold: 10, mode: 'suppress', concepts: { total: 2, masked: 1 } })
+    expect(impact.crossings).toEqual([{ id: 'sex', variables: ['sex'], cells: 3, primary: 2, secondary: 0, patientMass: 46, publishedMass: 40 }])
   })
 })

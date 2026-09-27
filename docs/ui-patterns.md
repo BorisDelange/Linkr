@@ -618,7 +618,7 @@ Check this table before writing any form field.
 | `GeneratedSqlEditor` | **SQL generated from a form, then editable** (the Cohort pattern): shows the generated SQL, saves an edit (Cmd+S) as `customSql` with a *Modified* badge and a Reset. Used by the cohort SQL tab and by schema-mapping relations. The overwrite prompt when the form changes under an edit stays with the caller, which knows whether its generated SQL changed. |
 | `MappingEditor` | A schema mapping edited class by class (visual relation or SQL, parameters, contract check and preview on a database). Used by the Schemas page and a database's Mapping tab (override mode: `relationExtra`, `canRemove`, `paramsSlot`). Don't build another mapping form. |
 | `ImageLightbox` / `ZoomableImage` | The full-screen image viewer (zoom, pan, reset) and the click-to-enlarge `<img>` built on it. **Every markdown view already enlarges its images** via `markdownComponents` (below) — you only reach for these directly for an image outside markdown, as `CellOutput` does for notebook figures. |
-| `StatCard` | A headline figure: tinted icon square, `text-2xl` value, label, optional `detail` line (a share, a progress bar). Link (`to`), button (`onClick`) or static. The workspace and project summaries, the catalog's Data and Anonymization tabs. Tint with an `ENTITY_COLORS` `bg` + `icon` pair. |
+| `StatCard` | A headline figure: tinted icon square, `text-2xl` value, label, optional `detail` line (a share, a progress bar). Link (`to`), button (`onClick`) or static. The workspace and project summaries, the catalog's Anonymization tab. Tint with an `ENTITY_COLORS` `bg` + `icon` pair. |
 | `LinkrLogo` | The logo. |
 
 ### Rendering markdown

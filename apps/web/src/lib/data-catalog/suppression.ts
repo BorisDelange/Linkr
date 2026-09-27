@@ -1,4 +1,4 @@
-import type { CatalogCrossingResult } from '@/types/catalog'
+import type { AnonymizationConfig, AnonymizationImpact, CatalogCrossingResult, CatalogResultCache } from '@/types/catalog'
 
 /** 0 = published, 1 = below the threshold, 2 = hidden to protect another cell. */
 export type CellStatus = 0 | 1 | 2
@@ -139,4 +139,20 @@ export function publishedCellShare(mask: Pick<CrossingMask, 'cells' | 'primary' 
 /** Share of the patient-cell mass sitting in published cells, 0–1. */
 export function publishedPatientShare(mask: Pick<CrossingMask, 'patientMass' | 'publishedMass'>): number {
   return mask.patientMass > 0 ? mask.publishedMass / mask.patientMass : 1
+}
+
+/** What `settings` mask over a computed catalog: the summary the Anonymization tab keeps. */
+export function computeAnonymizationImpact(cache: Pick<CatalogResultCache, 'concepts' | 'crossings'>, settings: AnonymizationConfig): AnonymizationImpact {
+  const crossings = cache.crossings ?? []
+  const masks = computeCrossingMasks(crossings, settings.threshold)
+  return {
+    threshold: settings.threshold,
+    mode: settings.mode ?? 'replace',
+    computedAt: new Date().toISOString(),
+    concepts: { total: cache.concepts.length, masked: cache.concepts.filter((r) => r.patientCount < settings.threshold).length },
+    crossings: crossings.map((c) => {
+      const { cells, primary, secondary, patientMass, publishedMass } = masks.get(c.id)!
+      return { id: c.id, variables: c.variables, cells, primary, secondary, patientMass, publishedMass }
+    }),
+  }
 }

@@ -75,11 +75,7 @@ const DARK = `--bg:#0d141e;--card:#141e2b;--ink:#e5ecf4;--text:#c2cedb;--muted:#
 
 const MONO = "ui-monospace,'SFMono-Regular',Menlo,Consolas,monospace"
 
-/**
- * The explorer's charts, heatmap, segmented controls and tooltip — shared with
- * the app's Data tab, which scopes them with `chartCss('.catalog-explore')`
- * and maps the variables below to its theme.
- */
+/** The explorer's charts, heatmap, segmented controls and tooltip. */
 const CHART_CSS = `.seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--soft);border:1px solid var(--line-soft)}
 .seg button{height:24px;padding:0 11px;border:0;border-radius:6px;background:none;font-size:12px;font-weight:500;color:var(--muted);cursor:pointer;white-space:nowrap}
 .seg button:hover:not(:disabled):not(.active){color:var(--ink)}
@@ -149,14 +145,6 @@ const CHART_CSS = `.seg{display:inline-flex;padding:2px;border-radius:8px;backgr
 .hm-scale .bar{width:120px;height:8px;border-radius:4px}
 .hm-scale .mask{width:14px;height:10px;border-radius:3px;background:repeating-linear-gradient(45deg,var(--hatch) 0 2px,transparent 2px 6px);border:1px solid var(--line-soft)}`
 
-/** The chart rules with each selector prefixed by `scope`. */
-export function chartCss(scope: string): string {
-  return CHART_CSS.split('\n').map((rule) => {
-    const brace = rule.indexOf('{')
-    if (brace < 0 || rule.startsWith('@')) return rule
-    return rule.slice(0, brace).split(',').map((sel) => `${scope} ${sel.trim()}`).join(',') + rule.slice(brace)
-  }).join('\n')
-}
 
 export const CATALOG_CSS = `
 :root{${LIGHT}color-scheme:light}

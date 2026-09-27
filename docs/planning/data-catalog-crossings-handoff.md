@@ -18,14 +18,15 @@ the user's manual test.
   - `allRows` lifts the server's 10,000-row cap (up to 2M) — crossings and concept lists are larger.
 - **Anonymisation**: primary suppression below the threshold + secondary suppression (a group whose total is
   published cannot hold a single masked cell). Published outputs never carry a masked cell's numbers.
-- **One explorer, two hosts**: `lib/dcat-ap/catalog-explore.js` (ES module, ES5 inside) decides the charts,
-  key figures and table for a picked crossing and draws the SVG charts. The published page inlines it with
-  `export` stripped (`catalog-page.js` is the page's glue); the app's Data tab imports it (texts from
-  `data_catalog.xp.*`, masked values revealed struck through). The reader picks a crossing (1–3 variables)
+- **The explorer**: `lib/dcat-ap/catalog-explore.js` (ES5) decides the charts, key figures and table for a
+  picked crossing and draws the SVG charts; the page inlines it ahead of `catalog-page.js`, its glue. Page
+  texts in `lib/dcat-ap/page-text.ts` (EN/FR), engine texts from `data_catalog.xp.*`. The app's Publish
+  preview can reveal masked values (`reveal`, never in a file). The reader picks a crossing (1–3 variables)
   and filters each variable; a variable filtered to one value becomes context; a 3-variable crossing is read
   one value of one variable at a time. Never sums cells.
 - **App UI**: Configuration (coloured variables, crossings, stoppable yield estimate, run steps via
-  `RunSteps`), Data (the explorer), Anonymization (impact, explanations behind ⓘ), Publish (Preview | Export).
+  `RunSteps`), Anonymization (settings autosaved, impact worked out on Run or at the end of a computation and
+  kept as `cache.anonymizationImpact`), Publish (Preview, cached per language, | Export with the page language).
 - **Published page**: title in the header, Explore / Metadata / Schema / Info, generation line in the footer.
 - **Files**: `catalog.html`, `concepts.csv`, `crossings/<id>.csv` (empty counts + status for masked cells),
   `metadata.jsonld` (one analytics distribution per file).

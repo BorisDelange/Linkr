@@ -1,16 +1,14 @@
 /*
  * The catalog explorer: which charts, figures and table show a crossing, and
- * the SVG charts themselves. One engine for two hosts — the standalone page
- * (catalog-page.js, where export-html-script.ts inlines this file with its
- * `export` keywords stripped) and the app's Data tab (imported as a module) —
- * so both read the data the same way.
+ * the SVG charts themselves, for the standalone page: export-html-script.ts
+ * inlines this file ahead of catalog-page.js, the page's glue.
  *
  * Plain ES5 inside the functions: the page runs in any browser with no build.
  *
  * The data is a published catalog (lib/data-catalog/publish.ts): variables
  * with their modalities, and crossings as cells [index per variable…,
  * patients, each of the crossing's `measures`…, status]. The page gets masked cells without their
- * numbers; the app gets them with (`reveal`), to show what the masks hide.
+ * numbers; the app's preview gets them with (`reveal`), to show what the masks hide.
  *
  * Reading rules:
  * - The reader picks a computed crossing (one, two or three variables) and
@@ -26,7 +24,7 @@
  */
 
 /** English texts, keys shared with the app's `data_catalog.xp.*` translations. Placeholders: {name}. */
-export var EXPLORE_TEXT = {
+var EXPLORE_TEXT = {
   patients: 'Patients', stays: 'Hospitalizations', unit_stays: 'Unit stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
   masked: 'Masked', masked_sub: 'below {t} patients', masked_cells_sub: '{pct} of the cells', none: 'none',
   cells: 'Cells', cells_sub: '{rows} × {cols}', cells_sub_capped: '{rows} × {cols} shown',
@@ -63,19 +61,19 @@ var OTHERS_COLOR = '#94a3b8';
 // Sex keeps the same colours in every chart, so a reader never has to re-learn them.
 var SEX_COLOR = { male: PALETTE[0], female: PALETTE[1], other: PALETTE[2] };
 /** Each variable's own hue, as in the app's badges (lib/data-catalog/variable-colors.ts). */
-export var VARIABLE_HEX = { concept: '#8b5cf6', period: '#0284c7', service: '#0d9488', age: '#d97706', sex: '#db2777' };
+var VARIABLE_HEX = { concept: '#8b5cf6', period: '#0284c7', service: '#0d9488', age: '#d97706', sex: '#db2777' };
 
-export function escHtml(s) {
+function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
-export function keyOf(vars) { return ORDER.filter(function(v) { return vars.indexOf(v) !== -1; }).join('-'); }
+function keyOf(vars) { return ORDER.filter(function(v) { return vars.indexOf(v) !== -1; }).join('-'); }
 function slug(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'table'; }
 function uniqueSorted(values) {
   var seen = {}, out = [];
   values.forEach(function(v) { if (v != null && v !== '' && !seen[v]) { seen[v] = true; out.push(String(v)); } });
   return out.sort(function(a, b) { return a.localeCompare(b, 'en', { numeric: true }); });
 }
-export function fuzzy(needle, hay) {
+function fuzzy(needle, hay) {
   if (hay.indexOf(needle) !== -1) return true;
   var n = 0;
   for (var k = 0; k < hay.length && n < needle.length; k++) if (hay[k] === needle[n]) n++;
@@ -93,7 +91,7 @@ function csvText(lines) { return lines.map(function(l) { return l.map(csvCell).j
  *         locale?: number formatting, dark?: () => boolean, fileBase?: CSV name prefix,
  *         conceptNote?: trusted HTML for the concept list }
  */
-export function createExplorer(DATA, opts) {
+function createExplorer(DATA, opts) {
   opts = opts || {};
   var TEXT = {};
   Object.keys(EXPLORE_TEXT).forEach(function(k) { TEXT[k] = (opts.text && opts.text[k]) || EXPLORE_TEXT[k]; });
@@ -277,7 +275,8 @@ export function createExplorer(DATA, opts) {
     return { v: raw, st: 0 };
   }
   function shown(m) {
-    if (m.st === 2 && m.raw != null) return tr('mask_value', { v: fmt(m.raw) });
+    // A number behind a mask only reaches the engine in the app's revealing preview.
+    if ((m.st === 1 || m.st === 2) && m.raw != null) return tr('mask_value', { v: fmt(m.raw) });
     return m.st ? MASK_TEXT[m.st] : fmt(m.v);
   }
   function compact(n) {

@@ -7,6 +7,7 @@ import { FieldInfo } from '@/components/ui/field-info'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PAGE_LOCALES, pageLocaleOf, type PageLocale } from '@/lib/dcat-ap/page-text'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -31,20 +32,29 @@ export function CatalogExportTab({ catalog, cache, onOpenVersioning }: Props) {
   // The preview follows the app; what leaves the app is in the language picked here.
   const previewLocale = pageLocaleOf(i18n.language)
   const [exportLocale, setExportLocale] = useState<PageLocale>(previewLocale)
+  // What the masks hide, in the preview only: the files never carry it.
+  const [reveal, setReveal] = useState(false)
 
   useEffect(() => {
     let cancelled = false
-    void buildHtml(previewLocale).then((h) => { if (!cancelled) setHtml(h) })
+    void buildHtml(previewLocale, { reveal }).then((h) => { if (!cancelled) setHtml(h) })
     return () => { cancelled = true }
-  }, [buildHtml, previewLocale])
+  }, [buildHtml, previewLocale, reveal])
 
   return (
     <Tabs value={view} onValueChange={(v) => setView(v as 'preview' | 'export')} className="flex h-full min-h-0 w-full flex-col gap-3 py-4">
-      <div className="flex shrink-0 justify-center">
+      <div className="relative flex shrink-0 justify-center">
         <TabsList>
           <TabsTrigger value="preview"><Eye size={14} />{t('data_catalog.publish_preview')}</TabsTrigger>
           <TabsTrigger value="export"><Upload size={14} />{t('data_catalog.publish_export')}</TabsTrigger>
         </TabsList>
+        {view === 'preview' && (
+          <div className="absolute top-1/2 right-0 flex -translate-y-1/2 items-center gap-2">
+            <Switch id="catalog-preview-reveal" checked={reveal} onCheckedChange={setReveal} />
+            <Label htmlFor="catalog-preview-reveal">{t('data_catalog.preview_reveal')}</Label>
+            <FieldInfo text={t('data_catalog.preview_reveal_hint')} />
+          </div>
+        )}
       </div>
 
       <TabsContent value="preview" className="m-0 min-h-0 flex-1">

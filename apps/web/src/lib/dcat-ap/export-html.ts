@@ -32,6 +32,11 @@ export interface ExportHtmlOptions {
   fullSchema?: IntrospectedTable[] | null
   /** Language of the page. Default English. */
   locale?: PageLocale
+  /**
+   * The app's preview only, never a published file: masked cells keep their
+   * numbers (flagged as masked), to see what the threshold hides.
+   */
+  reveal?: boolean
 }
 
 type Counted = { patientCount: number; recordCount: number; visitCount?: number }
@@ -50,14 +55,16 @@ function inlineJson(value: unknown): string {
 }
 
 export function generateCatalogHtml(opts: ExportHtmlOptions): string {
-  const { catalog, cache, schemaMapping, fullSchema, locale = 'en' } = opts
+  const { catalog, cache, schemaMapping, fullSchema, locale = 'en', reveal = false } = opts
   const T = PAGE_TEXT[locale]
   const fmt = (n: number) => n.toLocaleString(locale)
   const threshold = catalog.anonymization.threshold
   const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
 
-  const concepts = anonymize(cache.concepts, threshold, mode).sort((a, b) => b.patientCount - a.patientCount)
-  const published = buildPublishedCatalog(catalog, cache, { locale })
+  const concepts = (reveal
+    ? cache.concepts.map((r) => ({ ...r, _anonymized: r.patientCount < threshold }))
+    : anonymize(cache.concepts, threshold, mode)).sort((a, b) => b.patientCount - a.patientCount)
+  const published = buildPublishedCatalog(catalog, cache, { locale, reveal })
 
   const metadata = catalog.dcatApMetadata ?? {}
   const jsonLd = JSON.stringify(buildJsonLd({ metadata, schemaMapping, fullSchema, cache, catalog }), null, 2)

@@ -254,6 +254,28 @@ export interface CatalogCrossingResult {
   rows: CatalogCrossingRow[]
 }
 
+/**
+ * What the anonymisation settings mask, worked out once — on Run in the
+ * Anonymization tab, or at the end of a computation — and kept with the
+ * results rather than redone on every visit.
+ */
+export interface AnonymizationImpact {
+  threshold: number
+  mode: AnonymizationMode
+  computedAt: string
+  /** Concepts in the list, and those below the threshold. */
+  concepts: { total: number; masked: number }
+  crossings: {
+    id: string
+    variables: CatalogVariableId[]
+    cells: number
+    primary: number
+    secondary: number
+    patientMass: number
+    publishedMass: number
+  }[]
+}
+
 export interface CatalogResultCache {
   catalogId: string
   computedAt: string
@@ -275,6 +297,8 @@ export interface CatalogResultCache {
   modalities: Partial<Record<CatalogVariableId, string[]>>
   /** Display labels of modalities that are ids (concept ids → concept names). */
   labels?: Partial<Record<CatalogVariableId, Record<string, string>>>
+  /** The masks of the anonymisation settings, absent until worked out. */
+  anonymizationImpact?: AnonymizationImpact
   /** Units of the run's plan already added into this cache, for a resume. */
   completedSteps?: number
   /**

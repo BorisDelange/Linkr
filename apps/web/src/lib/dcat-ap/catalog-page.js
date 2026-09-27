@@ -363,7 +363,8 @@ function tableOptions(t) {
       note: t.note,
     });
   }
-  var maskedFmt = function(v, r) { return r._st ? t.maskText[r._st] : v == null ? '' : fmt(v); };
+  // Masked cells carry their number only in the app's revealing preview.
+  var maskedFmt = function(v, r) { return r._st ? (v == null ? t.maskText[r._st] : XP.tr('mask_value', { v: fmt(v) })) : v == null ? '' : fmt(v); };
   var maskedTip = function(v, r) { return r._st ? t.maskTip[r._st] : ''; };
   return Object.assign({}, t, {
     columns: t.columns.map(function(c) { return c.measure ? Object.assign({ format: maskedFmt, title: maskedTip }, c) : c; }),

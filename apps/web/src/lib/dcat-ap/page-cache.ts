@@ -4,7 +4,7 @@ import { CATALOG_SCRIPT } from './export-html-script'
 import type { PageLocale } from './page-text'
 
 /*
- * The rendered catalog page, kept per catalog and language so the Publish tab
+ * The rendered catalog page, kept per catalog, language and view so the Publish tab
  * opens on it at once — across tab switches (memory) and app reloads
  * (IndexedDB, this browser only). A page is a function of the catalog's
  * configuration, its computed results, the schema and the page code: the key
@@ -39,7 +39,7 @@ export function catalogPageKey(parts: { catalogUpdatedAt: string; computedAt: st
 }
 
 const memory = new Map<string, CachedPage>()
-const slot = (catalogId: string, locale: PageLocale) => `${catalogId}:${locale}`
+const slot = (catalogId: string, variant: string) => `${catalogId}:${variant}`
 
 let dbPromise: Promise<IDBPDatabase> | null = null
 function db(): Promise<IDBPDatabase> {
@@ -47,8 +47,9 @@ function db(): Promise<IDBPDatabase> {
   return dbPromise
 }
 
-export async function getCachedPage(catalogId: string, locale: PageLocale, key: string): Promise<string | null> {
-  const id = slot(catalogId, locale)
+/** `variant` tells apart the pages of one catalog: its language, and whether masked values show. */
+export async function getCachedPage(catalogId: string, variant: string, key: string): Promise<string | null> {
+  const id = slot(catalogId, variant)
   const hit = memory.get(id)
   if (hit?.key === key) return hit.html
   try {
@@ -63,8 +64,8 @@ export async function getCachedPage(catalogId: string, locale: PageLocale, key: 
 }
 
 /** One page per catalog and language: a newer version replaces the older one. */
-export async function putCachedPage(catalogId: string, locale: PageLocale, key: string, html: string): Promise<void> {
-  const id = slot(catalogId, locale)
+export async function putCachedPage(catalogId: string, variant: string, key: string, html: string): Promise<void> {
+  const id = slot(catalogId, variant)
   memory.set(id, { key, html })
   try {
     await (await db()).put(STORE, { key, html } satisfies CachedPage, id)

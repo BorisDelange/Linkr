@@ -73,13 +73,14 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
   const baseName = localized(catalog.name, 'en').replace(/\s+/g, '-').toLowerCase()
 
   /** The page, from the cache when nothing it depends on has changed since it was rendered. */
-  const buildHtml = useCallback(async (locale: PageLocale) => {
+  const buildHtml = useCallback(async (locale: PageLocale, { reveal = false }: { reveal?: boolean } = {}) => {
     if (!cache) return null
     const key = catalogPageKey({ catalogUpdatedAt: catalog.updatedAt, computedAt: cache.computedAt, schema: schemaMapping, locale })
-    const cached = await getCachedPage(catalog.id, locale, key)
+    const variant = reveal ? `${locale}:reveal` : locale
+    const cached = await getCachedPage(catalog.id, variant, key)
     if (cached) return cached
-    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale })
-    await putCachedPage(catalog.id, locale, key, html)
+    const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema: await getFullSchema(), locale, reveal })
+    await putCachedPage(catalog.id, variant, key, html)
     return html
   }, [catalog, cache, schemaMapping, getFullSchema])
 

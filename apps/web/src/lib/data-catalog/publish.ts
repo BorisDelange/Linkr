@@ -130,8 +130,7 @@ const KIND: Record<CatalogVariableId, PublishedVariable['kind']> = {
 
 /**
  * Each variable's modalities in display order, with their names — periods
- * trimmed to those reaching the threshold. Shared by the published outputs and
- * the app's Data tab, so both list the same rows.
+ * trimmed to those reaching the threshold.
  */
 export function publishedVariables(
   catalog: Pick<DataCatalog, 'variables' | 'anonymization'>,
@@ -175,7 +174,7 @@ export function publishedVariables(
 
 /**
  * `reveal` keeps the numbers of masked cells, their status unchanged: for the
- * app's Data tab, which shows what the masks hide. Never for a published output.
+ * app's preview, which can show what the masks hide. Never for a published output.
  * `locale` is the language of the labels (variables, modalities).
  */
 export function buildPublishedCatalog(

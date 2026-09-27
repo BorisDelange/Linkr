@@ -30,6 +30,8 @@ interface CatalogState {
   computeRunning: boolean
   computeProgress: ComputeProgress | null
   activeResultCache: CatalogResultCache | null
+  /** The catalog whose results have been read (found or not); until then they are loading. */
+  resultCacheLoadedFor: string | null
   loadResultCache: (catalogId: string) => Promise<void>
   setResultCache: (cache: CatalogResultCache | null) => void
   startCompute: () => void
@@ -152,10 +154,12 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
   computeRunning: false,
   computeProgress: null,
   activeResultCache: null,
+  resultCacheLoadedFor: null,
 
   loadResultCache: async (catalogId) => {
-    const cache = await getStorage().catalogResults.get(catalogId)
-    set({ activeResultCache: cache ?? null })
+    if (get().resultCacheLoadedFor !== catalogId) set({ resultCacheLoadedFor: null, activeResultCache: null })
+    const cache = await getStorage().catalogResults.get(catalogId).catch(() => undefined)
+    set({ activeResultCache: cache ?? null, resultCacheLoadedFor: catalogId })
   },
 
   setResultCache: (cache) => {
