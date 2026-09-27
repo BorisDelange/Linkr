@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Archive, Download, Eye, FileCode, Languages, Loader2, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { PAGE_LOCALES, pageLocaleOf, type PageLocale } from '@/lib/dcat-ap/page-text'
 import type { DataCatalog, CatalogResultCache } from '@/types'
 import { useCatalogPublish } from './use-catalog-publish'
+import { perfLog } from '@/lib/dcat-ap/perf'
 import { CatalogPagesCard } from './CatalogPagesCard'
 
 interface Props {
@@ -36,11 +37,20 @@ export function CatalogExportTab({ catalog, cache, active, onOpenVersioning }: P
   const [exportLocale, setExportLocale] = useState<PageLocale>(previewLocale)
   // What the masks hide, in the preview only: the files never carry it.
   const [reveal, setReveal] = useState(false)
+  const iframeStart = useRef<number | null>(null)
 
   useEffect(() => {
     if (!active) return
     let cancelled = false
-    void buildHtml(previewLocale, { reveal }).then((h) => { if (!cancelled) setHtml(h) })
+    const start = performance.now()
+    perfLog('preview: effect run')
+    void buildHtml(previewLocale, { reveal }).then((h) => {
+      perfLog(cancelled ? 'preview: built but superseded (effect re-ran)' : 'preview: html ready', start)
+      if (!cancelled) {
+        iframeStart.current = performance.now()
+        setHtml(h)
+      }
+    })
     return () => { cancelled = true }
   }, [active, buildHtml, previewLocale, reveal])
 
@@ -67,7 +77,7 @@ export function CatalogExportTab({ catalog, cache, active, onOpenVersioning }: P
             // Scripts run (tabs, filters, sorting) and the page's CSV buttons may
             // download, but nothing else: no same-origin access to the app, no
             // navigation, no forms.
-            <iframe srcDoc={html} className="h-full w-full border-0" title={t('data_catalog.export_preview_title')} sandbox="allow-scripts allow-downloads allow-popups" />
+            <iframe srcDoc={html} onLoad={() => perfLog('preview: iframe loaded', iframeStart.current ?? undefined)} className="h-full w-full border-0" title={t('data_catalog.export_preview_title')} sandbox="allow-scripts allow-downloads allow-popups" />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-muted-foreground">
               <Loader2 size={14} className="animate-spin" />

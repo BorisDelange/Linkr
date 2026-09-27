@@ -6,6 +6,7 @@ import { PAGES_SITE_OWNER_TYPE } from '@/lib/dcat-ap/pages-deployment'
 import { isLegacyCatalog, LEGACY_CATALOG_FIELDS, normalizeCatalog } from '@/lib/data-catalog/config'
 import type { DataCatalog, CatalogResultCache, ServiceMapping } from '@/types'
 import type { ComputeProgress } from '@/lib/duckdb/catalog-compute'
+import { perfLog } from '@/lib/dcat-ap/perf'
 
 interface CatalogState {
   // Catalog CRUD
@@ -169,7 +170,10 @@ export const useCatalogStore = create<CatalogState>((set, get) => ({
 
   loadResultCache: async (catalogId) => {
     if (get().resultCacheLoadedFor !== catalogId) set({ resultCacheLoadedFor: null, activeResultCache: null })
+    const start = performance.now()
+    perfLog('results: load start')
     const cache = await getStorage().catalogResults.get(catalogId).catch(() => undefined)
+    perfLog('results: loaded', start)
     set({ activeResultCache: cache ?? null, resultCacheLoadedFor: catalogId })
   },
 

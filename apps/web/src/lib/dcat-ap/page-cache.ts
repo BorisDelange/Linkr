@@ -4,6 +4,7 @@ import { CATALOG_SCRIPT } from './export-html-script'
 import type { PageLocale } from './page-text'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import type { DataCatalog, SchemaMapping } from '@/types'
+import { perfLog } from './perf'
 
 /*
  * The rendered catalog page, kept per catalog, language and view so the Publish tab
@@ -69,6 +70,7 @@ function db(): Promise<IDBPDatabase> {
       if (!d.objectStoreNames.contains(STORE)) d.createObjectStore(STORE)
       if (!d.objectStoreNames.contains(SCHEMAS)) d.createObjectStore(SCHEMAS)
     },
+    blocked: () => perfLog('page store: upgrade blocked by another open tab'),
   })
   return dbPromise
 }
@@ -114,7 +116,9 @@ export async function getDatabaseSchema(dataSourceId: string, fetch: () => Promi
   const refresh = () => {
     let p = inFlight.get(dataSourceId)
     if (!p) {
+      const t = performance.now()
       p = fetch().then(async (tables) => {
+        perfLog('schema: server introspection', t)
         schemas.set(dataSourceId, tables)
         inFlight.delete(dataSourceId)
         if (tables) await (await db()).put(SCHEMAS, tables, dataSourceId).catch(() => {})
@@ -125,7 +129,9 @@ export async function getDatabaseSchema(dataSourceId: string, fetch: () => Promi
     return p
   }
   try {
+    const t = performance.now()
     const stored = (await (await db()).get(SCHEMAS, dataSourceId)) as IntrospectedTable[] | undefined
+    perfLog(stored ? 'schema: from browser store' : 'schema: none stored, asking the server', t)
     if (stored) {
       void refresh()
       return stored

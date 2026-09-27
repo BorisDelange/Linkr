@@ -1,4 +1,6 @@
 import json
+import logging
+import time
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +18,7 @@ from app.schemas.data_catalog import (
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
 from app.services import data_catalog_service, stats_cache_service
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/data-catalogs", tags=["data-catalogs"])
 
 _CATALOG_SCOPE = "catalog"
@@ -101,12 +104,23 @@ async def get_catalog_results_cache(
     The stored JSON goes out as it is, never through Python objects: the
     results can weigh tens of megabytes. Same shape as StatsCacheResponse.
     """
+    # TODO(data-catalog): temporary timings (log + Server-Timing header) while the preview slowness is tracked down.
+    start = time.perf_counter()
     await _load(db, catalog_id, user, "catalog:read")
+    loaded = time.perf_counter()
     raw = await stats_cache_service.get_raw(db, _CATALOG_SCOPE, catalog_id)
+    read = time.perf_counter()
     if raw is None:
         return Response(content="null", media_type="application/json")
     computed_at, payload = raw
-    return Response(content=f'{{"computedAt":{json.dumps(computed_at)},"payload":{payload}}}', media_type="application/json")
+    content = f'{{"computedAt":{json.dumps(computed_at)},"payload":{payload}}}'
+    done = time.perf_counter()
+    logger.warning(
+        "[catalog-perf] results-cache %s: auth %.0f ms, db read %.0f ms, assemble %.0f ms, %d KB",
+        catalog_id, (loaded - start) * 1000, (read - loaded) * 1000, (done - read) * 1000, len(content) // 1024,
+    )
+    timing = f"auth;dur={(loaded - start) * 1000:.0f}, db;dur={(read - loaded) * 1000:.0f}, assemble;dur={(done - read) * 1000:.0f}"
+    return Response(content=content, media_type="application/json", headers={"Server-Timing": timing})
 
 
 @router.put("/{catalog_id}/results-cache", status_code=status.HTTP_204_NO_CONTENT)

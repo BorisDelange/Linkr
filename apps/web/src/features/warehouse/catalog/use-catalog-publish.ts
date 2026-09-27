@@ -12,6 +12,7 @@ import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
 import { catalogPageKey, getCachedPage, getDatabaseSchema, putCachedPage } from '@/lib/dcat-ap/page-cache'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
+import { perfLog } from '@/lib/dcat-ap/perf'
 import type { DataCatalog, CatalogResultCache, SchemaMapping } from '@/types'
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -70,13 +71,24 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
   /** The page, from the cache when nothing it depends on has changed since it was rendered. */
   const buildHtml = useCallback(async (locale: PageLocale, { reveal = false }: { reveal?: boolean } = {}) => {
     if (!cache) return null
+    let t = performance.now()
+    perfLog('preview: build start')
     const fullSchema = await getFullSchema()
+    perfLog('preview: schema', t, `${fullSchema?.length ?? 0} tables`)
+    t = performance.now()
     const key = catalogPageKey({ catalog, computedAt: cache.computedAt, schemaMapping, fullSchema, locale })
+    perfLog('preview: cache key', t)
     const variant = reveal ? `${locale}:reveal` : locale
+    t = performance.now()
     const cached = await getCachedPage(catalog.id, variant, key)
+    perfLog(cached ? 'preview: page cache HIT' : 'preview: page cache miss', t)
     if (cached) return cached
+    t = performance.now()
     const html = generateCatalogHtml({ catalog, cache, schemaMapping, fullSchema, locale, reveal })
+    perfLog('preview: generate', t, `${Math.round(html.length / 1024)} KB`)
+    t = performance.now()
     await putCachedPage(catalog.id, variant, key, html)
+    perfLog('preview: page cache write', t)
     return html
   }, [catalog, cache, schemaMapping, getFullSchema])
 
