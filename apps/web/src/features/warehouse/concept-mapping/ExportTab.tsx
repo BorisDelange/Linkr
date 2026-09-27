@@ -378,9 +378,15 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   // A method that cannot be a path has no CSV; the parquet carries any method.
   const exportableStats = (scoreStats ?? []).filter((s) => scoresFormat === 'parquet' || s.versionable)
   const exportedMethods = exportableStats.filter((s) => selectedMethods.has(s.method)).map((s) => s.method)
-  const exportedCsvBytes = exportableStats
+  // A parquet cannot be sized per method without rewriting it, so each method is
+  // given the file's size in proportion to its share of the CSV bytes — an
+  // estimate, shown as one.
+  const totalCsvBytes = (scoreStats ?? []).reduce((sum, s) => sum + s.csvBytes, 0)
+  const methodBytes = (stat: ScoreMethodStat) =>
+    scoresFormat === 'csv' ? stat.csvBytes : totalCsvBytes > 0 ? (scoresSize * stat.csvBytes) / totalCsvBytes : 0
+  const exportedBytes = exportableStats
     .filter((s) => selectedMethods.has(s.method))
-    .reduce((sum, s) => sum + s.csvBytes, 0)
+    .reduce((sum, s) => sum + methodBytes(s), 0)
 
   const confirmZipExport = useCallback(async () => {
     setZipDialogOpen(false)
@@ -668,11 +674,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                           {versionedMethods.has(stat.method) && (
                             <Badge variant="secondary">{t('concept_mapping.suggestions_versioned_badge')}</Badge>
                           )}
-                          {scoresFormat === 'csv' && (
-                            <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
-                              ≈ {formatMegabytes(stat.csvBytes)}
-                            </span>
-                          )}
+                          <span className="shrink-0 font-mono tabular-nums text-muted-foreground">
+                            ≈ {formatMegabytes(methodBytes(stat))}
+                          </span>
                         </label>
                       </li>
                     ))}
@@ -689,11 +693,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                     <span className="font-mono tabular-nums">
                       {exportedMethods.length === 0
                         ? t('concept_mapping.export_scores_none_selected')
-                        : scoresFormat === 'csv'
-                          ? `≈ ${formatMegabytes(exportedCsvBytes)}`
-                          : exportedMethods.length === exportableStats.length
-                            ? formatMegabytes(scoresSize)
-                            : ''}
+                        : scoresFormat === 'parquet' && exportedMethods.length === exportableStats.length
+                          ? formatMegabytes(scoresSize)
+                          : `≈ ${formatMegabytes(exportedBytes)}`}
                     </span>
                   </div>
                 </>
