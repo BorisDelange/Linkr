@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Allotment, LayoutPriority, type AllotmentHandle } from 'allotment'
+import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
 import {
   BarChart3,
@@ -204,35 +204,22 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
   const [columnStats, setColumnStats] = useState<ColumnStats | null>(null)
   const [tablesVisible, setTablesVisible] = useState(true)
   const [statsVisible, setStatsVisible] = useState(defaultStatsVisible)
-  // Allotment sizes its panes against the width the container has at mount,
-  // often not its final one (a tab still laying out), and the table list then
-  // opens at another size than its preferred one. Once the container has a real
-  // width, a reset gives each pane that size, as a double-click on a separator does.
-  const allotmentRef = useRef<AllotmentHandle>(null)
+  // Allotment sizes its panes against the width its container has when it
+  // mounts. At zero (a tab or a split still laying out) every pane starts at its
+  // minimum, and the width gained next goes to the columns pane: the table list
+  // stayed tiny. So it mounts once the container has a width, and each pane
+  // opens at its preferred size in pixels, as a double-click on a separator gives.
   const panesRef = useRef<HTMLDivElement>(null)
+  const [panesReady, setPanesReady] = useState(false)
   useEffect(() => {
     const node = panesRef.current
-    if (!node) return
-    let frame = 0
-    let settled = 0
+    if (!node || panesReady) return
     const observer = new ResizeObserver(([entry]) => {
-      if (entry.contentRect.width <= 0) return
-      cancelAnimationFrame(frame)
-      // After Allotment's own layout for this width, which runs on the same change.
-      frame = requestAnimationFrame(() => {
-        allotmentRef.current?.reset()
-        // Stop once the width holds: from then on a resize is the user's.
-        clearTimeout(settled)
-        settled = window.setTimeout(() => observer.disconnect(), 300)
-      })
+      if (entry.contentRect.width > 0) setPanesReady(true)
     })
     observer.observe(node)
-    return () => {
-      observer.disconnect()
-      cancelAnimationFrame(frame)
-      clearTimeout(settled)
-    }
-  }, [])
+    return () => observer.disconnect()
+  }, [panesReady])
   const [loading, setLoading] = useState(false)
   const [statsLoading, setStatsLoading] = useState(false)
   const [rowCount, setRowCount] = useState<number | null>(null)
@@ -655,181 +642,183 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
 
         {/* Content: table sidebar + columns table + stats sidebar */}
         <div ref={panesRef} className="min-h-0 flex-1">
-          <Allotment ref={allotmentRef} proportionalLayout={false}>
-            {/* Table list sidebar */}
-            {/* 250, not 220: the row-count column needs to clear the right edge
-                with a little breathing room at the default (double-click) width. */}
-            <Allotment.Pane preferredSize={250} minSize={140} maxSize={360} visible={tablesVisible}>
-              <div className="flex h-full flex-col border-r">
-                <div className="flex items-center gap-2 border-b px-3 py-2">
-                  <SortHeader
-                    label={`${t('etl.profiling_tables')} (${tables.length})`}
-                    sortKey="name"
-                    sort={tableSort}
-                    onSort={toggleSort}
-                    className="min-w-0 flex-1"
-                  />
-                  <SortHeader
-                    label={t('etl.profiling_rows')}
-                    sortKey="rows"
-                    sort={tableSort}
-                    onSort={toggleSort}
-                    className="shrink-0"
-                  />
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-xs"
-                        className="-mr-1 size-5 shrink-0"
-                        onClick={countAllTables}
-                        disabled={countingAll || tables.length === 0}
-                      >
-                        <RefreshCw size={11} className={countingAll ? 'animate-spin' : ''} />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">
-                      {countingAll
-                        ? t('etl.counting_rows_progress', { done: countProgress, total: tables.length })
-                        : t('etl.count_all_rows')}
-                    </TooltipContent>
-                  </Tooltip>
-                </div>
-                <div className="border-b px-2 py-1.5">
-                  <SearchInput
-                    value={tableSearch}
-                    onChange={setTableSearch}
-                    placeholder={t('etl.profiling_filter_tables')}
-                    size="dense"
-                  />
-                </div>
-                <ScrollArea className="h-full flex-1">
-                  <div className="py-1">
-                    {(() => {
-                      const filtered = tables.filter((tbl) =>
-                        !tableSearch || tbl.toLowerCase().includes(tableSearch.toLowerCase())
-                      )
-                      const sign = tableSort.dir === 'asc' ? 1 : -1
-                      const sorted = [...filtered].sort((a, b) => {
-                        if (tableSort.key === 'name') return sign * a.localeCompare(b)
-                        // Uncounted tables have no rank, so they sink to the
-                        // bottom either way rather than sorting as zero.
-                        const ca = countOf(a)
-                        const cb = countOf(b)
-                        if (ca == null && cb == null) return a.localeCompare(b)
-                        if (ca == null) return 1
-                        if (cb == null) return -1
-                        return ca === cb ? a.localeCompare(b) : sign * (ca - cb)
-                      })
-                      if (sorted.length === 0 && !loading) {
-                        return (
-                          <p className="px-3 py-4 text-center text-[10px] text-muted-foreground">
-                            {tableSearch ? t('etl.profiling_no_match') : t('etl.no_tables')}
-                          </p>
-                        )
-                      }
-                      return sorted.map((table) => (
-                        <TableRow
-                          key={table}
-                          table={table}
-                          isActive={table === selectedTable}
-                          rowCount={countOf(table)}
-                          onSelect={() => setSelectedTable(table)}
-                        />
-                      ))
-                    })()}
-                    {loading && tables.length === 0 && (
-                      <div className="flex items-center justify-center py-6">
-                        <Loader2 size={14} className="animate-spin text-muted-foreground" />
-                      </div>
-                    )}
+          {panesReady && (
+            <Allotment proportionalLayout={false}>
+              {/* Table list sidebar */}
+              {/* 250, not 220: the row-count column needs to clear the right edge
+                  with a little breathing room at the default (double-click) width. */}
+              <Allotment.Pane preferredSize={250} minSize={140} maxSize={360} visible={tablesVisible}>
+                <div className="flex h-full flex-col border-r">
+                  <div className="flex items-center gap-2 border-b px-3 py-2">
+                    <SortHeader
+                      label={`${t('etl.profiling_tables')} (${tables.length})`}
+                      sortKey="name"
+                      sort={tableSort}
+                      onSort={toggleSort}
+                      className="min-w-0 flex-1"
+                    />
+                    <SortHeader
+                      label={t('etl.profiling_rows')}
+                      sortKey="rows"
+                      sort={tableSort}
+                      onSort={toggleSort}
+                      className="shrink-0"
+                    />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-xs"
+                          className="-mr-1 size-5 shrink-0"
+                          onClick={countAllTables}
+                          disabled={countingAll || tables.length === 0}
+                        >
+                          <RefreshCw size={11} className={countingAll ? 'animate-spin' : ''} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        {countingAll
+                          ? t('etl.counting_rows_progress', { done: countProgress, total: tables.length })
+                          : t('etl.count_all_rows')}
+                      </TooltipContent>
+                    </Tooltip>
                   </div>
-                </ScrollArea>
-              </div>
-            </Allotment.Pane>
+                  <div className="border-b px-2 py-1.5">
+                    <SearchInput
+                      value={tableSearch}
+                      onChange={setTableSearch}
+                      placeholder={t('etl.profiling_filter_tables')}
+                      size="dense"
+                    />
+                  </div>
+                  <ScrollArea className="h-full flex-1">
+                    <div className="py-1">
+                      {(() => {
+                        const filtered = tables.filter((tbl) =>
+                          !tableSearch || tbl.toLowerCase().includes(tableSearch.toLowerCase())
+                        )
+                        const sign = tableSort.dir === 'asc' ? 1 : -1
+                        const sorted = [...filtered].sort((a, b) => {
+                          if (tableSort.key === 'name') return sign * a.localeCompare(b)
+                          // Uncounted tables have no rank, so they sink to the
+                          // bottom either way rather than sorting as zero.
+                          const ca = countOf(a)
+                          const cb = countOf(b)
+                          if (ca == null && cb == null) return a.localeCompare(b)
+                          if (ca == null) return 1
+                          if (cb == null) return -1
+                          return ca === cb ? a.localeCompare(b) : sign * (ca - cb)
+                        })
+                        if (sorted.length === 0 && !loading) {
+                          return (
+                            <p className="px-3 py-4 text-center text-[10px] text-muted-foreground">
+                              {tableSearch ? t('etl.profiling_no_match') : t('etl.no_tables')}
+                            </p>
+                          )
+                        }
+                        return sorted.map((table) => (
+                          <TableRow
+                            key={table}
+                            table={table}
+                            isActive={table === selectedTable}
+                            rowCount={countOf(table)}
+                            onSelect={() => setSelectedTable(table)}
+                          />
+                        ))
+                      })()}
+                      {loading && tables.length === 0 && (
+                        <div className="flex items-center justify-center py-6">
+                          <Loader2 size={14} className="animate-spin text-muted-foreground" />
+                        </div>
+                      )}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </Allotment.Pane>
 
-            {/* Column overview table */}
-            {/* Takes every resize: the side panels keep their width. */}
-            <Allotment.Pane minSize={300} priority={LayoutPriority.High}>
-              <div className="flex h-full flex-col">
-                <ScrollArea className="h-full flex-1">
-                  <table className="w-full text-xs">
-                    <thead className="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--color-border)]">
-                      <tr>
-                        <th className="px-3 py-2 text-left font-medium">{t('etl.column_name')}</th>
-                        <th className="px-3 py-2 text-left font-medium">{t('etl.data_type')}</th>
-                        <th className="px-3 py-2 text-right font-medium">{t('etl.profiling_completeness')}</th>
-                        <th className="px-3 py-2 text-right font-medium">{t('etl.profiling_distinct')}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {columns.map((col) => {
-                        const stats = columnNullCounts.get(col.column_name)
-                        const completeness = stats ? ((stats.total - stats.nullCount) / stats.total) * 100 : null
-                        const isActive = col.column_name === selectedColumn
-                        return (
-                          <tr
-                            key={col.column_name}
-                            onClick={() => handleSelectColumn(col.column_name)}
-                            className={cn(
-                              'cursor-pointer border-b transition-colors last:border-0',
-                              isActive ? 'bg-accent' : 'hover:bg-accent/50',
-                            )}
-                          >
-                            <td className="px-3 py-1.5">
-                              <div className="flex items-center gap-1.5">
-                                <TypeBadge type={col.data_type} />
-                                <span className="font-mono">{col.column_name}</span>
-                              </div>
-                            </td>
-                            <td className="px-3 py-1.5 text-muted-foreground">{col.data_type}</td>
-                            <td className="px-3 py-1.5 text-right">
-                              {completeness != null ? (
-                                <div className="flex items-center justify-end gap-1.5">
-                                  <div className="h-1.5 w-12 overflow-hidden rounded-full bg-destructive/15">
-                                    <div
-                                      className="h-full rounded-full bg-emerald-500/70"
-                                      style={{ width: `${completeness}%` }}
-                                    />
-                                  </div>
-                                  <span className="w-9 shrink-0 text-right tabular-nums text-muted-foreground">{completeness.toFixed(0)}%</span>
-                                </div>
-                              ) : (
-                                <span className="text-muted-foreground">—</span>
+              {/* Column overview table */}
+              {/* Takes every resize: the side panels keep their width. */}
+              <Allotment.Pane minSize={300} priority={LayoutPriority.High}>
+                <div className="flex h-full flex-col">
+                  <ScrollArea className="h-full flex-1">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 z-10 bg-muted shadow-[0_1px_0_0_var(--color-border)]">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-medium">{t('etl.column_name')}</th>
+                          <th className="px-3 py-2 text-left font-medium">{t('etl.data_type')}</th>
+                          <th className="px-3 py-2 text-right font-medium">{t('etl.profiling_completeness')}</th>
+                          <th className="px-3 py-2 text-right font-medium">{t('etl.profiling_distinct')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {columns.map((col) => {
+                          const stats = columnNullCounts.get(col.column_name)
+                          const completeness = stats ? ((stats.total - stats.nullCount) / stats.total) * 100 : null
+                          const isActive = col.column_name === selectedColumn
+                          return (
+                            <tr
+                              key={col.column_name}
+                              onClick={() => handleSelectColumn(col.column_name)}
+                              className={cn(
+                                'cursor-pointer border-b transition-colors last:border-0',
+                                isActive ? 'bg-accent' : 'hover:bg-accent/50',
                               )}
-                            </td>
-                            <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
-                              {!statsEnabled
-                                ? '—'
-                                : stats?.distinct?.toLocaleString() ?? (loading ? '—' : '0')}
+                            >
+                              <td className="px-3 py-1.5">
+                                <div className="flex items-center gap-1.5">
+                                  <TypeBadge type={col.data_type} />
+                                  <span className="font-mono">{col.column_name}</span>
+                                </div>
+                              </td>
+                              <td className="px-3 py-1.5 text-muted-foreground">{col.data_type}</td>
+                              <td className="px-3 py-1.5 text-right">
+                                {completeness != null ? (
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <div className="h-1.5 w-12 overflow-hidden rounded-full bg-destructive/15">
+                                      <div
+                                        className="h-full rounded-full bg-emerald-500/70"
+                                        style={{ width: `${completeness}%` }}
+                                      />
+                                    </div>
+                                    <span className="w-9 shrink-0 text-right tabular-nums text-muted-foreground">{completeness.toFixed(0)}%</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-muted-foreground">—</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-1.5 text-right tabular-nums text-muted-foreground">
+                                {!statsEnabled
+                                  ? '—'
+                                  : stats?.distinct?.toLocaleString() ?? (loading ? '—' : '0')}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                        {columns.length === 0 && !loading && (
+                          <tr>
+                            <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
+                              {tables.length === 0 ? t('etl.no_tables') : t('etl.select_table')}
                             </td>
                           </tr>
-                        )
-                      })}
-                      {columns.length === 0 && !loading && (
-                        <tr>
-                          <td colSpan={4} className="px-3 py-8 text-center text-muted-foreground">
-                            {tables.length === 0 ? t('etl.no_tables') : t('etl.select_table')}
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </ScrollArea>
-              </div>
-            </Allotment.Pane>
+                        )}
+                      </tbody>
+                    </table>
+                  </ScrollArea>
+                </div>
+              </Allotment.Pane>
 
-            {/* Stats sidebar */}
-            <Allotment.Pane preferredSize={300} minSize={220} maxSize={440} visible={statsVisible}>
-              <div className="flex h-full min-h-0 flex-col border-l">
-                <ColumnStatsDetail
-                  column={columns.find((c) => c.column_name === selectedColumn) ?? null}
-                  stats={columnStats}
-                  loading={statsLoading}
-                />
-              </div>
-            </Allotment.Pane>
-          </Allotment>
+              {/* Stats sidebar */}
+              <Allotment.Pane preferredSize={300} minSize={220} maxSize={440} visible={statsVisible}>
+                <div className="flex h-full min-h-0 flex-col border-l">
+                  <ColumnStatsDetail
+                    column={columns.find((c) => c.column_name === selectedColumn) ?? null}
+                    stats={columnStats}
+                    loading={statsLoading}
+                  />
+                </div>
+              </Allotment.Pane>
+            </Allotment>
+          )}
         </div>
       </div>
     </TooltipProvider>
