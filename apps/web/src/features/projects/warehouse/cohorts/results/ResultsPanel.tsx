@@ -67,8 +67,8 @@ export function ResultsPanel({ result, loading, error, onExecute, onExportCsv, r
       {/* Count header */}
       <div className="flex items-center gap-3 border-b px-4 py-3">
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 size={16} className="animate-spin" />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 size={14} className="animate-spin" />
             {t('cohorts.executing')}
           </div>
         ) : result ? (

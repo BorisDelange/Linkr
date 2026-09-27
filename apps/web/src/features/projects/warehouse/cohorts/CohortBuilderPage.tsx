@@ -61,7 +61,6 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
   { value: 'patient', labelKey: 'cohorts.level_patient' },
   { value: 'visit', labelKey: 'cohorts.level_visit' },
   { value: 'visit_detail', labelKey: 'cohorts.level_visit_detail' },
-  { value: 'event', labelKey: 'cohorts.level_event' },
 ]
 
 /** A project cohort's page. */

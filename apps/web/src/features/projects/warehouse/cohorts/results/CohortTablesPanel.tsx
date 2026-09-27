@@ -188,7 +188,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
           <div className="flex shrink-0 items-center gap-2 border-b px-3 py-1.5">
             <p className="flex-1 text-[10px] text-muted-foreground">{t('cohorts.tables_hint')}</p>
             {countingAll ? (
-              <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => { stopRef.current = true }}>
+              <Button variant="destructive" size="sm" className="h-6 gap-1 text-xs" onClick={() => { stopRef.current = true }}>
                 <Square size={12} />
                 {t('cohorts.tables_stop')}
               </Button>

@@ -11,7 +11,8 @@ import type {
   CohortLevel, CriteriaGroupNode, CriteriaTreeNode, CriteriaType, SchemaMapping,
 } from '@/types'
 
-export const COHORT_LEVELS: CohortLevel[] = ['patient', 'visit', 'visit_detail', 'event']
+// 'event' stays in the type for cohorts stored before it was withdrawn; it is not offered.
+export const COHORT_LEVELS: CohortLevel[] = ['patient', 'visit', 'visit_detail']
 const CRITERIA_TYPES: CriteriaType[] = [
   'age', 'sex', 'death', 'period', 'duration', 'care_site', 'concept', 'text', 'id_list',
 ]
