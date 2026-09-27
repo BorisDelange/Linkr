@@ -3,7 +3,8 @@ import JSZip from 'jszip'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCatalogStore } from '@/stores/catalog-store'
 import { getStorage } from '@/lib/storage'
-import { generateCatalogHtml, buildConceptsCsv, buildDimensionsCsv } from '@/lib/dcat-ap/export-html'
+import { generateCatalogHtml, buildConceptsCsv } from '@/lib/dcat-ap/export-html'
+import { buildCrossingCsv, buildPublishedCatalog, crossingCsvPath } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from '@/lib/dcat-ap/jsonld'
 import { buildPagesTree, type PagesProvider } from '@/lib/dcat-ap/pages-deployment'
 import { clearPagesSite, savePagesSite } from '@/lib/dcat-ap/pages-site-files'
@@ -29,18 +30,21 @@ interface PublicationContext {
 
 /** The files of a published catalog, as the ZIP names them. The Pages site is
  *  built from the same list, so both always carry the same files. */
-const PUBLICATION_FILES: { name: string; build: (ctx: PublicationContext) => string }[] = [
-  { name: 'catalog.html', build: (ctx) => generateCatalogHtml(ctx) },
-  { name: 'concepts.csv', build: ({ cache, catalog }) => buildConceptsCsv(cache.concepts, catalog) },
-  { name: 'dimensions.csv', build: ({ cache, catalog }) => buildDimensionsCsv(cache.dimensions, catalog) },
-  {
-    name: 'metadata.jsonld',
-    build: ({ catalog, cache, schemaMapping, fullSchema }) =>
-      JSON.stringify(buildJsonLd({ metadata: catalog.dcatApMetadata ?? {}, schemaMapping, cache, catalog, fullSchema }), null, 2),
-  },
-]
+function publicationFiles(ctx: PublicationContext): { name: string; content: string }[] {
+  const { catalog, cache, schemaMapping, fullSchema } = ctx
+  const published = buildPublishedCatalog(catalog, cache)
+  return [
+    { name: 'catalog.html', content: generateCatalogHtml(ctx) },
+    { name: 'concepts.csv', content: buildConceptsCsv(cache.concepts, catalog) },
+    ...published.crossings.map((c) => ({ name: crossingCsvPath(c.id), content: buildCrossingCsv(published, c) })),
+    {
+      name: 'metadata.jsonld',
+      content: JSON.stringify(buildJsonLd({ metadata: catalog.dcatApMetadata ?? {}, schemaMapping, cache, catalog, fullSchema }), null, 2),
+    },
+  ]
+}
 
-export const PUBLICATION_FILE_NAMES = PUBLICATION_FILES.map((f) => f.name)
+export const PUBLICATION_FILE_NAMES = ['catalog.html', 'concepts.csv', crossingCsvPath('…'), 'metadata.jsonld']
 
 /** Builds the published catalog (standalone HTML, the ZIP with CSVs and JSON-LD,
  *  or the Pages site stored with the catalog) from the computed results. */
@@ -73,7 +77,7 @@ export function useCatalogPublish(catalog: DataCatalog, cache: CatalogResultCach
   const buildFiles = useCallback(async () => {
     if (!cache) return null
     const ctx: PublicationContext = { catalog, cache, schemaMapping, fullSchema: await getFullSchema() }
-    return PUBLICATION_FILES.map((f) => ({ name: f.name, content: f.build(ctx) }))
+    return publicationFiles(ctx)
   }, [catalog, cache, schemaMapping, getFullSchema])
 
   const downloadHtml = useCallback(async () => {

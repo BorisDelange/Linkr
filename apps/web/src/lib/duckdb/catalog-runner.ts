@@ -247,6 +247,10 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
     emit(catalogId, { phase: 'crossings', computed: offset, total: null })
     const plan = await planCrossings(catalog, mapping, query, cache.concepts)
     const total = plan.units.length
+    // A crossing split into concept chunks stores its rows as one list, so the
+    // chunks before the offset cannot be told apart from the rest: resume it
+    // from its first chunk.
+    while (offset > 0 && offset < total && plan.units[offset - 1].crossingId === plan.units[offset].crossingId) offset--
     emit(catalogId, { computed: offset, total })
 
     const results = new Map<string, CatalogCrossingResult>()

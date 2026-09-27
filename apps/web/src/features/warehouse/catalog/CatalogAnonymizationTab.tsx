@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ShieldCheck, Eye, EyeOff, AlertTriangle, Replace } from 'lucide-react'
+import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
+import { computeCrossingMasks, publishedCellShare, publishedPatientShare } from '@/lib/data-catalog/suppression'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
@@ -20,6 +22,7 @@ import { useCatalogStore } from '@/stores/catalog-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { cn } from '@/lib/utils'
+import { yieldClass } from './yield-class'
 import type { DataCatalog, CatalogResultCache, AnonymizationMode } from '@/types'
 
 interface Props {
@@ -37,46 +40,64 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   const previewThreshold = Math.max(0, parseInt(thresholdInput) || 0)
   const isDirty = previewThreshold !== catalog.anonymization.threshold || mode !== (catalog.anonymization.mode ?? 'replace')
 
-  // Compute anonymization impact
+  // What the threshold being previewed would mask, before it is saved: the
+  // concept list's rows below it, and every crossing's primary and secondary cells.
+  const masks = useMemo(() => computeCrossingMasks(cache.crossings ?? [], previewThreshold), [cache.crossings, previewThreshold])
   const impact = useMemo(() => {
-    const allRows = [...cache.concepts, ...cache.dimensions]
-    const affectedRows = allRows.filter((r) => r.patientCount < previewThreshold).length
-    const unaffectedRows = allRows.length - affectedRows
-
-    // Per-concept analysis: a concept can have rows both above and below threshold
-    // (e.g. from different dictionaries). "Partial" = has both above and below rows.
-    const conceptBuckets = new Map<string | number, { above: number; below: number }>()
-    for (const row of cache.concepts) {
-      const key = row.conceptId
-      const bucket = conceptBuckets.get(key) ?? { above: 0, below: 0 }
-      if (row.patientCount < previewThreshold) bucket.below++
-      else bucket.above++
-      conceptBuckets.set(key, bucket)
+    const lostConcepts = cache.concepts.filter((r) => r.patientCount < previewThreshold).length
+    let cells = 0
+    let primary = 0
+    let secondary = 0
+    for (const m of masks.values()) {
+      cells += m.cells
+      primary += m.primary
+      secondary += m.secondary
     }
-    let lostConcepts = 0
-    let partialConcepts = 0
-    for (const bucket of conceptBuckets.values()) {
-      if (bucket.above === 0) lostConcepts++ // all rows below threshold
-      else if (bucket.below > 0) partialConcepts++ // some rows below, some above
-    }
-
-    const affectedPct = allRows.length > 0 ? Math.round((affectedRows / allRows.length) * 100) : 0
-    const unaffectedPct = allRows.length > 0 ? Math.round((unaffectedRows / allRows.length) * 100) : 100
-    const partialPct = cache.concepts.length > 0 ? Math.round((partialConcepts / conceptBuckets.size) * 100) : 0
-
+    const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 100) : 0)
     return {
-      totalRows: allRows.length,
-      affectedRows,
-      affectedPct,
-      unaffectedRows,
-      unaffectedPct,
-      totalConcepts: conceptBuckets.size,
+      totalConcepts: cache.concepts.length,
       lostConcepts,
-      partialConcepts,
-      partialPct,
-      retainedPct: unaffectedPct,
+      lostConceptsPct: pct(lostConcepts, cache.concepts.length),
+      cells,
+      primary,
+      primaryPct: pct(primary, cells),
+      secondary,
+      secondaryPct: pct(secondary, cells),
+      publishedPct: cells > 0 ? 100 - pct(primary + secondary, cells) : 100,
     }
-  }, [cache.concepts, cache.dimensions, previewThreshold])
+  }, [cache.concepts, masks, previewThreshold])
+
+  const rows = useMemo<CrossingImpact[]>(() => (cache.crossings ?? []).map((c) => {
+    const m = masks.get(c.id)!
+    return {
+      id: c.id,
+      label: c.variables.map((v) => t(`data_catalog.var_${v}`)).join(' × '),
+      size: c.variables.length,
+      cells: m.cells,
+      primary: m.primary,
+      secondary: m.secondary,
+      published: Math.round(publishedCellShare(m) * 1000) / 10,
+      patients: Math.round(publishedPatientShare(m) * 1000) / 10,
+    }
+  }), [cache.crossings, masks, t])
+
+  const columns = useMemo<DataTableColumn<CrossingImpact>[]>(() => {
+    const num = (id: keyof CrossingImpact, header: string, suffix = ''): DataTableColumn<CrossingImpact> => ({
+      id, header, accessor: (r) => r[id] as number, display: (r) => `${(r[id] as number).toLocaleString()}${suffix}`,
+      align: 'right', cellClassName: 'tabular-nums', size: 110,
+    })
+    return [
+      { id: 'label', header: t('data_catalog.crossing'), accessor: (r) => r.label, filter: 'text', size: 240 },
+      num('cells', t('data_catalog.anon_cells')),
+      num('primary', t('data_catalog.anon_primary')),
+      num('secondary', t('data_catalog.anon_secondary')),
+      {
+        ...num('published', t('data_catalog.anon_published_cells'), ' %'),
+        cell: (r) => <span className={cn('tabular-nums', yieldClass(r.published))}>{`${r.published.toLocaleString()} %`}</span>,
+      },
+      num('patients', t('data_catalog.anon_published_patients'), ' %'),
+    ]
+  }, [t])
 
   const handleSave = async () => {
     await updateCatalog(catalog.id, {
@@ -84,8 +105,6 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
     })
   }
 
-  const affectedLabel = mode === 'replace' ? t('data_catalog.anon_replaced_rows') : t('data_catalog.anon_suppressed_rows')
-  const conceptsValue = mode === 'suppress' ? impact.lostConcepts : impact.partialConcepts
 
   return (
     // Capped like the Configuration and Publish tabs: these are forms, and a
@@ -139,54 +158,64 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
       {/* Impact of the threshold being previewed, before it is saved */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatCard
-          icon={mode === 'replace' ? <Replace size={18} /> : <EyeOff size={18} />}
-          iconBg={mode === 'replace' ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-red-500/10 text-red-600 dark:text-red-400'}
-          value={impact.affectedRows.toLocaleString()}
-          label={affectedLabel}
-          detail={<Share pct={impact.affectedPct} className="text-amber-600 dark:text-amber-400" />}
+          icon={<EyeOff size={18} />}
+          iconBg="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+          value={impact.primary.toLocaleString()}
+          label={t('data_catalog.anon_primary_cells')}
+          detail={<Share pct={impact.primaryPct} className="text-amber-600 dark:text-amber-400" />}
         />
         <StatCard
-          icon={<Eye size={18} />}
-          iconBg="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-          value={impact.unaffectedRows.toLocaleString()}
-          label={t('data_catalog.anon_retained_rows')}
-          detail={<Share pct={impact.unaffectedPct} className="text-emerald-600 dark:text-emerald-400" />}
+          icon={<Replace size={18} />}
+          iconBg="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+          value={impact.secondary.toLocaleString()}
+          label={t('data_catalog.anon_secondary_cells')}
+          detail={<Share pct={impact.secondaryPct} className="text-amber-600 dark:text-amber-400" />}
         />
         <StatCard
           icon={<AlertTriangle size={18} />}
-          iconBg="bg-amber-500/10 text-amber-600 dark:text-amber-400"
-          value={conceptsValue.toLocaleString()}
-          label={mode === 'suppress' ? t('data_catalog.anon_lost_concepts') : t('data_catalog.anon_partial_concepts')}
-          detail={<Share pct={impact.partialPct} className="text-amber-600 dark:text-amber-400" />}
+          iconBg="bg-red-500/10 text-red-600 dark:text-red-400"
+          value={impact.lostConcepts.toLocaleString()}
+          label={mode === 'suppress' ? t('data_catalog.anon_lost_concepts') : t('data_catalog.anon_masked_concepts')}
+          detail={<Share pct={impact.lostConceptsPct} className="text-red-600 dark:text-red-400" />}
         />
         <StatCard
-          icon={<ShieldCheck size={18} />}
+          icon={<Eye size={18} />}
           iconBg={`${ENTITY_COLORS['data-catalog'].bg} ${ENTITY_COLORS['data-catalog'].icon}`}
-          value={`${impact.retainedPct}%`}
-          label={t('data_catalog.anon_retained_pct')}
-          detail={<Progress value={impact.retainedPct} className="mt-1.5 h-1.5" />}
+          value={`${impact.publishedPct}%`}
+          label={t('data_catalog.anon_published_cells')}
+          detail={<Progress value={impact.publishedPct} className="mt-1.5 h-1.5" />}
         />
       </div>
 
-      <Card className="grid grid-cols-2 gap-4 p-5 lg:grid-cols-4">
-        <Figure label={t('data_catalog.anon_total_rows')} value={impact.totalRows.toLocaleString()} />
-        <Figure label={t('data_catalog.anon_total_concepts')} value={impact.totalConcepts.toLocaleString()} />
-        <Figure label={t('data_catalog.anon_partial_concepts')} value={`${impact.partialConcepts.toLocaleString()} (${impact.partialPct}%)`} />
-        <Figure label={t('data_catalog.anon_lost_concepts')} value={impact.lostConcepts.toLocaleString()} />
-      </Card>
+      {rows.length > 0 && (
+        <div className="overflow-hidden rounded-lg border bg-card">
+          <DataTable
+            data={rows}
+            columns={columns}
+            rowKey={(r) => r.id}
+            pageSize={50}
+            initialSorting={{ columnId: 'published', desc: false }}
+            emptyMessage={t('data_catalog.no_results')}
+          />
+        </div>
+      )}
+      <p className="text-xs text-muted-foreground">{t('data_catalog.anon_secondary_hint')}</p>
     </div>
   )
 }
+
+interface CrossingImpact {
+  id: string
+  label: string
+  size: number
+  cells: number
+  primary: number
+  secondary: number
+  published: number
+  patients: number
+}
+
 
 function Share({ pct, className }: { pct: number; className?: string }) {
   return <span className={cn('text-sm font-semibold tabular-nums', className)}>{pct}%</span>
-}
-
-function Figure({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <div className="truncate text-xs text-muted-foreground">{label}</div>
-      <div className="text-sm font-semibold tabular-nums">{value}</div>
-    </div>
-  )
 }

@@ -1,15 +1,19 @@
 /**
  * Standalone HTML export for concept catalogs: one self-contained page (inline
  * CSS, SVG and script, no network request) with the JSON-LD embedded for
- * machines, and four tabs — Metadata, Schema, Overview, Concepts. Same visual
- * language as the cohort report. Anonymisation: rows below the threshold are
- * either capped (replace) or removed (suppress) before anything is rendered.
+ * machines, and three tabs — Explore, Metadata, Schema. Same visual language as
+ * the cohort report.
+ *
+ * Nothing unmasked reaches the page: the crossings come from
+ * `buildPublishedCatalog` (masked cells carry no number), and concepts below
+ * the threshold are capped (replace) or removed (suppress) before being inlined.
  */
 
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogDimensionRow, SchemaMapping, AnonymizationMode, DimensionConfig } from '@/types'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow, SchemaMapping, AnonymizationMode } from '@/types'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
-import { columnChart, donut, horizontalBars, verticalBars, escapeXml as esc, type ChartItem } from '@/lib/cohort-report/charts'
+import { escapeXml as esc } from '@/lib/cohort-report/charts'
+import { buildPublishedCatalog } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from './jsonld'
 import { localized } from '@/lib/localized'
 import { DCAT_FIELDS, DCAT_VOCABULARIES, HEALTHDCATAP_RELEASE, normalizeDcatMetadata, type DcatClass } from './schema'
@@ -49,28 +53,29 @@ export function generateCatalogHtml(opts: ExportHtmlOptions): string {
   const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
 
   const concepts = anonymize(cache.concepts, threshold, mode).sort((a, b) => b.patientCount - a.patientCount)
-  const dimensions = anonymize(cache.dimensions, threshold, mode)
-  const periods = cache.periods ?? []
+  const published = buildPublishedCatalog(catalog, cache)
 
   const metadata = catalog.dcatApMetadata ?? {}
   const jsonLd = JSON.stringify(buildJsonLd({ metadata, schemaMapping, fullSchema, cache, catalog }), null, 2)
 
   const catalogTitle = (metadata['catalog.title'] as string) || localized(catalog.name, 'en')
   const catalogDesc = (metadata['catalog.description'] as string) || localized(catalog.description, 'en') || ''
-  const publisher = (metadata['agent.name'] as string) || (metadata['catalog.publisher'] as string) || ''
+  const publisher = (metadata['publisher.name'] as string) || (metadata['agent.name'] as string) || ''
   const generated = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
 
-  const table = buildConceptTable(concepts, catalog)
+  const table = buildConceptTable(concepts)
   const schema = buildSchemaSection(fullSchema, schemaMapping)
   const totals = {
     patients: cache.totalPatients,
-    visits: cache.totalVisits,
+    stays: cache.totalVisits,
     concepts: new Set(concepts.map((r) => r.conceptId)).size,
     records: cache.grandTotal.totalRecords,
   }
 
   const tab = (id: string, label: string, ico: IconName, count?: number, active = false) =>
     `<button class="tab${active ? ' active' : ''}" data-tab="${id}" role="tab" aria-selected="${active}">${icon(ico)}${label}${count != null ? `<span class="count num">${fmt(count)}</span>` : ''}</button>`
+  const kpi = (value: number, label: string, ico: IconName) =>
+    `<div class="kpi"><div class="kpi-ico">${icon(ico, 16)}</div><div><div class="v num">${fmt(value)}</div><div class="l">${label}</div></div></div>`
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -90,14 +95,21 @@ ${jsonLd.replace(/</g, '\\u003c')}
     <h1>${esc(catalogTitle)}</h1>
     ${catalogDesc ? `<p class="desc">${esc(catalogDesc)}</p>` : ''}
     <nav class="tabs" role="tablist">
-      ${tab('metadata', 'Metadata', 'fileText', undefined, true)}
+      ${tab('explore', 'Explore', 'barChart', undefined, true)}
+      ${tab('metadata', 'Metadata', 'fileText')}
       ${tab('schema', 'Schema', 'table', schema.tableCount || undefined)}
-      ${tab('overview', 'Overview', 'barChart')}
-      ${tab('concepts', 'Concepts', 'tags', concepts.length)}
     </nav>
   </header>
 
-  <section id="tab-metadata" class="tab-content active">
+  <section id="tab-explore" class="tab-content active">
+    <div class="kpis">${kpi(totals.patients, 'Patients', 'user')}${kpi(totals.stays, 'Stays', 'stethoscope')}${kpi(totals.concepts, 'Concepts', 'tags')}${kpi(totals.records, 'Records', 'activity')}</div>
+    <div class="explore">
+      <aside class="card xp-side" id="xp-side" aria-label="Display and filters"></aside>
+      <div class="xp-main" id="xp-main"></div>
+    </div>
+  </section>
+
+  <section id="tab-metadata" class="tab-content">
     <div class="section-head">
       <h2>Metadata</h2><span class="sub">Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · EHDS Regulation (EU) 2025/327</span><span class="spacer"></span>
       <button class="btn" id="open-jsonld" type="button" title="View the raw JSON-LD source">${icon('code')}JSON-LD</button>
@@ -110,6 +122,7 @@ ${buildMetadataHtml(metadata)}
       <div class="dialog-head">
         <div class="dialog-title" id="jsonld-title">${icon('code', 16)}JSON-LD source</div>
         <button class="btn" id="copy-jsonld" type="button">${icon('copy', 13)}<span>Copy</span></button>
+        <button class="btn" id="download-jsonld" type="button">${icon('download', 13)}Download</button>
         <button class="btn icon-only" id="close-jsonld" type="button" title="Close" aria-label="Close">${icon('x', 16)}</button>
       </div>
       <pre class="dialog-body"><code id="jsonld-code">${syntaxHighlight(jsonLd)}</code></pre>
@@ -123,119 +136,34 @@ ${buildMetadataHtml(metadata)}
 ${schema.html}
   </section>
 
-  <section id="tab-overview" class="tab-content">
-    <div class="section-head">
-      <h2>Overview</h2><span class="sub">Population and activity covered by the catalog</span><span class="spacer"></span>
-      ${periods.length ? `<div class="ov-controls">
-        <span class="lbl">Period</span>
-        <div class="seg" id="granularity"><button type="button" class="active" data-gran="all">All</button><button type="button" data-gran="month">Month</button><button type="button" data-gran="quarter">Quarter</button><button type="button" data-gran="year">Year</button></div>
-        <select id="period-filter" class="select"><option value="">All periods</option></select>
-      </div>` : ''}
-    </div>
-${buildOverviewHtml(catalog.dimensions.filter((d) => d.enabled), dimensions, totals, threshold, periods.length > 0)}
-  </section>
-
-  <section id="tab-concepts" class="tab-content">
-    <div class="section-head">
-      <h2>Concepts</h2><span class="sub">Distinct patients, hospitalizations and records per concept</span>
-    </div>
-    <div class="card dt" id="concept-dt"></div>
-  </section>
-
   <footer>
-    <span>${icon('shield', 12)}Anonymisation threshold: ${threshold} patients · ${mode === 'suppress' ? 'rows below it removed' : 'counts below it capped'}</span>
+    <span>${icon('shield', 12)}Anonymisation: counts below ${threshold} patients are masked, and cells that would reveal them by subtraction too</span>
     <span>Health-DCAT-AP Release ${HEALTHDCATAP_RELEASE} · EHDS Regulation (EU) 2025/327</span>
     <span>Generated with Linkr</span>
   </footer>
 </div>
 
 <script>
-var CONCEPTS = ${inlineJson(table.rows)};
-var CONCEPT_COLS = ${inlineJson(table.cols)};
-var PERIODS = ${inlineJson(periods)};
-var META = ${inlineJson({
+var DATA = ${inlineJson({
     threshold,
-    totalPatients: totals.patients,
-    totalVisits: totals.visits,
+    variables: published.variables,
+    crossings: published.crossings,
+    concepts: table,
+    totals,
+  })};
+var META = ${inlineJson({
     fileBase: fileSlug(catalogTitle),
     conceptNote: icon('shield', 13) + (mode === 'suppress' ? `Concepts with fewer than ${threshold} patients are not listed` : `Counts below ${threshold} patients are shown as &lt; ${threshold}`),
   })};
 var ICONS = ${inlineJson({
     up: icon('arrowUp', 11), down: icon('arrowDown', 11), both: icon('arrowUpDown', 11),
     search: icon('search', 14), x: icon('x', 13), download: icon('download', 13),
-    left: icon('chevronLeft', 14), right: icon('chevronRight', 14),
+    left: icon('chevronLeft', 14), right: icon('chevronRight', 14), shield: icon('shield', 13),
   })};
 ${CATALOG_SCRIPT}
 </script>
 </body>
 </html>`
-}
-
-// ---------------------------------------------------------------------------
-// Overview
-// ---------------------------------------------------------------------------
-
-/** Age bands sort on their lower bound: "5–9" before "10–14", "[0;18[" before "[18;25[". */
-function leadingNumber(label: string): number {
-  const m = /\d+/.exec(label)
-  return m ? Number(m[0]) : Infinity
-}
-
-// A daily admission axis over years would be thousands of hairline bars.
-const MAX_TIME_BARS = 500
-
-function buildOverviewHtml(
-  enabledDims: DimensionConfig[],
-  dimensions: Anonymized<CatalogDimensionRow>[],
-  totals: { patients: number; visits: number; concepts: number; records: number },
-  threshold: number,
-  hasPeriods: boolean,
-): string {
-  const kpi = (key: string, value: number, label: string, periodNote = false) =>
-    `<div class="kpi" data-kpi="${key}"><div class="v num">${fmt(value)}</div><div class="l">${label}</div>${periodNote && hasPeriods ? '<div class="s" style="display:none">all periods</div>' : ''}</div>`
-  const kpis = `    <div class="kpis">${kpi('patients', totals.patients, 'Patients')}${kpi('visits', totals.visits, 'Hospitalizations')}${kpi('concepts', totals.concepts, 'Concepts', true)}${kpi('records', totals.records, 'Records', true)}</div>`
-
-  const charts = enabledDims.flatMap((dim) => {
-    const rows = dimensions.filter((r) => r.dimensionId === dim.id)
-    if (!rows.length) return []
-    const title = dim.label || dim.id.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    let items: ChartItem[] = rows.map((r) => ({
-      label: String(r.value),
-      count: { value: r.patientCount, label: r._anonymized ? `<${threshold}` : fmt(r.patientCount) },
-    }))
-    let svg: string
-    let size: 'compact' | 'full'
-    if (dim.type === 'age_group') {
-      items.sort((a, b) => leadingNumber(a.label) - leadingNumber(b.label) || a.label.localeCompare(b.label))
-      svg = columnChart(items, { title, unit: 'patients' })
-      size = 'compact'
-    } else if (dim.type === 'sex') {
-      items.sort((a, b) => (b.count.value ?? 0) - (a.count.value ?? 0))
-      svg = donut(items, { title, locale: 'en', centerValue: fmt(totals.patients), centerLabel: 'patients' })
-      size = 'compact'
-    } else if (dim.type === 'admission_date') {
-      items.sort((a, b) => a.label.localeCompare(b.label))
-      items = items.slice(-MAX_TIME_BARS)
-      svg = verticalBars(items, { title, width: 1100, height: 260 })
-      size = 'full'
-    } else {
-      items.sort((a, b) => (b.count.value ?? 0) - (a.count.value ?? 0))
-      svg = horizontalBars(items.slice(0, 30), { title, width: 1100 })
-      size = 'full'
-    }
-    const anonymized = rows.some((r) => r._anonymized)
-    return [`    <div class="card chart ${size}" data-dim="${esc(dim.type)}" data-title="${esc(title)}">
-      <h3 class="eyebrow">${esc(title)}</h3>
-      <div class="chart-body">${svg}</div>
-      ${anonymized ? `<p class="caption">Counts below ${threshold} patients are shown as &lt;${threshold}.</p>` : ''}
-    </div>`]
-  })
-
-  return [
-    kpis,
-    charts.length ? `    <div class="charts">\n${charts.join('\n')}\n    </div>` : '    <div class="card empty">No demographic dimension was computed for this catalog.</div>',
-    hasPeriods ? '    <div id="heatmaps"></div>' : '',
-  ].join('\n')
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +180,7 @@ interface ConceptCol {
   className?: string
 }
 
-function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[], catalog: DataCatalog) {
+function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[]) {
   const hasDictionary = new Set(concepts.map((r) => r.dictionaryKey).filter(Boolean)).size > 1
   const select = (key: string, label: string): ConceptCol => ({ key, label, type: 'text', filter: 'select', width: 150 })
   const count = (key: string, label: string): ConceptCol => ({ key, label, type: 'number', filter: 'min', width: 130 })
@@ -260,10 +188,10 @@ function buildConceptTable(concepts: Anonymized<CatalogConceptRow>[], catalog: D
     { key: 'conceptId', label: 'Concept ID', type: 'text', filter: 'text', width: 130, className: 'id' },
     { key: 'conceptName', label: 'Concept name', type: 'text', filter: 'text', width: 380, className: 'name' },
     ...(hasDictionary ? [select('dictionaryKey', 'Vocabulary')] : []),
-    ...(catalog.categoryColumn ? [select('category', 'Category')] : []),
-    ...(catalog.subcategoryColumn ? [select('subcategory', 'Subcategory')] : []),
+    ...(concepts.some((r) => r.category != null) ? [select('category', 'Category')] : []),
+    ...(concepts.some((r) => r.subcategory != null) ? [select('subcategory', 'Subcategory')] : []),
     { ...count('patientCount', 'Patients'), className: 'p' },
-    { ...count('visitCount', 'Hospitalizations'), width: 160 },
+    count('visitCount', 'Stays'),
     count('recordCount', 'Records'),
   ]
   const rows = concepts.map((r) => [
@@ -511,33 +439,6 @@ export function buildConceptsCsv(
     rows.push([
       csvEscape(r.conceptId), csvEscape(r.conceptName),
       csvEscape(r.dictionaryKey ?? ''), csvEscape(r.category ?? ''), csvEscape(r.subcategory ?? ''),
-      String(pc), String(vc), String(rc),
-    ].join(','))
-  }
-
-  return rows.join('\n')
-}
-
-/** Build CSV string from dimension rows with anonymization applied. */
-export function buildDimensionsCsv(
-  dimensions: CatalogDimensionRow[],
-  catalog: DataCatalog,
-): string {
-  const threshold = catalog.anonymization.threshold
-  const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
-
-  const header = ['dimension_id', 'dimension_type', 'value',
-    'patient_count', 'visit_count', 'record_count']
-  const rows: string[] = [header.join(',')]
-
-  for (const r of dimensions) {
-    if (mode === 'suppress' && r.patientCount < threshold) continue
-    const belowThreshold = r.patientCount < threshold
-    const pc = mode === 'replace' && belowThreshold ? threshold : r.patientCount
-    const vc = mode === 'replace' && belowThreshold ? threshold : r.visitCount
-    const rc = mode === 'replace' && belowThreshold ? threshold : r.recordCount
-    rows.push([
-      csvEscape(r.dimensionId), csvEscape(r.dimensionType), csvEscape(r.value),
       String(pc), String(vc), String(rc),
     ].join(','))
   }

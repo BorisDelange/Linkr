@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, BedDouble, BookOpen, Search, SlidersHorizontal, Users, X } from 'lucide-react'
+import { BedDouble, BookOpen, Search, SlidersHorizontal, Users, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { StatCard } from '@/components/ui/stat-card'
@@ -13,7 +13,12 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { fuzzyTextMatch } from '@/lib/fuzzy-search'
 import { cn } from '@/lib/utils'
-import type { DataCatalog, CatalogResultCache, CatalogConceptRow, CatalogPeriodRow } from '@/types'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { OTHER_MODALITY, periodLabel } from '@/lib/data-catalog/config'
+import { publishedVariables } from '@/lib/data-catalog/publish'
+import { computeCrossingMasks, PRIMARY, PUBLISHED, SECONDARY, type CellStatus } from '@/lib/data-catalog/suppression'
+import { CATALOG_VARIABLE_ORDER, type CatalogCrossingResult, type CatalogVariableId } from '@/types/catalog'
+import type { DataCatalog, CatalogResultCache, CatalogConceptRow } from '@/types'
 
 interface Props {
   catalog: DataCatalog
@@ -48,121 +53,183 @@ function countColumn<T>(
   }
 }
 
-// ── Period views ─────────────────────────────────────────────────
+// ── Crossings ────────────────────────────────────────────────────
 
-type PeriodView = 'demographics' | 'services' | 'categories'
+interface Cell { v: number; st: CellStatus }
+interface PivotRow { key: string; name: string; cells: (Cell | null)[]; total: Cell | null; second?: Cell | null }
 
-function PeriodTable({ catalog, cache, view }: Props & { view: PeriodView }) {
+const SEP = '\u0001'
+
+/** A crossing's cells by their modalities, with the status the publication gives each. */
+function indexCrossing(crossing: CatalogCrossingResult | undefined, status: Uint8Array | undefined, metric: 'patients' | 'second') {
+  const map = new Map<string, Cell>()
+  crossing?.rows.forEach((r, i) => {
+    const v = metric === 'patients' ? r.patients : (r.records ?? r.stays ?? 0)
+    map.set(r.values.join(SEP), { v, st: (status?.[i] ?? PUBLISHED) as CellStatus })
+  })
+  return map
+}
+
+function CountCell({ cell, threshold }: { cell: Cell | null | undefined; threshold: number }) {
   const { t } = useTranslation()
+  if (!cell) return <span className="text-muted-foreground/50">{`< ${threshold}`}</span>
+  if (cell.st === PRIMARY) {
+    return (
+      <span className="text-amber-600 dark:text-amber-400" title={t('data_catalog.masked_primary', { threshold })}>{`< ${threshold}`}</span>
+    )
+  }
+  if (cell.st === SECONDARY) {
+    return (
+      <span className="text-amber-600 line-through decoration-dotted dark:text-amber-400" title={t('data_catalog.masked_secondary')}>
+        {cell.v.toLocaleString()}
+      </span>
+    )
+  }
+  return <>{cell.v.toLocaleString()}</>
+}
+
+function CrossingsView({ catalog, cache }: Props) {
+  const { t, i18n } = useTranslation()
   const threshold = catalog.anonymization.threshold
-  const periods = cache.periods ?? []
-  const allRow = periods.find((r) => r.period_granularity === 'all')
-  const rows = useMemo(() => periods.filter((r) => r.period_granularity !== 'all'), [periods])
+  const crossings = useMemo(
+    () => [...(cache.crossings ?? [])].sort((x, y) => x.variables.length - y.variables.length
+      || CATALOG_VARIABLE_ORDER.indexOf(x.variables[0]) - CATALOG_VARIABLE_ORDER.indexOf(y.variables[0])),
+    [cache.crossings],
+  )
+  const variables = useMemo(() => publishedVariables(catalog, cache), [catalog, cache])
+  const masks = useMemo(() => computeCrossingMasks(cache.crossings ?? [], threshold), [cache.crossings, threshold])
+  const [picked, setPicked] = useState<string | null>(null)
   const [metric, setMetric] = useState<'patients' | 'second'>('patients')
+  const [third, setThird] = useState<string>('')
 
-  const columns = useMemo<DataTableColumn<CatalogPeriodRow>[]>(() => {
-    const period: DataTableColumn<CatalogPeriodRow> = {
-      id: 'period',
-      header: t('data_catalog.period_col_period'),
-      accessor: (r) => r.period_start || r.period_label,
-      display: (r) => r.period_label,
-      filter: 'text',
-      pinned: true,
-      size: 110,
+  const crossing = crossings.find((c) => c.id === picked) ?? crossings.find((c) => c.variables.length === 2) ?? crossings[0]
+  const varLabel = useCallback((v: CatalogVariableId) => t(`data_catalog.var_${v}`), [t])
+  const modName = useCallback((v: CatalogVariableId, code: string, fallback: string) => {
+    if (code === OTHER_MODALITY) return t('data_catalog.other_services')
+    if (v === 'sex') return t(`data_catalog.sex_${code}`)
+    if (v === 'period') return periodLabel(code, i18n.language)
+    return fallback
+  }, [t, i18n.language])
+
+  const view = useMemo(() => {
+    if (!crossing) return null
+    const [a, b, c] = crossing.variables
+    const withConcept = crossing.variables.includes('concept')
+    const sameFact = (vars: CatalogVariableId[]) => vars.includes('concept') === withConcept
+    const byId = (vars: CatalogVariableId[]) => cache.crossings.find((x) => x.id === vars.join('-'))
+    const fixed = c ? (third || variables[c]?.mods[0] || '') : ''
+    // "All" of the third variable reads the 2-way crossing without it.
+    const source = c && third === '__all__' ? byId([a, b]) : crossing
+    const useThird = !!c && third !== '__all__'
+    const cells = indexCrossing(source, source && masks.get(source.id)?.status, metric)
+    const keyOf = (values: Record<string, string>, vars: CatalogVariableId[]) => vars.map((v) => values[v]).join(SEP)
+    const margin = (vars: CatalogVariableId[]) => {
+      const withSlice = useThird ? [...vars, c!] : vars
+      const canon = CATALOG_VARIABLE_ORDER.filter((v) => withSlice.includes(v))
+      const m = sameFact(canon) ? byId(canon) : undefined
+      return m ? { vars: canon, cells: indexCrossing(m, masks.get(m.id)?.status, metric) } : null
     }
-    if (view === 'demographics') {
-      const ageLabels = allRow ? Object.keys(allRow.age_buckets) : []
-      const hasSex = !!allRow && [allRow.sex_m, allRow.sex_f, allRow.sex_other].some((v) => v !== undefined)
-        && catalog.dimensions.some((d) => d.type === 'sex' && d.enabled)
-      return [
-        period,
-        countColumn('n_patients', t('data_catalog.period_col_n_patients'), (r) => r.n_patients, threshold),
-        countColumn('n_sejours', t('data_catalog.period_col_n_sejours'), (r) => r.n_sejours, threshold),
-        ...(hasSex
-          ? [
-              countColumn<CatalogPeriodRow>('sex_m', t('data_catalog.period_col_sex_m'), (r) => r.sex_m, threshold),
-              countColumn<CatalogPeriodRow>('sex_f', t('data_catalog.period_col_sex_f'), (r) => r.sex_f, threshold),
-              countColumn<CatalogPeriodRow>('sex_other', t('data_catalog.period_col_sex_other'), (r) => r.sex_other, threshold),
-            ]
-          : []),
-        ...ageLabels.map((label) =>
-          countColumn<CatalogPeriodRow>(`age_${label}`, label.replace('+inf', '+∞'), (r) => r.age_buckets[label], threshold),
-        ),
-      ]
+    const rowMargin = b ? margin([a]) : null
+    const colMargin = b ? margin([b]) : null
+    const rowVar = variables[a]!
+    const colVar = b ? variables[b]! : null
+    const rows: PivotRow[] = rowVar.mods.map((code, i) => {
+      const at = (colCode?: string): Record<string, string> => ({ [a]: code, ...(b && colCode != null ? { [b]: colCode } : {}), ...(useThird ? { [c!]: fixed } : {}) })
+      const srcVars = source?.variables ?? []
+      return {
+        key: code,
+        name: modName(a, code, rowVar.names[i]),
+        cells: colVar ? colVar.mods.map((cc) => cells.get(keyOf(at(cc), srcVars)) ?? null) : [cells.get(keyOf(at(), srcVars)) ?? null],
+        total: rowMargin ? rowMargin.cells.get(keyOf(at(), rowMargin.vars)) ?? null : null,
+      }
+    }).filter((r) => r.cells.some(Boolean) || r.total)
+    const allRow: PivotRow | null = colVar && colMargin
+      ? {
+        key: '__all__',
+        name: t('data_catalog.row_all', { label: varLabel(a) }),
+        cells: colVar.mods.map((cc) => colMargin.cells.get(keyOf({ [b!]: cc, ...(useThird ? { [c!]: fixed } : {}) }, colMargin.vars)) ?? null),
+        total: null,
+      }
+      : null
+    const mask = source ? masks.get(source.id) : undefined
+    return { a, b, c, colVar, rows, allRow, mask, hasTotal: !!rowMargin, second: withConcept ? 'records' as const : 'stays' as const }
+  }, [crossing, cache.crossings, variables, masks, metric, third, modName, varLabel, t])
+
+  const columns = useMemo<DataTableColumn<PivotRow>[]>(() => {
+    if (!view) return []
+    const first: DataTableColumn<PivotRow> = {
+      id: 'name', header: varLabel(view.a), accessor: (r) => r.name, filter: 'text', pinned: true, size: view.a === 'concept' ? 280 : 160,
     }
-    if (view === 'services') {
-      const labels = allRow ? Object.keys(allRow.services) : []
-      return [
-        period,
-        ...labels.map((svc) =>
-          countColumn<CatalogPeriodRow>(
-            `svc_${svc}`,
-            svc,
-            (r) => (metric === 'patients' ? r.services[svc]?.n_patients : r.services[svc]?.n_sejours),
-            threshold,
-          ),
-        ),
-      ]
-    }
-    const labels = allRow ? Object.keys(allRow.concept_categories) : []
+    const count = (id: string, header: string, get: (r: PivotRow) => Cell | null | undefined): DataTableColumn<PivotRow> => ({
+      id, header, accessor: (r) => get(r)?.v ?? null, cell: (r) => <CountCell cell={get(r)} threshold={threshold} />,
+      align: 'right', cellClassName: 'tabular-nums', size: 96, minSize: 64,
+    })
+    if (!view.colVar) return [first, count('value', metric === 'patients' ? t('data_catalog.col_patients') : t(`data_catalog.col_${view.second}`), (r) => r.cells[0])]
     return [
-      period,
-      ...labels.map((cat) =>
-        countColumn<CatalogPeriodRow>(
-          `cat_${cat}`,
-          cat,
-          (r) => (metric === 'patients' ? r.concept_categories[cat]?.n_patients : r.concept_categories[cat]?.n_rows),
-          threshold,
-        ),
-      ),
+      first,
+      ...view.colVar.mods.map((code, j) => count(`c_${j}`, modName(view.b!, code, view.colVar!.names[j]), (r) => r.cells[j])),
+      ...(view.hasTotal ? [count('total', t('data_catalog.col_total'), (r) => r.total)] : []),
     ]
-  }, [view, allRow, metric, threshold, catalog.dimensions, t])
+  }, [view, metric, threshold, modName, varLabel, t])
 
-  const secondLabel = view === 'services' ? t('data_catalog.period_col_n_sejours') : t('data_catalog.col_records')
+  if (!crossing || !view) return <EmptyState icon={BookOpen} title={t('data_catalog.no_data')} />
+  const thirdVar = view.c ? variables[view.c] : null
+  const allOfThirdComputed = !!view.c && cache.crossings.some((x) => x.id === [view.a, view.b].join('-'))
 
   return (
     <div className="flex flex-col gap-2">
-      {view !== 'demographics' && (
-        <div className="flex justify-end">
-          <Tabs value={metric} onValueChange={(v) => setMetric(v as 'patients' | 'second')}>
-            <TabsList className="h-8">
-              <TabsTrigger value="patients" className="text-xs">{t('data_catalog.period_col_n_patients')}</TabsTrigger>
-              <TabsTrigger value="second" className="text-xs">{secondLabel}</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Select value={crossing.id} onValueChange={(v) => { setPicked(v); setThird('') }}>
+          <SelectTrigger className="h-8 w-64 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {crossings.map((c) => (
+              <SelectItem key={c.id} value={c.id} className="text-xs">{c.variables.map(varLabel).join(' × ')}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        {thirdVar && (
+          <Select value={third || thirdVar.mods[0]} onValueChange={setThird}>
+            <SelectTrigger className="h-8 w-56 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {allOfThirdComputed && (
+                <SelectItem value="__all__" className="text-xs">{t('data_catalog.row_all', { label: varLabel(view.c!) })}</SelectItem>
+              )}
+              {thirdVar.mods.map((code, i) => (
+                <SelectItem key={code} value={code} className="text-xs">{`${varLabel(view.c!)} : ${modName(view.c!, code, thirdVar.names[i])}`}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        {view.mask && (
+          <span className="text-xs text-muted-foreground">
+            {t('data_catalog.crossing_masked_summary', {
+              cells: view.mask.cells.toLocaleString(i18n.language),
+              primary: view.mask.primary.toLocaleString(i18n.language),
+              secondary: view.mask.secondary.toLocaleString(i18n.language),
+            })}
+          </span>
+        )}
+        <div className="flex-1" />
+        <Tabs value={metric} onValueChange={(v) => setMetric(v as 'patients' | 'second')}>
+          <TabsList className="h-8">
+            <TabsTrigger value="patients" className="text-xs">{t('data_catalog.col_patients')}</TabsTrigger>
+            <TabsTrigger value="second" className="text-xs">{t(`data_catalog.col_${view.second}`)}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
       <div className="overflow-hidden rounded-lg border bg-card">
         <DataTable
-          data={rows}
+          key={`${crossing.id}|${third}`}
+          data={view.rows}
           columns={columns}
-          rowKey={(r) => r.period_start || r.period_label}
-          pinnedRows={allRow ? [allRow] : undefined}
+          rowKey={(r) => r.key}
+          pinnedRows={view.allRow ? [view.allRow] : undefined}
           pageSize={100}
           stickyHeader
-          initialSorting={{ columnId: 'period', desc: false }}
           emptyMessage={t('data_catalog.no_results')}
         />
       </div>
-    </div>
-  )
-}
-
-/** Share of masked period cells, shown once above the period tables. */
-function ReliabilityBanner({ score }: { score: number }) {
-  const { t } = useTranslation()
-  const pct = Math.round(score * 100)
-  const warn = pct > 20
-  return (
-    <div
-      className={cn(
-        'flex items-center gap-2 rounded-lg border px-3 py-2 text-xs',
-        warn ? 'border-amber-400/50 bg-amber-50 text-amber-700 dark:bg-amber-950/20 dark:text-amber-400' : 'text-muted-foreground',
-      )}
-    >
-      {warn && <AlertTriangle size={14} className="shrink-0" />}
-      <span className={warn ? 'font-medium' : undefined}>{t('data_catalog.period_reliability_score', { pct })}</span>
-      {warn && <span>— {t('data_catalog.period_reliability_warning')}</span>}
+      <p className="text-[10px] text-muted-foreground">{t('data_catalog.crossing_legend', { threshold })}</p>
     </div>
   )
 }
@@ -183,8 +250,8 @@ function ConceptsView({ catalog, cache }: Props) {
     () => new Set(cache.concepts.map((r) => r.dictionaryKey).filter(Boolean)).size > 1,
     [cache.concepts],
   )
-  const hasCategory = !!catalog.categoryColumn
-  const hasSubcategory = !!catalog.subcategoryColumn
+  const hasCategory = useMemo(() => cache.concepts.some((r) => r.category != null), [cache.concepts])
+  const hasSubcategory = useMemo(() => cache.concepts.some((r) => r.subcategory != null), [cache.concepts])
 
   const facets = useMemo(() => {
     const collect = (get: (r: CatalogConceptRow) => string | null | undefined, rows = cache.concepts) =>
@@ -315,23 +382,9 @@ function ConceptsView({ catalog, cache }: Props) {
 
 // ── Main component ───────────────────────────────────────────────
 
-type SubTab = PeriodView | 'concepts'
-
 export function CatalogDataTab({ catalog, cache }: Props) {
   const { t } = useTranslation()
-  const allRow = cache.periods?.find((r) => r.period_granularity === 'all')
-  const hasPeriods = !!cache.periods?.length
-  const hasServices = !!allRow && Object.keys(allRow.services).length > 0
-  const hasCategories = !!allRow && Object.keys(allRow.concept_categories).length > 0
-
-  const subTabs: { id: SubTab; label: string }[] = [
-    ...(hasPeriods ? [{ id: 'demographics' as const, label: t('data_catalog.subtab_demographics') }] : []),
-    ...(hasServices ? [{ id: 'services' as const, label: t('data_catalog.subtab_services') }] : []),
-    ...(hasCategories ? [{ id: 'categories' as const, label: t('data_catalog.subtab_categories') }] : []),
-    { id: 'concepts', label: t('data_catalog.subtab_concepts') },
-  ]
-  const [tab, setTab] = useState<SubTab>(subTabs[0].id)
-  const current = subTabs.some((s) => s.id === tab) ? tab : subTabs[0].id
+  const [tab, setTab] = useState<'crossings' | 'concepts'>(cache.crossings?.length ? 'crossings' : 'concepts')
 
   return (
     <div className="flex flex-col gap-4 pb-4">
@@ -341,20 +394,16 @@ export function CatalogDataTab({ catalog, cache }: Props) {
         <StatCard icon={<BedDouble size={18} />} iconBg={HUE} value={cache.totalVisits.toLocaleString()} label={t('data_catalog.total_visits')} />
       </div>
 
-      <Tabs value={current} onValueChange={(v) => setTab(v as SubTab)} className="gap-3">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as 'crossings' | 'concepts')} className="gap-3">
         <div className="flex justify-center">
           <TabsList>
-            {subTabs.map((s) => (
-              <TabsTrigger key={s.id} value={s.id}>{s.label}</TabsTrigger>
-            ))}
+            <TabsTrigger value="crossings">{t('data_catalog.subtab_crossings')}</TabsTrigger>
+            <TabsTrigger value="concepts">{t('data_catalog.subtab_concepts')}</TabsTrigger>
           </TabsList>
         </div>
-        {hasPeriods && current !== 'concepts' && <ReliabilityBanner score={cache.periodReliabilityScore ?? 0} />}
-        {(['demographics', 'services', 'categories'] as const).map((view) => (
-          <TabsContent key={view} value={view} className="m-0">
-            <PeriodTable catalog={catalog} cache={cache} view={view} />
-          </TabsContent>
-        ))}
+        <TabsContent value="crossings" className="m-0">
+          <CrossingsView catalog={catalog} cache={cache} />
+        </TabsContent>
         <TabsContent value="concepts" className="m-0">
           {cache.concepts.length ? (
             <ConceptsView catalog={catalog} cache={cache} />

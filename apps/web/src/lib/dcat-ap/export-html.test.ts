@@ -9,24 +9,18 @@ function fixture(mode: 'replace' | 'suppress' = 'replace') {
   const catalog = {
     id: 'c1', workspaceId: 'w1', dataSourceId: 'd1',
     name: { en: `Rennes ICU ${EVIL}` }, description: { en: 'Adult ICU stays' },
-    dimensions: [
-      { id: 'age_group', type: 'age_group', label: 'Age group', enabled: true },
-      { id: 'sex', type: 'sex', label: 'Sex', enabled: true },
-      { id: 'admission_date', type: 'admission_date', label: 'Admissions', enabled: true },
-      { id: 'care_site', type: 'care_site', label: 'Services', enabled: true },
-    ],
+    variables: {
+      age: { enabled: true, brackets: [18] },
+      sex: { enabled: true },
+      period: { enabled: true, granularity: 'month' },
+      service: { enabled: true, level: 'visit', grouping: 'all', topN: 10, groups: {}, unassigned: 'other' },
+      concept: { enabled: false, level: 'concept', categoryColumn: 'domain_id', scope: 'all', topN: 10 },
+    },
+    crossings: [['age', 'sex']],
     anonymization: { threshold: 10, mode },
-    categoryColumn: 'domain_id',
     status: 'ready', createdAt: '', updatedAt: '',
     dcatApMetadata: { 'catalog.title': `ICU catalog ${EVIL}`, 'catalog.description': 'Demo', 'dataset.keyword': 'icu; sepsis' },
   } as unknown as DataCatalog
-
-  const row = (label: string, n: number | null) => ({
-    period_granularity: label === 'ALL' ? 'all' : 'month', period_start: '', period_label: label,
-    n_patients: n, n_sejours: n, sex_m: n, sex_f: n == null ? null : Math.round(n / 2), sex_other: null,
-    age_buckets: { '[0;18[': null, '[18;65[': n }, services: { ICU: { n_patients: n, n_sejours: n } },
-    concept_categories: { Measurement: { n_patients: n, n_rows: n } },
-  })
 
   const cache = {
     catalogId: 'c1', computedAt: '', durationMs: 0,
@@ -34,18 +28,20 @@ function fixture(mode: 'replace' | 'suppress' = 'replace') {
       { conceptId: 1, conceptName: 'Heart rate', dictionaryKey: 'concept', category: 'Measurement', patientCount: 500, visitCount: 600, recordCount: 90000 },
       { conceptId: 2, conceptName: EVIL, dictionaryKey: 'concept', category: 'Condition', patientCount: 3, visitCount: 3, recordCount: 4 },
     ],
-    dimensions: [
-      { dimensionId: 'age_group', dimensionType: 'age_group', value: '18–64', patientCount: 300, visitCount: 1, recordCount: 1 },
-      { dimensionId: 'age_group', dimensionType: 'age_group', value: '5–17', patientCount: 4, visitCount: 1, recordCount: 1 },
-      { dimensionId: 'sex', dimensionType: 'sex', value: 'M', patientCount: 280, visitCount: 1, recordCount: 1 },
-      { dimensionId: 'sex', dimensionType: 'sex', value: 'F', patientCount: 220, visitCount: 1, recordCount: 1 },
-      { dimensionId: 'admission_date', dimensionType: 'admission_date', value: '2024-01', patientCount: 120, visitCount: 1, recordCount: 1 },
-      { dimensionId: 'admission_date', dimensionType: 'admission_date', value: '2024-02', patientCount: 90, visitCount: 1, recordCount: 1 },
-      { dimensionId: 'care_site', dimensionType: 'care_site', value: EVIL, patientCount: 200, visitCount: 1, recordCount: 1 },
+    crossings: [
+      { id: 'period', variables: ['period'], rows: [{ values: ['2024-01'], patients: 120, stays: 130 }, { values: ['2024-02'], patients: 90, stays: 95 }] },
+      { id: 'service', variables: ['service'], rows: [{ values: [EVIL], patients: 200, stays: 210 }] },
+      { id: 'age', variables: ['age'], rows: [{ values: ['[0;18['], patients: 4, stays: 4 }, { values: ['[18;+∞['], patients: 496, stays: 600 }] },
+      { id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 280, stays: 330 }, { values: ['female'], patients: 220, stays: 274 }] },
+      { id: 'age-sex', variables: ['age', 'sex'], rows: [
+        { values: ['[0;18[', 'male'], patients: 4, stays: 4444 },
+        { values: ['[18;+∞[', 'male'], patients: 276, stays: 300 },
+        { values: ['[18;+∞[', 'female'], patients: 220, stays: 270 },
+      ] },
     ],
+    modalities: { period: ['2024-01', '2024-02'], age: ['[0;18[', '[18;+∞['], sex: ['male', 'female'], service: [EVIL] },
     grandTotal: { totalPatients: 500, totalVisits: 640, totalRecords: 90004 },
     totalConcepts: 2, totalPatients: 500, totalVisits: 640,
-    periods: [row('ALL', 500), row('Jan 2024', 120), row('Feb 2024', 90), row('Mar 2024', null)],
   } as unknown as CatalogResultCache
 
   const schemaMapping = {
@@ -100,16 +96,21 @@ describe('generateCatalogHtml', () => {
     expect(html.match(/class="edge"/g)?.length).toBe(5)
   })
 
-  it('caps rows below the threshold in replace mode', () => {
-    const concepts = JSON.parse(/var CONCEPTS = (.*);/.exec(html)![1].replace(/\\u003c/g, '<'))
-    expect(concepts).toContainEqual([2, EVIL, 'Condition', 10, 10, 10, true])
+  const data = (page: string) => JSON.parse(/var DATA = (.*);/.exec(page)![1].replace(/\\u003c/g, '<'))
+
+  it('caps concepts below the threshold in replace mode', () => {
+    expect(data(html).concepts.rows).toContainEqual([2, EVIL, 'Condition', 10, 10, 10, true])
   })
 
-  it('removes rows below the threshold in suppress mode', () => {
-    const suppressed = generateCatalogHtml(fixture('suppress'))
-    const concepts = JSON.parse(/var CONCEPTS = (.*);/.exec(suppressed)![1])
-    expect(concepts).toHaveLength(1)
-    expect(suppressed).not.toContain('5–17')
+  it('removes concepts below the threshold in suppress mode', () => {
+    expect(data(generateCatalogHtml(fixture('suppress'))).concepts.rows).toHaveLength(1)
+  })
+
+  it('inlines crossings without the numbers of masked cells', () => {
+    const { crossings } = data(html)
+    const ageSex = crossings.find((c: { id: string }) => c.id === 'age-sex')
+    expect(ageSex.cells).toContainEqual([0, 0, null, null, 1])
+    expect(html).not.toContain('4444')
   })
 })
 

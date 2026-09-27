@@ -1,4 +1,4 @@
-import type { SchemaMapping, ConceptDictionary, EventTable } from '@/types/schema-mapping'
+import type { SchemaMapping, ConceptDictionary } from '@/types/schema-mapping'
 import type { CatalogVariableId, CatalogVariables, ConceptVariableConfig, PeriodGranularity, ServiceVariableConfig } from '@/types/catalog'
 import { birthYearSql, getEventTablesForDictionary, qualify, qualifyIn } from '@/lib/schema-helpers'
 import { escSql as esc } from '@/lib/format-helpers'
@@ -72,16 +72,19 @@ export function buildConceptListQueries(
     const catCol = categoryColumn ? resolveDictColumn(dict, categoryColumn) : undefined
     const subcatCol = subcategoryColumn ? resolveDictColumn(dict, subcategoryColumn) : undefined
     const cnBaseSql = `SELECT "${dict.idColumn}" AS cid, "${dict.nameColumn}" AS cname${categoryColumn ? `, ${catCol ? `"${catCol}"` : 'NULL'} AS ccat` : ''}${subcategoryColumn ? `, ${subcatCol ? `"${subcatCol}"` : 'NULL'} AS csubcat` : ''} FROM ${qualify(dict)}`
-    const conceptCols = ['cn.cid', 'cn.cname', ...(categoryColumn ? ['cn.ccat'] : []), ...(subcategoryColumn ? ['cn.csubcat'] : [])]
     const catSelect = `${categoryColumn ? ',\n    cn.ccat AS concept_category' : ''}${subcategoryColumn ? ',\n    cn.csubcat AS concept_subcategory' : ''}`
     const eventsSql = eventParts.join('\n    UNION ALL\n    ')
 
+    const visitEnd = vt.endDateColumn ?? vt.startDateColumn
     batchTemplates.push({
       dictKey: dict.key,
+      // Records and patients come from the events alone; a visit counts when
+      // one of the concept's events falls within it. Joining every event to all
+      // of its patient's visits multiplied the records by the visits.
       buildSql: (conceptIds) => {
         const inList = conceptIds.map(lit).join(', ')
         return `WITH events AS (
-  SELECT cid, pid FROM (
+  SELECT cid, pid, edate FROM (
     ${eventsSql}
   ) _evts
   WHERE cid IN (${inList})
@@ -89,19 +92,30 @@ export function buildConceptListQueries(
 concept_names AS (
   ${cnBaseSql}
   WHERE cid IN (${inList})
+),
+per_concept AS (
+  SELECT cid, COUNT(*)::BIGINT AS record_count, COUNT(DISTINCT pid)::BIGINT AS patient_count
+  FROM events
+  GROUP BY cid
+),
+per_visit AS (
+  SELECT e.cid, COUNT(DISTINCT v."${vt.idColumn}")::BIGINT AS visit_count
+  FROM events e
+  JOIN ${qualify(vt)} v ON v."${vt.patientIdColumn}" = e.pid
+    AND e.edate >= CAST(v."${vt.startDateColumn}" AS TIMESTAMP)
+    AND e.edate < CAST(v."${visitEnd}" AS DATE) + INTERVAL 1 DAY
+  GROUP BY e.cid
 )
 SELECT
     cn.cid AS concept_id,
     cn.cname AS concept_name,
     ${lit(dict.key)} AS dictionary_key${catSelect},
-    COUNT(*)::BIGINT AS record_count,
-    COUNT(DISTINCT e.pid)::BIGINT AS patient_count,
-    COUNT(DISTINCT v."${vt.idColumn}")::BIGINT AS visit_count
-FROM events e
-JOIN ${qualify(pt)} p ON e.pid = p."${pt.idColumn}"
-JOIN ${qualify(vt)} v ON e.pid = v."${vt.patientIdColumn}"
-JOIN concept_names cn ON e.cid = cn.cid
-GROUP BY ${conceptCols.join(', ')}`
+    pc.record_count,
+    pc.patient_count,
+    COALESCE(pv.visit_count, 0)::BIGINT AS visit_count
+FROM per_concept pc
+JOIN concept_names cn ON pc.cid = cn.cid
+LEFT JOIN per_visit pv ON pv.cid = pc.cid`
       },
     })
   }
@@ -113,9 +127,11 @@ function buildEventPartsForDict(mapping: SchemaMapping, dict: ConceptDictionary,
   const parts: string[] = []
   for (const { eventTable: et } of getEventTablesForDictionary(mapping, dict.key)) {
     const patientCol = et.patientIdColumn ?? defaultPatientIdColumn
-    parts.push(`SELECT "${et.conceptIdColumn}" AS cid, "${patientCol}" AS pid FROM ${qualify(et)}`)
+    const date = et.dateColumn ? `CAST("${et.dateColumn}" AS TIMESTAMP)` : 'NULL::TIMESTAMP'
+    parts.push(`SELECT "${et.conceptIdColumn}" AS cid, "${patientCol}" AS pid, ${date} AS edate FROM ${qualify(et)}`)
+    // A source column repeating the standard one would count the row twice for that concept.
     if (et.sourceConceptIdColumn) {
-      parts.push(`SELECT "${et.sourceConceptIdColumn}" AS cid, "${patientCol}" AS pid FROM ${qualify(et)}`)
+      parts.push(`SELECT "${et.sourceConceptIdColumn}" AS cid, "${patientCol}" AS pid, ${date} AS edate FROM ${qualify(et)} WHERE "${et.sourceConceptIdColumn}" IS DISTINCT FROM "${et.conceptIdColumn}"`)
     }
   }
   return parts

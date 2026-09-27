@@ -1,6 +1,7 @@
 /**
  * Shared utilities for entity export/import (ZIP and JSON).
  */
+import { normalizeCatalog } from '@/lib/data-catalog/config'
 import JSZip from 'jszip'
 import {
   CONTENT_FILE, EDITS_SUFFIX, editsFileName, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
@@ -3075,10 +3076,10 @@ export async function buildDataCatalogFolder(
   catalog: DataCatalog,
   storage: Storage,
 ): Promise<void> {
-  // `computedPeriods` is the offset of a run paused on THIS instance. Exported,
+  // `computedSteps` is the offset of a run paused on THIS instance. Exported,
   // it would tell the importing instance a computation is half-done that it has
   // no results for, and the Configuration tab would offer to "resume" it.
-  const { computedPeriods: _paused, ...stripped } = stripInstanceFields(catalog) as DataCatalog
+  const { computedSteps: _paused, ...stripped } = stripInstanceFields(catalog) as DataCatalog
   const portable = { ...stripped, dataSourceId: '' } as DataCatalog
   // A disabled deployment is stored as null; the server export drops it, so must this one.
   if (portable.pagesDeployment == null) delete portable.pagesDeployment
@@ -3964,7 +3965,8 @@ export async function applyClonedEntity(
     // pointer, and keep what is stored when nothing matches.
     const { id: _id, workspaceId: _ws, dataSourceId: _dsid, ...rest } =
       dropForeignAuthorId(catalog) as DataCatalog
-    const changes = await withEntityDocs(rest, 'data-catalog') as Partial<DataCatalog>
+    // A repo written before variables and crossings still carries the old configuration.
+    const changes = normalizeCatalog(await withEntityDocs(rest, 'data-catalog') as Partial<DataCatalog>) as Partial<DataCatalog>
     const { restorePagesSiteFiles } = await import('@/lib/dcat-ap/pages-site-files')
     await restorePagesSiteFiles(zip, catalog, storage, targetId, workspaceId)
     if (workspaceId && catalog.dataSourceRef) {
@@ -5177,13 +5179,13 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     const docs = await readEntityDocs(zipData, prefix, cat)
     if (docs.readme) cat.readme = docs.readme
     if (docs.license) cat.license = docs.license
-    catalogs.push(cat)
+    catalogs.push(normalizeCatalog(cat))
   }
   // Flat form written before catalogs moved to a folder.
   for (const [path, entry] of Object.entries(zipData.files)) {
     if (!path.startsWith('catalogs/') || !path.endsWith('.json') || entry.dir) continue
     if (path.slice('catalogs/'.length).includes('/')) continue
-    catalogs.push(JSON.parse(await entry.async('string')))
+    catalogs.push(normalizeCatalog(JSON.parse(await entry.async('string')) as DataCatalog))
   }
 
   // --- service-mappings/ ---

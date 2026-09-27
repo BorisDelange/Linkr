@@ -1,45 +1,110 @@
 import { describe, it, expect } from 'vitest'
-import { generatePeriodIntervals } from './catalog-queries'
+import type { SchemaMapping } from '@/types/schema-mapping'
+import type { CatalogVariables, ServiceVariableConfig } from '@/types/catalog'
+import { ageBucketLabels, defaultCatalogVariables } from '@/lib/data-catalog/config'
+import {
+  ageBucketExpr,
+  buildConceptListQueries,
+  buildCrossingEstimateQuery,
+  buildCrossingQuery,
+  periodExpr,
+  serviceGroupingExpr,
+} from './catalog-queries'
 
-// Pure temporal logic — boundary dates and interval counts must be exact,
-// since the catalog aggregates clinical activity per period.
-describe('generatePeriodIntervals', () => {
-  it('always prepends an ALL interval', () => {
-    const out = generatePeriodIntervals('2024-01-01', '2024-01-31', 'month')
-    expect(out[0]).toEqual({ granularity: 'all', start: '', end: '', label: 'ALL' })
+const mapping = {
+  patientTable: { table: 'person', idColumn: 'person_id', birthDateColumn: 'birth_datetime', birthYearColumn: 'year_of_birth', genderColumn: 'gender_concept_id' },
+  visitTable: { table: 'visit_occurrence', idColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_start_datetime', endDateColumn: 'visit_end_datetime', typeColumn: 'visit_source_value' },
+  visitDetailTable: { table: 'visit_detail', idColumn: 'visit_detail_id', visitIdColumn: 'visit_occurrence_id', patientIdColumn: 'person_id', startDateColumn: 'visit_detail_start_datetime', endDateColumn: 'visit_detail_end_datetime', unitSourceValueColumn: 'visit_detail_source_value' },
+  conceptTables: [{ key: 'concept', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name', categoryColumn: 'domain_id' }],
+  eventTables: {
+    Measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', sourceConceptIdColumn: 'measurement_source_concept_id', patientIdColumn: 'person_id', dateColumn: 'measurement_datetime' },
+  },
+  genderValues: { male: '8507', female: '8532' },
+} as unknown as SchemaMapping
+
+const service = (patch: Partial<ServiceVariableConfig>): ServiceVariableConfig => ({
+  enabled: true, level: 'visit_detail', grouping: 'all', topN: 10, groups: {}, unassigned: 'other', ...patch,
+})
+
+describe('variable expressions', () => {
+  it('writes period modalities that sort chronologically', () => {
+    expect(periodExpr('d', 'month')).toContain("'%Y-%m'")
+    expect(periodExpr('d', 'year')).toContain("'%Y'")
+    expect(periodExpr('d', 'quarter')).toContain("'-Q'")
   })
 
-  it('produces one interval per month, with correct inclusive end dates', () => {
-    const out = generatePeriodIntervals('2024-01-15', '2024-03-20', 'month')
-    const months = out.filter((i) => i.granularity === 'month')
-    expect(months).toHaveLength(3)
-    expect(months[0].start).toBe('2024-01-01')
-    expect(months[0].end).toBe('2024-01-31')
-    // February 2024 is a leap year → 29 days.
-    expect(months[1].end).toBe('2024-02-29')
-    expect(months[2].start).toBe('2024-03-01')
-    expect(months[2].end).toBe('2024-03-31')
+  it('labels age brackets exactly as ageBucketLabels does', () => {
+    const sql = ageBucketExpr(mapping, 'd', [18, 65])!
+    for (const label of ageBucketLabels([18, 65])) expect(sql).toContain(`'${label}'`)
+    // Birth date first, birth year as the fallback: many OMOP ETLs fill only year_of_birth.
+    expect(sql).toMatch(/COALESCE\(EXTRACT\(YEAR FROM AGE\(/)
   })
 
-  it('produces quarter intervals aligned to calendar quarters', () => {
-    const out = generatePeriodIntervals('2024-02-10', '2024-08-01', 'quarter')
-    const quarters = out.filter((i) => i.granularity === 'quarter')
-    // Feb → Q1, Aug → Q3 ⇒ Q1, Q2, Q3.
-    expect(quarters.map((q) => q.label)).toEqual(['Q1 2024', 'Q2 2024', 'Q3 2024'])
-    expect(quarters[0].start).toBe('2024-01-01')
-    expect(quarters[0].end).toBe('2024-03-31')
-    expect(quarters[2].end).toBe('2024-09-30')
+  it('keeps the top services and folds the rest into Other', () => {
+    const sql = serviceGroupingExpr('s', service({ grouping: 'top' }), ['ICU', "O'Neil ward"])
+    expect(sql).toContain("IN ('ICU', 'O''Neil ward') THEN s ELSE '__other__'")
   })
 
-  it('produces one interval per calendar year spanned', () => {
-    const out = generatePeriodIntervals('2022-06-01', '2024-02-01', 'year')
-    const years = out.filter((i) => i.granularity === 'year')
-    expect(years.map((y) => y.label)).toEqual(['2022', '2023', '2024'])
-    expect(years[0]).toMatchObject({ start: '2022-01-01', end: '2022-12-31' })
+  it('maps services to named groups, the rest to Other or to itself', () => {
+    const groups = { 'MICU': 'ICU', 'SICU': 'ICU', 'Cardio': 'Cardiology', 'Ignored': '  ' }
+    const other = serviceGroupingExpr('s', service({ grouping: 'manual', groups }), [])
+    expect(other).toContain("WHEN s IN ('MICU', 'SICU') THEN 'ICU'")
+    expect(other).toContain("WHEN s IN ('Cardio') THEN 'Cardiology'")
+    expect(other).not.toContain('Ignored')
+    expect(other).toMatch(/ELSE '__other__' END$/)
+    expect(serviceGroupingExpr('s', service({ grouping: 'manual', groups, unassigned: 'keep' }), [])).toMatch(/ELSE s END$/)
+  })
+})
+
+describe('buildCrossingQuery', () => {
+  const variables: CatalogVariables = { ...defaultCatalogVariables(), service: service({}) }
+
+  it('counts patients and stays over visits without the concept variable', () => {
+    const sql = buildCrossingQuery({ mapping, variables }, ['age', 'period'])!
+    expect(sql).toContain('AS v_period')
+    expect(sql).toContain('AS v_age')
+    expect(sql).toContain('COUNT(DISTINCT vid)::BIGINT AS stays')
+    // Canonical order, whatever order the variables were given in.
+    expect(sql.indexOf('AS v_period')).toBeLessThan(sql.indexOf('AS v_age'))
   })
 
-  it('handles a range within a single month', () => {
-    const out = generatePeriodIntervals('2024-05-03', '2024-05-20', 'month')
-    expect(out.filter((i) => i.granularity === 'month')).toHaveLength(1)
+  it('counts patients and records over events with it, never a row twice', () => {
+    const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } } }, ['concept', 'sex'])!
+    expect(sql).toContain('COUNT(*)::BIGINT AS records')
+    expect(sql).toContain('IS DISTINCT FROM e."measurement_concept_id"')
+  })
+
+  it('attaches events to the unit stay containing them', () => {
+    const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } } }, ['concept', 'service'])!
+    expect(sql).toContain('ev.edate >= CAST(vd."visit_detail_start_datetime" AS TIMESTAMP)')
+  })
+
+  it('restricts to the concepts of a chunk', () => {
+    const sql = buildCrossingQuery({
+      mapping,
+      variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } },
+      conceptFilter: [{ dictKey: 'concept', ids: ['3000963', '3023314'] }],
+    }, ['concept', 'period'])!
+    expect(sql).toContain("IN ('3000963', '3023314')")
+  })
+
+  it('gives up when a variable cannot be expressed on this mapping', () => {
+    expect(buildCrossingQuery({ mapping: { ...mapping, genderValues: undefined } as SchemaMapping, variables }, ['sex'])).toBeNull()
+  })
+
+  it('estimates within the periods the publication keeps', () => {
+    const sql = buildCrossingEstimateQuery({ mapping, variables }, ['period', 'age'], 10)!
+    expect(sql).toContain('WHERE patients >= 10')
+    expect(sql).toContain('v_period BETWEEN (SELECT lo FROM rng) AND (SELECT hi FROM rng)')
+  })
+})
+
+describe('buildConceptListQueries', () => {
+  it('counts records on the events alone, visits only when an event falls within one', () => {
+    const q = buildConceptListQueries(mapping, 'domain_id')!
+    const sql = q.batchTemplates[0].buildSql([1, 2])
+    expect(sql).toMatch(/per_concept AS \(\s*SELECT cid, COUNT\(\*\)::BIGINT AS record_count/)
+    expect(sql).toContain('e.edate >= CAST(v."visit_start_datetime" AS TIMESTAMP)')
+    expect(sql).toContain('WHERE cid IN (1, 2)')
   })
 })

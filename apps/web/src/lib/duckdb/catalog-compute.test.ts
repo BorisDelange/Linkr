@@ -1,26 +1,60 @@
 import { describe, expect, it } from 'vitest'
-import { parsePeriodRow } from './catalog-compute'
+import type { SchemaMapping } from '@/types/schema-mapping'
+import type { CatalogCrossingResult, DataCatalog } from '@/types'
+import { defaultCatalogVariables } from '@/lib/data-catalog/config'
+import { orderModalities, planCrossings } from './catalog-compute'
 
-const interval = { granularity: 'month' as const, start: '2020-01-01', end: '2020-01-31', label: 'Jan 2020' }
+const mapping = {
+  patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth', genderColumn: 'gender' },
+  visitTable: { table: 'visit', idColumn: 'visit_id', patientIdColumn: 'person_id', startDateColumn: 'start', typeColumn: 'type' },
+  conceptTables: [{ key: 'concept', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name' }],
+  eventTables: { M: { table: 'measurement', conceptIdColumn: 'cid', patientIdColumn: 'person_id', dateColumn: 'd' } },
+  genderValues: { male: 'M', female: 'F' },
+} as unknown as SchemaMapping
 
-describe('parsePeriodRow', () => {
-  it('masks a cell’s stays and rows on its patient count, not on their own value', () => {
-    const row = parsePeriodRow(
-      {
-        n_patients: 3, n_sejours: 40,
-        svc_ICU_pat: 2, svc_ICU_sej: 25,
-        cat_Lab_pat: 12, cat_Lab_rows: 300,
-      },
-      interval, [], ['ICU'], ['Lab'], 10,
-    )
-    expect(row.n_patients).toBeNull()
-    expect(row.n_sejours).toBeNull()
-    expect(row.services.ICU).toEqual({ n_patients: null, n_sejours: null })
-    expect(row.concept_categories.Lab).toEqual({ n_patients: 12, n_rows: 300 })
+function catalog(patch: Partial<DataCatalog> = {}): DataCatalog {
+  return {
+    id: 'c', dataSourceId: 'd', variables: defaultCatalogVariables(), crossings: [],
+    anonymization: { threshold: 10, mode: 'replace' }, ...patch,
+  } as DataCatalog
+}
+
+describe('planCrossings', () => {
+  it('plans the 1-way marginals first, then the chosen crossings', async () => {
+    const plan = await planCrossings(catalog({ crossings: [['age', 'period']] }), mapping, async () => [])
+    expect(plan.units.map((u) => u.crossingId)).toEqual(['period', 'age', 'sex', 'period-age'])
   })
 
-  it('keeps small stay counts when the patient count clears the threshold', () => {
-    const row = parsePeriodRow({ n_patients: 15, n_sejours: 15 }, interval, [], [], [], 10)
-    expect(row.n_sejours).toBe(15)
+  it('splits a concept crossing into chunks and reuses the ranking for the concept marginal', async () => {
+    const ranked = Array.from({ length: 4500 }, (_, i) => ({ concept: String(i), patients: 4500 - i, records: 1 }))
+    const variables = { ...defaultCatalogVariables(), concept: { enabled: true, level: 'concept' as const, scope: 'all' as const, topN: 10 } }
+    const plan = await planCrossings(catalog({ variables, crossings: [['concept', 'sex']] }), mapping, async (sql) => (sql.includes('GROUP BY concept') ? ranked : []))
+    const concept = plan.units.find((u) => u.crossingId === 'concept')!
+    expect(concept.precomputed).toHaveLength(4500)
+    const chunks = plan.units.filter((u) => u.crossingId === 'concept-sex')
+    expect(chunks.map((u) => u.label)).toEqual(['concept-sex (1/3)', 'concept-sex (2/3)', 'concept-sex (3/3)'])
+    expect(chunks[2].conceptFilter).toEqual([{ dictKey: 'concept', ids: ranked.slice(4000).map((r) => r.concept) }])
+  })
+
+  it('keeps the N largest services of a top-N grouping', async () => {
+    const variables = { ...defaultCatalogVariables(), service: { enabled: true, level: 'visit' as const, grouping: 'top' as const, topN: 2, groups: {}, unassigned: 'other' as const } }
+    const plan = await planCrossings(catalog({ variables }), mapping, async (sql) => (sql.includes('AS svc') ? [{ svc: 'A' }, { svc: 'B' }, { svc: 'C' }] : []))
+    expect(plan.ctx.topServices).toEqual(['A', 'B'])
+  })
+})
+
+describe('orderModalities', () => {
+  it('orders periods with their gaps, services by patients with Other last', () => {
+    const variables = { ...defaultCatalogVariables(), service: { enabled: true, level: 'visit' as const, grouping: 'top' as const, topN: 1, groups: {}, unassigned: 'other' as const } }
+    const crossings: CatalogCrossingResult[] = [
+      { id: 'period', variables: ['period'], rows: [{ values: ['2024'], patients: 5 }, { values: ['2021'], patients: 5 }] },
+      { id: 'service', variables: ['service'], rows: [{ values: ['__other__'], patients: 99 }, { values: ['ICU'], patients: 20 }] },
+      { id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 5 }] },
+    ]
+    const out = orderModalities({ variables }, crossings)
+    expect(out.period).toEqual(['2021', '2022', '2023', '2024'])
+    expect(out.service).toEqual(['ICU', '__other__'])
+    expect(out.sex).toEqual(['male', 'female'])
+    expect(out.age?.[0]).toBe('[0;10[')
   })
 })

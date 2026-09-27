@@ -11,6 +11,7 @@
  *   `healthdcatap:analytics`.
  */
 
+import { crossingCsvPath } from '@/lib/data-catalog/publish'
 import type { SchemaMapping, CatalogResultCache, DataCatalog } from '@/types'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
@@ -37,7 +38,7 @@ const MEDIA_TYPE = 'http://www.iana.org/assignments/media-types'
 const LEGISLATION = { '@id': EHDS_LEGISLATION }
 
 /** The files a published catalog is made of — the names the Publish ZIP uses. */
-export const ANALYTICS_FILES = { html: 'catalog.html', concepts: 'concepts.csv', dimensions: 'dimensions.csv' } as const
+export const ANALYTICS_FILES = { html: 'catalog.html', concepts: 'concepts.csv' } as const
 
 export interface BuildJsonLdOptions {
   metadata: Record<string, unknown>
@@ -189,7 +190,8 @@ export function buildJsonLd(opts: BuildJsonLdOptions): Node {
 }
 
 /**
- * The published catalog page and its two CSVs, as analytics distributions.
+ * The published catalog page, the concept CSV and one CSV per crossing, as
+ * analytics distributions.
  *
  * Every distribution needs a `dcat:accessURL`. Without a hosting URL the file
  * names are left relative, which resolves correctly for `metadata.jsonld` read
@@ -208,6 +210,9 @@ function analyticsDistributions(
       ? ` Rows with fewer than ${threshold} patients are removed.`
       : ` Counts below ${threshold} patients are shown as "< ${threshold}".`
     : ''
+  const cellSuppression = threshold != null
+    ? ` Cells with fewer than ${threshold} patients, and cells that would reveal one by subtraction, have empty counts; the status column says which.`
+    : ''
   const dist = (file: string, title: string, description: string, format: string, media: string): Node => ({
     '@type': 'dcat:Distribution',
     'dct:title': title,
@@ -220,15 +225,16 @@ function analyticsDistributions(
   })
   const out = [
     dist(ANALYTICS_FILES.html, 'Concept catalog',
-      `Browsable catalog of the clinical concepts in the warehouse, with patient, stay and record counts, demographic charts and the data schema.${suppression}`,
+      `Browsable catalog of the warehouse: patient, stay and record counts per concept and crossed by period, care unit, age group and sex, with charts and the data schema.${suppression}`,
       'HTML', 'text/html'),
     dist(ANALYTICS_FILES.concepts, 'Concept counts',
       `One row per concept: concept_id, concept_name, vocabulary, category, subcategory, patient_count, visit_count, record_count.${suppression}`,
       'CSV', 'text/csv'),
   ]
-  if (cache.dimensions.length) {
-    out.push(dist(ANALYTICS_FILES.dimensions, 'Demographic breakdowns',
-      `One row per dimension value (age group, sex, admission period, care site): dimension_id, dimension_type, value, patient_count, visit_count, record_count.${suppression}`,
+  for (const crossing of cache.crossings ?? []) {
+    const second = crossing.variables.includes('concept') ? 'records' : 'stays'
+    out.push(dist(crossingCsvPath(crossing.id), `Counts by ${crossing.variables.join(' × ')}`,
+      `One row per non-empty cell: ${crossing.variables.join(', ')}, patients, ${second}, status.${cellSuppression}`,
       'CSV', 'text/csv'))
   }
   return out
