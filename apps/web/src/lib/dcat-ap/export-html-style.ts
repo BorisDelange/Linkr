@@ -175,14 +175,14 @@ code,.mono{font-family:${MONO}}
 .card{background:var(--card);border:1px solid var(--line-soft);border-radius:10px}
 
 .masthead{padding:24px 28px 0;border-bottom:1px solid var(--line-soft)}
-.brand{display:flex;align-items:center;gap:14px;padding-bottom:14px;border-bottom:2px solid var(--blue)}
+.brand{display:flex;align-items:center;justify-content:center;gap:14px;padding-bottom:14px;border-bottom:2px solid var(--blue)}
 .brand svg{flex-shrink:0}
-.brand-t{min-width:0}
+.brand-t{min-width:0;text-align:center}
 .brand-t .eyebrow{margin-top:3px}
 .eyebrow{font-weight:600;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--cyan)}
 .meta-line{font-size:12px;color:var(--muted);margin-top:2px}
 .masthead h1{font-size:22px;line-height:1.2;color:var(--ink);letter-spacing:-.01em}
-.masthead .desc{font-size:14px;max-width:80ch;color:var(--text);margin-top:12px}
+.masthead .desc{font-size:14px;max-width:80ch;color:var(--text);margin:12px auto 0;text-align:center}
 .tabs{display:flex;justify-content:center;gap:4px;margin-top:14px;margin-bottom:-1px;overflow-x:auto}
 .tab{display:inline-flex;align-items:center;gap:7px;padding:10px 14px 11px;font-size:13px;font-weight:500;color:var(--muted);background:none;border:0;border-bottom:2px solid transparent;cursor:pointer;white-space:nowrap;transition:color .15s,border-color .15s}
 .tab:hover{color:var(--ink)}
@@ -282,7 +282,7 @@ ${TABLE_TYPES.map((t) => `.tbl.t-${t} .tbl-head{background:var(--${t}-bg);border
 
 /* Explore */
 ${CHART_CSS}
-.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:16px}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
 .kpi{display:flex;align-items:center;gap:12px;min-width:0;background:var(--card);border:1px solid var(--line-soft);border-radius:10px;padding:11px 13px}
 .kpi-ico{display:flex;flex-shrink:0;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;background:var(--accent-soft);color:var(--blue2)}
 .kpi-t{min-width:0}
@@ -297,7 +297,7 @@ ${CHART_CSS}
 .shows{display:flex;flex-direction:column;gap:2px}
 .select.full{width:100%}
 .info-card{margin-bottom:16px;overflow:hidden}
-.info-body{padding:14px 18px;font-size:13px;color:var(--text);max-width:90ch}
+.info-body{padding:14px 18px;font-size:13px;color:var(--text);text-align:justify;hyphens:auto}
 .info-body p+p,.info-body ul+p,.info-body p+ul{margin-top:8px}
 .info-body ul{padding-left:20px}
 .info-body li{margin:3px 0}
@@ -335,11 +335,12 @@ ${CHART_CSS}
 .slice .select,.slice .input{display:block;width:100%;margin-top:4px}
 .btn.full{width:100%}
 .btn.sm{height:24px;padding:0 8px;font-size:11px;gap:4px}
-.xp-head{margin-bottom:12px}
+.xp-bar{display:flex;align-items:flex-start;gap:12px;margin-bottom:14px}
+.xp-head{flex:1;min-width:0}
 .xp-head h3{font-size:16px;color:var(--ink);line-height:1.3}
 .ctx{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .caption{font-size:11px;color:var(--muted);margin-top:8px}
-@media (max-width:900px){.explore{grid-template-columns:1fr}.xp-side{position:static;max-height:none}.charts{grid-template-columns:1fr}}
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.explore{grid-template-columns:1fr}.xp-side{position:static;max-height:none}.charts{grid-template-columns:1fr}}
 
 /* DataTable (createDataTable in the page script) */
 .dt-csv{height:26px;padding:0 9px;font-size:11px;gap:5px}

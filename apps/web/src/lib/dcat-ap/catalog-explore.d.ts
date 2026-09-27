@@ -20,7 +20,7 @@ export interface ExploreState {
   topN: number
   scale: 'row' | 'all'
   periodMode: 'slider' | 'calendar'
-  show: { stats: boolean; charts: boolean; table: boolean }
+  tab: 'charts' | 'table'
 }
 
 export interface ExploreStat { key: string; label: string; value: string; sub: string; icon: string }

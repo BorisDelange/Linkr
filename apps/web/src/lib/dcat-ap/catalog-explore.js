@@ -30,8 +30,8 @@ export var EXPLORE_TEXT = {
   patients: 'Patients', stays: 'Stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
   masked: 'Masked', masked_sub: 'below {t} patients', masked_cells_sub: '{pct} of the cells', none: 'none',
   cells: 'Cells', cells_sub: '{rows} × {cols}', cells_sub_capped: '{rows} × {cols} shown',
-  highest: 'Highest', largest_cell: 'Largest cell', median_per: 'Median per {unit}', total: 'Total',
-  published_only: 'published values only', published_concepts_only: 'published concepts only', of_n: 'of {n}',
+  highest: 'Highest', largest_cell: 'Largest cell',
+  published_concepts_only: 'published concepts only', of_n: 'of {n}',
   title_by: '{unit} by {vars}',
   over_time: '{unit} over time', per_unit: '{unit} per {unit2}', age_distribution: 'Age distribution',
   by_var: '{unit} by {var}', top_n: 'Top {n} {things}', n_of_m: '{n} of {m}', share_of: 'Share of {unit}',
@@ -159,7 +159,7 @@ export function createExplorer(DATA, opts) {
     topN: 20,
     scale: 'row',
     periodMode: 'slider',
-    show: { stats: true, charts: true, table: true },
+    tab: 'charts', // 'charts' (key figures and charts) or 'table'
   };
   // Derived on every read: the variables drawn as axes and those narrowed to one value.
   var D = { display: [], slice: {} };
@@ -684,16 +684,16 @@ export function createExplorer(DATA, opts) {
     return { title: title, context: sliceText(), stats: globals().concat(stats), blocks: blocks, table: table, empty: empty };
   }
   /** The catalog's own totals, unless the view counts the same thing. */
+  /**
+   * The warehouse's own totals: the first row of key figures, the view's three
+   * figures the second — six cards whatever is displayed.
+   */
   function globals() {
-    var out = [
+    return [
       { key: 'patients', label: tr('patients'), value: fmt(DATA.totals.patients), sub: '', icon: 'user' },
       { key: 'stays', label: tr('stays'), value: fmt(DATA.totals.stays), sub: '', icon: 'stethoscope' },
       { key: 'records', label: tr('records'), value: fmt(DATA.totals.records), sub: '', icon: 'activity' },
     ];
-    var taken = {};
-    stats.forEach(function(s) { taken[s.key] = true; });
-    if (!taken.concepts && DATA.totals.concepts != null) out.splice(2, 0, { key: 'concepts', label: tr('concepts'), value: fmt(DATA.totals.concepts), sub: '', icon: 'tags' });
-    return out.filter(function(s) { return !taken[s.key]; });
   }
 
   function itemsOf(c, v, metric) {
@@ -771,16 +771,7 @@ export function createExplorer(DATA, opts) {
     var masked = items.length - published.length;
     var top = published.slice().sort(function(a, b) { return b.v - a.v; })[0];
     stat(v === 'concept' ? 'concepts' : 'mods', cap(plural(v)), fmt(items.length), '', v === 'concept' ? 'tags' : 'layers');
-    if (top) stat('highest', tr('highest'), compact(top.v), top.name, 'trendingUp');
-    if (vr.kind === 'time' && published.length) {
-      var vals = published.map(function(i) { return i.v; }).sort(function(a, b) { return a - b; });
-      stat('median', tr('median_per', { unit: periodUnit(vr) }), compact(vals[Math.floor(vals.length / 2)]), '', 'barChart');
-    }
-    if (vr.partition[metric] && published.length) {
-      var sum = 0;
-      published.forEach(function(i) { sum += i.v; });
-      stat('total', tr('total'), compact(sum), masked ? tr('published_only') : '', 'sigma');
-    }
+    stat('highest', tr('highest'), top ? compact(top.v) : '—', top ? top.name : '', 'trendingUp');
     stat('masked', tr('masked'), fmt(masked), tr('masked_sub', { t: T }), 'shield');
 
     var note = maskNote(items);
@@ -862,7 +853,7 @@ export function createExplorer(DATA, opts) {
     var biggest = null;
     cells.forEach(function(cell) { var m = measureAt(cell, c, metric); if (m.v != null && (!biggest || m.v > biggest.v)) biggest = { v: m.v, name: rv.names[cell[pos[rowVar]]] + ' · ' + cv.names[cell[pos[colVar]]] }; });
     stat('cells', tr('cells'), fmt(cells.length), tr(capped ? 'cells_sub_capped' : 'cells_sub', { rows: rows.length, cols: cols.length }), 'grid');
-    if (biggest) stat('largest', tr('largest_cell'), compact(biggest.v), biggest.name, 'trendingUp');
+    stat('largest', tr('largest_cell'), biggest ? compact(biggest.v) : '—', biggest ? biggest.name : '', 'trendingUp');
     stat('masked', tr('masked'), fmt(maskedCount), maskedCount ? tr('masked_cells_sub', { pct: pct(maskedCount, cells.length) }) : tr('none'), 'shield');
 
     var rowPartition = rv.partition[metric], colPartition = cv.partition[metric];
@@ -946,9 +937,11 @@ export function createExplorer(DATA, opts) {
     var masked = rows.length - published.length;
     stat('concepts', tr('concepts'), fmt(rows.length), rows.length < LIST.rows.length ? tr('of_n', { n: fmt(LIST.rows.length) }) : '', 'tags');
     if (LCOL.category != null) stat('categories', tr('categories'), fmt(uniqueSorted(rows.map(function(r) { return r[LCOL.category]; })).length), '', 'layers');
-    var recSum = 0;
-    published.forEach(function(r) { recSum += r[LCOL.recordCount] || 0; });
-    stat('records', tr('records'), compact(recSum), masked ? tr('published_concepts_only') : '', 'activity');
+    else {
+      var recSum = 0;
+      published.forEach(function(r) { recSum += r[LCOL.recordCount] || 0; });
+      stat('listed_records', tr('records'), compact(recSum), tr('published_concepts_only'), 'activity');
+    }
     stat('masked', tr('masked'), fmt(masked), tr('masked_sub', { t: T }), 'shield');
 
     var ranked = published.slice().sort(function(a, b) { return b[LCOL[key]] - a[LCOL[key]]; });

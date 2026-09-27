@@ -124,8 +124,24 @@ export function CatalogDataTab({ catalog, cache }: Props) {
       <ExploreSidebar xp={xp} update={update} />
 
       <div className="flex min-w-0 flex-col gap-4" onClick={onChartsClick}>
-        {S.show.stats && view.stats.length > 0 && (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(11rem,1fr))] gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="text-sm font-semibold">{view.title}</h3>
+          {view.context.map((c) => (
+            <span key={c.v} className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', VARIABLE_COLORS[c.v].badge)}>
+              {`${c.label} : ${c.value}`}
+            </span>
+          ))}
+          <span className="flex-1" />
+          <Tabs value={S.tab} onValueChange={(v) => update((x) => { x.S.tab = v as 'charts' | 'table' })}>
+            <TabsList className="h-8">
+              <TabsTrigger value="charts" className="text-xs">{t('data_catalog.xp_tab_charts')}</TabsTrigger>
+              <TabsTrigger value="table" className="text-xs">{t('data_catalog.xp_tab_table')}</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        {S.tab === 'charts' && view.stats.length > 0 && (
+          <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
             {view.stats.map((s) => (
               <StatCard
                 key={s.key}
@@ -140,20 +156,11 @@ export function CatalogDataTab({ catalog, cache }: Props) {
           </div>
         )}
 
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="text-sm font-semibold">{view.title}</h3>
-          {view.context.map((c) => (
-            <span key={c.v} className={cn('rounded-full border px-2 py-0.5 text-[10px] font-medium', VARIABLE_COLORS[c.v].badge)}>
-              {`${c.label} : ${c.value}`}
-            </span>
-          ))}
-        </div>
-
         {view.empty && view.blocks.length === 0 && (
           <Card className="p-8 text-center text-xs text-muted-foreground">{view.empty}</Card>
         )}
 
-        {S.show.charts && view.blocks.length > 0 && (
+        {S.tab === 'charts' && view.blocks.length > 0 && (
           <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
             {view.blocks.map((b, i) => (
               <Card key={`${S.crossing}-${i}-${b.title}`} className={cn('min-w-0 gap-2 p-4', b.size === 'full' && 'xl:col-span-2')}>
@@ -176,7 +183,7 @@ export function CatalogDataTab({ catalog, cache }: Props) {
           </div>
         )}
 
-        {S.show.table && view.table && (
+        {S.tab === 'table' && view.table && (
           <div className="overflow-hidden rounded-lg border bg-card">
             <ExploreDataTable key={`${S.crossing}|${JSON.stringify(view.context)}|${S.metric}`} table={view.table} threshold={catalog.anonymization.threshold} />
           </div>
@@ -285,16 +292,6 @@ function ExploreSidebar({ xp, update }: { xp: Explorer; update: (change?: (x: Ex
           v === 'period' ? <PeriodFilter key={v} xp={xp} update={update} />
             : v === 'concept' && (xp.isListView() || xp.V.concept?.level === 'concept') ? <ConceptFilter key={v} xp={xp} update={update} />
             : <NominalFilter key={v} xp={xp} v={v} update={update} />
-        ))}
-      </div>
-
-      <div className="grid gap-2 border-t pt-3">
-        <SectionLabel>{t('data_catalog.xp_show')}</SectionLabel>
-        {(['stats', 'charts', 'table'] as const).map((k) => (
-          <label key={k} className="flex items-center gap-2 text-xs">
-            <Checkbox checked={S.show[k]} onCheckedChange={(c) => update((x) => { x.S.show[k] = c === true })} />
-            {t(`data_catalog.xp_show_${k}`)}
-          </label>
         ))}
       </div>
 

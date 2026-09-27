@@ -238,10 +238,6 @@ function renderSide() {
     return nominalFilter(v);
   }).join('');
   h += '<div class="xp-sec"><div class="xp-sec-t">Filters</div>' + filters + '</div>';
-  h += '<div class="xp-sec"><div class="xp-sec-t">Show</div><div class="shows">'
-    + [['stats', 'Key figures'], ['charts', 'Charts'], ['table', 'Table']].map(function(o) {
-      return '<label class="check"><input type="checkbox" data-act="show" data-v="' + o[0] + '"' + (S.show[o[0]] ? ' checked' : '') + '><span>' + o[1] + '</span></label>';
-    }).join('') + '</div></div>';
   h += '<button type="button" class="btn full" data-act="reset">' + ICONS.x + 'Reset filters</button>';
   side.innerHTML = h;
   paintRange();
@@ -283,7 +279,6 @@ side.addEventListener('change', function(e) {
   else if (act === 'ccat') S.ccat = el.value;
   else if (act === 'pin') { S.pin = el.value; S.pinVal = null; }
   else if (act === 'pin-val') S.pinVal = el.value === '' ? null : Number(el.value);
-  else if (act === 'show') { S.show[v] = el.checked; renderMain(); return; }
   else if (act === 'cal') {
     var mods = V.period.mods, r = S.range ? S.range.slice() : [0, mods.length - 1];
     var end = Number(el.dataset.end), date = el.value;
@@ -323,7 +318,8 @@ main.addEventListener('click', function(e) {
   var b = e.target.closest('[data-act] button, button[data-act]');
   if (!b) return;
   var act = b.closest('[data-act]').dataset.act;
-  if (act === 'scale') { S.scale = b.dataset.v; renderMain(); }
+  if (act === 'xp-tab') { S.tab = b.dataset.v; renderMain(); }
+  else if (act === 'scale') { S.scale = b.dataset.v; renderMain(); }
   else if (act === 'topn') { S.topN = Number(b.dataset.v); renderMain(); }
   else if (act === 'csv-block') { var bl = current && current.blocks[Number(b.dataset.i)]; if (bl && bl.csv) downloadCsv(bl.csv.name, bl.csv.text()); }
 });
@@ -356,23 +352,28 @@ function tableOptions(t) {
 function renderMain() {
   var view = XP.view();
   current = view;
-  var h = '';
-  if (S.show.stats && view.stats.length) h += '<div class="kpis">' + view.stats.map(kpiHtml).join('') + '</div>';
-  h += '<div class="xp-head"><h3>' + escHtml(view.title) + '</h3>'
+  var h = '<div class="xp-bar"><div class="xp-head"><h3>' + escHtml(view.title) + '</h3>'
     + (view.context.length ? '<div class="ctx">' + view.context.map(function(c) { return '<span class="pill" style="--vc:' + VARIABLE_HEX[c.v] + '">' + escHtml(c.label + ': ' + c.value) + '</span>'; }).join('') + '</div>' : '')
-    + '</div>';
+    + '</div><div class="seg" data-act="xp-tab">'
+    + [['charts', L.charts], ['table', L.table]].map(function(o) { return '<button type="button" data-v="' + o[0] + '"' + (S.tab === o[0] ? ' class="active"' : '') + '>' + escHtml(o[1]) + '</button>'; }).join('')
+    + '</div></div>';
+  if (S.tab === 'table') {
+    h += view.table ? '<div class="card dt" id="xp-table"></div>' : '<div class="card empty">' + escHtml(view.empty) + '</div>';
+    main.innerHTML = h;
+    if (view.table) createDataTable($('xp-table'), tableOptions(view.table));
+    return;
+  }
+  if (view.stats.length) h += '<div class="kpis">' + view.stats.map(kpiHtml).join('') + '</div>';
   if (view.empty && !view.blocks.length) h += '<div class="card empty">' + escHtml(view.empty) + '</div>';
-  if (S.show.charts && view.blocks.length) {
+  if (view.blocks.length) {
     h += '<div class="charts">' + view.blocks.map(function(b, i) {
       return '<div class="card chart ' + b.size + '"><div class="chart-head"><h4>' + escHtml(b.title) + '</h4>' + (b.sub ? '<span class="sub">' + escHtml(b.sub) + '</span>' : '') + '<span class="spacer"></span>' + (b.head || '')
-        + (b.csv ? '<span data-act="csv-block"><button type="button" class="btn sm" data-i="' + i + '" title="Download as CSV">' + ICONS.download + 'CSV</button></span>' : '') + '</div>'
+        + (b.csv ? '<span data-act="csv-block"><button type="button" class="btn sm" data-i="' + i + '" title="' + escHtml(L.download_csv) + '">' + ICONS.download + 'CSV</button></span>' : '') + '</div>'
         + '<div class="chart-body" data-block="' + i + '"></div>' + (b.note ? '<p class="caption">' + escHtml(b.note) + '</p>' : '') + '</div>';
     }).join('') + '</div>';
   }
-  if (S.show.table && view.table) h += '<div class="card dt" id="xp-table"></div>';
   main.innerHTML = h;
   drawCharts();
-  if (S.show.table && view.table) createDataTable($('xp-table'), tableOptions(view.table));
 }
 
 function drawCharts() {

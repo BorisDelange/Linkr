@@ -158,6 +158,7 @@ var META = ${inlineJson({
     fileBase: fileSlug(catalogTitle),
     conceptNote: icon('shield', 13) + (mode === 'suppress' ? `Concepts with fewer than ${threshold} patients are not listed` : `Counts below ${threshold} patients are shown as &lt; ${threshold}`),
   })};
+var L = ${inlineJson({ charts: 'Charts', table: 'Table', download_csv: 'Download as CSV' })};
 var ICONS = ${inlineJson({
     up: icon('arrowUp', 11), down: icon('arrowDown', 11), both: icon('arrowUpDown', 11),
     search: icon('search', 14), x: icon('x', 13), download: icon('download', 13),

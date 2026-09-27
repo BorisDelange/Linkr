@@ -5137,9 +5137,6 @@
       "cells_sub_capped": "{rows} × {cols} affichées",
       "highest": "Maximum",
       "largest_cell": "Plus grande cellule",
-      "median_per": "Médiane par {unit}",
-      "total": "Total",
-      "published_only": "valeurs publiées seulement",
       "published_concepts_only": "concepts publiés seulement",
       "of_n": "sur {n}",
       "title_by": "{unit} par {vars}",
@@ -5211,10 +5208,6 @@
     "xp_group_3": "Trois variables",
     "xp_count": "Compter",
     "xp_filters": "Filtres",
-    "xp_show": "Afficher",
-    "xp_show_stats": "Chiffres clés",
-    "xp_show_charts": "Graphiques",
-    "xp_show_table": "Tableau",
     "xp_reset": "Réinitialiser les filtres",
     "xp_all": "Tous",
     "xp_none": "Aucun",
@@ -5241,7 +5234,9 @@
     "period_units_year": "ans",
     "period_units_quarter": "trimestres",
     "period_units_month": "mois",
-    "service_groups_none": "Sans groupe"
+    "service_groups_none": "Sans groupe",
+    "xp_tab_charts": "Graphiques",
+    "xp_tab_table": "Tableau"
   },
   "dcat": {
     "auto_fill": "Remplissage auto",
