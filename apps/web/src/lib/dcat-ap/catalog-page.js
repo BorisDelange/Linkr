@@ -176,8 +176,45 @@ function crossingPicker() {
   return h + '</select><div class="vbadges">' + XP.varsOf(S.crossing).map(vbadge).join('<span class="x">×</span>') + '</div>';
 }
 
-/** The multi-select open in the sidebar (a variable id), and what its search box holds. */
+/** The dropdown open in the sidebar (a variable id, or PIN for the pinned value), and what its search box holds. */
 var openMs = null, msQuery = {};
+var PIN = '_pin';
+/** How many matching values a dropdown lists: thousands of concepts would freeze the page on every redraw. */
+var LIST_LIMIT = 200;
+
+/** Lower case, accents off: "hemato" finds "Hématologie". */
+function fold(s) { return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase(); }
+
+/** Indices of the names matching the search, and how many more there were past the limit. */
+function matching(names, query) {
+  var q = fold((query || '').trim()), hits = [], more = 0;
+  for (var i = 0; i < names.length; i++) {
+    if (q && fold(names[i]).indexOf(q) === -1) continue;
+    if (hits.length < LIST_LIMIT) hits.push(i);
+    else more++;
+  }
+  return { hits: hits, more: more };
+}
+function listFooter(m) {
+  if (!m.hits.length) return '<div class="opt-note">' + escHtml(L.no_match) + '</div>';
+  return m.more ? '<div class="opt-note">' + escHtml(lx('more_matches', { n: fmt(m.more) })) + '</div>' : '';
+}
+
+function checksHtml(v) {
+  var vr = V[v], sel = S.sel[v], m = matching(vr.names, msQuery[v]);
+  return m.hits.map(function(i) {
+    return '<label class="check"><input type="checkbox" data-act="sel" data-v="' + v + '" data-i="' + i + '"' + (!sel || sel[i] ? ' checked' : '') + '><span>' + escHtml(vr.names[i]) + '</span></label>';
+  }).join('') + listFooter(m);
+}
+
+function pinOptionsHtml() {
+  var vr = V[S.pin], m = matching(vr.names, msQuery[PIN]);
+  var h = XP.canUnpin() && !(msQuery[PIN] || '').trim()
+    ? '<button type="button" class="opt' + (S.pinVal == null ? ' on' : '') + '" data-act="pin-pick" data-i="">' + escHtml(L.all) + '</button>' : '';
+  return h + m.hits.map(function(i) {
+    return '<button type="button" class="opt' + (S.pinVal === i ? ' on' : '') + '" data-act="pin-pick" data-i="' + i + '">' + escHtml(vr.names[i]) + '</button>';
+  }).join('') + listFooter(m);
+}
 
 function nominalFilter(v) {
   var vr = V[v], sel = S.sel[v];
@@ -192,16 +229,11 @@ function nominalFilter(v) {
     // A dropdown with a search box: long lists (services, concept categories) stay out of the way.
     var n = sel ? Object.keys(sel).length : vr.mods.length;
     var label = !sel ? L.all : n === 1 ? vr.names[Number(Object.keys(sel)[0])] : lx('n_selected', { n: n });
-    var q = (msQuery[v] || '').toLowerCase();
     h += '<div class="ms' + (openMs === v ? ' open' : '') + '"><button type="button" class="select ms-btn" data-act="ms-toggle" data-v="' + v + '"><span>' + escHtml(label) + '</span>' + ICONS.chevron + '</button>';
     if (openMs === v) {
       h += '<div class="ms-panel"><input type="search" class="input" data-act="ms-search" data-v="' + v + '" placeholder="' + escHtml(L.search) + '" value="' + escHtml(msQuery[v] || '') + '" autocomplete="off">'
-        + '<div class="ms-links"><button type="button" class="link" data-act="sel-all" data-v="' + v + '">' + escHtml(L.all) + '</button><button type="button" class="link" data-act="sel-none" data-v="' + v + '">' + escHtml(L.none) + '</button><span class="spacer"></span><span class="num">' + n + ' / ' + vr.mods.length + '</span></div><div class="checks">';
-      vr.names.forEach(function(nm, i) {
-        var hide = q && nm.toLowerCase().indexOf(q) === -1;
-        h += '<label class="check" data-name="' + escHtml(nm.toLowerCase()) + '"' + (hide ? ' style="display:none"' : '') + '><input type="checkbox" data-act="sel" data-v="' + v + '" data-i="' + i + '"' + (!sel || sel[i] ? ' checked' : '') + '><span>' + escHtml(nm) + '</span></label>';
-      });
-      h += '</div></div>';
+        + '<div class="ms-links"><button type="button" class="link" data-act="sel-all" data-v="' + v + '">' + escHtml(L.all) + '</button><button type="button" class="link" data-act="sel-none" data-v="' + v + '">' + escHtml(L.none) + '</button><span class="spacer"></span><span class="num">' + n + ' / ' + vr.mods.length + '</span></div>'
+        + '<div class="checks" data-list="' + v + '">' + checksHtml(v) + '</div></div>';
     }
     h += '</div>';
   }
@@ -247,8 +279,10 @@ function pinControl(vars) {
   var vr = V[S.pin];
   var h = '<div class="flt pin"><div class="flt-head">' + dot(S.pin) + '<span>' + escHtml(L.pin_title) + '</span></div>'
     + '<select class="select" data-act="pin">' + vars.map(function(v) { return '<option value="' + v + '"' + (S.pin === v ? ' selected' : '') + '>' + escHtml(XP.varLabel(v)) + '</option>'; }).join('') + '</select>'
-    + '<select class="select" data-act="pin-val">' + (XP.canUnpin() ? '<option value="">' + escHtml(L.all) + '</option>' : '')
-    + vr.names.map(function(nm, i) { return '<option value="' + i + '"' + (S.pinVal === i ? ' selected' : '') + '>' + escHtml(nm) + '</option>'; }).join('') + '</select>'
+    + '<div class="ms' + (openMs === PIN ? ' open' : '') + '"><button type="button" class="select ms-btn" data-act="ms-toggle" data-v="' + PIN + '"><span>' + escHtml(S.pinVal == null ? L.all : vr.names[S.pinVal]) + '</span>' + ICONS.chevron + '</button>'
+    + (openMs === PIN ? '<div class="ms-panel"><input type="search" class="input" data-act="ms-search" data-v="' + PIN + '" placeholder="' + escHtml(L.search) + '" value="' + escHtml(msQuery[PIN] || '') + '" autocomplete="off">'
+      + '<div class="checks opts" data-list="' + PIN + '">' + pinOptionsHtml() + '</div></div>' : '')
+    + '</div>'
     + '<div class="hint">' + escHtml(XP.canUnpin() ? L.pin_hint_all : L.pin_hint) + '</div></div>';
   return h;
 }
@@ -289,6 +323,11 @@ document.addEventListener('click', function(e) {
 });
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape' && openMs) { openMs = null; renderSide(); }
+  // Enter in the pinned value's search takes the first match.
+  if (e.key === 'Enter' && openMs === PIN && e.target.dataset && e.target.dataset.act === 'ms-search') {
+    var first = side.querySelector('[data-list="' + PIN + '"] [data-act="pin-pick"]');
+    if (first) { e.preventDefault(); first.click(); }
+  }
 });
 
 function paintRange() {
@@ -312,6 +351,7 @@ side.addEventListener('click', function(e) {
   var act = b.dataset.act, v = b.dataset.v;
   if (act === 'sel' && b.tagName === 'BUTTON') XP.toggleSel(v, Number(b.dataset.i));
   else if (act === 'ms-toggle') { openMs = openMs === v ? null : v; msFocus = openMs === v; renderSide(); return; }
+  else if (act === 'pin-pick') { S.pinVal = b.dataset.i === '' ? null : Number(b.dataset.i); openMs = null; }
   else if (act === 'sel-all') delete S.sel[v];
   else if (act === 'sel-none') S.sel[v] = {};
   else if (act === 'reset') XP.reset();
@@ -327,8 +367,7 @@ side.addEventListener('change', function(e) {
   else if (act === 'sel') XP.toggleSel(v, Number(el.dataset.i));
   else if (act === 'ccat') S.ccat = el.value;
   else if (act === 'metric') S.metric = el.value;
-  else if (act === 'pin') { S.pin = el.value; S.pinVal = null; }
-  else if (act === 'pin-val') S.pinVal = el.value === '' ? null : Number(el.value);
+  else if (act === 'pin') { S.pin = el.value; S.pinVal = null; msQuery[PIN] = ''; }
   else if (act === 'cal') {
     var mods = V.period.mods, r = S.range ? S.range.slice() : [0, mods.length - 1];
     var end = Number(el.dataset.end), date = el.value;
@@ -353,8 +392,9 @@ side.addEventListener('input', function(e) {
   if (act === 'cq') { S.cq = el.value; later(renderMain, 200); }
   else if (act === 'ms-search') {
     msQuery[el.dataset.v] = el.value;
-    var q = el.value.trim().toLowerCase();
-    each(el.parentNode.querySelectorAll('.check'), function(c) { c.style.display = !q || c.dataset.name.indexOf(q) !== -1 ? '' : 'none'; });
+    var list = side.querySelector('[data-list="' + el.dataset.v + '"]');
+    // Only the list is redrawn: the search box keeps its focus and caret.
+    if (list) list.innerHTML = el.dataset.v === PIN ? pinOptionsHtml() : checksHtml(el.dataset.v);
   } else if (act === 'range') {
     var n = V.period.mods.length, r = S.range ? S.range.slice() : [0, n - 1];
     var end = Number(el.dataset.end), val = Number(el.value);

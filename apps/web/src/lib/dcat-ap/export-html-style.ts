@@ -317,6 +317,10 @@ ${CHART_CSS}
 .flt .ms-panel .input{margin:0 0 6px}
 .ms-links{display:flex;align-items:center;gap:10px;margin-bottom:6px;font-size:11px;color:var(--muted)}
 .ms-links .spacer{flex:1}
+.opt{display:block;width:100%;padding:4px 6px;border:0;border-radius:5px;background:none;font:inherit;font-size:12px;color:var(--ink);text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.opt:hover{background:var(--row-hover)}
+.opt.on{background:color-mix(in srgb,var(--blue2) 12%,transparent);color:var(--blue);font-weight:500}
+.opt-note{padding:5px 6px 2px;font-size:11px;color:var(--muted)}
 .pill-t{height:24px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:0 9px;border:1px solid var(--line);border-radius:6px;background:var(--card);font-size:11px;color:var(--muted);cursor:pointer;text-decoration:line-through;text-decoration-color:transparent}
 .pill-t.on{background:color-mix(in srgb,var(--vc,var(--blue2)) 12%,transparent);border-color:transparent;color:var(--vc,var(--blue));font-weight:500}
 .pill-t:not(.on){opacity:.7}
