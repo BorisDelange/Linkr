@@ -39,7 +39,8 @@ export function SuggestInput({ value, onCommit, suggestions, placeholder, classN
   // Until the user types, show everything: the current value is not a filter.
   const shown = useMemo(() => {
     const q = typed ? draft.trim().toLowerCase() : ''
-    const hits = q ? suggestions.filter((s) => s.toLowerCase().includes(q)) : suggestions
+    const unique = [...new Set(suggestions)]
+    const hits = q ? unique.filter((s) => s.toLowerCase().includes(q)) : unique
     return hits.slice(0, MAX_SHOWN)
   }, [suggestions, draft, typed])
 
@@ -97,6 +98,9 @@ export function SuggestInput({ value, onCommit, suggestions, placeholder, classN
         onInteractOutside={(e) => {
           if (e.target instanceof Node && inputRef.current?.contains(e.target)) e.preventDefault()
         }}
+        // A press anywhere in the list (its scrollbar included) would blur the
+        // field, which commits and closes the list before the scroll.
+        onMouseDown={(e) => e.preventDefault()}
         className="max-h-56 w-[var(--radix-popover-trigger-width)] min-w-40 overflow-auto p-1"
       >
         {shown.map((s, i) => (
@@ -105,10 +109,7 @@ export function SuggestInput({ value, onCommit, suggestions, placeholder, classN
             role="option"
             aria-selected={i === active}
             // mousedown, not click: a click lands after the input's blur.
-            onMouseDown={(e) => {
-              e.preventDefault()
-              commit(s)
-            }}
+            onMouseDown={() => commit(s)}
             onMouseEnter={() => setActive(i)}
             className={cn(
               'cursor-pointer truncate rounded-sm px-2 py-1 font-mono text-xs',
