@@ -50,7 +50,10 @@ async function fromGitHub(owner: string, repo: string, branch: string): Promise<
   for (let i = 0; i < paths.length; i += 20) {
     await Promise.all(paths.slice(i, i + 20).map(async (path) => {
       const res = await fetch(`https://raw.githubusercontent.com/${owner}/${repo}/${sha}/${path}`)
-      if (res.ok) files[path] = await res.text()
+      // A file skipped here would read as removed from the repo, and the sync
+      // would delete its concept set.
+      if (!res.ok) throw new Error(`GitHub: cannot read ${owner}/${repo}/${path} (${res.status})`)
+      files[path] = await res.text()
     }))
   }
   return { files, commit: sha }

@@ -20,7 +20,9 @@ describe('resolutionSql', () => {
     expect(sql).toContain('VALUES (1, FALSE, TRUE, FALSE), (3, TRUE, FALSE, TRUE)')
     expect(sql.match(/FROM concept_ancestor/g)).toHaveLength(2)
     expect(sql.match(/relationship_id IN \('Maps to', 'Mapped from'\)/g)).toHaveLength(2)
-    expect(sql).toContain('WHERE concept_id NOT IN (SELECT concept_id FROM excluded)')
+    expect(sql).toContain('WHERE NOT EXISTS (SELECT 1 FROM excluded e WHERE e.concept_id = i.concept_id)')
+    // NOT IN would empty the whole resolution on one NULL in `excluded`.
+    expect(sql).not.toContain('NOT IN')
   })
 
   it('leaves out an expansion whose table the library lacks', () => {
