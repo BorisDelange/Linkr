@@ -270,6 +270,8 @@ export async function scoreMethodStats(projectId: string): Promise<ScoreMethodSt
 
 // The export is rebuilt on every git-status refresh of a front-only build too,
 // so a method's CSV is kept for as long as the scores file does not change.
+// Each entry can weigh tens of MB: a few methods at most.
+const CSV_CACHE_MAX = 8
 const csvCache = new Map<string, Uint8Array>()
 
 /** The versioned CSV of one method; null when the method has no rows. */
@@ -279,7 +281,11 @@ export async function methodCsvBytes(projectId: string, method: string): Promise
   if (!file) return null
   const key = `${projectId}::${file.size}::${file.lastModified}::${method}`
   const cached = csvCache.get(key)
-  if (cached) return cached
+  if (cached) {
+    csvCache.delete(key)
+    csvCache.set(key, cached)
+    return cached
+  }
   const name = await ensureRegisteredInternal(projectId)
   if (!name) return null
   const db = await getDuckDB()
@@ -302,6 +308,10 @@ export async function methodCsvBytes(projectId: string, method: string): Promise
     const bytes = await db.copyFileToBuffer(out)
     for (const k of csvCache.keys()) if (k.startsWith(`${projectId}::`) && k.endsWith(`::${method}`)) csvCache.delete(k)
     csvCache.set(key, bytes)
+    if (csvCache.size > CSV_CACHE_MAX) {
+      const oldest = csvCache.keys().next().value
+      if (oldest !== undefined) csvCache.delete(oldest)
+    }
     return bytes
   } finally {
     await conn.close()

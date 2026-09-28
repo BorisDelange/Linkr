@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { NumberInput } from '@/components/ui/number-input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
-import { csvPathForMethod, formatMegabytes, GIT_FRIENDLY_CSV_BYTES, type ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
+import { csvPathForMethod, formatMegabytes, GIT_FRIENDLY_CSV_BYTES, versionedMethodsValue, type ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
 import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
@@ -1837,7 +1837,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
     const next = new Set(versionedMethods)
     if (versioned) next.add(method)
     else next.delete(method)
-    updateMappingProject(project.id, { versionedScoreMethods: [...next].sort() }).catch((err) => {
+    updateMappingProject(project.id, { versionedScoreMethods: versionedMethodsValue(next) }).catch((err) => {
       setSuggestionsImportError(err instanceof Error ? err.message : String(err))
     })
   }

@@ -10,6 +10,13 @@ describe('parseTargetIds', () => {
     expect(parseTargetIds('0')).toEqual([])
     expect(parseTargetIds(null)).toEqual([])
   })
+
+  it('reads plain integers only, not every notation Number() accepts', () => {
+    for (const junk of ['1e3', '0x10', '1.5', '-4', '+4', 'Infinity', '12abc']) {
+      expect(parseTargetIds(junk), junk).toEqual([])
+    }
+    expect(parseTargetIds('3004249.0')).toEqual([3004249])
+  })
 })
 
 describe('alignedSourceRowsSql', () => {

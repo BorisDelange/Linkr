@@ -32,12 +32,20 @@ def scores_lock(project_id: str) -> asyncio.Lock:
     return _scores_locks.setdefault(project_id, asyncio.Lock())
 
 
+def _project_cache_root(project_id: str) -> Path:
+    return settings.data_path / ".cache" / "scores-csv" / project_id
+
+
 def _cache_dir(project_id: str, sha: str) -> Path:
-    return settings.data_path / ".cache" / "scores-csv" / project_id / sha
+    return _project_cache_root(project_id) / sha
+
+
+def drop_csv_cache(project_id: str) -> None:
+    shutil.rmtree(_project_cache_root(project_id), ignore_errors=True)
 
 
 def _prune_other_shas(project_id: str, sha: str) -> None:
-    root = settings.data_path / ".cache" / "scores-csv" / project_id
+    root = _project_cache_root(project_id)
     if not root.is_dir():
         return
     for child in root.iterdir():

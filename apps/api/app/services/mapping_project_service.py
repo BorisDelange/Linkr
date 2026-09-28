@@ -83,7 +83,7 @@ async def update(
 
 
 async def delete(db: AsyncSession, project: MappingProject) -> None:
-    from app.services import git_service
+    from app.services import git_service, scores_export
 
     project_id = project.id
     sha = project.raw_file_sha
@@ -94,6 +94,7 @@ async def delete(db: AsyncSession, project: MappingProject) -> None:
     await attachment_service.delete_readme_for_owner(db, "mapping-project", project_id)
     # Remove the on-disk versioning working tree so it doesn't linger as an orphan.
     git_service.remove_repo("mapping-projects", project_id)
+    scores_export.drop_csv_cache(project_id)
 
 
 # --- Concept mappings (per-project) ----------------------------------------

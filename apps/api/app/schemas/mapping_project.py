@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from pydantic import field_validator
+
 from app.schemas.base import CamelModel
 
 
@@ -47,6 +49,13 @@ class MappingProjectCreate(CamelModel):
     created_at: datetime | None = None
     version: str = "0.1.0"
 
+    # Absent, not [], once the last method is unversioned: exports write an empty
+    # list as a key the manifest never had, which reads as a change in git.
+    @field_validator("versioned_score_methods")
+    @classmethod
+    def _no_empty_versioned_methods(cls, v: list[str] | None) -> list[str] | None:
+        return v or None
+
 
 class MappingProjectUpdate(CamelModel):
     # Editable authoring provenance (author re-attribution + org snapshot).
@@ -84,6 +93,12 @@ class MappingProjectUpdate(CamelModel):
     # Restored on import/clone so the original creation date survives a git
     # round-trip; a normal PATCH never sends it (exclude_unset leaves it alone).
     created_at: datetime | None = None
+
+    # Same normalization as MappingProjectCreate.
+    @field_validator("versioned_score_methods")
+    @classmethod
+    def _no_empty_versioned_methods(cls, v: list[str] | None) -> list[str] | None:
+        return v or None
 
 
 class MappingProjectResponse(CamelModel):

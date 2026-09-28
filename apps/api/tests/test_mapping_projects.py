@@ -980,3 +980,28 @@ async def test_versioned_score_methods_travel_as_csv(client):
 
     bad = await client.post(f"{base}/scores/import-csv", headers=headers, json={"files": [{"method": "../x", "sha": sha}]})
     assert bad.status_code == 400
+
+
+
+async def test_unversioning_the_last_method_clears_the_field(client):
+    # An explicit [] would export as a key entity.json never had: git churn.
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _project(client, headers, ws)
+    url = f"{API}/mapping-projects/{p['id']}"
+    r = await client.patch(url, headers=headers, json={"versionedScoreMethods": ["ai/x"]})
+    assert r.json()["versionedScoreMethods"] == ["ai/x"]
+    r = await client.patch(url, headers=headers, json={"versionedScoreMethods": []})
+    assert r.json()["versionedScoreMethods"] is None
+
+
+async def test_project_delete_drops_its_scores_csv_cache(client):
+    from app.services import scores_export
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = await _project(client, headers, ws)
+    cache = scores_export._project_cache_root(p["id"])
+    (cache / "some-sha").mkdir(parents=True)
+    assert (await client.delete(f"{API}/mapping-projects/{p['id']}", headers=headers)).status_code == 204
+    assert not cache.exists()

@@ -374,7 +374,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         ? null
         : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes },
       query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal }),
-      queryAll: (sql) => queryDataSourceAll(dataSource.id, sql),
+      queryAll: (sql, signal) => queryDataSourceAll(dataSource.id, sql, { signal }),
       persist,
       persistError: async (message) => {
         if (!saved) return
