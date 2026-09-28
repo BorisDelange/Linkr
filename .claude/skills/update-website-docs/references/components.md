@@ -139,7 +139,13 @@ import { TermTooltip } from "@/components/docs/LinkrConceptMappingFrames";
 ### Adding a new frame
 
 1. Add an exported function to the section's `*Frames.tsx` (or create a new file for a new
-   section, copying the local `Frame` wrapper from an existing one).
+   section). Wrap it in **`DocFrame`** from `src/components/docs/DocFrame.tsx` (browser chrome,
+   caption, `bodyClassName`, `controls` for reader toggles drawn above the window). Older files
+   still carry a local `Frame` copy; migrate them when you touch them. For a dense screen that
+   gets crushed in the docs column, pass `designWidth` (lay out at e.g. 960px, scaled down to fit)
+   and `expandable` (an « Agrandir » button opening the same live frame full size). Reader
+   switches (mode navigateur / serveur, workspace / project…) use **`ReaderToggle`**, passed
+   through `controls` — never drawn as part of the mocked app.
 2. Signature `({ locale = "fr", caption }: BaseProps)`; return `<Frame caption={caption}>…`.
 3. All user-visible strings come from a `const text = { fr: {...}, en: {...} }[locale]`
    object — never hardcode French in a frame.
