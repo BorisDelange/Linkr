@@ -27,4 +27,9 @@ class ConceptSet(Base, TimestampMixin):
     provenance: Mapped[str | None] = mapped_column(String(255))
     version: Mapped[str | None] = mapped_column(String(50))
     import_batch_id: Mapped[str | None] = mapped_column(String(36))
+    # The data dictionary the set belongs to (null: not organised yet). A sync
+    # updates a set in place, keyed on unique_id, so projects keep pointing at it.
+    dictionary_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_dictionaries.id", ondelete="CASCADE")
+    )
     translations: Mapped[dict | None] = mapped_column(JSONB_or_JSON)

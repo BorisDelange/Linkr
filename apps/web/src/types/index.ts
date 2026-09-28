@@ -1,7 +1,7 @@
 // Core application types
 export type { SchemaMapping, SchemaPresetId, CustomSchemaPreset, ErdGroup, PatientSpec, RelationSpec, ConceptSpec, EventSpec, DrugSpec, FieldSpec, SchemaOverrides } from './schema-mapping'
 export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptSetTranslation, ConceptSetImportBatch, ResolvedConcept, MappingProject, MappingProjectSourceType, MappingProjectStatus, MappingProjectStats, FileColumnMapping, FileSourceData, SourceExtraction, ConceptMapping, MappingComment, MappingReview, MappingStatus, EffectiveMappingStatus, MappingEquivalence, MappingType, SourceConceptIdRange, SourceConceptIdEntry, SuggestionScore, ScoresIndex, SuggestionCategory } from './concept-mapping'
-export type { DataSourceRef, EntityRef } from './concept-mapping'
+export type { DataSourceRef, EntityRef, DataDictionary, UnitConversion, RecommendedUnit } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
 import type { DataSourceRef, EffectiveMappingStatus, EntityRef } from './concept-mapping'
 export type { DataCatalog, CatalogStatus, CatalogVariableId, CatalogVariables, PeriodGranularity, PeriodVariableConfig, AgeVariableConfig, SexVariableConfig, ServiceVariableConfig, ServiceGroupingMode, ConceptVariableConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogGrandTotal, CatalogCrossingRow, CatalogCrossingResult, CatalogResultCache, CatalogCounts, AnonymizationImpact } from './catalog'

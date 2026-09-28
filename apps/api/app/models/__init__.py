@@ -3,6 +3,7 @@ from app.models.project import Project
 from app.models.cohort import Cohort
 from app.models.concept_list import ConceptList
 from app.models.concept_set import ConceptSet
+from app.models.data_dictionary import DataDictionary
 from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
 from app.models.patient_dashboard import (
     PatientDashboard,
@@ -60,6 +61,7 @@ __all__ = [
     "Cohort",
     "ConceptList",
     "ConceptSet",
+    "DataDictionary",
     "Dashboard",
     "DashboardTab",
     "DashboardWidget",

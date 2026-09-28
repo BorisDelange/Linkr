@@ -19,6 +19,7 @@ class ConceptSetCreate(CamelModel):
     version: str | None = None
     import_batch_id: str | None = None
     translations: dict | None = None
+    dictionary_id: str | None = None
 
 
 class ConceptSetUpdate(CamelModel):
@@ -35,6 +36,7 @@ class ConceptSetUpdate(CamelModel):
     version: str | None = None
     import_batch_id: str | None = None
     translations: dict | None = None
+    dictionary_id: str | None = None
 
 
 class ConceptSetResponse(CamelModel):
@@ -53,6 +55,7 @@ class ConceptSetResponse(CamelModel):
     version: str | None = None
     import_batch_id: str | None = None
     translations: dict | None = None
+    dictionary_id: str | None = None
     created_at: datetime
     updated_at: datetime
 

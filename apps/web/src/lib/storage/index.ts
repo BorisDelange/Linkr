@@ -1,4 +1,4 @@
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, DataDictionary, MappingProject, MappingProjectStats, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex, User, UserCreateInput, Role, Permission } from '@/types'
 
 /** Storage interface for organization persistence. */
 export interface OrganizationStorage {
@@ -368,6 +368,24 @@ export interface DqRunHistoryStorage {
 }
 
 /** Storage interface for OHDSI concept set persistence. */
+export interface DataDictionaryStorage {
+  getByWorkspace(workspaceId: string): Promise<DataDictionary[]>
+  create(dictionary: DataDictionary): Promise<void>
+  update(id: string, changes: Partial<DataDictionary>): Promise<void>
+  /** Deletes its concept sets too. */
+  delete(id: string): Promise<void>
+  /** Make the dictionary's concept sets and units those of `content` (see
+   *  lib/data-dictionary/content.ts). */
+  sync(id: string, content: import('@/lib/data-dictionary/content').DictionaryContent): Promise<DictionarySyncResult>
+}
+
+export interface DictionarySyncResult {
+  added: number
+  updated: number
+  removed: number
+  unchanged: number
+}
+
 export interface ConceptSetStorage {
   getAll(): Promise<ConceptSet[]>
   getByWorkspace(workspaceId: string): Promise<ConceptSet[]>
@@ -548,6 +566,7 @@ export interface Storage {
   dqCustomChecks: DqCustomCheckStorage
   dqRunHistory: DqRunHistoryStorage
   conceptSets: ConceptSetStorage
+  dataDictionaries: DataDictionaryStorage
   conceptLists: ConceptListStorage
   mappingProjects: MappingProjectStorage
   conceptMappings: ConceptMappingStorage

@@ -48,6 +48,54 @@ export interface ConceptSetTranslation {
   subcategory?: string
 }
 
+/** One row of a dictionary's `units/unit_conversions.json`:
+ *  `target = source * conversionFactor + offset`, per concept (some factors depend
+ *  on a molecular weight). */
+export interface UnitConversion {
+  conceptId: number
+  conceptName?: string
+  sourceUnitConceptId: number
+  sourceUnitCode?: string
+  sourceUnitName?: string
+  conversionFactor: number
+  offset?: number
+  targetUnitConceptId: number
+  targetUnitCode?: string
+  targetUnitName?: string
+}
+
+/** One row of a dictionary's `units/recommended_units.json`. */
+export interface RecommendedUnit {
+  conceptId: number
+  conceptName?: string
+  conceptCode?: string
+  vocabularyId?: string
+  domainId?: string
+  recommendedUnitConceptId: number
+  recommendedUnitName?: string
+  recommendedUnitCode?: string
+  recommendedUnitVocabularyId?: string
+}
+
+/** A workspace data dictionary: concept sets (those whose `dictionaryId` is this
+ *  one) with their unit conversions and recommended units, usually synced from a
+ *  repository with the INDICATE layout (`concept_sets/`, `units/`). */
+export interface DataDictionary {
+  id: string
+  workspaceId: string
+  name: string
+  /** Where it syncs from; undefined for hand-imported concept sets. */
+  sourceRepo?: string
+  branch?: string
+  /** The commit last synced. */
+  commit?: string
+  syncedAt?: string
+  unitConversions?: UnitConversion[] | null
+  recommendedUnits?: RecommendedUnit[] | null
+  createdAt: string
+  updatedAt: string
+}
+
 export interface ConceptSet {
   id: string
   workspaceId: string
@@ -76,6 +124,9 @@ export interface ConceptSet {
   version?: string
   /** Batch ID grouping concept sets imported together from a catalog. */
   importBatchId?: string
+  /** The workspace data dictionary this set belongs to (undefined: not
+   *  organised yet). A sync updates the set in place, keyed on `uniqueId`. */
+  dictionaryId?: string
   /** Multilingual translations keyed by ISO 639-1 code (e.g. { en: {...}, fr: {...} }). */
   translations?: Record<string, ConceptSetTranslation>
   createdAt: string

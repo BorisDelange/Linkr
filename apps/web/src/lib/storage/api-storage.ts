@@ -18,6 +18,7 @@ import {
 import { apiReadmeAttachmentStorage } from '@/lib/api/readme-attachments'
 import { apiWikiAttachmentStorage } from '@/lib/api/wiki-attachments'
 import { apiConceptSetStorage } from '@/lib/api/concept-sets'
+import { apiDataDictionaryStorage } from '@/lib/api/data-dictionaries'
 import { apiConceptListStorage } from '@/lib/api/concept-lists'
 import { apiIdeConnectionStorage } from '@/lib/api/ide-connections'
 import { apiUserPluginStorage } from '@/lib/api/user-plugins'
@@ -89,6 +90,7 @@ export function createAPIStorage(): Storage {
     dqRunHistory: apiDqRunHistoryStorage,
     dataCatalogs: apiDataCatalogStorage,
     conceptSets: apiConceptSetStorage,
+    dataDictionaries: apiDataDictionaryStorage,
     conceptLists: apiConceptListStorage,
     sourceConceptIdRanges: apiSourceConceptIdRangeStorage,
     sourceConceptIdEntries: apiSourceConceptIdEntryStorage,

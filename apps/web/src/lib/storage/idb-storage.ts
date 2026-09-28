@@ -1,6 +1,7 @@
 import { openDB, type DBSchema, type IDBPDatabase, type StoreNames } from 'idb'
-import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
-import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, PatientDashboardStorage, PatientDashboardTabStorage, PatientDashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, ConceptListStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import type { Project, DataSource, StoredFile, StoredFileHandle, Cohort, DatabaseStatsCache, Pipeline, ReadmeAttachment, ReadmeOwnerType, CustomSchemaPreset, IdeConnection, IdeFile, DatasetFile, DatasetData, DatasetRawFile, DatasetAnalysis, UserPlugin, Dashboard, DashboardTab, DashboardWidget, PatientDashboard, PatientDashboardTab, PatientDashboardWidget, Workspace, Organization, WikiPage, WikiAttachment, EtlPipeline, EtlFile, EtlRunHistoryEntry, EtlQualityCache, DqRuleSet, DqCustomCheck, DqRunHistoryEntry, ConceptSet, ConceptList, DataDictionary, MappingProject, ConceptMapping, DataCatalog, CatalogResultCache, ServiceMapping, SqlScriptCollection, SqlScriptFile, SourceConceptIdRange, SourceConceptIdEntry, ScoresIndex } from '@/types'
+import type { Storage, OrganizationStorage, WorkspaceStorage, UserStorage, RoleStorage, ProjectStorage, DataSourceStorage, FileStorage, FileHandleStorage, CohortStorage, DatabaseStatsCacheStorage, EtlQualityCacheStorage, SchemaPresetStorage, PipelineStorage, ReadmeAttachmentStorage, ConnectionStorage, IdeFileStorage, DatasetFileStorage, DatasetDataStorage, DatasetRawFileStorage, DatasetAnalysisStorage, UserPluginStorage, DashboardStorage, DashboardTabStorage, DashboardWidgetStorage, PatientDashboardStorage, PatientDashboardTabStorage, PatientDashboardWidgetStorage, WikiPageStorage, WikiAttachmentStorage, EtlPipelineStorage, EtlFileStorage, EtlRunHistoryStorage, SqlScriptCollectionStorage, SqlScriptFileStorage, DqRuleSetStorage, DqCustomCheckStorage, DqRunHistoryStorage, ConceptSetStorage, DataDictionaryStorage, DictionarySyncResult, ConceptListStorage, MappingProjectStorage, ConceptMappingStorage, MappingCountStats, DataCatalogStorage, CatalogResultStorage, ServiceMappingStorage, SourceConceptIdRangeStorage, SourceConceptIdEntryStorage, SourceConceptIdBadgeCounts, ScoresBlobStorage, ScoresMetaStorage } from './index'
+import { planDictionarySync, type DictionaryContent } from '@/lib/data-dictionary/content'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { backfillPortableRefs, type IdbUpgradeTransaction } from './idb-portable-refs'
 import { SUGGESTION_CATEGORIES } from '@/types'
@@ -250,6 +251,13 @@ interface LinkrDB extends DBSchema {
       'by-workspace': string
     }
   }
+  data_dictionaries: {
+    key: string
+    value: DataDictionary
+    indexes: {
+      'by-workspace': string
+    }
+  }
   concept_lists: {
     key: string
     value: ConceptList
@@ -329,7 +337,7 @@ interface LinkrDB extends DBSchema {
 }
 
 const DB_NAME = 'linkr'
-const DB_VERSION = 43
+const DB_VERSION = 44
 
 /**
  * One schema preset, rekeyed for the v41 store (keyPath `presetId` → `id`).
@@ -993,6 +1001,11 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
             store.createIndex('by-owner-source', 'ownerDataSourceId')
           }
         }
+      }
+      // Version 44: workspace data dictionaries (concept sets + units).
+      if (oldVersion < 44) {
+        const store = db.createObjectStore('data_dictionaries', { keyPath: 'id' })
+        store.createIndex('by-workspace', 'workspaceId')
       }
     },
   })
@@ -2288,6 +2301,66 @@ class IDBEtlRunHistoryStorage implements EtlRunHistoryStorage {
   }
 }
 
+class IDBDataDictionaryStorage implements DataDictionaryStorage {
+  async getByWorkspace(workspaceId: string): Promise<DataDictionary[]> {
+    const db = await getDB()
+    return db.getAllFromIndex('data_dictionaries', 'by-workspace', workspaceId)
+  }
+
+  async create(dictionary: DataDictionary): Promise<void> {
+    const db = await getDB()
+    await db.add('data_dictionaries', dictionary)
+  }
+
+  async update(id: string, changes: Partial<DataDictionary>): Promise<void> {
+    const db = await getDB()
+    const existing = await db.get('data_dictionaries', id)
+    if (!existing) return
+    await db.put('data_dictionaries', { ...existing, ...changes, updatedAt: new Date().toISOString() })
+  }
+
+  async delete(id: string): Promise<void> {
+    const db = await getDB()
+    const tx = db.transaction(['data_dictionaries', 'concept_sets'], 'readwrite')
+    for (const set of await tx.objectStore('concept_sets').getAll()) {
+      if (set.dictionaryId === id) await tx.objectStore('concept_sets').delete(set.id)
+    }
+    await tx.objectStore('data_dictionaries').delete(id)
+    await tx.done
+  }
+
+  async sync(id: string, content: DictionaryContent): Promise<DictionarySyncResult> {
+    const db = await getDB()
+    const dictionary = await db.get('data_dictionaries', id)
+    if (!dictionary) throw new Error('Data dictionary not found')
+    const existing = (await db.getAllFromIndex('concept_sets', 'by-workspace', dictionary.workspaceId))
+      .filter((s) => s.dictionaryId === id)
+    const plan = planDictionarySync(existing, content.conceptSets)
+    const now = new Date().toISOString()
+    const tx = db.transaction(['data_dictionaries', 'concept_sets'], 'readwrite')
+    const sets = tx.objectStore('concept_sets')
+    for (const incoming of plan.added) {
+      await sets.add({ ...incoming, id: crypto.randomUUID(), workspaceId: dictionary.workspaceId, dictionaryId: id, resolvedConceptIds: null, createdAt: now, updatedAt: now })
+    }
+    for (const { id: setId, incoming } of plan.updated) {
+      const current = existing.find((s) => s.id === setId)!
+      // The expression may have moved: a resolution of the old one is stale.
+      await sets.put({ ...current, ...incoming, resolvedConceptIds: null, updatedAt: now })
+    }
+    for (const set of plan.removed) await sets.delete(set.id)
+    await tx.objectStore('data_dictionaries').put({
+      ...dictionary,
+      unitConversions: content.unitConversions,
+      recommendedUnits: content.recommendedUnits,
+      commit: content.commit ?? undefined,
+      syncedAt: now,
+      updatedAt: now,
+    })
+    await tx.done
+    return { added: plan.added.length, updated: plan.updated.length, removed: plan.removed.length, unchanged: plan.unchanged }
+  }
+}
+
 class IDBConceptSetStorage implements ConceptSetStorage {
   async getAll(): Promise<ConceptSet[]> {
     const db = await getDB()
@@ -2843,6 +2916,7 @@ export function createIDBStorage(): Storage {
     dqCustomChecks: new IDBDqCustomCheckStorage(),
     dqRunHistory: new IDBDqRunHistoryStorage(),
     conceptSets: new IDBConceptSetStorage(),
+    dataDictionaries: new IDBDataDictionaryStorage(),
     conceptLists: new IDBConceptListStorage(),
     mappingProjects: new IDBMappingProjectStorage(),
     conceptMappings: new IDBConceptMappingStorage(),

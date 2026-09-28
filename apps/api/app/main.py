@@ -21,6 +21,7 @@ from app.api.v1.routes.notifications import router as notifications_router
 from app.api.v1.routes.concept_lists import router as concept_lists_router
 from app.api.v1.routes.concept_sets import router as concept_sets_router
 from app.api.v1.routes.vocabulary_library import router as vocabulary_library_router
+from app.api.v1.routes.data_dictionaries import router as data_dictionaries_router
 from app.api.v1.routes.dashboards import router as dashboards_router
 from app.api.v1.routes.patient_dashboards import router as patient_dashboards_router
 from app.api.v1.routes.attachments import readme_router, wiki_router as wiki_attachments_router
@@ -207,6 +208,7 @@ app.include_router(dq_rule_sets_router, prefix="/api/v1")
 app.include_router(data_catalogs_router, prefix="/api/v1")
 app.include_router(concept_sets_router, prefix="/api/v1")
 app.include_router(vocabulary_library_router, prefix="/api/v1")
+app.include_router(data_dictionaries_router, prefix="/api/v1")
 app.include_router(source_concept_ids_router, prefix="/api/v1")
 app.include_router(mapping_projects_router, prefix="/api/v1")
 app.include_router(ide_connections_router, prefix="/api/v1")
