@@ -109,7 +109,7 @@ Files in `src/components/docs/`:
 | `LinkrFirstProjectFrames.tsx` | `Linkr*` | `LinkrDatabaseCard`, `LinkrConceptsTable`, `LinkrCohortBuilder`, `LinkrVersioningExport` |
 | `LinkrDataCatalogFrames.tsx` | `Cat*` | `CatVariables` (Variables card with Counts), `CatCrossings` (Crossings card with yields), `CatAnonSettings` (Anonymization tab + impact), `CatMaskedTable` (published table, masked cells, reveal switch), `CatAudit` (disclosure audit), `CatVariableCard` (one variable as a coloured card, MDX children as body — no `client:load` needed), `CatAnonSettings`, `CatMaskedTable`, `CatAudit`, `CatPublishedPage`, `CatTabFlow` (static) |
 | `LinkrWidgetPreviews.tsx` | `Pv*` | `PvTable1`, `PvKeyIndicator`, `PvPlotBuilder`, `PvKaplanMeier`, `PvCorrelation`, `PvStatTests`, `PvRegression`, `PvSankey`, `PvSpc`, `PvSpcConfig`, `PvSurveyQuestion` |
-| `LinkrWarehouseFrames.tsx` | `Wh*` | `WhSchemaBrowser` (3-pane explorer, `dialog` prop), `WhMappingBlocks` (`schema` / `override` variants), `WhRelationSqlDialog`, `WhDatabaseTabs`, `WhAddDatabaseDialog`, `WhSqlEditor`, `WhDeriveDialog`, `WhDerivedFromCard` |
+| `LinkrWarehouseFrames.tsx` | `Wh*` | `WhSchemaBrowser` (3-pane explorer, `dialog` prop), `WhMappingBlocks` (`schema` / `override` variants), `WhDatabaseTabs` (`from="workspace" | "project"`), `WhProjectDatabases`, `WhRelationSqlDialog`, `WhDatabaseTabs`, `WhAddDatabaseDialog`, `WhSqlEditor`, `WhDeriveDialog`, `WhDerivedFromCard` |
 | `LinkrDqEtlFrames.tsx` | `Dq*`, `Etl*` | `DqChecksTab`, `DqResults`, `EtlPipelineRun`, `EtlQuality`, `EtlVocabulary`, `EtlGenerateDialog`, `EtlScriptOrder` |
 | `LinkrProjectFrames.tsx` | `Proj*` | cohorts (`ProjCohortBuilder`, `ProjCohortCriterionForms`, `ProjCohortResults`, `ProjCohortSql`, `ProjCohortReport`), concepts (`ProjConceptsExplorer`, `ProjConceptDetail`, `ProjConceptListCopy`), patient data (`ProjPatientSidebar`, `ProjConceptPicker`, `ProjCollectionSetup`, `ProjCollectionPanel`) |
 | `LinkrLabFrames.tsx` | `Dataset*`, `Ide*` | `DatasetImportDialog`, `DatasetColumnMeta`, `DatasetEditMode`, `DatasetWorkspace`, `IdeLayout`, `IdeRunMenu`, `IdeEnvironments`, and the reusable `ExportTree` (+ `PROJECT_EXPORT_TREE`, `PROJECT_GITIGNORE`) |
@@ -148,6 +148,11 @@ import { TermTooltip } from "@/components/docs/LinkrConceptMappingFrames";
    get no designWidth and stay interactive in place — don't force `expandable` on them. Reader
    switches (mode navigateur / serveur, workspace / project…) use **`ReaderToggle`**, passed
    through `controls` — never drawn as part of the mocked app.
+   Shared pieces, never redrawn per file: **`DocCode`** (`DocCode.tsx` — highlighted code in
+   the app's Monaco palette, R / Python / SQL / JSON / Markdown / Bash; pass `onChange` for an
+   editable pane — every code shown in a frame is highlighted), **`DocBadgeEditor`** and
+   **`DocBadgeChip`** (`DocBadgeEditor.tsx` — the dialogs' badge field and read-only chips, plain
+   or scoped two-tone).
 2. Signature `({ locale = "fr", caption }: BaseProps)`; return `<Frame caption={caption}>…`.
 3. All user-visible strings come from a `const text = { fr: {...}, en: {...} }[locale]`
    object — never hardcode French in a frame.
