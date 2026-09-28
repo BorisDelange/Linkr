@@ -107,6 +107,7 @@ Files in `src/components/docs/`:
 | `LinkrDashboardFrames.tsx` | `Dash*` | `DashHub`, `DashAnatomy`, `DashNestedTabs`, `DashEditMode`, `DashBuiltinGallery`, `DashAddWidget`, `DashWidgetConfig`, `DashCodeWidget`, `DashFilters`, `DashExportDialog`, `DashSettingsDialog` |
 | `LinkrConceptMappingFrames.tsx` | `Cm*` | ~40 frames covering the whole concept-mapping section, plus `TermTooltip` |
 | `LinkrFirstProjectFrames.tsx` | `Linkr*` | `LinkrDatabaseCard`, `LinkrConceptsTable`, `LinkrCohortBuilder`, `LinkrVersioningExport` |
+| `LinkrDataCatalogFrames.tsx` | `Cat*` | `CatVariables` (Variables card with Counts), `CatCrossings` (Crossings card with yields), `CatVariableCard` (one variable as a coloured card, MDX children as body — no `client:load` needed) |
 | `LinkrWidgetPreviews.tsx` | `Pv*` | `PvTable1`, `PvKeyIndicator`, `PvPlotBuilder`, `PvKaplanMeier`, `PvCorrelation`, `PvStatTests`, `PvRegression`, `PvSankey` |
 | `LabPreview.tsx` | default | Lab area preview, props `locale`, `tabs` |
 | `LinkrDemoFrame.tsx` | default | Live demo iframe frame |
