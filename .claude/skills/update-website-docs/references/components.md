@@ -142,8 +142,10 @@ import { TermTooltip } from "@/components/docs/LinkrConceptMappingFrames";
    section). Wrap it in **`DocFrame`** from `src/components/docs/DocFrame.tsx` (browser chrome,
    caption, `bodyClassName`, `controls` for reader toggles drawn above the window). Older files
    still carry a local `Frame` copy; migrate them when you touch them. For a dense screen that
-   gets crushed in the docs column, pass `designWidth` (lay out at e.g. 960px, scaled down to fit)
-   and `expandable` (an « Agrandir » button opening the same live frame full size). Reader
+   gets crushed in the docs column, pass `designWidth` (lay out at e.g. 960px, scaled down to fit):
+   while it is shown scaled down, the whole window becomes click-to-expand (the same live frame,
+   full size, in an overlay). That is automatic; frames shown at their real size (dialogs, cards)
+   get no designWidth and stay interactive in place — don't force `expandable` on them. Reader
    switches (mode navigateur / serveur, workspace / project…) use **`ReaderToggle`**, passed
    through `controls` — never drawn as part of the mocked app.
 2. Signature `({ locale = "fr", caption }: BaseProps)`; return `<Frame caption={caption}>…`.
