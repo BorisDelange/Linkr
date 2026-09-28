@@ -766,7 +766,8 @@ function createExplorer(DATA, opts) {
     if (!c || c.measures.indexOf('records') === -1) return { v: null, sub: tr('kpi_not_counted'), note: tr('kpi_records_need', { crossing: name }) };
     var pos = {};
     c.vars.forEach(function(v, i) { pos[v] = i; });
-    var sum = 0, masked = c.masked.primary + c.masked.secondary > 0;
+    // A published page does not say how many cells are masked: then any may be.
+    var sum = 0, masked = !c.masked || c.masked.primary + c.masked.secondary > 0;
     c.cells.forEach(function(cell) {
       for (var s = 0; s < sliced.length; s++) if (cell[pos[sliced[s]]] !== D.slice[sliced[s]]) return;
       for (var d = 0; d < narrowed.length; d++) if (!keepMod(narrowed[d], cell[pos[narrowed[d]]])) return;
