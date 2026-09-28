@@ -424,7 +424,9 @@ function createExplorer(DATA, opts) {
     var slot = n > 1 ? pw / (n - 1) : pw;
     names.forEach(function(nm, i) {
       var lines = series.map(function(se) { return { label: se.name, value: shown(se.vals[i]), color: series.length > 1 ? se.color : null }; });
-      p.push('<rect x="' + (xOf(i) - slot / 2).toFixed(1) + '" y="' + pad.t + '" width="' + slot.toFixed(1) + '" height="' + ph + '" class="hit col"' + tipAttr(nm + (series.length === 1 ? '' : ' · ' + o.unit), series.length === 1 ? [{ label: o.unit, value: lines[0].value }] : lines) + '/>');
+      // Clamped to the plot: the end bands would reach half a slot beyond it, over the sidebar with few periods.
+      var x0 = Math.max(pad.l, xOf(i) - slot / 2), x1 = Math.min(w - pad.r, xOf(i) + slot / 2);
+      p.push('<rect x="' + x0.toFixed(1) + '" y="' + pad.t + '" width="' + (x1 - x0).toFixed(1) + '" height="' + ph + '" class="hit col"' + tipAttr(nm + (series.length === 1 ? '' : ' · ' + o.unit), series.length === 1 ? [{ label: o.unit, value: lines[0].value }] : lines) + '/>');
     });
     xLabels(p, names, xOf, h - 10, slot);
     return s.head + p.join('') + '</svg>';
