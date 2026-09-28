@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
+import { fillMissingTargetDetails } from '@/lib/concept-mapping/target-details'
 import { useTranslation } from 'react-i18next'
 import {
   ArrowRightLeft,
@@ -152,6 +154,17 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
   const dataSource = project && isDatabaseSource
     ? dataSources.find((ds) => ds.id === project.dataSourceId)
     : undefined
+
+  // Mappings created from a target id alone (a file's target concept ID column
+  // read before the vocabularies were imported) get their details once the
+  // workspace library can give them.
+  const vocabularyId = project ? vocabularyDataSourceIdFor({ workspaceId: project.workspaceId }, dataSources) : null
+  useEffect(() => {
+    if (!vocabularyId) return
+    loadProjectMappings(projectId)
+      .then(() => fillMissingTargetDetails(projectId, vocabularyId))
+      .catch((err) => console.error('Failed to fill target details', err))
+  }, [projectId, vocabularyId, loadProjectMappings])
 
   if (!mappingProjectsLoaded) return null
 

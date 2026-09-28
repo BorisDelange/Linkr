@@ -65,6 +65,7 @@ import {
   type AlignedSourceRow,
   type TargetConceptDetails,
 } from '@/lib/concept-mapping/file-target-mappings'
+import { fetchTargetDetails } from '@/lib/concept-mapping/target-details'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge } from '@/types'
 
 interface CreateMappingProjectDialogProps {
@@ -835,27 +836,10 @@ export function CreateMappingProjectDialog({
       const rows = await queryDataSourceAll(fileSourceDataSourceId(projectId), alignedSourceRowsSql(source.columnMapping)) as unknown as AlignedSourceRow[]
       if (rows.length === 0) return { aligned: 0 }
 
-      const targets = new Map<number, TargetConceptDetails>()
       const vocabularyId = vocabularyDataSourceIdFor({ workspaceId: activeWorkspaceId }, dataSources)
-      const ids = alignedTargetIds(rows)
-      if (vocabularyId) {
-        for (let i = 0; i < ids.length; i += 1000) {
-          const found = await queryDataSourceAll(vocabularyId,
-            'SELECT concept_id, concept_name, vocabulary_id, domain_id, concept_class_id, concept_code, standard_concept '
-            + `FROM concept WHERE concept_id IN (${ids.slice(i, i + 1000).join(', ')})`)
-          for (const r of found) {
-            targets.set(Number(r.concept_id), {
-              conceptId: Number(r.concept_id),
-              conceptName: String(r.concept_name ?? ''),
-              vocabularyId: String(r.vocabulary_id ?? ''),
-              domainId: String(r.domain_id ?? ''),
-              conceptCode: String(r.concept_code ?? ''),
-              conceptClassId: r.concept_class_id != null ? String(r.concept_class_id) : undefined,
-              standardConcept: r.standard_concept ? String(r.standard_concept) : undefined,
-            })
-          }
-        }
-      }
+      const targets = vocabularyId
+        ? await fetchTargetDetails(vocabularyId, alignedTargetIds(rows))
+        : new Map<number, TargetConceptDetails>()
       const existing = remount ? await getStorage().conceptMappings.getByProject(projectId) : []
       const mappings = buildFileTargetMappings(
         { id: projectId }, rows, targets, existing,

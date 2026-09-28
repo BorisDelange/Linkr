@@ -477,7 +477,9 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
             </span>
             <span className="text-xs text-muted-foreground">→</span>
             <span className="truncate text-sm font-semibold" title={mapping.targetConceptName}>
-              {mapping.targetConceptName || t('concept_mapping.no_mapping_needed')}
+              {mapping.status === 'ignored' || mapping.targetConceptId === 0
+                ? t('concept_mapping.no_mapping_needed')
+                : mapping.targetConceptName || `#${mapping.targetConceptId}`}
             </span>
           </div>
           <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
