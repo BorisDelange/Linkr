@@ -5380,6 +5380,7 @@
       "kpi_at_least_top": "Au moins : seuls les concepts que compte le catalogue, cellules masquées écartées.",
       "kpi_records_from": "Somme sur les concepts de la table {crossing} : un enregistrement compte à sa propre date.",
       "kpi_records_need": "Calculer le croisement {crossing} permettrait de les compter.",
+      "kpi_over_visits": "Depuis la table {crossing}, qui compte les séjours : tous les patients de ces valeurs, avec ou sans enregistrement.",
       "kpi_at_most": "Au plus : ce qui apparaît dans plusieurs {things} y est compté plusieurs fois.",
       "kpi_about": "Approximation : ce qui apparaît dans plusieurs {things} y est compté plusieurs fois, ce qui surestime, et les cellules masquées sont écartées, ce qui sous-estime.",
       "scale_label": "Échelle de couleur :",
