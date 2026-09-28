@@ -1,4 +1,5 @@
 from sqlalchemy import delete as sa_delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.concept_stats_cache import ConceptStatsCache
@@ -19,9 +20,28 @@ async def save(
             data_source_id=data_source_id, concept_id=concept_id, principal=principal, stats=stats
         )
         db.add(row)
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Another first save of this key committed between our get and this
+            # insert: the row exists now, so overwrite it (same shape as
+            # stats_cache_service.save).
+            await db.rollback()
+            row = await get(db, data_source_id, concept_id, principal)
+            if row is None:
+                row = ConceptStatsCache(
+                    data_source_id=data_source_id,
+                    concept_id=concept_id,
+                    principal=principal,
+                    stats=stats,
+                )
+                db.add(row)
+            else:
+                row.stats = stats
+            await db.commit()
     else:
         row.stats = stats
-    await db.commit()
+        await db.commit()
     await db.refresh(row)
     return row
 
