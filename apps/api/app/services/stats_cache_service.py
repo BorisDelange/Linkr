@@ -1,5 +1,6 @@
 from sqlalchemy import Text, cast, select, update
 from sqlalchemy import delete as sa_delete
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stats_cache import StatsCache
@@ -37,15 +38,30 @@ async def save(
     Neither the previous payload nor the one just written is read back: a
     catalog's results run to tens of megabytes.
     """
+    if await _overwrite(db, scope, cache_key, computed_at, payload):
+        await db.commit()
+        return
+    db.add(StatsCache(scope=scope, cache_key=cache_key, computed_at=computed_at, payload=payload))
+    try:
+        await db.commit()
+    except IntegrityError:
+        # Another first save of the same key committed between our update and
+        # this insert: the row exists now, so this one overwrites it.
+        await db.rollback()
+        await _overwrite(db, scope, cache_key, computed_at, payload)
+        await db.commit()
+
+
+async def _overwrite(
+    db: AsyncSession, scope: str, cache_key: str, computed_at: str, payload: dict
+) -> bool:
     updated = await db.execute(
         update(StatsCache)
         .where(StatsCache.scope == scope, StatsCache.cache_key == cache_key)
         .values(computed_at=computed_at, payload=payload)
         .execution_options(synchronize_session=False)
     )
-    if updated.rowcount == 0:
-        db.add(StatsCache(scope=scope, cache_key=cache_key, computed_at=computed_at, payload=payload))
-    await db.commit()
+    return updated.rowcount > 0
 
 
 async def delete(db: AsyncSession, scope: str, cache_key: str) -> None:
