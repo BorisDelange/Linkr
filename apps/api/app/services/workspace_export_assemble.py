@@ -440,6 +440,7 @@ async def _mapping_project_sub_tree(db: AsyncSession, project: MappingProject) -
         organization=None,
         source_csv=source_csv,
         score_files=await scores_export.score_files(project),
+        concept_sets=await concept_set_dicts(db, project),
     )
     tree.pop(".gitignore", None)
     return tree

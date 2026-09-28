@@ -27,7 +27,8 @@ import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { getStorage } from '@/lib/storage'
 import { restoreImportedScores } from '@/lib/concept-mapping/scores-restore'
-import type { DataSource, DataSourceRef, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
+import { resolveConceptSetRefs, type ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
+import type { DataSource, DataSourceRef, MappingProject, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
 
 /** Append " (copy)" to every language of a multilingual name when duplicating. */
 function copyLocalizedName(name: LocalizedString): LocalizedString {
@@ -665,6 +666,7 @@ export async function importWorkspaceTree(
     // database-source project at whichever row now holds the database it was
     // exported against. Read once — the list does not change in this loop.
     const storedDatabases = await storage.dataSources.getAll()
+    const workspaceConceptSets = await storage.conceptSets.getByWorkspace(targetWsId)
     for (const { project: mp, mappings, scores } of parsed.mappingProjects) {
       const { id, replaces } = await resolveByLineage(() => storage.mappingProjects.getAll(), mp)
       // Keyed on the identity the manifest actually carries. A git-linked
@@ -685,8 +687,12 @@ export async function importWorkspaceTree(
       // match leaves the project sourceless — the user re-picks the database —
       // rather than keeping a dangling id.
       const database = resolvePointer(storedDatabases, mp.dataSourceRef, targetWsId)
+      // Concept sets landed above: the manifest's portable refs resolve to them.
+      const { conceptSets: conceptSetRefs, ...manifest } = mp as MappingProject & { conceptSets?: ConceptSetRef[] }
+      const { ids: conceptSetIds } = resolveConceptSetRefs(conceptSetRefs, workspaceConceptSets)
       await storage.mappingProjects.create({
-        ...mp, id, workspaceId: targetWsId, updatedAt: now,
+        ...manifest, id, workspaceId: targetWsId, updatedAt: now,
+        conceptSetIds,
         dataSourceId: database?.id ?? '',
         vocabularyDataSourceId: resolvePointer(storedDatabases, mp.vocabularyDataSourceRef, targetWsId)?.id,
         ...(duplicate

@@ -318,3 +318,21 @@ describe('mapping project — versioned similarity scores', () => {
     expect(issues.map((i) => i.code)).toEqual(['wrong-type'])
   })
 })
+
+describe('mapping project — concept set refs', () => {
+  const withRefs = (conceptSets: unknown) =>
+    new MemoryTree({
+      'entity.json': JSON.stringify({ type: 'mapping-project', name: { en: 'MIMIC → OMOP' }, conceptSets }),
+      'mappings.json': JSON.stringify([MAPPING]),
+    })
+
+  it('accepts refs by uniqueId (+ repo) or by name', () => {
+    const refs = [{ uniqueId: 'u-1', sourceRepo: 'https://github.com/indicate-eu/data-dictionary' }, { name: 'Local sepsis' }]
+    expect(validateEntity(withRefs(refs), 'mapping-project')).toEqual([])
+  })
+
+  it('flags a ref that names nothing', () => {
+    const issues = validateEntity(withRefs([{ sourceRepo: 'https://x' }]), 'mapping-project')
+    expect(issues.map((i) => [i.pointer, i.code])).toEqual([['/conceptSets/0', 'missing-field']])
+  })
+})

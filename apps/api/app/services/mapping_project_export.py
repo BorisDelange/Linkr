@@ -120,7 +120,31 @@ def _compact_entries(entries: list[dict]) -> dict:
     }
 
 
-def _build_project_json(project: dict, organization: dict | None) -> bytes:
+def _concept_set_refs(ids: list | None, concept_sets: list[dict]) -> list[dict]:
+    """Port of ``toConceptSetRefs`` (concept-set-refs.ts): the portable refs of
+    the project's concept sets — ``uniqueId`` (+ ``sourceRepo``), or the name of
+    a hand-made set without one — deduplicated and sorted by that key. An id
+    whose set is gone is dropped."""
+    by_id = {s["id"]: s for s in concept_sets}
+    refs: dict[str, dict] = {}
+    for cs_id in ids or []:
+        cs = by_id.get(cs_id)
+        if cs is None:
+            continue
+        if cs.get("uniqueId"):
+            ref = {"uniqueId": cs["uniqueId"]}
+            if cs.get("sourceRepo"):
+                ref["sourceRepo"] = cs["sourceRepo"]
+            refs[f"u:{cs['uniqueId']}"] = ref
+        else:
+            refs[f"n:{cs.get('name') or ''}"] = {"name": cs.get("name") or ""}
+    # compareCodePoints on the TS side: Python's str order is code-point order.
+    return [refs[k] for k in sorted(refs)]
+
+
+def _build_project_json(
+    project: dict, organization: dict | None, concept_sets: list[dict] | None = None
+) -> bytes:
     """Port of the project.json transform (export.ts:613-625) + inline org
     (attachEntityOrganization, entity-io.ts:1234-1250).
 
@@ -146,6 +170,10 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
             # for a file git never carried.
             "scoresFileSha",
             "scoresFileName",
+            # The vocabulary database is never exported (and its lineage is minted
+            # per import), so a pointer to it resolved nowhere and flipped in git
+            # between two users who each imported ATHENA.
+            "vocabularyDataSourceRef",
         ):
             continue
         # Absent on the TS side means ``undefined``, which JSON.stringify omits;
@@ -153,7 +181,6 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
         # project without one exports a key more server-side than client-side.
         if k in (
             "dataSourceRef",
-            "vocabularyDataSourceRef",
             "sourceExtraction",
             "versionedScoreMethods",
         ) and v is None:
@@ -171,6 +198,10 @@ def _build_project_json(project: dict, organization: dict | None) -> bytes:
             **{k: v for k, v in fsd.items() if k != "rawFileBuffer"},
             "rows": [],
         }
+
+    refs = _concept_set_refs(project.get("conceptSetIds"), concept_sets or [])
+    if refs:
+        out["conceptSets"] = refs
 
     # The export-format version stamp, as every other kind carries it. The org is
     # appended after it (attachEntityOrganization re-opens the file on the client),
@@ -246,6 +277,7 @@ def build_mapping_project_tree(
     organization: dict | None,
     source_csv: bytes | None,
     score_files: dict[str, bytes] | None = None,
+    concept_sets: list[dict] | None = None,
 ) -> dict[str, bytes]:
     """Build the git-variant mapping-project export tree as ``{path: bytes}``.
 
@@ -259,7 +291,7 @@ def build_mapping_project_tree(
     """
     tree: dict[str, bytes] = {}
 
-    tree[ENTITY_MANIFEST] = _build_project_json(project, organization)
+    tree[ENTITY_MANIFEST] = _build_project_json(project, organization, concept_sets)
     tree.update(entity_doc_files("", project))
     tree["mappings.json"] = _serialize_mappings(mappings)
 

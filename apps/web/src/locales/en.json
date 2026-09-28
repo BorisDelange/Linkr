@@ -4560,8 +4560,8 @@
     "cs_select_all": "Select all",
     "cs_deselect_all": "Deselect all",
     "cs_delete_selected": "Delete selected ({{count}})",
-    "cs_bulk_delete_title": "Delete selected concept sets?",
-    "cs_bulk_delete_description": "This will permanently delete {{count}} concept sets. This action cannot be undone.",
+    "cs_bulk_delete_title": "Remove the selected concept sets from this project?",
+    "cs_bulk_delete_description": "{{count}} concept sets will no longer be used by this project. They stay in the workspace, for the other projects and the Concepts page.",
     "cs_view_detail": "View detail",
     "cs_col_items": "Items",
     "cs_col_status": "Status",
@@ -4577,8 +4577,8 @@
     "cs_update_all_result": "{{updated}} of {{total}} concept sets updated successfully.",
     "cs_import_history": "Import history",
     "cs_delete_batch": "Delete all concept sets from this import",
-    "cs_batch_delete_title": "Delete import batch?",
-    "cs_batch_delete_description": "This will permanently delete all concept sets from this import batch. This action cannot be undone.",
+    "cs_batch_delete_title": "Remove this import batch from the project?",
+    "cs_batch_delete_description": "Its concept sets will no longer be used by this project. They stay in the workspace, for the other projects and the Concepts page.",
     "cs_detail_expression": "Expression",
     "cs_detail_resolved": "Resolved Concepts",
     "align_action": "Align",
@@ -5071,7 +5071,8 @@
     "export_scores_parquet_desc": "A single similarity-scores.parquet — more compact, but it cannot be versioned.",
     "export_scores_select_all": "All",
     "export_scores_select_versioned": "Versioned only",
-    "export_scores_none_selected": "No scores"
+    "export_scores_none_selected": "No scores",
+    "cs_detach": "Remove from project"
   },
   "data_catalog": {
     "pages_hint_github": "In the repository, set Settings › Pages › Source to \"GitHub Actions\" once.",

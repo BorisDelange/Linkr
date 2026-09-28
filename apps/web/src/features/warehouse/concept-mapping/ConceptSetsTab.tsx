@@ -169,7 +169,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const lang = i18n.language
-  const { conceptSets, mappings, deleteConceptSetsBatch, updateMappingProject, updateConceptSet } = useConceptMappingStore()
+  const { conceptSets, mappings, updateMappingProject, updateConceptSet } = useConceptMappingStore()
 
   const [importOpen, setImportOpen] = useState(false)
   const [_updatingId, setUpdatingId] = useState<string | null>(null)
@@ -636,11 +636,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
 
   const handleBulkDelete = async () => {
     if (selectedIds.size === 0) return
-    const ids = [...selectedIds]
     await updateMappingProject(project.id, {
       conceptSetIds: (project.conceptSetIds ?? []).filter((id) => !selectedIds.has(id)),
     })
-    await deleteConceptSetsBatch(ids)
     setSelectedIds(new Set())
     setSelectionMode(false)
     setBulkDeleteOpen(false)
@@ -655,7 +653,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         conceptSetIds: (project.conceptSetIds ?? []).filter((id) => !batchIdSet.has(id)),
         importBatches: (project.importBatches ?? []).filter((b) => b.id !== batchToDelete),
       })
-      await deleteConceptSetsBatch(batchCsIds)
     } else {
       // No concept sets left but batch record exists — just remove the batch record
       await updateMappingProject(project.id, {
@@ -1987,7 +1984,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleBulkDelete}>{t('common.delete')}</AlertDialogAction>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleBulkDelete}>{t('concept_mapping.cs_detach')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -2028,7 +2025,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDeleteBatch}>{t('common.delete')}</AlertDialogAction>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDeleteBatch}>{t('concept_mapping.cs_detach')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

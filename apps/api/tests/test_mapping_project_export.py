@@ -172,3 +172,21 @@ def test_database_project_without_a_flat_source_exports_no_csv():
         source_csv=None,
     )
     assert "source-concepts.csv" not in tree
+
+
+def test_concept_set_refs_twin_of_the_client():
+    """Port of toConceptSetRefs (concept-set-refs.test.ts): uniqueId (+repo), else
+    name; deduplicated, sorted on that key, unknown ids dropped."""
+    from app.services.mapping_project_export import _concept_set_refs
+
+    sets = [
+        {"id": "a", "name": "A", "uniqueId": "u-2", "sourceRepo": "https://github.com/indicate-eu/data-dictionary"},
+        {"id": "b", "name": "Local sepsis", "uniqueId": None, "sourceRepo": None},
+        {"id": "c", "name": "C", "uniqueId": "u-1", "sourceRepo": None},
+    ]
+    assert _concept_set_refs(["a", "b", "c", "x", "a"], sets) == [
+        {"name": "Local sepsis"},
+        {"uniqueId": "u-1"},
+        {"uniqueId": "u-2", "sourceRepo": "https://github.com/indicate-eu/data-dictionary"},
+    ]
+    assert _concept_set_refs(None, sets) == []

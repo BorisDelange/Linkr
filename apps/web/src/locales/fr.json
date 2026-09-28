@@ -4560,8 +4560,8 @@
     "cs_select_all": "Tout sélectionner",
     "cs_deselect_all": "Tout désélectionner",
     "cs_delete_selected": "Supprimer la sélection ({{count}})",
-    "cs_bulk_delete_title": "Supprimer les concept sets sélectionnés ?",
-    "cs_bulk_delete_description": "Cette action supprimera définitivement {{count}} concept sets. Cette action est irréversible.",
+    "cs_bulk_delete_title": "Retirer les concept sets sélectionnés de ce projet ?",
+    "cs_bulk_delete_description": "{{count}} concept sets ne seront plus utilisés par ce projet. Ils restent dans le workspace, pour les autres projets et la page Concepts.",
     "cs_view_detail": "Voir le détail",
     "cs_col_items": "Items",
     "cs_col_status": "Statut",
@@ -4577,8 +4577,8 @@
     "cs_update_all_result": "{{updated}} concept sets sur {{total}} mis à jour avec succès.",
     "cs_import_history": "Historique des imports",
     "cs_delete_batch": "Supprimer tous les concept sets de cet import",
-    "cs_batch_delete_title": "Supprimer le lot d'import ?",
-    "cs_batch_delete_description": "Cette action supprimera définitivement tous les concept sets de ce lot d'import. Cette action est irréversible.",
+    "cs_batch_delete_title": "Retirer ce lot d'import du projet ?",
+    "cs_batch_delete_description": "Ses concept sets ne seront plus utilisés par ce projet. Ils restent dans le workspace, pour les autres projets et la page Concepts.",
     "cs_detail_expression": "Expression",
     "cs_detail_resolved": "Concepts résolus",
     "align_action": "Aligner",
@@ -5071,7 +5071,8 @@
     "export_scores_parquet_desc": "Un seul similarity-scores.parquet — plus compact, mais non versionnable.",
     "export_scores_select_all": "Toutes",
     "export_scores_select_versioned": "Versionnées seulement",
-    "export_scores_none_selected": "Aucun score"
+    "export_scores_none_selected": "Aucun score",
+    "cs_detach": "Retirer du projet"
   },
   "data_catalog": {
     "pages_hint_github": "Dans le dépôt, réglez une fois Settings › Pages › Source sur « GitHub Actions ».",

@@ -20,6 +20,7 @@ import { restoreFileSourceDataFromCsv } from './export'
 import { parseSourceConceptIdEntries } from './source-concept-ids-io'
 import { getTotalSourceConcepts, readsFromFlatSource } from './mapping-status'
 import { restoreImportedScores, type ImportedScores } from './scores-restore'
+import { resolveConceptSetRefs, type ConceptSetRef } from './concept-set-refs'
 
 export interface MappingProjectImportInput {
   /** Parsed export/repo contents (parseImportZip output): path → JSON|string. */
@@ -96,7 +97,7 @@ export async function importMappingProjectContent(
 
   // `readmeLang` is an export-only marker (which language the suffix-free
   // README.md holds); it rides on project.json but is not part of the entity.
-  const project = readImportedManifest<MappingProject & { readmeLang?: string }>(files, 'project', '_project.json')
+  const project = readImportedManifest<MappingProject & { readmeLang?: string; conceptSets?: ConceptSetRef[] }>(files, 'project', '_project.json')
   // A readable manifest is all this needs: the row is written under `targetId`,
   // and `project.id` is used nowhere below. It used to gate on that field, which
   // stopped travelling when exports dropped the writing instance's local key —
@@ -139,14 +140,22 @@ export async function importMappingProjectContent(
     ? resolvePointer(await storage.dataSources.getAll(), project.dataSourceRef, workspaceId)
     : undefined
 
+  // The manifest names its concept sets portably; the local ids are whichever
+  // workspace sets answer those names.
+  const { conceptSets: conceptSetRefs, ...manifest } = project
+  const { ids: conceptSetIds } = resolveConceptSetRefs(
+    conceptSetRefs,
+    conceptSetRefs?.length ? await storage.conceptSets.getByWorkspace(workspaceId) : [],
+  )
+
   const entity: MappingProject = {
-    ...project,
+    ...manifest,
     id: targetId,
     workspaceId,
     dataSourceId: database?.id ?? '',
     ...(Object.keys(readmeByLang).length ? { readme: readmeByLang } : {}),
     ...(license ? { license } : {}),
-    conceptSetIds: project.conceptSetIds ?? [],
+    conceptSetIds,
     // gitRemoteConfig is set by the caller (import source), never from the ZIP
     // (export strips it). Cloning a git-linked project must keep the link.
     gitRemoteConfig,

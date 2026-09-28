@@ -129,6 +129,7 @@ export function validateMappingProject(tree: EntityTree, bag: IssueBag): void {
   }
   checkLocalized(bag, path, '/name', parsed.value.name, { required: true })
   validateScoreCsvs(tree, bag, path, parsed.value.versionedScoreMethods)
+  validateConceptSetRefs(bag, path, parsed.value.conceptSets)
 
   const mappingsPath = MANIFEST['mapping-project']
   const mappings = readJson(tree, mappingsPath)
@@ -171,6 +172,29 @@ export function validateMappingProject(tree: EntityTree, bag: IssueBag): void {
         label: 'status',
       })
     }
+  })
+}
+
+/**
+ * `conceptSets` — the concept sets the project uses, named portably: by the
+ * set's `uniqueId` (+ the dictionary `sourceRepo`), or by `name` for a
+ * hand-made set without one. A ref with neither resolves to nothing.
+ */
+function validateConceptSetRefs(bag: IssueBag, manifest: string, refs: unknown): void {
+  if (!checkArray(bag, manifest, '/conceptSets', refs, { label: 'conceptSets' })) return
+  refs.forEach((ref, i) => {
+    const pointer = `/conceptSets/${i}`
+    if (!isObject(ref)) {
+      bag.error(manifest, pointer, 'wrong-type', 'Each concept set ref must be an object.')
+      return
+    }
+    if (ref.uniqueId == null && ref.name == null) {
+      bag.error(manifest, pointer, 'missing-field', 'A concept set ref needs a uniqueId (or, for a hand-made set, a name).')
+      return
+    }
+    if (ref.uniqueId != null) checkString(bag, manifest, `${pointer}/uniqueId`, ref.uniqueId, { label: 'uniqueId' })
+    if (ref.sourceRepo != null) checkString(bag, manifest, `${pointer}/sourceRepo`, ref.sourceRepo, { label: 'sourceRepo' })
+    if (ref.name != null) checkString(bag, manifest, `${pointer}/name`, ref.name, { label: 'name' })
   })
 }
 

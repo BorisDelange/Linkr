@@ -47,6 +47,7 @@ import type {
   LocalizedString, TodoItem,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
+import type { ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 
 /** Languages seeded from per-language README files (README.md = en, README.fr.md = fr). */
 const SEED_LANGUAGES = ['en', 'fr'] as const
@@ -757,7 +758,15 @@ async function loadStructuralEntity(
         const csvText = await fetchText(`${base}/mapping-projects/${mpFolder}/source-concepts.csv`)
         if (csvText) restoreFileSourceDataFromCsv(project, csvText)
       }
-      await storage.mappingProjects.create({ ...project, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      // The workspace's concept sets are seeded first (loadWorkspaceInternals):
+      // the manifest's portable refs resolve to them.
+      const { conceptSets: conceptSetRefs, ...manifest } = project as MappingProject & { conceptSets?: ConceptSetRef[] }
+      const { resolveConceptSetRefs } = await import('@/lib/concept-mapping/concept-set-refs')
+      const { ids: conceptSetIds } = resolveConceptSetRefs(
+        conceptSetRefs,
+        conceptSetRefs?.length ? await storage.conceptSets.getByWorkspace(wsId) : [],
+      )
+      await storage.mappingProjects.create({ ...manifest, conceptSetIds, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
       const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
       if (mappings.length > 0) {
         // `mappings.json` carries no `id` (an export strips primary keys), but the

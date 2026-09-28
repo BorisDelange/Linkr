@@ -1,4 +1,4 @@
-import type { ConceptMapping, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
+import type { ConceptMapping, ConceptSet, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { ENTITY_MANIFEST } from '@linkr/format'
 import { APP_VERSION } from '@/lib/version'
 import { readsFromFlatSource } from './mapping-status'
@@ -7,6 +7,7 @@ import { stripInstanceFields, attachEntityOrganization, licenseMeta, orderProven
 import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
+import { toConceptSetRefs } from '@/lib/concept-mapping/concept-set-refs'
 import { csvPathForMethod, SCORES_PARQUET_FILE, type ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
 
 // ---------------------------------------------------------------------------
@@ -727,8 +728,9 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
  * standalone export and the workspace export's mapping-projects/ subfolders.
  *
  * Instance-specific fields (ownerId, timestamps, gitRemoteConfig, …) are stripped
- * so the file is portable and doesn't churn the git diff; conceptSetIds /
- * importBatches are re-derivable and dropped; rawFileBuffer/rows aren't
+ * so the file is portable and doesn't churn the git diff; conceptSetIds (local
+ * keys) become portable `conceptSets` refs (concept-set-refs.ts); importBatches
+ * are dropped; rawFileBuffer/rows aren't
  * JSON-serialized (the source lives in source-concepts.csv). dataSourceId and
  * vocabularyDataSourceId are local data-source UUIDs meaningless elsewhere, so
  * dataSourceId is reset to '' (required by the type) and vocabularyDataSourceId
@@ -736,7 +738,12 @@ function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
  * resolves back to a local database. A git-linked workspace entity re-adds its
  * gitRemoteConfig pointer on top of this (the one field the caller keeps).
  */
-export function cleanMappingProjectMeta(project: MappingProject): Record<string, unknown> {
+export function cleanMappingProjectMeta(
+  project: MappingProject,
+  conceptSets: readonly ConceptSet[] = [],
+): Record<string, unknown> {
+  // conceptSetIds are local keys: the sets travel as portable refs instead.
+  const conceptSetRefs = toConceptSetRefs(project.conceptSetIds ?? [], conceptSets)
   const { conceptSetIds: _, importBatches: _ib, fileSourceData, vocabularyDataSourceId: _vds, readme: _readme, license, ...projectRest } = project
   // `id` never travels — it is the writing instance's local key. `entityId` is the
   // portable slug and `lineageId` the cross-instance identity. The provenance keys
@@ -750,6 +757,10 @@ export function cleanMappingProjectMeta(project: MappingProject): Record<string,
     entityId,
     scoresFileSha: _scoresSha,
     scoresFileName: _scoresName,
+    // The vocabulary database is never exported (and its lineage is minted per
+    // import), so a pointer to it resolved nowhere and flipped in git between
+    // two users who each imported ATHENA.
+    vocabularyDataSourceRef: _vocabRef,
     ...rest
   } = stripInstanceFields(projectRest) as Record<string, unknown>
   return {
@@ -770,6 +781,7 @@ export function cleanMappingProjectMeta(project: MappingProject): Record<string,
           rows: [],
         },
       } : {}),
+      ...(conceptSetRefs.length > 0 ? { conceptSets: conceptSetRefs } : {}),
     }),
     // The export-format version stamp, as every other kind carries it.
     appVersion: APP_VERSION,
@@ -790,7 +802,8 @@ export async function buildMappingProjectFolder(
 ): Promise<void> {
   const mappings = await storage.conceptMappings.getByProject(project.id)
 
-  const projectJson = cleanMappingProjectMeta(project)
+  const conceptSets = project.conceptSetIds?.length ? await storage.conceptSets.getByWorkspace(project.workspaceId) : []
+  const projectJson = cleanMappingProjectMeta(project, conceptSets)
   zip.file(`${prefix}${ENTITY_MANIFEST}`, JSON.stringify(projectJson, null, 2))
   writeReadmeFiles(zip, prefix, project.readme)
   writeLicenseFile(zip, prefix, project.license)

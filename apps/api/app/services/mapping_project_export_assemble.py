@@ -19,6 +19,7 @@ import zipfile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.models.concept_set import ConceptSet
 from app.models.mapping_project import ConceptMapping, MappingProject
 from app.schemas.mapping_project import ConceptMappingResponse, MappingProjectResponse
 from app.services import blob_store, scores_export
@@ -45,6 +46,18 @@ def _mapping_dict(m: ConceptMapping) -> dict:
     return ConceptMappingResponse.model_validate(m).model_dump(
         by_alias=True, mode="json"
     )
+
+
+async def concept_set_dicts(db: AsyncSession, project: MappingProject) -> list[dict]:
+    """The project's concept sets, as much of them as its portable refs need."""
+    ids = project.concept_set_ids or []
+    if not ids:
+        return []
+    res = await db.execute(select(ConceptSet).where(ConceptSet.id.in_(ids)))
+    return [
+        {"id": cs.id, "name": cs.name, "uniqueId": cs.unique_id, "sourceRepo": cs.source_repo}
+        for cs in res.scalars().all()
+    ]
 
 
 def _range_dict(r, entries) -> dict:
@@ -148,6 +161,7 @@ async def build_mapping_project_tree_from_db(
         organization=organization,
         source_csv=source_csv,
         score_files=score_files,
+        concept_sets=await concept_set_dicts(db, project),
     )
 
 
