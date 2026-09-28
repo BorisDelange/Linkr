@@ -53,6 +53,16 @@ import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { isServerMode } from '@/lib/api-client'
 import { previewFileColumnsOnServer } from '@/lib/api/mapping-projects'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
+import { getStorage } from '@/lib/storage'
+import {
+  alignedSourceRowsSql,
+  alignedTargetIds,
+  buildFileTargetMappings,
+  type AlignedSourceRow,
+  type TargetConceptDetails,
+} from '@/lib/concept-mapping/file-target-mappings'
 import type { MappingProject, MappingProjectSourceType, FileColumnMapping, FileSourceData, MappingProjectStatus, ProjectBadge } from '@/types'
 
 interface CreateMappingProjectDialogProps {
@@ -81,8 +91,8 @@ export const MAPPING_STATUS_COLORS: Record<import('@/types').MappingProjectStatu
 /** Known concept field roles for column mapping, grouped for layout. */
 const COLUMN_ROLE_ROWS: (readonly (keyof FileColumnMapping)[])[] = [
   ['terminologyColumn', 'conceptCodeColumn'],
-  ['conceptNameColumn', 'conceptIdColumn'],
-  ['categoryColumn'],
+  ['categoryColumn', 'conceptNameColumn'],
+  ['conceptIdColumn', 'targetConceptIdColumn'],
   ['recordCountColumn', 'patientCountColumn'],
   ['infoJsonColumn'],
 ] as const
@@ -98,7 +108,10 @@ export function CreateMappingProjectDialog({
   const language = useAppStore((s) => s.language)
   const { activeWorkspaceId } = useWorkspaceStore()
   const workspaceDatabases = useDatabaseOptions(activeWorkspaceId)
-  const { createMappingProject, updateMappingProject, reconcileMappingsToFile } = useConceptMappingStore()
+  const { createMappingProject, updateMappingProject, reconcileMappingsToFile, createMappingsBatch } = useConceptMappingStore()
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
+  const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
 
   // --- Common fields ---
   const [name, setName] = useState('')
@@ -128,7 +141,7 @@ export function CreateMappingProjectDialog({
   const [duplicatesRemoved, setDuplicatesRemoved] = useState(0)
   // After create/import: how many duplicates the source view will drop. When > 0
   // we show a one-time modal and defer closing the dialog until it's dismissed.
-  const [importDuplicates, setImportDuplicates] = useState<number | null>(null)
+  const [importNotice, setImportNotice] = useState<{ duplicates: number; aligned: number; alignError?: string } | null>(null)
   const pendingCloseRef = useRef<(() => void) | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
@@ -271,6 +284,8 @@ export function CreateMappingProjectDialog({
         mapping.terminologyColumn = header
       else if (!mapping.conceptCodeColumn && (lh.includes('conceptcode') || lh === 'code' || lh === 'sourcecode'))
         mapping.conceptCodeColumn = header
+      else if (!mapping.targetConceptIdColumn && lh.includes('target') && lh.includes('conceptid'))
+        mapping.targetConceptIdColumn = header
       else if (!mapping.conceptIdColumn && (lh.includes('conceptid') || lh === 'id'))
         mapping.conceptIdColumn = header
       else if (!mapping.conceptNameColumn && (lh.includes('conceptname') || lh.includes('label') || lh === 'name' || lh === 'description'))
@@ -688,7 +703,11 @@ export function CreateMappingProjectDialog({
         }
       }
       await updateMappingProject(editingProject.id, changes)
+      const aligned = sourceType === 'file' && file && changes.fileSourceData
+        ? await importAlignedTargets(editingProject.id, changes.fileSourceData, true)
+        : { aligned: 0 }
       await finishWithDuplicateCheck(
+        aligned,
         editingProject.id,
         sourceType === 'file' ? (changes.fileSourceData?.rawFileBuffer) : undefined,
         sourceType === 'file' ? columnMapping : undefined,
@@ -733,7 +752,11 @@ export function CreateMappingProjectDialog({
         }
       }
       await createMappingProject(project)
+      const aligned = project.fileSourceData
+        ? await importAlignedTargets(id, project.fileSourceData, false)
+        : { aligned: 0 }
       await finishWithDuplicateCheck(
+        aligned,
         id,
         sourceType === 'file' ? (project.fileSourceData?.rawFileBuffer) : undefined,
         sourceType === 'file' ? columnMapping : undefined,
@@ -746,17 +769,72 @@ export function CreateMappingProjectDialog({
   // dropped, show a one-time modal and defer `close` until the user dismisses it;
   // otherwise close straight away.
   const finishWithDuplicateCheck = async (
+    aligned: { aligned: number; error?: string },
     projectId: string,
     buffer: Uint8Array | undefined,
     mapping: FileColumnMapping | undefined,
     close: () => void,
   ) => {
     const removed = mapping ? await countDuplicatesForProject(projectId, buffer, mapping) : 0
-    if (removed > 0) {
+    if (removed > 0 || aligned.aligned > 0 || aligned.error) {
       pendingCloseRef.current = close
-      setImportDuplicates(removed)
+      setImportNotice({ duplicates: removed, aligned: aligned.aligned, alignError: aligned.error })
     } else {
       close()
+    }
+  }
+
+  /**
+   * Turn the file's target concept ids into mappings, credited to the user who
+   * imports it. Target details come from the workspace vocabularies; a target
+   * they lack keeps its id alone.
+   */
+  const importAlignedTargets = async (
+    projectId: string,
+    source: FileSourceData,
+    remount: boolean,
+  ): Promise<{ aligned: number; error?: string }> => {
+    if (!source.columnMapping.targetConceptIdColumn || !activeWorkspaceId) return { aligned: 0 }
+    try {
+      const { fileSourceDataSourceId, mountFileSourceIntoDuckDB, queryDataSourceAll, unmountFileSource } = await import('@/lib/duckdb/engine')
+      if (!isServerMode()) {
+        if (remount) await unmountFileSource(projectId)
+        await mountFileSourceIntoDuckDB(projectId, source.rows, source.columnMapping, source.rawFileBuffer)
+      }
+      const rows = await queryDataSourceAll(fileSourceDataSourceId(projectId), alignedSourceRowsSql(source.columnMapping)) as unknown as AlignedSourceRow[]
+      if (rows.length === 0) return { aligned: 0 }
+
+      const targets = new Map<number, TargetConceptDetails>()
+      const vocabularyId = vocabularyDataSourceIdFor({ workspaceId: activeWorkspaceId }, dataSources)
+      const ids = alignedTargetIds(rows)
+      if (vocabularyId) {
+        for (let i = 0; i < ids.length; i += 1000) {
+          const found = await queryDataSourceAll(vocabularyId,
+            'SELECT concept_id, concept_name, vocabulary_id, domain_id, concept_class_id, concept_code, standard_concept '
+            + `FROM concept WHERE concept_id IN (${ids.slice(i, i + 1000).join(', ')})`)
+          for (const r of found) {
+            targets.set(Number(r.concept_id), {
+              conceptId: Number(r.concept_id),
+              conceptName: String(r.concept_name ?? ''),
+              vocabularyId: String(r.vocabulary_id ?? ''),
+              domainId: String(r.domain_id ?? ''),
+              conceptCode: String(r.concept_code ?? ''),
+              conceptClassId: r.concept_class_id != null ? String(r.concept_class_id) : undefined,
+              standardConcept: r.standard_concept ? String(r.standard_concept) : undefined,
+            })
+          }
+        }
+      }
+      const existing = remount ? await getStorage().conceptMappings.getByProject(projectId) : []
+      const mappings = buildFileTargetMappings(
+        { id: projectId }, rows, targets, existing,
+        { name: getUserDisplayName(), details: getAuthorDetails() },
+        new Date().toISOString(),
+      )
+      await createMappingsBatch(mappings)
+      return { aligned: mappings.length }
+    } catch (err) {
+      return { aligned: 0, error: err instanceof Error ? err.message : String(err) }
     }
   }
 
@@ -814,6 +892,8 @@ export function CreateMappingProjectDialog({
     return Object.keys(opts).length > 0 ? opts : undefined
   }
 
+  const extraColumnChoices = parsedColumns
+    .filter((col) => !COLUMN_ROLE_ROWS.flat().some((role) => columnMapping[role as keyof FileColumnMapping] === col))
   const showCSVOptions = file && isCSVLike(file)
   const showExcelOptions = file && isExcel(file)
   const isImportSettingsPage = page === 'import-settings'
@@ -974,7 +1054,7 @@ export function CreateMappingProjectDialog({
                             {(role === 'terminologyColumn' || role === 'conceptCodeColumn') && (
                               <span className="text-destructive">*</span>
                             )}
-                            {role === 'conceptIdColumn' && (
+                            {(role === 'conceptIdColumn' || role === 'targetConceptIdColumn') && (
                               <Tooltip delayDuration={200}>
                                 <TooltipTrigger asChild>
                                   <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
@@ -982,7 +1062,7 @@ export function CreateMappingProjectDialog({
                                   </button>
                                 </TooltipTrigger>
                                 <TooltipContent side="right" className="max-w-xs text-xs">
-                                  {t('concept_mapping.col_role_conceptIdColumn_info')}
+                                  {t(`concept_mapping.col_role_${role}_info`)}
                                 </TooltipContent>
                               </Tooltip>
                             )}
@@ -1015,6 +1095,9 @@ export function CreateMappingProjectDialog({
                     {t('concept_mapping.col_role_extraColumns')}
                   </Label>
                   <div className="flex-1">
+                    {extraColumnChoices.length === 0 && (columnMapping.extraColumns?.length ?? 0) === 0 ? (
+                      <p className="pt-1.5 text-[10px] text-muted-foreground">{t('concept_mapping.extra_columns_none')}</p>
+                    ) : (
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button variant="outline" size="sm-tight" className="w-full justify-start text-[10px] font-normal">
@@ -1025,9 +1108,7 @@ export function CreateMappingProjectDialog({
                       </PopoverTrigger>
                       <PopoverContent className="w-64 p-2" align="start">
                         <div className="max-h-[200px] space-y-1 overflow-auto">
-                          {parsedColumns
-                            .filter((col) => !COLUMN_ROLE_ROWS.flat().some((role) => columnMapping[role as keyof FileColumnMapping] === col))
-                            .map((col) => {
+                          {extraColumnChoices.map((col) => {
                               const checked = columnMapping.extraColumns?.includes(col) ?? false
                               return (
                                 <label key={col} className="flex items-center gap-2 rounded px-2 py-1 text-xs hover:bg-muted cursor-pointer">
@@ -1046,6 +1127,7 @@ export function CreateMappingProjectDialog({
                         </div>
                       </PopoverContent>
                     </Popover>
+                    )}
                     {(columnMapping.extraColumns?.length ?? 0) > 0 && (
                       <div className="mt-1 flex flex-wrap gap-1">
                         {columnMapping.extraColumns!.map((col) => (
@@ -1396,10 +1478,10 @@ export function CreateMappingProjectDialog({
     {/* One-time notice: duplicate source concepts the source view will drop.
         Shown after create/import; dismissing it runs the deferred close. */}
     <AlertDialog
-      open={importDuplicates !== null}
+      open={importNotice !== null}
       onOpenChange={(o) => {
         if (!o) {
-          setImportDuplicates(null)
+          setImportNotice(null)
           pendingCloseRef.current?.()
           pendingCloseRef.current = null
         }
@@ -1407,14 +1489,28 @@ export function CreateMappingProjectDialog({
     >
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>{t('concept_mapping.duplicates_removed_title')}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {t('concept_mapping.duplicates_removed_desc', { count: importDuplicates ?? 0 })}
+          <AlertDialogTitle>
+            {importNotice && importNotice.duplicates > 0
+              ? t('concept_mapping.duplicates_removed_title')
+              : t('concept_mapping.aligned_imported_title')}
+          </AlertDialogTitle>
+          <AlertDialogDescription asChild>
+            <div className="space-y-2">
+              {importNotice && importNotice.duplicates > 0 && (
+                <p>{t('concept_mapping.duplicates_removed_desc', { count: importNotice.duplicates })}</p>
+              )}
+              {importNotice && importNotice.aligned > 0 && (
+                <p>{t('concept_mapping.aligned_imported_desc', { count: importNotice.aligned })}</p>
+              )}
+              {importNotice?.alignError && (
+                <p className="text-destructive">{t('concept_mapping.aligned_import_failed', { error: importNotice.alignError })}</p>
+              )}
+            </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogAction onClick={() => {
-            setImportDuplicates(null)
+            setImportNotice(null)
             pendingCloseRef.current?.()
             pendingCloseRef.current = null
           }}>{t('common.ok')}</AlertDialogAction>

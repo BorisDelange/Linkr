@@ -100,6 +100,7 @@ describe('availableSections', () => {
       eventTables: { Events: { table: 'ev', conceptIdColumn: 'concept_id' } },
     } as never)
     expect(availableSections(bare, source(bare))).toEqual({
+      counts: true,
       numeric: false, histogram: false, categorical: false, unit: false,
       frequency: false, temporal: false, hospitalUnits: false, missingRate: false,
       // Counting records per patient needs no value and no date — the patient

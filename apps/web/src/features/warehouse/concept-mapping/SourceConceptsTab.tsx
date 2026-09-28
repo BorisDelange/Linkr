@@ -7,6 +7,7 @@ import { NumberInput } from '@/components/ui/number-input'
 import { Label } from '@/components/ui/label'
 import { Progress } from '@/components/ui/progress'
 import { SectionLabel } from '@/components/ui/section-label'
+import { Switch } from '@/components/ui/switch'
 import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -28,7 +29,8 @@ import {
 import {
   DEFAULT_EXTRACTION_SORT,
   EXTRACTION_COLUMNS,
-  EXTRACTION_COLUMN_MAPPING,
+  computesMetadata,
+  extractionColumnMapping,
   extractionCsvHeader,
   sortNeedsCounts,
   type ExtractionSort,
@@ -59,6 +61,7 @@ interface SourceConceptsTabProps {
  */
 const SECTION_KEYS: (keyof ProfileSections)[] = [
   // Volume and coverage — how much of this concept there is.
+  'counts',
   'missingRate',
   'perPatient',
   'frequency',
@@ -90,6 +93,7 @@ const SORT_KEYS: ExtractionSortKey[] = ['records', 'patients', 'name', 'code', '
  * are i18n suffixes, resolved against `concept_mapping.extract_group_*`.
  */
 const SECTION_GROUPS: Record<keyof ProfileSections, string> = {
+  counts: 'volume',
   missingRate: 'volume',
   perPatient: 'volume',
   frequency: 'volume',
@@ -193,7 +197,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   // Client-only mode has no blob store to append to, so the growing CSV lives
   // in the browser. Server mode never fills it — the bytes stay on the server.
   const localCsv = localCsvFor(project.id)
-  const { running, error, phase } = snapshot
+  const { running, error, phase, pausing } = snapshot
   // Live position during a run. The persisted `extracted` only moves between
   // save points, so without this the bar would sit still for hundreds of concepts.
   const liveExtracted = snapshot.extracted
@@ -224,7 +228,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       const one = availableSections(mapping, s)
       if (!acc) return one
       const merged = {} as ProfileSections
-      for (const key of SECTION_KEYS) merged[key] = acc[key] || one[key]
+      for (const key of SECTION_KEYS) merged[key] = !!(acc[key] || one[key])
       return merged
     }, null)
   }, [mapping, sources])
@@ -272,7 +276,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           fileName: 'source-concepts.csv',
           rows: [],
           columns: [...EXTRACTION_COLUMNS],
-          columnMapping: EXTRACTION_COLUMN_MAPPING,
+          columnMapping: extractionColumnMapping(state.options),
           totalRowCount: rowCount,
         },
       })
@@ -288,7 +292,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         fileName: 'source-concepts.csv',
         rows: [],
         columns: [...EXTRACTION_COLUMNS],
-        columnMapping: EXTRACTION_COLUMN_MAPPING,
+        columnMapping: extractionColumnMapping(state.options),
         rawFileBuffer: new TextEncoder().encode(next),
         totalRowCount: rowCount,
       },
@@ -357,7 +361,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       resumeFrom: restart
         ? null
         : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes },
-      query: (sql) => queryDataSource(dataSource.id, sql),
+      query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal }),
       queryAll: (sql) => queryDataSourceAll(dataSource.id, sql),
       persist,
       persistError: async (message) => {
@@ -423,6 +427,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     .map((o) => o.value)
     .filter((key) => options.sections[key as keyof ProfileSections])
   const locked = running || (!!saved && !done)
+  const metadata = computesMetadata(options)
   // "Largest first" reads better than "descending" for a count; "A to Z" better
   // than "ascending" for a name. Same control, named for what it orders.
   const sortIsNumeric = sort.key === 'records' || sort.key === 'patients' || sort.key === 'id'
@@ -469,6 +474,31 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, locked && 'pointer-events-none opacity-50')}
             />
           </div>
+          <div className="flex items-end pb-2">
+            <label className={cn('flex items-center gap-2', locked && 'pointer-events-none opacity-50')}>
+              <Switch
+                size="sm"
+                checked={metadata}
+                disabled={locked}
+                onCheckedChange={(on) => setOptions((o) => ({ ...o, metadata: on }))}
+              />
+              <span className="text-xs">{t('concept_mapping.extract_metadata')}</span>
+            </label>
+            <Tooltip delayDuration={0}>
+              <TooltipTrigger asChild>
+                <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label="Info">
+                  <Info size={12} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs text-xs">
+                {t('concept_mapping.extract_metadata_hint')}
+              </TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {metadata && (
+        <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <Label>{t('concept_mapping.extract_sections')}</Label>
             <MultiSelectFilter
@@ -500,6 +530,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             />
           </div>
         </div>
+        )}
 
         {/* What to screen first, and from which end */}
         <div className="grid grid-cols-2 gap-4">
@@ -558,6 +589,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         )}
 
         {/* The two confidentiality thresholds */}
+        {metadata && (
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <LabelWithHint
@@ -590,6 +622,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             />
           </div>
         </div>
+        )}
 
         {/* Progress + controls */}
         <div className="flex flex-col gap-2 border-t pt-4">
@@ -597,7 +630,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             <span className="text-xs text-muted-foreground">
               {/* Counting is one COUNT per dictionary against the database, and
                   says so: silence here reads as a button that did nothing. */}
-              {counting
+              {pausing
+                ? t(`concept_mapping.extract_pausing_${pausing}`)
+                : counting
                 ? t('concept_mapping.extract_counting')
                 : ranking
                 ? t('concept_mapping.extract_ranking')
@@ -630,9 +665,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
 
           <div className="flex items-center gap-2">
             {running ? (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={stop}>
-                <Pause size={14} />
-                {t('concept_mapping.extract_pause')}
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={stop} disabled={!!pausing}>
+                {pausing ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />}
+                {pausing ? t('concept_mapping.extract_pausing') : t('concept_mapping.extract_pause')}
               </Button>
             ) : (
               <Button
@@ -668,7 +703,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
                 {t('concept_mapping.extract_discard')}
               </Button>
             )}
-            {running && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
+            {running && !pausing && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
           </div>
 
           {/* Two sentences, two lines: the first says the work is done, the

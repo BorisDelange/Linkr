@@ -1226,6 +1226,11 @@ async function doMountFileSource(
       if (columnMapping.infoJsonColumn) {
         selectCols.push(`CAST("${esc(columnMapping.infoJsonColumn)}" AS VARCHAR) AS info_json`)
       }
+      // Alignments already made, read once when the file is imported. Mirrors
+      // the server (file_source.build_source_concepts_select).
+      if (columnMapping.targetConceptIdColumn) {
+        selectCols.push(`CAST("${esc(columnMapping.targetConceptIdColumn)}" AS VARCHAR) AS target_concept_id`)
+      }
 
       // Drop duplicate source concepts (same vocabulary_id + concept_code),
       // keeping the first row. This is the single dedup point for file sources

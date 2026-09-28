@@ -55,6 +55,25 @@ function naturalCompare(a: string, b: string): number {
   return a.localeCompare(b, 'en', { numeric: true })
 }
 
+/**
+ * A ZIP's entries as a repository tree: paths from the dictionary's root. An
+ * archive downloaded from a forge nests everything under one folder
+ * (`data-dictionary-main/concept_sets/…`); that folder is dropped. Returns the
+ * paths `readDictionaryTree` reads, nothing else.
+ */
+export function zipPathsToTree(entries: Readonly<Record<string, string>>): Record<string, string> {
+  const paths = Object.keys(entries)
+  const anchor = paths.find((p) => p === `${CONCEPT_SETS_DIR}/` || p.startsWith(`${CONCEPT_SETS_DIR}/`) || p.includes(`/${CONCEPT_SETS_DIR}/`))
+  const root = anchor ? anchor.slice(0, anchor.indexOf(`${CONCEPT_SETS_DIR}/`)) : ''
+  const tree: Record<string, string> = {}
+  for (const path of paths) {
+    if (!path.startsWith(root)) continue
+    const rel = path.slice(root.length)
+    if (isDictionaryFile(rel)) tree[rel] = entries[path]
+  }
+  return tree
+}
+
 /** Read a repository tree (`{path: text}`, paths from the repo root). */
 export function readDictionaryTree(files: Readonly<Record<string, string>>, commit: string | null, lang = 'en'): DictionaryContent {
   const conceptSets: IncomingConceptSet[] = []

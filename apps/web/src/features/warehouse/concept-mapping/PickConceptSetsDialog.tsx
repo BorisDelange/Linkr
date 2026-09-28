@@ -38,6 +38,7 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
   const [dictionaries, setDictionaries] = useState<DataDictionary[]>([])
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [busy, setBusy] = useState(false)
+  const [visible, setVisible] = useState<Row[]>([])
 
   useEffect(() => {
     if (!open) return
@@ -64,7 +65,26 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
   const columns = useMemo<DataTableColumn<Row>[]>(() => [
     {
       id: 'pick',
-      header: '',
+      header: t('common.select_all'),
+      headerCell: () => {
+        const n = visible.filter((r) => picked.has(r.set.id)).length
+        return (
+          <Checkbox
+            checked={n > 0 && n === visible.length ? true : n > 0 ? 'indeterminate' : false}
+            disabled={visible.length === 0}
+            aria-label={t('common.select_all')}
+            onCheckedChange={() => setPicked((prev) => {
+              const next = new Set(prev)
+              const all = n === visible.length
+              for (const r of visible) {
+                if (all) next.delete(r.set.id)
+                else next.add(r.set.id)
+              }
+              return next
+            })}
+          />
+        )
+      },
       size: 36,
       sortable: false,
       accessor: (r) => (picked.has(r.set.id) ? 1 : 0),
@@ -84,7 +104,7 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
     { id: 'category', header: t('concept_mapping.col_category'), accessor: (r) => r.category, filter: 'select', size: 180 },
     { id: 'dictionary', header: t('data_dictionaries.title'), accessor: (r) => r.dictionary, filter: 'select', size: 180 },
     { id: 'version', header: t('common.version'), accessor: (r) => r.set.version ?? '', size: 80 },
-  ], [picked, t])
+  ], [picked, visible, t])
 
   const add = async () => {
     if (picked.size === 0) return
@@ -122,6 +142,7 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
         pageSize={100}
         initialSorting={{ columnId: 'name', desc: false }}
         viewKey="pick-concept-sets"
+        onVisibleRowsChange={setVisible}
         emptyMessage={t('concept_mapping.cs_pick_empty')}
       />
     </DialogShell>

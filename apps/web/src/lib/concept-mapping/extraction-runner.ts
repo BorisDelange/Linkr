@@ -76,11 +76,17 @@ export interface RunSnapshot {
   total: number | null
   /** The concept being profiled right now, for a "what is it on" tooltip. */
   current: { conceptCode: string; conceptName: string } | null
+  /**
+   * Set from the moment Pause is pressed until the run has stopped: `stopping`
+   * while the query in flight is cut off, `saving` while the concepts profiled
+   * since the last save point are written.
+   */
+  pausing: 'stopping' | 'saving' | null
   error: string | null
 }
 
 const IDLE: RunSnapshot = {
-  running: false, phase: null, extracted: null, total: null, current: null, error: null,
+  running: false, phase: null, extracted: null, total: null, current: null, pausing: null, error: null,
 }
 
 interface Run {
@@ -161,9 +167,31 @@ export function watchRun(
 
 const pending = new Map<string, Set<(snapshot: RunSnapshot) => void>>()
 
-/** Ask a project's run to stop after the concept in flight. */
+/**
+ * Stop a project's run now. The query in flight is cancelled (server mode
+ * interrupts it) or, where it cannot be, no longer waited for; the concept it
+ * belonged to is dropped and profiled again on resume. What remains is writing
+ * the concepts profiled since the last save point.
+ */
 export function pauseRun(projectId: string): void {
-  runs.get(projectId)?.controller.abort()
+  const run = runs.get(projectId)
+  if (!run?.snapshot.running || run.controller.signal.aborted) return
+  emitNow(projectId, { pausing: 'stopping' })
+  run.controller.abort()
+}
+
+/** A query that settles as soon as `signal` aborts, whether or not the engine
+ *  underneath can cancel it. */
+function abortable<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason)
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason)
+    signal.addEventListener('abort', onAbort, { once: true })
+    promise.then(
+      (v) => { signal.removeEventListener('abort', onAbort); resolve(v) },
+      (e) => { signal.removeEventListener('abort', onAbort); reject(e) },
+    )
+  })
 }
 
 /** Everything the loop needs that only the view can resolve. */
@@ -180,7 +208,7 @@ export interface StartRunInput {
    * they were recorded; the loop then recounts, as it used to.
    */
   resumeFrom: { extracted: number; total: number; sizes?: number[] } | null
-  query: (sql: string) => Promise<Record<string, unknown>[]>
+  query: (sql: string, signal?: AbortSignal) => Promise<Record<string, unknown>[]>
   /**
    * Like `query`, but guaranteed to return EVERY row.
    *
@@ -191,7 +219,7 @@ export interface StartRunInput {
    * having profiled a fraction of the dictionary. Same reason
    * `source-concepts-loader` pages its own reads.
    */
-  queryAll: (sql: string) => Promise<Record<string, unknown>[]>
+  queryAll: (sql: string, signal?: AbortSignal) => Promise<Record<string, unknown>[]>
   /**
    * Write progress and the newly extracted rows back to the project.
    *
@@ -232,6 +260,7 @@ export function startRun(input: StartRunInput): void {
       total: input.resumeFrom?.total || null,
       // Nothing is being profiled yet — the run is still counting.
       current: null,
+      pausing: null,
       error: null,
     },
     controller,
@@ -248,7 +277,10 @@ export function startRun(input: StartRunInput): void {
 }
 
 async function loop(input: StartRunInput, controller: AbortController): Promise<void> {
-  const { projectId, mapping, sources, options, query, queryAll, persist } = input
+  const { projectId, mapping, sources, options, persist } = input
+  const { signal } = controller
+  const query = (sql: string) => abortable(input.query(sql, signal), signal)
+  const queryAll = (sql: string) => abortable(input.queryAll(sql, signal), signal)
   try {
     // A restart re-counts: the dictionaries may have grown since the last run,
     // and resuming against a stale total would stop short of the new rows.
@@ -271,6 +303,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       sizes.push(...storedSizes)
     } else {
       for (const source of sources) {
+        if (signal.aborted) return
         const rows = await query(buildDictionaryCountQuery(source))
         sizes.push(Number(rows[0]?.total ?? 0))
       }
@@ -347,6 +380,11 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       if (batch.rows.length === 0 && !batch.done) break
       offset += batch.rows.length
 
+      if (signal.aborted) {
+        if (batch.rows.length === 0) break
+        emitNow(projectId, { pausing: 'saving' })
+      }
+
       // Only this batch's rows travel. A fresh run leads with the header and
       // replaces the file; every later write appends.
       const rows = extractionCsvRows(batch.rows)
@@ -368,6 +406,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       emitNow(projectId, { extracted: offset })
     }
   } catch (err) {
+    // A pause that cut a query short is not a failure.
+    if (signal.aborted) return
     const message = err instanceof Error ? err.message : String(err)
     emit(projectId, { error: message })
     try {
@@ -384,10 +424,10 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     // `current` goes with them: it names the concept being profiled, and leaving
     // the last one there would have the tooltip still pointing at it once the
     // run has stopped.
-    emit(projectId, { running: false, phase: null, extracted: null, total: null, current: null })
+    emitNow(projectId, { running: false, phase: null, extracted: null, total: null, current: null, pausing: null })
     if (run) {
       run.snapshot = {
-        running: false, phase: null, extracted: null, total: null, current: null, error,
+        running: false, phase: null, extracted: null, total: null, current: null, pausing: null, error,
       }
       if (run.watchers.size === 0 && !error) runs.delete(projectId)
     }

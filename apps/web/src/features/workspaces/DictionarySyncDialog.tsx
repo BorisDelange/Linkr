@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FileJson, GitBranch, Loader2 } from 'lucide-react'
+import { FileArchive, GitBranch, Loader2 } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { FormField } from '@/components/ui/form-field'
@@ -112,7 +112,7 @@ export function DictionarySyncDialog({ open, onOpenChange, workspaceId, dictiona
       kind="settings"
       title={dictionary ? t('data_dictionaries.update_title', { name: dictionary.name }) : t('data_dictionaries.add_title')}
       description={dictionary ? undefined : t('data_dictionaries.add_description')}
-      onConfirm={plan ? apply : () => { void read(kind === 'repo' ? { kind: 'repo', url, branch } : { kind: 'files', files: [] }) }}
+      onConfirm={plan ? apply : () => { void read(kind === 'repo' ? { kind: 'repo', url, branch } : { kind: 'zip', file: new File([], '') }) }}
       confirmLabel={plan
         ? (dictionary ? t('data_dictionaries.apply_update') : t('data_dictionaries.apply_add'))
         : t('data_dictionaries.read')}
@@ -125,7 +125,7 @@ export function DictionarySyncDialog({ open, onOpenChange, workspaceId, dictiona
             <Tabs value={kind} onValueChange={(v) => setKind(v as 'repo' | 'files')}>
               <TabsList className="w-full">
                 <TabsTrigger value="repo" className="flex-1"><GitBranch size={14} />{t('data_dictionaries.source_repo')}</TabsTrigger>
-                <TabsTrigger value="files" className="flex-1"><FileJson size={14} />{t('data_dictionaries.source_files')}</TabsTrigger>
+                <TabsTrigger value="files" className="flex-1"><FileArchive size={14} />{t('data_dictionaries.source_files')}</TabsTrigger>
               </TabsList>
             </Tabs>
           )}
@@ -141,7 +141,7 @@ export function DictionarySyncDialog({ open, onOpenChange, workspaceId, dictiona
           ) : (
             <>
               <FileDropZone
-                icon={<FileJson size={20} />}
+                icon={<FileArchive size={20} />}
                 label={t('data_dictionaries.pick_files')}
                 hint={t('data_dictionaries.pick_files_hint')}
                 onClick={() => filesInput.current?.click()}
@@ -149,13 +149,12 @@ export function DictionarySyncDialog({ open, onOpenChange, workspaceId, dictiona
               <input
                 ref={filesInput}
                 type="file"
-                accept=".json"
-                multiple
+                accept=".zip,application/zip"
                 className="hidden"
                 onChange={(e) => {
-                  const files = [...(e.target.files ?? [])]
+                  const file = e.target.files?.[0]
                   e.target.value = ''
-                  if (files.length > 0) void read({ kind: 'files', files })
+                  if (file) void read({ kind: 'zip', file })
                 }}
               />
             </>

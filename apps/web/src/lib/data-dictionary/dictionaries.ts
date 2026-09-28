@@ -6,28 +6,25 @@
 import type { ConceptSet, DataDictionary, MappingProject } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { readDictionaryTree, planDictionarySync, type DictionaryContent, type DictionarySyncPlan } from './content'
+import { readDictionaryTree, planDictionarySync, zipPathsToTree, type DictionaryContent, type DictionarySyncPlan } from './content'
 import { fetchDictionary, repoName } from './repo'
 
 export type DictionarySource =
   | { kind: 'repo'; url: string; branch: string }
-  | { kind: 'files'; files: File[] }
+  | { kind: 'zip'; file: File }
 
-/** Read a dictionary's content from its source. Loose JSON files are concept
- *  sets, except the two unit files, recognised by name. */
+/** Read a dictionary's content from its source: a repository, or a ZIP of one
+ *  (as a forge's "Download ZIP" gives it). */
 export async function readDictionarySource(source: DictionarySource, lang: string): Promise<DictionaryContent> {
   if (source.kind === 'repo') return fetchDictionary(source.url, source.branch, lang)
-  const tree: Record<string, string> = {}
-  for (const file of source.files) {
-    const name = file.name.toLowerCase()
-    if (!name.endsWith('.json')) continue
-    const path = name === 'unit_conversions.json' || name === 'recommended_units.json'
-      ? `units/${name}`
-      : `concept_sets/${file.name}`
-    tree[path] = await file.text()
+  const JSZip = (await import('jszip')).default
+  const zip = await JSZip.loadAsync(source.file)
+  const entries: Record<string, string> = {}
+  for (const [path, entry] of Object.entries(zip.files)) {
+    if (!entry.dir && path.toLowerCase().endsWith('.json')) entries[path] = await entry.async('string')
   }
-  const content = readDictionaryTree(tree, null, lang)
-  if (content.conceptSets.length === 0) throw new Error('No concept set found in these files.')
+  const content = readDictionaryTree(zipPathsToTree(entries), null, lang)
+  if (content.conceptSets.length === 0) throw new Error('No concept_sets/ folder with concept sets found in this ZIP.')
   return content
 }
 

@@ -9,6 +9,7 @@ import {
   buildConceptCountsQuery,
   buildDictionaryPageQuery,
   extractBatch,
+  extractionColumnMapping,
   extractionCsvHeader,
   extractionCsvRows,
   rankConceptIds,
@@ -170,6 +171,40 @@ describe('extractBatch', () => {
       record_count: 500, patient_count: 42,
     })
     expect(JSON.parse(result.rows[0].info_json)).toMatchObject({ numeric_data: { min: 1, max: 60 } })
+  })
+
+  it('without metadata, copies the dictionary and never queries the event table', async () => {
+    const { query, seen: calls } = engine([{ match: 'LIMIT 10 OFFSET 0', rows: page(2) }])
+    const result = await extractBatch(OMOP, source(), { ...opts, metadata: false }, 0, 10, 2, query)
+    expect(calls).toHaveLength(1)
+    expect(result.rows[0]).toMatchObject({ concept_code: 'C1', record_count: null, patient_count: null, info_json: '' })
+    expect(extractionCsvRows(result.rows).split('\n')[0]).toBe('LOINC,C1,1,Concept 1,Labs,,,')
+  })
+
+  it('maps no count column when the counts are not computed', () => {
+    expect(extractionColumnMapping(DEFAULT_PROFILE_OPTIONS)).toEqual(EXTRACTION_COLUMN_MAPPING)
+    const bare = extractionColumnMapping({ ...DEFAULT_PROFILE_OPTIONS, metadata: false })
+    expect(bare.recordCountColumn).toBeUndefined()
+    expect(bare.infoJsonColumn).toBeUndefined()
+    const noCounts = extractionColumnMapping({ ...DEFAULT_PROFILE_OPTIONS, sections: { ...DEFAULT_PROFILE_OPTIONS.sections, counts: false } })
+    expect(noCounts.patientCountColumn).toBeUndefined()
+    expect(noCounts.infoJsonColumn).toBe('info_json')
+  })
+
+  it('drops the concept in flight when paused', async () => {
+    const controller = new AbortController()
+    let n = 0
+    const { query } = engine([
+      { match: 'LIMIT 10 OFFSET 0', rows: page(3) },
+      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 1, patients_count: 1 }] },
+    ])
+    const pausing = (sql: string) => {
+      if (sql.includes('rows_count') && ++n === 2) controller.abort()
+      return query(sql)
+    }
+    const result = await extractBatch(OMOP, source(), opts, 0, 10, 3, pausing, controller.signal)
+    expect(result.rows).toHaveLength(1)
+    expect(result.done).toBe(false)
   })
 
   it('reports the offset the next batch resumes from', async () => {

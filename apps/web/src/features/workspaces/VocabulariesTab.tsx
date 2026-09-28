@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FieldInfo } from '@/components/ui/field-info'
 import { SectionLabel } from '@/components/ui/section-label'
 import {
   AlertDialog,
@@ -108,8 +109,11 @@ export function VocabulariesTab({ workspaceId, canWrite }: VocabulariesTabProps)
 
   return (
     <div className="mx-auto max-w-5xl space-y-4 pt-2">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{t('vocabulary_library.description')}</p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold">{t('vocabulary_library.title')}</h2>
+          <FieldInfo text={t('vocabulary_library.description')} />
+        </div>
         {canWrite && (
           <Button size="sm" onClick={() => openImport()}>
             <Download size={14} />
@@ -134,7 +138,7 @@ export function VocabulariesTab({ workspaceId, canWrite }: VocabulariesTabProps)
           data={vocabularies}
           columns={columns}
           rowKey={(v) => v.vocabularyId}
-          pageSize={100}
+          pageSize={15}
           initialSorting={{ columnId: 'id', desc: false }}
         />
       )}

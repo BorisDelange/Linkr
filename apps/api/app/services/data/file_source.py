@@ -52,6 +52,8 @@ def build_source_concepts_select(column_mapping: dict) -> str:
         ("recordCountColumn", "COALESCE(TRY_CAST({c} AS INTEGER), 0) AS record_count"),
         ("patientCountColumn", "COALESCE(TRY_CAST({c} AS INTEGER), 0) AS patient_count"),
         ("infoJsonColumn", "CAST({c} AS VARCHAR) AS info_json"),
+        # Alignments already made, read once when the file is imported.
+        ("targetConceptIdColumn", "CAST({c} AS VARCHAR) AS target_concept_id"),
     ]
     for key, template in optional:
         col = m.get(key)

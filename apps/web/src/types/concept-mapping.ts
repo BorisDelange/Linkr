@@ -205,6 +205,9 @@ export interface FileColumnMapping {
   recordCountColumn?: string
   /** Column containing patient count. */
   patientCountColumn?: string
+  /** Column holding target concept ids already aligned (one or several per
+   *  row, separated by `;`, `,` or `|`). Imported as mappings when the file is. */
+  targetConceptIdColumn?: string
   /** Additional columns to include in the import (available as extra data on each row). */
   extraColumns?: string[]
 }

@@ -35,6 +35,9 @@ import { classRelation, conceptRelation, eventRelations, has, type ClassRelation
 
 /** Which blocks of the profile to compute. Each maps to one key of the JSON. */
 export interface ProfileSections {
+  /** `record_count` / `patient_count` — how many records and patients. Absent
+   *  on a run stored before it was a choice, which read as on. */
+  counts?: boolean
   /** `numeric_data` — min/max/mean/median/sd/percentiles over the value column. */
   numeric: boolean
   /** `histogram` — binned value distribution. Requires `numeric`. */
@@ -56,6 +59,7 @@ export interface ProfileSections {
 }
 
 export const DEFAULT_PROFILE_SECTIONS: ProfileSections = {
+  counts: true,
   numeric: true,
   histogram: true,
   categorical: true,
@@ -69,6 +73,11 @@ export const DEFAULT_PROFILE_SECTIONS: ProfileSections = {
 
 /** How the profile is computed. Mirrors ehop-tools' `profile_concept()` args. */
 export interface ProfileOptions {
+  /**
+   * Profile each concept at all. Off, the extraction only copies the dictionary
+   * (codes and names) and never scans the event tables. Absent reads as on.
+   */
+  metadata?: boolean
   sections: ProfileSections
   /**
    * How outliers are excluded before the numeric stats and the histogram.
@@ -104,6 +113,7 @@ export interface ProfileOptions {
 }
 
 export const DEFAULT_PROFILE_OPTIONS: ProfileOptions = {
+  metadata: true,
   sections: DEFAULT_PROFILE_SECTIONS,
   outlierMethod: 'iqr',
   outlierCoef: 1.5,
@@ -170,6 +180,7 @@ export function availableSections(
   const hasDate = has(e, 'start_datetime')
   const hasPatient = has(e, 'patient_id')
   return {
+    counts: true,
     numeric: has(e, 'value_number'),
     histogram: has(e, 'value_number'),
     categorical: has(e, 'value_string'),
@@ -189,8 +200,9 @@ export function effectiveSections(
 ): ProfileSections {
   const out = {} as ProfileSections
   for (const key of Object.keys(requested) as (keyof ProfileSections)[]) {
-    out[key] = requested[key] && available[key]
+    out[key] = !!(requested[key] && available[key])
   }
+  out.counts = requested.counts !== false
   // The histogram is a view of the numeric values, so it cannot outlive them.
   out.histogram = out.histogram && out.numeric
   return out

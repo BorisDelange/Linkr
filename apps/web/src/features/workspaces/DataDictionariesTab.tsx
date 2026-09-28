@@ -4,6 +4,7 @@ import { BookMarked, ExternalLink, Loader2, Plus, RefreshCw, Sigma, Trash2 } fro
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FieldInfo } from '@/components/ui/field-info'
 import { SectionLabel } from '@/components/ui/section-label'
 import {
   AlertDialog,
@@ -111,8 +112,11 @@ export function DataDictionariesTab({ workspaceId, canWrite }: DataDictionariesT
 
   return (
     <div className="mx-auto max-w-4xl space-y-4 pt-2">
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-sm text-muted-foreground">{t('data_dictionaries.description')}</p>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold">{t('data_dictionaries.title')}</h2>
+          <FieldInfo text={t('data_dictionaries.description')} />
+        </div>
         {canWrite && (
           <Button size="sm" onClick={() => setSyncTarget('new')}>
             <Plus size={14} />

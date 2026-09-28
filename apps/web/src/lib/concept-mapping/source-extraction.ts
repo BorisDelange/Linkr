@@ -70,6 +70,31 @@ export const EXTRACTION_COLUMN_MAPPING: FileColumnMapping = {
   infoJsonColumn: 'info_json',
 }
 
+/** Whether a run computes anything beyond the dictionary's own columns. */
+export function computesMetadata(options: ProfileOptions): boolean {
+  return options.metadata !== false
+}
+
+/** Whether a run fills the record and patient counts. */
+export function computesCounts(options: ProfileOptions): boolean {
+  return computesMetadata(options) && options.sections.counts !== false
+}
+
+/**
+ * The column mapping for a run's options. The CSV keeps every column (a
+ * contract, see EXTRACTION_COLUMNS), but a column the run leaves empty is not
+ * mapped: the source view would read an empty count as zero records.
+ */
+export function extractionColumnMapping(options: ProfileOptions): FileColumnMapping {
+  const mapping = { ...EXTRACTION_COLUMN_MAPPING }
+  if (!computesCounts(options)) {
+    delete mapping.recordCountColumn
+    delete mapping.patientCountColumn
+  }
+  if (!computesMetadata(options)) delete mapping.infoJsonColumn
+  return mapping
+}
+
 /** One concept as the dictionary describes it, before profiling. */
 export interface DictionaryConcept {
   concept_id: number
@@ -86,7 +111,7 @@ export interface ExtractedConcept {
   concept_id: number
   concept_name: string
   category: string
-  record_count: number
+  record_count: number | null
   patient_count: number | null
   info_json: string
 }
@@ -363,9 +388,17 @@ export async function extractBatch(
   // An empty ranking slice means the ranked list is exhausted — there is no
   // query to run, and asking for one would return the whole dictionary.
   if (!sql) return { rows: [], nextOffset: offset, done: true }
-  const page = await query(sql)
+  let page: Record<string, unknown>[]
+  try {
+    page = await query(sql)
+  } catch (err) {
+    if (signal?.aborted) return { rows: [], nextOffset: offset, done: false }
+    throw err
+  }
   if (page.length === 0) return { rows: [], nextOffset: offset, done: true }
 
+  const metadata = computesMetadata(options)
+  const counts = computesCounts(options)
   const rows: ExtractedConcept[] = []
   for (const raw of page) {
     if (signal?.aborted) break
@@ -373,11 +406,16 @@ export async function extractBatch(
     const conceptId = Number(concept.concept_id)
     const conceptName = concept.concept_name == null ? '' : String(concept.concept_name)
 
-    const profile = await buildConceptProfile(
-      mapping, source,
-      { conceptId, conceptName, category: concept.category ?? undefined },
-      options, query,
-    )
+    const profile = metadata
+      ? await buildConceptProfile(
+        mapping, source,
+        { conceptId, conceptName, category: concept.category ?? undefined },
+        options, query,
+      )
+      : null
+    // A pause abandons the concept in flight: its queries were cut short, so
+    // its profile is incomplete. The resume profiles it again.
+    if (signal?.aborted) break
 
     const conceptCode = concept.concept_code == null ? '' : String(concept.concept_code)
     rows.push({
@@ -386,11 +424,11 @@ export async function extractBatch(
       concept_id: conceptId,
       concept_name: conceptName,
       category: concept.category ?? '',
-      record_count: profile.rowsCount,
-      patient_count: profile.patientsCount,
+      record_count: counts && profile ? profile.rowsCount : null,
+      patient_count: counts && profile ? profile.patientsCount : null,
       // An empty cell, not "null": the source view parses this column as JSON and
       // treats anything unparseable as absent, which is what a withheld profile is.
-      info_json: profile.json ? JSON.stringify(profile.json) : '',
+      info_json: profile?.json ? JSON.stringify(profile.json) : '',
     })
     onProgress?.(offset + rows.length, total, { conceptCode, conceptName })
   }
