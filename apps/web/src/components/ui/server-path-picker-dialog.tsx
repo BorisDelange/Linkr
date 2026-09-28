@@ -101,7 +101,7 @@ export function ServerPathPickerDialog({
 
   const extKey = extensions?.join(',') ?? ''
   const load = useCallback(
-    async (path: string) => {
+    async (path: string, quiet = false) => {
       setLoading(true)
       setError(null)
       setSearch('')  // a fresh folder starts unfiltered
@@ -119,9 +119,11 @@ export function ServerPathPickerDialog({
         // Keep the folder we were in: a directory the server may not read (/home
         // on a Mac is the classic one) used to replace the whole list with an
         // error, taking the ".." row with it and leaving nowhere to go back to.
-        const fe = formatApiError(e)
-        setError(fe.summary ?? fe.detail ?? String(e))
-        setPathDraft(listingRef.current?.path ?? '')
+        if (!quiet) {
+          const fe = formatApiError(e)
+          setError(fe.summary ?? fe.detail ?? String(e))
+          setPathDraft(listingRef.current?.path ?? '')
+        }
         return false
       } finally {
         setLoading(false)
@@ -139,8 +141,25 @@ export function ServerPathPickerDialog({
   // yank the user back whenever a parent re-render moved it.
   const initialPathRef = useRef(initialPath)
   initialPathRef.current = initialPath
+  // A starting folder that no longer exists (a database whose files were
+  // moved) must not leave the dialog on an error with nothing to navigate:
+  // open its nearest existing parent instead, else the default folder.
+  const [startMissing, setStartMissing] = useState<string | null>(null)
   useEffect(() => {
-    if (open) void load(initialPathRef.current ?? '')
+    if (!open) return
+    const start = initialPathRef.current ?? ''
+    setStartMissing(null)
+    void (async () => {
+      if (!start || await load(start, true)) return
+      setStartMissing(start)
+      const parts = start.replace(/[\\/]+$/, '').split(/[\\/]/)
+      for (let n = parts.length - 1; n > 0; n--) {
+        const parent = parts.slice(0, n).join('/') || '/'
+        if (parent === '/' || /^[A-Za-z]:$/.test(parent)) break
+        if (await load(parent, true)) return
+      }
+      await load('')
+    })()
   }, [open, load])
 
   /** Navigate to whatever was typed in the path bar. A path that does not exist
@@ -258,6 +277,9 @@ export function ServerPathPickerDialog({
         </div>
         {pathError && (
           <p className="text-xs text-destructive">{t('server_picker.path_not_found')}</p>
+        )}
+        {startMissing && (
+          <p className="break-all text-xs text-amber-600 dark:text-amber-500">{t('server_picker.start_missing', { path: startMissing })}</p>
         )}
         {/* A failed navigation reports here rather than replacing the listing, so
             the folder we came from — and its ".." row — stay reachable. */}

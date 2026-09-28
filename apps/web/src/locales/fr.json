@@ -857,7 +857,12 @@
     "sql_rows_other": "{{count}} lignes · {{ms}} ms · {{at}}",
     "sql_failed": "Échec · {{ms}} ms · {{at}}",
     "sql_empty": "Écrivez une requête puis exécutez-la.",
-    "sql_no_rows": "La requête n'a renvoyé aucune ligne."
+    "sql_no_rows": "La requête n'a renvoyé aucune ligne.",
+    "location_missing_title": "Les fichiers de cette base de données sont introuvables",
+    "location_missing_path": "Il n'y a plus rien à {{path}} : les fichiers ont été déplacés, renommés ou supprimés. Indiquez leur nouvel emplacement.",
+    "location_missing_description": "Ses fichiers ont été déplacés ou supprimés. Indiquez leur nouvel emplacement.",
+    "location_missing_change": "Changer l'emplacement",
+    "folder_location": "Emplacement du dossier"
   },
   "reports": {
     "title": "Rapports",
@@ -2768,7 +2773,8 @@
     "search": "Rechercher dans ce dossier",
     "path_not_found": "Ce dossier n'existe pas, ou est hors des dossiers autorisés.",
     "no_match": "Aucun résultat pour cette recherche.",
-    "empty": "Ce dossier est vide."
+    "empty": "Ce dossier est vide.",
+    "start_missing": "{{path}} n'existe plus : affichage du dossier existant le plus proche."
   },
   "project_folders": {
     "title": "Dossiers",

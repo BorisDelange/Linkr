@@ -857,7 +857,12 @@
     "sql_rows_other": "{{count}} rows · {{ms}} ms · {{at}}",
     "sql_failed": "Failed · {{ms}} ms · {{at}}",
     "sql_empty": "Write a query and run it.",
-    "sql_no_rows": "The query returned no rows."
+    "sql_no_rows": "The query returned no rows.",
+    "location_missing_title": "The files of this database cannot be found",
+    "location_missing_path": "Nothing is at {{path}} any more: it was moved, renamed or deleted. Point the database to their new location.",
+    "location_missing_description": "Its files were moved or deleted. Point the database to their new location.",
+    "location_missing_change": "Change location",
+    "folder_location": "Folder location"
   },
   "reports": {
     "title": "Reports",
@@ -2768,7 +2773,8 @@
     "search": "Search this folder",
     "path_not_found": "This folder does not exist, or is outside the allowed folders.",
     "no_match": "Nothing matches your search.",
-    "empty": "This folder is empty."
+    "empty": "This folder is empty.",
+    "start_missing": "{{path}} no longer exists: showing the nearest folder that does."
   },
   "project_folders": {
     "title": "Folders",

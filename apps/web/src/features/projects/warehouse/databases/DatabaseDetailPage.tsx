@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
+  AlertTriangle,
+  FolderOpen,
   ArrowUpRight,
   Pencil,
   BarChart3,
@@ -52,13 +54,11 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { CopyablePath, ParquetFilesDialog } from '@/components/ui/parquet-files-dialog'
 import { humanBytes } from '@/lib/format-helpers'
-import { isServerMode } from '@/lib/api-client'
+import { notifyDatabaseLocationChanged, useDatabaseLocation } from './use-database-location'
 import {
   compactDatabase,
   fetchCompactStatus,
-  fetchDatabaseConnectionInfo,
   type CompactStatus,
-  type DatabaseConnectionInfo,
 } from '@/lib/api/data-sources'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import {
@@ -145,6 +145,9 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const { t } = useTranslation()
   const { wsUid, raw } = useResolvedParams()
   const dbActions = useDatabaseActions()
+  const location = useDatabaseLocation(source)
+  const canEditLocation = useMyWorkspaceRole().can('databases:write') && !readOnly
+  const [editOpen, setEditOpen] = useState(false)
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   // Reinstalling replaces the whole entity's content, so it takes the same role
@@ -263,6 +266,35 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               Connection card rather than floating beside the tabs. */}
           <div className="flex-1" />
         </div>
+
+        {/* Under the tab bar, so it reads the same from every tab: nothing in
+            this page works until the files are found again. */}
+        {location.missing && (
+          <div className="mx-6 mb-3 flex shrink-0 items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5">
+            <AlertTriangle size={14} className="shrink-0 text-destructive" />
+            <div className="min-w-0 flex-1 text-xs">
+              <p className="font-medium text-destructive">{t('databases.location_missing_title')}</p>
+              <p className="text-muted-foreground">
+                {location.path
+                  ? t('databases.location_missing_path', { path: location.path })
+                  : t('databases.location_missing_description')}
+              </p>
+            </div>
+            {canEditLocation && (
+              <Button variant="outline" size="sm-tight" className="shrink-0" onClick={() => setEditOpen(true)}>
+                <FolderOpen size={12} />
+                {t('databases.location_missing_change')}
+              </Button>
+            )}
+          </div>
+        )}
+        {editOpen && dbActions.renderEditDialog?.({
+          item: source,
+          onOpenChange: (open: boolean) => {
+            setEditOpen(open)
+            if (!open) notifyDatabaseLocationChanged(source.id)
+          },
+        })}
 
         {/* No outer ScrollArea: the overview is a fixed-height layout whose
             readme scrolls inside its own card. Letting the page scroll instead
@@ -594,32 +626,10 @@ function CompactDatabaseDialog({
 function ConnectionCard({ source }: { source: DataSource }) {
   const { t, i18n } = useTranslation()
   const config = source.connectionConfig as DatabaseConnectionConfig
-  const [connInfo, setConnInfo] = useState<DatabaseConnectionInfo | null>(null)
+  const location = useDatabaseLocation(source)
+  const connInfo = location.info
   const [filesOpen, setFilesOpen] = useState(false)
   const [compactOpen, setCompactOpen] = useState(false)
-  // A moved file keeps its id and status: re-read the location when it changes.
-  const managedPath = config.managedPath
-
-  // Where the data actually sits on the server, so it can be read from an
-  // R/Python script outside Linkr. Server mode only: the browser build keeps its
-  // data inside the WASM sandbox, where there is no path to give.
-  //
-  // Re-read on `status` too, not just on the row: rebuilding from the schema
-  // creates the file this describes without changing the id, so everything the
-  // server answered here — the path, the Parquet list, the blob size — was stale
-  // the moment it succeeded, and File location kept reading empty.
-  useEffect(() => {
-    if (!isServerMode()) {
-      setConnInfo(null)
-      return
-    }
-    let cancelled = false
-    fetchDatabaseConnectionInfo(source.id)
-      .then((r) => { if (!cancelled) setConnInfo(r) })
-      .catch(() => { if (!cancelled) setConnInfo(null) })
-    return () => { cancelled = true }
-  }, [source.id, source.status, managedPath])
-
   const parquetTables = connInfo?.kind === 'parquet-folder' ? connInfo.tables : []
   const filePath = connInfo?.kind === 'file' ? connInfo.path : null
 
@@ -692,6 +702,15 @@ function ConnectionCard({ source }: { source: DataSource }) {
             </div>
           </div>
         )}
+        {location.missing && connInfo?.kind !== 'file' && (
+          <div className="space-y-1 pt-0.5">
+            <span className="block text-xs text-muted-foreground">{t('databases.folder_location')}</span>
+            {location.path && <CopyablePath value={location.path} />}
+            <p className="text-[10px] font-medium text-destructive">
+              {location.path ? t('etl.pipeline_db_missing') : t('databases.location_missing_description')}
+            </p>
+          </div>
+        )}
         {/* A single-file source (DuckDB, SQLite) has one path, so it reads inline
             rather than behind a dialog. */}
         {filePath && (
@@ -709,8 +728,8 @@ function ConnectionCard({ source }: { source: DataSource }) {
             {connInfo?.blob && (
               <p className="text-[10px] text-muted-foreground/70">{t('etl.pipeline_db_blob_hint')}</p>
             )}
-            {connInfo && !connInfo.exists && (
-              <p className="text-[10px] text-amber-600 dark:text-amber-500">{t('etl.pipeline_db_missing')}</p>
+            {location.missing && (
+              <p className="text-[10px] font-medium text-destructive">{t('etl.pipeline_db_missing')}</p>
             )}
             {canCompact && (
               <Button
@@ -735,9 +754,7 @@ function ConnectionCard({ source }: { source: DataSource }) {
         onCompacted={() => {
           // Re-read rather than patching sizeBytes locally: the server is the
           // only thing that knows what the file now weighs.
-          fetchDatabaseConnectionInfo(source.id)
-            .then(setConnInfo)
-            .catch(() => {})
+          notifyDatabaseLocationChanged(source.id)
         }}
       />
     </div>
