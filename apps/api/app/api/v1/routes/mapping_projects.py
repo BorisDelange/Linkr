@@ -764,6 +764,11 @@ class ServerFileImport(CamelModel):
     path: str
 
 
+# What the mapping-project source picker offers (CreateMappingProjectDialog);
+# any other file under the browse roots is refused rather than blob-stored.
+_SOURCE_FILE_EXTENSIONS = [".csv", ".tsv", ".txt", ".xlsx", ".xls", ".parquet"]
+
+
 def _copy_to_temp(src: Path) -> Path:
     fd, tmp = tempfile.mkstemp(prefix="linkr-server-file-")
     os.close(fd)
@@ -783,7 +788,7 @@ async def import_server_file(
     inside the browse roots and the user must be allowed to browse them."""
     await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
-    checked = fs_browser.validate_file(body.path)
+    checked = fs_browser.validate_file(body.path, _SOURCE_FILE_EXTENSIONS)
     if not checked["ok"]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, checked["reason"])
     src = Path(checked["path"])

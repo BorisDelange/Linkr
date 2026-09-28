@@ -7,6 +7,7 @@ import {
   methodCsvCopySql,
   methodForCsvPath,
   scoreCsvsInTree,
+  versionedMethodsValue,
 } from './scores-csv'
 
 describe('csvPathForMethod / methodForCsvPath', () => {
@@ -19,7 +20,7 @@ describe('csvPathForMethod / methodForCsvPath', () => {
   // The method becomes a path in a git tree the server unpacks: anything a
   // filesystem would reinterpret must stay out.
   it('refuses a method that cannot be a plain path', () => {
-    for (const bad of ['../etc', 'ai/..', 'ai//x', '.hidden', 'ai/.x', 'a b', 'ai\\x', '']) {
+    for (const bad of ['../etc', 'ai/..', 'ai//x', '.hidden', 'ai/.x', 'a b', 'ai\\x', '', 'ai\n', 'ai/x\n']) {
       expect(csvPathForMethod(bad), bad).toBeNull()
     }
   })
@@ -75,5 +76,13 @@ describe('scores CSV SQL', () => {
     expect(sql).toContain('equivalence::VARCHAR AS equivalence')
     expect(sql).toContain('NULL::VARCHAR AS comment')
     expect(sql).toContain("read_csv('m.csv', header=true, all_varchar=true)")
+  })
+})
+
+describe('versionedMethodsValue', () => {
+  // [] would export as a key the manifest never had: a git change out of nothing.
+  it('is absent, not empty, when no method is versioned', () => {
+    expect(versionedMethodsValue([])).toBeUndefined()
+    expect(versionedMethodsValue(new Set(['semantic/biolord', 'ai/x', 'ai/x']))).toEqual(['ai/x', 'semantic/biolord'])
   })
 })
