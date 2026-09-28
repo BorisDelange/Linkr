@@ -5171,7 +5171,7 @@
     "compute_discard": "Discard",
     "compute_discard_title": "Discard the computed results?",
     "compute_discard_description": "The catalog keeps its configuration, but its concepts, dimensions and periods are deleted. The Data, Anonymization and Publish tabs will be empty until it is computed again.",
-    "compute_done_hint": "Computed in {{seconds}}s — the Data, Anonymization and Publish tabs now have results.",
+    "compute_done_hint": "Computed in {{duration}} — the Data, Anonymization and Publish tabs now have results.",
     "compute_no_mapping": "This catalog's database has no schema mapping, so there is nothing to count yet.",
     "age_brackets_hint": "The boundaries between age groups. Each is the start of a bracket, so 18 and 65 give under-18, 18–64 and 65-and-over. Click its × to remove it.",
     "no_data": "No data yet",

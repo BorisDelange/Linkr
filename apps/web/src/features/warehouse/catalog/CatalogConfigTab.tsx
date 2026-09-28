@@ -28,6 +28,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildServiceListQuery } from '@/lib/duckdb/catalog-queries'
+import { formatDuration } from '@/lib/format-helpers'
 import { estimateCrossings, estimateKey, getCachedEstimate, type CatalogUnitInfo, type CrossingEstimate, type EstimateProgress } from '@/lib/duckdb/catalog-compute'
 import { canonicalCrossing, catalogCounts, crossingId, DEFAULT_AGE_BRACKETS, DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, enabledVariables } from '@/lib/data-catalog/config'
 import {
@@ -562,7 +563,7 @@ export function CatalogConfigTab({ catalog }: Props) {
         {!mapping && <p className="text-[10px] text-muted-foreground">{t('data_catalog.compute_no_mapping')}</p>}
         {done && catalog.lastComputeDurationMs != null && (
           <p className="text-[10px] text-muted-foreground">
-            {t('data_catalog.compute_done_hint', { seconds: (catalog.lastComputeDurationMs / 1000).toFixed(1) })}
+            {t('data_catalog.compute_done_hint', { duration: formatDuration(catalog.lastComputeDurationMs) })}
           </p>
         )}
       </Card>

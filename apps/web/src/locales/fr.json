@@ -5171,7 +5171,7 @@
     "compute_discard": "Supprimer",
     "compute_discard_title": "Supprimer les résultats calculés ?",
     "compute_discard_description": "Le catalogue conserve sa configuration, mais ses concepts, dimensions et périodes sont supprimés. Les onglets Données, Anonymisation et Publier seront vides jusqu'au prochain calcul.",
-    "compute_done_hint": "Calculé en {{seconds}} s — les onglets Données, Anonymisation et Publier contiennent maintenant des résultats.",
+    "compute_done_hint": "Calculé en {{duration}} — les onglets Données, Anonymisation et Publier contiennent maintenant des résultats.",
     "compute_no_mapping": "La base de données de ce catalogue n'a pas de mapping de schéma : il n'y a rien à compter pour l'instant.",
     "age_brackets_hint": "Les bornes entre les tranches d'âge. Chacune ouvre une tranche : 18 et 65 donnent moins de 18 ans, 18–64 ans et 65 ans et plus. Cliquez sur sa × pour la retirer.",
     "no_data": "Aucune donnée",
