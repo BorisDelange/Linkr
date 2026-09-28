@@ -30,7 +30,8 @@ describe('kindOf', () => {
     const kinds = new Map(CATALOG.map((t) => [t.name, kindOf(t.config.annotations)]))
     for (const name of [
       'remove_package', 'unlink_database_from_project', 'remove_dashboard_filter',
-      'run_code', 'run_script', 'run_as_job', 'install_packages', 'run_etl_pipeline',
+      'run_code', 'run_script', 'run_as_job', 'run_etl_pipeline',
+      'install_packages', 'install_package_preset', 'update_packages', 'build_environment',
     ]) expect([name, kinds.get(name)]).toEqual([name, 'delete'])
   })
 })

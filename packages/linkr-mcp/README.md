@@ -137,7 +137,7 @@ details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §
 | `run_as_job`, `get_job_output` | a script or code run as a background job (fresh process, jobs panel), returns the `job_id`; then its log, table and figures (`ui://`); the run is `destructiveHint` |
 | `list_jobs`, `clear_finished_jobs` | the jobs panel of a project (runs, builds, package ops) or a workspace (derivations); clearing finished ones is `destructiveHint` |
 | `describe_environment` | the project's managed Python / R environment: status, declared packages, last update check, install options (URL credentials masked), sessions on a stale build |
-| `install_packages`, `remove_package`, `update_packages`, `install_package_preset`, `check_package_updates`, `build_environment` | the Environments panel: spec re-locked by the server, optional build as a job (`job_id`); installing (packages run their own install code) and removing are `destructiveHint` |
+| `install_packages`, `remove_package`, `update_packages`, `install_package_preset`, `check_package_updates`, `build_environment` | the Environments panel: spec re-locked by the server, optional build as a job (`job_id`); everything but `check_package_updates` is `destructiveHint` (installing, updating and building run the packages' own install code) |
 | `set_environment_options` | package repository / index for the environment (R `repos`, `method`; Python `index_url`, `trusted_host`); URLs with credentials refused |
 | `list_ide_connections` | databases a project's scripts can query: linked databases (`database_id` for `run_code`) and the IDE's custom connections, never credentials |
 

@@ -327,8 +327,9 @@ export function registerRuntimeTools(server: Server): void {
 
   server.registerTool('update_packages', {
     description: 'Update one package, or all, of the project\'s R or Python environment to the newest versions '
-      + 'the repository allows (re-locks the spec). check_package_updates first shows what would change.',
-    annotations: WRITE,
+      + 'the repository allows (re-locks the spec). check_package_updates first shows what would change. Updating '
+      + 'runs the packages\' own build and install code on the server, which can overwrite or delete data.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; language: EnvLanguage; package?: string; build?: boolean }>({
       type: 'object',
       properties: {
@@ -346,8 +347,9 @@ export function registerRuntimeTools(server: Server): void {
 
   server.registerTool('install_package_preset', {
     description: 'Add the workspace\'s default data-science package set to the project\'s R or Python environment '
-      + '(what the Environments panel\'s preset button does).',
-    annotations: WRITE,
+      + '(what the Environments panel\'s preset button does). Installing runs the packages\' own build and install '
+      + 'code on the server, which can overwrite or delete data.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; language: EnvLanguage; build?: boolean }>({
       type: 'object',
       properties: { project_uid: { type: 'string' }, language: LANGUAGE, build: BUILD },
@@ -377,8 +379,9 @@ export function registerRuntimeTools(server: Server): void {
   server.registerTool('build_environment', {
     description: 'Build (install) the project\'s R or Python environment from its declared packages, as a background '
       + 'job. Returns the job_id at once; follow it with get_job_status. Sessions opened before keep the old build '
-      + 'until restart_kernel.',
-    annotations: WRITE,
+      + 'until restart_kernel. The build runs the packages\' own install code on the server, which can overwrite or '
+      + 'delete data.',
+    annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ project_uid: string; language: EnvLanguage }>({
       type: 'object', properties: { project_uid: { type: 'string' }, language: LANGUAGE }, required: ['project_uid', 'language'],
     }),
