@@ -51,3 +51,18 @@ describe('loadDataSources — overrides', () => {
     expect(ds.schemaBaseMapping).toEqual(BASE)
   })
 })
+
+describe('updateDataSource — overrides', () => {
+  it('sanitizes overrides written by an update before they reach the effective mapping', async () => {
+    await useDataSourceStore.getState().loadDataSources(true)
+    await useDataSourceStore.getState().updateDataSource('db-1', {
+      schemaOverrides: {
+        relations: { patient: { from: { table: evil, alias: 'p' }, fields: { patient_id: 'p.id' } } },
+      },
+    })
+    const [ds] = useDataSourceStore.getState().dataSources
+    expect(JSON.stringify(ds.schemaMapping)).not.toContain('ATTACH')
+    expect(JSON.stringify(ds.schemaOverrides)).not.toContain('ATTACH')
+    expect(ds.schemaMapping!.patient!.from).toBeUndefined()
+  })
+})

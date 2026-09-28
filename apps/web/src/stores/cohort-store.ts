@@ -501,9 +501,10 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       }
 
       if (!isCurrent()) return totalCount
+      // Persist and publish in the same tick: awaiting storage first let a newer
+      // run take over in between, so the stored count was one the state never showed.
       // An unsaved draft's count describes no stored definition: shown, not kept.
-      if (!draft) await getStorage().cohorts.update(id, { resultCount: totalCount, attrition })
-
+      const persist = draft ? undefined : getStorage().cohorts.update(id, { resultCount: totalCount, attrition })
       setIfCurrent((s) => ({
         cohorts: draft ? s.cohorts : s.cohorts.map((c) =>
           c.id === id ? { ...c, resultCount: totalCount, attrition } : c,
@@ -511,6 +512,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         executionResults: new Map(s.executionResults).set(id, result),
         executionLoading: new Map(s.executionLoading).set(id, false),
       }))
+      await persist
 
       return totalCount
     } catch (err) {

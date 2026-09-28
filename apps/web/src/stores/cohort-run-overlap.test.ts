@@ -116,4 +116,23 @@ describe('overlapping cohort runs', () => {
     expect(kept?.fromDraft).toBeUndefined()
     expect(update).toHaveBeenCalledWith('c1', { resultCount: 3, attrition: [] })
   })
+
+  it('a run taking over while the previous one is being saved never leaves storage ahead of the state', async () => {
+    let saved!: () => void
+    update.mockImplementationOnce(() => new Promise<void>((r) => { saved = r }))
+    const store = useCohortStore.getState()
+    const first = store.executeCohort('c1', 'ds', MAPPING)
+    await flush()
+    pending[0].resolve([{ cnt: 4 }])
+    await flush()
+    const second = store.executeCohort('c1', 'ds', MAPPING)
+    await flush()
+    saved()
+    await first
+    useCohortStore.getState().cancelExecution('c1')
+    await second
+
+    expect(update).toHaveBeenCalledWith('c1', { resultCount: 4, attrition: [] })
+    expect(useCohortStore.getState().cohorts[0].resultCount).toBe(4)
+  })
 })
