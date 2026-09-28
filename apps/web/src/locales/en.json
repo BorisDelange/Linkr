@@ -862,7 +862,9 @@
     "location_missing_path": "Nothing is at {{path}} any more: it was moved, renamed or deleted. Point the database to their new location.",
     "location_missing_description": "Its files were moved or deleted. Point the database to their new location.",
     "location_missing_change": "Change location",
-    "folder_location": "Folder location"
+    "folder_location": "Folder location",
+    "stats_stop": "Stop",
+    "stats_stopping": "Stopping…"
   },
   "reports": {
     "title": "Reports",

@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
-import { RefreshCw, Users, Activity, BarChart3, Table } from 'lucide-react'
+import { Loader2, RefreshCw, Square, Users, Activity, BarChart3, Table } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, PieChart, Pie, Cell, Legend,
@@ -30,11 +30,16 @@ interface DatabaseStatsDashboardProps {
 // cards + table list). Without this, both would launch the full recompute at
 // once for the same source. Keyed by dataSourceId → the in-flight refresh promise.
 const _inFlight = new Map<string, Promise<void>>()
+/** The stop of each in-flight refresh, shared the same way. */
+const _controllers = new Map<string, AbortController>()
 
 export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isStopping, setIsStopping] = useState(false)
   const [cacheLoaded, setCacheLoaded] = useState(false)
+  const cacheRef = useRef<DatabaseStatsCache | null>(null)
+  cacheRef.current = cache
   const autoRefreshed = useRef(false)
 
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
@@ -78,40 +83,61 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
         return
       }
 
+      const controller = new AbortController()
+      const { signal } = controller
+      _controllers.set(dataSourceId, controller)
+      const previous = cacheRef.current
       const run = (async () => {
         await ensureMounted(dataSourceId)
         // Fast block first (patients/visits/age/gender/timeline) — renders in a
         // few seconds. Persist it right away so switching tabs (which unmounts
         // this panel) reloads from cache instead of recomputing from zero.
-        const stats = await computeDatabaseStats(dataSourceId, schemaMapping)
+        const stats = await computeDatabaseStats(dataSourceId, schemaMapping, signal)
         setCache(stats)
         await getStorage().databaseStatsCache.save(stats)
         keepCounts(stats)
 
         // Per-table counts stream in afterwards, batch by batch, persisting after
         // each batch so a mid-stream tab switch keeps the counts gathered so far.
-        let running = stats
+        // They start from the previous counts and replace them table by table,
+        // so a stopped run keeps the old count of every table it did not reach.
+        let running: DatabaseStatsCache = { ...stats, tableCounts: previous?.tableCounts ?? [] }
         await streamTableCounts(dataSourceId, schemaMapping, (batch) => {
+          const fresh = new Set(batch.map((c) => c.tableName))
           running = {
             ...running,
-            tableCounts: [...running.tableCounts, ...batch].sort((a, b) => b.rowCount - a.rowCount),
+            tableCounts: [...running.tableCounts.filter((c) => !fresh.has(c.tableName)), ...batch]
+              .sort((a, b) => b.rowCount - a.rowCount),
           }
           setCache(running)
           getStorage().databaseStatsCache.save(running).catch(() => {})
-        })
+        }, undefined, signal)
       })()
       _inFlight.set(dataSourceId, run)
       try {
         await run
       } finally {
         _inFlight.delete(dataSourceId)
+        _controllers.delete(dataSourceId)
       }
     } catch (err) {
-      console.error('Failed to compute database stats:', err)
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        console.error('Failed to compute database stats:', err)
+      }
     } finally {
       setIsLoading(false)
+      setIsStopping(false)
     }
   }, [dataSourceId, schemaMapping, ensureMounted, keepCounts])
+
+  /** Stop the refresh: the queries in flight are cancelled (server mode
+   *  interrupts them), and what was already computed stays. */
+  const stop = useCallback(() => {
+    const controller = _controllers.get(dataSourceId)
+    if (!controller || controller.signal.aborted) return
+    setIsStopping(true)
+    controller.abort()
+  }, [dataSourceId])
 
   // Auto-compute stats only in front-only mode. In server mode the source may be
   // a database of billions of rows, so we never run COUNT(*) automatically — the
@@ -128,7 +154,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
 
   // `cacheLoaded`: the stored statistics have been looked up — until then an
   // empty `cache` means "not read yet", not "never computed".
-  return { cache, isLoading, refresh, cacheLoaded }
+  return { cache, isLoading, isStopping, refresh, stop, cacheLoaded }
 }
 
 export function DatabaseStatsDashboard({
@@ -138,7 +164,7 @@ export function DatabaseStatsDashboard({
   hasMappedSchema = true,
 }: DatabaseStatsDashboardProps) {
   const { t, i18n } = useTranslation()
-  const { cache, isLoading, refresh } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
+  const { cache, isLoading, isStopping, refresh, stop } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleString(i18n.language, {
@@ -166,16 +192,23 @@ export function DatabaseStatsDashboard({
               ? t('databases.stats_last_refreshed', { date: formatDate(cache.computedAt) })
               : '\u00A0'}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={refresh}
-            disabled={isLoading}
-            className="gap-1.5 text-xs"
-          >
-            <RefreshCw size={12} className={isLoading ? 'animate-spin' : ''} />
-            {t('databases.stats_refresh')}
-          </Button>
+          {isLoading ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={stop}
+              disabled={isStopping}
+              className="gap-1.5 text-xs"
+            >
+              {isStopping ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+              {isStopping ? t('databases.stats_stopping') : t('databases.stats_stop')}
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={refresh} className="gap-1.5 text-xs">
+              <RefreshCw size={12} />
+              {t('databases.stats_refresh')}
+            </Button>
+          )}
         </div>
       )}
 

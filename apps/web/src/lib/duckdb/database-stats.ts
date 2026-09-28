@@ -34,15 +34,19 @@ function ageAt(patient: ClassRelation, refDate: string): string | null {
 export async function computeDatabaseStats(
   dataSourceId: string,
   mapping: SchemaMapping,
+  signal?: AbortSignal,
 ): Promise<DatabaseStatsCache> {
   const [summary, genderDistribution, agePyramid, admissionTimeline, descriptiveStats] =
     await Promise.all([
-      computeSummary(dataSourceId, mapping),
-      computeGenderDistribution(dataSourceId, mapping),
-      computeAgePyramid(dataSourceId, mapping),
-      computeAdmissionTimeline(dataSourceId, mapping),
-      computeDescriptiveStats(dataSourceId, mapping),
+      computeSummary(dataSourceId, mapping, signal),
+      computeGenderDistribution(dataSourceId, mapping, signal),
+      computeAgePyramid(dataSourceId, mapping, signal),
+      computeAdmissionTimeline(dataSourceId, mapping, signal),
+      computeDescriptiveStats(dataSourceId, mapping, signal),
     ])
+  // The blocks swallow their own failures, so an interrupted run would come
+  // back as zeros: refuse it rather than let it replace the stored figures.
+  signal?.throwIfAborted()
 
   return {
     dataSourceId,
@@ -56,9 +60,9 @@ export async function computeDatabaseStats(
   }
 }
 
-async function safeQueryCount(dsId: string, table: string): Promise<number> {
+async function safeQueryCount(dsId: string, table: string, signal?: AbortSignal): Promise<number> {
   try {
-    const rows = await queryDataSource(dsId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`)
+    const rows = await queryDataSource(dsId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`, { signal })
     return Number(rows[0]?.cnt ?? 0)
   } catch {
     return 0
@@ -68,11 +72,12 @@ async function safeQueryCount(dsId: string, table: string): Promise<number> {
 async function computeSummary(
   dsId: string,
   mapping: SchemaMapping,
+  signal?: AbortSignal,
 ): Promise<DatabaseStatsCache['summary']> {
   const tables = await discoverTables(dsId)
   const tableCount = tables.length
 
-  const count = async (rel: ClassRelation | undefined) => (rel ? safeQueryCount(dsId, rel.name) : 0)
+  const count = async (rel: ClassRelation | undefined) => (rel ? safeQueryCount(dsId, rel.name, signal) : 0)
   const patientCount = await count(classRelation(mapping, 'patient'))
   const visitCount = await count(classRelation(mapping, 'visit'))
   const visitDetailCount = await count(classRelation(mapping, 'visit_detail'))
@@ -84,6 +89,7 @@ async function computeSummary(
 async function computeGenderDistribution(
   dsId: string,
   mapping: SchemaMapping,
+  signal?: AbortSignal,
 ): Promise<GenderDistribution> {
   const patient = classRelation(mapping, 'patient')
   if (!has(patient, 'gender')) return { male: 0, female: 0, other: 0 }
@@ -96,7 +102,7 @@ async function computeGenderDistribution(
         COUNT(*) FILTER (WHERE gender = 'unknown')::INTEGER as other
       FROM ${patient!.name}
     `
-    const rows = await queryDataSource(dsId, sql)
+    const rows = await queryDataSource(dsId, sql, { signal })
     if (rows[0]) {
       return {
         male: Number(rows[0].male ?? 0),
@@ -115,6 +121,7 @@ async function computeGenderDistribution(
 async function computeAgePyramid(
   dsId: string,
   mapping: SchemaMapping,
+  signal?: AbortSignal,
 ): Promise<AgePyramidBucket[]> {
   const patient = classRelation(mapping, 'patient')
   const visit = classRelation(mapping, 'visit')
@@ -152,7 +159,7 @@ async function computeAgePyramid(
     ORDER BY age_group
   `
   try {
-    const rows = await queryDataSource(dsId, sql)
+    const rows = await queryDataSource(dsId, sql, { signal })
     return rows.map((r) => ({
       ageGroup: String(r.age_group),
       male: Number(r.male ?? 0),
@@ -167,6 +174,7 @@ async function computeAgePyramid(
 async function computeAdmissionTimeline(
   dsId: string,
   mapping: SchemaMapping,
+  signal?: AbortSignal,
 ): Promise<AdmissionTimelineBucket[]> {
   const visit = classRelation(mapping, 'visit')
   if (!visit) return []
@@ -181,7 +189,7 @@ async function computeAdmissionTimeline(
     ORDER BY month
   `
   try {
-    const rows = await queryDataSource(dsId, sql)
+    const rows = await queryDataSource(dsId, sql, { signal })
     return rows.map((r) => ({
       month: String(r.month),
       count: Number(r.count ?? 0),
@@ -195,6 +203,7 @@ async function computeAdmissionTimeline(
 async function computeDescriptiveStats(
   dsId: string,
   mapping: SchemaMapping,
+  signal?: AbortSignal,
 ): Promise<DescriptiveStats> {
   const stats: DescriptiveStats = {}
   const patient = classRelation(mapping, 'patient')
@@ -223,7 +232,7 @@ async function computeDescriptiveStats(
         ) sub
         WHERE age >= 0 AND age < 150
       `
-      const rows = await queryDataSource(dsId, ageSql)
+      const rows = await queryDataSource(dsId, ageSql, { signal })
       if (rows[0]) {
         stats.ageMean = rows[0].age_mean != null ? Number(rows[0].age_mean) : undefined
         stats.ageMedian = rows[0].age_median != null ? Number(rows[0].age_median) : undefined
@@ -244,7 +253,7 @@ async function computeDescriptiveStats(
       FROM ${visit.name}
       WHERE start_datetime IS NOT NULL
     `
-    const rows = await queryDataSource(dsId, dateSql)
+    const rows = await queryDataSource(dsId, dateSql, { signal })
     if (rows[0]) {
       stats.admissionDateMin = rows[0].date_min ? String(rows[0].date_min) : undefined
       stats.admissionDateMax = rows[0].date_max ? String(rows[0].date_max) : undefined
@@ -264,7 +273,7 @@ async function computeDescriptiveStats(
         WHERE start_datetime IS NOT NULL
           AND end_datetime IS NOT NULL
       `
-      const rows = await queryDataSource(dsId, losSql)
+      const rows = await queryDataSource(dsId, losSql, { signal })
       if (rows[0]) {
         stats.dischargeDateMin = rows[0].discharge_min ? String(rows[0].discharge_min) : undefined
         stats.dischargeDateMax = rows[0].discharge_max ? String(rows[0].discharge_max) : undefined
@@ -288,7 +297,7 @@ async function computeDescriptiveStats(
         GROUP BY patient_id
       ) sub
     `
-    const rows = await queryDataSource(dsId, vpSql)
+    const rows = await queryDataSource(dsId, vpSql, { signal })
     if (rows[0]) {
       stats.visitsPerPatientMean = rows[0].vp_mean != null ? Number(rows[0].vp_mean) : undefined
       stats.visitsPerPatientMedian = rows[0].vp_median != null ? Number(rows[0].vp_median) : undefined
@@ -309,7 +318,7 @@ async function computeDescriptiveStats(
         WHERE start_datetime IS NOT NULL
           AND end_datetime IS NOT NULL
       `
-      const rows = await queryDataSource(dsId, unitLosSql)
+      const rows = await queryDataSource(dsId, unitLosSql, { signal })
       if (rows[0]) {
         stats.unitLosMean = rows[0].los_mean != null ? Number(rows[0].los_mean) : undefined
         stats.unitLosMedian = rows[0].los_median != null ? Number(rows[0].los_median) : undefined
@@ -340,6 +349,7 @@ export async function streamTableCounts(
   mapping: SchemaMapping,
   onBatch: (counts: TableRowCount[]) => void,
   batchSize = 6,
+  signal?: AbortSignal,
 ): Promise<TableRowCount[]> {
   const all = await discoverTables(dsId)
   const mapped = mappedTableNames(mapping).filter((t) => all.includes(t))
@@ -352,9 +362,10 @@ export async function streamTableCounts(
     const counts = await Promise.all(
       batch.map(async (table) => ({
         tableName: table,
-        rowCount: await safeQueryCount(dsId, table),
+        rowCount: await safeQueryCount(dsId, table, signal),
       })),
     )
+    signal?.throwIfAborted()
     results.push(...counts)
     onBatch(counts)
   }

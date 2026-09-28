@@ -862,7 +862,9 @@
     "location_missing_path": "Il n'y a plus rien à {{path}} : les fichiers ont été déplacés, renommés ou supprimés. Indiquez leur nouvel emplacement.",
     "location_missing_description": "Ses fichiers ont été déplacés ou supprimés. Indiquez leur nouvel emplacement.",
     "location_missing_change": "Changer l'emplacement",
-    "folder_location": "Emplacement du dossier"
+    "folder_location": "Emplacement du dossier",
+    "stats_stop": "Arrêter",
+    "stats_stopping": "Arrêt…"
   },
   "reports": {
     "title": "Rapports",
