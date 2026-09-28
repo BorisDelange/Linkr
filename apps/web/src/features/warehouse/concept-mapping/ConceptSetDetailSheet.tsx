@@ -18,6 +18,11 @@ import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import type { ConceptSet, ConceptSetItem, ResolvedConcept, MappingEquivalence } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { RESIZE_HANDLE_CLASS } from '@/hooks/use-resizable-sidebar'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
+import { resolveConceptSet, resolvedConceptDetails } from '@/lib/data-dictionary/resolve'
+import { ConceptSetSqlPanel } from './ConceptSetSqlPanel'
 
 /** When the sheet is opened from the mapping editor with a source concept
  *  selected, this lets the resolved-concepts table align onto one of its rows
@@ -49,6 +54,16 @@ const DEFAULT_WIDTH = Math.round(window.innerWidth * 0.58)
 export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignContext }: ConceptSetDetailSheetProps) {
   const { t, i18n } = useTranslation()
   const csI18n = conceptSet ? getConceptSetI18n(conceptSet, i18n.language) : null
+
+  // The workspace vocabulary library, when it holds vocabularies: sets resolve
+  // against it (else the dictionary's own resolved snapshot on GitHub is read).
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const updateConceptSet = useConceptMappingStore((s) => s.updateConceptSet)
+  const vocabularyId = conceptSet ? vocabularyDataSourceIdFor({ workspaceId: conceptSet.workspaceId }, dataSources) : undefined
+  const vocabularyTables = useMemo(
+    () => new Set(dataSources.find((d) => d.id === vocabularyId)?.schemaMapping?.knownTables ?? []),
+    [dataSources, vocabularyId],
+  )
 
   const [resolvedConcepts, setResolvedConcepts] = useState<ResolvedConcept[]>([])
   const [resolvedLoading, setResolvedLoading] = useState(false)
@@ -134,19 +149,30 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
   // If the persisted tab is "resolved" but the new concept set has no resolved
   // URL (that tab is disabled), fall back to description so nothing shows blank.
   useEffect(() => {
-    if (activeTab === 'resolved' && conceptSet && !getResolvedUrl(conceptSet.sourceUrl)) {
+    if ((activeTab === 'resolved' || activeTab === 'sql') && conceptSet && !vocabularyId && !getResolvedUrl(conceptSet.sourceUrl)) {
       setActiveTab('description')
     }
-  }, [activeTab, conceptSet])
+  }, [activeTab, conceptSet, vocabularyId])
 
   const handleLoadResolved = useCallback(async () => {
     if (!conceptSet || resolvedLoaded) return
     const url = getResolvedUrl(conceptSet.sourceUrl)
-    if (!url) return
+    if (!vocabularyId && !url) return
 
     setResolvedLoading(true)
     setResolvedError(null)
     try {
+      // Resolved here, against the workspace vocabularies, when there are some;
+      // the result is kept on the set until its expression changes.
+      if (vocabularyId) {
+        const ids = conceptSet.resolvedConceptIds
+          ?? await resolveConceptSet(conceptSet, vocabularyId, vocabularyTables)
+        if (!conceptSet.resolvedConceptIds) await updateConceptSet(conceptSet.id, { resolvedConceptIds: ids })
+        setResolvedConcepts(await resolvedConceptDetails(conceptSet, ids, vocabularyId))
+        setResolvedLoaded(true)
+        return
+      }
+      if (!url) return
       const resp = await fetch(url)
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
       const json = await resp.json()
@@ -171,18 +197,19 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
     } finally {
       setResolvedLoading(false)
     }
-  }, [conceptSet, resolvedLoaded])
+  }, [conceptSet, resolvedLoaded, vocabularyId, vocabularyTables, updateConceptSet])
 
   // Auto-load resolved concepts when sheet opens
   useEffect(() => {
-    if (open && conceptSet && !resolvedLoaded && getResolvedUrl(conceptSet.sourceUrl)) {
+    if (open && conceptSet && !resolvedLoaded && (vocabularyId || getResolvedUrl(conceptSet.sourceUrl))) {
       handleLoadResolved()
     }
-  }, [open, conceptSet, resolvedLoaded, handleLoadResolved])
+  }, [open, conceptSet, resolvedLoaded, handleLoadResolved, vocabularyId])
 
   if (!conceptSet) return null
 
   const resolvedUrl = getResolvedUrl(conceptSet.sourceUrl)
+  const canResolve = !!vocabularyId || !!resolvedUrl
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -231,7 +258,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
             <TabsTrigger value="statistics" className="text-xs px-3">
               {t('concept_mapping.cs_detail_statistics')}
             </TabsTrigger>
-            <TabsTrigger value="resolved" disabled={!resolvedUrl} className="text-xs px-3">
+            <TabsTrigger value="resolved" disabled={!canResolve} className="text-xs px-3">
               {t('concept_mapping.cs_detail_resolved')}
               {resolvedLoaded && resolvedConcepts.length > 0 && (
                 <Badge variant="secondary" className="ml-1.5">{resolvedConcepts.length}</Badge>
@@ -239,6 +266,9 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
             </TabsTrigger>
             <TabsTrigger value="expression" className="text-xs px-3">
               {t('concept_mapping.cs_detail_expression')}
+            </TabsTrigger>
+            <TabsTrigger value="sql" disabled={!canResolve} className="text-xs px-3">
+              {t('concept_mapping.cs_detail_sql')}
             </TabsTrigger>
           </TabsList>
 
@@ -271,7 +301,7 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
           </TabsContent>
 
           <TabsContent value="resolved" className="flex-1 overflow-hidden m-0">
-            {!resolvedUrl ? (
+            {!canResolve ? (
               <div className="flex h-40 items-center justify-center">
                 <p className="text-sm text-muted-foreground">{t('concept_mapping.cs_detail_resolved_unavailable')}</p>
               </div>
@@ -295,6 +325,16 @@ export function ConceptSetDetailSheet({ conceptSet, open, onOpenChange, alignCon
                 rowKey={(c) => c.conceptId}
                 columns={resolvedColumns}
               />
+            )}
+          </TabsContent>
+
+          <TabsContent value="sql" className="flex-1 overflow-hidden m-0">
+            {resolvedLoading ? (
+              <div className="flex h-40 items-center justify-center">
+                <Loader2 size={20} className="animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <ConceptSetSqlPanel conceptSet={conceptSet} concepts={resolvedConcepts} />
             )}
           </TabsContent>
 

@@ -1,0 +1,3431 @@
+{
+ "source": "indicate-eu/data-dictionary@949a9daecb5a3d244013c271feeb532f7705e66f",
+ "manifest": {
+  "today": "2026-01-01",
+  "origin": "https://example.org",
+  "pathname": "/data-dictionary/",
+  "toolTag": "INDICATE Data Dictionary (test)",
+  "cases": [
+   {
+    "name": "155_measurement_mmol_per_L",
+    "conceptSetId": 155,
+    "refUnitId": 8753,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Measurement with a simple multiplicative conversion (mg/dL -> mmol/L).",
+    "lines": 58
+   },
+   {
+    "name": "155_measurement_mg_per_dL",
+    "conceptSetId": 155,
+    "refUnitId": 8840,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Same set, the other reference unit — checks the unit choice actually matters.",
+    "lines": 58
+   },
+   {
+    "name": "155_measurement_drop_other_units",
+    "conceptSetId": 155,
+    "refUnitId": 8753,
+    "dropOtherUnits": true,
+    "synthetic": false,
+    "why": "The optional unit filter, uncommented.",
+    "lines": 58
+   },
+   {
+    "name": "155_measurement_no_ref_unit",
+    "conceptSetId": 155,
+    "refUnitId": null,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Measurement without a reference unit: raw value_as_number, no conversion.",
+    "lines": 49
+   },
+   {
+    "name": "330_affine_offset",
+    "conceptSetId": 330,
+    "refUnitId": 586323,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Affine conversion with a non-zero offset (body temperature, [degF] -> Cel).",
+    "lines": 69
+   },
+   {
+    "name": "184_affine_positive_offset",
+    "conceptSetId": 184,
+    "refUnitId": 8554,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Affine conversion with a positive offset (HbA1c mmol/mol -> %).",
+    "lines": 44
+   },
+   {
+    "name": "318_multi_domain",
+    "conceptSetId": 318,
+    "refUnitId": 720858,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Measurement + Observation: two queries, and Observation is never converted.",
+    "lines": 62
+   },
+   {
+    "name": "163_unmapped_domain",
+    "conceptSetId": 163,
+    "refUnitId": null,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Specimen has no CDM table mapping — comment-only output.",
+    "lines": 14
+   },
+   {
+    "name": "305_mixed_mapped_unmapped",
+    "conceptSetId": 305,
+    "refUnitId": null,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Meas Value (unmapped) alongside Observation and Procedure (mapped).",
+    "lines": 71
+   },
+   {
+    "name": "8_measurement_no_units",
+    "conceptSetId": 8,
+    "refUnitId": null,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "Measurement concept with no unit data at all (Glasgow coma scale).",
+    "lines": 28
+   },
+   {
+    "name": "1_no_standard_concepts",
+    "conceptSetId": 1,
+    "refUnitId": null,
+    "dropOtherUnits": false,
+    "synthetic": false,
+    "why": "No standard concepts: the early-return comment block.",
+    "lines": 5
+   },
+   {
+    "name": "synthetic_ambiguous_nested_case",
+    "conceptSetId": 155,
+    "refUnitId": 8753,
+    "dropOtherUnits": false,
+    "synthetic": true,
+    "why": "Nested CASE on measurement_concept_id when one source unit has several factors.",
+    "lines": 96
+   }
+  ]
+ },
+ "conceptSets": {
+  "1": {
+   "id": 1,
+   "name": "3-minute Diagnostic Interview for CAM-defined Delirium (3D-CAM)",
+   "version": "1.0.2",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "3-minute Diagnostic Interview for CAM-defined Delirium (3D-CAM)"
+     }
+    }
+   }
+  },
+  "8": {
+   "id": 8,
+   "name": "Glasgow coma scale total",
+   "version": "1.1.0",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "Glasgow coma scale total"
+     }
+    }
+   }
+  },
+  "155": {
+   "id": 155,
+   "name": "Ionized calcium in blood",
+   "version": "1.1.0",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "Ionized calcium in blood"
+     }
+    }
+   }
+  },
+  "163": {
+   "id": 163,
+   "name": "Arterial blood specimen",
+   "version": "1.1.0",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "Arterial blood specimen"
+     }
+    }
+   }
+  },
+  "184": {
+   "id": 184,
+   "name": "Glycated hemoglobin (HbA1c) in blood",
+   "version": "1.1.1",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "Glycated hemoglobin (HbA1c) in blood"
+     }
+    }
+   }
+  },
+  "305": {
+   "id": 305,
+   "name": "Endotracheal intubation",
+   "version": "1.1.0",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "Endotracheal intubation"
+     }
+    }
+   }
+  },
+  "318": {
+   "id": 318,
+   "name": "Positive End-Expiratory Pressure (PEEP)",
+   "version": "1.1.2",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "Positive End-Expiratory Pressure (PEEP)"
+     }
+    }
+   }
+  },
+  "330": {
+   "id": 330,
+   "name": "Body temperature",
+   "version": "1.2.0",
+   "metadata": {
+    "translations": {
+     "en": {
+      "name": "Body temperature"
+     }
+    }
+   }
+  }
+ },
+ "resolvedConcepts": {
+  "1": [
+   {
+    "conceptId": 2100000000,
+    "conceptName": "3-minute Diagnostic Interview for CAM-defined Delirium (3D-CAM)",
+    "vocabularyId": "INDICATE",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "3D-CAM",
+    "standardConcept": ""
+   }
+  ],
+  "8": [
+   {
+    "conceptId": 3007194,
+    "conceptName": "Glasgow coma score total",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "9269-2",
+    "standardConcept": "S"
+   }
+  ],
+  "155": [
+   {
+    "conceptId": 3013784,
+    "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "12180-6",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3015774,
+    "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by calculation",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "13959-2",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3016431,
+    "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Serum or Plasma",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "19072-8",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3021119,
+    "conceptName": "Calcium.ionized [Moles/volume] in Blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "1994-3",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3021347,
+    "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "1995-0",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3024250,
+    "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "17864-0",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3027694,
+    "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "17863-2",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3032271,
+    "conceptName": "Calcium.ionized [Moles/volume] in Mixed venous blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "41646-1",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3033705,
+    "conceptName": "Calcium.ionized [Moles/volume] in Venous blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "41645-3",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3035279,
+    "conceptName": "Calcium.ionized [Moles/volume] in Capillary blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "41644-6",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3036426,
+    "conceptName": "Calcium.ionized [Mass/volume] in Blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "38230-9",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3039602,
+    "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Capillary blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "53139-2",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3041671,
+    "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Venous blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "53140-0",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3041706,
+    "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Arterial blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "53138-4",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3044331,
+    "conceptName": "Calcium.ionized [Moles/volume] in Arterial blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "34581-9",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3048816,
+    "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "47598-8",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3050068,
+    "conceptName": "Calcium.ionized [Moles/volume] in Blood by Ion-selective membrane electrode (ISE)",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "47596-2",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 37036351,
+    "conceptName": "Calcium.ionized | Blood arterial | Chemistry - non-challenge",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "LOINC Hierarchy",
+    "conceptCode": "LP385974-3",
+    "standardConcept": "C"
+   },
+   {
+    "conceptId": 37058150,
+    "conceptName": "Calcium.ionized | Serum or Plasma | Chemistry - non-challenge",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "LOINC Hierarchy",
+    "conceptCode": "LP385983-4",
+    "standardConcept": "C"
+   },
+   {
+    "conceptId": 37066721,
+    "conceptName": "Calcium.ionized | Blood mixed venous | Chemistry - non-challenge",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "LOINC Hierarchy",
+    "conceptCode": "LP385978-4",
+    "standardConcept": "C"
+   },
+   {
+    "conceptId": 37068391,
+    "conceptName": "Calcium.ionized | Blood venous | Chemistry - non-challenge",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "LOINC Hierarchy",
+    "conceptCode": "LP385979-2",
+    "standardConcept": "C"
+   },
+   {
+    "conceptId": 37073217,
+    "conceptName": "Calcium.ionized | Blood | Chemistry - non-challenge",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "LOINC Hierarchy",
+    "conceptCode": "LP385973-5",
+    "standardConcept": "C"
+   },
+   {
+    "conceptId": 37073269,
+    "conceptName": "Calcium.ionized | Blood capillary | Chemistry - non-challenge",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "LOINC Hierarchy",
+    "conceptCode": "LP385975-0",
+    "standardConcept": "C"
+   },
+   {
+    "conceptId": 40760451,
+    "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "57333-7",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 40762532,
+    "conceptName": "Calcium.ionized [Mass/volume] in Arterial blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "59470-5",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 40762533,
+    "conceptName": "Calcium.ionized [Mass/volume] in Venous blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "59471-3",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 40762534,
+    "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Arterial blood by Ion-selective membrane electrode (ISE)",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "59472-1",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 40762535,
+    "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Venous blood by Ion-selective membrane electrode (ISE)",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "59473-9",
+    "standardConcept": "S"
+   }
+  ],
+  "163": [
+   {
+    "conceptId": 4047496,
+    "conceptName": "Arterial blood specimen",
+    "vocabularyId": "SNOMED",
+    "domainId": "Specimen",
+    "conceptClassId": "Specimen",
+    "conceptCode": "122552005",
+    "standardConcept": "S"
+   }
+  ],
+  "184": [
+   {
+    "conceptId": 3003309,
+    "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by Electrophoresis",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "4549-2",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3004410,
+    "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "4548-4",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3005673,
+    "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by HPLC",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "17856-6",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3007263,
+    "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by calculation",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "17855-8",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3034639,
+    "conceptName": "Hemoglobin A1c [Mass/volume] in Blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "41995-2",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 40762352,
+    "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by IFCC protocol",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "59261-8",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 40765129,
+    "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by JDS/JSCC protocol",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "62388-4",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 42869630,
+    "conceptName": "Hemoglobin A1c/Hemoglobin.total [Pure mass fraction] in Blood",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Lab Test",
+    "conceptCode": "71875-9",
+    "standardConcept": "S"
+   }
+  ],
+  "305": [
+   {
+    "conceptId": 4013354,
+    "conceptName": "Insertion of endotracheal tube",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "112798008",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4056812,
+    "conceptName": "Laryngeal intubation for inhalation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "182709001",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4058031,
+    "conceptName": "Endotracheal intubation, emergency procedure",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "16883004",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4082243,
+    "conceptName": "Emergency laryngeal intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "182682004",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4119642,
+    "conceptName": "Awake intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "304341005",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4140765,
+    "conceptName": "Digital assisted intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "427331009",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4179373,
+    "conceptName": "Insertion of endotracheal tube using laryngoscope",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "429161001",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4283807,
+    "conceptName": "Intubation of larynx",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "66861000",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4287921,
+    "conceptName": "Retrograde intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "397892004",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4303945,
+    "conceptName": "Tracheal intubation through a laryngeal mask airway",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "418613003",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4335481,
+    "conceptName": "Orotracheal intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232674004",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4335583,
+    "conceptName": "Tracheal intubation using rigid bronchoscope",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232677006",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4335584,
+    "conceptName": "Nasal intubation awake",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232680007",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4335585,
+    "conceptName": "Endobronchial intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232687005",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4337045,
+    "conceptName": "Blind nasal intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232681006",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4337615,
+    "conceptName": "Orotracheal fiberoptic intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232678001",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4337616,
+    "conceptName": "Nasotracheal intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232679009",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4337617,
+    "conceptName": "Nasotracheal fiberoptic intubation",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232682004",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4339623,
+    "conceptName": "Oral intubation awake",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "232675003",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 36309319,
+    "conceptName": "Unplanned intubation",
+    "vocabularyId": "LOINC",
+    "domainId": "Meas Value",
+    "conceptClassId": "Answer",
+    "conceptCode": "LA20580-9",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 36660691,
+    "conceptName": "Difficult intubation",
+    "vocabularyId": "LOINC",
+    "domainId": "Observation",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "95050-1",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 37116698,
+    "conceptName": "Insertion of double lumen tracheobronchial tube",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "733509002",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 40487536,
+    "conceptName": "Intubation of respiratory tract",
+    "vocabularyId": "SNOMED",
+    "domainId": "Procedure",
+    "conceptClassId": "Procedure",
+    "conceptCode": "447996002",
+    "standardConcept": "S"
+   }
+  ],
+  "318": [
+   {
+    "conceptId": 3022875,
+    "conceptName": "Positive end expiratory pressure setting Ventilator",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "20077-4",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3035822,
+    "conceptName": "Intrinsic PEEP Respiratory system",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "38199-6",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4160171,
+    "conceptName": "Best positive end expiratory pressure",
+    "vocabularyId": "SNOMED",
+    "domainId": "Observation",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "398269008",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4216746,
+    "conceptName": "Positive end expiratory pressure setting",
+    "vocabularyId": "SNOMED",
+    "domainId": "Observation",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "416595007",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4353713,
+    "conceptName": "Positive end expiratory pressure",
+    "vocabularyId": "SNOMED",
+    "domainId": "Observation",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "250854009",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 42527140,
+    "conceptName": "Total PEEP Respiratory system",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "76247-6",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 42528515,
+    "conceptName": "Extrinsic PEEP Respiratory system",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "83386-3",
+    "standardConcept": "S"
+   }
+  ],
+  "330": [
+   {
+    "conceptId": 1259509,
+    "conceptName": "Body temperature - Groin",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "104063-3",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3006322,
+    "conceptName": "Oral temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "8331-1",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3007416,
+    "conceptName": "Body temperature - Intravascular",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "8330-3",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3020891,
+    "conceptName": "Body temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "8310-5",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3022060,
+    "conceptName": "Rectal temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "8332-9",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3025085,
+    "conceptName": "Axillary temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "8328-7",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3025704,
+    "conceptName": "Body temperature - Urinary bladder",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "8334-5",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3025926,
+    "conceptName": "Body temperature - Core",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "8329-5",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 3032679,
+    "conceptName": "Body temperature --after transfusion reaction",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "50400-1",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4143731,
+    "conceptName": "Rectal temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "307047009",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4174894,
+    "conceptName": "Core body temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "276885007",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4188706,
+    "conceptName": "Axillary temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "415882003",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4189949,
+    "conceptName": "Groin temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "415929009",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4212763,
+    "conceptName": "Forehead temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "415922000",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4215364,
+    "conceptName": "Tympanic temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "415974002",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4218834,
+    "conceptName": "Oral temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "415945006",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4239770,
+    "conceptName": "Temperature of pinna",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "363997004",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4302666,
+    "conceptName": "Body temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "386725007",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4329518,
+    "conceptName": "Body temperature taken with digital thermometer",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "431807005",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 4333349,
+    "conceptName": "Temperature of esophagus",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "431598003",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490586,
+    "conceptName": "Blood temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "60834-9",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490587,
+    "conceptName": "Arterial blood temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "60835-6",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490588,
+    "conceptName": "Esophageal temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "60836-4",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490590,
+    "conceptName": "Nasopharyngeal temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "60838-0",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490769,
+    "conceptName": "Venous blood temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "75987-8",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490870,
+    "conceptName": "Bladder temperature via Foley",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "76278-1",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490906,
+    "conceptName": "Nasal temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "76010-8",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 21490907,
+    "conceptName": "Ear temperature",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "76011-6",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 37019573,
+    "conceptName": "Body temperature - Brain",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "91371-5",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 37164002,
+    "conceptName": "Core body temperature measured in blood",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "1222808002",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 44782834,
+    "conceptName": "Nasopharyngeal temperature",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "698831002",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 44782835,
+    "conceptName": "Core body temperature measured at urinary bladder",
+    "vocabularyId": "SNOMED",
+    "domainId": "Measurement",
+    "conceptClassId": "Observable Entity",
+    "conceptCode": "698832009",
+    "standardConcept": "S"
+   },
+   {
+    "conceptId": 46235152,
+    "conceptName": "Body temperature - Temporal artery",
+    "vocabularyId": "LOINC",
+    "domainId": "Measurement",
+    "conceptClassId": "Clinical Observation",
+    "conceptCode": "75539-7",
+    "standardConcept": "S"
+   }
+  ]
+ },
+ "unitConversions": [
+  {
+   "conceptId": 3004410,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood",
+   "sourceUnitConceptId": 8554,
+   "sourceUnitCode": "%",
+   "sourceUnitName": "percent",
+   "conversionFactor": 10.929,
+   "offset": -23.5,
+   "targetUnitConceptId": 9579,
+   "targetUnitCode": "mmol/mol",
+   "targetUnitName": "millimole per mole"
+  },
+  {
+   "conceptId": 3004410,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood",
+   "sourceUnitConceptId": 9579,
+   "sourceUnitCode": "mmol/mol",
+   "sourceUnitName": "millimole per mole",
+   "conversionFactor": 0.09148,
+   "offset": 2.152,
+   "targetUnitConceptId": 8554,
+   "targetUnitCode": "%",
+   "targetUnitName": "percent"
+  },
+  {
+   "conceptId": 3003309,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by Electrophoresis",
+   "sourceUnitConceptId": 8554,
+   "sourceUnitCode": "%",
+   "sourceUnitName": "percent",
+   "conversionFactor": 10.929,
+   "offset": -23.5,
+   "targetUnitConceptId": 9579,
+   "targetUnitCode": "mmol/mol",
+   "targetUnitName": "millimole per mole"
+  },
+  {
+   "conceptId": 3003309,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by Electrophoresis",
+   "sourceUnitConceptId": 9579,
+   "sourceUnitCode": "mmol/mol",
+   "sourceUnitName": "millimole per mole",
+   "conversionFactor": 0.09148,
+   "offset": 2.152,
+   "targetUnitConceptId": 8554,
+   "targetUnitCode": "%",
+   "targetUnitName": "percent"
+  },
+  {
+   "conceptId": 3005673,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by HPLC",
+   "sourceUnitConceptId": 8554,
+   "sourceUnitCode": "%",
+   "sourceUnitName": "percent",
+   "conversionFactor": 10.929,
+   "offset": -23.5,
+   "targetUnitConceptId": 9579,
+   "targetUnitCode": "mmol/mol",
+   "targetUnitName": "millimole per mole"
+  },
+  {
+   "conceptId": 3005673,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by HPLC",
+   "sourceUnitConceptId": 9579,
+   "sourceUnitCode": "mmol/mol",
+   "sourceUnitName": "millimole per mole",
+   "conversionFactor": 0.09148,
+   "offset": 2.152,
+   "targetUnitConceptId": 8554,
+   "targetUnitCode": "%",
+   "targetUnitName": "percent"
+  },
+  {
+   "conceptId": 3007263,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by calculation",
+   "sourceUnitConceptId": 8554,
+   "sourceUnitCode": "%",
+   "sourceUnitName": "percent",
+   "conversionFactor": 10.929,
+   "offset": -23.5,
+   "targetUnitConceptId": 9579,
+   "targetUnitCode": "mmol/mol",
+   "targetUnitName": "millimole per mole"
+  },
+  {
+   "conceptId": 3007263,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by calculation",
+   "sourceUnitConceptId": 9579,
+   "sourceUnitCode": "mmol/mol",
+   "sourceUnitName": "millimole per mole",
+   "conversionFactor": 0.09148,
+   "offset": 2.152,
+   "targetUnitConceptId": 8554,
+   "targetUnitCode": "%",
+   "targetUnitName": "percent"
+  },
+  {
+   "conceptId": 1259509,
+   "conceptName": "Body temperature - Groin",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 1259509,
+   "conceptName": "Body temperature - Groin",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3006322,
+   "conceptName": "Oral temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3006322,
+   "conceptName": "Oral temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3007416,
+   "conceptName": "Body temperature - Intravascular",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3007416,
+   "conceptName": "Body temperature - Intravascular",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3020891,
+   "conceptName": "Body temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3020891,
+   "conceptName": "Body temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3022060,
+   "conceptName": "Rectal temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3022060,
+   "conceptName": "Rectal temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3025085,
+   "conceptName": "Axillary temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3025085,
+   "conceptName": "Axillary temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3025704,
+   "conceptName": "Body temperature - Urinary bladder",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3025704,
+   "conceptName": "Body temperature - Urinary bladder",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3025926,
+   "conceptName": "Body temperature - Core",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3025926,
+   "conceptName": "Body temperature - Core",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 3032679,
+   "conceptName": "Body temperature --after transfusion reaction",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 3032679,
+   "conceptName": "Body temperature --after transfusion reaction",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4143731,
+   "conceptName": "Rectal temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4143731,
+   "conceptName": "Rectal temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4174894,
+   "conceptName": "Core body temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4174894,
+   "conceptName": "Core body temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4188706,
+   "conceptName": "Axillary temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4188706,
+   "conceptName": "Axillary temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4189949,
+   "conceptName": "Groin temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4189949,
+   "conceptName": "Groin temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4212763,
+   "conceptName": "Forehead temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4212763,
+   "conceptName": "Forehead temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4215364,
+   "conceptName": "Tympanic temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4215364,
+   "conceptName": "Tympanic temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4218834,
+   "conceptName": "Oral temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4218834,
+   "conceptName": "Oral temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4239770,
+   "conceptName": "Temperature of pinna",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4239770,
+   "conceptName": "Temperature of pinna",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4302666,
+   "conceptName": "Body temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4302666,
+   "conceptName": "Body temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4329518,
+   "conceptName": "Body temperature taken with digital thermometer",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4329518,
+   "conceptName": "Body temperature taken with digital thermometer",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4333349,
+   "conceptName": "Temperature of esophagus",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 4333349,
+   "conceptName": "Temperature of esophagus",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490586,
+   "conceptName": "Blood temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490586,
+   "conceptName": "Blood temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490587,
+   "conceptName": "Arterial blood temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490587,
+   "conceptName": "Arterial blood temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490588,
+   "conceptName": "Esophageal temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490588,
+   "conceptName": "Esophageal temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490590,
+   "conceptName": "Nasopharyngeal temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490590,
+   "conceptName": "Nasopharyngeal temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490769,
+   "conceptName": "Venous blood temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490769,
+   "conceptName": "Venous blood temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490870,
+   "conceptName": "Bladder temperature via Foley",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490870,
+   "conceptName": "Bladder temperature via Foley",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490906,
+   "conceptName": "Nasal temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490906,
+   "conceptName": "Nasal temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 21490907,
+   "conceptName": "Ear temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 21490907,
+   "conceptName": "Ear temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 37019573,
+   "conceptName": "Body temperature - Brain",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 37019573,
+   "conceptName": "Body temperature - Brain",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 37164002,
+   "conceptName": "Core body temperature measured in blood",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 37164002,
+   "conceptName": "Core body temperature measured in blood",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 44782834,
+   "conceptName": "Nasopharyngeal temperature",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 44782834,
+   "conceptName": "Nasopharyngeal temperature",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 44782835,
+   "conceptName": "Core body temperature measured at urinary bladder",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 44782835,
+   "conceptName": "Core body temperature measured at urinary bladder",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 46235152,
+   "conceptName": "Body temperature - Temporal artery",
+   "sourceUnitConceptId": 9289,
+   "sourceUnitCode": "[degF]",
+   "sourceUnitName": "degree Fahrenheit",
+   "conversionFactor": 0.555556,
+   "offset": -17.777778,
+   "targetUnitConceptId": 586323,
+   "targetUnitCode": "Cel",
+   "targetUnitName": "degree Celsius"
+  },
+  {
+   "conceptId": 46235152,
+   "conceptName": "Body temperature - Temporal artery",
+   "sourceUnitConceptId": 586323,
+   "sourceUnitCode": "Cel",
+   "sourceUnitName": "degree Celsius",
+   "conversionFactor": 1.8,
+   "offset": 32,
+   "targetUnitConceptId": 9289,
+   "targetUnitCode": "[degF]",
+   "targetUnitName": "degree Fahrenheit"
+  },
+  {
+   "conceptId": 4353713,
+   "conceptName": "Positive end expiratory pressure",
+   "sourceUnitConceptId": 44777590,
+   "sourceUnitCode": "cm[H2O]",
+   "sourceUnitName": "centimeter watercolumn",
+   "conversionFactor": 0.980665,
+   "targetUnitConceptId": 720858,
+   "targetUnitCode": "mbar",
+   "targetUnitName": "millibar"
+  },
+  {
+   "conceptId": 4353713,
+   "conceptName": "Positive end expiratory pressure",
+   "sourceUnitConceptId": 720858,
+   "sourceUnitCode": "mbar",
+   "sourceUnitName": "millibar",
+   "conversionFactor": 1.019716,
+   "targetUnitConceptId": 44777590,
+   "targetUnitCode": "cm[H2O]",
+   "targetUnitName": "centimeter watercolumn"
+  },
+  {
+   "conceptId": 4216746,
+   "conceptName": "Positive end expiratory pressure setting",
+   "sourceUnitConceptId": 44777590,
+   "sourceUnitCode": "cm[H2O]",
+   "sourceUnitName": "centimeter watercolumn",
+   "conversionFactor": 0.980665,
+   "targetUnitConceptId": 720858,
+   "targetUnitCode": "mbar",
+   "targetUnitName": "millibar"
+  },
+  {
+   "conceptId": 4216746,
+   "conceptName": "Positive end expiratory pressure setting",
+   "sourceUnitConceptId": 720858,
+   "sourceUnitCode": "mbar",
+   "sourceUnitName": "millibar",
+   "conversionFactor": 1.019716,
+   "targetUnitConceptId": 44777590,
+   "targetUnitCode": "cm[H2O]",
+   "targetUnitName": "centimeter watercolumn"
+  },
+  {
+   "conceptId": 3022875,
+   "conceptName": "Positive end expiratory pressure setting Ventilator",
+   "sourceUnitConceptId": 44777590,
+   "sourceUnitCode": "cm[H2O]",
+   "sourceUnitName": "centimeter watercolumn",
+   "conversionFactor": 0.980665,
+   "targetUnitConceptId": 720858,
+   "targetUnitCode": "mbar",
+   "targetUnitName": "millibar"
+  },
+  {
+   "conceptId": 3022875,
+   "conceptName": "Positive end expiratory pressure setting Ventilator",
+   "sourceUnitConceptId": 720858,
+   "sourceUnitCode": "mbar",
+   "sourceUnitName": "millibar",
+   "conversionFactor": 1.019716,
+   "targetUnitConceptId": 44777590,
+   "targetUnitCode": "cm[H2O]",
+   "targetUnitName": "centimeter watercolumn"
+  },
+  {
+   "conceptId": 4160171,
+   "conceptName": "Best positive end expiratory pressure",
+   "sourceUnitConceptId": 44777590,
+   "sourceUnitCode": "cm[H2O]",
+   "sourceUnitName": "centimeter watercolumn",
+   "conversionFactor": 0.980665,
+   "targetUnitConceptId": 720858,
+   "targetUnitCode": "mbar",
+   "targetUnitName": "millibar"
+  },
+  {
+   "conceptId": 4160171,
+   "conceptName": "Best positive end expiratory pressure",
+   "sourceUnitConceptId": 720858,
+   "sourceUnitCode": "mbar",
+   "sourceUnitName": "millibar",
+   "conversionFactor": 1.019716,
+   "targetUnitConceptId": 44777590,
+   "targetUnitCode": "cm[H2O]",
+   "targetUnitName": "centimeter watercolumn"
+  },
+  {
+   "conceptId": 3035822,
+   "conceptName": "Intrinsic PEEP Respiratory system",
+   "sourceUnitConceptId": 44777590,
+   "sourceUnitCode": "cm[H2O]",
+   "sourceUnitName": "centimeter watercolumn",
+   "conversionFactor": 0.980665,
+   "targetUnitConceptId": 720858,
+   "targetUnitCode": "mbar",
+   "targetUnitName": "millibar"
+  },
+  {
+   "conceptId": 3035822,
+   "conceptName": "Intrinsic PEEP Respiratory system",
+   "sourceUnitConceptId": 720858,
+   "sourceUnitCode": "mbar",
+   "sourceUnitName": "millibar",
+   "conversionFactor": 1.019716,
+   "targetUnitConceptId": 44777590,
+   "targetUnitCode": "cm[H2O]",
+   "targetUnitName": "centimeter watercolumn"
+  },
+  {
+   "conceptId": 42528515,
+   "conceptName": "Extrinsic PEEP Respiratory system",
+   "sourceUnitConceptId": 44777590,
+   "sourceUnitCode": "cm[H2O]",
+   "sourceUnitName": "centimeter watercolumn",
+   "conversionFactor": 0.980665,
+   "targetUnitConceptId": 720858,
+   "targetUnitCode": "mbar",
+   "targetUnitName": "millibar"
+  },
+  {
+   "conceptId": 42528515,
+   "conceptName": "Extrinsic PEEP Respiratory system",
+   "sourceUnitConceptId": 720858,
+   "sourceUnitCode": "mbar",
+   "sourceUnitName": "millibar",
+   "conversionFactor": 1.019716,
+   "targetUnitConceptId": 44777590,
+   "targetUnitCode": "cm[H2O]",
+   "targetUnitName": "centimeter watercolumn"
+  },
+  {
+   "conceptId": 42527140,
+   "conceptName": "Total PEEP Respiratory system",
+   "sourceUnitConceptId": 44777590,
+   "sourceUnitCode": "cm[H2O]",
+   "sourceUnitName": "centimeter watercolumn",
+   "conversionFactor": 0.980665,
+   "targetUnitConceptId": 720858,
+   "targetUnitCode": "mbar",
+   "targetUnitName": "millibar"
+  },
+  {
+   "conceptId": 42527140,
+   "conceptName": "Total PEEP Respiratory system",
+   "sourceUnitConceptId": 720858,
+   "sourceUnitCode": "mbar",
+   "sourceUnitName": "millibar",
+   "conversionFactor": 1.019716,
+   "targetUnitConceptId": 44777590,
+   "targetUnitCode": "cm[H2O]",
+   "targetUnitName": "centimeter watercolumn"
+  },
+  {
+   "conceptId": 3013784,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3033705,
+   "conceptName": "Calcium.ionized [Moles/volume] in Venous blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3044331,
+   "conceptName": "Calcium.ionized [Moles/volume] in Arterial blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3050068,
+   "conceptName": "Calcium.ionized [Moles/volume] in Blood by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 40762532,
+   "conceptName": "Calcium.ionized [Mass/volume] in Arterial blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 40762533,
+   "conceptName": "Calcium.ionized [Mass/volume] in Venous blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3013784,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3015774,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by calculation",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3015774,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by calculation",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3016431,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Serum or Plasma",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3016431,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Serum or Plasma",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3021119,
+   "conceptName": "Calcium.ionized [Moles/volume] in Blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3021119,
+   "conceptName": "Calcium.ionized [Moles/volume] in Blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3021347,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3021347,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3024250,
+   "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3024250,
+   "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3027694,
+   "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3027694,
+   "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3032271,
+   "conceptName": "Calcium.ionized [Moles/volume] in Mixed venous blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3032271,
+   "conceptName": "Calcium.ionized [Moles/volume] in Mixed venous blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3033705,
+   "conceptName": "Calcium.ionized [Moles/volume] in Venous blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3035279,
+   "conceptName": "Calcium.ionized [Moles/volume] in Capillary blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3035279,
+   "conceptName": "Calcium.ionized [Moles/volume] in Capillary blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3036426,
+   "conceptName": "Calcium.ionized [Mass/volume] in Blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3036426,
+   "conceptName": "Calcium.ionized [Mass/volume] in Blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3039602,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Capillary blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3039602,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Capillary blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3041671,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Venous blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3041671,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Venous blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3041706,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Arterial blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3041706,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Arterial blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3044331,
+   "conceptName": "Calcium.ionized [Moles/volume] in Arterial blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3048816,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Blood",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 3048816,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 3050068,
+   "conceptName": "Calcium.ionized [Moles/volume] in Blood by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 40760451,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 40760451,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 40762532,
+   "conceptName": "Calcium.ionized [Mass/volume] in Arterial blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 40762533,
+   "conceptName": "Calcium.ionized [Mass/volume] in Venous blood",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 40762534,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Arterial blood by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 40762534,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Arterial blood by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  },
+  {
+   "conceptId": 40762535,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Venous blood by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8840,
+   "sourceUnitCode": "mg/dL",
+   "sourceUnitName": "milligram per deciliter",
+   "conversionFactor": 0.249501,
+   "targetUnitConceptId": 8753,
+   "targetUnitCode": "mmol/L",
+   "targetUnitName": "millimole per liter"
+  },
+  {
+   "conceptId": 40762535,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Venous blood by Ion-selective membrane electrode (ISE)",
+   "sourceUnitConceptId": 8753,
+   "sourceUnitCode": "mmol/L",
+   "sourceUnitName": "millimole per liter",
+   "conversionFactor": 4.008,
+   "targetUnitConceptId": 8840,
+   "targetUnitCode": "mg/dL",
+   "targetUnitName": "milligram per deciliter"
+  }
+ ],
+ "recommendedUnits": [
+  {
+   "conceptId": 3013784,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "conceptCode": "12180-6",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3020891,
+   "conceptName": "Body temperature",
+   "conceptCode": "8310-5",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3033705,
+   "conceptName": "Calcium.ionized [Moles/volume] in Venous blood",
+   "conceptCode": "41645-3",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3044331,
+   "conceptName": "Calcium.ionized [Moles/volume] in Arterial blood",
+   "conceptCode": "34581-9",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3050068,
+   "conceptName": "Calcium.ionized [Moles/volume] in Blood by Ion-selective membrane electrode (ISE)",
+   "conceptCode": "47596-2",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 40762352,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by IFCC protocol",
+   "conceptCode": "59261-8",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 9579,
+   "recommendedUnitName": "millimole per mole",
+   "recommendedUnitCode": "mmol/mol",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 40762532,
+   "conceptName": "Calcium.ionized [Mass/volume] in Arterial blood",
+   "conceptCode": "59470-5",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 40762533,
+   "conceptName": "Calcium.ionized [Mass/volume] in Venous blood",
+   "conceptCode": "59471-3",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4353713,
+   "conceptName": "Positive end expiratory pressure",
+   "conceptCode": "250854009",
+   "vocabularyId": "SNOMED",
+   "domainId": "Observation",
+   "recommendedUnitConceptId": 44777590,
+   "recommendedUnitName": "centimeter watercolumn",
+   "recommendedUnitCode": "cm[H2O]",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4216746,
+   "conceptName": "Positive end expiratory pressure setting",
+   "conceptCode": "416595007",
+   "vocabularyId": "SNOMED",
+   "domainId": "Observation",
+   "recommendedUnitConceptId": 44777590,
+   "recommendedUnitName": "centimeter watercolumn",
+   "recommendedUnitCode": "cm[H2O]",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3022875,
+   "conceptName": "Positive end expiratory pressure setting Ventilator",
+   "conceptCode": "20077-4",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 44777590,
+   "recommendedUnitName": "centimeter watercolumn",
+   "recommendedUnitCode": "cm[H2O]",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4160171,
+   "conceptName": "Best positive end expiratory pressure",
+   "conceptCode": "398269008",
+   "vocabularyId": "SNOMED",
+   "domainId": "Observation",
+   "recommendedUnitConceptId": 44777590,
+   "recommendedUnitName": "centimeter watercolumn",
+   "recommendedUnitCode": "cm[H2O]",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3035822,
+   "conceptName": "Intrinsic PEEP Respiratory system",
+   "conceptCode": "38199-6",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 44777590,
+   "recommendedUnitName": "centimeter watercolumn",
+   "recommendedUnitCode": "cm[H2O]",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 42528515,
+   "conceptName": "Extrinsic PEEP Respiratory system",
+   "conceptCode": "83386-3",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 44777590,
+   "recommendedUnitName": "centimeter watercolumn",
+   "recommendedUnitCode": "cm[H2O]",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 42527140,
+   "conceptName": "Total PEEP Respiratory system",
+   "conceptCode": "76247-6",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 44777590,
+   "recommendedUnitName": "centimeter watercolumn",
+   "recommendedUnitCode": "cm[H2O]",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3015774,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma by calculation",
+   "conceptCode": "13959-2",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3016431,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Serum or Plasma",
+   "conceptCode": "19072-8",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3021119,
+   "conceptName": "Calcium.ionized [Moles/volume] in Blood",
+   "conceptCode": "1994-3",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3021347,
+   "conceptName": "Calcium.ionized [Moles/volume] in Serum or Plasma",
+   "conceptCode": "1995-0",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3024250,
+   "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "conceptCode": "17864-0",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3027694,
+   "conceptName": "Calcium.ionized [Mass/volume] in Serum or Plasma",
+   "conceptCode": "17863-2",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3032271,
+   "conceptName": "Calcium.ionized [Moles/volume] in Mixed venous blood",
+   "conceptCode": "41646-1",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3035279,
+   "conceptName": "Calcium.ionized [Moles/volume] in Capillary blood",
+   "conceptCode": "41644-6",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3036426,
+   "conceptName": "Calcium.ionized [Mass/volume] in Blood",
+   "conceptCode": "38230-9",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3039602,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Capillary blood",
+   "conceptCode": "53139-2",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3041671,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Venous blood",
+   "conceptCode": "53140-0",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3041706,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Arterial blood",
+   "conceptCode": "53138-4",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3048816,
+   "conceptName": "Calcium.ionized [Moles/volume] adjusted to pH 7.4 in Blood",
+   "conceptCode": "47598-8",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8753,
+   "recommendedUnitName": "millimole per liter",
+   "recommendedUnitCode": "mmol/L",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 40760451,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Serum or Plasma by Ion-selective membrane electrode (ISE)",
+   "conceptCode": "57333-7",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 40762534,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Arterial blood by Ion-selective membrane electrode (ISE)",
+   "conceptCode": "59472-1",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 40762535,
+   "conceptName": "Calcium.ionized [Mass/volume] adjusted to pH 7.4 in Venous blood by Ion-selective membrane electrode (ISE)",
+   "conceptCode": "59473-9",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8840,
+   "recommendedUnitName": "milligram per deciliter",
+   "recommendedUnitCode": "mg/dL",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 1259509,
+   "conceptName": "Body temperature - Groin",
+   "conceptCode": "104063-3",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3006322,
+   "conceptName": "Oral temperature",
+   "conceptCode": "8331-1",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3007416,
+   "conceptName": "Body temperature - Intravascular",
+   "conceptCode": "8330-3",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3022060,
+   "conceptName": "Rectal temperature",
+   "conceptCode": "8332-9",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3025085,
+   "conceptName": "Axillary temperature",
+   "conceptCode": "8328-7",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3025704,
+   "conceptName": "Body temperature - Urinary bladder",
+   "conceptCode": "8334-5",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3025926,
+   "conceptName": "Body temperature - Core",
+   "conceptCode": "8329-5",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3032679,
+   "conceptName": "Body temperature --after transfusion reaction",
+   "conceptCode": "50400-1",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4143731,
+   "conceptName": "Rectal temperature",
+   "conceptCode": "307047009",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4174894,
+   "conceptName": "Core body temperature",
+   "conceptCode": "276885007",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4188706,
+   "conceptName": "Axillary temperature",
+   "conceptCode": "415882003",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4189949,
+   "conceptName": "Groin temperature",
+   "conceptCode": "415929009",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4212763,
+   "conceptName": "Forehead temperature",
+   "conceptCode": "415922000",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4215364,
+   "conceptName": "Tympanic temperature",
+   "conceptCode": "415974002",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4218834,
+   "conceptName": "Oral temperature",
+   "conceptCode": "415945006",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4239770,
+   "conceptName": "Temperature of pinna",
+   "conceptCode": "363997004",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4302666,
+   "conceptName": "Body temperature",
+   "conceptCode": "386725007",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4329518,
+   "conceptName": "Body temperature taken with digital thermometer",
+   "conceptCode": "431807005",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 4333349,
+   "conceptName": "Temperature of esophagus",
+   "conceptCode": "431598003",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490586,
+   "conceptName": "Blood temperature",
+   "conceptCode": "60834-9",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490587,
+   "conceptName": "Arterial blood temperature",
+   "conceptCode": "60835-6",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490588,
+   "conceptName": "Esophageal temperature",
+   "conceptCode": "60836-4",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490590,
+   "conceptName": "Nasopharyngeal temperature",
+   "conceptCode": "60838-0",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490769,
+   "conceptName": "Venous blood temperature",
+   "conceptCode": "75987-8",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490870,
+   "conceptName": "Bladder temperature via Foley",
+   "conceptCode": "76278-1",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490906,
+   "conceptName": "Nasal temperature",
+   "conceptCode": "76010-8",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 21490907,
+   "conceptName": "Ear temperature",
+   "conceptCode": "76011-6",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 37019573,
+   "conceptName": "Body temperature - Brain",
+   "conceptCode": "91371-5",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 37164002,
+   "conceptName": "Core body temperature measured in blood",
+   "conceptCode": "1222808002",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 44782834,
+   "conceptName": "Nasopharyngeal temperature",
+   "conceptCode": "698831002",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 44782835,
+   "conceptName": "Core body temperature measured at urinary bladder",
+   "conceptCode": "698832009",
+   "vocabularyId": "SNOMED",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 46235152,
+   "conceptName": "Body temperature - Temporal artery",
+   "conceptCode": "75539-7",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 586323,
+   "recommendedUnitName": "degree Celsius",
+   "recommendedUnitCode": "Cel",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3003309,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by Electrophoresis",
+   "conceptCode": "4549-2",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8554,
+   "recommendedUnitName": "percent",
+   "recommendedUnitCode": "%",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3004410,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood",
+   "conceptCode": "4548-4",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8554,
+   "recommendedUnitName": "percent",
+   "recommendedUnitCode": "%",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3005673,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by HPLC",
+   "conceptCode": "17856-6",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8554,
+   "recommendedUnitName": "percent",
+   "recommendedUnitCode": "%",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 3007263,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by calculation",
+   "conceptCode": "17855-8",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8554,
+   "recommendedUnitName": "percent",
+   "recommendedUnitCode": "%",
+   "recommendedUnitVocabularyId": "UCUM"
+  },
+  {
+   "conceptId": 40765129,
+   "conceptName": "Hemoglobin A1c/Hemoglobin.total in Blood by JDS/JSCC protocol",
+   "conceptCode": "62388-4",
+   "vocabularyId": "LOINC",
+   "domainId": "Measurement",
+   "recommendedUnitConceptId": 8554,
+   "recommendedUnitName": "percent",
+   "recommendedUnitCode": "%",
+   "recommendedUnitVocabularyId": "UCUM"
+  }
+ ]
+}

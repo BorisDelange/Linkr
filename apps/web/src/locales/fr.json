@@ -5047,7 +5047,12 @@
     "cs_pick_confirm_one": "Ajouter {{count}} concept set",
     "cs_pick_confirm_other": "Ajouter {{count}} concept sets",
     "cs_manage_dictionaries": "Gérer les data dictionaries",
-    "cs_pick_empty": "Aucun autre concept set dans le workspace. Ajoutez un data dictionary dans les settings du workspace."
+    "cs_pick_empty": "Aucun autre concept set dans le workspace. Ajoutez un data dictionary dans les settings du workspace.",
+    "cs_detail_sql": "SQL",
+    "cs_sql_reference_unit": "Unité de référence",
+    "cs_sql_no_conversion": "Sans conversion",
+    "cs_sql_drop_other_units": "Écarter les lignes dans une autre unité",
+    "cs_sql_no_dictionary": "Ce concept set n'appartient à aucun data dictionary : aucune conversion d'unité n'est connue pour lui."
   },
   "data_catalog": {
     "pages_hint_github": "Dans le dépôt, réglez une fois Settings › Pages › Source sur « GitHub Actions ».",
@@ -6312,6 +6317,11 @@
     "loose_title": "Concept sets hors dictionnaire",
     "loose_description": "{{count}} concept sets ont été importés avant l'existence des dictionnaires. Rangez-les : un dictionnaire par dépôt d'origine, le reste dans un dictionnaire local — les projets les gardent.",
     "loose_organize": "Ranger",
-    "local_name": "Concept sets locaux"
+    "local_name": "Concept sets locaux",
+    "resolve": "Résoudre",
+    "resolve_hint": "Résoudre chaque concept set (descendants, concepts mappés) contre les vocabulaires du workspace",
+    "resolve_needs_vocabularies": "Importez des vocabulaires dans l'onglet Vocabulaires pour résoudre les concept sets",
+    "resolving": "résolution {{done}} / {{total}}",
+    "resolved_count": "{{resolved}} / {{total}} résolus"
   }
 }

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { BookMarked, ExternalLink, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
+import { BookMarked, ExternalLink, Loader2, Plus, RefreshCw, Sigma, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -24,6 +24,9 @@ import {
 } from '@/lib/data-dictionary/dictionaries'
 import { useAppStore } from '@/stores/app-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
+import { resolveConceptSet } from '@/lib/data-dictionary/resolve'
 import type { DataDictionary } from '@/types'
 import { DictionarySyncDialog } from './DictionarySyncDialog'
 
@@ -49,6 +52,10 @@ export function DataDictionariesTab({ workspaceId, canWrite }: DataDictionariesT
   const [syncTarget, setSyncTarget] = useState<DataDictionary | 'new' | null>(null)
   const [toDelete, setToDelete] = useState<DataDictionary | null>(null)
   const [organizing, setOrganizing] = useState(false)
+  const [resolving, setResolving] = useState<{ id: string; done: number; total: number } | null>(null)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const updateConceptSet = useConceptMappingStore((s) => s.updateConceptSet)
+  const vocabularyId = vocabularyDataSourceIdFor({ workspaceId }, dataSources)
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(() => {
@@ -78,6 +85,25 @@ export function DataDictionariesTab({ workspaceId, canWrite }: DataDictionariesT
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setOrganizing(false)
+    }
+  }
+
+  /** Resolve every set of a dictionary against the workspace vocabularies. */
+  const resolveAll = async (d: DataDictionary) => {
+    if (!vocabularyId) return
+    const tables = new Set(dataSources.find((ds) => ds.id === vocabularyId)?.schemaMapping?.knownTables ?? [])
+    const sets = dictionarySets(workspaceSets, d.id)
+    setResolving({ id: d.id, done: 0, total: sets.length })
+    setError(null)
+    try {
+      for (const [i, set] of sets.entries()) {
+        await updateConceptSet(set.id, { resolvedConceptIds: await resolveConceptSet(set, vocabularyId, tables) })
+        setResolving({ id: d.id, done: i + 1, total: sets.length })
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setResolving(null)
     }
   }
 
@@ -127,10 +153,24 @@ export function DataDictionariesTab({ workspaceId, canWrite }: DataDictionariesT
                     {t('data_dictionaries.used_by', { count: used })}
                     {d.syncedAt && ` · ${t('data_dictionaries.synced_on', { date: new Date(d.syncedAt).toLocaleDateString(language) })}`}
                     {d.commit && <span className="font-mono"> ({d.commit.slice(0, 7)})</span>}
+                    {' · '}
+                    {resolving?.id === d.id
+                      ? t('data_dictionaries.resolving', { done: resolving.done, total: resolving.total })
+                      : t('data_dictionaries.resolved_count', { resolved: sets.filter((s) => s.resolvedConceptIds).length, total: sets.length })}
                   </p>
                 </div>
                 {canWrite && (
                   <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      size="sm-tight"
+                      variant="outline"
+                      disabled={!vocabularyId || resolving !== null || sets.length === 0}
+                      title={vocabularyId ? t('data_dictionaries.resolve_hint') : t('data_dictionaries.resolve_needs_vocabularies')}
+                      onClick={() => { void resolveAll(d) }}
+                    >
+                      {resolving?.id === d.id ? <Loader2 size={12} className="animate-spin" /> : <Sigma size={12} />}
+                      {t('data_dictionaries.resolve')}
+                    </Button>
                     <Button size="sm-tight" variant="outline" onClick={() => setSyncTarget(d)}>
                       <RefreshCw size={12} />
                       {t('data_dictionaries.update')}
