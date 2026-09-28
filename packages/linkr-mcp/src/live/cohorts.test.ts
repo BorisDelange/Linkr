@@ -149,7 +149,7 @@ describe('rendering', () => {
     const rows = Array.from({ length: 10 }, (_, i) => ({ a: i, b: 'x|y' }))
     const out = formatRows(rows, 3)
     expect(out.split('\n')).toHaveLength(5)
-    expect(out).toContain('x y')
+    expect(out).toContain('x\\|y')
     expect(out).toContain('7 more row(s)')
   })
 })

@@ -365,7 +365,9 @@ export function formatRows(rows: Record<string, unknown>[], maxRows: number, max
   const cols = Object.keys(rows[0])
   const cell = (v: unknown) => {
     const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
-    return (s.length > 80 ? `${s.slice(0, 77)}...` : s).replace(/[|\n]/g, ' ')
+    // Escape the separator rather than drop it: values such as EHRSQL's "icd10|g40909" must reach
+    // the agent intact, or a WHERE clause copied from the output matches nothing.
+    return (s.length > 80 ? `${s.slice(0, 77)}...` : s).replace(/\|/g, '\\|').replace(/\n/g, ' ')
   }
   const lines = [cols.join(' | ')]
   let shown = 0
