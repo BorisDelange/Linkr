@@ -279,7 +279,7 @@ export function ServerPathPickerDialog({
           <p className="text-xs text-destructive">{t('server_picker.path_not_found')}</p>
         )}
         {startMissing && (
-          <p className="break-all text-xs text-amber-600 dark:text-amber-500">{t('server_picker.start_missing', { path: startMissing })}</p>
+          <p className="break-words text-xs text-amber-600 dark:text-amber-500">{t('server_picker.start_missing', { path: startMissing })}</p>
         )}
         {/* A failed navigation reports here rather than replacing the listing, so
             the folder we came from — and its ".." row — stay reachable. */}
