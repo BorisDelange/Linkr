@@ -228,6 +228,12 @@ def test_effective_mapping_replaces_a_renamed_event_in_place():
     assert [e["label"] for e in effective["events"]] == ["Labs"]
 
 
+def test_effective_mapping_drops_the_relations_a_database_removed():
+    effective = cohort_derive.effective_mapping(MAPPING_V2, {"removed": ["visit", "events.Measurement"]})
+    assert "visit" not in effective
+    assert "Measurement" not in [e["label"] for e in effective["events"]]
+
+
 def test_a_table_read_without_a_patient_id_column_is_never_copied_whole(source, tmp_path):
     # measurement's patient id is an expression, visit_detail's relation is SQL:
     # neither table has an id column the mapping names, and copying them whole

@@ -309,6 +309,16 @@ function validateDatabase(tree: EntityTree, bag: IssueBag): void {
           checkRelation(bag, CONTENT_FILE.schemaOverrides, rel, `/relations/${key}`, (p) => p)
         }
       }
+      if (o.removed != null && !Array.isArray(o.removed)) {
+        bag.error(CONTENT_FILE.schemaOverrides, '/removed', 'wrong-type', '`removed` lists the base relation keys this database drops.')
+      } else if (Array.isArray(o.removed)) {
+        for (const [i, key] of o.removed.entries()) {
+          if (typeof key !== 'string' || !OVERRIDE_KEY.test(key)) {
+            bag.error(CONTENT_FILE.schemaOverrides, `/removed/${i}`, 'wrong-type',
+              'A removed key is `patient`, `visit`, `visitDetail`, `note`, or `concepts.<key>` / `events.<label>` / `drugs.<label>`.')
+          }
+        }
+      }
       if (JSON.stringify(o) !== JSON.stringify(canonicalSchemaOverrides(o))) {
         bag.warn(CONTENT_FILE.schemaOverrides, '', 'legacy-format',
           'The overrides are not in canonical order; the next export will rewrite them.',

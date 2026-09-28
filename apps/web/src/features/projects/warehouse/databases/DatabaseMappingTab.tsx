@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowUpFromLine, Pencil, RefreshCw, RotateCcw } from 'lucide-react'
+import { AlertTriangle, ArrowUpFromLine, Check, Pencil, RefreshCw, RotateCcw, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -19,7 +19,7 @@ import { findSourcePreset } from '@/lib/find-source-preset'
 
 /**
  * A database's mapping: its preset's copy (the base) with what this site changes
- * on top (plan §7): whole relations, replaced or added. The base is replaced only by an explicit "Update from preset",
+ * on top (plan §7): whole relations, replaced, added or removed. The base is replaced only by an explicit "Update from preset",
  * which keeps the overrides and flags those whose base the preset changed.
  */
 export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; readOnly?: boolean }) {
@@ -73,6 +73,16 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
     } else if (overrides) {
       void save(revertOverride(overrides, overrideKeyFor(overrides, shownKey)))
     }
+  }
+
+  const removedKeys = pendingOverrides?.removed ?? []
+  /** Bring a removed base relation back: re-added to the draft, or the removal
+   *  dropped from the stored overrides. */
+  const restore = (specKey: string) => {
+    const baseSpec = specAt(base, specKey)
+    if (!baseSpec) return
+    if (draft) setDraft({ ...draft, mapping: effectiveMapping(draft.mapping, { relations: { [specKey]: baseSpec } }) })
+    else if (overrides) void save(revertOverride(overrides, specKey))
   }
 
   /** Push one override up into the preset, then follow the preset: the relation
@@ -152,22 +162,46 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         )}
         {editing && (
           <>
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setDraft(null)}>
+            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setDraft(null)}>
+              <X size={12} />
               {t('common.cancel')}
             </Button>
             <Button
               size="sm"
-              className="h-7 text-xs"
+              className="h-7 gap-1 text-xs"
               onClick={async () => {
                 await save(pendingOverrides)
                 setDraft(null)
               }}
             >
+              <Check size={12} />
               {t('common.save')}
             </Button>
           </>
         )}
       </div>
+
+      {removedKeys.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+          <span>{t('schema_mapping.db_removed_relations')}</span>
+          {removedKeys.map((key) => (
+            <Badge key={key} variant="outline" className="gap-1 font-mono">
+              {key}
+              {canWrite && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-foreground"
+                  onClick={() => restore(key)}
+                  aria-label={t('schema_mapping.restore')}
+                  title={t('schema_mapping.restore')}
+                >
+                  <RotateCcw size={10} />
+                </button>
+              )}
+            </Badge>
+          ))}
+        </div>
+      )}
 
       <MappingEditor
         mapping={shown}
@@ -175,7 +209,6 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         onChange={(m) => draft && setDraft({ ...draft, mapping: m })}
         previewSources={[{ id: source.id, label: localized(source.name, i18n.language) }]}
         relationExtra={relationExtra}
-        canRemove={(shownKey) => !specAt(base, overrideKeyFor(pendingOverrides, shownKey))}
         persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}
       />
 

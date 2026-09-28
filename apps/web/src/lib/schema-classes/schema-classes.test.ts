@@ -417,6 +417,24 @@ describe('per-database overrides', () => {
     expect(again.baseAtOverride!['drugs.Administrations']).toBe(o.baseAtOverride!['drugs.Administrations'])
   })
 
+  it('lists a base relation the site drops, applies the removal, and restores it on revert', () => {
+    const dropped: SchemaMapping = { ...site, drugs: [] }
+    const o = diffOverrides(base, dropped)
+    expect(o.removed).toEqual(['drugs.Administrations'])
+    expect(Object.keys(o.relations!)).toEqual(['visit', 'events.Local'])
+    const eff = effectiveMapping(base, o)
+    expect(eff.drugs ?? []).toEqual([])
+    expect(eff.visit?.where).toBe("s.kind = 'X'")
+    // A removal alone is still an override worth storing, and revert undoes it.
+    const onlyRemoved = diffOverrides(base, { ...base, drugs: [] })
+    expect(onlyRemoved).toEqual({ removed: ['drugs.Administrations'] })
+    expect(isEmptyOverrides(onlyRemoved)).toBe(false)
+    expect(isEmptyOverrides(revertOverride(onlyRemoved, 'drugs.Administrations'))).toBe(true)
+    // Dropping a singleton works the same way.
+    expect(diffOverrides(base, { ...base, visit: undefined }).removed).toEqual(['visit'])
+    expect(effectiveMapping(base, { removed: ['visit'] }).visit).toBeUndefined()
+  })
+
   it('flags an override whose base the preset changed, and reverts one relation', () => {
     const o = diffOverrides(base, site)
     const updated: SchemaMapping = { ...base, visit: { ...base.visit!, fields: { ...base.visit!.fields, end_datetime: 's.end' } } }

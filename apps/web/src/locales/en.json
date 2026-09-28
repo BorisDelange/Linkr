@@ -6272,6 +6272,8 @@
     "db_overridden_count_one": "{{count}} relation overridden for this database",
     "db_overridden_count_other": "{{count}} relations overridden for this database",
     "overridden": "Overridden",
+    "db_removed_relations": "Removed from the preset:",
+    "restore": "Restore",
     "stale_override": "The preset changed this relation since it was overridden here: check that the override still fits.",
     "revert": "Revert to preset",
     "promote": "Promote to preset",

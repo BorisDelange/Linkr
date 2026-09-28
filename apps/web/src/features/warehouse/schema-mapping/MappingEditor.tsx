@@ -37,8 +37,6 @@ export interface MappingEditorProps {
   /** Per relation (by spec key): a badge or actions in its header — the
    *  database override layer uses it for "Overridden" / "Revert". */
   relationExtra?: (specKey: string) => ReactNode
-  /** Whether a relation may be removed; an override cannot drop a preset's one. */
-  canRemove?: (specKey: string) => boolean
   /** Saves a relation's SQL at once, outside edit mode: the SQL dialog stays
    *  editable whenever the user may write, rather than showing a locked editor. */
   persist?: (mapping: SchemaMapping) => void
@@ -59,7 +57,7 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  * grouped by clinical subject, plus the parameters relations read. Used by the
  * schema preset page and, in override mode, by a database's Mapping tab.
  */
-export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, canRemove, persist }: MappingEditorProps) {
+export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, persist }: MappingEditorProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<TabId>('all')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
@@ -85,7 +83,6 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
   const relationNames = useMemo(() => new Map(classRelations(mapping).map((r) => [r.specKey, r.name])), [mapping])
 
   const setSpec = (specKey: string, spec: RelationSpec | undefined) => onChange?.(withSpec(mapping, specKey, spec))
-  const removable = (specKey: string) => !readOnly && (canRemove?.(specKey) ?? true)
 
   const editorFor = (specKey: string, cls: ClassName, spec: RelationSpec, title: ReactNode, extra?: ReactNode, children?: ReactNode) => (
     <RelationEditor
@@ -132,7 +129,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
       SINGLETONS[key],
       spec,
       title,
-      removable(key) && key !== 'patient' ? (
+      !readOnly && key !== 'patient' ? (
         <RemoveRelationButton name={title} className="ml-auto" onConfirm={() => setSpec(key, undefined)} />
       ) : undefined,
       children?.(spec),
@@ -149,7 +146,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
 
   const eventHeader = (list: 'events' | 'drugs', spec: EventSpec) => (
     <div className="ml-auto flex items-center gap-1">
-      {removable(`${list}.${spec.label}`) && (
+      {!readOnly && (
         <CommitInput
           value={spec.label}
           onCommit={(label) => {
@@ -160,7 +157,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
           label={t('schema_mapping.label')}
         />
       )}
-      {removable(`${list}.${spec.label}`) && (
+      {!readOnly && (
         <RemoveRelationButton name={spec.label} onConfirm={() => setSpec(`${list}.${spec.label}`, undefined)} />
       )}
     </div>
@@ -257,7 +254,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
             {spec.key}
             {i === 0 && <span className="ml-1 text-[10px] text-muted-foreground">({t('schema_mapping.default_dictionary')})</span>}
           </span>,
-          removable(`concepts.${spec.key}`) ? (
+          !readOnly ? (
             <div className="ml-auto flex items-center gap-1">
               <CommitInput
                 value={spec.key}
@@ -462,7 +459,9 @@ function RemoveRelationButton({ name, onConfirm, className }: { name: string; on
   const [open, setOpen] = useState(false)
   return (
     <>
-      <Button variant="ghost" size="icon-sm" className={className} onClick={() => setOpen(true)} aria-label={t('common.delete')}>
+      {/* size-6, like the header's SQL button and label input: taller and the
+          trash would stretch the block header when edit mode adds it. */}
+      <Button variant="ghost" size="icon-sm" className={cn('size-6', className)} onClick={() => setOpen(true)} aria-label={t('common.delete')}>
         <Trash2 size={12} />
       </Button>
       <DialogShell

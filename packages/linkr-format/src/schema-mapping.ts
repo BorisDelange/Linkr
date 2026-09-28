@@ -217,7 +217,8 @@ export function canonicalRelationSpec(specKey: string, rel: unknown): unknown {
 
 /**
  * A database's `mapping-overrides.json` in deterministic order: relations
- * sorted by key, each canonical, then the base fingerprints. Twin of `_canonical_schema_overrides` (Python).
+ * sorted by key, each canonical, then the base fingerprints and the removed
+ * keys, sorted. Twin of `_canonical_schema_overrides` (Python).
  */
 export function canonicalSchemaOverrides(overrides: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -225,6 +226,9 @@ export function canonicalSchemaOverrides(overrides: Record<string, unknown>): Re
     isObj(o) ? Object.fromEntries(Object.keys(o).sort().map((k) => [k, f(k, o[k])])) : o
   if (overrides.relations !== undefined) out.relations = sorted(overrides.relations, canonicalRelationSpec)
   if (overrides.baseAtOverride !== undefined) out.baseAtOverride = sorted(overrides.baseAtOverride)
+  if (overrides.removed !== undefined) {
+    out.removed = Array.isArray(overrides.removed) ? [...overrides.removed].sort() : overrides.removed
+  }
   for (const k of Object.keys(overrides).sort()) if (!(k in out)) out[k] = overrides[k]
   return out
 }

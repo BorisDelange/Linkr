@@ -155,24 +155,31 @@ function dropTablelessRefs(mapping: SchemaMapping): SchemaMapping {
 
 /**
  * A database's overrides, validated like a mapping: their relations are merged
- * into the mapping every query reads (`effectiveMapping`). Anything but an
- * object, or an override left with no relation, reads as no overrides.
+ * into the mapping every query reads (`effectiveMapping`), and `removed` lists
+ * base relations it drops. Anything but an object, or an override left with no
+ * relation and no removal, reads as no overrides.
  */
 export function sanitizeSchemaOverrides(raw: unknown): SchemaOverrides | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
-  const { relations, baseAtOverride } = raw as SchemaOverrides
-  if (!relations || typeof relations !== 'object' || Array.isArray(relations)) return undefined
+  const { relations, baseAtOverride, removed } = raw as SchemaOverrides
   const clean: Record<string, RelationSpec> = {}
-  for (const [key, spec] of Object.entries(relations)) {
-    if (spec && typeof spec === 'object' && !Array.isArray(spec)) clean[key] = dropTablelessRef(sanitizeNode(spec))
+  if (relations && typeof relations === 'object' && !Array.isArray(relations)) {
+    for (const [key, spec] of Object.entries(relations)) {
+      if (spec && typeof spec === 'object' && !Array.isArray(spec)) clean[key] = dropTablelessRef(sanitizeNode(spec))
+    }
   }
-  if (!Object.keys(clean).length) return undefined
-  const out: SchemaOverrides = { relations: clean }
-  if (baseAtOverride && typeof baseAtOverride === 'object' && !Array.isArray(baseAtOverride)) {
-    out.baseAtOverride = Object.fromEntries(
-      Object.entries(baseAtOverride).filter(([k, v]) => k in clean && typeof v === 'string'),
-    )
+  const cleanRemoved = Array.isArray(removed) ? removed.filter((k): k is string => typeof k === 'string') : []
+  if (!Object.keys(clean).length && !cleanRemoved.length) return undefined
+  const out: SchemaOverrides = {}
+  if (Object.keys(clean).length) {
+    out.relations = clean
+    if (baseAtOverride && typeof baseAtOverride === 'object' && !Array.isArray(baseAtOverride)) {
+      out.baseAtOverride = Object.fromEntries(
+        Object.entries(baseAtOverride).filter(([k, v]) => k in clean && typeof v === 'string'),
+      )
+    }
   }
+  if (cleanRemoved.length) out.removed = cleanRemoved
   return out
 }
 

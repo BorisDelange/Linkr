@@ -94,9 +94,17 @@ def effective_mapping(mapping: dict, overrides: dict | None) -> dict:
     queries (effectiveMapping, lib/schema-classes/overrides.ts). Parameters do
     not change column names, so only relations matter here."""
     relations = (overrides or {}).get("relations") or {}
-    if mapping.get("formatVersion") != 2 or not relations:
+    removed = (overrides or {}).get("removed") or []
+    if mapping.get("formatVersion") != 2 or not (relations or removed):
         return mapping
     out = dict(mapping)
+    for key in removed:
+        head, _, name = key.partition(".")
+        if head in ("patient", "visit", "visitDetail", "note"):
+            out.pop(head, None)
+        elif head in ("concepts", "events", "drugs"):
+            id_field = "key" if head == "concepts" else "label"
+            out[head] = [r for r in (out.get(head) or []) if not (isinstance(r, dict) and r.get(id_field) == name)]
     for key, spec in relations.items():
         head, _, name = key.partition(".")
         if head in ("patient", "visit", "visitDetail", "note"):

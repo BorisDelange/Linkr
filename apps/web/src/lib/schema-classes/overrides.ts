@@ -4,7 +4,7 @@ import { specAt, specEntries, withSpec } from './spec'
 
 // ---------------------------------------------------------------------------
 // Per-database override (plan §7): a database keeps a copy of its preset's
-// mapping as its base, and replaces or adds whole relations on top.
+// mapping as its base, and replaces, adds or removes whole relations on top.
 // Every query reads `effectiveMapping(base, overrides)`; nothing else knows the
 // difference.
 // ---------------------------------------------------------------------------
@@ -35,11 +35,12 @@ function addSpec(mapping: SchemaMapping, specKey: string, spec: RelationSpec): S
   return withSpec(mapping, specKey, spec)
 }
 
-/** The base with the overrides applied: relations replaced or added. */
+/** The base with the overrides applied: relations removed, replaced or added. */
 export function effectiveMapping(base: SchemaMapping, overrides: SchemaOverrides | undefined | null): SchemaMapping {
-  if (!overrides?.relations) return base
+  if (!overrides?.relations && !overrides?.removed?.length) return base
   let m = base
-  for (const [key, spec] of Object.entries(overrides.relations)) {
+  for (const key of overrides.removed ?? []) m = withSpec(m, key, undefined)
+  for (const [key, spec] of Object.entries(overrides.relations ?? {})) {
     m = specAt(m, key) ? withSpec(m, key, spec) : addSpec(m, key, spec)
   }
   return m
@@ -93,29 +94,41 @@ function renamedBaseKeys(base: SchemaMapping, edited: SchemaMapping): Map<string
  * The overrides that turn `base` into `edited`, relation by relation. Records,
  * for each newly overridden relation, the base it was made against — how a
  * later preset update is flagged. A renamed base relation is overridden under
- * its base key, so it replaces that relation rather than adding a second one.
+ * its base key, so it replaces that relation rather than adding a second one;
+ * a base relation gone from `edited` is listed as removed.
  */
 export function diffOverrides(base: SchemaMapping, edited: SchemaMapping, previous?: SchemaOverrides | null): SchemaOverrides {
   const relations: Record<string, RelationSpec> = {}
   const baseAtOverride: Record<string, string> = {}
   const renamed = renamedBaseKeys(base, edited)
+  const editedBaseKeys = new Set<string>()
   for (const { specKey: shownKey, spec } of specEntries(edited)) {
     const specKey = renamed.get(shownKey) ?? shownKey
+    editedBaseKeys.add(specKey)
     const baseSpec = specAt(base, specKey)
     if (baseSpec && relationFingerprint(specKey, baseSpec) === relationFingerprint(specKey, spec)) continue
     relations[specKey] = spec
     baseAtOverride[specKey] = previous?.baseAtOverride?.[specKey] ?? relationFingerprint(specKey, baseSpec)
   }
-  return Object.keys(relations).length ? { relations, baseAtOverride } : {}
+  const removed = specEntries(base).map(({ specKey }) => specKey).filter((key) => !editedBaseKeys.has(key))
+  const out: SchemaOverrides = {}
+  if (Object.keys(relations).length) Object.assign(out, { relations, baseAtOverride })
+  if (removed.length) out.removed = removed
+  return out
 }
 
-/** The override without one relation (Revert to preset). */
+/** The override without one relation (Revert to preset): the relation's
+ *  replacement dropped, or its removal undone. */
 export function revertOverride(overrides: SchemaOverrides, specKey: string): SchemaOverrides {
   const relations = { ...(overrides.relations ?? {}) }
   const baseAtOverride = { ...(overrides.baseAtOverride ?? {}) }
   delete relations[specKey]
   delete baseAtOverride[specKey]
-  return Object.keys(relations).length ? { relations, baseAtOverride } : {}
+  const removed = (overrides.removed ?? []).filter((k) => k !== specKey)
+  const out: SchemaOverrides = {}
+  if (Object.keys(relations).length) Object.assign(out, { relations, baseAtOverride })
+  if (removed.length) out.removed = removed
+  return out
 }
 
 /** Relation overrides whose base changed since they were made — after a preset
@@ -126,7 +139,7 @@ export function staleOverrides(base: SchemaMapping, overrides: SchemaOverrides |
   )
 }
 
-/** Nothing to store: no relation overridden. */
+/** Nothing to store: no relation overridden or removed. */
 export function isEmptyOverrides(overrides: SchemaOverrides | undefined | null): boolean {
-  return !Object.keys(overrides?.relations ?? {}).length
+  return !Object.keys(overrides?.relations ?? {}).length && !overrides?.removed?.length
 }

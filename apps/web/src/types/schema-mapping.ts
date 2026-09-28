@@ -153,6 +153,9 @@ export interface SchemaOverrides {
    *  (`relationFingerprint`), to flag an override whose base the preset changed
    *  since. Same keys as `relations`. */
   baseAtOverride?: Record<string, string>
+  /** Base relations this database drops (same keys as `relations`): a preset
+   *  table the site does not have. */
+  removed?: string[]
 }
 
 /**

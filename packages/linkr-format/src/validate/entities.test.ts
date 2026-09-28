@@ -375,6 +375,9 @@ describe('database', () => {
     expect(errors({ relations: { 'events.Site labs': PRESET.mapping.events[0], visit: { customSql: 'SELECT 1' } } })).toEqual([])
     const bad = errors({ relations: { visit: { joins: [{ type: 'outer', table: 't', alias: 't', on: [] }] }, stays: { customSql: 'SELECT 1' } } })
     expect(bad.map((i) => i.pointer).sort()).toEqual(['/relations/stays', '/relations/visit/from', '/relations/visit/joins/0/type'])
+    expect(errors({ removed: ['visit', 'events.Site labs'] })).toEqual([])
+    expect(errors({ removed: 'visit' }).map((i) => i.pointer)).toEqual(['/removed'])
+    expect(errors({ removed: ['stays', 42] }).map((i) => i.pointer).sort()).toEqual(['/removed/0', '/removed/1'])
   })
 
   it('accepts a well-formed cohort', () => {

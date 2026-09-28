@@ -6272,6 +6272,8 @@
     "db_overridden_count_one": "{{count}} relation surchargée pour cette base",
     "db_overridden_count_other": "{{count}} relations surchargées pour cette base",
     "overridden": "Surchargée",
+    "db_removed_relations": "Retirées du preset :",
+    "restore": "Restaurer",
     "stale_override": "Le preset a modifié cette relation depuis qu'elle a été surchargée ici : vérifiez que la surcharge convient toujours.",
     "revert": "Revenir au preset",
     "promote": "Remonter dans le preset",

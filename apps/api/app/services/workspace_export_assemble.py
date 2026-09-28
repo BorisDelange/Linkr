@@ -1165,6 +1165,9 @@ def _canonical_schema_overrides(overrides: dict) -> dict:
         out["relations"] = by_name(overrides["relations"], relation)
     if "baseAtOverride" in overrides:
         out["baseAtOverride"] = by_name(overrides["baseAtOverride"])
+    if "removed" in overrides:
+        v = overrides["removed"]
+        out["removed"] = sorted(v) if isinstance(v, list) else v
     for k in sorted(overrides):
         if k not in out:
             out[k] = overrides[k]
@@ -1301,7 +1304,7 @@ async def _data_source_sub_tree(db: AsyncSession, source, dumped: dict) -> dict[
             tree[SCHEMA_PRESET_DDL_FILE] = ddl.encode()
     # Its overrides on top of the preset, beside the mapping — only when there are
     # some. Twin of the SCHEMA_OVERRIDES_FILE branch of buildDataSourceFolder.
-    if isinstance(schema_overrides, dict) and schema_overrides.get("relations"):
+    if isinstance(schema_overrides, dict) and (schema_overrides.get("relations") or schema_overrides.get("removed")):
         tree[SCHEMA_OVERRIDES_FILE] = _json(_canonical_schema_overrides(schema_overrides))
     # `organization` is stripped as an instance field, and every other entity puts
     # its provenance snapshot back. A database did not, so each re-export silently
