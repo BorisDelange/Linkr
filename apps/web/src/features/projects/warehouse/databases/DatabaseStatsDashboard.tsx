@@ -194,7 +194,7 @@ export function DatabaseStatsDashboard({
           </span>
           {isLoading ? (
             <Button
-              variant="outline"
+              variant="destructive"
               size="sm"
               onClick={stop}
               disabled={isStopping}
