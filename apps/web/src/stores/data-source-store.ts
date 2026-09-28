@@ -206,6 +206,9 @@ interface DataSourceState {
   reconnectDataSource: (id: string) => Promise<void>
   /** Ensure a data source is mounted in DuckDB (mount if needed). */
   ensureMounted: (id: string) => Promise<void>
+  /** Drop a source's mount so the next query re-mounts it (front-only) — after
+   *  the vocabulary library's owners changed. */
+  invalidateMount: (id: string) => Promise<void>
 
   /**
    * Create an empty database from a schema preset's DDL.
@@ -995,6 +998,16 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
   },
 
+  invalidateMount: async (id) => {
+    if (isServerMode() || !mountedSources.has(id)) return
+    try {
+      await engine.unmountDataSource(id)
+    } catch {
+      // Ignore — may already be unmounted
+    }
+    mountedSources.delete(id)
+  },
+
   disconnectDataSource: async (id) => {
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds || ds.status === 'disconnected') return
@@ -1193,7 +1206,12 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
     const promise = (async () => {
       const config = ds.connectionConfig as DatabaseConnectionConfig
-      if (config.inMemory && ds.schemaMapping?.ddl) {
+      if (config.vocabularyLibrary) {
+        const { libraryMountPlan } = await import('@/lib/vocabulary-library/library')
+        const plan = libraryMountPlan(ds, get().dataSources)
+        for (const owner of plan.owners) await get().ensureMounted(owner.dataSourceId)
+        await withTimeout(engine.mountVocabularyLibrary(ds, plan.owners, plan.sharedFromId), MOUNT_TIMEOUT, 'mountVocabularyLibrary')
+      } else if (config.inMemory && ds.schemaMapping?.ddl) {
         await withTimeout(engine.mountEmptyFromDDL(id, ds.schemaMapping.ddl, ds.alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
       } else if (config.useFileHandles) {
         const handles = await getStorage().fileHandles.getByDataSource(id)

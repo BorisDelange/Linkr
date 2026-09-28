@@ -225,6 +225,51 @@ export async function mountDataSource(
   }
 }
 
+/**
+ * Mount a workspace's vocabulary library (front-only): a catalog of views taking,
+ * from each owning import — itself a mounted vocabulary database — the rows of
+ * the vocabularies it owns (see lib/vocabulary-library/tables.ts). The imports
+ * must be mounted first.
+ */
+export async function mountVocabularyLibrary(
+  dataSource: DataSource,
+  owners: { dataSourceId: string; vocabularies: string[]; ownsAll: boolean }[],
+  sharedFromId: string | undefined,
+): Promise<void> {
+  if (dataSource.alias) registerAlias(dataSource.id, dataSource.alias)
+  const { LIBRARY_TABLES, libraryViewSql } = await import('@/lib/vocabulary-library/tables')
+  const db = await getDuckDB()
+  const conn = await db.connect()
+  const catalog = schemaName(dataSource.id)
+  try {
+    await safeDropSchema(conn, dataSource.id)
+    await conn.query(`ATTACH ':memory:' AS "${catalog}"`)
+    attachedSources.add(dataSource.id)
+    const resolved = []
+    for (const owner of owners) {
+      const importCatalog = schemaName(owner.dataSourceId)
+      const res = await conn.query(
+        `SELECT lower(table_name) AS t, lower(column_name) AS c FROM information_schema.columns
+         WHERE table_catalog = '${importCatalog}' AND table_schema = 'main'`,
+      )
+      const tables = new Map<string, Set<string>>()
+      for (const row of res.toArray()) {
+        const { t, c } = row.toJSON() as { t: string; c: string }
+        if (!tables.has(t)) tables.set(t, new Set())
+        tables.get(t)!.add(c)
+      }
+      resolved.push({ id: owner.dataSourceId, prefix: `"${importCatalog}".main`, vocabularies: owner.vocabularies, ownsAll: owner.ownsAll, tables })
+    }
+    const sharedFrom = resolved.find((o) => o.id === sharedFromId)
+    for (const table of LIBRARY_TABLES) {
+      const sql = libraryViewSql(table, resolved, sharedFrom)
+      if (sql) await conn.query(`CREATE OR REPLACE VIEW "${catalog}"."main"."${table}" AS ${sql}`)
+    }
+  } finally {
+    await conn.close()
+  }
+}
+
 /** Unmount a data source (drop schema or DETACH). */
 export async function unmountDataSource(dataSourceId: string): Promise<void> {
   const db = await getDuckDB()

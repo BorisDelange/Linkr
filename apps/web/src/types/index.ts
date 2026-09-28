@@ -274,6 +274,14 @@ export type DataSourceStatus = 'connected' | 'disconnected' | 'error' | 'configu
 
 export interface DatabaseConnectionConfig {
   engine: DatabaseEngine
+  /** The workspace's vocabulary library (lib/vocabulary-library/): server-side a
+   *  folder of per-vocabulary partitions, front-only views over the imports. */
+  vocabularyLibrary?: boolean
+  /** With `vocabularyLibrary`: the vocabularies held. */
+  vocabularies?: import('@/lib/vocabulary-library/types').LibraryVocabulary[]
+  /** Front-only: this hidden vocabulary database is an ATHENA import the
+   *  library reads from — what its CONCEPT holds. */
+  vocabularyImport?: import('@/lib/vocabulary-library/types').VocabularyImportInventory
   fileId?: string
   fileIds?: string[]
   fileNames?: string[]
