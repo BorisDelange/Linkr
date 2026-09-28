@@ -6,6 +6,7 @@ import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { getStorage } from '@/lib/storage'
 import { APP_VERSION } from '@/lib/version'
+import { sanitizeRecommendedUnits, sanitizeUnitConversions } from '@/lib/data-dictionary/content'
 import {
   availableReferenceUnits,
   buildConceptSetSql,
@@ -56,8 +57,8 @@ export function ConceptSetSqlPanel({ conceptSet, concepts }: ConceptSetSqlPanelP
       .catch(() => setDictionary(undefined))
   }, [conceptSet.id, conceptSet.dictionaryId, conceptSet.workspaceId])
 
-  const conversions = useMemo(() => dictionary?.unitConversions ?? [], [dictionary])
-  const recommended = useMemo(() => dictionary?.recommendedUnits ?? [], [dictionary])
+  const conversions = useMemo(() => sanitizeUnitConversions(dictionary?.unitConversions) ?? [], [dictionary])
+  const recommended = useMemo(() => sanitizeRecommendedUnits(dictionary?.recommendedUnits) ?? [], [dictionary])
   const standard = useMemo(() => concepts.filter((c) => c.standardConcept === 'S'), [concepts])
   const units = useMemo(() => availableReferenceUnits(standard, conversions, recommended), [standard, conversions, recommended])
   const labels = useMemo(() => unitLabels(conversions, recommended), [conversions, recommended])

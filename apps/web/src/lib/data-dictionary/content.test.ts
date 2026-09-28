@@ -28,6 +28,14 @@ describe('readDictionaryTree', () => {
     expect(content.recommendedUnits).toBeNull()
     expect(content).toMatchObject({ commit: 'abc', title: 'INDICATE Data Dictionary' })
   })
+
+  it('orders files the same whatever order the tree lists them in', () => {
+    const files = { 'concept_sets/2.json': setJson('a', '2'), 'concept_sets/02.json': setJson('a', '02'), 'concept_sets/1.json': setJson('b', '1') }
+    const reversed = Object.fromEntries(Object.entries(files).reverse())
+    const order = (tree: Record<string, string>) => readDictionaryTree(tree, null).conceptSets.map((s) => s.sourceUrl)
+    expect(order(files)).toEqual(['concept_sets/1.json', 'concept_sets/02.json', 'concept_sets/2.json'])
+    expect(order(reversed)).toEqual(order(files))
+  })
 })
 
 describe('planDictionarySync', () => {

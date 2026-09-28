@@ -29,6 +29,13 @@ describe('libraryViewSql', () => {
     )
   })
 
+  it('escapes a quote in a vocabulary id', () => {
+    const a = owner('"a".main', ["O'Hara", 'LOINC'], false, { concept: ['concept_id'] })
+    expect(libraryViewSql('concept', [a])).toBe(`SELECT * FROM "a".main.concept WHERE vocabulary_id IN ('O''Hara', 'LOINC')`)
+    const evil = owner('"a".main', ["x') OR 1=1 --"], false, { concept: ['concept_id'] })
+    expect(libraryViewSql('concept', [evil])).toBe(`SELECT * FROM "a".main.concept WHERE vocabulary_id IN ('x'') OR 1=1 --')`)
+  })
+
   // Two CSV imports need not infer the same types: a union casts both sides.
   it('casts every side of a union to the library types', () => {
     const a = owner('"a".main', ['SNOMED'], false, { concept: ['concept_id', 'concept_code'] })

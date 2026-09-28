@@ -4,16 +4,18 @@
  * before the vocabularies were imported).
  */
 import { queryDataSourceAll } from '@/lib/duckdb/engine'
+import { validateIntegerIds } from '@/lib/format-helpers'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import type { TargetConceptDetails } from './file-target-mappings'
 
 /** Details of `ids` in the vocabulary library; ids it lacks are absent. */
 export async function fetchTargetDetails(vocabularyDataSourceId: string, ids: readonly number[]): Promise<Map<number, TargetConceptDetails>> {
   const out = new Map<number, TargetConceptDetails>()
-  for (let i = 0; i < ids.length; i += 1000) {
+  const wanted = ids.map(Number).filter((id) => validateIntegerIds([id]))
+  for (let i = 0; i < wanted.length; i += 1000) {
     const rows = await queryDataSourceAll(vocabularyDataSourceId,
       'SELECT concept_id, concept_name, vocabulary_id, domain_id, concept_class_id, concept_code, standard_concept '
-      + `FROM concept WHERE concept_id IN (${ids.slice(i, i + 1000).map(Number).join(', ')})`)
+      + `FROM concept WHERE concept_id IN (${wanted.slice(i, i + 1000).join(', ')})`)
     for (const r of rows) {
       out.set(Number(r.concept_id), {
         conceptId: Number(r.concept_id),

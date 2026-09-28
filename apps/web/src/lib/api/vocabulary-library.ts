@@ -17,7 +17,7 @@ export interface ServerImportState {
   error: string | null
 }
 
-const base = (workspaceId: string) => `/workspaces/${workspaceId}/vocabulary-library`
+const base = (workspaceId: string) => `/workspaces/${encodeURIComponent(workspaceId)}/vocabulary-library`
 
 export function fetchLibraryFromServer(workspaceId: string): Promise<{ dataSourceId: string | null; vocabularies: LibraryVocabulary[] }> {
   return apiRequest(base(workspaceId))

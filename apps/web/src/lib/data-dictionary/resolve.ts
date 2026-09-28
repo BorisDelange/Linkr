@@ -8,6 +8,7 @@
  */
 import type { ConceptSet, ConceptSetItem, ResolvedConcept } from '@/types'
 import { queryDataSourceAll } from '@/lib/duckdb/engine'
+import { validateIntegerIds } from '@/lib/format-helpers'
 
 /** Ids from here up are local custom concepts: they have no vocabulary row, so
  *  they resolve to themselves (INDICATE's custom vocabulary). */
@@ -42,7 +43,7 @@ export function resolutionSql(items: readonly ConceptSetItem[], tables: Readonly
   }
   return `WITH items(concept_id, excluded, descendants, mapped) AS (VALUES ${rows}), `
     + `included AS (${expand(false)}), excluded AS (${expand(true)}) `
-    + 'SELECT DISTINCT concept_id FROM included WHERE concept_id NOT IN (SELECT concept_id FROM excluded) ORDER BY concept_id'
+    + 'SELECT DISTINCT concept_id FROM included i WHERE NOT EXISTS (SELECT 1 FROM excluded e WHERE e.concept_id = i.concept_id) ORDER BY concept_id'
 }
 
 /** Resolve one set against a vocabulary database. */
@@ -57,7 +58,9 @@ export async function resolveConceptSet(set: ConceptSet, vocabularyDataSourceId:
  *  them from the set's own expression. */
 export async function resolvedConceptDetails(set: ConceptSet, ids: readonly number[], vocabularyDataSourceId: string): Promise<ResolvedConcept[]> {
   const byId = new Map<number, ResolvedConcept>()
-  const standard = ids.filter((id) => id < CUSTOM_CONCEPT_ID_MIN)
+  // Stored ids come back from an imported workspace: they may be strings.
+  const wanted = ids.map(Number).filter((id) => validateIntegerIds([id]))
+  const standard = wanted.filter((id) => id < CUSTOM_CONCEPT_ID_MIN)
   for (let i = 0; i < standard.length; i += 1000) {
     const chunk = standard.slice(i, i + 1000)
     const rows = await queryDataSourceAll(vocabularyDataSourceId,
@@ -78,7 +81,7 @@ export async function resolvedConceptDetails(set: ConceptSet, ids: readonly numb
   for (const item of set.expression.items) {
     const c = item.concept
     const id = Number(c?.conceptId)
-    if (!byId.has(id) && ids.includes(id)) {
+    if (!byId.has(id) && wanted.includes(id)) {
       byId.set(id, {
         conceptId: id,
         conceptName: c.conceptName ?? '',
@@ -90,5 +93,5 @@ export async function resolvedConceptDetails(set: ConceptSet, ids: readonly numb
       })
     }
   }
-  return ids.map((id) => byId.get(id)).filter((c): c is ResolvedConcept => !!c)
+  return wanted.map((id) => byId.get(id)).filter((c): c is ResolvedConcept => !!c)
 }

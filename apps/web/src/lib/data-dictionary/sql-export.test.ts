@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RecommendedUnit, UnitConversion } from '@/types'
 import { availableReferenceUnits, buildConceptSetSql, defaultReferenceUnit, type SqlConcept } from './sql-export'
+import { readDictionaryTree, sanitizeRecommendedUnits, sanitizeUnitConversions, UNIT_CONVERSIONS_FILE } from './content'
 
 // Golden files recorded from the INDICATE data dictionary's JavaScript export
 // (tests/fixtures/sql/ of indicate-eu/data-dictionary, branch
@@ -57,6 +58,61 @@ describe('buildConceptSetSql — byte-identical to the INDICATE export', () => {
       expect(sql).toBe(readFileSync(join(DIR, `${c.name}.sql`), 'utf8'))
     })
   }
+
+  it('keeps the same bytes once the unit rows went through the read-boundary gate', () => {
+    const c = manifest.cases.find((x) => x.refUnitId !== null && !x.synthetic)!
+    const set = inputs.conceptSets[String(c.conceptSetId)]
+    const header = { name: 'x', id: set.id, permalink: 'p', toolTag: 't', today: manifest.today }
+    const concepts = inputs.resolvedConcepts[String(c.conceptSetId)]
+    const opts = { referenceUnitId: c.refUnitId, dropOtherUnits: c.dropOtherUnits }
+    expect(sanitizeUnitConversions(inputs.unitConversions)).toHaveLength(inputs.unitConversions.length)
+    expect(buildConceptSetSql(header, concepts, sanitizeUnitConversions(inputs.unitConversions)!, sanitizeRecommendedUnits(inputs.recommendedUnits)!, opts))
+      .toBe(buildConceptSetSql(header, concepts, inputs.unitConversions, inputs.recommendedUnits, opts))
+  })
+})
+
+describe('hostile dictionary content', () => {
+  const concepts: SqlConcept[] = [
+    { conceptId: 3004410, conceptName: 'HbA1c\nDROP TABLE person; --', domainId: 'Measurement', standardConcept: 'S' },
+  ]
+  const header = { name: 'Set\r\nDELETE FROM person', id: 1, permalink: 'https://x\nTRUNCATE death', toolTag: 't', today: '2026-01-01' }
+
+  function nonCommentSql(sql: string): string {
+    return sql.split('\n').map((line) => line.split('--')[0]).join('\n')
+  }
+
+  it('keeps line breaks in names inside their comment', () => {
+    const sql = buildConceptSetSql(header, concepts, [], [], {})
+    expect(nonCommentSql(sql)).not.toMatch(/DROP|DELETE|TRUNCATE/)
+  })
+
+  it('drops a conversion whose numbers are not numbers, at the read boundary and at the sink', () => {
+    const hostile = [
+      { conceptId: 3004410, sourceUnitConceptId: 8840, targetUnitConceptId: 8753, conversionFactor: '1; DROP TABLE measurement; --' },
+      { conceptId: 3004410, sourceUnitConceptId: '8876) OR 1=1 --', targetUnitConceptId: 8753, conversionFactor: 2 },
+      { conceptId: 3004410, sourceUnitConceptId: 8713, targetUnitConceptId: 8753, conversionFactor: '0.5', offset: 'x' },
+      { conceptId: 3004410, sourceUnitConceptId: 9529, targetUnitConceptId: '8753', conversionFactor: '10' },
+    ]
+    const content = readDictionaryTree({ [UNIT_CONVERSIONS_FILE]: JSON.stringify(hostile) }, null)
+    expect(content.unitConversions).toEqual([
+      expect.objectContaining({ conceptId: 3004410, sourceUnitConceptId: 9529, targetUnitConceptId: 8753, conversionFactor: 10 }),
+    ])
+    const opts = { referenceUnitId: 8753 }
+    for (const rows of [content.unitConversions!, hostile as unknown as UnitConversion[]]) {
+      const sql = buildConceptSetSql(header, concepts, rows, [], opts)
+      expect(nonCommentSql(sql)).not.toMatch(/DROP|DELETE|TRUNCATE|OR 1=1/)
+    }
+  })
+})
+
+describe('domain lookup', () => {
+  it('does not read an inherited property as a CDM table', () => {
+    const sql = buildConceptSetSql(
+      { name: 'x', id: 1, permalink: 'p', toolTag: 't', today: '2026-01-01' },
+      [{ conceptId: 1, conceptName: 'c', domainId: 'constructor', standardConcept: 'S' }], [], [],
+    )
+    expect(sql).toContain('-- No OMOP CDM table mapping for domain "constructor".')
+  })
 })
 
 describe('reference units', () => {
