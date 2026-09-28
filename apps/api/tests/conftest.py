@@ -101,6 +101,10 @@ async def client(engine, seed_roles, monkeypatch):
     monkeypatch.setattr(execution_route, "async_session", maker)
     # The ETL streaming socket resolves the target and its roles the same way.
     monkeypatch.setattr(data_sources_route, "async_session", maker)
+    # The vocabulary import writes the library's inventory from its own session.
+    import app.api.v1.routes.vocabulary_library as vocabulary_library_route
+
+    monkeypatch.setattr(vocabulary_library_route, "async_session", maker)
     # Job bodies (env build, package ops, run-as-job) open their own session via
     # `async_session` — point it at the test maker so they see the seeded project.
     monkeypatch.setattr(jobs_svc, "async_session", maker)

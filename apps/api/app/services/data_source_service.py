@@ -70,13 +70,24 @@ def _server_path_files(path: str) -> list[tuple[str, str]]:
 async def _source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, str]]:
     """(file_name, path) for each file backing the source, in insertion order.
 
-    Three origins, one contract: a `serverPath` source reads the server filesystem
-    in place, a managed database its own file, everything else the blob store."""
+    Four origins, one contract: a `serverPath` source reads the server filesystem
+    in place, a managed database its own file, the workspace vocabulary library
+    its partitions folder, everything else the blob store."""
+    if (source.connection_config or {}).get("vocabularyLibrary"):
+        from app.services import vocabulary_library
+
+        return vocabulary_library.library_files(source.workspace_id)
     path = server_path(source)
     if path:
         return _server_path_files(path)
     files = await list_files(db, source.id)
     return [(f.file_name, str(blob_store.path_for(f.content_hash))) for f in files]
+
+
+async def source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, str]]:
+    """Public `_source_files`, for the vocabulary library reading an older
+    per-project vocabulary database as an export."""
+    return await _source_files(db, source)
 
 
 def _known_tables(source: DataSource) -> list[str]:
