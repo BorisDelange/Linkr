@@ -160,7 +160,7 @@ def group_export_files(files: ExportFiles) -> dict[str, ExportFiles]:
 
 
 def _lit(value: str) -> str:
-    return "'" + value.replace("'", "''") + "'"
+    return "'" + value.replace("\0", "").replace("'", "''") + "'"
 
 
 def _reader(files: ExportFiles) -> str:
@@ -266,6 +266,7 @@ class ImportState:
     error: str | None = None
     vocabularies: list[dict] = field(default_factory=list)
     started_at: float = field(default_factory=time.time)
+    finished_at: float | None = None
 
     def as_dict(self) -> dict:
         return {
@@ -277,6 +278,23 @@ class ImportState:
 _imports: dict[str, ImportState] = {}
 _import_tasks: set[asyncio.Task] = set()
 _workspace_locks: dict[str, asyncio.Lock] = {}
+_FINISHED_IMPORT_TTL = 3600.0
+
+
+def workspace_lock(workspace_id: str) -> asyncio.Lock:
+    """Held while the workspace's library is written: an import, a removal."""
+    return _workspace_locks.setdefault(workspace_id, asyncio.Lock())
+
+
+def _prune_imports(now: float) -> None:
+    for import_id, state in list(_imports.items()):
+        if state.finished_at is not None and now - state.finished_at > _FINISHED_IMPORT_TTL:
+            del _imports[import_id]
+    # A queued import holds its lock without having acquired it yet.
+    busy = {state.workspace_id for state in _imports.values() if state.finished_at is None}
+    for workspace_id, lock in list(_workspace_locks.items()):
+        if not lock.locked() and workspace_id not in busy:
+            del _workspace_locks[workspace_id]
 
 
 def import_state(import_id: str) -> ImportState | None:
@@ -292,7 +310,9 @@ def write_partitions(
     """Write the partitions of `vocabularies` from the export, replacing those
     already in the library, and merge the shared tables. Returns, per vocabulary
     written, its row counts by table. Built in a temp dir, then swapped in file
-    by file, so a failure leaves the library as it was."""
+    by file: a failure while staging leaves the library as it was, but one
+    during the swap (a crash, a full disk) can leave some tables at the new
+    release and others at the old one — importing again repairs it."""
     groups = group_export_files(files)
     if "concept" not in groups:
         raise ValueError("The export has no CONCEPT table.")
@@ -408,9 +428,10 @@ def library_size(workspace_id: str, vocabulary_id: str) -> int:
 def start_import(workspace_id: str, run) -> ImportState:
     """Run `run(state)` (a coroutine function) in the background, one import per
     workspace at a time; the client polls `import_state`."""
+    _prune_imports(time.time())
     state = ImportState(id=str(uuid.uuid4()), workspace_id=workspace_id)
     _imports[state.id] = state
-    lock = _workspace_locks.setdefault(workspace_id, asyncio.Lock())
+    lock = workspace_lock(workspace_id)
 
     async def _job() -> None:
         async with lock:
@@ -420,6 +441,8 @@ def start_import(workspace_id: str, run) -> ImportState:
             except Exception as e:  # noqa: BLE001 — reported through the polled state
                 state.status = "error"
                 state.error = str(e)
+            finally:
+                state.finished_at = time.time()
 
     # Held: asyncio keeps only a weak reference to a task.
     task = asyncio.create_task(_job())

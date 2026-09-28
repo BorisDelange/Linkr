@@ -168,3 +168,23 @@ async def test_import_route_fills_the_library_data_source(client):
                           json={"sql": "SELECT DISTINCT vocabulary_id FROM concept"})
     assert r.json()["rows"] == [{"vocabulary_id": "SNOMED"}]
     assert [v["vocabularyId"] for v in (await client.get(base, headers=headers)).json()["vocabularies"]] == ["SNOMED"]
+
+
+async def test_finished_imports_are_pruned_when_a_new_one_starts():
+    async def ok(state):
+        return None
+
+    old = lib.start_import("ws-prune", ok)
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert old.status == "done" and old.finished_at is not None
+    old.finished_at -= 2 * 3600
+    new = lib.start_import("ws-prune-2", ok)
+    assert lib.import_state(old.id) is None
+    assert lib.import_state(new.id) is new
+    # A queued import's lock survives: pruning it would let a second import run beside it.
+    assert "ws-prune-2" in lib._workspace_locks
+
+
+def test_literal_drops_nul():
+    assert lib._lit("a\0'b") == "'a''b'"

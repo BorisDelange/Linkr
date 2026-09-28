@@ -9,6 +9,8 @@
  * owns. Both read the same way.
  */
 
+import { escSql } from '@/lib/format-helpers'
+
 export const TABLE_COLUMNS: Record<string, readonly (readonly [string, string])[]> = {
   concept: [
     ['concept_id', 'BIGINT'], ['concept_name', 'VARCHAR'], ['domain_id', 'VARCHAR'],
@@ -70,10 +72,6 @@ export const SHARED_TABLES = ['domain', 'concept_class', 'relationship'] as cons
 /** The row ATHENA writes for the export itself: its version is the release. */
 export const RELEASE_VOCABULARY_ID = 'None'
 
-export function sqlLiteral(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`
-}
-
 function typedColumn(name: string, type: string, present: ReadonlySet<string>): string {
   if (!present.has(name)) return `CAST(NULL AS ${type}) AS ${name}`
   if (type === 'DATE') {
@@ -116,7 +114,7 @@ export function libraryViewSql(table: string, owners: readonly LibraryOwner[], s
   const col = OWNED_BY[table]
   const parts = withTable.map((o) => {
     const source = `${o.prefix}.${table}`
-    const inList = o.vocabularies.map(sqlLiteral).join(', ')
+    const inList = o.vocabularies.map((v) => `'${escSql(v)}'`).join(', ')
     const where = o.ownsAll
       ? ''
       : col == null
