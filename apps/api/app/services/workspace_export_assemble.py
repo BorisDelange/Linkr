@@ -835,8 +835,10 @@ async def build_workspace_tree_from_db(
         mapping_projects, id_ranges = await _mapping_projects_section(
             db, workspace.id, options
         )
+        # dictionaryId is a local key: the data dictionaries do not travel yet
+        # (twin of entity-io.ts).
         concept_sets = [
-            _strip_instance_fields(_dump(ConceptSetResponse, cs))
+            {k: v for k, v in _strip_instance_fields(_dump(ConceptSetResponse, cs)).items() if k != "dictionaryId"}
             for cs in await concept_set_service.list_for_workspace(db, workspace.id)
             if not options.exclude_entities.get(cs.id)
         ]

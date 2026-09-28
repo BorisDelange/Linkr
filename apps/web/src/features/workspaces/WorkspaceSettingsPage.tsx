@@ -13,6 +13,7 @@ import { MembersTab } from '@/features/settings/MembersTab'
 import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
 import { BadgeCategoriesTab } from '@/features/workspaces/BadgeCategoriesTab'
 import { VocabulariesTab } from '@/features/workspaces/VocabulariesTab'
+import { DataDictionariesTab } from '@/features/workspaces/DataDictionariesTab'
 import { isServerMode } from '@/lib/api-client'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -43,7 +44,7 @@ export function WorkspaceSettingsPage() {
   // a tab here (moved to the Edit Workspace dialog); gate the owner-only danger
   // tab and the server-only environments and LLM provider tabs.
   const requestedTab = tab ?? searchParams.get('tab') ?? 'members'
-  const availableTabs = ['members', 'badges', 'vocabularies', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
+  const availableTabs = ['members', 'badges', 'vocabularies', 'dictionaries', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
   // Hold the requested tab until the role is known: 'danger' is gated on canDelete,
   // which is false while /my-role loads, so a deep-link to it would otherwise snap
   // to 'members' permanently even for the owner.
@@ -88,6 +89,7 @@ export function WorkspaceSettingsPage() {
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="badges">{t('badge_categories.title')}</TabsTrigger>
           <TabsTrigger value="vocabularies">{t('vocabulary_library.title')}</TabsTrigger>
+          <TabsTrigger value="dictionaries">{t('data_dictionaries.title')}</TabsTrigger>
           {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
@@ -107,6 +109,11 @@ export function WorkspaceSettingsPage() {
         {/* OHDSI vocabularies — the library every mapping project and ETL reads */}
         <TabsContent value="vocabularies" className="min-h-0 flex-1 overflow-auto pb-6">
           <VocabulariesTab workspaceId={wsUid} canWrite={can('workspace-settings:write')} />
+        </TabsContent>
+
+        {/* Data dictionaries — the concept sets and units every feature picks from */}
+        <TabsContent value="dictionaries" className="min-h-0 flex-1 overflow-auto pb-6">
+          <DataDictionariesTab workspaceId={wsUid} canWrite={can('workspace-settings:write')} />
         </TabsContent>
 
         {/* Default environments (server mode) */}

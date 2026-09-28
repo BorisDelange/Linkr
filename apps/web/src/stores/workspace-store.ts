@@ -285,6 +285,9 @@ export const useWorkspaceStore = create<WorkspaceState>((set, _get) => ({
     } catch { /* ignore */ }
     const conceptSets = await storage.conceptSets.getByWorkspace(id)
     for (const cs of conceptSets) await storage.conceptSets.delete(cs.id).catch(() => {})
+    for (const d of await storage.dataDictionaries.getByWorkspace(id).catch(() => [])) {
+      await storage.dataDictionaries.delete(d.id).catch(() => {})
+    }
 
     // Source concept ID registry (workspace-scoped)
     phase('workspaces.delete_phase_source_id_registry')

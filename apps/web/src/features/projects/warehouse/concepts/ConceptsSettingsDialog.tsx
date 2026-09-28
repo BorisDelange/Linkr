@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Download, ExternalLink, Library, RefreshCw, Repeat } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import { ExternalLink, Library, Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Label } from '@/components/ui/label'
@@ -14,11 +13,9 @@ interface ConceptsSettingsDialogProps {
   onStatsEnabledChange: (value: boolean) => void
   excludeOutliers: boolean
   onExcludeOutliersChange: (value: boolean) => void
-  /** The dictionary currently loaded in this workspace, if any. The page holds
-   *  exactly one at a time, so this is null or the whole story. */
-  dictionary: ImportedDictionary | null
-  onImportDictionary: () => void
-  onReplaceDictionary: () => void
+  /** The workspace's data dictionaries, managed in the workspace settings. */
+  dictionaries: DictionarySummary[]
+  onManageDictionaries: () => void
 }
 
 /** `sourceRepo` is whatever the dictionary author wrote in its metadata: a full
@@ -31,13 +28,13 @@ export function repoHref(sourceRepo: string | undefined): string | null {
   return null
 }
 
-/** Identity of the imported dictionary, derived from the concept sets it made. */
-export interface ImportedDictionary {
+export interface DictionarySummary {
+  id: string
   name: string
   sourceRepo?: string
-  /** How many concept sets it contributed. */
+  /** How many concept sets it holds. */
   count: number
-  importedAt: string
+  syncedAt?: string
 }
 
 /** Label + hint on the left, switch on the right — the settings-row shape the
@@ -72,12 +69,10 @@ export function ConceptsSettingsDialog({
   onStatsEnabledChange,
   excludeOutliers,
   onExcludeOutliersChange,
-  dictionary,
-  onImportDictionary,
-  onReplaceDictionary,
+  dictionaries,
+  onManageDictionaries,
 }: ConceptsSettingsDialogProps) {
   const { t, i18n } = useTranslation()
-  const repoUrl = repoHref(dictionary?.sourceRepo)
 
   return (
     <DialogShell
@@ -121,72 +116,37 @@ export function ConceptsSettingsDialog({
               {t('concepts.settings_dictionary_hint')}
             </p>
 
-            {dictionary ? (
-              <>
-                <div className="rounded-md border p-2.5">
+            {dictionaries.map((d) => {
+              const repoUrl = repoHref(d.sourceRepo)
+              return (
+                <div key={d.id} className="rounded-md border p-2.5">
                   <div className="flex items-center gap-2">
                     <Library size={13} className="shrink-0 text-muted-foreground" />
-                    <span className="truncate text-xs font-medium">{dictionary.name}</span>
-                    <Badge variant="secondary" className="ml-auto shrink-0">
-                      {t('concepts.dictionary_imported')}
-                    </Badge>
+                    <span className="truncate text-xs font-medium">{d.name}</span>
                   </div>
-                  <p className="mt-1.5 text-[11px] text-muted-foreground">
-                    {t('concepts.dictionary_summary', {
-                      count: dictionary.count,
-                      date: new Date(dictionary.importedAt).toLocaleDateString(i18n.language),
-                    })}
+                  <p className="mt-1.5 text-xs text-muted-foreground">
+                    {d.syncedAt
+                      ? t('concepts.dictionary_summary', { count: d.count, date: new Date(d.syncedAt).toLocaleDateString(i18n.language) })
+                      : t('concepts.dictionary_count', { count: d.count })}
                   </p>
-                  {dictionary.sourceRepo &&
-                    (repoUrl ? (
-                      <a
-                        href={repoUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground hover:underline"
-                      >
-                        <span className="truncate">{dictionary.sourceRepo}</span>
-                        <ExternalLink size={10} className="shrink-0" />
-                      </a>
-                    ) : (
-                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
-                        {dictionary.sourceRepo}
-                      </p>
-                    ))}
+                  {repoUrl && (
+                    <a
+                      href={repoUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+                    >
+                      <span className="truncate">{d.sourceRepo}</span>
+                      <ExternalLink size={10} className="shrink-0" />
+                    </a>
+                  )}
                 </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={onImportDictionary}
-                  >
-                    <RefreshCw size={12} />
-                    {t('concepts.dictionary_update')}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="gap-1.5"
-                    onClick={onReplaceDictionary}
-                  >
-                    <Repeat size={12} />
-                    {t('concepts.dictionary_replace')}
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                onClick={onImportDictionary}
-              >
-                <Download size={12} />
-                {t('concepts.settings_import_dictionary')}
-              </Button>
-            )}
+              )
+            })}
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={onManageDictionaries}>
+              <Settings2 size={12} />
+              {t('concepts.dictionary_manage')}
+            </Button>
           </TabsContent>
           </div>
         </Tabs>

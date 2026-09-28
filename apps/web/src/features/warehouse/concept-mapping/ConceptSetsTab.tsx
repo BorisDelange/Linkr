@@ -8,8 +8,8 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  Plus, BookOpen, Trash2, RefreshCw, Search, Loader2,
-  Info, Check, CheckCheck, X, History, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
+  Plus, BookOpen, Trash2, Search, Loader2,
+  Info, Check, CheckCheck, X, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
   Settings2, SlidersHorizontal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -54,11 +54,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from '@/components/ui/collapsible'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
@@ -66,8 +61,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { ImportConceptSetDialog } from './ImportConceptSetDialog'
-import { extractMetadata, extractTranslations } from '@/lib/data-dictionary/parse'
+import { PickConceptSetsDialog } from './PickConceptSetsDialog'
 import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
 import type { MappingProject, DataSource, ConceptSet, DatabaseConnectionConfig } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
@@ -118,10 +112,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   const lang = i18n.language
-  const { conceptSets, mappings, updateMappingProject, updateConceptSet } = useConceptMappingStore()
+  const { conceptSets, mappings, updateMappingProject } = useConceptMappingStore()
 
   const [importOpen, setImportOpen] = useState(false)
-  const [_updatingId, setUpdatingId] = useState<string | null>(null)
 
   // Detail sheet
   const [detailConceptSet, setDetailConceptSet] = useState<ConceptSet | null>(null)
@@ -130,16 +123,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [selectionMode, setSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false)
-
-  // Batch delete
-  const [batchToDelete, setBatchToDelete] = useState<string | null>(null)
-
-  // Import history
-  const [historyOpen, setHistoryOpen] = useState(false)
-
-  // Update all state
-  const [updateAllRunning, setUpdateAllRunning] = useState(false)
-  const [updateAllResult, setUpdateAllResult] = useState<{ updated: number; total: number } | null>(null)
 
   const navigate = useNavigate()
   const dataSources = useDataSourceStore((s) => s.dataSources)
@@ -578,92 +561,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     setBulkDeleteOpen(false)
   }
 
-  const handleDeleteBatch = async () => {
-    if (!batchToDelete) return
-    const batchCsIds = linkedSets.filter((cs) => cs.importBatchId === batchToDelete).map((cs) => cs.id)
-    if (batchCsIds.length > 0) {
-      const batchIdSet = new Set(batchCsIds)
-      await updateMappingProject(project.id, {
-        conceptSetIds: (project.conceptSetIds ?? []).filter((id) => !batchIdSet.has(id)),
-        importBatches: (project.importBatches ?? []).filter((b) => b.id !== batchToDelete),
-      })
-    } else {
-      // No concept sets left but batch record exists — just remove the batch record
-      await updateMappingProject(project.id, {
-        importBatches: (project.importBatches ?? []).filter((b) => b.id !== batchToDelete),
-      })
-    }
-    setBatchToDelete(null)
-  }
-
   const exitSelectionMode = () => {
     setSelectionMode(false)
     setSelectedIds(new Set())
-  }
-
-  /** Update a concept set from its remote source URL. */
-  const handleUpdateFromRemote = async (cs: ConceptSet) => {
-    if (!cs.sourceUrl) return
-    setUpdatingId(cs.id)
-    try {
-      const resp = await fetch(cs.sourceUrl)
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-      const json = await resp.json()
-
-      const obj = json as Record<string, unknown>
-      if (!obj.expression || typeof obj.expression !== 'object') return
-      const expr = obj.expression as Record<string, unknown>
-      if (!Array.isArray(expr.items)) return
-
-      const curLang = lang.substring(0, 2)
-      const meta = obj.metadata as Record<string, unknown> | undefined
-      const rawTranslations = meta?.translations as Record<string, Record<string, string>> | undefined
-      const tr = rawTranslations?.[curLang] ?? rawTranslations?.en
-      const md = extractMetadata(obj, curLang)
-      const translations = extractTranslations(obj)
-
-      await updateConceptSet(cs.id, {
-        name: tr?.name ?? String(obj.name ?? cs.name),
-        description: tr?.description ?? (obj.description ? String(obj.description) : cs.description),
-        expression: { items: expr.items as ConceptSet['expression']['items'] },
-        category: md.category ?? cs.category,
-        subcategory: md.subcategory ?? cs.subcategory,
-        provenance: md.provenance ?? cs.provenance,
-        version: md.version ?? cs.version,
-        uniqueId: md.uniqueId ?? cs.uniqueId,
-        sourceRepo: md.sourceRepo ?? cs.sourceRepo,
-        translations,
-        updatedAt: new Date().toISOString(),
-      })
-    } catch (err) {
-      console.error('Failed to update concept set from remote:', err)
-    } finally {
-      setUpdatingId(null)
-    }
-  }
-
-  /** Update all concept sets that have a sourceUrl. */
-  const handleUpdateAll = async () => {
-    const updatable = linkedSets.filter((cs) => cs.sourceUrl)
-    if (updatable.length === 0) return
-    setUpdateAllRunning(true)
-    let updated = 0
-    for (const cs of updatable) {
-      try {
-        await handleUpdateFromRemote(cs)
-        updated++
-      } catch { /* skip failed */ }
-    }
-    setUpdateAllRunning(false)
-    setUpdateAllResult({ updated, total: updatable.length })
-  }
-
-  const formatDate = (iso: string) => {
-    try {
-      return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-    } catch {
-      return iso
-    }
   }
 
   // The workspace library (or, until it is filled, this project's own older
@@ -984,7 +884,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     pageCount: browseTotalPages,
   })
 
-  const importBatches = project.importBatches ?? []
 
   return (
     <div className="h-full overflow-auto p-4">
@@ -1011,21 +910,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
               <div className="flex gap-2">
                 {linkedSets.length > 0 && (
                   <>
-                    {linkedSets.some((cs) => cs.sourceUrl) && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={handleUpdateAll}
-                        disabled={updateAllRunning || !canWrite}
-                      >
-                        {updateAllRunning ? (
-                          <Loader2 size={14} className="animate-spin" />
-                        ) : (
-                          <RefreshCw size={14} />
-                        )}
-                        {t('concept_mapping.cs_update_all')}
-                      </Button>
-                    )}
                     {selectionMode ? (
                       <Button size="sm" variant="outline" onClick={exitSelectionMode}>
                         <X size={14} />
@@ -1045,42 +929,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                 </Button>
               </div>
             </div>
-
-            {/* Import History */}
-            {importBatches.length > 0 && (
-              <Collapsible open={historyOpen} onOpenChange={setHistoryOpen} className="mb-3">
-                <CollapsibleTrigger asChild>
-                  <Button variant="ghost" size="sm-tight" className=".5 text-muted-foreground">
-                    <History size={12} />
-                    {t('concept_mapping.cs_import_history')} ({importBatches.length})
-                  </Button>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-2 space-y-2">
-                  {importBatches.map((batch) => (
-                    <div key={batch.id} className="flex items-center justify-between rounded-md border px-3 py-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-medium">{batch.sourceName}</span>
-                          <Badge variant="secondary" >
-                            {batch.count} {t('concept_mapping.cs_concepts')}
-                          </Badge>
-                        </div>
-                        <p className="text-[10px] text-muted-foreground">{formatDate(batch.importedAt)}</p>
-                      </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="text-destructive hover:text-destructive"
-                        title={t('concept_mapping.cs_delete_batch')}
-                        onClick={() => setBatchToDelete(batch.id)}
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
-                  ))}
-                </CollapsibleContent>
-              </Collapsible>
-            )}
 
             {/* Edit mode toolbar */}
             {selectionMode && filteredSets.length > 0 && (
@@ -1586,7 +1434,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         </TabsContent>
       </Tabs>
 
-      <ImportConceptSetDialog
+      <PickConceptSetsDialog
         open={importOpen}
         onOpenChange={setImportOpen}
         project={project}
@@ -1614,21 +1462,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Update all result dialog */}
-      <AlertDialog open={!!updateAllResult} onOpenChange={(open) => { if (!open) setUpdateAllResult(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('concept_mapping.cs_update_all_title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('concept_mapping.cs_update_all_result', { updated: updateAllResult?.updated ?? 0, total: updateAllResult?.total ?? 0 })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setUpdateAllResult(null)}>{t('common.ok')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* Bulk delete dialog */}
       <AlertDialog open={bulkDeleteOpen} onOpenChange={setBulkDeleteOpen}>
         <AlertDialogContent>
@@ -1645,21 +1478,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Batch delete dialog */}
-      <AlertDialog open={!!batchToDelete} onOpenChange={(open) => { if (!open) setBatchToDelete(null) }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('concept_mapping.cs_batch_delete_title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('concept_mapping.cs_batch_delete_description')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleDeleteBatch}>{t('concept_mapping.cs_detach')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

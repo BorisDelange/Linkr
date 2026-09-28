@@ -46,15 +46,16 @@ import { columnLabel } from '@/lib/format-helpers'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useConceptListStore } from '@/stores/concept-list-store'
-import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { ConceptListModal } from './concepts/ConceptListModal'
 import { ConceptListEditDialog } from './concepts/ConceptListEditDialog'
 import { ConceptsSettingsDialog } from './concepts/ConceptsSettingsDialog'
 import type { ConceptRow } from './concepts/use-concepts'
-import type { ConceptList, ConceptListItem } from '@/types'
+import type { ConceptList, ConceptListItem, DataDictionary } from '@/types'
 import { useConcepts } from './concepts/use-concepts'
 import { useConceptSetIndex, membershipKey } from './concepts/use-concept-set-index'
-import { ImportConceptSetDialog } from '@/features/warehouse/concept-mapping/ImportConceptSetDialog'
+import { useNavigate } from 'react-router'
+import { paths } from '@/lib/paths'
+import { getStorage } from '@/lib/storage'
 import { ConceptSetDetailSheet } from '@/features/warehouse/concept-mapping/ConceptSetDetailSheet'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import {
@@ -78,7 +79,7 @@ export function ConceptsPage() {
   const { t, i18n } = useTranslation()
   const { wsUid, projectUid: uid } = useResolvedParams()
   const language = useAppStore((s) => s.language)
-  const deleteConceptSetsBatch = useConceptMappingStore((s) => s.deleteConceptSetsBatch)
+  const navigate = useNavigate()
   const [chosenDatabaseId, chooseDatabase] = useConceptsDatabase(uid)
   const mappedSource = useProjectSource(uid, chosenDatabaseId)
 
@@ -130,9 +131,6 @@ export function ConceptsPage() {
   const [editingList, setEditingList] = useState<ConceptList | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [deletingList, setDeletingList] = useState<ConceptList | null>(null)
-  const [importDictOpen, setImportDictOpen] = useState(false)
-  /** Sets awaiting removal once a replacement dictionary has been imported. */
-  const setsToReplaceRef = useRef<string[]>([])
   const [openSetName, setOpenSetName] = useState<string | null>(null)
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
 
@@ -245,45 +243,21 @@ export function ConceptsPage() {
     options: conceptSetOptions,
     workspaceSets: workspaceConceptSets,
   } = useConceptSetIndex(mappedSource?.workspaceId, i18n.language)
-  // The page holds ONE data dictionary at a time. Its identity is derived from
-  // the sets themselves (provenance / sourceRepo) rather than tracked
-  // separately, so it stays right even if sets are imported from elsewhere.
-  const importedDictionary = useMemo(() => {
-    if (workspaceConceptSets.length === 0) return null
-    const named = workspaceConceptSets.find((cs) => cs.provenance || cs.sourceRepo)
-    const importedAt = workspaceConceptSets.reduce(
-      (latest, cs) => (cs.createdAt > latest ? cs.createdAt : latest),
-      workspaceConceptSets[0].createdAt,
-    )
-    return {
-      name: named?.provenance ?? named?.sourceRepo ?? t('concepts.dictionary_unnamed'),
-      sourceRepo: named?.sourceRepo,
-      count: workspaceConceptSets.length,
-      importedAt,
-    }
-  }, [workspaceConceptSets, t])
-
-  /**
-   * Replacing means only one dictionary survives — but the old one is dropped
-   * *after* the new one lands, never before. Deleting up front left a cancelled
-   * or failed import with neither: the sets are workspace-scoped, shared with
-   * every mapping project in it, and there is no undo.
-   */
-  const replaceDictionary = () => {
-    // A ref, not state: the dialog fires onImported immediately before closing,
-    // and the close handler clears the pending list — through state those two
-    // batch together and the removal is lost.
-    setsToReplaceRef.current = workspaceConceptSets.map((cs) => cs.id)
-    setSettingsOpen(false)
-    setImportDictOpen(true)
-  }
-
-  /** The import committed, so the dictionary it replaces can now go. */
-  const onDictionaryImported = async () => {
-    const ids = setsToReplaceRef.current
-    setsToReplaceRef.current = []
-    if (ids.length > 0) await deleteConceptSetsBatch(ids)
-  }
+  // The workspace's data dictionaries, for the settings dialog — they are
+  // managed (added, updated) in the workspace settings.
+  const [dataDictionaries, setDataDictionaries] = useState<DataDictionary[]>([])
+  useEffect(() => {
+    const ws = mappedSource?.workspaceId
+    if (!ws) return
+    getStorage().dataDictionaries.getByWorkspace(ws).then(setDataDictionaries).catch(() => setDataDictionaries([]))
+  }, [mappedSource?.workspaceId])
+  const dictionarySummaries = useMemo(() => dataDictionaries.map((d) => ({
+    id: d.id,
+    name: d.name,
+    sourceRepo: d.sourceRepo,
+    syncedAt: d.syncedAt,
+    count: workspaceConceptSets.filter((cs) => cs.dictionaryId === d.id).length,
+  })), [dataDictionaries, workspaceConceptSets])
 
   const openConceptSet = useMemo(
     () =>
@@ -857,22 +831,11 @@ export function ConceptsPage() {
         onStatsEnabledChange={setStatsEnabled}
         excludeOutliers={excludeOutliers}
         onExcludeOutliersChange={setExcludeOutliers}
-        dictionary={importedDictionary}
-        onImportDictionary={() => { setsToReplaceRef.current = []; setSettingsOpen(false); setImportDictOpen(true) }}
-        onReplaceDictionary={replaceDictionary}
-      />
-
-      <ImportConceptSetDialog
-        open={importDictOpen}
-        onOpenChange={(o) => {
-          // Dismissed without importing: the old dictionary stays, so forget
-          // the pending removal rather than applying it to the next import.
-          // onImported has already consumed the list when the import succeeded.
-          if (!o) setsToReplaceRef.current = []
-          setImportDictOpen(o)
+        dictionaries={dictionarySummaries}
+        onManageDictionaries={() => {
+          setSettingsOpen(false)
+          if (mappedSource?.workspaceId) navigate(paths.workspaceSettings(mappedSource.workspaceId, 'dictionaries'))
         }}
-        onImported={onDictionaryImported}
-        dictionaryMode
       />
 
       <ConceptSetDetailSheet

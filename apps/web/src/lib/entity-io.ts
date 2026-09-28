@@ -4634,7 +4634,10 @@ export async function buildWorkspaceZip(
     const conceptSets = await storage.conceptSets.getByWorkspace(workspaceId)
     for (const cs of conceptSets) {
       if (excluded[cs.id]) continue
-      zip.file(`concept-sets/${slugify(cs.name || cs.id)}.json`, json(stripInstanceFields(cs)))
+      // dictionaryId is a local key: the data dictionaries themselves do not
+      // travel yet (TODO(data-dictionaries): export them, as a repo pointer).
+      const { dictionaryId: _dictionary, ...portable } = cs
+      zip.file(`concept-sets/${slugify(cs.name || cs.id)}.json`, json(stripInstanceFields(portable)))
     }
   }
 
