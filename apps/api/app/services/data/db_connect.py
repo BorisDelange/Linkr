@@ -382,8 +382,13 @@ def _reject_forbidden_statements(sql: str) -> None:
 # On a pooled connection shared by every user of a file/Parquet source, these would
 # outlive the request: DETACH/USE change the catalog for everyone, and ending the
 # transaction `_run_isolated` wraps the query in would let DDL persist.
+#
+# COPY/EXPORT because DuckDB's `allowed_paths` grants write as well as read: a
+# `COPY … TO '<the source's own parquet>' (USE_TMP_FILE FALSE)` overwrites it in
+# place, and those files are shared (content-addressed blobs, the concept cache).
 _FORBIDDEN_IN_SHARED_READ = re.compile(
-    r"^\s*(?:FORCE\s+)?(INSTALL|LOAD|ATTACH|DETACH|USE|BEGIN|START|COMMIT|END|ROLLBACK|ABORT)\b",
+    r"^\s*(?:FORCE\s+)?"
+    r"(INSTALL|LOAD|ATTACH|DETACH|USE|BEGIN|START|COMMIT|END|ROLLBACK|ABORT|COPY|EXPORT)\b",
     re.IGNORECASE,
 )
 
@@ -600,7 +605,7 @@ def query_file_source(
         )
         # `sql` is arbitrary client SQL (editor-authored, mirroring the in-browser
         # DuckDB-WASM path): only the blob — or its UTF-8 transcode — stays readable.
-        _reject_forbidden_statements(sql)
+        _reject_session_statements(sql)
         _forbid_file_access(con, [path, *file_reader.transcoded_paths(con)])
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
@@ -889,6 +894,27 @@ def _source_setup(
     return _setup_file, f"memory,{_ATTACH_ALIAS}", []
 
 
+_SELECT_HEAD = re.compile(r"(SELECT|WITH)\b", re.IGNORECASE)
+
+
+def _single_query(sql: str) -> str:
+    """`sql` if it is exactly one SELECT (or WITH … SELECT), else ValueError.
+
+    It is spliced into `COPY (…) TO`, and `allowed_paths` lets the connection write
+    the source's own files as well as read them: a second statement, or a query
+    that closes the parenthesis itself (`SELECT 1) TO '<source file>' … --`), would
+    overwrite shared data. DuckDB's own parser has the last word — a statement it
+    reads as one complete SELECT cannot reach past the parenthesis around it."""
+    statements = _split_statements(sql)
+    if len(statements) != 1 or not _SELECT_HEAD.match(_strip_leading_noise(statements[0])):
+        raise ValueError("the query must be a single SELECT")
+    with duckdb.connect() as parser:
+        parsed = parser.extract_statements(statements[0])
+    if len(parsed) != 1 or parsed[0].type != duckdb.StatementType.SELECT:
+        raise ValueError("the query must be a single SELECT")
+    return statements[0]
+
+
 def materialize_parquet(
     config: dict,
     password: str | None,
@@ -909,19 +935,18 @@ def materialize_parquet(
     readers always see either the previous complete cache or the new one — never a
     half-written file.
     """
+    select_sql = _single_query(select_sql)
     setup, search_path, readable = _source_setup(config, password, files, known)
     dest = Path(dest_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + f".tmp-{os.getpid()}-{uuid.uuid4().hex}")
     con = setup()
     try:
-        # `select_sql` is client SQL spliced into the COPY: the temp file is the only
-        # path it may write, whatever it closes the parenthesis on.
         _forbid_file_access(con, [*readable, tmp.as_posix()])
         _lock_down_user_sql(con)
         con.execute(f"SET search_path='{search_path}'")
         con.execute(
-            f"COPY ({select_sql}) TO '{tmp.as_posix()}' (FORMAT PARQUET)"
+            f"COPY (\n{select_sql}\n) TO '{_sql_path(tmp.as_posix())}' (FORMAT PARQUET)"
         )
         tmp.replace(dest)
     finally:
@@ -938,6 +963,7 @@ def query_cached_parquet(path: str, sql: str) -> list[dict]:
         con.execute(
             f"CREATE VIEW concepts AS SELECT * FROM read_parquet('{_sql_path(path)}')"
         )
+        _reject_session_statements(sql)
         _forbid_file_access(con, [path])
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql)
