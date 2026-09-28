@@ -29,6 +29,8 @@ var EXPLORE_TEXT = {
   patients: 'Patients', stays: 'Hospitalizations', unit_stays: 'Unit stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
   kpi_of: 'of {total}', kpi_not_counted: 'Not counted by this view',
   kpi_not_additive: 'Cannot be added up across {things}',
+  kpi_at_most: 'At most: what appears in several {things} counts in each',
+  kpi_about: 'About: what appears in several {things} counts in each, masked cells left out',
   published_concepts_only: 'published concepts only',
   title_by: '{unit} by {vars}',
   over_time: '{unit} over time', per_unit: '{unit} per {unit2}', age_distribution: 'Age distribution',
@@ -41,7 +43,8 @@ var EXPLORE_TEXT = {
   by_two: '{unit} by {a} and {b}', within_each: '{a} within each {b}', composition_masked_note: 'Shares among the published values; masked cells are left out.',
   grouped_note: 'Side by side, not stacked: one patient can count in several {things}.',
   age_pyramid: 'Age pyramid', male: 'Male', female: 'Female',
-  all_margin_note: '"All" cells are the published totals over every {var}, filters aside.',
+  all_margin_note: '"All" cells are computed totals, not sums of their row or column: what appears in several cells counts once.',
+  all_margin_filtered: 'They ignore the filters.',
   all_things: 'All {things}', row_max: 'row max', max: 'max', scale_label: 'Colour scale:', per_row: 'Each row', whole_table: 'Whole table',
   per_row_tip: 'Each row is shaded against its own largest cell: compares the values within a row, whatever its size.',
   whole_table_tip: 'Every cell is shaded against the largest cell of the table: compares all the cells with one another.',
@@ -264,14 +267,19 @@ function createExplorer(DATA, opts) {
     }
     return c._map;
   }
-  /** The published cell of `vars` at the given modalities (plus the slices), or undefined. */
-  function marginCell(vars, at) {
+  /** The crossing of `vars` plus the slices, over the view's population, or undefined. */
+  function crossingOver(vars) {
     var all = vars.concat(Object.keys(D.slice));
     var c = X[keyOf(all)];
-    if (!c) return undefined;
     // Crossings with the concept variable count events, the others visits: a
     // total over one population is no margin of a table over the other.
-    if ((all.indexOf('concept') !== -1) !== (sourceVars().indexOf('concept') !== -1)) return undefined;
+    if (!c || (all.indexOf('concept') !== -1) !== (sourceVars().indexOf('concept') !== -1)) return undefined;
+    return c;
+  }
+  /** The published cell of `vars` at the given modalities (plus the slices), or undefined. */
+  function marginCell(vars, at) {
+    var c = crossingOver(vars);
+    if (!c) return undefined;
     var key = c.vars.map(function(v) { return v in at ? at[v] : D.slice[v]; }).join('|');
     return { cell: lookup(c)[key] || null, crossing: c };
   }
@@ -628,7 +636,7 @@ function createExplorer(DATA, opts) {
     if (o.colAll) {
       h += '<tr class="all-row"><th class="row">' + escHtml(tr('all_things', { things: o.rowPlural })) + '</th>';
       cols.forEach(function(c, j) { h += allCell(o.colAll(j), c.name + ' · ' + tr('all_things', { things: o.rowPlural })); });
-      if (o.rowAll) h += '<td class="all"></td>';
+      if (o.rowAll) h += o.corner ? allCell(o.corner, tr('all_things', { things: o.rowPlural }) + ' · ' + tr('all_things', { things: o.colPlural })) : '<td class="all"></td>';
       h += '</tr>';
     }
     h += '</tbody></table></div>';
@@ -693,9 +701,9 @@ function createExplorer(DATA, opts) {
     var title = tr('title_by', { unit: unit, vars: (isListView() ? ['concept'] : D.display).map(function(v) { return varLabel(v).toLowerCase(); }).join(' × ') });
     return { title: title, context: sliceText(), stats: globals(), blocks: blocks, table: table, empty: empty };
   }
-  /** Whether the reader narrowed any displayed variable. */
-  function displayFiltered() {
-    return D.display.some(function(v) { return keptMods(v).length < V[v].mods.length; });
+  /** The displayed variables the reader narrowed. */
+  function narrowedVars() {
+    return D.display.filter(function(v) { return keptMods(v).length < V[v].mods.length; });
   }
   /** The concept list's rows the concept filters keep. */
   function listRows() {
@@ -706,33 +714,47 @@ function createExplorer(DATA, opts) {
     });
   }
   /**
-   * One key figure under the reader's filters: `{ v, of?, atLeast?, sub? }`.
+   * One key figure under the reader's filters: `{ v, of?, atLeast?, atMost?, about?, sub? }`.
    * Nothing filtered: the warehouse's total. Single values kept only (a slice):
-   * that slice's own computed cell. Several values kept: the sum of the view's
-   * cells, when the measure adds up across the displayed variables — a stay has
-   * one start period, a patient seen twice does not — and at least that sum when
-   * some cells are masked. Otherwise the figure cannot be told, and says why.
+   * that slice's own computed cell. Several values kept: the sum of the cells of
+   * the smallest crossing holding the narrowed variables — a variable left whole
+   * would only add double counts. The sum is exact when the measure adds up
+   * across them (a stay has one start period), at least that when cells are
+   * masked. Otherwise one unit can sit in several cells: the sum is an upper
+   * bound, said as such — except across concepts, where it means nothing.
    */
   function figure(metric, total) {
-    var sliced = Object.keys(D.slice).length > 0, filtered = displayFiltered();
-    if (!sliced && !filtered) return { v: total };
-    var c = sourceCrossing();
-    if (!c || (metric !== 'patients' && c.measures.indexOf(metric) === -1)) return { v: null, sub: tr('kpi_not_counted') };
-    if (!filtered) {
+    var sliced = Object.keys(D.slice), narrowed = narrowedVars();
+    if (!sliced.length && !narrowed.length) return { v: total };
+    var src = sourceCrossing();
+    if (!src || (metric !== 'patients' && src.measures.indexOf(metric) === -1)) return { v: null, sub: tr('kpi_not_counted') };
+    if (!narrowed.length) {
       var m = marginCell([], {});
       var r = m && m.cell ? measureAt(m.cell, m.crossing, metric) : null;
       if (r && r.v != null) return { v: r.v, of: total };
     }
-    var blocker = D.display.filter(function(v) { return !adds(v, metric); })[0];
-    if (blocker) return { v: null, sub: tr('kpi_not_additive', { things: plural(blocker) }) };
-    var sum = 0, masked = false, cells = viewCells(c), combos = 1;
-    cells.forEach(function(cell) { var x = measureAt(cell, c, metric); if (x.st) masked = true; else sum += x.v || 0; });
+    var c = crossingOver(narrowed), vars = narrowed;
+    if (!c || (metric !== 'patients' && c.measures.indexOf(metric) === -1)) { c = src; vars = D.display; }
+    var blocker = vars.filter(function(v) { return !adds(v, metric); })[0];
+    if (blocker === 'concept') return { v: null, sub: tr('kpi_not_additive', { things: plural('concept') }) };
+    var pos = {};
+    c.vars.forEach(function(v, i) { pos[v] = i; });
+    var sum = 0, cells = 0, masked = false, combos = 1;
+    c.cells.forEach(function(cell) {
+      for (var s = 0; s < sliced.length; s++) if (cell[pos[sliced[s]]] !== D.slice[sliced[s]]) return;
+      for (var d = 0; d < vars.length; d++) if (!keepMod(vars[d], cell[pos[vars[d]]])) return;
+      cells++;
+      var x = measureAt(cell, c, metric);
+      if (x.st) masked = true; else sum += x.v || 0;
+    });
     // An absent cell may be a masked one: the sum is exact only when no cell is missing.
-    D.display.forEach(function(v) { combos *= keptMods(v).length; });
-    return { v: sum, of: total, atLeast: masked || cells.length < combos };
+    vars.forEach(function(v) { combos *= keptMods(v).length; });
+    var incomplete = masked || cells < combos;
+    if (!blocker) return { v: sum, of: total, atLeast: incomplete };
+    return { v: sum, atMost: !incomplete, about: incomplete, sub: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) };
   }
   function card(key, label, icon, f) {
-    var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : '') + fmt(f.v);
+    var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : f.atMost ? '≤ ' : f.about ? '≈ ' : '') + fmt(f.v);
     var sub = f.of != null ? tr('kpi_of', { total: fmt(f.of) }) + (f.of ? ' (' + pct(f.v, f.of) + ')' : '') : f.sub || '';
     return { key: key, label: label, value: value, sub: sub, icon: icon };
   }
@@ -782,6 +804,17 @@ function createExplorer(DATA, opts) {
     var m = marginCell([], {});
     if (!m || !m.cell || statusOf(m.cell)) return null;
     return m.cell[m.crossing.vars.length];
+  }
+  /** The view's whole population for any measure: the slice's own cell, or the warehouse's total. */
+  function grandCell(metric) {
+    if (Object.keys(D.slice).length) {
+      var m = marginCell([], {});
+      return m ? measureAt(m.cell, m.crossing, metric) : null;
+    }
+    // The warehouse's totals are over visits: no margin of a table over events.
+    if (sourceVars().indexOf('concept') !== -1) return null;
+    var t = DATA.totals[{ patients: 'patients', stays: 'stays', unit_stays: 'unitStays', records: 'records' }[metric]];
+    return t == null ? null : { v: t, st: 0 };
   }
   function maskNote(items) {
     var k = items.filter(function(i) { return i.st; }).length;
@@ -929,7 +962,7 @@ function createExplorer(DATA, opts) {
       var lineRows = rows.slice(0, Math.min(rows.length, 8));
       var series = ser(lineRows, function(r) { return colObjs.map(function(col) { return at(r.i, col.i); }); });
       block(tr('over_time_by', { unit: unit, var: rv.label.toLowerCase() }), 'full', function(w) { return lineChart(w, colObjs.map(function(col) { return col.name; }), series, { title: unit, unit: unit }) + legend(series); },
-        { sub: rows.length > lineRows.length ? tr('largest_of', { n: lineRows.length, m: rows.length }) : '', head: rowVar === 'concept' || rowVar === 'service' ? topNControl(rowsAll.length) : '' });
+        { sub: rows.length > lineRows.length ? tr('largest_of', { n: lineRows.length, m: rows.length }) : '' });
       if (rowPartition && rows.length <= 12) {
         var stackSeries = ser(rows, function(r) { return colObjs.map(function(col) { return at(r.i, col.i); }); });
         block(tr('composition_over_time'), 'full', function(w) { return barsBySeries(w, colObjs.map(function(col) { return col.name; }), stackSeries, { title: tr('composition_over_time'), mode: 'percent' }) + legend(stackSeries); },
@@ -956,11 +989,12 @@ function createExplorer(DATA, opts) {
         unit: unit, rowLabel: rv.label, colLabel: cv.label, rowPlural: plural(rowVar), colPlural: plural(colVar),
         rowAll: hasRowMargin ? function(r) { return rowMargin(rows[r].i); } : null,
         colAll: hasColMargin ? function(col) { return colMargin(colObjs[col].i); } : null,
+        corner: grandCell(metric),
       });
     }, {
       sub: capped ? tr('largest_of', { n: rows.length, m: rowsAll.length }) : '',
       head: capped || rowsAll.length > 10 ? (rowVar === 'concept' || rowVar === 'service' ? topNControl(rowsAll.length) : '') : '',
-      note: hasRowMargin || hasColMargin ? tr('all_margin_note', { var: (hasRowMargin ? cv.label : rv.label).toLowerCase() }) : '',
+      note: hasRowMargin || hasColMargin ? tr('all_margin_note') + (narrowedVars().length ? ' ' + tr('all_margin_filtered') : '') : '',
       csv: { name: (opts.fileBase || 'catalog') + '-' + slug(rowVar + '-' + colVar) + '-pivot.csv', text: function() {
         var lines = [[rv.label + ' \\ ' + cv.label].concat(colObjs.map(function(col) { return col.name; }))];
         rows.forEach(function(r) { lines.push([r.name].concat(colObjs.map(function(col) { var m = at(r.i, col.i); return m.st ? MASK_TEXT[m.st] : String(m.v); }))); });

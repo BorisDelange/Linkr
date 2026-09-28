@@ -128,7 +128,7 @@ const CHART_CSS = `.seg{display:inline-flex;padding:2px;border-radius:8px;backgr
 .tip .tl i{width:8px;height:8px;border-radius:2px;flex-shrink:0}
 .tip .tl span{flex:1;opacity:.8}
 .tip .tl em{font-style:normal;font-weight:600;font-variant-numeric:tabular-nums}
-.hm-scroll{overflow-x:auto}
+.hm-scroll{overflow-x:auto;padding-bottom:12px}
 .hm-t{border-collapse:separate;border-spacing:2px;font-size:11px}
 .hm-t th{padding:4px 8px;font-weight:500;font-size:10px;color:var(--muted);white-space:nowrap;text-align:center;max-width:120px;overflow:hidden;text-overflow:ellipsis}
 .hm-t th.corner{text-align:left;font-size:10px}

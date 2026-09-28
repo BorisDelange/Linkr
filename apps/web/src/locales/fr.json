@@ -5334,7 +5334,8 @@
       "age_pyramid": "Pyramide des âges",
       "male": "Homme",
       "female": "Femme",
-      "all_margin_note": "Les cellules « Tous » sont les totaux publiés sur tous les {var}, hors filtres.",
+      "all_margin_note": "Les cellules « Tous » sont des totaux calculés, pas des sommes de leur ligne ou colonne : ce qui apparaît dans plusieurs cellules y compte une fois.",
+      "all_margin_filtered": "Elles ignorent les filtres.",
       "all_things": "Tous : {things}",
       "row_max": "max de la ligne",
       "max": "max",
@@ -5375,6 +5376,8 @@
       "kpi_of": "sur {total}",
       "kpi_not_counted": "Non compté dans cette vue",
       "kpi_not_additive": "Ne s'additionne pas entre {things}",
+      "kpi_at_most": "Au plus : ce qui apparaît dans plusieurs {things} y est compté plusieurs fois",
+      "kpi_about": "Environ : ce qui apparaît dans plusieurs {things} y est compté plusieurs fois, cellules masquées écartées",
       "scale_label": "Échelle de couleur :",
       "per_row_tip": "Chaque ligne est colorée par rapport à sa plus grande cellule : compare les valeurs au sein d'une ligne, quelle que soit sa taille.",
       "whole_table_tip": "Chaque cellule est colorée par rapport à la plus grande cellule du tableau : compare toutes les cellules entre elles."

@@ -5334,7 +5334,8 @@
       "age_pyramid": "Age pyramid",
       "male": "Male",
       "female": "Female",
-      "all_margin_note": "\"All\" cells are the published totals over every {var}, filters aside.",
+      "all_margin_note": "\"All\" cells are computed totals, not sums of their row or column: what appears in several cells counts once.",
+      "all_margin_filtered": "They ignore the filters.",
       "all_things": "All {things}",
       "row_max": "row max",
       "max": "max",
@@ -5375,6 +5376,8 @@
       "kpi_of": "of {total}",
       "kpi_not_counted": "Not counted by this view",
       "kpi_not_additive": "Cannot be added up across {things}",
+      "kpi_at_most": "At most: what appears in several {things} counts in each",
+      "kpi_about": "About: what appears in several {things} counts in each, masked cells left out",
       "scale_label": "Colour scale:",
       "per_row_tip": "Each row is shaded against its own largest cell: compares the values within a row, whatever its size.",
       "whole_table_tip": "Every cell is shaded against the largest cell of the table: compares all the cells with one another."
