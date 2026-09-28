@@ -1,6 +1,6 @@
 # Workspace vocabularies & data dictionaries — plan
 
-Status: 🔜 arbitrated 2026-09-28, in progress. Branch `feature/workspace-vocabularies`.
+Status: ✅ phases 1–4 built 2026-09-28 (branch `feature/workspace-vocabularies`); to test in the app. As-built: `docs/architecture.md`.. Branch `feature/workspace-vocabularies`.
 
 ## Why
 
@@ -119,3 +119,13 @@ every feature of the workspace. Mapping projects stop owning them.
    `indicate-eu/data-dictionary-content` and URL import takes one set.
 3. **Full front-only parity**: the partitioned library lives in OPFS too,
    written by DuckDB-WASM.
+
+## As built (differences from the plan above)
+
+- Front-only, the library is **not rewritten** into partitions (a full ATHENA does
+  not fit in the browser): each import stays a hidden vocabulary database and the
+  library's views read each vocabulary from its owner. Server-side it is rewritten.
+- The library's metadata lives on its data source (`connectionConfig.vocabularies`),
+  not in a table of its own.
+- Not done yet: workspace export of dictionaries / vocabulary inventory, the pull of
+  `conceptSets` refs, website docs (see the planning README).

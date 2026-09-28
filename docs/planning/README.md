@@ -39,6 +39,23 @@ wildcard-subdomain split exists — and the **dev-only COEP `credentialless`** h
 | 🔜 | 8. nginx `proxy_buffering off`, dev COEP, `docs/architecture.md` | S |
 | 🔜 | 9. **[TO TEST]** Matrix across all 6 frameworks — one proxy for all, and the session stays usable throughout | M |
 
+## Workspace vocabularies & data dictionaries — [workspace-vocabularies-plan.md](workspace-vocabularies-plan.md)
+
+The OHDSI vocabularies and the data dictionaries (concept sets + unit conversions +
+recommended units) became workspace resources, managed in Workspace settings. As-built:
+`docs/architecture.md` › Workspace vocabularies & data dictionaries.
+
+| St | Item | Effort |
+|----|------|--------|
+| ✅ | Portable concept-set refs in mapping-project exports; detach instead of delete; no vocabulary pointer | S |
+| ✅ | Vocabulary library (server partitions / front-only views), settings tab, every reader switched | L |
+| ✅ | Data dictionaries: repo sync with preview, settings tab, project picker, Concepts page | L |
+| ✅ | Local resolution + SQL export (INDICATE port, 12 goldens) | M |
+| 🔜 | **[TO TEST]** In the app, both modes: ATHENA import (full + subset + a second release), legacy vocabulary databases, INDICATE sync + update, resolution, SQL tab | M |
+| 🔜 | Workspace export of the dictionaries (repo pointer + units) and of the vocabulary inventory — `dictionaryId` is stripped for now | M |
+| 🔜 | Mapping-project pull: take the remote `conceptSets` refs | S |
+| 🔜 | linkr-website docs (workspace settings, concept mapping) | S |
+
 ## AI agents — [ai-agents-plan.md](ai-agents-plan.md)
 
 **Revised 2026-09-23: MCP first, chat external.** Linkr exposes its actions through one
