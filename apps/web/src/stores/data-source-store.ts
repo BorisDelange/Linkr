@@ -636,9 +636,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // A mapping attached to a source is interpolated into SQL by every
     // warehouse query, and reaches here from an imported or cloned workspace as
     // readily as from the editor — validate its identifiers first.
-    const changes = rawChanges.schemaMapping
-      ? { ...rawChanges, schemaMapping: sanitizeSchemaMapping(rawChanges.schemaMapping) }
-      : rawChanges
+    const changes = { ...rawChanges }
+    if (changes.schemaMapping) changes.schemaMapping = sanitizeSchemaMapping(changes.schemaMapping)
+    if (changes.schemaOverrides) changes.schemaOverrides = sanitizeSchemaOverrides(changes.schemaOverrides) ?? null
     // Await persistence: a follow-up retest reads the stored (encrypted)
     // password server-side, so the write must land before it runs.
     await getStorage().dataSources.update(id, persisted(changes))
