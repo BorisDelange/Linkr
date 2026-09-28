@@ -98,4 +98,8 @@ async def delete(db: AsyncSession, workspace: Workspace) -> None:
     git_service.remove_repo("workspaces", workspace_id)
     for mp_id in mapping_project_ids:
         git_service.remove_repo("mapping-projects", mp_id)
+    # The vocabulary library's partitions are the workspace's own files.
+    from app.services import vocabulary_library
+
+    shutil.rmtree(vocabulary_library.library_dir(workspace_id), ignore_errors=True)
     await blob_cleanup.deref_blobs(db, shas)
