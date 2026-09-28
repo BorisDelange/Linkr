@@ -925,6 +925,7 @@ export function CreateMappingProjectDialog({
 
   const extraColumnChoices = parsedColumns
     .filter((col) => !COLUMN_ROLE_ROWS.flat().some((role) => columnMapping[role as keyof FileColumnMapping] === col))
+  const noExtraColumns = extraColumnChoices.length === 0 && (columnMapping.extraColumns?.length ?? 0) === 0
   const showCSVOptions = file && isCSVLike(file)
   const showExcelOptions = file && isExcel(file)
   const isImportSettingsPage = page === 'import-settings'
@@ -1121,13 +1122,13 @@ export function CreateMappingProjectDialog({
                 </div>
 
                 {/* Extra columns multi-select */}
-                <div className="mt-2 flex items-start gap-2">
-                  <Label className="w-28 shrink-0 pt-1.5 text-[10px] text-muted-foreground">
+                <div className={`mt-2 flex gap-2 ${noExtraColumns ? 'items-center' : 'items-start'}`}>
+                  <Label className={`w-28 shrink-0 text-[10px] text-muted-foreground ${noExtraColumns ? '' : 'pt-1.5'}`}>
                     {t('concept_mapping.col_role_extraColumns')}
                   </Label>
                   <div className="flex-1">
-                    {extraColumnChoices.length === 0 && (columnMapping.extraColumns?.length ?? 0) === 0 ? (
-                      <p className="pt-1.5 text-[10px] text-muted-foreground">{t('concept_mapping.extra_columns_none')}</p>
+                    {noExtraColumns ? (
+                      <p className="text-[10px] leading-none text-muted-foreground">{t('concept_mapping.extra_columns_none')}</p>
                     ) : (
                     <Popover>
                       <PopoverTrigger asChild>

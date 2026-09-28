@@ -150,7 +150,14 @@ export function ServerPathPickerDialog({
     const start = initialPathRef.current ?? ''
     setStartMissing(null)
     void (async () => {
-      if (!start || await load(start, true)) return
+      // No starting folder: open the filesystem root rather than the empty
+      // default listing, falling back to it when the root is outside the
+      // browse roots.
+      if (!start) {
+        if (!(await load('/', true))) await load('')
+        return
+      }
+      if (await load(start, true)) return
       setStartMissing(start)
       const parts = start.replace(/[\\/]+$/, '').split(/[\\/]/)
       for (let n = parts.length - 1; n > 0; n--) {
