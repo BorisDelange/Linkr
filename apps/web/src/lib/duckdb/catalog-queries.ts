@@ -4,6 +4,7 @@ import { escSql as esc } from '@/lib/format-helpers'
 import { classRelation, conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { fieldColumn } from '@/lib/schema-classes/spec'
 import { ageBucketLabels, canonicalCrossing, OTHER_MODALITY } from '@/lib/data-catalog/config'
+import { KEY_SPACE, patientKeySql } from '@/lib/data-catalog/perturbation'
 
 /*
  * Every query here reads the class relations (`linkr_patient`, `linkr_visit`…)
@@ -136,6 +137,7 @@ export function buildConceptCountQueries(
   subcategoryColumn?: string,
   range?: PatientRange | null,
   withVisits = true,
+  keySalt?: string,
 ): ConceptCountQuery[] | null {
   const visit = classRelation(mapping, 'visit')
   if (!visit || !classRelation(mapping, 'patient')) return null
@@ -167,8 +169,8 @@ per_visit AS (
   WHERE cid IN (SELECT concept_id FROM ${dict.name})
 ),
 per_concept AS (
-  SELECT cid, COUNT(*)::BIGINT AS record_count, COUNT(DISTINCT pid)::BIGINT AS patient_count
-  FROM events
+  SELECT cid, SUM(n)::BIGINT AS record_count, COUNT(*)::BIGINT AS patient_count${keySalt ? `, (SUM(${patientKeySql('pid', keySalt)}) % ${KEY_SPACE})::BIGINT AS patient_key` : ''}
+  FROM (SELECT cid, pid, COUNT(*) AS n FROM events GROUP BY cid, pid) _cp
   GROUP BY cid
 )${perVisit}
 SELECT
@@ -176,7 +178,7 @@ SELECT
     d.concept_name AS concept_name,
     ${lit(dictKey)} AS dictionary_key${catSelect},
     pc.record_count,
-    pc.patient_count${withVisits ? ',\n    COALESCE(pv.visit_count, 0)::BIGINT AS visit_count' : ''}
+    pc.patient_count${keySalt ? ',\n    pc.patient_key' : ''}${withVisits ? ',\n    COALESCE(pv.visit_count, 0)::BIGINT AS visit_count' : ''}
 FROM per_concept pc
 JOIN ${dict.name} d ON d.concept_id = pc.cid${withVisits ? '\nLEFT JOIN per_visit pv ON pv.cid = pc.cid' : ''}`,
     })
@@ -192,17 +194,20 @@ JOIN ${dict.name} d ON d.concept_id = pc.cid${withVisits ? '\nLEFT JOIN per_visi
  * Patients with a visit, visits, and event rows: the catalog's headline
  * figures — and unit stays when counted and mapped.
  */
-export function buildTotalsQuery(mapping: SchemaMapping, range?: PatientRange | null, counts: CatalogCounts = DEFAULT_CATALOG_COUNTS): string | null {
+export function buildTotalsQuery(mapping: SchemaMapping, range?: PatientRange | null, counts: CatalogCounts = DEFAULT_CATALOG_COUNTS, keySalt?: string): string | null {
   const visit = classRelation(mapping, 'visit')
   if (!visit) return null
   const events = eventUnion(mapping, { level: 'concept' }, null, false, range)
   const records = events ? `(SELECT COUNT(*) FROM (\n  ${events}\n) _ev)::BIGINT` : '0::BIGINT'
   const vd = counts.unitStays ? classRelation(mapping, 'visit_detail') : undefined
   const unitStays = vd ? `,\n  (SELECT COUNT(*) FROM ${vd.name} vd${whereRange('vd.patient_id', range)})::BIGINT AS total_unit_stays` : ''
+  const key = keySalt
+    ? `,\n  (SELECT (SUM(${patientKeySql('pid', keySalt)}) % ${KEY_SPACE})::BIGINT FROM (SELECT DISTINCT patient_id AS pid FROM ${visit.name}${whereRange('patient_id', range)}) _p) AS total_key`
+    : ''
   return `SELECT
   COUNT(DISTINCT v.patient_id)::BIGINT AS total_patients,
   COUNT(*)::BIGINT AS total_visits,
-  ${records} AS total_records${unitStays}
+  ${records} AS total_records${unitStays}${key}
 FROM ${visit.name} v${whereRange('v.patient_id', range)}`
 }
 
@@ -421,6 +426,8 @@ export interface CrossingQueryContext {
   range?: PatientRange | null
   /** What a cell over visits counts beside patients; absent = stays only. */
   counts?: CatalogCounts
+  /** Salt of the patient keys (the database id): each cell then carries its key. Absent: no keys. */
+  keySalt?: string
 }
 
 /** Column holding a variable's modality in a crossing query's result. */
@@ -505,9 +512,16 @@ cells AS (
       stayJoins.push(`LEFT JOIN ${vd.name} su ON su.patient_id = ev.pid AND ${contains(vd, 'su')}`)
       stayCounts.push('COUNT(DISTINCT su.visit_detail_id)::BIGINT AS unit_stays')
     }
-    const perCell = `SELECT ${columns.join(', ')}, COUNT(DISTINCT pid)::BIGINT AS patients, COUNT(*)::BIGINT AS records
-FROM cells
-WHERE ${notNull}
+    // One row per (cell, patient) first: the patients are its rows, the records
+    // their counts, and each patient's key is hashed once, not once per event.
+    const key = ctx.keySalt ? `, (SUM(${patientKeySql('pid', ctx.keySalt)}) % ${KEY_SPACE})::BIGINT AS cell_key` : ''
+    const perCell = `SELECT ${columns.join(', ')}, COUNT(*)::BIGINT AS patients, SUM(n)::BIGINT AS records${key}
+FROM (
+  SELECT ${columns.join(', ')}, pid, COUNT(*) AS n
+  FROM cells
+  WHERE ${notNull}
+  GROUP BY ${columns.join(', ')}, pid
+) _pc
 GROUP BY ${columns.join(', ')}`
     if (stayCounts.length === 0) return `${counted}\n${perCell}`
     const stayColumns = [...(counts.visits ? ['stays'] : []), ...(vd ? ['unit_stays'] : [])]
@@ -541,18 +555,31 @@ LEFT JOIN per_stay ps ON ${columns.map((c) => `ps.${c} = pc.${c}`).join(' AND ')
     ids.push(`${unitJoined ? 'vd' : 'uvd'}.visit_detail_id AS uid`)
     measures.push('COUNT(DISTINCT uid)::BIGINT AS unit_stays')
   }
-  return `WITH cells AS (
+  const cells = `WITH cells AS (
   SELECT ${selects.join(',\n    ')},
     ${ids.join(',\n    ')}
   FROM ${visit.name} v
   ${needsPatient ? patientJoin : ''}
   ${joins.join('\n  ')}
   WHERE v.start_datetime IS NOT NULL${andRange('v.patient_id', ctx.range)}
-)
-SELECT ${columns.join(', ')}, ${measures.join(', ')}
+)`
+  const perCell = `SELECT ${columns.join(', ')}, ${measures.join(', ')}
 FROM cells
 WHERE ${notNull}
 GROUP BY ${columns.join(', ')}`
+  if (!ctx.keySalt) return `${cells}\n${perCell}`
+  return `${cells},
+per_cell AS (
+${perCell}
+),
+keyed AS (
+  SELECT ${columns.join(', ')}, (SUM(${patientKeySql('pid', ctx.keySalt)}) % ${KEY_SPACE})::BIGINT AS cell_key
+  FROM (SELECT DISTINCT ${columns.join(', ')}, pid FROM cells WHERE ${notNull}) _pc
+  GROUP BY ${columns.join(', ')}
+)
+SELECT pc.*, k.cell_key
+FROM per_cell pc
+JOIN keyed k ON ${columns.map((c) => `k.${c} = pc.${c}`).join(' AND ')}`
 }
 
 /**

@@ -28,7 +28,8 @@ function fixture(mode: 'replace' | 'suppress' = 'replace') {
     concepts: [
       { conceptId: 1, conceptName: 'Heart rate', dictionaryKey: 'concept', category: 'Measurement', patientCount: 500, visitCount: 600, recordCount: 90000 },
       { conceptId: 2, conceptName: EVIL, dictionaryKey: 'concept', category: 'Condition', patientCount: 3, visitCount: 3, recordCount: 4 },
-      { conceptId: 3, conceptName: 'Rare too', dictionaryKey: 'concept', category: 'Condition', patientCount: 2, visitCount: 2, recordCount: 2 },
+      // Enough records between the two rare ones (24) that their total tells no small group.
+      { conceptId: 3, conceptName: 'Rare too', dictionaryKey: 'concept', category: 'Condition', patientCount: 2, visitCount: 2, recordCount: 20 },
     ],
     crossings: [
       { id: 'period', variables: ['period'], rows: [{ values: ['2024-01'], patients: 120, stays: 130 }, { values: ['2024-02'], patients: 90, stays: 95 }] },
@@ -42,7 +43,7 @@ function fixture(mode: 'replace' | 'suppress' = 'replace') {
       ] },
     ],
     modalities: { period: ['2024-01', '2024-02'], age: ['[0;18[', '[18;+∞['], sex: ['male', 'female'], service: [EVIL] },
-    grandTotal: { totalPatients: 500, totalVisits: 640, totalRecords: 90004 },
+    grandTotal: { totalPatients: 500, totalVisits: 640, totalRecords: 90024 },
     totalConcepts: 2, totalPatients: 500, totalVisits: 640,
   } as unknown as CatalogResultCache
 

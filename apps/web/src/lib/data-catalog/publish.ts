@@ -5,12 +5,14 @@ import {
   type CatalogConceptRow,
   type CatalogCrossingResult,
   type CatalogCrossingRow,
+  type CatalogMeasure,
   type CatalogResultCache,
   type CatalogVariableId,
   type DataCatalog,
   type PeriodGranularity,
 } from '@/types/catalog'
 import { catalogCounts, OTHER_MODALITY, periodLabel, shownCrossingIds, trimPeriods } from './config'
+import { fallbackKey, perturbed } from './perturbation'
 import { computeAnonymizationImpact, computeCrossingMasks, PRIMARY, PUBLISHED, SECONDARY, type CellStatus, type CrossingMask } from './suppression'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 
@@ -25,7 +27,7 @@ import type { PageLocale } from '@/lib/dcat-ap/page-text'
  * reads every absent cell as masked.
  */
 
-export type PublishedMeasure = 'patients' | 'stays' | 'unit_stays' | 'records'
+export type PublishedMeasure = CatalogMeasure
 
 /** The measures a crossing's cells carry after patients: the counted stays, then records over events. */
 export function crossingMeasures(catalog: Pick<DataCatalog, 'counts'>, vars: readonly CatalogVariableId[]): Exclude<PublishedMeasure, 'patients'>[] {
@@ -294,6 +296,23 @@ export function withAnonymizationImpact(catalog: Pick<DataCatalog, 'variables' |
 
 export type PublishedConcept = CatalogConceptRow & { status: CellStatus }
 
+/** The warehouse's totals as published: perturbed like any cell. */
+export function publishedTotals(
+  catalog: Pick<DataCatalog, 'anonymization' | 'counts'>,
+  cache: Pick<CatalogResultCache, 'grandTotal' | 'totalPatients' | 'totalVisits'>,
+): { patients: number; stays?: number; unitStays?: number; records: number } {
+  const { threshold, noise = 0 } = catalog.anonymization
+  const counts = catalogCounts(catalog)
+  const key = noise ? cache.grandTotal.totalKey ?? fallbackKey('total') : 0
+  const at = (v: number, m: CatalogMeasure) => perturbed(v, key, m, noise, threshold)
+  return {
+    patients: at(cache.totalPatients, 'patients'),
+    ...(counts.visits ? { stays: at(cache.totalVisits, 'stays') } : {}),
+    ...(counts.unitStays && cache.grandTotal.totalUnitStays != null ? { unitStays: at(cache.grandTotal.totalUnitStays, 'unit_stays') } : {}),
+    records: at(cache.grandTotal.totalRecords, 'records'),
+  }
+}
+
 /**
  * The concept list as it may leave the instance, each row with its status: in
  * suppress mode without the masked rows. Counts stay raw — how a masked one is
@@ -304,8 +323,19 @@ export function publishedConcepts(
   cache: Pick<CatalogResultCache, 'concepts' | 'crossings' | 'labels'>,
   { reveal = false, masks }: { reveal?: boolean; masks?: CatalogMasks } = {},
 ): PublishedConcept[] {
-  const status = (masks ?? computeCatalogMasks(catalog, cache, catalog.anonymization.threshold)).concepts
-  const rows = cache.concepts.map((c, i) => ({ ...c, status: status[i] as CellStatus }))
+  const { threshold, noise = 0 } = catalog.anonymization
+  const status = (masks ?? computeCatalogMasks(catalog, cache, threshold)).concepts
+  const modalityOf = conceptModalityKey(cache)
+  const rows = cache.concepts.map((c, i) => {
+    const row: PublishedConcept = { ...c, status: status[i] as CellStatus }
+    if (!noise) return row
+    // The concept's key is its 1-way cell's: the list and that crossing agree.
+    const key = c.patientKey ?? fallbackKey('concept', modalityOf(c))
+    row.patientCount = perturbed(c.patientCount, key, 'patients', noise, threshold)
+    row.recordCount = perturbed(c.recordCount, key, 'records', noise, threshold)
+    if (c.visitCount != null) row.visitCount = perturbed(c.visitCount, key, 'stays', noise, threshold)
+    return row
+  })
   return reveal || catalog.anonymization.mode !== 'suppress' ? rows : rows.filter((r) => r.status === PUBLISHED)
 }
 
@@ -376,6 +406,7 @@ export function buildPublishedCatalog(
   { reveal = false, keepMasked = false, locale = 'en', masks: catalogMasks }: { reveal?: boolean; keepMasked?: boolean; locale?: PageLocale; masks?: CatalogMasks } = {},
 ): PublishedCatalog {
   const threshold = catalog.anonymization.threshold
+  const noise = catalog.anonymization.noise ?? 0
   const { crossings, masks, conceptModalities } = catalogMasks ?? computeCatalogMasks(catalog, cache, threshold)
   const variables = publishedVariables(catalog, cache, locale, reveal ? undefined : conceptModalities)
   const index = new Map<CatalogVariableId, Map<string, number>>()
@@ -405,8 +436,12 @@ export function buildPublishedCatalog(
       if (status === SECONDARY) secondary++
       else if (status !== PUBLISHED) primary++
       if (!shown && !keepMasked) continue
-      cell[k] = shown ? row.patients : null
-      for (let m = 0; m < keys.length; m++) cell[k + 1 + m] = shown ? row[keys[m]] ?? null : null
+      const key = noise ? row.key ?? fallbackKey(crossing.id, ...row.values) : 0
+      cell[k] = shown ? perturbed(row.patients, key, 'patients', noise, threshold) : null
+      for (let m = 0; m < keys.length; m++) {
+        const v = row[keys[m]]
+        cell[k + 1 + m] = shown && v != null ? perturbed(v, key, measures[m], noise, threshold) : null
+      }
       cell[k + 1 + keys.length] = status
       cells.push(cell)
     }

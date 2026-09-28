@@ -6,6 +6,7 @@ import {
   ageBucketExpr,
   buildConceptCountQueries,
   buildPatientBoundsQuery,
+  buildTotalsQuery,
   rangeCondition,
   buildCrossingEstimateQuery,
   buildCrossingQuery,
@@ -91,20 +92,22 @@ describe('buildCrossingQuery', () => {
 
   it('counts patients and records over events with it, never a row twice', () => {
     const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } } }, ['concept', 'sex'])!
-    expect(sql).toContain('COUNT(*)::BIGINT AS records')
+    // One row per (cell, patient): its rows are the patients, its counts the records.
+    expect(sql).toContain('COUNT(*)::BIGINT AS patients, SUM(n)::BIGINT AS records')
+    expect(sql).toContain('GROUP BY v_concept, v_sex, pid')
     expect(sql).toContain('e.source_concept_id IS DISTINCT FROM e.concept_id')
   })
 
   it('counts the stays containing a cell\'s events apart from its records', () => {
     const concept = { enabled: true, level: 'concept' as const, scope: 'all' as const, topN: 10 }
     const sql = buildCrossingQuery({ mapping, variables: { ...variables, concept }, counts: { visits: true, unitStays: true } }, ['concept', 'period'])!
-    expect(sql).toMatch(/per_cell AS \(\s*SELECT v_concept, v_period, COUNT\(DISTINCT pid\)::BIGINT AS patients, COUNT\(\*\)::BIGINT AS records\s*FROM cells/)
+    expect(sql).toMatch(/per_cell AS \(\s*SELECT v_concept, v_period, COUNT\(\*\)::BIGINT AS patients, SUM\(n\)::BIGINT AS records\s*FROM \(/)
     expect(sql).toContain('LEFT JOIN linkr_visit sv ON sv.patient_id = ev.pid AND ev.edate >= CAST(sv.start_datetime AS TIMESTAMP)')
     expect(sql).toContain('COUNT(DISTINCT sv.visit_id)::BIGINT AS stays, COUNT(DISTINCT su.visit_detail_id)::BIGINT AS unit_stays')
     expect(sql).toContain('COALESCE(ps.stays, 0)::BIGINT AS stays, COALESCE(ps.unit_stays, 0)::BIGINT AS unit_stays')
     const recordsOnly = buildCrossingQuery({ mapping, variables: { ...variables, concept }, counts: { visits: false, unitStays: false } }, ['concept'])!
     expect(recordsOnly).not.toContain('per_stay')
-    expect(recordsOnly).toContain('COUNT(*)::BIGINT AS records')
+    expect(recordsOnly).toContain('SUM(n)::BIGINT AS records')
   })
 
   it('attaches events to the unit stay containing them', () => {
@@ -135,10 +138,30 @@ describe('buildCrossingQuery', () => {
   })
 })
 
+describe('cell keys', () => {
+  const concept = { enabled: true, level: 'concept' as const, scope: 'all' as const, topN: 10 }
+  const vars: CatalogVariables = { ...defaultCatalogVariables(), concept }
+
+  it('sums each distinct patient\'s key once per cell, salted with the database', () => {
+    const overEvents = buildCrossingQuery({ mapping, variables: vars, keySalt: "db'1" }, ['concept', 'sex'])!
+    expect(overEvents).toContain("(SUM((md5_number_lower('db''1' || CAST(pid AS VARCHAR)) % 4294967296)) % 4294967296)::BIGINT AS cell_key")
+    const overVisits = buildCrossingQuery({ mapping, variables: vars, keySalt: 'db' }, ['period'])!
+    expect(overVisits).toContain('FROM (SELECT DISTINCT v_period, pid FROM cells WHERE v_period IS NOT NULL) _pc')
+    expect(overVisits).toContain('SELECT pc.*, k.cell_key')
+    expect(buildCrossingQuery({ mapping, variables: vars }, ['period'])).not.toContain('cell_key')
+  })
+
+  it('keys the concept list and the totals the same way', () => {
+    const [q] = buildConceptCountQueries(mapping, 'domain_id', undefined, null, true, 'db')!
+    expect(q.sql).toContain('AS patient_key')
+    expect(buildTotalsQuery(mapping, null, undefined, 'db')).toContain('SELECT DISTINCT patient_id AS pid FROM linkr_visit')
+  })
+})
+
 describe('buildConceptCountQueries', () => {
   it('counts records on the events alone, visits only when an event falls within one', () => {
     const [q] = buildConceptCountQueries(mapping, 'domain_id')!
-    expect(q.sql).toMatch(/per_concept AS \(\s*SELECT cid, COUNT\(\*\)::BIGINT AS record_count/)
+    expect(q.sql).toMatch(/per_concept AS \(\s*SELECT cid, SUM\(n\)::BIGINT AS record_count, COUNT\(\*\)::BIGINT AS patient_count\s*FROM \(SELECT cid, pid, COUNT\(\*\) AS n FROM events GROUP BY cid, pid\)/)
     expect(q.sql).toContain('ev.edate >= CAST(v.start_datetime AS TIMESTAMP)')
     // A join on the dictionary, never its ids spelled out: a vocabulary holds millions.
     expect(q.sql).toContain('WHERE cid IN (SELECT concept_id FROM linkr_concept')

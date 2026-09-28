@@ -15,7 +15,7 @@ import { catalogCounts } from '@/lib/data-catalog/config'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
 import { escapeXml as esc } from '@/lib/cohort-report/charts'
-import { buildPublishedCatalog, computeCatalogMasks, publishedConcepts, type PublishedConcept, type PublishedCrossing } from '@/lib/data-catalog/publish'
+import { buildPublishedCatalog, computeCatalogMasks, publishedConcepts, publishedTotals, type PublishedConcept, type PublishedCrossing } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from './jsonld'
 import { mappedTableDocs } from './mapped-tables'
 import { localized } from '@/lib/localized'
@@ -71,6 +71,8 @@ export interface CatalogPageData {
   crossings: (Omit<PublishedCrossing, 'masked'> & { masked?: PublishedCrossing['masked'] })[]
   concepts: ReturnType<typeof buildConceptTable>
   totals: Record<string, number>
+  /** Largest perturbation of a count, when the catalog perturbs them. */
+  noise?: number
 }
 
 export function buildCatalogPageData({ catalog, cache, locale = 'en', reveal = false }: Pick<ExportHtmlOptions, 'catalog' | 'cache' | 'locale' | 'reveal'>): CatalogPageData {
@@ -78,19 +80,14 @@ export function buildCatalogPageData({ catalog, cache, locale = 'en', reveal = f
   const masks = computeCatalogMasks(catalog, cache, threshold)
   const concepts = conceptListRows(publishedConcepts(catalog, cache, { reveal, masks }), threshold, reveal).sort(byPatients)
   const published = buildPublishedCatalog(catalog, cache, { locale, reveal, masks })
-  const counts = catalogCounts(catalog)
+  const noise = catalog.anonymization.noise ?? 0
   return {
     threshold,
+    ...(noise > 0 ? { noise } : {}),
     variables: published.variables,
     crossings: reveal ? published.crossings : published.crossings.map(({ masked: _masked, ...c }) => c),
     concepts: buildConceptTable(concepts, locale),
-    totals: {
-      patients: cache.totalPatients,
-      ...(counts.visits ? { stays: cache.totalVisits } : {}),
-      ...(counts.unitStays && cache.grandTotal.totalUnitStays != null ? { unitStays: cache.grandTotal.totalUnitStays } : {}),
-      concepts: new Set(concepts.map((r) => r.conceptId)).size,
-      records: cache.grandTotal.totalRecords,
-    },
+    totals: { ...publishedTotals(catalog, cache), concepts: new Set(concepts.map((r) => r.conceptId)).size },
   }
 }
 
@@ -193,7 +190,7 @@ ${schema.html}
   </section>
 
   <section id="tab-info" class="tab-content">
-${buildInfoHtml({ locale, threshold, mode, counts, crossings: data.crossings.map((c) => c.vars.map((v) => data.variables[v]?.label ?? v)), variables: Object.values(data.variables).map((v) => v!.label) })}
+${buildInfoHtml({ locale, threshold, mode, noise: data.noise ?? 0, counts, crossings: data.crossings.map((c) => c.vars.map((v) => data.variables[v]?.label ?? v)), variables: Object.values(data.variables).map((v) => v!.label) })}
   </section>
 
   <footer>
@@ -238,10 +235,11 @@ const docUrl = (locale: PageLocale) => `https://linkr.interhop.org/${locale === 
 const EHDS_URL = 'https://eur-lex.europa.eu/eli/reg/2025/327/oj'
 
 /** What the page is, how its numbers were made and protected, and where to read more. */
-function buildInfoHtml({ locale, threshold, mode, counts, crossings, variables }: {
+function buildInfoHtml({ locale, threshold, mode, noise, counts, crossings, variables }: {
   locale: PageLocale
   threshold: number
   mode: AnonymizationMode
+  noise: number
   counts: CatalogCounts
   crossings: string[][]
   variables: string[]
@@ -263,8 +261,8 @@ ${counts.visits ? '<li>Les <b>hospitalisations</b> sont les séjours hospitalier
 ${counts.unitStays ? '<li>Les <b>séjours en unité</b> sont les séjours dans une unité de soins au sein de ces hospitalisations.</li>' : ''}
 <li>Les <b>enregistrements</b> sont les lignes d'événements (mesures, médicaments, diagnostics…), comptées quand la variable concept fait partie du croisement.</li>
 <li>La période et l'âge sont pris au début de l'hospitalisation, ou à la date de l'enregistrement.</li></ul>
-<p>Les cellules ne sont jamais additionnées sur cette page : chaque chiffre affiché est une cellule calculée.</p>`),
-      card('shield', 'Anonymisation', `<p>Tout effectif inférieur à <b>${threshold} patients</b> est ${mode === 'suppress' ? 'retiré' : 'masqué (affiché &lt; ' + threshold + ')'}. Cela ne suffit pas quand un total est publié : une cellule cachée pourrait être retrouvée en soustrayant les autres cellules du total. Une cellule de plus de ce groupe est donc masquée (<em>suppression secondaire</em>). Les cellules masquées ne portent aucun nombre dans aucun fichier publié.</p>
+<p>Graphiques et tableaux montrent des cellules calculées. Filtrés, les chiffres clés additionnent des cellules quand elles s'additionnent, et le signalent (≥, ≤, ≈).</p>`),
+      card('shield', 'Anonymisation', `<p>Tout effectif inférieur à <b>${threshold} patients</b> est ${mode === 'suppress' ? 'retiré' : 'masqué (affiché &lt; ' + threshold + ')'}. Cela ne suffit pas quand un total est publié : une cellule cachée pourrait être retrouvée en soustrayant les autres cellules du total. D'autres cellules de ce groupe sont donc masquées, jusqu'à ce que les cellules cachées ne se déduisent plus, ni une à une ni par leur somme (<em>suppression secondaire</em>). Les cellules masquées ne portent aucun nombre dans aucun fichier publié.</p>${noise ? `\n<p>Chaque effectif publié est de plus <b>perturbé d'au plus ±${noise}</b>, d'un bruit fixé par les patients de la cellule (méthode des clés de cellule) : la même cellule reçoit toujours le même bruit, et une soustraction ne donne plus qu'un ordre de grandeur. Les effectifs sont donc approchés ; une étude de faisabilité donne les nombres exacts.</p>` : ''}
 <p>Les périodes avant la première et après la dernière atteignant le seuil sont écartées.</p>`),
       card('package', 'Standards et fichiers', `<p>Les métadonnées suivent ${spec}, le profil européen de description des jeux de données de santé du <a href="${EHDS_URL}" target="_blank" rel="noopener">règlement sur l'Espace européen des données de santé (UE) 2025/327</a>. Elles sont intégrées à cette page en JSON-LD, lisible par les catalogues et les moteurs de recherche (Métadonnées › JSON-LD).</p>
 <p>Le site publié contient cette page, <code>concepts.csv</code> (une ligne par concept), un CSV par croisement dans <code>crossings/</code>, et <code>metadata.jsonld</code>.</p>`),
@@ -280,8 +278,8 @@ ${counts.visits ? '<li><b>Hospitalizations</b> are hospital stays (visits); with
 ${counts.unitStays ? '<li><b>Unit stays</b> are the stays in a care unit within those hospitalizations.</li>' : ''}
 <li><b>Records</b> are event rows (measurements, drugs, diagnoses…), counted when the concept variable is part of a crossing.</li>
 <li>Period and age are taken at the start of the hospitalization, or at the date of the record.</li></ul>
-<p>Cells are never summed on this page: every figure shown is one computed cell.</p>`),
-    card('shield', 'Anonymisation', `<p>Any count below <b>${threshold} patients</b> is ${mode === 'suppress' ? 'removed' : 'masked (shown as &lt; ' + threshold + ')'}. That alone is not enough when a total is published: a hidden cell could be recovered by subtracting the other cells from the total. So one more cell of that group is masked too (<em>secondary suppression</em>). Masked cells carry no number in any published file.</p>
+<p>Charts and tables show computed cells. Under filters, the key figures add cells up where they add up, and say so (≥, ≤, ≈).</p>`),
+    card('shield', 'Anonymisation', `<p>Any count below <b>${threshold} patients</b> is ${mode === 'suppress' ? 'removed' : 'masked (shown as &lt; ' + threshold + ')'}. That alone is not enough when a total is published: a hidden cell could be recovered by subtracting the other cells from the total. So more cells of that group are masked, until the hidden ones cannot be worked out, one by one or as a sum (<em>secondary suppression</em>). Masked cells carry no number in any published file.</p>${noise ? `\n<p>Every published count is also <b>perturbed by up to ±${noise}</b>, with a noise set by the cell's patients (cell key method): the same cell always gets the same noise, and subtracting only gives an order of magnitude. Counts are therefore approximate; a feasibility study gives exact numbers.</p>` : ''}
 <p>Periods before the first and after the last one reaching the threshold are left out.</p>`),
     card('package', 'Standards and files', `<p>The metadata follows ${spec}, the European profile for describing health datasets under the <a href="${EHDS_URL}" target="_blank" rel="noopener">European Health Data Space regulation (EU) 2025/327</a>. It is embedded in this page as JSON-LD, readable by catalogues and search engines (Metadata › JSON-LD).</p>
 <p>The published site holds this page, <code>concepts.csv</code> (one row per concept), one CSV per crossing under <code>crossings/</code>, and <code>metadata.jsonld</code>.</p>`),

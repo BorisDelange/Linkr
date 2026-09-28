@@ -33,6 +33,7 @@ var EXPLORE_TEXT = {
   kpi_at_least_top: 'At least: only the concepts the catalog counts, masked cells left out.',
   kpi_records_from: 'Summed over the concepts of the {crossing} table: a record counts at its own date.',
   kpi_records_need: 'Computing the {crossing} crossing would count them.',
+  kpi_noisy: 'Each count is perturbed by up to ±{noise}: a sum of several is only approximate.',
   kpi_over_visits: 'From the {crossing} table, which counts stays: every patient of these values, with or without a record.',
   kpi_at_most: 'At most: what appears in several {things} is counted in each of them.',
   kpi_about: 'Approximate: what appears in several {things} is counted in each of them, which overcounts, and masked cells are left out, which undercounts.',
@@ -759,7 +760,7 @@ function createExplorer(DATA, opts) {
     if (!combos) return { v: 0, of: total };
     var incomplete = masked || cells < combos;
     var join = function(a) { return [a, over].filter(Boolean).join(' '); };
-    if (!blocker) return { v: sum, of: total, atLeast: incomplete, note: join(incomplete ? tr('kpi_at_least') : '') };
+    if (!blocker) return { v: sum, of: total, atLeast: incomplete, summed: cells > 1, note: join(incomplete ? tr('kpi_at_least') : '') };
     // Units in many cells (patients through several care units) can add up past the whole: that is the bound then.
     if (sum >= total) return { v: total, atMost: true, note: join(tr('kpi_at_most', { things: plural(blocker) })) };
     return { v: sum, atMost: !incomplete, about: incomplete, note: join(tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) })) };
@@ -791,10 +792,13 @@ function createExplorer(DATA, opts) {
     var blocker = narrowed.filter(function(v) { return !V[v].partition.records; })[0];
     if (blocker && sum >= total) return { v: total, atMost: true, note: tr('kpi_at_most', { things: plural(blocker) }) + ' ' + from };
     if (blocker) return { v: sum, atMost: !incomplete, about: incomplete, note: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) + ' ' + from };
-    return { v: sum, of: total, atLeast: incomplete, note: (incomplete ? tr(top ? 'kpi_at_least_top' : 'kpi_at_least') + ' ' : '') + from };
+    return { v: sum, of: total, atLeast: incomplete, summed: true, note: (incomplete ? tr(top ? 'kpi_at_least_top' : 'kpi_at_least') + ' ' : '') + from };
   }
   function card(key, label, icon, f) {
-    var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : f.atMost ? '≤ ' : f.about ? '≈ ' : '') + fmt(f.v);
+    // Perturbed counts: a sum of several carries their noises, so it reads as approximate.
+    var noisy = DATA.noise && f.summed && !f.atMost;
+    var value = f.v == null ? '—' : (noisy || f.about ? '≈ ' : f.atLeast ? '≥ ' : f.atMost ? '≤ ' : '') + fmt(f.v);
+    if (noisy) f.note = [f.note, tr('kpi_noisy', { noise: DATA.noise })].filter(Boolean).join(' ');
     var sub = f.of != null ? tr('kpi_of', { total: fmt(f.of) }) + (f.of ? ' (' + pct(f.v, f.of) + ')' : '') : f.sub || '';
     return { key: key, label: label, value: value, sub: sub, note: f.note || '', icon: icon };
   }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import { defaultCatalogVariables } from './config'
-import { ageDisplayName, buildCrossingCsv, buildPublishedCatalog, computeCatalogMasks, computedMeasures, publishedConcepts } from './publish'
+import { ageDisplayName, buildCrossingCsv, buildPublishedCatalog, computeCatalogMasks, computedMeasures, publishedConcepts, publishedTotals } from './publish'
 import { PRIMARY, PUBLISHED, SECONDARY } from './suppression'
 
 const catalog = {
@@ -32,17 +32,18 @@ describe('buildPublishedCatalog', () => {
 
   it('leaves masked cells out, like empty ones: absent reads the same whichever it is', () => {
     expect(JSON.stringify(pub)).not.toContain('777')
-    // One protective cell per sex column: each holds a small cell, 2102·female
-    // in its own and the trimmed 2100·male in the male one.
-    expect(crossing.masked).toEqual({ primary: 1, secondary: 2 })
-    expect(crossing.cells).toEqual([[1, 0, 63, 64, 0]])
-    expect(buildCrossingCsv(pub, crossing).trim().split('\n')).toEqual(['period,sex,patients,stays,status', '2102,male,63,64,published'])
+    // 2102 is masked in the period table to protect 2100, but the grand total
+    // gives it back: 2102·male published would then give 2102·female away. So
+    // its row is protected all the same, and that masks 2101 in turn.
+    expect(crossing.masked).toEqual({ primary: 1, secondary: 3 })
+    expect(crossing.cells).toEqual([])
+    expect(buildCrossingCsv(pub, crossing).trim().split('\n')).toEqual(['period,sex,patients,stays,status'])
   })
 
   it('keeps the masked cells with their numbers for the preview, without them for the agent', () => {
     const revealed = buildPublishedCatalog(catalog, cache, { reveal: true }).crossings.find((c) => c.id === 'period-sex')!
     expect(revealed.cells).toContainEqual([1, 1, 7, 777, 1])
-    expect(revealed.cells.filter((c) => c[4] === 2)).toHaveLength(2)
+    expect(revealed.cells.filter((c) => c[4] === 2)).toHaveLength(3)
     const kept = buildPublishedCatalog(catalog, cache, { keepMasked: true }).crossings.find((c) => c.id === 'period-sex')!
     expect(kept.cells).toContainEqual([1, 1, null, null, 1])
     expect(buildCrossingCsv(pub, kept)).toContain('2102,female,,,suppressed')
@@ -144,10 +145,10 @@ describe('single-variable crossings', () => {
 
 describe('crossing measures', () => {
   const both = { ...catalog, counts: { visits: true, unitStays: true } }
-  // A third small cell, so that masking the female one needs no secondary cell.
+  // A third cell, masked to protect the female one: 24 patients between them, nothing to tell.
   const withUnits = {
     ...cache,
-    crossings: [{ id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 80, stays: 90, unitStays: 120 }, { values: ['female'], patients: 4, stays: 5, unitStays: 6 }, { values: ['other'], patients: 2, stays: 2, unitStays: 2 }] }],
+    crossings: [{ id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 80, stays: 90, unitStays: 120 }, { values: ['female'], patients: 4, stays: 5, unitStays: 6 }, { values: ['other'], patients: 20, stays: 20, unitStays: 20 }] }],
   } as unknown as CatalogResultCache
 
   it('carries each counted measure after patients, masked alike', () => {
@@ -169,6 +170,50 @@ describe('crossing measures', () => {
     const [sex] = buildPublishedCatalog({ ...catalog, counts: { visits: false, unitStays: false } }, withUnits).crossings
     expect(sex.measures).toEqual([])
     expect(sex.cells).toContainEqual([0, 80, 0])
+  })
+})
+
+describe('perturbed publication', () => {
+  const noisy = { ...catalog, crossings: [['sex']], anonymization: { threshold: 10, mode: 'replace', noise: 3 } } as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>
+  const keyed = {
+    ...cache,
+    grandTotal: { totalPatients: 153, totalVisits: 168, totalRecords: 0, totalKey: 77 },
+    totalPatients: 153, totalVisits: 168,
+    crossings: [{ id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 80, stays: 90, key: 123_456 }, { values: ['female'], patients: 73, stays: 78, key: 987_654_321 }] }],
+  } as unknown as CatalogResultCache
+
+  it('moves each count by at most the noise, the same way every time', () => {
+    const [sex] = buildPublishedCatalog(noisy, keyed).crossings
+    const exact = [[80, 90], [73, 78]]
+    sex.cells.forEach((cell, i) => {
+      expect(Math.abs((cell[1] as number) - exact[i][0])).toBeLessThanOrEqual(3)
+      expect(Math.abs((cell[2] as number) - exact[i][1])).toBeLessThanOrEqual(3)
+    })
+    expect(buildPublishedCatalog(noisy, keyed).crossings[0].cells).toEqual(sex.cells)
+    expect(buildPublishedCatalog({ ...noisy, anonymization: { ...noisy.anonymization, noise: 0 } }, keyed).crossings[0].cells).toEqual([[0, 80, 90, 0], [1, 73, 78, 0]])
+  })
+
+  it('perturbs the totals, and keeps a published cell at or above the threshold', () => {
+    const totals = publishedTotals(noisy, keyed)
+    expect(Math.abs(totals.patients - 153)).toBeLessThanOrEqual(3)
+    const low = { ...keyed, crossings: [{ id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 10, stays: 10, key: 5 }, { values: ['female'], patients: 143, stays: 158, key: 6 }] }] } as unknown as CatalogResultCache
+    for (const cell of buildPublishedCatalog(noisy, low).crossings[0].cells) if (cell[3] === 0) expect(cell[1]).toBeGreaterThanOrEqual(10)
+  })
+
+  it('gives a concept the same noise in the list and in its 1-way crossing', () => {
+    const conceptCatalog = {
+      variables: { ...defaultCatalogVariables(), concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } },
+      crossings: [['concept']],
+      anonymization: { threshold: 10, mode: 'replace', noise: 3 },
+    } as unknown as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>
+    const withConcepts = {
+      concepts: [{ conceptId: 7, conceptName: 'C7', patientCount: 90, recordCount: 180, patientKey: 4242 }],
+      crossings: [{ id: 'concept', variables: ['concept'], rows: [{ values: ['7'], patients: 90, records: 180, key: 4242 }] }],
+      modalities: { concept: ['7'] },
+    } as unknown as CatalogResultCache
+    const [listed] = publishedConcepts(conceptCatalog, withConcepts)
+    const [cell] = buildPublishedCatalog(conceptCatalog, withConcepts).crossings[0].cells
+    expect([listed.patientCount, listed.recordCount]).toEqual([cell[1], cell[2]])
   })
 })
 

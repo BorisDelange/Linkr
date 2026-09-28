@@ -25,6 +25,7 @@ import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { ENTITY_COLORS } from '@/lib/entity-colors'
 import { cn } from '@/lib/utils'
 import { yieldClass } from './yield-class'
+import { CatalogAuditCard } from './CatalogAuditCard'
 import type { DataCatalog, CatalogResultCache, AnonymizationMode } from '@/types'
 
 interface Props {
@@ -37,6 +38,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   const canWrite = useMyWorkspaceRole().can('catalog:write')
   const { updateCatalog, setResultCache } = useCatalogStore()
   const [threshold, setThreshold] = useState(catalog.anonymization.threshold)
+  const [noise, setNoise] = useState(catalog.anonymization.noise ?? 0)
   const mode: AnonymizationMode = catalog.anonymization.mode ?? 'replace'
 
   // The settings save as they are typed (the threshold a beat later, so each
@@ -58,13 +60,19 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
   const changeThreshold = (next: number) => {
     setThreshold(next)
     clearTimeout(saveTimer.current)
-    pendingSave.current = () => void updateCatalog(catalog.id, { anonymization: { threshold: next, mode } })
+    pendingSave.current = () => void updateCatalog(catalog.id, { anonymization: { threshold: next, mode, noise } })
+    saveTimer.current = setTimeout(flushSave, 400)
+  }
+  const changeNoise = (next: number) => {
+    setNoise(next)
+    clearTimeout(saveTimer.current)
+    pendingSave.current = () => void updateCatalog(catalog.id, { anonymization: { threshold, mode, noise: next } })
     saveTimer.current = setTimeout(flushSave, 400)
   }
   const changeMode = (next: AnonymizationMode) => {
     clearTimeout(saveTimer.current)
     pendingSave.current = null
-    void updateCatalog(catalog.id, { anonymization: { threshold, mode: next } })
+    void updateCatalog(catalog.id, { anonymization: { threshold, mode: next, noise } })
   }
   const saved = cache.anonymizationImpact
   const stale = !saved || saved.threshold !== threshold || saved.mode !== mode
@@ -160,7 +168,7 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
           <SectionLabel as="h3">{t('data_catalog.anon_threshold_title')}</SectionLabel>
           <FieldInfo text={t('data_catalog.anon_threshold_description')} />
         </div>
-        <div className="grid grid-cols-[8rem_minmax(0,1fr)_auto] items-end gap-3">
+        <div className="grid grid-cols-[8rem_minmax(0,1fr)_8rem_auto] items-end gap-3">
           <FormField label={t('data_catalog.threshold')}>
             {({ id }) => (
               <NumberInput
@@ -184,6 +192,20 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
                   <SelectItem value="suppress" className="text-xs">{t('data_catalog.anon_mode_suppress')}</SelectItem>
                 </SelectContent>
               </Select>
+            )}
+          </FormField>
+          <FormField label={<span className="inline-flex items-center gap-1">{t('data_catalog.anon_noise')}<FieldInfo text={t('data_catalog.anon_noise_hint')} /></span>}>
+            {({ id }) => (
+              <NumberInput
+                id={id}
+                min={0}
+                max={20}
+                integer
+                value={noise}
+                disabled={!canWrite}
+                onValueChange={changeNoise}
+                className="h-8 text-xs"
+              />
             )}
           </FormField>
           <Button size="sm" className="gap-1.5" disabled={!stale || running || !canWrite} onClick={() => void runImpact({ threshold, mode })}>
@@ -244,6 +266,8 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
           />
         </div>
       )}
+
+      <CatalogAuditCard catalog={catalog} cache={cache} canWrite={canWrite} />
     </div>
   )
 }
