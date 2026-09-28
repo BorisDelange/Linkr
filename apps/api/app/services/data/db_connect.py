@@ -350,11 +350,10 @@ def _split_statements(sql: str) -> list[str]:
 
 # Statements a user script may never run. `enable_external_access` is the real
 # filesystem/network gate: it can be switched off on a running connection, with
-# `allowed_paths` naming the files that stay readable (`_forbid_file_access`, which
-# every read route applies). The ETL runner still leaves it ON whenever a role reads
-# Parquet files or a mapping CSV, and in that state `_lock_down_user_sql` only
-# disables AUTO-install/load: an explicit `INSTALL httpfs; LOAD httpfs` would hand
-# the script outbound network access. So the extension surface is closed here too.
+# `allowed_paths` naming the files that stay reachable (`_forbid_file_access`, which
+# every read route and the ETL runner apply). The extension surface is closed here
+# as well, so an explicit `INSTALL httpfs; LOAD httpfs` is refused before it reaches
+# DuckDB rather than relying on that one setting alone.
 #
 # ATTACH is included because it opens arbitrary database files (and would also
 # collide with the role attaches the runner owns); the roles it legitimately needs
@@ -379,11 +378,44 @@ def _reject_forbidden_statements(sql: str) -> None:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
 
 
+def _copies_to_a_file(stmt: str) -> bool:
+    """Whether `stmt` is a `COPY … TO` (writes out) rather than a `COPY … FROM`
+    (loads in): the first FROM/TO keyword outside parentheses after COPY decides,
+    so `COPY (SELECT … FROM t) TO` reads as TO."""
+    tokens = duckdb.tokenize(stmt)
+    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
+    depth = 0
+    for i, (pos, kind) in enumerate(tokens):
+        text = stmt[pos:ends[i]].strip().upper()
+        if i == 0:
+            if kind != duckdb.token_type.keyword or text != "COPY":
+                return False
+        elif kind == duckdb.token_type.operator:
+            depth += text.count("(") - text.count(")")
+        elif depth == 0 and kind == duckdb.token_type.keyword and text in ("FROM", "TO"):
+            return text == "TO"
+    return False
+
+
+def _reject_copy_to_file(sql: str) -> None:
+    """An ETL script loads files (`COPY t FROM 'mapping.x'`) but never writes one:
+    the only files it can reach are its roles' Parquet inputs and its mapping CSVs,
+    and `allowed_paths` would let a `COPY … TO` overwrite those shared blobs."""
+    for stmt in _split_statements(sql):
+        if _copies_to_a_file(_strip_leading_noise(stmt)):
+            raise ValueError("COPY … TO a file is not allowed in a pipeline script")
+
+
 # On a pooled connection shared by every user of a file/Parquet source, these would
 # outlive the request: DETACH/USE change the catalog for everyone, and ending the
 # transaction `_run_isolated` wraps the query in would let DDL persist.
+#
+# COPY/EXPORT because DuckDB's `allowed_paths` grants write as well as read: a
+# `COPY … TO '<the source's own parquet>' (USE_TMP_FILE FALSE)` overwrites it in
+# place, and those files are shared (content-addressed blobs, the concept cache).
 _FORBIDDEN_IN_SHARED_READ = re.compile(
-    r"^\s*(?:FORCE\s+)?(INSTALL|LOAD|ATTACH|DETACH|USE|BEGIN|START|COMMIT|END|ROLLBACK|ABORT)\b",
+    r"^\s*(?:FORCE\s+)?"
+    r"(INSTALL|LOAD|ATTACH|DETACH|USE|BEGIN|START|COMMIT|END|ROLLBACK|ABORT|COPY|EXPORT)\b",
     re.IGNORECASE,
 )
 
@@ -600,7 +632,7 @@ def query_file_source(
         )
         # `sql` is arbitrary client SQL (editor-authored, mirroring the in-browser
         # DuckDB-WASM path): only the blob — or its UTF-8 transcode — stays readable.
-        _reject_forbidden_statements(sql)
+        _reject_session_statements(sql)
         _forbid_file_access(con, [path, *file_reader.transcoded_paths(con)])
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql, max_rows=max_rows)
@@ -889,6 +921,27 @@ def _source_setup(
     return _setup_file, f"memory,{_ATTACH_ALIAS}", []
 
 
+_SELECT_HEAD = re.compile(r"(SELECT|WITH)\b", re.IGNORECASE)
+
+
+def _single_query(sql: str) -> str:
+    """`sql` if it is exactly one SELECT (or WITH … SELECT), else ValueError.
+
+    It is spliced into `COPY (…) TO`, and `allowed_paths` lets the connection write
+    the source's own files as well as read them: a second statement, or a query
+    that closes the parenthesis itself (`SELECT 1) TO '<source file>' … --`), would
+    overwrite shared data. DuckDB's own parser has the last word — a statement it
+    reads as one complete SELECT cannot reach past the parenthesis around it."""
+    statements = _split_statements(sql)
+    if len(statements) != 1 or not _SELECT_HEAD.match(_strip_leading_noise(statements[0])):
+        raise ValueError("the query must be a single SELECT")
+    with duckdb.connect() as parser:
+        parsed = parser.extract_statements(statements[0])
+    if len(parsed) != 1 or parsed[0].type != duckdb.StatementType.SELECT:
+        raise ValueError("the query must be a single SELECT")
+    return statements[0]
+
+
 def materialize_parquet(
     config: dict,
     password: str | None,
@@ -909,19 +962,18 @@ def materialize_parquet(
     readers always see either the previous complete cache or the new one — never a
     half-written file.
     """
+    select_sql = _single_query(select_sql)
     setup, search_path, readable = _source_setup(config, password, files, known)
     dest = Path(dest_path)
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = dest.with_suffix(dest.suffix + f".tmp-{os.getpid()}-{uuid.uuid4().hex}")
     con = setup()
     try:
-        # `select_sql` is client SQL spliced into the COPY: the temp file is the only
-        # path it may write, whatever it closes the parenthesis on.
         _forbid_file_access(con, [*readable, tmp.as_posix()])
         _lock_down_user_sql(con)
         con.execute(f"SET search_path='{search_path}'")
         con.execute(
-            f"COPY ({select_sql}) TO '{tmp.as_posix()}' (FORMAT PARQUET)"
+            f"COPY (\n{select_sql}\n) TO '{_sql_path(tmp.as_posix())}' (FORMAT PARQUET)"
         )
         tmp.replace(dest)
     finally:
@@ -938,6 +990,7 @@ def query_cached_parquet(path: str, sql: str) -> list[dict]:
         con.execute(
             f"CREATE VIEW concepts AS SELECT * FROM read_parquet('{_sql_path(path)}')"
         )
+        _reject_session_statements(sql)
         _forbid_file_access(con, [path])
         _lock_down_user_sql(con)
         return _run_statements(con, "memory", sql)
@@ -1120,14 +1173,11 @@ def run_etl_sql(
             con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
             con.execute(f"ATTACH '{_sql_path(target_path)}' AS target")
 
-            # A parquet role reads its .parquet files lazily at query time, and a
-            # mapping.<name> ref is a CSV read from tmp — both need local file
-            # access, so external access can only be cut when neither is present.
-            needs_file_access = bool(mapping_data)
             # Files already attached, by absolute path -> the database name holding
             # them. DuckDB refuses to attach one FILE twice however it is aliased,
             # so a role pointing at an already-attached file is aliased instead.
             attached: dict[str, str] = {_real_path(target_path): "target"}
+            readable: list[str] = []
             for role, spec in (roles or {}).items():
                 if role.lower() == "target":
                     continue
@@ -1138,23 +1188,20 @@ def run_etl_sql(
                     _attach_role(con, role, spec)
                     if spec.get("kind") == "file":
                         attached.setdefault(_real_path(spec["path"]), role)
-                if spec.get("kind") in ("parquet", "external"):
-                    needs_file_access = True
+                readable.extend(_parquet_role_files(spec))
 
             sql = _resolve_mapping_refs(sql, mapping_data or {}, tmp)
+            readable.extend(os.path.join(tmp, name) for name in os.listdir(tmp))
 
             # Checked on the FINAL sql, after mapping refs are resolved, so nothing
             # can be smuggled in through a `'mapping.<name>'` substitution.
             _reject_forbidden_statements(sql)
+            _reject_copy_to_file(sql)
 
-            # The role databases (sqlite/postgres/mysql) needed their extensions
-            # loaded above; now that every legitimate attach is done, forbid the
-            # client SQL from installing/loading anything else and lock the config
-            # so it can't reopen the door (e.g. httpfs to read /etc or exfiltrate).
-            if not needs_file_access:
-                # Nothing legitimate needs the filesystem/network → deny it so the
-                # script can't read arbitrary paths. Must precede lock_configuration.
-                con.execute("SET enable_external_access=false")
+            # Every legitimate attach is done: the script keeps the attached
+            # databases, the parquet files its roles' views read and its mapping
+            # CSVs — nothing else on the server's filesystem or network.
+            _forbid_file_access(con, readable)
             _lock_down_user_sql(con)
 
             # Unqualified names must not silently fall back to another attached
@@ -1285,6 +1332,15 @@ def _alias_role(con: duckdb.DuckDBPyConnection, role: str, target_db: str) -> No
             f'CREATE OR REPLACE VIEW "{role}"."{safe_schema}"."{safe_table}" AS '
             f'SELECT * FROM "{target_db}"."{safe_schema}"."{safe_table}"'
         )
+
+
+def _parquet_role_files(spec: dict) -> list[str]:
+    """The files a parquet role's views read lazily, which must stay readable once
+    the run is cut off the filesystem. Empty for any other kind of role."""
+    if spec.get("kind") != "parquet":
+        return []
+    groups = _group_parquet(spec.get("files") or [], spec.get("known") or [])
+    return [p for paths in groups.values() for p in paths]
 
 
 def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:

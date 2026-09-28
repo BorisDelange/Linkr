@@ -16,6 +16,8 @@ leave the server.
 """
 
 import asyncio
+import tempfile
+from pathlib import Path
 
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -687,9 +689,6 @@ async def mapping_project_pull_scores(
     the browser and back (a method's CSV runs to hundreds of MB). Local methods
     the pull does not name are kept. Returns the new ScoresIndex, null when no
     scores remain."""
-    import tempfile
-    from pathlib import Path
-
     from app.services import scores_export
     from app.services.data import scores_service
 
@@ -717,7 +716,7 @@ async def mapping_project_pull_scores(
             try:
                 sha = await scores_export.replace_methods(db, mp, csvs, body.removed)
             except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     if not sha:
         return None
     return await asyncio.to_thread(
