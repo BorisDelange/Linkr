@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { NumberInput } from '@/components/ui/number-input'
 import { FormField } from '@/components/ui/form-field'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { Label } from '@/components/ui/label'
 import {
   Select,
@@ -150,7 +151,6 @@ export function CreateMappingProjectDialog({
   const pendingCloseRef = useRef<(() => void) | null>(null)
   const [fileError, setFileError] = useState<string | null>(null)
   const [fileLoading, setFileLoading] = useState(false)
-  const [dragActive, setDragActive] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // File parse options
@@ -614,7 +614,6 @@ export function CreateMappingProjectDialog({
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
-    setDragActive(false)
     const f = e.dataTransfer.files[0]
     if (f) handleFile(f)
   }, [handleFile])
@@ -1410,18 +1409,20 @@ export function CreateMappingProjectDialog({
                     serverPath={serverFile?.path ?? ''}
                     onServerPathChange={(path) => { if (path) void pickServerFile(path); else setServerFile(null) }}
                   >
+                  {/* Same upload side as Add a database (FileUploadArea), so the two
+                      origins line up; dropping a file on it still works. */}
                   <div
-                    className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors cursor-pointer ${
-                      dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-                    }`}
-                    onClick={() => fileInputRef.current?.click()}
-                    onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
-                    onDragLeave={() => setDragActive(false)}
+                    className="space-y-2"
+                    onDragOver={(e) => e.preventDefault()}
                     onDrop={handleDrop}
                   >
-                    <Upload size={28} className="text-muted-foreground/50" />
-                    <p className="mt-2 text-sm text-muted-foreground">{t('concept_mapping.file_drop_hint')}</p>
-                    <p className="mt-1 text-[10px] text-muted-foreground">CSV, TSV, Excel (.xlsx, .xls), Parquet</p>
+                    <Label>{t('databases.upload_file')}</Label>
+                    <FileDropZone
+                      icon={<Upload size={20} className="text-muted-foreground" />}
+                      label={t('databases.upload_drop_hint')}
+                      hint=".csv, .tsv, .txt, .xlsx, .xls, .parquet"
+                      onClick={() => fileInputRef.current?.click()}
+                    />
                     <input
                       ref={fileInputRef}
                       type="file"
