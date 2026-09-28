@@ -221,10 +221,10 @@ function pinOptionsHtml() {
   }).join('') + listFooter({ shown: m.hits.length, more: m.more });
 }
 
-function nominalFilter(v) {
+function nominalFilter(v, extra) {
   var vr = V[v], sel = S.sel[v];
   var few = vr.mods.length <= 10 && !vr.names.some(function(nm) { return nm.length > 24; });
-  var h = '<div class="flt"><div class="flt-head">' + dot(v) + '<span>' + escHtml(vr.label) + '</span></div>';
+  var h = '<div class="flt"><div class="flt-head">' + dot(v) + '<span>' + escHtml(vr.label) + '</span></div>' + (extra || '');
   if (few) {
     h += '<div class="pills">' + vr.names.map(function(nm, i) {
       var on = !sel || !!sel[i];
@@ -269,14 +269,19 @@ function periodFilter() {
   return h + '</div>';
 }
 
+function categorySelect() {
+  var cats = XP.conceptCategories();
+  if (!cats.length) return '';
+  return '<select class="select" data-act="ccat"><option value="">' + escHtml(L.all_categories) + '</option>' + cats.map(function(c) { return '<option value="' + escHtml(c) + '"' + (S.ccat === c ? ' selected' : '') + '>' + escHtml(c) + '</option>'; }).join('') + '</select>';
+}
+
+/** The concept list is searched; a crossing picks its concepts from a dropdown, narrowed by category. */
 function conceptFilter() {
   var cv = V.concept;
-  if (cv && cv.level !== 'concept' && !XP.isListView()) return nominalFilter('concept');
-  var cats = XP.conceptCategories();
-  var h = '<div class="flt"><div class="flt-head">' + dot('concept') + '<span>' + escHtml(XP.varLabel('concept')) + '</span></div>'
-    + '<input type="search" class="input flt-search" id="concept-q" data-act="cq" placeholder="' + escHtml(L.search_concepts) + '" value="' + escHtml(S.cq) + '" autocomplete="off">';
-  if (cats.length) h += '<select class="select" data-act="ccat"><option value="">' + escHtml(L.all_categories) + '</option>' + cats.map(function(c) { return '<option value="' + escHtml(c) + '"' + (S.ccat === c ? ' selected' : '') + '>' + escHtml(c) + '</option>'; }).join('') + '</select>';
-  return h + '</div>';
+  if (!XP.isListView()) return nominalFilter('concept', cv && cv.level === 'concept' ? categorySelect() : '');
+  return '<div class="flt"><div class="flt-head">' + dot('concept') + '<span>' + escHtml(XP.varLabel('concept')) + '</span></div>'
+    + '<input type="search" class="input flt-search" id="concept-q" data-act="cq" placeholder="' + escHtml(L.search_concepts) + '" value="' + escHtml(S.cq) + '" autocomplete="off">'
+    + categorySelect() + '</div>';
 }
 
 /** A three-variable crossing shows one value of one of its variables at a time. */

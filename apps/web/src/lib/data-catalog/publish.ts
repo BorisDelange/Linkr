@@ -61,6 +61,12 @@ export interface PublishedVariable {
   /** Concept variable at concept level: each concept's category, for the page's category filter. */
   categories?: (string | null)[]
   /**
+   * Concept variable: its crossings count every concept (all of them, at
+   * concept level), so a sum of their records over concepts misses only the
+   * masked cells.
+   */
+  everyConcept?: boolean
+  /**
    * Whether each unit of a measure falls in exactly one modality — a patient
    * has one sex, a stay one start period — so that shares of the sum mean
    * something (a pie chart). A patient seen at 40 and at 41 sits in two age
@@ -342,7 +348,10 @@ export function publishedVariables(
       variable.granularity = catalog.variables.period?.granularity
       variable.step = catalog.variables.period?.step ?? 1
     }
-    if (id === 'concept') variable.level = catalog.variables.concept?.level ?? 'concept'
+    if (id === 'concept') {
+      variable.level = catalog.variables.concept?.level ?? 'concept'
+      variable.everyConcept = variable.level === 'concept' && catalog.variables.concept?.scope === 'all'
+    }
     if (id === 'concept' && catalog.variables.concept?.level === 'concept' && catalog.variables.concept.categoryColumn) {
       const categoryOf = new Map<string, string | null>()
       const keyOf = conceptModalityKey(cache)

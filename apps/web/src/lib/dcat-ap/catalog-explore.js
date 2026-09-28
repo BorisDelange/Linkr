@@ -30,6 +30,9 @@ var EXPLORE_TEXT = {
   kpi_of: 'of {total}', kpi_not_counted: 'Not counted by this view',
   kpi_not_additive: 'Cannot be added up across {things}',
   kpi_at_least: 'At least: masked cells are left out of the sum.',
+  kpi_at_least_top: 'At least: only the concepts the catalog counts, masked cells left out.',
+  kpi_records_from: 'Summed over the concepts of the {crossing} table: a record counts at its own date.',
+  kpi_records_need: 'Computing the {crossing} crossing would count them.',
   kpi_at_most: 'At most: what appears in several {things} is counted in each of them.',
   kpi_about: 'Approximate: what appears in several {things} is counted in each of them, which overcounts, and masked cells are left out, which undercounts.',
   published_concepts_only: 'published concepts only',
@@ -170,7 +173,6 @@ function createExplorer(DATA, opts) {
 
   function singleOf(v) {
     if (v === 'period') return S.range && S.range[0] === S.range[1] ? S.range[0] : null;
-    if (v === 'concept' && V.concept && V.concept.level === 'concept') return null;
     var sel = S.sel[v];
     if (!sel) return null;
     var keys = Object.keys(sel);
@@ -224,23 +226,14 @@ function createExplorer(DATA, opts) {
     return ['patients'].concat(c ? c.measures : []);
   }
 
-  var conceptMatchCache = { key: null, ok: null };
+  /** A concept kept by the category filter; the concepts themselves are picked like any value. */
   function conceptOk(i) {
     var cv = V.concept;
-    if (!cv) return true;
-    var key = S.cq + '\u0001' + S.ccat;
-    if (conceptMatchCache.key !== key) {
-      var q = S.cq.trim().toLowerCase();
-      conceptMatchCache = { key: key, ok: cv.mods.map(function(m, j) {
-        if (S.ccat && cv.level === 'concept' && (!cv.categories || cv.categories[j] !== S.ccat)) return false;
-        return !q || fuzzy(q, (cv.names[j] + ' ' + m).toLowerCase());
-      }) };
-    }
-    return conceptMatchCache.ok[i];
+    return !S.ccat || !cv.categories || cv.categories[i] === S.ccat;
   }
   function keepMod(v, i) {
     if (v === 'period') return !S.range || (i >= S.range[0] && i <= S.range[1]);
-    if (v === 'concept' && V.concept && V.concept.level === 'concept') return conceptOk(i);
+    if (v === 'concept' && V.concept && V.concept.level === 'concept' && !conceptOk(i)) return false;
     var sel = S.sel[v];
     return !sel || !!sel[i];
   }
@@ -730,7 +723,10 @@ function createExplorer(DATA, opts) {
     var sliced = Object.keys(D.slice), narrowed = narrowedVars();
     if (!sliced.length && !narrowed.length) return { v: total };
     var src = sourceCrossing();
-    if (!src || (metric !== 'patients' && src.measures.indexOf(metric) === -1)) return { v: null, sub: tr('kpi_not_counted') };
+    if (!src) return { v: null, sub: tr('kpi_not_counted') };
+    if (metric !== 'patients' && src.measures.indexOf(metric) === -1) {
+      return metric === 'records' && V.concept ? recordsOverConcepts(narrowed, total) : { v: null, sub: tr('kpi_not_counted') };
+    }
     if (!narrowed.length) {
       var m = marginCell([], {});
       var r = m && m.cell ? measureAt(m.cell, m.crossing, metric) : null;
@@ -755,6 +751,33 @@ function createExplorer(DATA, opts) {
     var incomplete = masked || cells < combos;
     if (!blocker) return { v: sum, of: total, atLeast: incomplete, note: incomplete ? tr('kpi_at_least') : '' };
     return { v: sum, atMost: !incomplete, about: incomplete, note: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) };
+  }
+  /**
+   * Records under filters in a view over visits, which counts none: a record
+   * has one concept, so they are the sum over every concept of the crossing
+   * adding the concept to the filtered variables. At least that when the
+   * crossing masks cells (not published, so any may be missing) or counts the
+   * top concepts only.
+   */
+  function recordsOverConcepts(narrowed, total) {
+    var sliced = Object.keys(D.slice), vars = narrowed.concat(sliced);
+    var c = X[keyOf(vars.concat(['concept']))];
+    var name = keyOf(vars.concat(['concept'])).split('-').map(varLabel).join(' × ');
+    if (!c || c.measures.indexOf('records') === -1) return { v: null, sub: tr('kpi_not_counted'), note: tr('kpi_records_need', { crossing: name }) };
+    var pos = {};
+    c.vars.forEach(function(v, i) { pos[v] = i; });
+    var sum = 0, masked = c.masked.primary + c.masked.secondary > 0;
+    c.cells.forEach(function(cell) {
+      for (var s = 0; s < sliced.length; s++) if (cell[pos[sliced[s]]] !== D.slice[sliced[s]]) return;
+      for (var d = 0; d < narrowed.length; d++) if (!keepMod(narrowed[d], cell[pos[narrowed[d]]])) return;
+      var x = measureAt(cell, c, 'records');
+      if (x.st) masked = true; else sum += x.v || 0;
+    });
+    var from = tr('kpi_records_from', { crossing: name });
+    var top = !V.concept.everyConcept, incomplete = masked || top;
+    var blocker = narrowed.filter(function(v) { return !V[v].partition.records; })[0];
+    if (blocker) return { v: sum, atMost: !incomplete, about: incomplete, note: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) + ' ' + from };
+    return { v: sum, of: total, atLeast: incomplete, note: (incomplete ? tr(top ? 'kpi_at_least_top' : 'kpi_at_least') + ' ' : '') + from };
   }
   function card(key, label, icon, f) {
     var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : f.atMost ? '≤ ' : f.about ? '≈ ' : '') + fmt(f.v);
@@ -1079,6 +1102,8 @@ function createExplorer(DATA, opts) {
     Object.keys(S.sel).forEach(function(v) { if (vars.indexOf(v) === -1) delete S.sel[v]; });
     if (vars.indexOf('period') === -1) S.range = null;
     if (vars.indexOf('concept') === -1) { S.cq = ''; S.ccat = ''; }
+    // The search box belongs to the concept list: a crossing picks its concepts instead.
+    if (!isListView()) S.cq = '';
     S.pin = null; S.pinVal = null;
     derive();
   }
