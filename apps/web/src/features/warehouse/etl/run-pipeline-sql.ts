@@ -5,6 +5,7 @@ import type { DatabaseConnectionConfig, DataSource, EtlPipeline } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { MAPPING_REF_PREFIX, usedMappingRefs } from '@/lib/duckdb/mapping-source'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 
 function isManaged(ds: DataSource | undefined): boolean {
   return !!(ds && (ds.connectionConfig as DatabaseConnectionConfig)?.managed)
@@ -199,7 +200,8 @@ function statementRunner(
 }
 
 /**
- * ATHENA reference of the pipeline's mapping project, if any.
+ * The vocabulary the pipeline's `vocab.` role reads: the workspace library, or
+ * the older vocabulary database of its mapping project.
  *
  * The projects are loaded on demand: only the Vocabulary and Pipeline tabs
  * populate that store, so running a script straight from the Scripts tab would
@@ -208,9 +210,12 @@ function statementRunner(
 export async function vocabDataSourceId(
   pipeline: EtlPipeline | undefined,
 ): Promise<string | undefined> {
-  if (!pipeline?.mappingProjectId) return undefined
+  if (!pipeline) return undefined
   const store = useConceptMappingStore.getState()
-  if (!store.mappingProjectsLoaded) await store.loadMappingProjects()
+  if (pipeline.mappingProjectId && !store.mappingProjectsLoaded) await store.loadMappingProjects()
   const { mappingProjects } = useConceptMappingStore.getState()
-  return mappingProjects.find((p) => p.id === pipeline.mappingProjectId)?.vocabularyDataSourceId
+  return vocabularyDataSourceIdFor(
+    mappingProjects.find((p) => p.id === pipeline.mappingProjectId) ?? { workspaceId: pipeline.workspaceId },
+    useDataSourceStore.getState().dataSources,
+  )
 }

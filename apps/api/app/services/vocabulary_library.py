@@ -126,6 +126,12 @@ def library_files(workspace_id: str) -> list[tuple[str, str]]:
     return [(str(p.relative_to(root)), str(p)) for p in found]
 
 
+def present_tables(workspace_id: str) -> list[str]:
+    """The tables the library holds — its `knownTables`, which the ETL script
+    generator reads to skip the parts a missing table would break."""
+    return sorted({name.split("/", 1)[0] for name, _ in library_files(workspace_id) if "/" in name})
+
+
 def table_of(file_name: str) -> str | None:
     """Which vocabulary table a file of an ATHENA export holds (`CONCEPT.csv`,
     `concept/part-0.parquet`), or None."""

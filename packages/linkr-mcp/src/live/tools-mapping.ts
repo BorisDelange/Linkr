@@ -32,15 +32,15 @@ export const MAX_WRITE = 200
 interface Vocabulary { databaseId: string; mapping: SchemaMapping; table: string }
 
 async function vocabularyOf(project: MappingProject): Promise<Vocabulary> {
-  const ids = [project.vocabularyDataSourceId, project.dataSourceId].filter((id): id is string => !!id)
-  const sources = await Promise.all(ids.map((id) => api.getDataSource(id).catch(() => null)))
-  const [vocabDs, sourceDs] = project.vocabularyDataSourceId ? [sources[0], sources[1]] : [null, sources[0]]
-  const target = resolveVocabularyTarget(project, sourceDs, sources.filter((d): d is DataSource => !!d))
+  // The workspace vocabulary library first (resolveVocabularyTarget), so the
+  // workspace's databases are needed, not just the project's two.
+  const all = await api.listDataSources().catch(() => [] as DataSource[])
+  const sourceDs = all.find((d) => d.id === project.dataSourceId) ?? null
+  const target = resolveVocabularyTarget(project, sourceDs, all)
   if (!target || !target.mapping.concepts?.[0] || !isOmopConceptTable(target.mapping.concepts[0])) {
-    const ds = vocabDs ?? sourceDs
-    throw new Error(`${project.vocabularyDataSourceId ? 'The vocabulary database' : 'This project has no vocabulary database, and its source database'} `
-      + `${ds ? `"${loc(ds.name)}" ` : ''}has no OMOP concept table. Ask the user to pick an OMOP vocabulary database `
-      + '(e.g. an ATHENA import) in the mapping project\'s settings in Linkr.')
+    throw new Error('This workspace has no OMOP vocabulary, and the project\'s source database '
+      + `${sourceDs ? `"${loc(sourceDs.name)}" ` : ''}has no OMOP concept table. Ask the user to import an ATHENA `
+      + 'export in Linkr: workspace settings › Vocabularies.')
   }
   return { databaseId: target.dsId, mapping: target.mapping, table: target.conceptTable }
 }
@@ -331,7 +331,7 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   }))
 
   server.registerTool('search_vocabulary', {
-    description: 'Search target concepts in the project\'s OMOP vocabulary database, by name, code or id (fuzzy, '
+    description: 'Search target concepts in the workspace\'s OMOP vocabularies, by name, code or id (fuzzy, '
       + 'English names), plus synonyms. Standard concepts only by default. concept_set_id restricts the search to a '
       + 'concept set\'s resolved concepts (data-dictionary mode).',
     annotations: READ,

@@ -1,5 +1,6 @@
 import type { ConceptSpec, SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelation, type ClassRelation } from '@/lib/schema-classes/relations'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 
 /** The database target concepts are searched in, with the table to search. */
 export interface VocabularyTarget {
@@ -14,6 +15,9 @@ export interface VocabularyTarget {
 
 interface DataSourceLike {
   id: string
+  workspaceId?: string | null
+  isVocabularyReference?: boolean
+  connectionConfig?: unknown
   schemaMapping?: SchemaMapping | null
 }
 
@@ -23,20 +27,20 @@ export function isOmopConceptTable(spec: ConceptSpec): boolean {
 }
 
 /**
- * Where a mapping project's target concepts live: its vocabulary database, else
- * the source database. In that database the OMOP concept table comes first — a
+ * Where a mapping project's target concepts live: the workspace vocabulary
+ * library (or the project's own older vocabulary database), else the source
+ * database. In that database the OMOP concept table comes first — a
  * source database such as MIMIC lists its own dictionaries (`d_items`) before
  * any vocabulary, and querying those as targets finds nothing. A database with
  * no OMOP table keeps its first dictionary (a custom target vocabulary).
  */
 export function resolveVocabularyTarget(
-  project: { vocabularyDataSourceId?: string | null },
+  project: { workspaceId?: string | null; vocabularyDataSourceId?: string | null },
   sourceDataSource: DataSourceLike | null | undefined,
   dataSources: DataSourceLike[],
 ): VocabularyTarget | null {
-  const vocabDs = project.vocabularyDataSourceId
-    ? dataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
-    : null
+  const vocabId = vocabularyDataSourceIdFor(project, dataSources)
+  const vocabDs = vocabId ? dataSources.find((ds) => ds.id === vocabId) : null
   const ds = vocabDs ?? sourceDataSource
   const mapping = ds?.schemaMapping
   const concepts = mapping?.concepts ?? []

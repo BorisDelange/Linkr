@@ -16,6 +16,7 @@ import {
   serverRoleSchemas, skipReason, type TreeFile,
 } from './etl.js'
 import { clip, pointerRows, subtreeIds } from './helpers.js'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 import {
   DESTRUCTIVE, READ, WRITE, api, authored, failure, guard, loc, text, type Server, type ToolResult,
 } from './shared.js'
@@ -226,10 +227,12 @@ const PATH_PROPS = {
 
 // --- Running a pipeline ------------------------------------------------------
 
+/** The `vocab.` role: the workspace vocabulary library, or the older vocabulary
+ *  database of the pipeline's mapping project. */
 async function vocabIdOf(p: Pipeline): Promise<string | undefined> {
-  if (!p.mappingProjectId) return undefined
   try {
-    return (await api.getMappingProject(p.mappingProjectId)).vocabularyDataSourceId ?? undefined
+    const project = p.mappingProjectId ? await api.getMappingProject(p.mappingProjectId) : undefined
+    return vocabularyDataSourceIdFor(project ?? { workspaceId: p.workspaceId }, await api.listDataSources())
   } catch {
     return undefined
   }
@@ -350,7 +353,7 @@ export function registerEtlTools(server: Server): void {
     if (p.mappingProjectId) {
       try {
         const mp: MappingProject = await api.getMappingProject(p.mappingProjectId)
-        mapping = `"${loc(mp.name)}" (${mp.id}) · vocab. = ${label(mp.vocabularyDataSourceId)}`
+        mapping = `"${loc(mp.name)}" (${mp.id}) · vocab. = ${label(vocabularyDataSourceIdFor(mp, dbs))}`
       } catch {
         mapping = `${p.mappingProjectId} (not found)`
       }
@@ -428,7 +431,7 @@ export function registerEtlTools(server: Server): void {
   server.registerTool('update_etl_pipeline', {
     description:
       'Change an ETL pipeline: name, description, README (Markdown), version, its source / target database, or the '
-      + 'concept-mapping project whose vocabulary database scripts read as `vocab.`. Only the fields given change; '
+      + 'concept-mapping project whose mappings the vocabulary scripts load (`vocab.` is the workspace vocabulary library). Only the fields given change; '
       + 'an empty string clears a database or the mapping project.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{

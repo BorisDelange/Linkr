@@ -8,15 +8,13 @@ import {
   type VisibilityState,
 } from '@tanstack/react-table'
 import {
-  Plus, BookOpen, Trash2, RefreshCw, Upload, Search, Loader2,
-  Info, Check, CheckCheck, X, History, FolderOpen, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
-  Settings2, SlidersHorizontal, Server,
+  Plus, BookOpen, Trash2, RefreshCw, Search, Loader2,
+  Info, Check, CheckCheck, X, History, CheckCircle2, ChevronLeft, ChevronRight, Pencil, SquareX,
+  Settings2, SlidersHorizontal,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
-import { fsBrowse } from '@/lib/api/fs-browser'
-import { isServerMode } from '@/lib/api-client'
-import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useNavigate } from 'react-router'
+import { paths } from '@/lib/paths'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
@@ -24,8 +22,6 @@ import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-bad
 import { normalizeConceptFlag } from '@/lib/concept-mapping/concept-flags'
 import { ValidityBadge } from '@/lib/concept-mapping/validity-badge'
 import { Card } from '@/components/ui/card'
-import { Checkbox } from '@/components/ui/checkbox'
-import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { NumberInput } from '@/components/ui/number-input'
@@ -66,27 +62,18 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
-import { SectionLabel } from '@/components/ui/section-label'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource, discoverTables } from '@/lib/duckdb/engine'
+import { queryDataSource } from '@/lib/duckdb/engine'
 import { ImportConceptSetDialog, extractMetadata, extractTranslations } from './ImportConceptSetDialog'
 import { ConceptSetDetailSheet } from './ConceptSetDetailSheet'
-import type { MappingProject, DataSource, ConceptSet } from '@/types'
+import type { MappingProject, DataSource, ConceptSet, DatabaseConnectionConfig } from '@/types'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
-import { localized, toLocalized } from '@/lib/localized'
-import { buildPointer } from '@/lib/import-identity'
+import { localized } from '@/lib/localized'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
-import {
-  compareVocabFiles,
-  displayTableNameOf,
-  isConceptFile,
-  isVocabFile,
-  tableNameOf,
-} from '@/lib/concept-mapping/vocab-files'
-import { humanBytes } from '@/lib/format-helpers'
 import { ATHENA_SCHEMA_MAPPING } from '@/lib/vocabulary-library/schema-mapping'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 
 const BROWSE_PAGE_SIZE = 25
 /** Rows fetched per search, mirroring the target search's own cap. */
@@ -153,22 +140,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const [updateAllRunning, setUpdateAllRunning] = useState(false)
   const [updateAllResult, setUpdateAllResult] = useState<{ updated: number; total: number } | null>(null)
 
-  // Vocabulary reference import. The checklist only ever reads a name and a size,
-  // so one list serves both origins: uploaded File objects, or entries listed from
-  // a server folder (which carries `vocabServerPath` and copies nothing).
-  const vocabInputRef = useRef<HTMLInputElement>(null)
-  const [vocabFiles, setVocabFiles] = useState<{ name: string; size: number }[]>([])
-  const [vocabServerPath, setVocabServerPath] = useState('')
-  const [vocabPickerOpen, setVocabPickerOpen] = useState(false)
-  // Files the user unticked. Kept as the exclusion set rather than the inclusion
-  // one so a newly detected file is imported by default.
-  const [vocabExcluded, setVocabExcluded] = useState<Set<string>>(new Set())
-  const [vocabImporting, setVocabImporting] = useState(false)
-  const [vocabError, setVocabError] = useState<string | null>(null)
-  const [vocabRemoveOpen, setVocabRemoveOpen] = useState(false)
-  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
-  const addDataSource = useDataSourceStore((s) => s.addDataSource)
-  const removeDataSource = useDataSourceStore((s) => s.removeDataSource)
+  const navigate = useNavigate()
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
@@ -693,146 +665,12 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     }
   }
 
-  // --- Vocabulary import ---
-
-  const handleVocabFilesSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files ?? [])
-    const vocabOnly = files.filter((f) => isVocabFile(f.name))
-    setVocabFiles(vocabOnly)
-    setVocabServerPath('')
-    setVocabExcluded(new Set())
-    setVocabError(null)
-  }
-
-  /** An ATHENA folder already on the server: list it, keep the vocabulary tables,
-   *  and feed the same checklist the upload path fills. Nothing is copied. */
-  const handleVocabServerFolder = async (path: string) => {
-    setVocabError(null)
-    try {
-      const listing = await fsBrowse(
-        { kind: 'workspace', workspaceId: activeWorkspaceId ?? '' },
-        path,
-        { includeFiles: true },
-      )
-      const vocabEntries = listing.entries.filter((e) => e.isDir === false && isVocabFile(e.name))
-      // Server-side, a folder source is attached through read_parquet: a CSV
-      // vocabulary would import as an empty reference. Say so instead.
-      const found = vocabEntries
-        .filter((e) => /\.(parquet|pq)$/i.test(e.name))
-        .map((e) => ({ name: e.name, size: e.size ?? 0 }))
-      if (found.length === 0) {
-        setVocabError(
-          t(vocabEntries.length > 0
-            ? 'concept_mapping.vocab_import_server_needs_parquet'
-            : 'concept_mapping.vocab_import_no_tables_found'),
-        )
-        return
-      }
-      setVocabFiles(found)
-      setVocabServerPath(path)
-      setVocabExcluded(new Set())
-    } catch (err) {
-      setVocabError(err instanceof Error ? err.message : String(err))
-    }
-  }
-
-  /** Files that will actually be imported (everything ticked). */
-  const vocabSelected = vocabFiles.filter((f) => !vocabExcluded.has(f.name))
-
-  const toggleVocabFile = (name: string) => {
-    // CONCEPT is mandatory, so its checkbox is disabled rather than silently
-    // re-added here.
-    setVocabExcluded((prev) => {
-      const next = new Set(prev)
-      if (next.has(name)) next.delete(name)
-      else next.add(name)
-      return next
-    })
-  }
-
-  const handleVocabImport = async () => {
-    if (vocabSelected.length === 0) return
-    if (!vocabSelected.some((f) => isConceptFile(f.name))) {
-      setVocabError(t('concept_mapping.vocab_import_missing_concept'))
-      return
-    }
-    setVocabImporting(true)
-    setVocabError(null)
-    try {
-      const dsId = await addDataSource({
-        name: toLocalized(`ATHENA Vocabulary — ${localized(project.name, i18n.language)}`),
-        description: toLocalized('OHDSI ATHENA vocabulary reference for concept mapping.'),
-        sourceType: 'database',
-        connectionConfig: {
-          engine: 'duckdb' as const,
-          ...(vocabServerPath ? { serverPath: vocabServerPath } : {}),
-        },
-        // knownTables must describe what this reference HOLDS, not what the app
-        // accepts: the ETL script generator reads it to decide which parts it
-        // can emit.
-        schemaMapping: {
-          ...ATHENA_SCHEMA_MAPPING,
-          knownTables: vocabSelected.map((f) => tableNameOf(f.name)),
-        },
-        // A server folder is read where it lies, so there is nothing to upload.
-        files: vocabServerPath ? undefined : (vocabSelected as File[]),
-        isVocabularyReference: true,
-      })
-      // Read from the store rather than the render's `dataSources`: the database
-      // was created a line ago, so the closure's snapshot predates it.
-      await updateMappingProject(project.id, {
-        vocabularyDataSourceId: dsId,
-        vocabularyDataSourceRef: buildPointer(useDataSourceStore.getState().dataSources, dsId),
-      })
-      setVocabFiles([])
-      setVocabServerPath('')
-      setVocabExcluded(new Set())
-      if (vocabInputRef.current) vocabInputRef.current.value = ''
-    } catch (err) {
-      console.error('Failed to import vocabulary:', err)
-      setVocabError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setVocabImporting(false)
-    }
-  }
-
-  const handleVocabRemove = async () => {
-    if (!project.vocabularyDataSourceId) return
-    try {
-      await removeDataSource(project.vocabularyDataSourceId)
-    } catch { /* might already be deleted */ }
-    await updateMappingProject(project.id, {
-      vocabularyDataSourceId: undefined,
-      vocabularyDataSourceRef: undefined,
-    })
-    setVocabRemoveOpen(false)
-    setBrowseResults([])
-    setBrowseVocabOptions([])
-    setBrowseDomainOptions([])
-  }
-
-  const vocabDs = project.vocabularyDataSourceId
-    ? dataSources.find((ds) => ds.id === project.vocabularyDataSourceId)
-    : null
-
-  // Table names actually imported into the vocabulary reference — shown in the
-  // status badge tooltip. Loaded lazily from the mounted data source.
-  const [vocabTableNames, setVocabTableNames] = useState<string[]>([])
-  useEffect(() => {
-    const dsId = project.vocabularyDataSourceId
-    if (!dsId || !vocabDs) { setVocabTableNames([]); return }
-    let cancelled = false
-    ;(async () => {
-      try {
-        await ensureMounted(dsId)
-        const tables = await discoverTables(dsId)
-        if (!cancelled) setVocabTableNames(tables)
-      } catch {
-        if (!cancelled) setVocabTableNames([])
-      }
-    })()
-    return () => { cancelled = true }
-  }, [project.vocabularyDataSourceId, vocabDs, ensureMounted])
+  // The workspace library (or, until it is filled, this project's own older
+  // vocabulary database).
+  const vocabDsId = vocabularyDataSourceIdFor(project, dataSources)
+  const vocabDs = vocabDsId ? dataSources.find((ds) => ds.id === vocabDsId) : null
+  const libraryVocabularies = vocabDs ? (vocabDs.connectionConfig as DatabaseConnectionConfig).vocabularies ?? [] : []
+  const openVocabularySettings = () => navigate(paths.workspaceSettings(project.workspaceId, 'vocabularies'))
 
   // --- Browse vocabulary queries ---
 
@@ -840,23 +678,23 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   // We bail out silently if the linked vocabularyDataSource is gone (e.g. workspace was
   // re-imported without re-importing the database files), to avoid spurious console errors.
   useEffect(() => {
-    if (!project.vocabularyDataSourceId) return
+    if (!vocabDsId) return
     if (!vocabDs) return
     const load = async () => {
       try {
-        await ensureMounted(project.vocabularyDataSourceId!)
+        await ensureMounted(vocabDsId!)
         const vocabs = await queryDataSource(
-          project.vocabularyDataSourceId!,
+          vocabDsId!,
           `SELECT DISTINCT vocabulary_id AS val FROM concept ORDER BY vocabulary_id`,
         )
         setBrowseVocabOptions(vocabs.map((r) => String(r.val ?? '')).filter(Boolean))
         const domains = await queryDataSource(
-          project.vocabularyDataSourceId!,
+          vocabDsId!,
           `SELECT DISTINCT domain_id AS val FROM concept ORDER BY domain_id`,
         )
         setBrowseDomainOptions(domains.map((r) => String(r.val ?? '')).filter(Boolean))
         const classes = await queryDataSource(
-          project.vocabularyDataSourceId!,
+          vocabDsId!,
           `SELECT DISTINCT concept_class_id AS val FROM concept ORDER BY concept_class_id`,
         )
         setBrowseClassOptions(classes.map((r) => String(r.val ?? '')).filter(Boolean))
@@ -865,15 +703,15 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       }
     }
     load()
-  }, [project.vocabularyDataSourceId, vocabDs, ensureMounted])
+  }, [vocabDsId, vocabDs, ensureMounted])
 
   const loadBrowseResults = useCallback(async () => {
-    if (!project.vocabularyDataSourceId) return
+    if (!vocabDsId) return
     // Linked vocabulary database was removed (e.g. after a workspace re-import) — skip silently.
     if (!vocabDs) return
     setBrowseLoading(true)
     try {
-      await ensureMounted(project.vocabularyDataSourceId)
+      await ensureMounted(vocabDsId)
 
       // Use the same multi-tier ranked search as the Mapping Editor's target panel
       // (exact id match → substring on code/name → Jaro-Winkler ≥ 0.8). Far better
@@ -891,23 +729,23 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
       // would be cheaper per query, but the inline column filters could then
       // only ever offer the values present on the current page.
       const sql = buildStandardConceptSearchQuery(ATHENA_SCHEMA_MAPPING, term, filters, browseMaxResults)
-      setBrowseResults(sql ? await queryDataSource(project.vocabularyDataSourceId, sql) : [])
+      setBrowseResults(sql ? await queryDataSource(vocabDsId, sql) : [])
     } catch (err) {
       console.error('Browse vocabulary query failed:', err)
       setBrowseResults([])
     } finally {
       setBrowseLoading(false)
     }
-  }, [project.vocabularyDataSourceId, vocabDs, appliedSearch, browseVocabs, browseDomains, browseClasses, browseStandards, browseMaxResults, ensureMounted])
+  }, [vocabDsId, vocabDs, appliedSearch, browseVocabs, browseDomains, browseClasses, browseStandards, browseMaxResults, ensureMounted])
 
   // Runs on mount with an empty term, then on every submitted search. The empty
   // term takes the builder's cheap `ORDER BY concept_id LIMIT n` branch, not the
   // fuzzy scan, so opening the tab costs one bounded query.
   useEffect(() => {
-    if (!project.vocabularyDataSourceId) return
+    if (!vocabDsId) return
     if (!browseSubmitted) return
     loadBrowseResults()
-  }, [loadBrowseResults, project.vocabularyDataSourceId, browseSubmitted])
+  }, [loadBrowseResults, vocabDsId, browseSubmitted])
 
   // Picking a filter is itself a search: it narrows the query, so it refreshes
   // the table without making the user hit Enter.
@@ -1440,49 +1278,21 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                   <div className="flex items-center gap-3">
                     <CheckCircle2 size={20} className="shrink-0 text-green-500" />
                     <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-medium">{t('concept_mapping.vocab_import_success')}</span>
-                        <span className="text-xs text-muted-foreground">{localized(vocabDs.name, i18n.language)}</span>
-                        {(() => {
-                          const count = vocabTableNames.length || vocabDs.stats?.tableCount
-                          if (count == null) return null
-                          const badge = (
-                            <Badge variant="secondary" >
-                              {t('concept_mapping.vocab_import_tables_count', { count })}
-                            </Badge>
-                          )
-                          if (vocabTableNames.length === 0) return badge
-                          return (
-                            <Tooltip>
-                              <TooltipTrigger asChild><span className="cursor-default">{badge}</span></TooltipTrigger>
-                              <TooltipContent side="bottom" className="max-w-xs">
-                                <p className="mb-1 font-medium">{t('concept_mapping.vocab_import_tables_list')}</p>
-                                <ul className="space-y-0.5">
-                                  {vocabTableNames.map((name) => (
-                                    <li key={name} className="font-mono text-[11px]">{name}</li>
-                                  ))}
-                                </ul>
-                              </TooltipContent>
-                            </Tooltip>
-                          )
-                        })()}
-                      </div>
+                      <p className="text-sm font-medium">
+                        {(vocabDs.connectionConfig as DatabaseConnectionConfig).vocabularyLibrary
+                          ? t('concept_mapping.vocab_library_summary', { count: libraryVocabularies.length })
+                          : localized(vocabDs.name, i18n.language)}
+                      </p>
+                      {libraryVocabularies.length > 0 && (
+                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                          {libraryVocabularies.map((v) => v.vocabularyId).join(', ')}
+                        </p>
+                      )}
                     </div>
-                    <div className="flex gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        title={t('concept_mapping.vocab_import_remove')}
-                        className="text-destructive hover:text-destructive"
-                        onClick={() => {
-                          setVocabFiles([])
-                          setVocabError(null)
-                          setVocabRemoveOpen(true)
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </Button>
-                    </div>
+                    <Button size="sm" variant="outline" onClick={openVocabularySettings}>
+                      <Settings2 size={14} />
+                      {t('concept_mapping.vocab_library_manage')}
+                    </Button>
                   </div>
                 </Card>
 
@@ -1756,134 +1566,18 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                 </div>
               </>
             ) : (
-              /* No vocabulary — show import UI */
+              /* No vocabulary in the workspace: it is imported in the workspace settings */
               <Card className="p-6">
                 <div className="flex flex-col items-center">
-                  <Upload size={32} className="text-muted-foreground" />
-                  <p className="mt-3 text-sm font-medium">{t('concept_mapping.vocab_ref_title')}</p>
+                  <BookOpen size={32} className="text-muted-foreground" />
+                  <p className="mt-3 text-sm font-medium">{t('concept_mapping.vocab_library_empty_title')}</p>
                   <p className="mt-1 max-w-sm text-center text-xs text-muted-foreground">
-                    {t('concept_mapping.vocab_import_hint')}
+                    {t('concept_mapping.vocab_library_empty_hint')}
                   </p>
-
-                  {/* Detected files, each one opt-out except CONCEPT. */}
-                  {vocabFiles.length > 0 && (
-                    <div className="mt-4 w-full max-w-sm rounded-md border p-3">
-                      <SectionLabel className="mb-1.5">
-                        {t('concept_mapping.vocab_import_tables_found', { count: vocabFiles.length })}
-                      </SectionLabel>
-                      {/* Same All / None + count affordance as MultiSelectFilter. */}
-                      <div className="mb-2 flex items-center justify-between">
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => setVocabExcluded(new Set())}
-                            className="text-[10px] text-muted-foreground hover:text-foreground"
-                          >
-                            {t('common.select_all')}
-                          </button>
-                          <span className="text-[10px] text-muted-foreground">/</span>
-                          <button
-                            type="button"
-                            onClick={() => setVocabExcluded(
-                              // CONCEPT is required, so "none" still keeps it.
-                              new Set(vocabFiles.filter((f) => !isConceptFile(f.name)).map((f) => f.name)),
-                            )}
-                            className="text-[10px] text-muted-foreground hover:text-foreground"
-                          >
-                            {t('common.select_none')}
-                          </button>
-                        </div>
-                        <span className="text-[10px] tabular-nums text-muted-foreground">
-                          {vocabSelected.length}/{vocabFiles.length}
-                        </span>
-                      </div>
-                      <div className="space-y-1">
-                        {[...vocabFiles]
-                          .sort((a, b) => compareVocabFiles(a.name, b.name))
-                          .map((f) => {
-                            const required = isConceptFile(f.name)
-                            return (
-                              <label
-                                key={f.name}
-                                className={cn(
-                                  'flex items-center gap-2 text-xs',
-                                  required ? 'cursor-default' : 'cursor-pointer',
-                                )}
-                              >
-                                <Checkbox
-                                  className="size-3.5"
-                                  checked={required || !vocabExcluded.has(f.name)}
-                                  disabled={required}
-                                  onCheckedChange={() => toggleVocabFile(f.name)}
-                                />
-                                <span className="truncate flex-1 font-mono">
-                                  {displayTableNameOf(f.name)}
-                                </span>
-                                {required && (
-                                  <span className="shrink-0 rounded bg-primary/10 px-1 py-0.5 text-[9px] text-primary">
-                                    {t('concept_mapping.vocab_import_required')}
-                                  </span>
-                                )}
-                                <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                                  {humanBytes(f.size, i18n.language)}
-                                </span>
-                              </label>
-                            )
-                          })}
-                      </div>
-                    </div>
-                  )}
-
-                  {vocabError && (
-                    <p className="mt-3 text-xs text-destructive">{vocabError}</p>
-                  )}
-
-                  <div className="mt-4 flex gap-2">
-                    <input
-                      ref={vocabInputRef}
-                      type="file"
-                      className="hidden"
-                      multiple
-                      accept=".csv,.tsv,.parquet"
-                      onChange={handleVocabFilesSelect}
-                      /* @ts-expect-error webkitdirectory is non-standard */
-                      webkitdirectory=""
-                    />
-                    <Button
-                      variant="outline"
-                      onClick={() => vocabInputRef.current?.click()}
-                      disabled={vocabImporting}
-                    >
-                      <FolderOpen size={14} />
-                      {t('concept_mapping.vocab_import_select_folder')}
-                    </Button>
-                    {/* An ATHENA download is several GB: on a server deployment
-                        it is normally already there, and uploading it is the
-                        slow way round. */}
-                    {isServerMode() && (
-                      <Button
-                        variant="outline"
-                        onClick={() => setVocabPickerOpen(true)}
-                        disabled={vocabImporting}
-                      >
-                        <Server size={14} />
-                        {t('concept_mapping.vocab_import_select_server_folder')}
-                      </Button>
-                    )}
-                    <Button
-                      onClick={handleVocabImport}
-                      disabled={vocabSelected.length === 0 || vocabImporting}
-                    >
-                      {vocabImporting ? (
-                        <Loader2 size={14} className="animate-spin" />
-                      ) : (
-                        <Upload size={14} />
-                      )}
-                      {vocabImporting
-                        ? t('concept_mapping.vocab_import_importing')
-                        : t('concept_mapping.vocab_import_athena')}
-                    </Button>
-                  </div>
+                  <Button size="sm" variant="outline" className="mt-4" onClick={openVocabularySettings}>
+                    <Settings2 size={14} />
+                    {t('concept_mapping.vocab_library_manage')}
+                  </Button>
                 </div>
               </Card>
             )}
@@ -1946,31 +1640,6 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
             <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleBulkDelete}>{t('concept_mapping.cs_detach')}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <ServerPathPickerDialog
-        open={vocabPickerOpen}
-        mode="folder"
-        scope={{ kind: 'workspace', workspaceId: activeWorkspaceId ?? '' }}
-        initialPath={vocabServerPath || undefined}
-        onClose={() => setVocabPickerOpen(false)}
-        onPick={(p) => { void handleVocabServerFolder(p) }}
-      />
-
-      {/* Vocabulary remove dialog */}
-      <AlertDialog open={vocabRemoveOpen} onOpenChange={setVocabRemoveOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('concept_mapping.vocab_remove_title')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('concept_mapping.vocab_remove_desc')}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={handleVocabRemove}>{t('common.delete')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

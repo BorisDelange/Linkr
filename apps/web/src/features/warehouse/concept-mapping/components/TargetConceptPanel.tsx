@@ -424,8 +424,8 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Active vocabulary data source + concept table name (shared for detail sheet)
   const vocabTarget = useMemo(
     () => resolveVocabularyTarget(project, dataSource, allDataSources),
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the vocabulary id of the project matters
-    [project.vocabularyDataSourceId, allDataSources, dataSource],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only the project's vocabulary fields matter
+    [project.workspaceId, project.vocabularyDataSourceId, allDataSources, dataSource],
   )
   const vocabDsInfo = useMemo(
     () => ({ dsId: vocabTarget?.dsId, conceptTable: vocabTarget?.conceptTable ?? 'concept' }),
@@ -1810,7 +1810,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
   // Disable the search row entirely when no vocabulary reference or data source is
   // available — there's nothing to search against. Mirrors the empty-state hint
   // shown below in the results area.
-  const noVocabAvailable = !project.vocabularyDataSourceId && !dataSource
+  const noVocabAvailable = !vocabTarget
 
   // ─── Suggestions: from imported scores ───────────────────────────────────
   const { index: scoresIndex, loadProjectMeta, importScores, deleteProjectScores, removeMethods, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
@@ -2166,7 +2166,7 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
           <div className="flex h-40 flex-col items-center justify-center gap-2 px-4">
             {searching ? (
               <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
-            ) : !project.vocabularyDataSourceId && !dataSource ? (
+            ) : noVocabAvailable ? (
               <>
                 <p className="text-center text-xs text-muted-foreground">{t('concept_mapping.no_vocab_for_search_hint')}</p>
                 {onGoToConceptSets && (

@@ -12,7 +12,6 @@ import type {
 import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import { isMappingLocked, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { sourceConceptPairKey } from '@/lib/concept-mapping/source-concept-ids-io'
-import { isOmopConceptTable } from '@/lib/concept-mapping/vocabulary-target'
 import { clampNextId } from '@/features/warehouse/concept-mapping/source-id-range'
 import { setLocalized } from '@/lib/localized'
 import { userDisplayName, userToAuthorDetails } from '@/lib/user-identity'
@@ -73,14 +72,6 @@ function checkSourceDatabase(dbs: DataSource[], workspaceId: string, id: string)
   return null
 }
 
-function checkVocabularyDatabase(dbs: DataSource[], workspaceId: string, id: string): string | null {
-  const ds = dbs.find((d) => d.id === id)
-  if (!ds) return `Database ${id} not found.`
-  if (ds.workspaceId !== workspaceId) return `Database ${id} belongs to another workspace.`
-  if (!ds.schemaMapping?.concepts?.some(isOmopConceptTable)) return `"${loc(ds.name)}" has no OMOP concept table (an ATHENA import).`
-  return null
-}
-
 async function mappingsById(projectId: string, ids: string[]) {
   const all = await api.listMappings(projectId)
   const byId = new Map(all.map((m) => [m.id, m]))
@@ -132,11 +123,11 @@ export function registerMappingExtraTools(server: Server): void {
     description: 'Create a concept-mapping project (a workspace-level project where local terminology codes are mapped to '
       + 'OMOP standard concepts). Its source concepts come from a clinical database\'s concept dictionaries (database_id); '
       + 'without one the project starts empty and the user imports a file into it in Linkr (file upload is not available '
-      + 'here). vocabulary_database_id is an OMOP vocabulary database (ATHENA import) to search targets in.',
+      + 'here). Target concepts are searched in the workspace vocabulary library (workspace settings › Vocabularies).',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       workspace_id?: string; project_uid?: string; name: string; description?: string; entity_id?: string
-      status?: MappingProjectStatus; badges?: string[]; version?: string; database_id?: string; vocabulary_database_id?: string
+      status?: MappingProjectStatus; badges?: string[]; version?: string; database_id?: string
     }>({
       type: 'object',
       properties: {
@@ -149,7 +140,6 @@ export function registerMappingExtraTools(server: Server): void {
         badges: { type: 'array', items: { type: 'string' }, description: 'Badge labels, e.g. the hospital ("Rennes"); source concept id ranges are allocated per badge.' },
         version: { type: 'string', description: 'Semver, default 0.1.0.' },
         database_id: { type: 'string', description: 'Clinical database of the same workspace whose concept dictionaries are the source concepts.' },
-        vocabulary_database_id: { type: 'string', description: 'OMOP vocabulary database of the same workspace. Default: targets are searched in the source database.' },
       },
       required: ['name'],
     }),
@@ -163,28 +153,27 @@ export function registerMappingExtraTools(server: Server): void {
     const entityId = args.entity_id?.trim() || defaultEntityId(args.name, taken)
     const idError = entityIdError(entityId, taken, 'mapping project of this workspace')
     if (idError) return failure(`Invalid entity_id "${entityId}": ${idError}.`)
-    const dbs = (args.database_id || args.vocabulary_database_id) ? await api.listDataSources() : []
-    const dbError = (args.database_id && checkSourceDatabase(dbs, workspaceId, args.database_id))
-      || (args.vocabulary_database_id && checkVocabularyDatabase(dbs, workspaceId, args.vocabulary_database_id))
+    const dbs = args.database_id ? await api.listDataSources() : []
+    const dbError = args.database_id && checkSourceDatabase(dbs, workspaceId, args.database_id)
     if (dbError) return failure(dbError)
     const badges = resolveBadges(args.badges ?? [], siblings.flatMap((p) => p.badges ?? []), randomUUID)
     const created = await x.createProject(newMappingProjectPayload({
       id: randomUUID(), lineageId: randomUUID(), workspaceId, entityId, name: args.name, description: args.description,
       status, badges, version: args.version?.trim() || '0.1.0', databaseId: args.database_id,
-      vocabularyDatabaseId: args.vocabulary_database_id, databases: pointerRows(dbs), now: new Date().toISOString(),
+      databases: pointerRows(dbs), now: new Date().toISOString(),
     }))
     const source = args.database_id ? `source: database ${args.database_id}` : 'no source yet — the user imports a file in Linkr'
     return text(`Created mapping project "${loc(created.name)}" — mapping_project_id: ${created.id} (entity_id ${entityId}, `
-      + `workspace_id ${workspaceId}); ${source}${args.vocabulary_database_id ? `; vocabulary database ${args.vocabulary_database_id}` : ''}.`)
+      + `workspace_id ${workspaceId}); ${source}.`)
   }))
 
   server.registerTool('update_mapping_project', {
     description: 'Edit a mapping project\'s metadata: name, description, status, badges (replaces the list), version, '
-      + 'source database (only for a project that reads a database, not a file) and vocabulary database (null to remove).',
+      + 'source database (only for a project that reads a database, not a file).',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       mapping_project_id: string; name?: string; description?: string; status?: MappingProjectStatus; badges?: string[]
-      version?: string; database_id?: string; vocabulary_database_id?: string | null
+      version?: string; database_id?: string
     }>({
       type: 'object',
       properties: {
@@ -195,7 +184,6 @@ export function registerMappingExtraTools(server: Server): void {
         badges: { type: 'array', items: { type: 'string' } },
         version: { type: 'string' },
         database_id: { type: 'string' },
-        vocabulary_database_id: { type: ['string', 'null'] },
       },
       required: ['mapping_project_id'],
     }),
@@ -218,8 +206,7 @@ export function registerMappingExtraTools(server: Server): void {
       const fresh = resolveBadges(args.badges, siblings, randomUUID)
       changes.badges = fresh.map((b): ProjectBadge => current.get(loc(b.label).trim().toLowerCase()) ?? b)
     }
-    const needDbs = args.database_id !== undefined || (args.vocabulary_database_id ?? null) !== null
-    const dbs = needDbs ? await api.listDataSources() : []
+    const dbs = args.database_id !== undefined ? await api.listDataSources() : []
     if (args.database_id !== undefined) {
       if (readsFromFlatSource(p) && p.fileSourceData) {
         return failure('This project reads its source concepts from a file (or an extraction); its source cannot be switched here.')
@@ -229,17 +216,6 @@ export function registerMappingExtraTools(server: Server): void {
       changes.sourceType = 'database'
       changes.dataSourceId = args.database_id
       changes.dataSourceRef = pointerTo(pointerRows(dbs), args.database_id) ?? null
-    }
-    if (args.vocabulary_database_id !== undefined) {
-      if (args.vocabulary_database_id === null) {
-        changes.vocabularyDataSourceId = null
-        changes.vocabularyDataSourceRef = null
-      } else {
-        const error = checkVocabularyDatabase(dbs, p.workspaceId, args.vocabulary_database_id)
-        if (error) return failure(error)
-        changes.vocabularyDataSourceId = args.vocabulary_database_id
-        changes.vocabularyDataSourceRef = pointerTo(pointerRows(dbs), args.vocabulary_database_id) ?? null
-      }
     }
     if (Object.keys(changes).length === 0) return failure('Nothing to change.')
     await api.updateMappingProject(p.id, changes)

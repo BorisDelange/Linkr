@@ -16,6 +16,8 @@ import { useEtlStore } from '@/stores/etl-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 import { schemaName } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
@@ -549,24 +551,26 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     return vocabularyReadiness(files.filter((f) => f.pipelineId === pipelineId))
   }, [files, filesLoaded, activePipelineId, pipelineId])
 
+  const activeWorkspaceId = useWorkspaceStore((st) => st.activeWorkspaceId)
   // Resolve vocabulary data source schema for the selected mapping project
   const vocabSchema = useMemo(() => {
     const project = mappingProjects.find((p) => p.id === selectedProjectId)
-    const vocabDsId = project?.vocabularyDataSourceId
+    const vocabDsId = vocabularyDataSourceIdFor(project ?? { workspaceId: activeWorkspaceId ?? undefined }, dataSources)
     if (!vocabDsId) return null
     const vocabDs = dataSources.find((ds) => ds.id === vocabDsId)
     if (!vocabDs) return null
     return schemaName(vocabDsId)
-  }, [selectedProjectId, mappingProjects, dataSources])
+  }, [selectedProjectId, mappingProjects, dataSources, activeWorkspaceId])
 
   // Which tables the reference actually holds: an ATHENA import keeps only the
   // four the mapping UI needs, so the metadata parts must be skipped rather
   // than emitted and left to fail on a missing table.
   const vocabTables = useMemo(() => {
     const project = mappingProjects.find((p) => p.id === selectedProjectId)
-    const vocabDs = dataSources.find((ds) => ds.id === project?.vocabularyDataSourceId)
+    const vocabDsId = vocabularyDataSourceIdFor(project ?? { workspaceId: activeWorkspaceId ?? undefined }, dataSources)
+    const vocabDs = dataSources.find((ds) => ds.id === vocabDsId)
     return vocabDs?.schemaMapping?.knownTables ?? undefined
-  }, [selectedProjectId, mappingProjects, dataSources])
+  }, [selectedProjectId, mappingProjects, dataSources, activeWorkspaceId])
 
   /**
    * Scripts already in the pipeline whose stored content differs from what

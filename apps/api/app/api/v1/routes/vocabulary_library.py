@@ -183,6 +183,7 @@ async def start_import(
             config["vocabularies"] = sorted(inventory.values(), key=lambda v: v["vocabularyId"])
             ds.connection_config = config
             flag_modified(ds, "connection_config")
+            _set_known_tables(ds, workspace_id)
             await session.commit()
         state.vocabularies = written
 
@@ -230,4 +231,12 @@ async def remove_vocabulary(
     config["vocabularies"] = [v for v in _inventory(library) if v["vocabularyId"] != vocabulary_id]
     library.connection_config = config
     flag_modified(library, "connection_config")
+    _set_known_tables(library, workspace_id)
     await db.commit()
+
+
+def _set_known_tables(library: DataSource, workspace_id: str) -> None:
+    mapping = dict(library.schema_mapping or {})
+    mapping["knownTables"] = lib.present_tables(workspace_id)
+    library.schema_mapping = mapping
+    flag_modified(library, "schema_mapping")

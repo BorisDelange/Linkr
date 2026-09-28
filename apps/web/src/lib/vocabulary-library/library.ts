@@ -20,17 +20,17 @@ import {
   uploadExportFiles,
   type ServerExportSource,
 } from '@/lib/api/vocabulary-library'
+import { tableNameOf } from '@/lib/concept-mapping/vocab-files'
 import { ATHENA_SCHEMA_MAPPING } from './schema-mapping'
 import { RELEASE_VOCABULARY_ID } from './tables'
+import { findLibrary } from './resolve'
 import type { InspectedExport, LibraryVocabulary, VocabularyImportInventory } from './types'
 
 function config(ds: DataSource): DatabaseConnectionConfig {
   return ds.connectionConfig as DatabaseConnectionConfig
 }
 
-export function findLibraryDataSource(dataSources: readonly DataSource[], workspaceId: string | undefined): DataSource | undefined {
-  return dataSources.find((d) => d.workspaceId === workspaceId && d.isVocabularyReference && config(d).vocabularyLibrary)
-}
+export const findLibraryDataSource = findLibrary
 
 /** Vocabulary databases imported per mapping project before the library
  *  existed, not yet part of it. */
@@ -138,7 +138,9 @@ export async function prepareImport(
         description: toLocalized('An ATHENA export, read by the workspace vocabulary library.'),
         sourceType: 'database',
         connectionConfig: { engine: 'duckdb' },
-        schemaMapping: ATHENA_SCHEMA_MAPPING,
+        // knownTables says what this import HOLDS: the ETL script generator reads
+        // it (through the library) to skip the parts a missing table would break.
+        schemaMapping: { ...ATHENA_SCHEMA_MAPPING, knownTables: [...new Set(source.files.map((f) => tableNameOf(f.name)))] },
         files: source.files,
         isVocabularyReference: true,
       })
@@ -257,7 +259,16 @@ async function setLibraryVocabularies(library: DataSource, vocabularies: Library
   const store = useDataSourceStore.getState()
   const sorted = [...vocabularies].sort((a, b) => (a.vocabularyId < b.vocabularyId ? -1 : 1))
   const fresh = store.dataSources.find((d) => d.id === library.id) ?? library
-  await store.updateDataSource(library.id, { connectionConfig: { ...config(fresh), vocabularies: sorted } })
+  // What the owners hold: the ETL script generator skips the parts a missing
+  // table would break.
+  const ownerIds = new Set(sorted.map((v) => v.importDataSourceId))
+  const knownTables = [...new Set(store.dataSources
+    .filter((d) => ownerIds.has(d.id))
+    .flatMap((d) => d.schemaMapping?.knownTables ?? []))].sort()
+  await store.updateDataSource(library.id, {
+    connectionConfig: { ...config(fresh), vocabularies: sorted },
+    schemaMapping: { ...(fresh.schemaMapping ?? ATHENA_SCHEMA_MAPPING), knownTables },
+  })
   // An import that owns nothing any more is only taking space.
   const owners = new Set(sorted.map((v) => v.importDataSourceId))
   for (const ds of useDataSourceStore.getState().dataSources) {

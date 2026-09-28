@@ -42,14 +42,16 @@ describe('newMappingProjectPayload', () => {
 
   it('writes a database project with portable pointers', () => {
     const p = newMappingProjectPayload({
-      ...base, databaseId: 'db', vocabularyDatabaseId: 'voc',
-      databases: [{ id: 'db', lineageId: 'L1', name: { en: 'MIMIC' } }, { id: 'voc', entityId: 'athena' }],
+      ...base, databaseId: 'db',
+      databases: [{ id: 'db', lineageId: 'L1', name: { en: 'MIMIC' } }],
     })
     expect(p).toMatchObject({
       name: { en: 'ICU' }, sourceType: 'database', dataSourceId: 'db',
       dataSourceRef: { lineageId: 'L1', label: { en: 'MIMIC' } },
-      vocabularyDataSourceId: 'voc', vocabularyDataSourceRef: { entityId: 'athena' }, conceptSetIds: [], lineageId: 'l',
+      conceptSetIds: [], lineageId: 'l',
     })
+    // The workspace vocabulary library replaced the per-project vocabulary database.
+    expect(p).not.toHaveProperty('vocabularyDataSourceId')
     expect(p).not.toHaveProperty('createdBy')
   })
 

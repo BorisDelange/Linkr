@@ -5,6 +5,7 @@ import { schemaName } from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
 import type { RoleSchemas } from '@/lib/duckdb/role-prefix'
 import type { EtlPipeline } from '@/types'
+import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 
 export interface RoleSchemaInput {
   serverMode: boolean
@@ -51,9 +52,8 @@ export function computeRoleSchemas(input: RoleSchemaInput): RoleSchemas {
  * say `source.` / `target.` / `vocab.` instead of hard-coding `ds_<uuid>` — which
  * is what made the generated 00_vocabulary.sql break on export/reimport.
  *
- * `vocab` resolves through the mapping project picked in the Vocabulary tab
- * (pipeline.mappingProjectId -> project.vocabularyDataSourceId) — one place to
- * choose it, rather than a second dropdown that could disagree.
+ * `vocab` is the workspace vocabulary library (or, until it is filled, the older
+ * vocabulary database of the mapping project picked in the Vocabulary tab).
  */
 export function useRoleSchemas(pipeline: EtlPipeline | undefined) {
   const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
@@ -68,8 +68,11 @@ export function useRoleSchemas(pipeline: EtlPipeline | undefined) {
     if (!mappingProjectsLoaded) loadMappingProjects()
   }, [mappingProjectsLoaded, loadMappingProjects])
 
-  const vocabDataSourceId = pipeline?.mappingProjectId
-    ? mappingProjects.find((p) => p.id === pipeline.mappingProjectId)?.vocabularyDataSourceId
+  const vocabDataSourceId = pipeline
+    ? vocabularyDataSourceIdFor(
+        mappingProjects.find((p) => p.id === pipeline.mappingProjectId) ?? { workspaceId: pipeline.workspaceId },
+        dataSources,
+      )
     : undefined
 
   const dataSourceIdOf = useCallback(

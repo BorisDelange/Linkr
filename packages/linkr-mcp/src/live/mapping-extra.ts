@@ -67,12 +67,10 @@ export function newMappingProjectPayload(args: {
   badges: ProjectBadge[]
   version: string
   databaseId?: string
-  vocabularyDatabaseId?: string
   databases: PointerRow[]
   now: string
 }): Record<string, unknown> {
   const dataSourceRef = pointerTo(args.databases, args.databaseId)
-  const vocabularyRef = pointerTo(args.databases, args.vocabularyDatabaseId)
   return {
     id: args.id,
     entityId: args.entityId,
@@ -86,8 +84,6 @@ export function newMappingProjectPayload(args: {
     sourceType: args.databaseId ? 'database' : 'file',
     dataSourceId: args.databaseId ?? '',
     ...(dataSourceRef ? { dataSourceRef } : {}),
-    ...(args.vocabularyDatabaseId ? { vocabularyDataSourceId: args.vocabularyDatabaseId } : {}),
-    ...(vocabularyRef ? { vocabularyDataSourceRef: vocabularyRef } : {}),
     conceptSetIds: [],
     version: args.version,
     lineageId: args.lineageId,
