@@ -51,8 +51,95 @@ function parseJson(text: string | undefined): unknown {
   try { return JSON.parse(text) } catch { return undefined }
 }
 
+// `2.json` before `10.json`, and never 0 for two paths that differ (a
+// localeCompare with `numeric` reads `02` and `2` as equal, leaving the
+// duplicate-uniqueId winner to object-key order).
 function naturalCompare(a: string, b: string): number {
-  return a.localeCompare(b, 'en', { numeric: true })
+  const ax = a.split(/(\d+)/)
+  const bx = b.split(/(\d+)/)
+  for (let i = 0; i < Math.max(ax.length, bx.length); i++) {
+    const as = ax[i] ?? ''
+    const bs = bx[i] ?? ''
+    if (as === bs) continue
+    if (/^\d+$/.test(as) && /^\d+$/.test(bs) && Number(as) !== Number(bs)) return Number(as) - Number(bs)
+    return as < bs ? -1 : 1
+  }
+  return 0
+}
+
+// --- Unit rows -------------------------------------------------------------
+
+function asFiniteNumber(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v)
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+function str(v: unknown): string | undefined {
+  return typeof v === 'string' ? v : undefined
+}
+
+/**
+ * Unit rows are attacker-suppliable (a dictionary repo, a ZIP, a stored sync)
+ * and their numbers are interpolated into the exported extraction SQL: a row
+ * whose required numeric fields do not coerce to a finite number is dropped.
+ * Twin of `_sanitize_unit_rows` in apps/api/app/services/data_dictionary_service.py.
+ */
+export function sanitizeUnitConversions(rows: unknown): UnitConversion[] | null {
+  if (!Array.isArray(rows)) return null
+  const out: UnitConversion[] = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    const conceptId = asFiniteNumber(r.conceptId)
+    const sourceUnitConceptId = asFiniteNumber(r.sourceUnitConceptId)
+    const targetUnitConceptId = asFiniteNumber(r.targetUnitConceptId)
+    const conversionFactor = asFiniteNumber(r.conversionFactor)
+    const offset = r.offset === undefined || r.offset === null ? undefined : asFiniteNumber(r.offset)
+    if (conceptId === null || sourceUnitConceptId === null || targetUnitConceptId === null
+      || conversionFactor === null || offset === null) continue
+    out.push({
+      conceptId,
+      sourceUnitConceptId,
+      targetUnitConceptId,
+      conversionFactor,
+      ...(offset !== undefined ? { offset } : {}),
+      conceptName: str(r.conceptName),
+      sourceUnitCode: str(r.sourceUnitCode),
+      sourceUnitName: str(r.sourceUnitName),
+      targetUnitCode: str(r.targetUnitCode),
+      targetUnitName: str(r.targetUnitName),
+    })
+  }
+  return out
+}
+
+/** Same gate as `sanitizeUnitConversions`, for `units/recommended_units.json`. */
+export function sanitizeRecommendedUnits(rows: unknown): RecommendedUnit[] | null {
+  if (!Array.isArray(rows)) return null
+  const out: RecommendedUnit[] = []
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as Record<string, unknown>
+    const conceptId = asFiniteNumber(r.conceptId)
+    const recommendedUnitConceptId = asFiniteNumber(r.recommendedUnitConceptId)
+    if (conceptId === null || recommendedUnitConceptId === null) continue
+    out.push({
+      conceptId,
+      recommendedUnitConceptId,
+      conceptName: str(r.conceptName),
+      conceptCode: str(r.conceptCode),
+      vocabularyId: str(r.vocabularyId),
+      domainId: str(r.domainId),
+      recommendedUnitName: str(r.recommendedUnitName),
+      recommendedUnitCode: str(r.recommendedUnitCode),
+      recommendedUnitVocabularyId: str(r.recommendedUnitVocabularyId),
+    })
+  }
+  return out
 }
 
 /**
@@ -100,8 +187,8 @@ export function readDictionaryTree(files: Readonly<Record<string, string>>, comm
   const config = parseJson(files['config.json']) as { title?: unknown } | undefined
   return {
     conceptSets,
-    unitConversions: Array.isArray(conversions) ? (conversions as UnitConversion[]) : null,
-    recommendedUnits: Array.isArray(recommended) ? (recommended as RecommendedUnit[]) : null,
+    unitConversions: sanitizeUnitConversions(conversions),
+    recommendedUnits: sanitizeRecommendedUnits(recommended),
     commit,
     ...(typeof config?.title === 'string' ? { title: config.title } : {}),
   }
