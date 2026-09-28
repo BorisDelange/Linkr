@@ -194,7 +194,9 @@ export function registerWarehouseTools(server: Server): void {
       description: 'What one row of the cohort is: patient, visit (hospital stay), visit_detail (unit stay, e.g. an ICU stay) or event.',
     },
     database_id: { type: 'string', description: 'Which linked database it runs on. Default: the project\'s first usable one.' },
-    criteria: { description: CRITERIA_FORMAT },
+    // Typed as one type: strict providers (grammar-constrained decoding, e.g. ModelRun) reject a
+    // parameter that can be read several ways. normalizeCriteria still accepts an array or a JSON string.
+    criteria: { type: 'object', description: CRITERIA_FORMAT },
   } as const
 
   /** Validate criteria against the cohort's database, fill concept names, report warnings. */
@@ -253,7 +255,7 @@ export function registerWarehouseTools(server: Server): void {
       + 'its Linkr name — patient_id, visit_id or visit_detail_id (e.g. SELECT stay_id AS visit_detail_id FROM '
       + 'icustays …); other columns are ignored. Count, results, freeze, derivation, report and Patient data all '
       + 'follow it; attrition has a single step. '
-      + 'Start from preview_cohort_sql. Pass null to go back to the criteria.',
+      + 'Start from preview_cohort_sql. Pass "" to go back to the criteria.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       cohort_id: string; name?: string; description?: string; level?: CohortLevel; database_id?: string
@@ -263,7 +265,7 @@ export function registerWarehouseTools(server: Server): void {
       properties: {
         cohort_id: { type: 'string' },
         ...COHORT_FIELDS,
-        custom_sql: { type: ['string', 'null'], description: 'SELECT <level id column> FROM … WHERE …, or null.' },
+        custom_sql: { type: 'string', description: 'SELECT <level id column> FROM … WHERE …, or "" to go back to the criteria.' },
       },
       required: ['cohort_id'],
     }),
@@ -291,13 +293,13 @@ export function registerWarehouseTools(server: Server): void {
       warnings.push(...prepared.warnings)
       mapping = prepared.mapping
     }
-    if (custom_sql !== undefined) changes.customSql = custom_sql
+    if (custom_sql !== undefined) changes.customSql = custom_sql?.trim() ? custom_sql : null
     if (Object.keys(changes).length === 0) return failure('Nothing to change.')
     // A stale count would read as the new definition's until the next run.
     changes.resultCount = null
     changes.attrition = null
     const updated = await api.updateCohort(cohort_id, changes)
-    if (updated.customSql && criteria !== undefined) warnings.push('This cohort has custom SQL: the criteria are ignored until custom_sql is set to null.')
+    if (updated.customSql && criteria !== undefined) warnings.push('This cohort has custom SQL: the criteria are ignored until custom_sql is set to "".')
     const warn = warnings.length ? `\n\nWarnings:\n- ${warnings.join('\n- ')}` : ''
     return text(`Updated.\n\n${describeCohort(updated, mapping ?? await mappingOf(dbId).catch(() => undefined))}${warn}`)
   }))

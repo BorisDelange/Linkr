@@ -30,7 +30,7 @@ Group:     {"children": [<nodes>], "operator": "AND"|"OR", "exclude": false, "la
 
 "operator" links a node to its PREVIOUS sibling (ignored on the first; default AND).
 "exclude": true negates the node (NOT). Ids are assigned for you.
-Pass either the root group or just the array of top-level nodes.
+Pass the root group object (an array of top-level nodes is also accepted).
 
 Criterion types and their config:
 - age:       {"ageReference": "admission"|"current", "min"?: n, "max"?: n, "ageUnit"?: "years"|"months"|"days"}

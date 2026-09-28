@@ -301,8 +301,9 @@ export function registerLabTools(server: Server): void {
         widget_id: { type: 'string' },
         name: { type: 'string' },
         dataset_path: {
-          type: ['string', 'null'],
-          description: '"" or null clears it: the widget then reads no dataset.',
+          // One type only: strict providers (grammar-constrained decoding) reject unions such as string|null.
+          type: 'string',
+          description: '"" clears it: the widget then reads no dataset.',
         },
         config: { type: 'object', description: 'Fields to set.' },
         layout: LAYOUT_SCHEMA,
