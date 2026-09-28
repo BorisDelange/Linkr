@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 
+import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.cohort import Cohort
@@ -107,7 +108,11 @@ async def _check_new_database(source: DataSource, target: DataSource) -> None:
     if _created(target).get("file"):
         return
     connection_pool.invalidate(target.id)
-    if await asyncio.to_thread(managed_db.holds_tables, data_source_service.managed_path(target)):
+    try:
+        holds = await asyncio.to_thread(managed_db.holds_tables, data_source_service.managed_path(target))
+    except duckdb.Error as exc:
+        raise DeriveError("the target database file cannot be read; derive into a new database") from exc
+    if holds:
         raise DeriveError("the target database already holds data; derive into a new database")
 
 
@@ -153,8 +158,7 @@ def reserve(target_id: str) -> None:
     other request can slip in between the check and the claim."""
     if target_id in _running:
         job_id = _running[target_id]
-        task = jobs._tasks.get(job_id) if job_id else None
-        if job_id is None or (task is not None and not task.done()):
+        if job_id is None or jobs.is_running(job_id):
             raise DeriveBusy("a derivation into this database is already queued or running")
     _running[target_id] = None
 

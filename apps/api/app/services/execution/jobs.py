@@ -129,12 +129,18 @@ async def _set(job_id: str, **fields) -> None:
         await db.commit()
 
 
+def is_running(job_id: str) -> bool:
+    """Whether the job's task is live in this process (queued behind the semaphore
+    or running)."""
+    task = _tasks.get(job_id)
+    return task is not None and not task.done()
+
+
 async def cancel(db: AsyncSession, job: Job) -> bool:
     """Cancel a live job. Returns False if it already finished (nothing to do)."""
-    task = _tasks.get(job.id)
-    if task is None or task.done():
+    if not is_running(job.id):
         return False
-    task.cancel()
+    _tasks[job.id].cancel()
     return True
 
 

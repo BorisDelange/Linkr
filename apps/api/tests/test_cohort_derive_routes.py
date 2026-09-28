@@ -296,6 +296,17 @@ async def test_a_new_database_never_overwrites_data_it_did_not_derive(client):
         assert rows == [{"n": 20}]
 
 
+async def test_an_unreadable_target_file_is_refused_not_a_server_error(client):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    dst = await _managed(client, headers, ws, "garbage", seed=False)
+    garbage = managed_db.path_for(dst)
+    garbage.parent.mkdir(parents=True, exist_ok=True)
+    garbage.write_bytes(b"not a duckdb file" * 512)
+    assert await _post_derive(client, headers, src, {"kind": "new-database", "dataSourceId": dst}) == 400
+
+
 async def test_replace_only_drops_a_schema_a_derivation_created(client):
     headers = await _admin(client)
     ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
