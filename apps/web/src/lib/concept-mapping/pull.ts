@@ -17,7 +17,7 @@ import {
   type GitPullSide,
   type SourceConceptsDiff,
 } from '@/lib/api/git'
-import { methodForCsvPath } from './scores-csv'
+import { methodForCsvPath, versionedMethodsValue } from './scores-csv'
 import { compareCodePoints } from './source-concept-ids-io'
 import {
   mergeMappings,
@@ -65,6 +65,23 @@ export function scoreChanges(base: GitPullSide, remote: GitPullSide): ScoreMetho
     out.push({ method, state: !r[path] ? 'delete' : b[path] ? 'update' : 'add' })
   }
   return out.sort((x, y) => compareCodePoints(x.method, y.method))
+}
+
+/**
+ * The versioned methods once `taken` score changes are pulled: a pulled method
+ * becomes versioned (the next push exports only versioned methods, so it would
+ * otherwise delete the file just pulled), a deleted one stops being versioned.
+ */
+export function versionedMethodsAfterPull(
+  current: readonly string[] | undefined,
+  taken: readonly ScoreMethodChange[],
+): string[] | undefined {
+  const versioned = new Set(current ?? [])
+  for (const c of taken) {
+    if (c.state === 'delete') versioned.delete(c.method)
+    else versioned.add(c.method)
+  }
+  return versionedMethodsValue(versioned)
 }
 
 /** Parse a managed JSON file from a preview side; [] / {} on absence or bad JSON. */
@@ -271,9 +288,7 @@ export async function applyMappingProjectPull(
   }
 
   // 4a) Versioned score methods: the server reads each CSV at the remote head and
-  //     swaps that method's rows. The taken methods become versioned here too —
-  //     otherwise the next push, which exports only versioned methods, would
-  //     delete from the repo the very files just pulled.
+  //     swaps that method's rows; versionedMethodsAfterPull keeps the list in step.
   const takenScores = resolution.scoreChanges ?? []
   if (takenScores.length > 0) {
     const replaced = takenScores.filter((c) => c.state !== 'delete').map((c) => c.method)
@@ -284,10 +299,9 @@ export async function applyMappingProjectPull(
     if (useSuggestionScoresStore.getState().activeProjectId === projectId) {
       useSuggestionScoresStore.setState({ index, loaded: true })
     }
-    const versioned = new Set(prepared.localProject?.versionedScoreMethods ?? [])
-    for (const m of replaced) versioned.add(m)
-    for (const m of removed) versioned.delete(m)
-    await storage.mappingProjects.update(projectId, { versionedScoreMethods: [...versioned].sort(compareCodePoints) })
+    await storage.mappingProjects.update(projectId, {
+      versionedScoreMethods: versionedMethodsAfterPull(prepared.localProject?.versionedScoreMethods, takenScores),
+    })
   }
 
   // 4b) Badge allocation registry — always merged, never offered as a choice: the

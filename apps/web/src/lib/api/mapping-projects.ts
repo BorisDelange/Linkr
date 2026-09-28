@@ -265,9 +265,15 @@ export const apiMappingProjectStorage: MappingProjectStorage = {
   },
 
   update: async (id, changes) => {
+    // JSON drops an `undefined` value, which the PATCH would read as "unchanged":
+    // a cleared versionedScoreMethods has to travel as null to be cleared.
+    const body: Record<string, unknown> = { ...stripBuffer(changes) }
+    if ('versionedScoreMethods' in changes && changes.versionedScoreMethods === undefined) {
+      body.versionedScoreMethods = null
+    }
     await apiRequest(`${PROJ}/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify(stripBuffer(changes)),
+      body: JSON.stringify(body),
     })
     if (hasRawBuffer(changes)) {
       await uploadRawFile(id, changes)

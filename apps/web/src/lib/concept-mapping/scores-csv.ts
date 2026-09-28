@@ -17,6 +17,8 @@ import {
   scoreMethodOfPath as methodForCsvPath,
 } from '@linkr/format'
 
+import { compareCodePoints } from './source-concept-ids-io'
+
 export { SCORES_CSV_DIR } from '@linkr/format'
 export { CSV_REQUIRED_COLUMNS, csvPathForMethod, methodForCsvPath }
 
@@ -32,6 +34,14 @@ export const CSV_OPTIONAL_COLUMNS = [
 ] as const
 
 export type ScoresExportFormat = 'csv' | 'parquet'
+
+/** `versionedScoreMethods` as stored: sorted, and absent rather than `[]`, so
+ *  toggling a method on then off leaves entity.json as it was. Twin of the
+ *  server schemas' `_no_empty_versioned_methods`. */
+export function versionedMethodsValue(methods: Iterable<string>): string[] | undefined {
+  const list = [...new Set(methods)].sort(compareCodePoints)
+  return list.length > 0 ? list : undefined
+}
 
 /** Above this, a versioned CSV gets a warning: GitHub rejects files over 100 MB
  *  and warns from 50 MB, GitLab instances often cap lower. */

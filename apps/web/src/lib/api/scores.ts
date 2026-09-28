@@ -1,4 +1,4 @@
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { ApiError, apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import type { ParsedScoreRow } from '@/lib/concept-mapping/scores-parser'
 import type { ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
@@ -97,15 +97,19 @@ export async function deleteScoresFileOnServer(projectId: string): Promise<void>
  *  so export fetches them here. Null when there is nothing to send. */
 export async function fetchScoresFileFromServer(projectId: string, methods?: string[]): Promise<Uint8Array | null> {
   const query = methods ? `?${methods.map((m) => `methods=${encodeURIComponent(m)}`).join('&')}` : ''
-  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/scores-file${query}`)
-  if (!res.ok) return null
-  return new Uint8Array(await res.arrayBuffer())
+  return bytesOrNullOn404(await apiFetch(`/api/v1${PROJ}/${projectId}/scores-file${query}`))
 }
 
 /** One method's versioned CSV. Null when the method has no rows. */
 export async function fetchScoreMethodCsvFromServer(projectId: string, method: string): Promise<Uint8Array | null> {
-  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/scores/method-csv?method=${encodeURIComponent(method)}`)
-  if (!res.ok) return null
+  return bytesOrNullOn404(await apiFetch(`/api/v1${PROJ}/${projectId}/scores/method-csv?method=${encodeURIComponent(method)}`))
+}
+
+// Only a 404 means "nothing to send": any other failure must reach the caller,
+// or a git tree built from it would read the missing CSV as a deletion.
+async function bytesOrNullOn404(res: Response): Promise<Uint8Array | null> {
+  if (res.status === 404) return null
+  if (!res.ok) throw new ApiError(res.status, await res.text())
   return new Uint8Array(await res.arrayBuffer())
 }
 

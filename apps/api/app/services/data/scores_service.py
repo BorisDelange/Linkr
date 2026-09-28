@@ -333,7 +333,8 @@ _METHOD_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@+-]*$")
 def csv_path_for_method(method: str) -> str | None:
     """`similarity-scores/<method>.csv`, or None when the method cannot be a path."""
     segments = method.split("/")
-    if not all(_METHOD_SEGMENT_RE.match(s) for s in segments):
+    # fullmatch, not match: `$` would accept a trailing newline the TS twin rejects.
+    if not all(_METHOD_SEGMENT_RE.fullmatch(s) for s in segments):
         return None
     return f"{SCORES_CSV_DIR}/{method}.csv"
 
@@ -441,7 +442,10 @@ def merge_method_csvs(
     """Write `existing_path` with the rows of each (method, csv_path) REPLACED by
     that CSV's rows to `out_path`; returns the resulting row count (the caller
     drops the file when it is 0). A method absent from `csvs` is left untouched —
-    local, unversioned methods survive a pull."""
+    local, unversioned methods survive a pull. An empty `csvs` is refused: it
+    would read as "no rows left" and the caller would drop the whole file."""
+    if not csvs:
+        raise ValueError("merge_method_csvs needs at least one method CSV")
     con = _connect()
     try:
         parts: list[str] = []
@@ -461,14 +465,12 @@ def merge_method_csvs(
                 f"FROM {source}"
             )
         if existing_path:
-            replaced = ", ".join(_sql_literal(m) for m, _ in csvs) or "NULL"
+            replaced = ", ".join(_sql_literal(m) for m, _ in csvs)
             parts.insert(
                 0,
                 f"SELECT * FROM read_parquet({_sql_literal(existing_path)}) "
                 f"WHERE method NOT IN ({replaced})",
             )
-        if not parts:
-            return 0
         union = " UNION ALL BY NAME ".join(f"({p})" for p in parts)
         con.execute(f"CREATE TEMP TABLE merged AS {union}")
         total = int(con.execute("SELECT COUNT(*) FROM merged").fetchone()[0])

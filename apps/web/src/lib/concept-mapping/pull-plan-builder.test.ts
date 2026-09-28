@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { buildMappingProjectPullPlan } from './pull-plan-builder'
-import { scoreChanges, sourceConceptsChanged, type PreparedPull } from './pull'
+import { scoreChanges, sourceConceptsChanged, versionedMethodsAfterPull, type PreparedPull } from './pull'
 import type { SourceConceptsDiff } from '@/lib/api/git'
 
 const diff = (over: Partial<SourceConceptsDiff> = {}): SourceConceptsDiff => ({
@@ -207,5 +207,22 @@ describe('score methods — one whole-file row per method the remote moved', () 
     )
     const row = plan.files.find((f) => f.path === 'similarity-scores/semantic/biolord.csv')
     expect(row?.items).toEqual([{ key: 'semantic/biolord', label: 'semantic/biolord', state: 'update' }])
+  })
+})
+
+// The next push exports only versioned methods: a pulled method left unversioned
+// would be deleted from the repo by that push.
+describe('versionedMethodsAfterPull', () => {
+  it('versions the pulled methods and unversions the deleted ones', () => {
+    expect(versionedMethodsAfterPull(['semantic/biolord', 'ai/old-model'], [
+      { method: 'ai/claude-opus-4-8', state: 'add' },
+      { method: 'ai/old-model', state: 'delete' },
+      { method: 'syntactic/jaro-winkler', state: 'update' },
+    ])).toEqual(['ai/claude-opus-4-8', 'semantic/biolord', 'syntactic/jaro-winkler'])
+  })
+
+  it('leaves the field absent, not empty, once nothing is versioned', () => {
+    expect(versionedMethodsAfterPull(['ai/old-model'], [{ method: 'ai/old-model', state: 'delete' }])).toBeUndefined()
+    expect(versionedMethodsAfterPull(undefined, [{ method: 'a/b', state: 'add' }])).toEqual(['a/b'])
   })
 })

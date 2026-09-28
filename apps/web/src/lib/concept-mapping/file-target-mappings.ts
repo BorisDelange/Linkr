@@ -33,13 +33,20 @@ export interface TargetConceptDetails {
   standardConcept?: string
 }
 
+// Plain digits only: Number() would also read `1e3`, `0x10` or `1.5e2` as ids.
+// A `.0` tail is kept — pandas writes an integer column holding blanks as floats.
+const TARGET_ID_RE = /^(\d+)(?:\.0+)?$/
+
 /** The concept ids of a cell: one or several, separated by `;`, `,`, `|` or spaces. */
 export function parseTargetIds(cell: string | number | null | undefined): number[] {
   if (cell == null) return []
-  const ids = String(cell)
-    .split(/[;,|\s]+/)
-    .map((part) => Number(part.trim()))
-    .filter((n) => Number.isInteger(n) && n > 0)
+  const ids: number[] = []
+  for (const part of String(cell).split(/[;,|\s]+/)) {
+    const digits = TARGET_ID_RE.exec(part.trim())?.[1]
+    if (digits === undefined) continue
+    const n = Number(digits)
+    if (Number.isSafeInteger(n) && n > 0) ids.push(n)
+  }
   return [...new Set(ids)]
 }
 

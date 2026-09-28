@@ -120,8 +120,8 @@ kinds, widths, reference implementations, shared-dialog call sites →
 Only the two rules with consequences beyond styling live here:
 
 - **Editing a shared dialog changes it everywhere.** Before restyling one, check
-  its other call sites; if only the wording should differ, take a mode prop and
-  switch the i18n keys (`ImportConceptSetDialog`'s `dictionaryMode`) instead of
+  its other call sites; if only the content should differ, take a prop that
+  switches it (as `ImportSourceDialog` does with `hideGit` / `scope`) instead of
   touching its styling.
 - **A destructive action always goes through a confirm `AlertDialog`** — never
   fires straight from the click.

@@ -878,11 +878,11 @@ export async function buildMappingProjectFolder(
     }
   }
 
-  try {
-    await writeScoreFiles(zip, prefix, project, options.scores)
-  } catch {
-    // Scores export failed — continue without them
-  }
+  // Deliberately NOT caught: this tree feeds git status/commit, where a tree
+  // missing a versioned method's CSV reads as that file's deletion — a swallowed
+  // failure here would have a push delete it from the repo. Every caller either
+  // surfaces the error or fails its export loudly.
+  await writeScoreFiles(zip, prefix, project, options.scores)
 
   // Assigned source-concept-ids (workspace registry, scoped to this project's
   // badges) — otherwise a project export silently loses them.

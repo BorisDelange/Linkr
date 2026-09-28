@@ -13,6 +13,7 @@
  */
 import type { ConceptMapping, GitRemoteConfig, LocalizedString, MappingProject, SourceConceptIdRange } from '@/types'
 import type { Storage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
 import { readImportedManifest, readLicense } from '@/lib/entity-io'
 import { resolvePointer } from '@/lib/import-identity'
 import { README_FILE_RE } from '@/lib/entity-tree'
@@ -217,12 +218,17 @@ export async function importMappingProjectContent(
   // Similarity scores (optional). The store persists them and pushes the fresh
   // index, so the editor shows suggestions without a reload. An overwrite starts
   // from none: the scores of the replaced project would otherwise merge with the
-  // incoming CSVs front-only (server-side they went with the deleted row).
-  try {
-    if (replaceExisting) {
+  // incoming CSVs. Front-only, that takes an explicit delete (OPFS/IDB scores
+  // outlive the row); server-side they went with the deleted row, and the delete
+  // endpoint needs a permission (`concept-mapping:delete`) a write-role importer
+  // may not hold. Its own try: a failed delete must not cancel the restore.
+  if (replaceExisting && !isServerMode()) {
+    try {
       const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')
       await useSuggestionScoresStore.getState().deleteProjectScores(targetId)
-    }
+    } catch { /* restore below still replaces the stale methods */ }
+  }
+  try {
     await restoreImportedScores(targetId, scores)
   } catch { /* leave the project without scores */ }
 

@@ -676,13 +676,12 @@ const SERVER_PAGE_ROWS = 10_000
 export async function queryDataSourceAll(
   dataSourceId: string,
   baseSql: string,
-  pageSize = SERVER_PAGE_ROWS,
+  options: { signal?: AbortSignal } = {},
 ): Promise<Record<string, unknown>[]> {
-  if (!isServerMode()) return queryDataSource(dataSourceId, baseSql)
+  const { signal } = options
+  if (!isServerMode()) return queryDataSource(dataSourceId, baseSql, { signal })
 
-  // Never exceed the server cap (see note above) — a larger page can't be
-  // distinguished from a truncated one, which would silently lose rows.
-  const step = Math.min(pageSize, SERVER_PAGE_ROWS)
+  const step = SERVER_PAGE_ROWS
   const all: Record<string, unknown>[] = []
   for (let offset = 0; ; offset += step) {
     // ORDER BY ALL is REQUIRED, not cosmetic: LIMIT/OFFSET over a query with no
@@ -695,6 +694,7 @@ export async function queryDataSourceAll(
     const page = await queryDataSource(
       dataSourceId,
       `SELECT * FROM (${baseSql}) AS _src ORDER BY ALL LIMIT ${step} OFFSET ${offset}`,
+      { signal },
     )
     all.push(...page)
     if (page.length < step) break

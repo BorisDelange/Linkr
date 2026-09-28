@@ -229,7 +229,7 @@ def test_csv_path_rule_matches_the_format_package():
     # Twin of scoreCsvPath / scoreMethodOfPath in packages/linkr-format/src/layout.ts.
     assert svc.csv_path_for_method("ai/claude-opus-4-8") == "similarity-scores/ai/claude-opus-4-8.csv"
     assert svc.method_for_csv_path("similarity-scores/semantic/biolord.csv") == "semantic/biolord"
-    for bad in ["../etc", "ai/..", "ai//x", ".hidden", "ai/.x", "a b", "ai\\x", ""]:
+    for bad in ["../etc", "ai/..", "ai//x", ".hidden", "ai/.x", "a b", "ai\\x", "", "ai\n", "ai/x\n"]:
         assert svc.csv_path_for_method(bad) is None, bad
     assert svc.method_for_csv_path("similarity-scores/../x.csv") is None
     assert svc.method_for_csv_path("similarity-scores.parquet") is None
@@ -279,6 +279,17 @@ def test_csv_round_trip_keeps_the_rows():
     assert svc.merge_method_csvs(None, [("semantic/biolord", str(tmp / "b.csv"))], str(tmp / "m.parquet")) == 2
     svc.write_method_csv(str(tmp / "m.parquet"), "semantic/biolord", str(tmp / "b2.csv"))
     assert (tmp / "b2.csv").read_bytes() == (tmp / "b.csv").read_bytes()
+
+
+def test_merge_method_csvs_refuses_an_empty_csv_list():
+    # An empty list would filter every row out and the caller would delete the file.
+    tmp = Path(tempfile.mkdtemp())
+    try:
+        svc.merge_method_csvs(_scores_file(), [], str(tmp / "m.parquet"))
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected a ValueError")
 
 
 def test_merge_method_csvs_refuses_a_csv_without_key_columns():

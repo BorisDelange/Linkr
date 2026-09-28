@@ -396,9 +396,9 @@ which carries the app's `rehype-sanitize` schema — never with `dangerouslySetI
 
 `ImportConflictDialog` (10 call sites), `ImportSourceDialog` (5),
 `EntityDocsDialog` (4), `ImportErrorDialog` (3), `EntityVersioningDialog` (2).
-Editing one changes every caller. If only the wording differs, take a mode prop
-and switch i18n keys (see `ImportConceptSetDialog`'s `dictionaryMode`) rather
-than touching styling.
+Editing one changes every caller. If only the content differs, take a prop that
+switches it (see `ImportSourceDialog`'s `hideGit` / `scope`) rather than
+touching styling.
 
 `components/ui/export-dialog.tsx` has **zero call sites** — superseded by the
 export UI inside `entity-versioning-dialog.tsx` (file-private, so not importable).
