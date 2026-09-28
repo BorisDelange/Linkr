@@ -29,6 +29,21 @@ Notes / follow-ups:
 
 ---
 
+## 2026-09-28 — Fixes of the 2026-09-28 review
+
+- Fixed by: five fixers (Claude Opus), one per review scope, each in its own worktree; every fix verified by its scope's tests plus, per branch, the relevant full suite. All 29 findings (1 🔴, 7 🟠, the 🟡 set) addressed, none skipped.
+- Branches — zero file overlap between them and with the base, so they merge conflict-free; **merging into feature/fastapi-backend is left to the user** (their checkout):
+  - `feature/fix-vocab` (4 commits) — generated-SQL sanitization both sides + hostile-input tests (goldens byte-identical), keyless set survives server sync, failed GitHub fetch fails the sync, validateIntegerIds, NOT EXISTS, escSql, import-lock on delete + state pruning, dialog prepare leak, hasOwn, code-point sort, doc/twin pointers. Front 445 scope tests + tsc clean; backend 10.
+  - `feature/fix-catalog` (2 commits) — the 🔴: category-level list feeds the suppression as a `[concept(category), CONCEPT_MEMBER]` table and the audit models the category→concepts margin (regression test reproduces the 100−90 subtraction; new tests fail on the old code); published modality order computed from published values (masked ≡ threshold); grand-records inequality in the audit; runImpact persist re-read; dictionaryKey-aware totals; no-key-fields-published test. Full front suite 3693 + tsc clean.
+  - `feature/fix-mapping` (2 commits) — server-mode overwrite-import no longer deletes/drops scores (front-only delete, separate trys); git-variant export fails loudly (and only a 404 reads as "no file" in the scores API helpers); re.fullmatch; extension filter on import-server-file; merge_method_csvs([]) refused; LRU-capped csvCache; scores cache removed on project delete; []→absent normalization both twins (goldens untouched); abortable queryAll; integer-only parseTargetIds (still accepts a trailing ".0" — pandas float-int columns; one-line change if unwanted); versionedMethodsAfterPull extracted + pinned; docs examples updated. Full front suite 3691 + tsc; backend 47 + 126.
+  - `feature/fix-backend` (5 commits) — COPY/EXPORT refused on shared-read routes; materialize_parquet single-SELECT via DuckDB's parser (also closes a parenthesis-escape bypass found while fixing, pinned); ETL confined (external access off, allowed_paths = role parquets + mapping CSVs) and refuses COPY … TO since allowed_paths grants write (COPY FROM still works; shipped pipelines unaffected — new test_etl_file_access.py, 13 cases failing before); derive 400 on corrupt file; jobs.is_running(); stats-cache IntegrityError retry; git.py imports + `from e`. Full backend suite 1293 passed / 2 skipped / 3 R-kernel timeouts (machine load — pass alone and in the earlier subset).
+  - `feature/fix-mcp-ui` (4 commits) — table escaping (backslash first, headers escaped without the 80-char cut); update_packages/build_environment/install_package_preset DESTRUCTIVE; overrides sanitized on the update path; cohort persist race (both store tests fail on the old code). MCP 247 + tsc; stores 120 + tsc.
+- Directly on feature/fastapi-backend: `50258026` — workspace export crashed with NameError (missing `concept_set_dicts` import) on every non-git-linked mapping project; found by ruff during the fixes, regression test added (fails without the import).
+- Known accepted quirks recorded: escSql doubles backslashes (no ATHENA id carries one); the first fixer wave (same-model subagents) died on an API rate limit, work was resumed on Opus over the same worktrees.
+- After merge: re-run the full gates on the merged head before pushing.
+
+---
+
 ## 2026-09-28 — Vocabulary library & data dictionaries, catalog anonymization (audit + cell-key perturbation), scores versioning, backend hardening batch, MCP package split
 
 - Reviewed by: Claude Fable 5 — five parallel scope reviewers (vocabulary/dictionaries, data catalog, concept mapping, backend security, MCP + web UI); gates run by the lead; every 🔴/🟠 re-verified against the code by its reviewer (the DuckDB COPY and stale-interrupt claims verified by live experiment on duckdb 1.5.5; the catalog disclosure claims by explicit arithmetic).
