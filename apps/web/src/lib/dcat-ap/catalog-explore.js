@@ -29,8 +29,9 @@ var EXPLORE_TEXT = {
   patients: 'Patients', stays: 'Hospitalizations', unit_stays: 'Unit stays', records: 'Records', concepts: 'Concepts', categories: 'Categories',
   kpi_of: 'of {total}', kpi_not_counted: 'Not counted by this view',
   kpi_not_additive: 'Cannot be added up across {things}',
-  kpi_at_most: 'At most: what appears in several {things} counts in each',
-  kpi_about: 'About: what appears in several {things} counts in each, masked cells left out',
+  kpi_at_least: 'At least: masked cells are left out of the sum.',
+  kpi_at_most: 'At most: what appears in several {things} is counted in each of them.',
+  kpi_about: 'Approximate: what appears in several {things} is counted in each of them, which overcounts, and masked cells are left out, which undercounts.',
   published_concepts_only: 'published concepts only',
   title_by: '{unit} by {vars}',
   over_time: '{unit} over time', per_unit: '{unit} per {unit2}', age_distribution: 'Age distribution',
@@ -669,7 +670,7 @@ function createExplorer(DATA, opts) {
 
   /**
    * Everything the host draws: { title, context: [{ v, label, value }], stats:
-   * [{ key, label, value, sub, icon }], blocks: [{ title, size, sub, note, head,
+   * [{ key, label, value, sub, note, icon }], blocks: [{ title, size, sub, note, head,
    * render(width) → HTML, csv }], table, empty }.
    */
   function view() {
@@ -750,13 +751,13 @@ function createExplorer(DATA, opts) {
     // An absent cell may be a masked one: the sum is exact only when no cell is missing.
     vars.forEach(function(v) { combos *= keptMods(v).length; });
     var incomplete = masked || cells < combos;
-    if (!blocker) return { v: sum, of: total, atLeast: incomplete };
-    return { v: sum, atMost: !incomplete, about: incomplete, sub: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) };
+    if (!blocker) return { v: sum, of: total, atLeast: incomplete, note: incomplete ? tr('kpi_at_least') : '' };
+    return { v: sum, atMost: !incomplete, about: incomplete, note: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) };
   }
   function card(key, label, icon, f) {
     var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : f.atMost ? '≤ ' : f.about ? '≈ ' : '') + fmt(f.v);
     var sub = f.of != null ? tr('kpi_of', { total: fmt(f.of) }) + (f.of ? ' (' + pct(f.v, f.of) + ')' : '') : f.sub || '';
-    return { key: key, label: label, value: value, sub: sub, icon: icon };
+    return { key: key, label: label, value: value, sub: sub, note: f.note || '', icon: icon };
   }
   /**
    * The key figures: patients, the stays the catalog counts, records — each

@@ -265,7 +265,7 @@ function periodFilter() {
   if (n > 12) presets.push([lx('last_n', { n: 12 }), n - 12]);
   if (n > 5 && vr.granularity === 'year') presets.push([lx('last_n', { n: 5 }), n - 5]);
   if (n > 24 && vr.granularity === 'month') presets.push([lx('last_n', { n: 24 }), n - 24]);
-  h += '<div class="presets">' + presets.map(function(pr) { return '<button type="button" class="link" data-act="range-preset" data-v="' + pr[1] + '">' + escHtml(pr[0]) + '</button>'; }).join('') + '</div>';
+  h += '<div class="presets">' + presets.map(function(pr) { return '<button type="button" class="pill-t' + (presetOn(pr[1]) ? ' on' : '') + '" data-act="range-preset" data-v="' + pr[1] + '">' + escHtml(pr[0]) + '</button>'; }).join('') + '</div>';
   return h + '</div>';
 }
 
@@ -481,6 +481,11 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
+/** Whether the period range is the preset starting at `from` (0 = every period). */
+function presetOn(from) {
+  return from ? !!S.range && S.range[0] === from && S.range[1] === V.period.mods.length - 1 : !S.range;
+}
+
 function paintRange() {
   var fill = $('range-fill');
   if (!fill || !V.period) return;
@@ -490,6 +495,7 @@ function paintRange() {
   fill.style.right = (100 - r[1] / d * 100) + '%';
   $('range-lo').textContent = V.period.names[r[0]];
   $('range-hi').textContent = V.period.names[r[1]];
+  each(side.querySelectorAll('[data-act="range-preset"]'), function(b) { b.classList.toggle('on', presetOn(Number(b.dataset.v))); });
 }
 
 var debounceTimer;
@@ -570,7 +576,7 @@ main.addEventListener('click', function(e) {
 });
 
 function kpiHtml(s) {
-  return '<div class="kpi"><div class="kpi-ico">' + (ICONS[ICON_OF[s.icon]] || ICONS.activity) + '</div><div class="kpi-t"><div class="v num">' + escHtml(s.value) + '</div><div class="l">' + escHtml(s.label) + '</div>'
+  return '<div class="kpi"><div class="kpi-ico">' + (ICONS[ICON_OF[s.icon]] || ICONS.activity) + '</div><div class="kpi-t"><div class="v num">' + escHtml(s.value) + '</div><div class="l">' + escHtml(s.label) + (s.note ? '<span class="kpi-note" data-tip="' + escHtml(escHtml(s.note)) + '">' + ICONS.info + '</span>' : '') + '</div>'
     + (s.sub ? '<div class="s" title="' + escHtml(s.sub) + '">' + escHtml(s.sub) + '</div>' : '') + '</div></div>';
 }
 

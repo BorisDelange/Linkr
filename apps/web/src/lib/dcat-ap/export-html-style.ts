@@ -280,7 +280,9 @@ ${CHART_CSS}
 .kpi-ico{display:flex;flex-shrink:0;align-items:center;justify-content:center;width:34px;height:34px;border-radius:9px;background:var(--accent-soft);color:var(--blue2)}
 .kpi-t{min-width:0}
 .kpi .v{font-size:20px;font-weight:600;color:var(--ink);line-height:1.15}
-.kpi .l{font-size:12px;color:var(--muted)}
+.kpi .l{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--muted)}
+.kpi-note{display:inline-flex;cursor:help;opacity:.7}
+.kpi-note:hover{opacity:1}
 .kpi .s{font-size:10px;color:var(--muted);opacity:.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .vdot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .vbadges{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:8px}
@@ -342,7 +344,7 @@ ${CHART_CSS}
 .cal{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .cal label{display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--muted)}
 .cal .input{margin:0;padding:0 6px}
-.presets{display:flex;gap:12px;margin-top:8px}
+.presets{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px}
 .slice{display:block;margin-bottom:10px;font-size:12px;font-weight:500;color:var(--ink)}
 .slice .select,.slice .input{display:block;width:100%;margin-top:4px}
 .btn.full{width:100%}

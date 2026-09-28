@@ -5376,8 +5376,9 @@
       "kpi_of": "of {total}",
       "kpi_not_counted": "Not counted by this view",
       "kpi_not_additive": "Cannot be added up across {things}",
-      "kpi_at_most": "At most: what appears in several {things} counts in each",
-      "kpi_about": "About: what appears in several {things} counts in each, masked cells left out",
+      "kpi_at_least": "At least: masked cells are left out of the sum.",
+      "kpi_at_most": "At most: what appears in several {things} is counted in each of them.",
+      "kpi_about": "Approximate: what appears in several {things} is counted in each of them, which overcounts, and masked cells are left out, which undercounts.",
       "scale_label": "Colour scale:",
       "per_row_tip": "Each row is shaded against its own largest cell: compares the values within a row, whatever its size.",
       "whole_table_tip": "Every cell is shaded against the largest cell of the table: compares all the cells with one another."
