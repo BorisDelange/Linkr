@@ -175,3 +175,15 @@ async def test_assembler_reproduces_golden_tree(db):
     for path in _expected_paths():
         expected = (_EXPECTED / path).read_bytes()
         assert tree[path] == expected, f"content mismatch for {path}"
+
+
+async def test_workspace_sub_tree_builds_from_db(db):
+    # Pins the cross-module reuse of concept_set_dicts: the workspace exporter
+    # crashed with NameError on every non-git-linked mapping project when the
+    # import was missing (found by ruff F821, 2026-09-28).
+    from app.services.workspace_export_assemble import _mapping_project_sub_tree
+
+    project = await _seed(db)
+    tree = await _mapping_project_sub_tree(db, project)
+    assert "entity.json" in tree
+    assert ".gitignore" not in tree
