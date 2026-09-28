@@ -224,15 +224,19 @@ async def remove_vocabulary(
     library = await _library(db, workspace_id)
     if library is None:
         return
-    connection_pool.invalidate(library.id)
-    await asyncio.to_thread(lib.remove_partitions, workspace_id, vocabulary_id)
-    concept_cache_fs.invalidate(library.id)
-    config = dict(library.connection_config or {})
-    config["vocabularies"] = [v for v in _inventory(library) if v["vocabularyId"] != vocabulary_id]
-    library.connection_config = config
-    flag_modified(library, "connection_config")
-    _set_known_tables(library, workspace_id)
-    await db.commit()
+    # An import rewrites the inventory it read before writing its partitions:
+    # a removal in between would be overwritten.
+    async with lib.workspace_lock(workspace_id):
+        await db.refresh(library)
+        connection_pool.invalidate(library.id)
+        await asyncio.to_thread(lib.remove_partitions, workspace_id, vocabulary_id)
+        concept_cache_fs.invalidate(library.id)
+        config = dict(library.connection_config or {})
+        config["vocabularies"] = [v for v in _inventory(library) if v["vocabularyId"] != vocabulary_id]
+        library.connection_config = config
+        flag_modified(library, "connection_config")
+        _set_known_tables(library, workspace_id)
+        await db.commit()
 
 
 def _set_known_tables(library: DataSource, workspace_id: str) -> None:

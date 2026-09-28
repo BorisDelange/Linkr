@@ -47,16 +47,27 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Bumped on close: a prepare still running then holds a hidden import database
+  // nobody else will discard.
+  const inspection = useRef(0)
+
+  useEffect(() => () => { inspection.current++ }, [])
 
   const inspect = async (source: ExportSource) => {
+    const token = ++inspection.current
     setPhase('inspecting')
     setError(null)
     try {
       const next = await prepareImport(workspaceId, source, (done, total) => setUpload({ done, total }))
+      if (token !== inspection.current) {
+        void discardPreparedImport(next)
+        return
+      }
       setPrepared(next)
       setSelected(defaultSelection(next.inspected.vocabularies))
       setPhase('preview')
     } catch (err) {
+      if (token !== inspection.current) return
       setError(err instanceof Error ? err.message : String(err))
       setPhase('source')
     } finally {
@@ -65,7 +76,10 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
   }
 
   useEffect(() => {
-    if (!open) return
+    if (!open) {
+      inspection.current++
+      return
+    }
     setPrepared(null)
     setSelected(new Set())
     setError(null)
@@ -78,6 +92,7 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
 
   const close = (next: boolean) => {
     if (next || phase === 'importing') return
+    inspection.current++
     if (prepared) void discardPreparedImport(prepared)
     onOpenChange(false)
   }
