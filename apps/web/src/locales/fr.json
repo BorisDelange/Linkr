@@ -864,7 +864,10 @@
     "location_missing_change": "Changer l'emplacement",
     "folder_location": "Emplacement du dossier",
     "stats_stop": "Arrêter",
-    "stats_stopping": "Arrêt…"
+    "stats_stopping": "Arrêt…",
+    "no_schema_title": "Aucun schéma n'est attribué à cette base de données",
+    "no_schema_description": "Linkr ne sait pas quelles tables contiennent les patients, les séjours et les événements : les statistiques, les données patients, les cohortes et l'extraction des concepts sources des mapping projects ne fonctionnent pas. Attribuez un schéma pour les activer.",
+    "no_schema_assign": "Attribuer un schéma"
   },
   "reports": {
     "title": "Rapports",
@@ -5074,7 +5077,10 @@
     "extract_section_counts_desc": "Combien d'enregistrements a le concept, et pour combien de patients.",
     "extract_pausing": "Mise en pause…",
     "extract_pausing_stopping": "Pause demandée — arrêt de la requête en cours…",
-    "extract_pausing_saving": "Pause demandée — enregistrement des concepts déjà extraits…"
+    "extract_pausing_saving": "Pause demandée — enregistrement des concepts déjà extraits…",
+    "extract_no_schema_title": "La base de données source n'a pas de schéma",
+    "extract_no_schema_description": "Ses concepts sources ne peuvent pas être extraits tant qu'aucun schéma ne lui est attribué : c'est le schéma qui indique quelles tables sont des dictionnaires de concepts.",
+    "extract_no_schema_open": "Ouvrir la base de données"
   },
   "data_catalog": {
     "pages_hint_github": "Dans le dépôt, réglez une fois Settings › Pages › Source sur « GitHub Actions ».",

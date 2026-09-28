@@ -33,13 +33,16 @@ export function AppDatabaseDialog({ open, onOpenChange }: AppDatabaseDialogProps
         className="flex h-[85vh] max-w-[92vw] flex-col gap-0 p-0 sm:max-w-[92vw]"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <DialogTitle className="sr-only">{t('settings.general_db_query')}</DialogTitle>
         <Tabs defaultValue="sql" className="flex min-h-0 flex-1 flex-col gap-0">
-          <div className="flex items-center justify-center border-b px-4 py-2">
+          {/* Title left, tabs centred, and a spacer as wide as the title so they
+              stay centred; the right one also clears the dialog's close button. */}
+          <div className="flex items-center border-b px-4 py-2">
+            <DialogTitle className="flex-1">{t('settings.general_db_query')}</DialogTitle>
             <TabsList>
               <TabsTrigger value="sql">{t('settings.db_tab_sql')}</TabsTrigger>
               <TabsTrigger value="schema">{t('settings.db_tab_schema')}</TabsTrigger>
             </TabsList>
+            <div className="flex-1" />
           </div>
           <TabsContent value="sql" className="min-h-0 flex-1 data-[state=inactive]:hidden">
             <SqlTab active={open} />
@@ -84,8 +87,8 @@ function SqlTab({ active }: { active: boolean }) {
   if (!active) return null
 
   return (
-    <Allotment>
-      <Allotment.Pane minSize={240}>
+    <Allotment vertical>
+      <Allotment.Pane minSize={120} preferredSize="40%">
         <div className="flex h-full flex-col">
           <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
             <span className="text-xs text-muted-foreground">{t('settings.db_run_hint')}</span>
@@ -103,8 +106,8 @@ function SqlTab({ active }: { active: boolean }) {
           </div>
         </div>
       </Allotment.Pane>
-      <Allotment.Pane minSize={280}>
-        <div className="h-full overflow-auto p-2">
+      <Allotment.Pane minSize={120}>
+        <div className="h-full overflow-auto border-t p-2">
           {error ? (
             <p className="p-3 text-sm text-destructive">{error}</p>
           ) : !ran ? (

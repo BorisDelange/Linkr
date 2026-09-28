@@ -434,7 +434,11 @@ export function AddDatabaseDialog({
             name: setLocalized(editingSource.name, language, name.trim()),
             alias: alias.trim() || editingSource.alias,
             description: setLocalized(editingSource.description, language, description.trim()),
-            ...(presetChanged ? { schemaMapping: mapping, schemaSource, schemaOverrides: null } : {}),
+            // Explicit nulls for "No schema": `undefined` is dropped by
+            // JSON.stringify and by the object spreads, so the old schema stayed.
+            ...(presetChanged
+              ? { schemaMapping: mapping ?? null, schemaSource: schemaSource ?? null, schemaOverrides: null }
+              : {}) as Partial<DataSource>,
             badges,
             version: version.trim() || '0.1.0',
             // Spread last and only what was re-attributed: an untouched

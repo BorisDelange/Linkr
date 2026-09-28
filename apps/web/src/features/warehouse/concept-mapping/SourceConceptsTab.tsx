@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertCircle, Database, Info, Loader2, Pause, Play, RotateCcw, Trash2 } from 'lucide-react'
+import { AlertCircle, Database, Info, Loader2, Network, Pause, Play, RotateCcw, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { NumberInput } from '@/components/ui/number-input'
@@ -19,6 +19,10 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, queryDataSourceAll } from '@/lib/duckdb/engine'
 import { cn } from '@/lib/utils'
+import { paths } from '@/lib/paths'
+import { useResolvedParams } from '@/hooks/use-resolved-params'
+import { NoticeBanner } from '@/components/ui/notice-banner'
+import { Link } from 'react-router-dom'
 import {
   DEFAULT_PROFILE_OPTIONS,
   availableSections,
@@ -148,6 +152,7 @@ function localCsvFor(projectId: string): { current: string | null } {
  */
 export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProps) {
   const { t, i18n } = useTranslation()
+  const { wsUid } = useResolvedParams()
   const updateMappingProject = useConceptMappingStore((s) => s.updateMappingProject)
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
@@ -416,8 +421,27 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     setSnapshot(getRunSnapshot(project.id))
   }, [project.id, updateMappingProject])
 
-  if (!dataSource || !mapping) {
+  if (!dataSource) {
     return <EmptyState message={t('concept_mapping.extract_no_database')} />
+  }
+  if (!mapping) {
+    return (
+      <div className="mx-auto w-full max-w-3xl px-6 py-4">
+        <NoticeBanner
+          tone="warning"
+          title={t('concept_mapping.extract_no_schema_title')}
+          description={t('concept_mapping.extract_no_schema_description')}
+          action={wsUid && (
+            <Button asChild variant="outline" size="sm-tight">
+              <Link to={paths.warehouseDatabase(wsUid, dataSource.id)}>
+                <Network size={12} />
+                {t('concept_mapping.extract_no_schema_open')}
+              </Link>
+            </Button>
+          )}
+        />
+      </div>
+    )
   }
   if (dictionaries.length === 0) {
     return <EmptyState message={t('concept_mapping.extract_no_dictionary')} />

@@ -4,7 +4,6 @@ import { Link } from 'react-router-dom'
 import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
-  AlertTriangle,
   FolderOpen,
   ArrowUpRight,
   Pencil,
@@ -54,6 +53,7 @@ import { BadgeStrip } from '@/components/ui/badge-strip'
 import { CardMetaFooter } from '@/components/ui/card-meta-footer'
 import { CopyablePath, ParquetFilesDialog } from '@/components/ui/parquet-files-dialog'
 import { humanBytes } from '@/lib/format-helpers'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import { notifyDatabaseLocationChanged, useDatabaseLocation } from './use-database-location'
 import {
   compactDatabase,
@@ -270,23 +270,34 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         {/* Under the tab bar, so it reads the same from every tab: nothing in
             this page works until the files are found again. */}
         {location.missing && (
-          <div className="mx-6 mb-3 flex shrink-0 items-center gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-2.5">
-            <AlertTriangle size={14} className="shrink-0 text-destructive" />
-            <div className="min-w-0 flex-1 text-xs">
-              <p className="font-medium text-destructive">{t('databases.location_missing_title')}</p>
-              <p className="text-muted-foreground">
-                {location.path
-                  ? t('databases.location_missing_path', { path: location.path })
-                  : t('databases.location_missing_description')}
-              </p>
-            </div>
-            {canEditLocation && (
-              <Button variant="outline" size="sm-tight" className="shrink-0" onClick={() => setEditOpen(true)}>
+          <NoticeBanner
+            tone="danger"
+            className="mx-6 mb-3"
+            title={t('databases.location_missing_title')}
+            description={location.path
+              ? t('databases.location_missing_path', { path: location.path })
+              : t('databases.location_missing_description')}
+            action={canEditLocation && (
+              <Button variant="outline" size="sm-tight" onClick={() => setEditOpen(true)}>
                 <FolderOpen size={12} />
                 {t('databases.location_missing_change')}
               </Button>
             )}
-          </div>
+          />
+        )}
+        {!source.schemaMapping && (
+          <NoticeBanner
+            tone="warning"
+            className="mx-6 mb-3"
+            title={t('databases.no_schema_title')}
+            description={t('databases.no_schema_description')}
+            action={canEditLocation && (
+              <Button variant="outline" size="sm-tight" onClick={() => setEditOpen(true)}>
+                <Network size={12} />
+                {t('databases.no_schema_assign')}
+              </Button>
+            )}
+          />
         )}
         {editOpen && dbActions.renderEditDialog?.({
           item: source,

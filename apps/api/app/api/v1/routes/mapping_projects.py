@@ -25,10 +25,11 @@ from app.schemas.mapping_project import (
 )
 import asyncio
 import os
+import shutil
 import tempfile
 from pathlib import Path
 
-from app.services import blob_store, notification_service, scores_export
+from app.services import blob_store, fs_browser, notification_service, scores_export
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
@@ -756,6 +757,39 @@ async def delete_scores_file(
         project,
         MappingProjectUpdate(scores_file_sha=None, scores_file_name=None),
     )
+
+
+class ServerFileImport(CamelModel):
+    workspace_id: str
+    path: str
+
+
+def _copy_to_temp(src: Path) -> Path:
+    fd, tmp = tempfile.mkstemp(prefix="linkr-server-file-")
+    os.close(fd)
+    shutil.copyfile(src, tmp)
+    return Path(tmp)
+
+
+@router.post(_PROJ + "/import-server-file")
+async def import_server_file(
+    body: ServerFileImport,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Copy a file already on the server into the blob store, so a mapping
+    project can use it as its source like an uploaded one (then preview-columns
+    with the returned sha). Gated like browsing the server: the path must sit
+    inside the browse roots and the user must be allowed to browse them."""
+    await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
+    await check_workspace_permission(db, body.workspace_id, user, "databases:write")
+    checked = fs_browser.validate_file(body.path)
+    if not checked["ok"]:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, checked["reason"])
+    src = Path(checked["path"])
+    tmp = await asyncio.to_thread(_copy_to_temp, src)
+    sha, size = await blob_store.store_file(tmp)
+    return {"sha": sha, "fileName": src.name, "size": size}
 
 
 class FileColumnsPreview(CamelModel):

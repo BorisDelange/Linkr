@@ -52,7 +52,8 @@ import { buildPointer } from '@/lib/import-identity'
 import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { isServerMode } from '@/lib/api-client'
-import { previewFileColumnsOnServer } from '@/lib/api/mapping-projects'
+import { importServerFileForMappingProject, previewFileColumnsOnServer } from '@/lib/api/mapping-projects'
+import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 import { getStorage } from '@/lib/storage'
@@ -132,6 +133,10 @@ export function CreateMappingProjectDialog({
   // Set when a file was uploaded during preview (server-mode Parquet) so create
   // reuses the blob instead of re-uploading it.
   const [preUploadedSha, setPreUploadedSha] = useState<string | null>(null)
+  // A file picked on the server: copied into the blob store, so `sha` is what
+  // the preview reads — the placeholder File in `file` has no bytes.
+  const [fileOrigin, setFileOrigin] = useState<FileOrigin>('upload')
+  const [serverFile, setServerFile] = useState<{ path: string; sha: string; name: string } | null>(null)
   const [parsedColumns, setParsedColumns] = useState<string[]>([])
   const [parsedRows, setParsedRows] = useState<Record<string, unknown>[]>([])
   const [previewRows, setPreviewRows] = useState<Record<string, unknown>[]>([])
@@ -555,6 +560,7 @@ export function CreateMappingProjectDialog({
     try {
       const { columns, rowCount, rows, sheetNames, sha } = await previewFileColumnsOnServer(
         activeWorkspaceId, f, f.name, Object.keys(opts).length > 0 ? opts : undefined, PREVIEW_ROWS,
+        serverFile?.sha,
       )
       if (sheetNames && sheetNames.length > 0) {
         setSheetNames(sheetNames)
@@ -572,7 +578,7 @@ export function CreateMappingProjectDialog({
       setFileError(t('datasets.upload_parse_error'))
     }
     setFileLoading(false)
-  }, [activeWorkspaceId, delimiter, encoding, skipRows, hasHeader, selectedSheet, applyParsedData, t])
+  }, [activeWorkspaceId, delimiter, encoding, skipRows, hasHeader, selectedSheet, applyParsedData, t, serverFile])
 
   const parseFile = useCallback((f: File) => {
     setFileLoading(true)
@@ -613,7 +619,33 @@ export function CreateMappingProjectDialog({
     if (f) handleFile(f)
   }, [handleFile])
 
+  /** A file picked on the server: copied into the blob store, then previewed
+   *  like an upload (see parseServer). */
+  const pickServerFile = useCallback(async (path: string) => {
+    if (!path || !activeWorkspaceId) return
+    setFileLoading(true)
+    setFileError(null)
+    try {
+      const { sha, fileName } = await importServerFileForMappingProject(activeWorkspaceId, path)
+      setServerFile({ path, sha, name: fileName })
+    } catch {
+      setFileError(t('datasets.upload_parse_error'))
+      setFileLoading(false)
+      setFileOrigin('upload')
+      return
+    }
+    setFileLoading(false)
+  }, [activeWorkspaceId, t])
+
+  // Once the server file is in the blob store, open it like a picked file.
+  useEffect(() => {
+    if (!serverFile || file) return
+    handleFile(new File([], serverFile.name))
+  }, [serverFile]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleClearFile = useCallback(() => {
+    setServerFile(null)
+    setFileOrigin('upload')
     setFile(null)
     setRawFileBuffer(null)
     setPreUploadedSha(null)
@@ -1368,7 +1400,16 @@ export function CreateMappingProjectDialog({
                 )}
 
                 {/* Drop zone — shown when no existing file OR new file not yet picked */}
-                {!file && !hasExistingFileData && (
+                {!file && !hasExistingFileData && activeWorkspaceId && (
+                  <DatabaseFileSource
+                    workspaceId={activeWorkspaceId}
+                    origin={fileOrigin}
+                    onOriginChange={setFileOrigin}
+                    expect="file"
+                    extensions={['.csv', '.tsv', '.txt', '.xlsx', '.xls', '.parquet']}
+                    serverPath={serverFile?.path ?? ''}
+                    onServerPathChange={(path) => { if (path) void pickServerFile(path); else setServerFile(null) }}
+                  >
                   <div
                     className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-6 transition-colors cursor-pointer ${
                       dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
@@ -1393,6 +1434,7 @@ export function CreateMappingProjectDialog({
                       }}
                     />
                   </div>
+                  </DatabaseFileSource>
                 )}
 
                 {/* New file just uploaded */}

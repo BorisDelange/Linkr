@@ -864,7 +864,10 @@
     "location_missing_change": "Change location",
     "folder_location": "Folder location",
     "stats_stop": "Stop",
-    "stats_stopping": "Stopping…"
+    "stats_stopping": "Stopping…",
+    "no_schema_title": "No schema assigned to this database",
+    "no_schema_description": "Linkr does not know which tables hold the patients, stays and events, so statistics, patient data, cohorts and the source-concept extraction of mapping projects do not work. Assign a schema to enable them.",
+    "no_schema_assign": "Assign a schema"
   },
   "reports": {
     "title": "Reports",
@@ -5074,7 +5077,10 @@
     "extract_section_counts_desc": "How many records the concept has, and for how many patients.",
     "extract_pausing": "Pausing…",
     "extract_pausing_stopping": "Pause requested — stopping the query in progress…",
-    "extract_pausing_saving": "Pause requested — saving the concepts extracted so far…"
+    "extract_pausing_saving": "Pause requested — saving the concepts extracted so far…",
+    "extract_no_schema_title": "The source database has no schema",
+    "extract_no_schema_description": "Its source concepts cannot be extracted until a schema is assigned to it: the schema says which tables are concept dictionaries.",
+    "extract_no_schema_open": "Open the database"
   },
   "data_catalog": {
     "pages_hint_github": "In the repository, set Settings › Pages › Source to \"GitHub Actions\" once.",

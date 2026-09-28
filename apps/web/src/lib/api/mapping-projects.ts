@@ -131,6 +131,9 @@ export async function previewFileColumnsOnServer(
   fileName: string,
   parseOptions?: Record<string, unknown>,
   previewRows = 0,
+  /** The file is already in the blob store (a server file, see
+   *  importServerFileForMappingProject): preview it without uploading `file`. */
+  storedSha?: string,
 ): Promise<{
   columns: string[]
   rowCount: number
@@ -138,7 +141,7 @@ export async function previewFileColumnsOnServer(
   sheetNames: string[] | null
   sha: string
 }> {
-  const { sha } = await uploadFileInChunks(file, fileName)
+  const sha = storedSha ?? (await uploadFileInChunks(file, fileName)).sha
   const res = await apiRequest<{
     columns: string[]
     rowCount: number
@@ -360,4 +363,16 @@ export const apiServiceMappingStorage: ServiceMappingStorage = {
   delete: async (id) => {
     await apiRequest(`${SVC}/${id}`, { method: 'DELETE' })
   },
+}
+
+/** Copy a file already on the server into the blob store, to use it as a
+ *  mapping project's source without sending it through the browser. */
+export function importServerFileForMappingProject(
+  workspaceId: string,
+  path: string,
+): Promise<{ sha: string; fileName: string; size: number }> {
+  return apiRequest(`${PROJ}/import-server-file`, {
+    method: 'POST',
+    body: JSON.stringify({ workspaceId, path }),
+  })
 }
