@@ -83,6 +83,9 @@ const SECTION_KEYS: (keyof ProfileSections)[] = [
  * warehouse actually holds data for. The dictionary orders itself by the last
  * three at no cost; the first two need the counting pass.
  */
+/** The walk of a run that profiles nothing: the dictionary's own order. */
+const DICTIONARY_ORDER: ExtractionSort = { key: 'code', direction: 'asc' }
+
 const SORT_KEYS: ExtractionSortKey[] = ['records', 'patients', 'name', 'code', 'id']
 
 /**
@@ -340,7 +343,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           extracted: 0,
           total: 0,
           options,
-          sort,
+          sort: computesMetadata(options) ? sort : DICTIONARY_ORDER,
           updatedAt: new Date().toISOString(),
         },
         extractionCsvHeader(), 0, true,
@@ -355,7 +358,11 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       // A resume must walk the order its run was started in, not whatever the
       // dropdown shows now: the offset is an index into that order. A restart —
       // or a first run — takes the current choice.
-      sort: !restart && saved ? (saved.sort ?? DEFAULT_EXTRACTION_SORT) : sort,
+      // Without metadata there is nothing to rank by volume, and the run is
+      // quick enough that what comes first no longer matters.
+      sort: !restart && saved
+        ? (saved.sort ?? DEFAULT_EXTRACTION_SORT)
+        : computesMetadata(options) ? sort : DICTIONARY_ORDER,
       // A restart re-counts: the dictionaries may have grown since the last run,
       // and resuming against a stale total would stop short of the new rows.
       resumeFrom: restart
@@ -474,27 +481,28 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               triggerClass={cn(MULTI_SELECT_FORM_TRIGGER, locked && 'pointer-events-none opacity-50')}
             />
           </div>
-          <div className="flex items-end pb-2">
-            <label className={cn('flex items-center gap-2', locked && 'pointer-events-none opacity-50')}>
-              <Switch
-                size="sm"
-                checked={metadata}
-                disabled={locked}
-                onCheckedChange={(on) => setOptions((o) => ({ ...o, metadata: on }))}
-              />
-              <span className="text-xs">{t('concept_mapping.extract_metadata')}</span>
-            </label>
-            <Tooltip delayDuration={0}>
-              <TooltipTrigger asChild>
-                <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label="Info">
-                  <Info size={12} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-xs text-xs">
-                {t('concept_mapping.extract_metadata_hint')}
-              </TooltipContent>
-            </Tooltip>
-          </div>
+        </div>
+
+        <div className="flex items-center">
+          <label className={cn('flex items-center gap-2', locked && 'pointer-events-none opacity-50')}>
+            <Switch
+              size="sm"
+              checked={metadata}
+              disabled={locked}
+              onCheckedChange={(on) => setOptions((o) => ({ ...o, metadata: on }))}
+            />
+            <span className="text-xs">{t('concept_mapping.extract_metadata')}</span>
+          </label>
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label="Info">
+                <Info size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs text-xs">
+              {t('concept_mapping.extract_metadata_hint')}
+            </TooltipContent>
+          </Tooltip>
         </div>
 
         {metadata && (
@@ -533,6 +541,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         )}
 
         {/* What to screen first, and from which end */}
+        {metadata && (
         <div className="grid grid-cols-2 gap-4">
           <div className="grid gap-1.5">
             <LabelWithHint
@@ -582,7 +591,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           </div>
         </div>
 
-        {sortNeedsCounts(sort) && !locked && (
+        )}
+
+        {metadata && sortNeedsCounts(sort) && !locked && (
           <p className="-mt-2 text-[10px] text-muted-foreground">
             {t('concept_mapping.extract_sort_counts_warning')}
           </p>

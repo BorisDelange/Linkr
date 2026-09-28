@@ -142,7 +142,12 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
         pageSize={100}
         initialSorting={{ columnId: 'name', desc: false }}
         viewKey="pick-concept-sets"
-        onVisibleRowsChange={setVisible}
+        // The header checkbox reads `visible`, so the columns change with it and
+        // the table re-reports its rows: keep the same array when they are the
+        // same rows, or each report triggers the next.
+        onVisibleRowsChange={(rows) => setVisible((prev) => (
+          prev.length === rows.length && prev.every((r, i) => r.set.id === rows[i].set.id) ? prev : rows
+        ))}
         emptyMessage={t('concept_mapping.cs_pick_empty')}
       />
     </DialogShell>
