@@ -152,6 +152,13 @@ describe('rendering', () => {
     expect(out).toContain('x\\|y')
     expect(out).toContain('7 more row(s)')
   })
+
+  it('escapes backslashes before pipes, in headers too', () => {
+    const out = formatRows([{ 'a|b': String.raw`x\|y`, c: 'C:\\dir' }], 5)
+    const [header, row] = out.split('\n')
+    expect(header).toBe('a\\|b | c')
+    expect(row).toBe(String.raw`x\\\|y | C:\\dir`)
+  })
 })
 
 describe('customSqlIdHint', () => {

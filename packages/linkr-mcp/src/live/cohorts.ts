@@ -363,13 +363,15 @@ export function describeMapping(m: SchemaMapping): string {
 export function formatRows(rows: Record<string, unknown>[], maxRows: number, maxChars = 12_000): string {
   if (rows.length === 0) return '(no rows)'
   const cols = Object.keys(rows[0])
+  // Escape the separator rather than drop it: values such as EHRSQL's "icd10|g40909" must reach
+  // the agent intact, or a WHERE clause copied from the output matches nothing. Backslashes
+  // first, so a value already holding "\|" cannot read back as an escape.
+  const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ')
   const cell = (v: unknown) => {
     const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
-    // Escape the separator rather than drop it: values such as EHRSQL's "icd10|g40909" must reach
-    // the agent intact, or a WHERE clause copied from the output matches nothing.
-    return (s.length > 80 ? `${s.slice(0, 77)}...` : s).replace(/\|/g, '\\|').replace(/\n/g, ' ')
+    return escape(s.length > 80 ? `${s.slice(0, 77)}...` : s)
   }
-  const lines = [cols.join(' | ')]
+  const lines = [cols.map(escape).join(' | ')]
   let shown = 0
   for (const r of rows.slice(0, maxRows)) {
     const line = cols.map((c) => cell(r[c])).join(' | ')
