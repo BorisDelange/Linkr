@@ -3,6 +3,8 @@ import { describe, it, expect } from 'vitest'
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import { buildCatalogPageData, buildConceptsCsv, generateCatalogHtml, PAGE_READY_MESSAGE } from './export-html'
 import { TABLE_HELPERS } from './export-html-script'
+import { buildJsonLd } from './jsonld'
+import { buildCrossingCsv, buildPublishedCatalog } from '@/lib/data-catalog/publish'
 
 const EVIL = '</script><img src=x onerror=alert(1)>'
 
@@ -164,6 +166,44 @@ describe('the concept list against the crossings', () => {
     // Capped rows tie on their capped count: no trace of their real order.
     expect(csv.slice(2)).toEqual(['1,C1,,,,,,suppressed', '2,C2,,,,,,suppressed'])
     expect(buildConceptsCsv(f('suppress').catalog, f('suppress').cache).split('\n')).toHaveLength(2)
+  })
+})
+
+describe('perturbation keys', () => {
+  it('reach no published output', () => {
+    const f = fixture()
+    f.catalog = {
+      ...f.catalog,
+      variables: { ...f.catalog.variables, concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } },
+      crossings: [['age', 'sex'], ['concept', 'sex']],
+      anonymization: { threshold: 10, mode: 'replace', noise: 2 },
+    }
+    f.cache = {
+      ...f.cache,
+      concepts: f.cache.concepts.map((c, i) => ({ ...c, patientKey: 987_650_000 + i })),
+      crossings: [
+        ...f.cache.crossings!.map((c) => ({ ...c, rows: c.rows.map((r, i) => ({ ...r, key: 987_651_000 + i })) })),
+        { id: 'concept', variables: ['concept'], rows: [{ values: ['1'], patients: 500, records: 90000, key: 987_652_000 }] },
+        { id: 'concept-sex', variables: ['concept', 'sex'], rows: [{ values: ['1', 'male'], patients: 280, records: 50000, key: 987_652_001 }, { values: ['1', 'female'], patients: 220, records: 40000, key: 987_652_002 }] },
+      ],
+      modalities: { ...f.cache.modalities, concept: ['1', '2', '3'] },
+      grandTotal: { ...f.cache.grandTotal, totalKey: 987_653_000 },
+    }
+    const published = buildPublishedCatalog(f.catalog, f.cache)
+    const outputs = [
+      generateCatalogHtml(f),
+      JSON.stringify(buildCatalogPageData(f)),
+      JSON.stringify(buildJsonLd({ metadata: f.catalog.dcatApMetadata ?? {}, schemaMapping: f.schemaMapping, cache: f.cache, catalog: f.catalog, fullSchema: f.fullSchema })),
+      buildConceptsCsv(f.catalog, f.cache),
+      ...published.crossings.map((c) => buildCrossingCsv(published, c)),
+    ]
+    expect(published.crossings.map((c) => c.id)).toContain('concept-sex')
+    for (const out of outputs) {
+      // A table's column descriptor has a "key" too, but a string one.
+      expect(out).not.toMatch(/"(patientKey|totalKey)"\s*:|"key"\s*:\s*\d/)
+      expect(out).not.toContain('98765')
+      expect(out.split('\n')[0]).not.toMatch(/(^|,)(key|patient_?key|total_?key|cell_key)(,|$)/i)
+    }
   })
 })
 

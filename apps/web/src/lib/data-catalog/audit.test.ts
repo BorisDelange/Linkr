@@ -54,6 +54,26 @@ describe('auditPublished', () => {
   })
 })
 
+describe('the grand total of records over every concept', () => {
+  // Concept d is listed but masked; c's 90 records are published out of 95 in all.
+  const input = (records: number): AuditInput => ({
+    published: { threshold: 10, variables: { concept: { ...variable('concept', ['c', 'd']), everyConcept: true } }, crossings: [] },
+    concepts: [{ key: 'c', patients: 40, records: 90 }, { key: 'd', patients: null, records: null }],
+    totals: { patients: 100, records },
+    threshold: 10,
+    noise: 0,
+  })
+
+  it('caps the masked concepts: 95 − 90 leaves d at most 5 records, so 1 to 5 patients', async () => {
+    const { findings } = await auditPublished(input(95))
+    expect(findings.find((f) => f.measure === 'patients')).toMatchObject({ crossing: 'concept', kind: 'small', examples: [{ cell: ['d'], lo: 1, hi: 5 }] })
+  })
+
+  it('finds nothing when the masked concepts hold enough records between them', async () => {
+    expect((await auditPublished(input(200))).findings).toEqual([])
+  })
+})
+
 describe('auditCatalog', () => {
   it('finds nothing in what the masking now publishes for the Atrovent case', async () => {
     // Two small cells masked — 2100, trimmed off the page, and 2210 — which

@@ -15,7 +15,7 @@ import { catalogCounts } from '@/lib/data-catalog/config'
 import type { IntrospectedTable } from '@/lib/duckdb/engine'
 import { LINKR_LOGO_SVG } from '@/lib/cohort-report/render-html'
 import { escapeXml as esc } from '@/lib/cohort-report/charts'
-import { buildPublishedCatalog, computeCatalogMasks, publishedConcepts, publishedTotals, type PublishedConcept, type PublishedCrossing } from '@/lib/data-catalog/publish'
+import { buildPublishedCatalog, computeCatalogMasks, conceptModalityKey, publishedConcepts, publishedTotals, type PublishedConcept, type PublishedCrossing } from '@/lib/data-catalog/publish'
 import { buildJsonLd } from './jsonld'
 import { mappedTableDocs } from './mapped-tables'
 import { localized } from '@/lib/localized'
@@ -87,7 +87,7 @@ export function buildCatalogPageData({ catalog, cache, locale = 'en', reveal = f
     variables: published.variables,
     crossings: reveal ? published.crossings : published.crossings.map(({ masked: _masked, ...c }) => c),
     concepts: buildConceptTable(concepts, locale),
-    totals: { ...publishedTotals(catalog, cache), concepts: new Set(concepts.map((r) => r.conceptId)).size },
+    totals: { ...publishedTotals(catalog, cache), concepts: new Set(concepts.map(conceptModalityKey(cache))).size },
   }
 }
 

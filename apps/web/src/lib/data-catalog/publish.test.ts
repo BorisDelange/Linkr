@@ -3,6 +3,7 @@ import type { CatalogResultCache, DataCatalog } from '@/types'
 import { defaultCatalogVariables } from './config'
 import { ageDisplayName, buildCrossingCsv, buildPublishedCatalog, computeCatalogMasks, computedMeasures, publishedConcepts, publishedTotals } from './publish'
 import { PRIMARY, PUBLISHED, SECONDARY } from './suppression'
+import { auditPublished } from './audit'
 
 const catalog = {
   variables: defaultCatalogVariables(),
@@ -129,6 +130,87 @@ describe('the concept list as the concept margin', () => {
     expect(JSON.stringify(suppressed)).not.toContain('Rare')
     const replaced = buildPublishedCatalog(conceptCatalog([['concept', 'sex']]), cache)
     expect(replaced.variables.concept!.names).toContain('Rare disease')
+  })
+})
+
+describe('the concept list at category level', () => {
+  const categoryCatalog = (crossings: DataCatalog['crossings']) => ({
+    variables: { ...defaultCatalogVariables(), concept: { enabled: true, level: 'category', categoryColumn: 'domain', scope: 'all', topN: 10 } },
+    crossings,
+    anonymization: { threshold: 10, mode: 'replace' },
+  }) as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>
+  const concept = (conceptId: number, category: string, patientCount: number, recordCount: number) => ({ conceptId, conceptName: `C${conceptId}`, category, patientCount, recordCount })
+  // Category C: 100 records, c1 90 + c2 10; D: 500, c3 470 + c4 30. c2 and c4
+  // are below the threshold: two masked concepts, 40 records between them, so
+  // the list alone tells nothing — but C's published 100 minus c1's 90 is c2.
+  const cache = {
+    concepts: [concept(1, 'C', 50, 90), concept(2, 'C', 3, 10), concept(3, 'D', 190, 470), concept(4, 'D', 4, 30)],
+    crossings: [
+      { id: 'concept', variables: ['concept'], rows: [{ values: ['C'], patients: 52, records: 100 }, { values: ['D'], patients: 194, records: 500 }] },
+      { id: 'concept-sex', variables: ['concept', 'sex'], rows: [
+        { values: ['C', 'male'], patients: 30, records: 60 }, { values: ['C', 'female'], patients: 22, records: 40 },
+        { values: ['D', 'male'], patients: 100, records: 260 }, { values: ['D', 'female'], patients: 94, records: 240 },
+      ] },
+      { id: 'sex', variables: ['sex'], rows: [{ values: ['male'], patients: 130, records: 320 }, { values: ['female'], patients: 116, records: 280 }] },
+    ],
+    modalities: { concept: ['D', 'C'], sex: ['male', 'female'] },
+  } as unknown as CatalogResultCache
+
+  it('never publishes a category total with all but one of its concepts', () => {
+    for (const crossings of [[['concept']], [['concept', 'sex']]] as DataCatalog['crossings'][]) {
+      const cat = categoryCatalog(crossings)
+      const listed = publishedConcepts(cat, cache)
+      const C = computeCatalogMasks(cat, cache, 10).conceptModalities.get('C')
+      expect(listed[1].status).toBe(PRIMARY)
+      // 100 − 90 = 10: c1 or C's total must be masked, whether the 1-way crossing is published or not.
+      expect(listed[0].status !== PUBLISHED || C !== PUBLISHED).toBe(true)
+      expect(listed.map((c) => c.status)).toEqual([SECONDARY, PRIMARY, SECONDARY, PRIMARY])
+    }
+  })
+
+  it('is caught by the audit when the list is masked alone', async () => {
+    const cat = categoryCatalog([['concept']])
+    const published = buildPublishedCatalog(cat, cache)
+    const statuses = [PUBLISHED, PRIMARY, PUBLISHED, PRIMARY]
+    const concepts = cache.concepts.map((c, i) => ({
+      key: String(c.conceptId), name: c.conceptName, group: c.category,
+      patients: statuses[i] === PUBLISHED ? c.patientCount : null,
+      records: statuses[i] === PUBLISHED ? c.recordCount : null,
+    }))
+    const { findings } = await auditPublished({ published, concepts, totals: { patients: 246, records: 600 }, threshold: 10, noise: 0 })
+    expect(findings.find((f) => f.measure === 'records')).toMatchObject({ crossing: 'concept-list', kind: 'exact', examples: expect.arrayContaining([{ cell: ['C', 'C2'], lo: 10, hi: 10 }]) })
+    const fixed = publishedConcepts(cat, cache).map((c) => c.status)
+    const safe = await auditPublished({
+      published, totals: { patients: 246, records: 600 }, threshold: 10, noise: 0,
+      concepts: concepts.map((c, i) => (fixed[i] === PUBLISHED ? c : { ...c, patients: null, records: null })),
+    })
+    expect(safe.findings).toEqual([])
+  })
+})
+
+describe('the published order of ranked modalities', () => {
+  const cat = {
+    variables: { ...defaultCatalogVariables(), concept: { enabled: true, level: 'concept', scope: 'all', topN: 10 } },
+    crossings: [['concept']],
+    anonymization: { threshold: 10, mode: 'replace' },
+  } as unknown as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>
+  // Concepts 1 and 5 are masked; only their exact counts differ between the two.
+  const results = (one: number, five: number) => {
+    const counts: [number, number][] = [[3, 200], [2, 50], [1, one], [5, five]]
+    const exactOrder = [...counts].sort((a, b) => b[1] - a[1]).map(([id]) => String(id))
+    return {
+      concepts: counts.map(([conceptId, n]) => ({ conceptId, conceptName: `C${conceptId}`, patientCount: n, recordCount: n * 2 })),
+      crossings: [{ id: 'concept', variables: ['concept'], rows: counts.map(([id, n]) => ({ values: [String(id)], patients: n, records: n * 2 })) }],
+      modalities: { concept: exactOrder },
+    } as unknown as CatalogResultCache
+  }
+
+  it('places a masked modality by its published count, not its exact one', () => {
+    const a = buildPublishedCatalog(cat, results(5, 7))
+    const b = buildPublishedCatalog(cat, results(8, 7))
+    expect(a.variables.concept!.mods).toEqual(['3', '2', '1', '5'])
+    expect(b.variables.concept!.mods).toEqual(a.variables.concept!.mods)
+    expect(b.crossings).toEqual(a.crossings)
   })
 })
 

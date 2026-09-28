@@ -82,7 +82,11 @@ export function CatalogAnonymizationTab({ catalog, cache }: Props) {
     try {
       // Let the button show its state before the masking blocks the thread.
       await new Promise((r) => setTimeout(r, 0))
-      const next = { ...cache, anonymizationImpact: catalogAnonymizationImpact(catalog, cache, settings) }
+      const anonymizationImpact = catalogAnonymizationImpact(catalog, cache, settings)
+      // The latest results, not the render's: an audit may have saved its own meanwhile.
+      const store = useCatalogStore.getState()
+      const current = (store.resultCacheLoadedFor === catalog.id ? store.activeResultCache : null) ?? cache
+      const next = { ...current, anonymizationImpact }
       setResultCache(catalog.id, next)
       if (canWrite) await getStorage().catalogResults.save(next)
     } finally {
