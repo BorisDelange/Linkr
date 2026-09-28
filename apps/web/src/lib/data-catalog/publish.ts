@@ -13,7 +13,7 @@ import {
 } from '@/types/catalog'
 import { catalogCounts, OTHER_MODALITY, periodLabel, shownCrossingIds, trimPeriods } from './config'
 import { fallbackKey, perturbed } from './perturbation'
-import { computeAnonymizationImpact, computeCrossingMasks, PRIMARY, PUBLISHED, SECONDARY, type CellStatus, type CrossingMask } from './suppression'
+import { computeAnonymizationImpact, computeCrossingMasks, CONCEPT_MEMBER, PRIMARY, PUBLISHED, SECONDARY, type CellStatus, type CrossingMask, type MaskTable } from './suppression'
 import type { PageLocale } from '@/lib/dcat-ap/page-text'
 
 /**
@@ -199,6 +199,10 @@ export interface CatalogMasks {
   conceptModalities: Map<string, CellStatus>
 }
 
+const CONCEPT_LIST = 'concept-list'
+/** A concept without a category: counted in no category's cell, so in no group. */
+const NO_CATEGORY = '\u0000'
+
 function maskOfRows(rows: readonly CatalogCrossingRow[], statusOf: (row: CatalogCrossingRow) => CellStatus): CrossingMask {
   const status = new Uint8Array(rows.length)
   let primary = 0
@@ -230,7 +234,11 @@ function maskOfRows(rows: readonly CatalogCrossingRow[], statusOf: (row: Catalog
  * in the list, secondary cells included.
  *
  * With the concept variable at category level the crossings count categories,
- * no margin of a per-concept list: the list is then masked on its own.
+ * and the list gives each category's concepts: records add up across them to
+ * the category's cell. The list then takes part as the `concept ×
+ * CONCEPT_MEMBER` crossing, grouped by category under the computed 1-way
+ * crossing — published or not, a category total can be recovered from its
+ * other crossings.
  */
 export function computeCatalogMasks(
   catalog: Pick<DataCatalog, 'variables' | 'crossings'>,
@@ -240,11 +248,13 @@ export function computeCatalogMasks(
   const crossings = publishedCrossingResults(catalog, cache)
   const keyOf = conceptModalityKey(cache)
   const listRows: CatalogCrossingRow[] = cache.concepts.map((c) => ({ values: [keyOf(c)], patients: c.patientCount, records: c.recordCount }))
-  const tied = (catalog.variables.concept?.level ?? 'concept') === 'concept' || !crossings.some((c) => c.variables.includes('concept'))
+  const level = catalog.variables.concept?.level ?? 'concept'
+  const tied = level === 'concept' || !crossings.some((c) => c.variables.includes('concept'))
   const oneWay = crossings.find((c) => c.id === 'concept')
+  const computedOneWay = oneWay ?? cache.crossings?.find((c) => c.id === 'concept')
 
   let masks: Map<string, CrossingMask>
-  let margin: CatalogCrossingResult
+  let margin: MaskTable
   let marginMask: CrossingMask
   if (tied) {
     const byKey = new Map<string, CatalogCrossingRow>()
@@ -257,11 +267,16 @@ export function computeCatalogMasks(
     marginMask = masks.get('concept')!
     masks.delete('concept')
   } else {
-    margin = { id: 'concept', variables: ['concept'], rows: listRows }
+    const categoryOf = (c: CatalogConceptRow) => (level === 'subcategory' ? c.subcategory : c.category) ?? NO_CATEGORY
+    margin = {
+      id: CONCEPT_LIST,
+      variables: ['concept', CONCEPT_MEMBER],
+      rows: listRows.map((r, i) => ({ ...r, values: [categoryOf(cache.concepts[i]), r.values[0]] })),
+    }
     masks = computeCrossingMasks(crossings, threshold)
-    marginMask = computeCrossingMasks([margin], threshold).get('concept')!
+    marginMask = computeCrossingMasks([...(computedOneWay ? [computedOneWay] : []), margin], threshold).get(CONCEPT_LIST)!
   }
-  const marginStatus = new Map(margin.rows.map((r, i) => [r.values[0], marginMask.status[i] as CellStatus]))
+  const marginStatus = new Map(margin.rows.map((r, i) => [r.values[r.values.length - 1], marginMask.status[i] as CellStatus]))
   const concepts = Uint8Array.from(listRows, (r) => marginStatus.get(r.values[0]) ?? PUBLISHED)
 
   let conceptModalities = marginStatus
@@ -269,7 +284,7 @@ export function computeCatalogMasks(
     masks.set('concept', maskOfRows(oneWay.rows, (r) => marginStatus.get(r.values[0]) ?? PUBLISHED))
   } else if (!tied) {
     const oneWayMask = oneWay ? masks.get('concept') : undefined
-    const rows = oneWay?.rows ?? cache.crossings?.find((c) => c.id === 'concept')?.rows ?? []
+    const rows = computedOneWay?.rows ?? []
     conceptModalities = new Map(rows.map((r, i) => [r.values[0], (oneWayMask ? oneWayMask.status[i] : r.patients < threshold ? PRIMARY : PUBLISHED) as CellStatus]))
   }
   return { crossings, masks, concepts, conceptModalities }
@@ -340,31 +355,62 @@ export function publishedConcepts(
 }
 
 /**
+ * The order in which a ranked variable (services, concepts) is published: by
+ * each modality's published patients, a masked one counted as the threshold,
+ * ties by code, "Other" last. The exact-count order of the results would place
+ * a masked modality among its published neighbours — and so bracket its count.
+ */
+function publishedRank(
+  mods: readonly string[],
+  marginal: CatalogCrossingResult | undefined,
+  statusOf: (code: string, row: CatalogCrossingRow, index: number) => CellStatus,
+  { threshold, noise = 0 }: Pick<AnonymizationConfig, 'threshold' | 'noise'>,
+): string[] {
+  const value = new Map<string, number>()
+  marginal?.rows.forEach((row, i) => {
+    const code = row.values[0]
+    const key = noise ? row.key ?? fallbackKey(marginal.id, code) : 0
+    value.set(code, statusOf(code, row, i) === PUBLISHED ? perturbed(row.patients, key, 'patients', noise, threshold) : threshold)
+  })
+  const at = (m: string) => value.get(m) ?? threshold
+  return [...mods].sort((a, b) => Number(a === OTHER_MODALITY) - Number(b === OTHER_MODALITY) || at(b) - at(a) || (a < b ? -1 : a > b ? 1 : 0))
+}
+
+/**
  * Each variable's modalities in display order, with their names — periods
- * trimmed to those reaching the threshold. In suppress mode, the concepts (or
+ * trimmed to those reaching the threshold, services and concepts ranked on
+ * their published counts (`publishedRank`). In suppress mode, the concepts (or
  * categories) masked in the concept margin are left out: their names are what
- * that mode withholds. `conceptModalities` is that margin's status per code
- * (`computeCatalogMasks`); without it, nothing is left out.
+ * that mode withholds — unless `reveal`, for the app's preview.
  */
 export function publishedVariables(
   catalog: Pick<DataCatalog, 'variables' | 'anonymization' | 'crossings'>,
   cache: CatalogResultCache,
   locale: PageLocale = 'en',
-  conceptModalities?: ReadonlyMap<string, CellStatus>,
+  { masks = computeCatalogMasks(catalog, cache, catalog.anonymization.threshold), reveal = false }: { masks?: CatalogMasks; reveal?: boolean } = {},
 ): PublishedCatalog['variables'] {
   const threshold = catalog.anonymization.threshold
   const crossings = cache.crossings ?? []
-  const used = new Set(publishedCrossingResults(catalog, cache).flatMap((c) => c.variables))
+  const used = new Set(masks.crossings.flatMap((c) => c.variables))
+  const primaryRule = (_code: string, row: CatalogCrossingRow): CellStatus => (row.patients < threshold ? PRIMARY : PUBLISHED)
   const variables: PublishedCatalog['variables'] = {}
   for (const id of CATALOG_VARIABLE_ORDER) {
     if (!used.has(id)) continue
-    const marginal = crossings.find((c) => c.id === id)?.rows ?? []
+    const oneWay = crossings.find((c) => c.id === id)
+    const marginal = oneWay?.rows ?? []
     let mods = cache.modalities?.[id] ?? [...new Set(marginal.map((r) => r.values[0]))]
     // De-identified sources scatter a few patients over decades: drop the
     // periods before the first and after the last that reach the threshold.
     if (id === 'period') mods = trimPeriods(mods, new Map(marginal.map((r) => [r.values[0], r.patients])), threshold)
-    if (id === 'concept' && conceptModalities && catalog.anonymization.mode === 'suppress') {
-      mods = mods.filter((m) => (conceptModalities.get(m) ?? PUBLISHED) === PUBLISHED)
+    if (id === 'service') {
+      const mask = masks.masks.get('service')
+      mods = publishedRank(mods, oneWay, mask ? (_code, _row, i) => mask.status[i] as CellStatus : primaryRule, catalog.anonymization)
+    }
+    if (id === 'concept') {
+      mods = publishedRank(mods, oneWay, (code, row) => masks.conceptModalities.get(code) ?? primaryRule(code, row), catalog.anonymization)
+      if (!reveal && catalog.anonymization.mode === 'suppress') {
+        mods = mods.filter((m) => (masks.conceptModalities.get(m) ?? PUBLISHED) === PUBLISHED)
+      }
     }
     const variable: PublishedVariable = {
       id,
@@ -407,8 +453,9 @@ export function buildPublishedCatalog(
 ): PublishedCatalog {
   const threshold = catalog.anonymization.threshold
   const noise = catalog.anonymization.noise ?? 0
-  const { crossings, masks, conceptModalities } = catalogMasks ?? computeCatalogMasks(catalog, cache, threshold)
-  const variables = publishedVariables(catalog, cache, locale, reveal ? undefined : conceptModalities)
+  const all = catalogMasks ?? computeCatalogMasks(catalog, cache, threshold)
+  const { crossings, masks } = all
+  const variables = publishedVariables(catalog, cache, locale, { masks: all, reveal })
   const index = new Map<CatalogVariableId, Map<string, number>>()
   for (const v of Object.values(variables)) index.set(v.id, new Map(v.mods.map((m, i) => [m, i])))
 

@@ -1,4 +1,4 @@
-import type { AnonymizationConfig, AnonymizationImpact, CatalogCrossingResult } from '@/types/catalog'
+import type { AnonymizationConfig, AnonymizationImpact, CatalogCrossingResult, CatalogCrossingRow } from '@/types/catalog'
 
 /** 0 = published, 1 = below the threshold, 2 = hidden to protect another cell. */
 export type CellStatus = 0 | 1 | 2
@@ -18,8 +18,23 @@ export interface CrossingMask {
   publishedMass: number
 }
 
+/**
+ * The concept list crossed with its category, when the concept variable counts
+ * categories: `[concept, CONCEPT_MEMBER]`, the category first. Records add up
+ * exactly across a category's concepts, so the category's cell is a total its
+ * concepts must not be recovered from.
+ */
+export const CONCEPT_MEMBER = 'concept_member'
+
+/** What the masking reads of a crossing; its variables may include CONCEPT_MEMBER. */
+export interface MaskTable {
+  id: string
+  variables: readonly string[]
+  rows: readonly CatalogCrossingRow[]
+}
+
 /** Crossings over events (with the concept variable) and over visits count different populations. */
-function factOf(c: Pick<CatalogCrossingResult, 'variables'>): 'event' | 'visit' {
+function factOf(c: Pick<MaskTable, 'variables'>): 'event' | 'visit' {
   return c.variables.includes('concept') ? 'event' : 'visit'
 }
 
@@ -33,7 +48,7 @@ function factOf(c: Pick<CatalogCrossingResult, 'variables'>): 'event' | 'visit' 
  */
 const BOUNDING: Record<'event' | 'visit', { patients: string[]; stays: string[]; records: string[] }> = {
   visit: { patients: ['sex'], stays: ['period', 'age', 'sex'], records: [] },
-  event: { patients: ['sex'], stays: [], records: ['period', 'age', 'sex', 'concept'] },
+  event: { patients: ['sex'], stays: [], records: ['period', 'age', 'sex', 'concept', CONCEPT_MEMBER] },
 }
 const BY_PATIENTS = 1
 const BY_STAYS = 2
@@ -79,7 +94,7 @@ const BY_RECORDS = 4
  *   (lib/data-catalog/audit.ts) checks what an outsider can still work out.
  */
 export function computeCrossingMasks(
-  crossings: readonly CatalogCrossingResult[],
+  crossings: readonly MaskTable[],
   threshold: number,
 ): Map<string, CrossingMask> {
   // Everything below runs over millions of cells on a large warehouse, so it

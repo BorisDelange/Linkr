@@ -8,8 +8,11 @@
  * cells, where the count adds up across the group (records over dates, stays
  * over periods, patients over sex), gives an equation; tables are linked
  * through the margins they share, so a total recovered from one table feeds
- * the equations of the next. With perturbation, each published count is only
- * known within ±noise, so the equations get that much slack.
+ * the equations of the next. The concept list joins in as the concept margin,
+ * or, when the crossings count categories, as each category's concepts; over
+ * every concept, the grand total of records caps the margin's sum. With
+ * perturbation, each published count is only known within ±noise, so the
+ * equations get that much slack.
  *
  * Interval propagation over those equations — plus, inside one cell,
  * patients <= stays (over visits) or <= records (over events) — bounds every
@@ -60,12 +63,25 @@ interface Table {
   measures: CatalogMeasure[]
   /** Published values by cell key (modality indices joined by ','). */
   cells: Map<string, (number | null)[]>
+  /**
+   * The concept list when the concept variable counts categories: the concepts
+   * of each category (indices into `names`, null for those the list leaves
+   * out), cells keyed `category:concept`.
+   */
+  members?: { of: Map<number, number[]>; names: (string | null)[] }
 }
 
 export interface AuditInput {
   published: PublishedCatalog
-  /** The concept list as published: the concept margin when the 1-way crossing is not published. */
-  concepts: { key: string; patients: number; stays?: number; records: number }[]
+  /**
+   * The concept list as published: the concept margin when the 1-way crossing
+   * is not published, each category's concepts when the variable counts
+   * categories. A masked concept the list still names (replace mode) has null
+   * counts; `group` is its category (or subcategory) at the variable's level.
+   */
+  concepts: { key: string; name?: string; group?: string | null; patients: number | null; stays?: number | null; records: number | null }[]
+  /** Suppress mode: the list leaves masked concepts out, so a category may hold concepts it does not name. */
+  hidesMasked?: boolean
   totals: { patients: number; stays?: number; unitStays?: number; records: number }
   threshold: number
   noise: number
@@ -76,6 +92,10 @@ export interface AuditHooks {
   progress?: (done: number, total: number) => void
   signal?: AbortSignal
 }
+
+const CONCEPT_LIST = 'concept-list'
+/** Suppress mode: whatever concepts a category holds that the list leaves out. */
+const UNLISTED = '…'
 
 const factOf = (vars: readonly CatalogVariableId[]): Fact => (vars.includes('concept') ? 'event' : 'visit')
 
@@ -91,19 +111,38 @@ function tablesOf(input: AuditInput): Map<string, Table> {
     }
     tables.set(c.vars.join('-'), { id: c.id, vars: c.vars, measures, cells })
   }
-  // The concept list is the concept margin whether or not the 1-way crossing is published.
   const concept = input.published.variables.concept
-  if (concept && !tables.has('concept') && input.concepts.length) {
-    const index = new Map(concept.mods.map((m, i) => [m, i]))
-    const withStays = input.concepts.some((c) => c.stays != null)
-    const measures: CatalogMeasure[] = withStays ? ['patients', 'stays', 'records'] : ['patients', 'records']
-    const cells = new Map<string, (number | null)[]>()
+  if (!concept || !input.concepts.length) return tables
+  const index = new Map(concept.mods.map((m, i) => [m, i]))
+  const withStays = input.concepts.some((c) => c.stays != null)
+  const measures: CatalogMeasure[] = withStays ? ['patients', 'stays', 'records'] : ['patients', 'records']
+  const valuesOf = (c: AuditInput['concepts'][number]) => (withStays ? [c.patients, c.stays ?? null, c.records] : [c.patients, c.records])
+  const cells = new Map<string, (number | null)[]>()
+  if ((concept.level ?? 'concept') === 'concept') {
+    // The concept list is the concept margin whether or not the 1-way crossing is published.
+    if (tables.has('concept')) return tables
     for (const c of input.concepts) {
       const i = index.get(c.key)
-      if (i != null) cells.set(String(i), withStays ? [c.patients, c.stays ?? null, c.records] : [c.patients, c.records])
+      if (i != null && c.records != null) cells.set(String(i), valuesOf(c))
     }
     tables.set('concept', { id: 'concept', vars: ['concept'], measures, cells })
+    return tables
   }
+  const of = new Map<number, number[]>()
+  const names: (string | null)[] = []
+  const add = (g: number, name: string | null) => {
+    const m = names.push(name) - 1
+    of.set(g, [...(of.get(g) ?? []), m])
+    return m
+  }
+  for (const c of input.concepts) {
+    const g = c.group == null ? undefined : index.get(c.group)
+    if (g == null) continue
+    const m = add(g, c.name ?? c.key)
+    if (c.records != null) cells.set(`${g}:${m}`, valuesOf(c))
+  }
+  if (input.hidesMasked) for (let g = 0; g < concept.mods.length; g++) add(g, null)
+  tables.set(CONCEPT_LIST, { id: CONCEPT_LIST, vars: ['concept'], measures, cells, members: { of, names } })
   return tables
 }
 
@@ -127,7 +166,12 @@ function equationsOf(tables: Map<string, Table>, input: AuditInput, concept: num
   const size = (v: CatalogVariableId) => input.published.variables[v]?.mods.length ?? 0
   const grand: Partial<Record<CatalogMeasure, number>> = { patients: totals.patients, stays: totals.stays, unit_stays: totals.unitStays }
   const eqs: Equation[] = []
+  if (concept == null) eqs.push(...grandRecordEquations(tables, input))
   for (const t of tables.values()) {
+    if (t.members) {
+      if (concept != null) eqs.push(...memberEquations(t, t.members, tables.get('concept'), concept, noise))
+      continue
+    }
     if ((concept == null) !== !t.vars.includes('concept')) continue
     const fact = factOf(t.vars)
     for (let mi = 0; mi < t.measures.length; mi++) {
@@ -170,6 +214,66 @@ function equationsOf(tables: Map<string, Table>, input: AuditInput, concept: num
       }
     }
   }
+  return eqs
+}
+
+/** `x >= 1`: a cell the page shows to exist. */
+const exists = (x: string): Equation => ({ terms: [[1, x]], cLo: -Infinity, cHi: -1 })
+
+/**
+ * The concept list at category level, for category `g`: records add up across
+ * the category's concepts to its cell. A concept the list names but masks
+ * exists.
+ */
+function memberEquations(t: Table, members: NonNullable<Table['members']>, margin: Table | undefined, g: number, noise: number): Equation[] {
+  const eqs: Equation[] = []
+  const of = members.of.get(g) ?? []
+  for (let mi = 0; mi < t.measures.length; mi++) {
+    const m = t.measures[mi]
+    if (!ADDS.event[m]?.includes('concept')) continue
+    const marginMeasure = margin ? margin.measures.indexOf(m) : -1
+    const total = marginMeasure >= 0 ? margin!.cells.get(String(g))?.[marginMeasure] : undefined
+    if (total == null) continue
+    const terms: [number, string][] = []
+    let c = -total
+    let published = 1
+    for (const member of of) {
+      const value = t.cells.get(`${g}:${member}`)?.[mi]
+      const x = `${t.id}|${g}:${member}|${m}`
+      if (value != null) { c += value; published++ } else {
+        terms.push([1, x])
+        if (members.names[member] != null) eqs.push(exists(x))
+      }
+    }
+    if (terms.length) eqs.push({ terms, cLo: c - noise * published, cHi: c + noise * published })
+  }
+  return eqs
+}
+
+/**
+ * A catalog over every concept: the grand total of records is at least the sum
+ * of the concept margin's — an event whose concept is not in a dictionary
+ * counts in the total only. A concept the list names but masks exists.
+ */
+function grandRecordEquations(tables: Map<string, Table>, input: AuditInput): Equation[] {
+  const concept = input.published.variables.concept
+  const margin = tables.get('concept')
+  const mi = margin ? margin.measures.indexOf('records') : -1
+  if (!concept?.everyConcept || !margin || mi < 0) return []
+  const masked = new Set(input.concepts.filter((c) => c.records == null).map((c) => c.key))
+  const eqs: Equation[] = []
+  const terms: [number, string][] = []
+  let c = -input.totals.records
+  let published = 1
+  concept.mods.forEach((code, i) => {
+    const value = margin.cells.get(String(i))?.[mi]
+    const x = `${margin.id}|${i}|records`
+    if (value != null) { c += value; published++ } else {
+      terms.push([1, x])
+      if (masked.has(code)) eqs.push(exists(x))
+    }
+  })
+  if (terms.length) eqs.push({ terms, cLo: c - input.noise * published, cHi: Infinity })
   return eqs
 }
 
@@ -248,11 +352,20 @@ export async function auditCatalog(
   const masks = computeCatalogMasks(catalog, cache, threshold)
   const published = buildPublishedCatalog(catalog, cache, { masks })
   const keyOf = conceptModalityKey(cache)
-  const concepts = publishedConcepts(catalog, cache, { masks })
-    .filter((c) => c.status === PUBLISHED)
-    .map((c) => ({ key: keyOf(c), patients: c.patientCount, stays: c.visitCount, records: c.recordCount }))
+  const level = catalog.variables.concept?.level ?? 'concept'
+  const concepts = publishedConcepts(catalog, cache, { masks }).map((c) => {
+    const shown = c.status === PUBLISHED
+    return {
+      key: keyOf(c),
+      name: c.conceptName,
+      group: level === 'category' ? c.category : level === 'subcategory' ? c.subcategory : undefined,
+      patients: shown ? c.patientCount : null,
+      stays: shown ? c.visitCount : null,
+      records: shown ? c.recordCount : null,
+    }
+  })
   const startedAt = Date.now()
-  const result = await auditPublished({ published, concepts, totals: publishedTotals(catalog, cache), threshold, noise }, hooks)
+  const result = await auditPublished({ published, concepts, hidesMasked: mode === 'suppress', totals: publishedTotals(catalog, cache), threshold, noise }, hooks)
   return { threshold, mode, noise, resultsComputedAt: cache.computedAt, computedAt: new Date().toISOString(), durationMs: Date.now() - startedAt, ...result }
 }
 
@@ -291,7 +404,10 @@ export async function auditPublished(input: AuditInput, hooks: AuditHooks = {}):
         f.count++
         if (f.examples.length < EXAMPLES) {
           const vars = varsOfTable.get(table)!
-          const cell = key.split(',').map((i, p) => input.published.variables[vars[p]]?.names[Number(i)] ?? i)
+          const members = tables.get(table)?.members
+          const cell = members
+            ? key.split(':').map((i, p) => (p === 0 ? input.published.variables.concept?.names[Number(i)] : members.names[Number(i)] ?? UNLISTED) ?? i)
+            : key.split(',').map((i, p) => input.published.variables[vars[p]]?.names[Number(i)] ?? i)
           f.examples.push({ cell, lo: l, hi: h })
         }
       }

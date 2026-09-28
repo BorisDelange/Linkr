@@ -433,7 +433,9 @@ async function runCrossingQuery(ctx: CrossingQueryContext, vars: CatalogVariable
 /**
  * Display order of each variable's modalities, read off the 1-way marginals:
  * every period from the first to the last (gaps included, so a quiet month
- * still shows), services and concepts by patients with "Other" last.
+ * still shows), services and concepts by patients with "Other" last. Exact
+ * counts, masked cells included: a published output re-ranks them on what it
+ * publishes (`publishedVariables`).
  */
 export function orderModalities(
   catalog: Pick<DataCatalog, 'variables'>,
