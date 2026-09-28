@@ -107,8 +107,16 @@ Files in `src/components/docs/`:
 | `LinkrDashboardFrames.tsx` | `Dash*` | `DashHub`, `DashAnatomy`, `DashNestedTabs`, `DashEditMode`, `DashBuiltinGallery`, `DashAddWidget`, `DashWidgetConfig`, `DashCodeWidget`, `DashFilters`, `DashExportDialog`, `DashSettingsDialog` |
 | `LinkrConceptMappingFrames.tsx` | `Cm*` | ~40 frames covering the whole concept-mapping section, plus `TermTooltip` |
 | `LinkrFirstProjectFrames.tsx` | `Linkr*` | `LinkrDatabaseCard`, `LinkrConceptsTable`, `LinkrCohortBuilder`, `LinkrVersioningExport` |
-| `LinkrDataCatalogFrames.tsx` | `Cat*` | `CatVariables` (Variables card with Counts), `CatCrossings` (Crossings card with yields), `CatAnonSettings` (Anonymization tab + impact), `CatMaskedTable` (published table, masked cells, reveal switch), `CatAudit` (disclosure audit), `CatVariableCard` (one variable as a coloured card, MDX children as body — no `client:load` needed) |
-| `LinkrWidgetPreviews.tsx` | `Pv*` | `PvTable1`, `PvKeyIndicator`, `PvPlotBuilder`, `PvKaplanMeier`, `PvCorrelation`, `PvStatTests`, `PvRegression`, `PvSankey` |
+| `LinkrDataCatalogFrames.tsx` | `Cat*` | `CatVariables` (Variables card with Counts), `CatCrossings` (Crossings card with yields), `CatAnonSettings` (Anonymization tab + impact), `CatMaskedTable` (published table, masked cells, reveal switch), `CatAudit` (disclosure audit), `CatVariableCard` (one variable as a coloured card, MDX children as body — no `client:load` needed), `CatAnonSettings`, `CatMaskedTable`, `CatAudit`, `CatPublishedPage`, `CatTabFlow` (static) |
+| `LinkrWidgetPreviews.tsx` | `Pv*` | `PvTable1`, `PvKeyIndicator`, `PvPlotBuilder`, `PvKaplanMeier`, `PvCorrelation`, `PvStatTests`, `PvRegression`, `PvSankey`, `PvSpc`, `PvSpcConfig`, `PvSurveyQuestion` |
+| `LinkrWarehouseFrames.tsx` | `Wh*` | `WhSchemaBrowser` (3-pane explorer, `dialog` prop), `WhMappingBlocks` (`schema` / `override` variants), `WhRelationSqlDialog`, `WhDatabaseTabs`, `WhAddDatabaseDialog`, `WhSqlEditor`, `WhDeriveDialog`, `WhDerivedFromCard` |
+| `LinkrDqEtlFrames.tsx` | `Dq*`, `Etl*` | `DqChecksTab`, `DqResults`, `EtlPipelineRun`, `EtlQuality`, `EtlVocabulary`, `EtlGenerateDialog`, `EtlScriptOrder` |
+| `LinkrProjectFrames.tsx` | `Proj*` | cohorts (`ProjCohortBuilder`, `ProjCohortCriterionForms`, `ProjCohortResults`, `ProjCohortSql`, `ProjCohortReport`), concepts (`ProjConceptsExplorer`, `ProjConceptDetail`, `ProjConceptListCopy`), patient data (`ProjPatientSidebar`, `ProjConceptPicker`, `ProjCollectionSetup`, `ProjCollectionPanel`) |
+| `LinkrLabFrames.tsx` | `Dataset*`, `Ide*` | `DatasetImportDialog`, `DatasetColumnMeta`, `DatasetEditMode`, `DatasetWorkspace`, `IdeLayout`, `IdeRunMenu`, `IdeEnvironments`, and the reusable `ExportTree` (+ `PROJECT_EXPORT_TREE`, `PROJECT_GITIGNORE`) |
+| `LinkrWorkspaceFrames.tsx` | `Ws*` | `WsSummary`, `EntityDialog` (Général / Métadonnées / Attribution), `WsProjectCard`, `WsWiki`, `WsWikiTemplates`, `WsPlugins`, `WsPluginEditor`, `RoleMatrix` (reusable), `WsRoleInheritance`, `WsBadgeCategories` |
+| `LinkrSharingFrames.tsx` | `Sh*` | `ShGitSyncPanel`, `ShSyncStates`, `ShGitConnect`, `ShRepoSettings`, `ShWsExportTree`, `ShImportDialog`, `ShImportConflict`, `ShCatalogCard`, `ShCatalogPage`, `ShLicensePicker`, `ShPublishSteps` |
+| `LinkrAdminFrames.tsx` | `Admin*` | `AdminArchitecture`, `AdminDataDirTree` (`outside` prop for backup), `AdminTwoKeys`, `AdminSettingsTabs`, `AdminUsersTab`, `AdminServerPicker`, `AdminProjectFolders` |
+| `LinkrOverviewFrames.tsx` | mixed | `ProjectSidebar` / `WorkspaceSidebar` / `StaticSidebar` (real nav), `ProjectSummary`, `NotificationsPopover`, `ApiKeysTab`, `Kbd` + `PlatformToggle` + `ShortcutTable` + `ShortcutsDialog`, `EntityFamilies`, `EntityChip`, `GitLinksDiagram`, `LongToWide`, `GlobalInstanceDiagram`, `CapabilityGrid`, `AgentFlow`, `SkillFolder`, `SlideIllustration` (wraps `resources/slide-illustrations.tsx`) |
 | `LabPreview.tsx` | default | Lab area preview, props `locale`, `tabs` |
 | `LinkrDemoFrame.tsx` | default | Live demo iframe frame |
 | `LinkrMapPreview.tsx` / `LinkrMapLeaflet.tsx` | default | Leaflet map |
@@ -139,6 +147,13 @@ import { TermTooltip } from "@/components/docs/LinkrConceptMappingFrames";
    `linkr/apps/web/src/`, same labels as `apps/web/src/locales/*.json`. Open the real
    component before drawing it.
 5. Every colour needs a `dark:` counterpart.
+6. **Fixed height.** A frame must not change height when the reader interacts with it (tab switch,
+   item picked, toggle, fake run). Size its body for the richest state, with room to breathe rather
+   than cramped, from `sm:` up (`sm:h-[540px]`; phones may keep a natural height). Panes fill the
+   height; lists, editors and tables scroll inside (`flex-1 min-h-0 overflow-auto`), so a scrollbar
+   sits at the bottom of its pane, not mid-frame.
+7. When a frame replaces text, put the substance in its `caption` (or as children the component does
+   not render) so `/docs-index.json` still carries it — see the website's `CLAUDE.md`.
 
 ## What a docs page does NOT get
 
