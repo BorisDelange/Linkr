@@ -24,22 +24,46 @@ function factOf(c: Pick<CatalogCrossingResult, 'variables'>): 'event' | 'visit' 
 }
 
 /**
+ * The counts that add up exactly across a variable AND bound a cell's
+ * patients from above, per population: a group's masked cells can then be
+ * told their total, and that total caps their patients. A patient has one
+ * sex; a stay one start period and age; a record one date, age and concept.
+ * Stays over events (a patient's event outside any stay) and unit stays (a
+ * visit without one) bound no patient count.
+ */
+const BOUNDING: Record<'event' | 'visit', { patients: string[]; stays: string[]; records: string[] }> = {
+  visit: { patients: ['sex'], stays: ['period', 'age', 'sex'], records: [] },
+  event: { patients: ['sex'], stays: [], records: ['period', 'age', 'sex', 'concept'] },
+}
+const BY_PATIENTS = 1
+const BY_STAYS = 2
+const BY_RECORDS = 4
+
+/**
  * Primary and secondary cell suppression over every crossing of a catalog.
  *
  * Primary: a cell with fewer patients than the threshold is masked, and all of
  * its measures with it (stays, records) — its patient count is what identifies.
  *
- * Secondary — the classic "at least two suppressed cells per published total"
- * rule. A group of cells whose total is published elsewhere, with exactly one
- * masked cell, would give that cell away by subtraction, so the smallest
- * published cell of the group is masked too. The groups of a crossing are, for
- * each proper subset S of its variables, the cells sharing their S modalities;
- * the group's total is the matching cell of the S-crossing when that crossing
- * is computed over the same population and its cell is published — and for S
- * empty, the grand total, always taken as published. Each masking can open a
- * new single-masked group along another variable, so the pass repeats until
- * nothing changes. Crossings are processed smallest first: a crossing's margins
- * must be final before they decide its own groups.
+ * Secondary — a group of cells whose total is known must not give its
+ * masked cells away by subtraction, so the smallest published cell of the
+ * group is masked too while either:
+ * - exactly one of its cells is masked (the classic rule): subtraction gives
+ *   that cell;
+ * - its masked cells add up to less than the threshold on a count that adds up
+ *   across the group and bounds patients (records over dates, stays over
+ *   periods…): subtraction gives their total, and so tells that they hold
+ *   between 1 and T - 1 patients. Two masked cells of 1 record each are not
+ *   protected by being two.
+ * The groups of a crossing are, for each proper subset S of its variables,
+ * the cells sharing their S modalities; the group's total is the matching cell
+ * of the S-crossing when that crossing is computed over the same population —
+ * published or not, since a masked total can be recovered from another table
+ * (a period from the grand total) and then give its group away — and for S
+ * empty, the grand total. Each masking can open a new group to protect along
+ * another variable, so the pass repeats until nothing changes. Crossings are
+ * processed smallest first: a crossing's margins must be final before they
+ * decide its own groups.
  *
  * Limits, knowingly accepted:
  * - Only non-empty cells take part. An empty cell reads "< T" like a masked
@@ -51,7 +75,8 @@ function factOf(c: Pick<CatalogCrossingResult, 'variables'>): 'event' | 'visit' 
  *   way, which is conservative there.
  * - Protection is per crossing and its own margins. Guaranteeing it across
  *   overlapping 2- and 3-way tables (linked tables, solved as an integer
- *   programme by tools like τ-ARGUS) is out of scope.
+ *   programme by tools like τ-ARGUS) is out of scope: the audit
+ *   (lib/data-catalog/audit.ts) checks what an outsider can still work out.
  */
 export function computeCrossingMasks(
   crossings: readonly CatalogCrossingResult[],
@@ -116,6 +141,10 @@ export function computeCrossingMasks(
     // The groups, back to back: group g is members[start[g]..start[g + 1]].
     const members: number[] = []
     const start: number[] = [0]
+    const bounding: number[] = []
+    const fact = factOf(crossing)
+    const hasStays = rows.some((r) => r.stays != null)
+    const hasRecords = rows.some((r) => r.records != null)
     const bucketOf = new Int32Array(n)
     for (let subset = 0; subset < (1 << k) - 1; subset++) {
       const positions: number[] = []
@@ -127,8 +156,13 @@ export function computeCrossingMasks(
         const margin = byId.get(positions.map((p) => variables[p]).join('-'))
         const marginStatus = margin && factOf(margin) === factOf(crossing) ? statusByKey.get(margin.id) : undefined
         if (!marginStatus) continue
-        totalPublished = (key) => marginStatus.get(key) === PUBLISHED
+        totalPublished = (key) => marginStatus.has(key)
       }
+      const across = variables.filter((_, p) => !(subset & (1 << p)))
+      const adds = (vars: string[]) => across.every((v) => vars.includes(v))
+      const bits = (adds(BOUNDING[fact].patients) ? BY_PATIENTS : 0)
+        | (hasStays && adds(BOUNDING[fact].stays) ? BY_STAYS : 0)
+        | (hasRecords && adds(BOUNDING[fact].records) ? BY_RECORDS : 0)
       // Buckets numbered in order of first appearance, members in row order.
       const bucketIds = new Map<number, number>()
       const bucketKeys: number[] = []
@@ -151,6 +185,7 @@ export function computeCrossingMasks(
         if (sizes[b] < 2 || !totalPublished(bucketKeys[b])) continue
         offset[b] = start[start.length - 1]
         start.push(offset[b] + sizes[b])
+        bounding.push(bits)
       }
       members.length = start[start.length - 1]
       const fill = offset.slice()
@@ -175,12 +210,24 @@ export function computeCrossingMasks(
         pending--
         let masked = 0
         let smallest = -1
+        let patients = 0
+        let stays = 0
+        let records = 0
         for (let m = start[g]; m < start[g + 1]; m++) {
           const i = members[m]
-          if (status[i] !== PUBLISHED) masked++
-          else if (smallest < 0 || rows[i].patients < rows[smallest].patients) smallest = i
+          if (status[i] !== PUBLISHED) {
+            masked++
+            patients += rows[i].patients
+            stays += rows[i].stays ?? 0
+            records += rows[i].records ?? 0
+          } else if (smallest < 0 || rows[i].patients < rows[smallest].patients) smallest = i
         }
-        if (masked === 1 && smallest >= 0) {
+        const bits = bounding[g]
+        const light = masked > 0 && (
+          ((bits & BY_PATIENTS) !== 0 && patients < threshold)
+          || ((bits & BY_STAYS) !== 0 && stays < threshold)
+          || ((bits & BY_RECORDS) !== 0 && records < threshold))
+        if ((masked === 1 || light) && smallest >= 0) {
           status[smallest] = SECONDARY
           for (let j = groupsOfCell.start[smallest]; j < groupsOfCell.start[smallest + 1]; j++) {
             const other = groupsOfCell.groups[j]

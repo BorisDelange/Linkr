@@ -4,7 +4,7 @@ export type { ConceptList, ConceptListItem, ConceptSet, ConceptSetItem, ConceptS
 export type { DataSourceRef, EntityRef, DataDictionary, UnitConversion, RecommendedUnit } from './concept-mapping'
 export { SUGGESTION_CATEGORIES } from './concept-mapping'
 import type { DataSourceRef, EffectiveMappingStatus, EntityRef } from './concept-mapping'
-export type { DataCatalog, CatalogStatus, CatalogVariableId, CatalogVariables, PeriodGranularity, PeriodVariableConfig, AgeVariableConfig, SexVariableConfig, ServiceVariableConfig, ServiceGroupingMode, ConceptVariableConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogGrandTotal, CatalogCrossingRow, CatalogCrossingResult, CatalogResultCache, CatalogCounts, AnonymizationImpact } from './catalog'
+export type { DataCatalog, CatalogStatus, CatalogVariableId, CatalogVariables, PeriodGranularity, PeriodVariableConfig, AgeVariableConfig, SexVariableConfig, ServiceVariableConfig, ServiceGroupingMode, ConceptVariableConfig, AnonymizationConfig, AnonymizationMode, ServiceMapping, ServiceMappingRule, CatalogConceptRow, CatalogGrandTotal, CatalogCrossingRow, CatalogCrossingResult, CatalogResultCache, CatalogCounts, AnonymizationImpact, AnonymizationAudit, AnonymizationAuditFinding, CatalogMeasure } from './catalog'
 export type { AuthorDetails, Authored, Lineaged } from './author'
 import type { Authored, Lineaged } from './author'
 import type { DerivedFrom } from './cohort'

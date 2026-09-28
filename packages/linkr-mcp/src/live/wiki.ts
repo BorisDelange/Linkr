@@ -10,7 +10,7 @@ import {
 import {
   DEFAULT_CONCEPT_CONFIG, DEFAULT_SERVICE_CONFIG, canonicalCrossing, catalogCounts, crossingId, defaultCatalogVariables, effectiveCrossings, shownCrossingIds,
 } from '@/lib/data-catalog/config'
-import { buildPublishedCatalog, computeCatalogMasks, publishedConcepts } from '@/lib/data-catalog/publish'
+import { buildPublishedCatalog, computeCatalogMasks, publishedConcepts, publishedTotals } from '@/lib/data-catalog/publish'
 import { PRIMARY, PUBLISHED, SECONDARY } from '@/lib/data-catalog/suppression'
 import type { LocalizedString, SchemaMapping, WikiPage } from '@/types'
 import { subtreeIds } from './helpers.js'
@@ -177,6 +177,7 @@ export interface CatalogChanges {
   count_unit_stays?: boolean
   anonymization_threshold?: number
   anonymization_mode?: AnonymizationMode
+  anonymization_noise?: number
 }
 
 /** Changes that alter what a run counts: refused while a run is paused mid-way. */
@@ -292,10 +293,12 @@ export function catalogPatch(
     if (JSON.stringify(counts) !== JSON.stringify(catalogCounts(catalog))) patch.counts = counts
   }
 
-  if (c.anonymization_threshold !== undefined || c.anonymization_mode !== undefined) {
+  if (c.anonymization_threshold !== undefined || c.anonymization_mode !== undefined || c.anonymization_noise !== undefined) {
     const threshold = c.anonymization_threshold ?? catalog.anonymization.threshold
     if (!positiveInt(threshold)) return { error: 'anonymization_threshold must be a whole number ≥ 1.' }
-    patch.anonymization = { threshold, mode: c.anonymization_mode ?? catalog.anonymization.mode ?? 'replace' }
+    const noise = c.anonymization_noise ?? catalog.anonymization.noise ?? 0
+    if (!Number.isInteger(noise) || noise < 0 || noise > 20) return { error: 'anonymization_noise must be a whole number from 0 to 20.' }
+    patch.anonymization = { threshold, mode: c.anonymization_mode ?? catalog.anonymization.mode ?? 'replace', ...(noise ? { noise } : {}) }
   }
   return { patch }
 }
@@ -335,7 +338,8 @@ export function describeCatalogConfig(catalog: DataCatalog): string[] {
     `Crossings computed: ${computed.join(' · ') || '(none)'}`,
     `Published alone: ${alone.join(', ') || '(none)'}`,
     `Counts: patients${counts.visits ? ', hospital stays' : ''}${counts.unitStays ? ', unit stays' : ''}`,
-    `Anonymization: counts below ${catalog.anonymization.threshold} are ${catalog.anonymization.mode === 'suppress' ? 'suppressed' : 'masked'}, and cells that would reveal them by subtraction too`,
+    `Anonymization: counts below ${catalog.anonymization.threshold} are ${catalog.anonymization.mode === 'suppress' ? 'suppressed' : 'masked'}, and cells that would reveal them by subtraction too`
+      + (catalog.anonymization.noise ? `; every published count perturbed by up to ±${catalog.anonymization.noise}` : ''),
   ]
 }
 
@@ -365,8 +369,11 @@ export function renderCatalogResults(
   const m = (n: number | null | undefined) => maskedCount(n, threshold)
   const masks = computeCatalogMasks(catalog, cache, threshold)
   const published = buildPublishedCatalog(catalog, cache, { masks, keepMasked: true })
-  const head = `Computed ${cache.computedAt}: ${m(cache.totalPatients)} patients · ${m(cache.totalVisits)} hospital stays · `
+  const totals = publishedTotals(catalog, cache)
+  const noise = catalog.anonymization.noise ?? 0
+  const head = `Computed ${cache.computedAt}: ${m(totals.patients)} patients · ${m(totals.stays ?? cache.totalVisits)} hospital stays · `
     + `${cache.totalConcepts} concepts · ${published.crossings.length} published crossing(s)`
+    + (noise ? ` · every count perturbed by up to ±${noise}` : '')
   const concepts = publishedConcepts(catalog, cache, { masks })
   const mc = (c: (typeof concepts)[number], n: number | null | undefined) => (c.status === PUBLISHED ? m(n) : `< ${threshold}`)
   // A masked concept ranks as its masked count, so the order does not place it.

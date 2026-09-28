@@ -438,6 +438,7 @@ export function registerWikiTools(server: Server): void {
         count_unit_stays: { type: 'boolean', description: 'Also count care-unit stays per cell.' },
         anonymization_threshold: { type: 'number', description: 'Counts below it are masked. Whole number ≥ 1.' },
         anonymization_mode: { type: 'string', enum: ['replace', 'suppress'], description: 'Concept list: show "< T" or leave the concept out.' },
+        anonymization_noise: { type: 'number', description: 'Largest perturbation of a published count (cell key method: fixed by the cell\'s patients, the same at every republication). 0 publishes exact counts; 3 closes the subtractions the disclosure audit finds.' },
       },
       required: ['catalog_id'],
     }),

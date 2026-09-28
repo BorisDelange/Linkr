@@ -109,6 +109,12 @@ export interface AnonymizationConfig {
   threshold: number
   /** How to handle rows below threshold. 'suppress' removes them, 'replace' caps counts to threshold. Default 'replace'. */
   mode: AnonymizationMode
+  /**
+   * Largest perturbation of a published count (cell key method,
+   * lib/data-catalog/perturbation.ts): each count moves by an integer in
+   * [-noise, noise], fixed by the cell's patients. Absent or 0: exact counts.
+   */
+  noise?: number
 }
 
 // --- Service Mapping (reusable per-workspace entity) ---
@@ -217,6 +223,8 @@ export interface CatalogConceptRow {
   recordCount: number
   /** Absent when the catalog does not count stays. */
   visitCount?: number
+  /** Sum of the concept's patient keys, mod 2^32: its cell key. Absent in results computed before keys. */
+  patientKey?: number
 }
 
 /** Grand total from GROUPING SETS. */
@@ -226,6 +234,8 @@ export interface CatalogGrandTotal {
   totalRecords: number
   /** Absent when the catalog does not count unit stays. */
   totalUnitStays?: number
+  /** Sum of the patient keys, mod 2^32. */
+  totalKey?: number
 }
 
 /**
@@ -245,6 +255,8 @@ export interface CatalogCrossingRow {
   unitStays?: number
   /** Event rows — crossings with the concept variable. */
   records?: number
+  /** Sum of the cell's patient keys, mod 2^32: its cell key. Absent in results computed before keys. */
+  key?: number
 }
 
 export interface CatalogCrossingResult {
@@ -276,6 +288,47 @@ export interface AnonymizationImpact {
   }[]
 }
 
+/** A kind of count a published cell can carry. */
+export type CatalogMeasure = 'patients' | 'stays' | 'unit_stays' | 'records'
+
+/**
+ * Cells an outsider can narrow down from the published files alone
+ * (lib/data-catalog/audit.ts). 'small': a masked cell's patients pinned
+ * between 1 and the threshold minus one; 'exact' / 'narrow': a masked
+ * cell's count recovered exactly, or within 2.
+ */
+export interface AnonymizationAuditFinding {
+  crossing: string
+  variables: CatalogVariableId[]
+  measure: CatalogMeasure
+  kind: 'small' | 'exact' | 'narrow'
+  count: number
+  /** A few of those cells, as modality names, with the bounds worked out. */
+  examples: { cell: string[]; lo: number; hi: number }[]
+}
+
+/** The disclosure audit of the published catalog, kept with the results it audited. */
+export interface AnonymizationAudit {
+  threshold: number
+  mode: AnonymizationMode
+  noise: number
+  /** The results audited: a new computation makes the audit stale. */
+  resultsComputedAt: string
+  computedAt: string
+  durationMs: number
+  /** Independent systems solved: one over visits, one per published concept. */
+  components: number
+  /** Absent cells taken as unknowns. */
+  unknowns: number
+  /**
+   * Unknowns whose equations contradict each other: a published total counts
+   * more than its cells add up to (undated events, periods left out), which
+   * an outsider cannot use as an equality.
+   */
+  inconsistent: number
+  findings: AnonymizationAuditFinding[]
+}
+
 export interface CatalogResultCache {
   catalogId: string
   computedAt: string
@@ -299,6 +352,8 @@ export interface CatalogResultCache {
   labels?: Partial<Record<CatalogVariableId, Record<string, string>>>
   /** The masks of the anonymisation settings, absent until worked out. */
   anonymizationImpact?: AnonymizationImpact
+  /** The disclosure audit, absent until run from the Anonymization tab. */
+  anonymizationAudit?: AnonymizationAudit
   /** Units of the run's plan already added into this cache, for a resume. */
   completedSteps?: number
   /**

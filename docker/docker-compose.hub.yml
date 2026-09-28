@@ -34,9 +34,10 @@ services:
     environment:
       - LINKR_DATABASE_URL=sqlite+aiosqlite:////root/.linkr/linkr.db
       - LINKR_DATA_DIR=/root/.linkr
-      # Signs login tokens and encrypts the passwords of registered databases.
-      # Generate it once and keep it: changing it logs everyone out and makes
-      # already-registered database passwords unreadable.
+      # Signs login tokens. Generate it once and keep it: changing it logs
+      # everyone out. Stored secrets (database passwords, git tokens) are
+      # sealed with a separate key, LINKR_ENCRYPTION_KEY if set, otherwise
+      # secret.key in the data volume, which backing up the volume covers.
       - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?generate one - see the header of this file}
       - LINKR_CORS_ORIGINS=http://localhost:3000
       - LINKR_DEBUG=false

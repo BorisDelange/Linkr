@@ -33,6 +33,8 @@ var EXPLORE_TEXT = {
   kpi_at_least_top: 'At least: only the concepts the catalog counts, masked cells left out.',
   kpi_records_from: 'Summed over the concepts of the {crossing} table: a record counts at its own date.',
   kpi_records_need: 'Computing the {crossing} crossing would count them.',
+  kpi_noisy: 'Each count is perturbed by up to ±{noise}: a sum of several is only approximate.',
+  kpi_over_visits: 'From the {crossing} table, which counts stays: every patient of these values, with or without a record.',
   kpi_at_most: 'At most: what appears in several {things} is counted in each of them.',
   kpi_about: 'Approximate: what appears in several {things} is counted in each of them, which overcounts, and masked cells are left out, which undercounts.',
   published_concepts_only: 'published concepts only',
@@ -214,9 +216,10 @@ function createExplorer(DATA, opts) {
    * Whether `metric` adds up across `v`'s values in the view. Over events (with
    * concepts) period, age and service are read at each event, so a stay with
    * events on both sides of a boundary sits in two cells: only sex splits it.
+   * `c` is the crossing summed, when not the view's own.
    */
-  function adds(v, metric) {
-    if ((metric === 'stays' || metric === 'unit_stays') && sourceVars().indexOf('concept') !== -1) return v === 'sex';
+  function adds(v, metric, c) {
+    if ((metric === 'stays' || metric === 'unit_stays') && (c ? c.vars : sourceVars()).indexOf('concept') !== -1) return v === 'sex';
     return V[v].partition[metric];
   }
   function measuresOf() {
@@ -732,9 +735,15 @@ function createExplorer(DATA, opts) {
       var r = m && m.cell ? measureAt(m.cell, m.crossing, metric) : null;
       if (r && r.v != null) return { v: r.v, of: total };
     }
-    var c = crossingOver(narrowed), vars = narrowed;
-    if (!c || (metric !== 'patients' && c.measures.indexOf(metric) === -1)) { c = src; vars = D.display; }
-    var blocker = vars.filter(function(v) { return !adds(v, metric); })[0];
+    var c = crossingOver(narrowed), vars = narrowed, over = '';
+    // Every concept kept: the patients and stays of the other values are those
+    // of the table over stays — the view over events would add the concepts up.
+    var all = narrowed.concat(sliced);
+    if (!c && src.vars.indexOf('concept') !== -1 && all.indexOf('concept') === -1 && (c = X[keyOf(all)])) {
+      over = tr('kpi_over_visits', { crossing: all.map(varLabel).join(' × ') });
+    }
+    if (!c || (metric !== 'patients' && c.measures.indexOf(metric) === -1)) { c = src; vars = D.display; over = ''; }
+    var blocker = vars.filter(function(v) { return !adds(v, metric, c); })[0];
     if (blocker === 'concept') return { v: null, sub: tr('kpi_not_additive', { things: plural('concept') }) };
     var pos = {};
     c.vars.forEach(function(v, i) { pos[v] = i; });
@@ -748,9 +757,13 @@ function createExplorer(DATA, opts) {
     });
     // An absent cell may be a masked one: the sum is exact only when no cell is missing.
     vars.forEach(function(v) { combos *= keptMods(v).length; });
+    if (!combos) return { v: 0, of: total };
     var incomplete = masked || cells < combos;
-    if (!blocker) return { v: sum, of: total, atLeast: incomplete, note: incomplete ? tr('kpi_at_least') : '' };
-    return { v: sum, atMost: !incomplete, about: incomplete, note: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) };
+    var join = function(a) { return [a, over].filter(Boolean).join(' '); };
+    if (!blocker) return { v: sum, of: total, atLeast: incomplete, summed: cells > 1, note: join(incomplete ? tr('kpi_at_least') : '') };
+    // Units in many cells (patients through several care units) can add up past the whole: that is the bound then.
+    if (sum >= total) return { v: total, atMost: true, note: join(tr('kpi_at_most', { things: plural(blocker) })) };
+    return { v: sum, atMost: !incomplete, about: incomplete, note: join(tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) })) };
   }
   /**
    * Records under filters in a view over visits, which counts none: a record
@@ -766,7 +779,8 @@ function createExplorer(DATA, opts) {
     if (!c || c.measures.indexOf('records') === -1) return { v: null, sub: tr('kpi_not_counted'), note: tr('kpi_records_need', { crossing: name }) };
     var pos = {};
     c.vars.forEach(function(v, i) { pos[v] = i; });
-    var sum = 0, masked = c.masked.primary + c.masked.secondary > 0;
+    // A published page does not say how many cells are masked: then any may be.
+    var sum = 0, masked = !c.masked || c.masked.primary + c.masked.secondary > 0;
     c.cells.forEach(function(cell) {
       for (var s = 0; s < sliced.length; s++) if (cell[pos[sliced[s]]] !== D.slice[sliced[s]]) return;
       for (var d = 0; d < narrowed.length; d++) if (!keepMod(narrowed[d], cell[pos[narrowed[d]]])) return;
@@ -776,11 +790,15 @@ function createExplorer(DATA, opts) {
     var from = tr('kpi_records_from', { crossing: name });
     var top = !V.concept.everyConcept, incomplete = masked || top;
     var blocker = narrowed.filter(function(v) { return !V[v].partition.records; })[0];
+    if (blocker && sum >= total) return { v: total, atMost: true, note: tr('kpi_at_most', { things: plural(blocker) }) + ' ' + from };
     if (blocker) return { v: sum, atMost: !incomplete, about: incomplete, note: tr(incomplete ? 'kpi_about' : 'kpi_at_most', { things: plural(blocker) }) + ' ' + from };
-    return { v: sum, of: total, atLeast: incomplete, note: (incomplete ? tr(top ? 'kpi_at_least_top' : 'kpi_at_least') + ' ' : '') + from };
+    return { v: sum, of: total, atLeast: incomplete, summed: true, note: (incomplete ? tr(top ? 'kpi_at_least_top' : 'kpi_at_least') + ' ' : '') + from };
   }
   function card(key, label, icon, f) {
-    var value = f.v == null ? '—' : (f.atLeast ? '≥ ' : f.atMost ? '≤ ' : f.about ? '≈ ' : '') + fmt(f.v);
+    // Perturbed counts: a sum of several carries their noises, so it reads as approximate.
+    var noisy = DATA.noise && f.summed && !f.atMost;
+    var value = f.v == null ? '—' : (noisy || f.about ? '≈ ' : f.atLeast ? '≥ ' : f.atMost ? '≤ ' : '') + fmt(f.v);
+    if (noisy) f.note = [f.note, tr('kpi_noisy', { noise: DATA.noise })].filter(Boolean).join(' ');
     var sub = f.of != null ? tr('kpi_of', { total: fmt(f.of) }) + (f.of ? ' (' + pct(f.v, f.of) + ')' : '') : f.sub || '';
     return { key: key, label: label, value: value, sub: sub, note: f.note || '', icon: icon };
   }

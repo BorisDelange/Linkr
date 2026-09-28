@@ -32,6 +32,7 @@ import type {
   DataCatalog,
 } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { addKeys } from '@/lib/data-catalog/perturbation'
 import { conceptRelations } from '@/lib/schema-classes/relations'
 
 export type ComputeStep = 'mounting' | 'building' | 'executing' | 'processing' | 'saving'
@@ -131,6 +132,7 @@ function mergeCells(into: Map<string, CatalogCrossingRow>, rows: readonly Catalo
     if (row.stays != null) prev.stays = (prev.stays ?? 0) + row.stays
     if (row.unitStays != null) prev.unitStays = (prev.unitStays ?? 0) + row.unitStays
     if (row.records != null) prev.records = (prev.records ?? 0) + row.records
+    prev.key = addKeys(prev.key, row.key)
   }
 }
 
@@ -234,7 +236,7 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
   const units: CatalogRunUnit[] = []
 
   slices.forEach((s, i) => {
-    const queries = buildConceptCountQueries(mapping, cfg?.categoryColumn, cfg?.subcategoryColumn, rangeOf(s), counts.visits)
+    const queries = buildConceptCountQueries(mapping, cfg?.categoryColumn, cfg?.subcategoryColumn, rangeOf(s), counts.visits, catalog.dataSourceId)
     if (!queries) throw new Error(MISSING_MAPPING)
     for (const q of queries) {
       units.push({
@@ -250,12 +252,14 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
               patientCount: Number(row.patient_count ?? 0),
               recordCount: Number(row.record_count ?? 0),
               ...(counts.visits ? { visitCount: Number(row.visit_count ?? 0) } : {}),
+              ...(row.patient_key != null ? { patientKey: Number(row.patient_key) } : {}),
             }
             const prev = state.concepts.get(conceptKey(r))
             if (!prev) { state.concepts.set(conceptKey(r), r); continue }
             prev.patientCount += r.patientCount
             prev.recordCount += r.recordCount
             if (r.visitCount != null) prev.visitCount = (prev.visitCount ?? 0) + r.visitCount
+            prev.patientKey = addKeys(prev.patientKey, r.patientKey)
           }
         },
       })
@@ -263,7 +267,7 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
   })
 
   slices.forEach((s, i) => {
-    const sql = buildTotalsQuery(mapping, rangeOf(s), counts)
+    const sql = buildTotalsQuery(mapping, rangeOf(s), counts, catalog.dataSourceId)
     if (!sql) throw new Error(MISSING_MAPPING)
     units.push({
       info: { step: 'totals', slice: sliceOf(slices, i) },
@@ -273,6 +277,7 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
         state.totals.totalVisits += Number(row.total_visits ?? 0)
         state.totals.totalRecords += Number(row.total_records ?? 0)
         if (row.total_unit_stays != null) state.totals.totalUnitStays = (state.totals.totalUnitStays ?? 0) + Number(row.total_unit_stays)
+        if (row.total_key != null) state.totals.totalKey = addKeys(state.totals.totalKey, Number(row.total_key))
       },
     })
   })
@@ -357,7 +362,7 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, quer
   const conceptRows: CatalogCrossingRow[] = kept.map(([key, v]) => ({ values: [key], patients: v.patients, records: v.records }))
   const conceptFilter = concept?.level === 'concept' && concept.scope === 'top' ? conceptFilterOf(conceptRows.map((r) => r.values[0]), dictKeys) : null
 
-  const ctx: CrossingQueryContext = { mapping, variables, topServices, conceptFilter, counts: catalogCounts(catalog) }
+  const ctx: CrossingQueryContext = { mapping, variables, topServices, conceptFilter, counts: catalogCounts(catalog), keySalt: catalog.dataSourceId }
   const slices = state.slices
   const units: CatalogRunUnit[] = []
   const queryUnit = (vars: CatalogVariableId[], info: CatalogUnitInfo, unitCtx: CrossingQueryContext): CatalogRunUnit => ({
@@ -420,6 +425,7 @@ async function runCrossingQuery(ctx: CrossingQueryContext, vars: CatalogVariable
     if (r.records != null) row.records = Number(r.records)
     if (r.stays != null) row.stays = Number(r.stays)
     if (r.unit_stays != null) row.unitStays = Number(r.unit_stays)
+    if (r.cell_key != null) row.key = Number(r.cell_key)
     return row
   })
 }

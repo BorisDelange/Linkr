@@ -43,6 +43,28 @@ describe('computeCrossingMasks', () => {
     expect([...masks.get('concept-sex')!.status].slice(0, 2)).toEqual([SECONDARY, PRIMARY])
   })
 
+  it('masks one more cell when the masked ones add up to a small total', () => {
+    // Atrovent: one record in 2100 and one in 2210, both masked — two of them,
+    // yet total − published = 2 records, so at most 2 patients: 2200 goes too.
+    const rows = (cells: [string, number, number][]): CatalogCrossingResult['rows'] => cells.map(([p, patients, records]) => ({ values: ['c', p], patients, records }))
+    const masks = computeCrossingMasks([
+      { id: 'concept', variables: ['concept'], rows: [{ values: ['c'], patients: 900, records: 1300 }] },
+      { id: 'concept-period', variables: ['concept', 'period'], rows: rows([['2100', 1, 1], ['2190', 800, 1164], ['2200', 79, 133], ['2210', 1, 1]]) },
+    ], 10)
+    expect([...masks.get('concept-period')!.status]).toEqual([PRIMARY, PUBLISHED, SECONDARY, PRIMARY])
+  })
+
+  it('protects a group whose total is masked: another table can give that total back', () => {
+    // Period 2 is masked to protect period 1, but the grand total gives it
+    // back; 2·male published would then tell 2·female = 70 − 63.
+    const masks = computeCrossingMasks([
+      crossing('period', [[['1'], 3], [['2'], 70], [['3'], 80]]),
+      crossing('period-sex', [[['2', 'male'], 63], [['2', 'female'], 7], [['3', 'male'], 50], [['3', 'female'], 30]]),
+    ], 10)
+    expect(masks.get('period')!.status[1]).toBe(SECONDARY)
+    expect([...masks.get('period-sex')!.status].slice(0, 2)).toEqual([SECONDARY, PRIMARY])
+  })
+
   it('does not use a margin counted over another population', () => {
     const masks = computeCrossingMasks([
       crossing('sex', [[['male'], 100]]),
@@ -62,6 +84,7 @@ describe('computeAnonymizationImpact', () => {
       { threshold: 10, mode: 'suppress' },
     )
     expect(impact).toMatchObject({ threshold: 10, mode: 'suppress', concepts: { total: 3, masked: 2 } })
-    expect(impact.crossings).toEqual([{ id: 'sex', variables: ['sex'], cells: 3, primary: 2, secondary: 0, patientMass: 46, publishedMass: 40 }])
+    // Men published would give the other two away: 46 − 40 = 6 patients between them.
+    expect(impact.crossings).toEqual([{ id: 'sex', variables: ['sex'], cells: 3, primary: 2, secondary: 1, patientMass: 46, publishedMass: 0 }])
   })
 })
