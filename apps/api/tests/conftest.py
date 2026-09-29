@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -10,8 +12,38 @@ from app.config import settings
 from app.core import audit, crypto
 from app.core.database import get_db
 from app.core.permissions import seed_default_roles
+from app.core.security import pwd_context
 from app.main import app
 from app.models.base import Base
+
+# Tests register and log users in constantly, and production-cost bcrypt
+# (~440 ms per hash or verify) dominated the suite's runtime. 4 is bcrypt's
+# minimum, keeps the exact same code path, and every hash a test verifies was
+# made by a test.
+pwd_context.update(bcrypt__rounds=4)
+
+# The R kernel's shared sandbox + infra libraries are provisioned once per
+# data_dir — and _isolate_data_dir gives every test a fresh one, so each R test
+# re-installed the R packages from scratch (~110 s each, ~13 min of the suite).
+# Point the three provisioned directories at one per-machine cache instead:
+# ensure_* are idempotent-cheap once populated, so only the first R test on a
+# machine ever pays. test_renv_provisioner.py patches these helpers itself, so
+# its isolation is unaffected.
+_R_TEST_CACHE = Path.home() / ".cache" / "linkr-test-r"
+
+
+@pytest.fixture(autouse=True)
+def _shared_r_cache(monkeypatch):
+    from app.services import project_fs
+
+    for name in ("r_sandbox", "kernel_r_lib", "client_r_lib"):
+        sub = _R_TEST_CACHE / name.replace("_", "-")
+
+        def _dir(d=sub):
+            d.mkdir(parents=True, exist_ok=True)
+            return d
+
+        monkeypatch.setattr(project_fs, name, _dir)
 
 
 @pytest.fixture(autouse=True)
