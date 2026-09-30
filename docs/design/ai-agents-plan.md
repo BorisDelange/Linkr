@@ -340,7 +340,10 @@ deleted `DashboardAgentSidebar.tsx` (§10; git history at commit `4a1681fd`, aro
   upside);
 - delete a project or a workspace;
 - push to a git remote;
-- read secrets — database passwords are Fernet-encrypted and never returned by the API.
+- read secrets — stored secrets are sealed with AES-GCM (`core/crypto.py`) and never returned
+  by the API. One path hands a password to code: the client-library recipe, which a kernel
+  started by an API key is refused (security plan A4); an agent running in a kernel the user
+  started can still reach it (the open 🤔 in *Per-user database credentials*).
 
 **Never more than the user** — the session token carries the caller's rights, and every
 tool re-checks its permission server-side.

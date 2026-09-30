@@ -142,9 +142,10 @@ it mandatory per database (`DataSource.require_session_only`).
 ## 4. Stamping the Linkr user on the external database session
 
 This is about the **external databases users query** (a hospital's OMOP Postgres…),
-not Linkr's own database (SQLite by default). Each connection sets `application_name = 'linkr:<username>'` (Postgres; MySQL
-`program_name` connection attribute). With personal accounts the database's own log
-already names the person; this adds that the query came through Linkr, which makes
+not Linkr's own database (SQLite by default). Each Postgres connection sets
+`application_name = 'linkr'` (built: `database_credential_service.with_login`; MySQL's
+`program_name` is not set). With personal accounts the database's own log already names
+the person; this adds that the query came through Linkr, which makes
 `pg_stat_activity` and `pgaudit` output directly readable by the site's DBA.
 
 ## 5. Jobs and long operations
