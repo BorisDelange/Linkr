@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import logging
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
@@ -60,6 +61,8 @@ from app.services import (
 from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db, query_cancel
 from app.services.execution import jobs
 from app.schemas.execution import JobResponse
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/data-sources", tags=["data-sources"])
 
@@ -144,12 +147,20 @@ async def create_data_source(
 @router.post("/test-connection", response_model=TestConnectionResult)
 async def test_connection(
     body: TestConnectionRequest,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """Open a live connection to an external database, introspect it, and return
     its tables. The password in the request is used for the test only and is
-    never persisted."""
+    never persisted.
+
+    The driver's error stays in the server log: returned, it would tell a caller
+    which hosts and ports answer — a scanner of the network the server sits in."""
+    await check_workspace_permission(db, body.workspace_id, user, "databases:write")
     ok, error, tables = await data_source_service.test_connection(body.connection_config)
+    if not ok:
+        logger.info("test-connection failed: %s", error)
+        error = "Connection failed"
     return TestConnectionResult(ok=ok, error=error, tables=tables)
 
 

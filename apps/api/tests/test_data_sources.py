@@ -376,11 +376,36 @@ async def test_import_missing_blob_is_400(client):
 
 async def test_test_connection_unsupported_engine(client):
     headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
     r = await client.post(f"{API}/data-sources/test-connection", headers=headers, json={
-        "connectionConfig": {"engine": "duckdb"},
+        "workspaceId": ws, "connectionConfig": {"engine": "duckdb"},
     })
     assert r.status_code == 200
-    assert r.json()["ok"] is False and "unsupported" in r.json()["error"]
+    assert r.json() == {"ok": False, "error": "Connection failed", "tables": []}
+
+
+async def test_test_connection_needs_databases_write(client, db, monkeypatch):
+    # Open to any account, it made the server connect to any host:port and
+    # return the driver's error — a scanner of the network it sits in.
+    reached = []
+
+    async def fake(config):
+        reached.append(config)
+        return False, "could not connect to server: Connection refused (10.0.0.5:5432)", []
+
+    monkeypatch.setattr(data_source_service, "test_connection", fake)
+    admin = await _admin_headers(client)
+    ws = await _workspace(client, admin)
+    bob = await _create_user(db, client, "bob")
+    body = {"workspaceId": ws, "connectionConfig": {"engine": "postgresql", "host": "10.0.0.5", "port": 5432}}
+
+    assert (await client.post(f"{API}/data-sources/test-connection", headers=bob, json=body)).status_code == 403
+    no_ws = {"connectionConfig": body["connectionConfig"]}
+    assert (await client.post(f"{API}/data-sources/test-connection", headers=bob, json=no_ws)).status_code == 422
+    assert reached == []
+
+    r = await client.post(f"{API}/data-sources/test-connection", headers=admin, json=body)
+    assert r.json()["error"] == "Connection failed"
 
 
 async def test_non_member_cannot_access(client, db):

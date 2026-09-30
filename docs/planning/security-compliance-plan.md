@@ -74,6 +74,12 @@ Fix, in this order:
 
 ### A2. `POST /data-sources/test-connection` — SSRF
 
+**Fixed:** the route takes a `workspaceId` and needs `databases:write` there; a failure
+returns "Connection failed" (the driver's text goes to the server log). Every external
+DSN is built by `db_connect._dsn`, which checks `LINKR_DB_ALLOWED_HOSTS`
+(`services/data/db_host_guard.py`: names, IPs, CIDRs; a libpq host list and socket
+paths included). Empty = no restriction, so the SPE checklist (F) must set it.
+
 - The route needs no permission (`api/v1/routes/data_sources.py:144-153`).
 - It connects to any host and port and returns the driver's error text
   (`services/data_source_service.py:1093-1106`). That is a port and host scanner.
