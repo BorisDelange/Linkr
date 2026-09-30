@@ -5,6 +5,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogContent,
+  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -65,11 +66,13 @@ export function ImportErrorDialog({ error, onClose, title, variant = 'error' }: 
           )}
         >
           <AlertCircle className="mt-0.5 size-4 shrink-0" />
-          <span>
+          {/* The summary IS the dialog's description (screen readers announce it
+              with the title); it keeps the callout's colour, not the muted one. */}
+          <AlertDialogDescription className="text-inherit">
             {error?.summaryKey
               ? t(error.summaryKey, { count: error.summaryCount })
               : error?.summary}
-          </span>
+          </AlertDialogDescription>
         </div>
 
         {error?.detail && (
