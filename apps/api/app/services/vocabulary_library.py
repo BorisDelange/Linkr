@@ -105,6 +105,14 @@ def library_dir(workspace_id: str) -> Path:
     return settings.data_path / "vocabularies" / workspace_id
 
 
+def _staging_root() -> Path:
+    # Beside the libraries, not in the system temp dir: the swap-in is a rename,
+    # which cannot cross filesystems (EXDEV) — and in a container /tmp is the
+    # overlay layer while the data dir is a volume. Outside every library_dir, so
+    # a library read mid-import never sees half-written partitions.
+    return settings.data_path / "vocabularies" / ".staging"
+
+
 def file_key(vocabulary_id: str) -> str:
     """File-name-safe key of a vocabulary (`Nebraska Lexicon` → `Nebraska_Lexicon`).
     Prefixed so a vocabulary named like a table (`Domain`, `Relationship`, which
@@ -123,7 +131,7 @@ def library_files(workspace_id: str) -> list[tuple[str, str]]:
     if not root.is_dir():
         return []
     found = sorted(root.rglob("*.parquet"), key=lambda p: str(p).lower())
-    return [(str(p.relative_to(root)), str(p)) for p in found]
+    return [(p.relative_to(root).as_posix(), str(p)) for p in found]
 
 
 def present_tables(workspace_id: str) -> list[str]:
@@ -309,7 +317,7 @@ def write_partitions(
 ) -> list[dict]:
     """Write the partitions of `vocabularies` from the export, replacing those
     already in the library, and merge the shared tables. Returns, per vocabulary
-    written, its row counts by table. Built in a temp dir, then swapped in file
+    written, its row counts by table. Built in a staging dir, then swapped in file
     by file: a failure while staging leaves the library as it was, but one
     during the swap (a crash, a full disk) can leave some tables at the new
     release and others at the old one — importing again repairs it."""
@@ -320,7 +328,8 @@ def write_partitions(
     if not chosen:
         return []
     root = library_dir(workspace_id)
-    work = tempfile.mkdtemp(prefix="vocab-import-")
+    _staging_root().mkdir(parents=True, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="vocab-import-", dir=_staging_root())
     staged = Path(work) / "out"
     con = _connect(work)
     try:
