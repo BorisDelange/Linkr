@@ -13,7 +13,6 @@ of finished efforts that the code still cites lives in `docs/design/`.
 
 | St | Item | Effort |
 |----|------|--------|
-| ✅ | **Any account can take over the server** — project without workspace → `owner` → `ide:execute` → kernel inherits `LINKR_SECRET_KEY` (root in Docker) → forged admin JWT. Forbid unassigned projects, scrub the kernel env, non-root API, API port on loopback. [security-compliance-plan.md](security-compliance-plan.md) A1 | M |
 | 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. **Settle the agent path first** (see *Per-user database credentials* below): a kernel started by an API key no longer gets the password (A4), but an agent running in the user's own `default` kernel still can, and the page must not state a guarantee the app does not keep — or must state that gap | S |
 
 ## To test manually in the app
@@ -174,13 +173,10 @@ on a database), stable check ids, run export and catalog publish as W3C DQV.
 ## Security & compliance — [security-compliance-plan.md](security-compliance-plan.md)
 
 Audit of 2026-09-30 against the SPE frame ([../deployment-context.md](../deployment-context.md))
-and the CNIL CDW framework. A1 is in *Priority*.
+and the CNIL CDW framework. Section A (A1–A4) is done — as-built in `docs/architecture.md` § Permissions; what it left open is below.
 
 | St | Item | Effort |
 |----|------|--------|
-| ✅ | A2. `test-connection` SSRF — permission + configurable host allowlist (private IPs are where an SPE's datamart lives) | S |
-| ✅ | A3. Git: `clone`/`verify-remote`/`host-token` open to any user; local paths and `file://` not refused (to confirm by test); `GIT_ALLOW_PROTOCOL` | S |
-| ✅ | A4. API-key session → `/execute` → kernel token → decrypted DB password (the 🤔 below): refuse the recipe to kernels started by an API key | S |
 | 🔜 | B1. Access log: successful login by username, downloads (`/raw`, blob, export ZIPs), row previews | S |
 | 🔜 | B2. Clamp or document `audit_retention_days` (6–12 months) | S |
 | 🔜 | B3. Mapping-project exports (`source-concepts.csv`, git sync) carry `record_count`/`patient_count` under the threshold, extremes and small histogram bins — mask at export, client + server | M |
@@ -197,7 +193,6 @@ and the CNIL CDW framework. A1 is in *Priority*.
 | St | Item | Effort |
 |----|------|--------|
 | 🤔 | PO validation of the resources × actions catalogue: which blocks, at which level, default roles, edge cases (shared resources, project role `none`, workspace→project inheritance) | S (review) |
-| → | `test-connection` SSRF and the unassigned-project hole moved to *Security & compliance* (A2) and *Priority* (A1) | — |
 | 💤 | Minors: inline gating by context, organizations readable by all | S |
 
 ## Per-user database credentials — [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md)
@@ -207,7 +202,6 @@ Built: personal accounts, per-user pools and caches, session-only passwords, acc
 
 | St | Item | Effort |
 |----|------|--------|
-| → | `client_recipe` to API-key sessions: refused on the client-lib endpoints since `6dc39787`; the remaining path (API key → `/execute` → kernel token) is *Security & compliance* A4 | — |
 | 🤔 | …and that is not enough: a kernel an API key starts gets no recipe since A4, but the MCP's `run_code` defaults to session `default`, shared with the user's IDE — a kernel the user started holds a web kernel token the agent's code can read and use (plan §7). Server-side query proxy, separate agent sessions, or forbid DB access to agent runs? | S–M |
 | 🔜 | IDE connections: split settings (per project) from login (per user), reusing `DatabaseCredential` | S |
 | 🔜 | Per-workspace browse roots for file-based databases; `serverPath` registration behind `databases:manage` | M |
