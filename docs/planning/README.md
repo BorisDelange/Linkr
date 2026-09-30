@@ -9,6 +9,12 @@ of finished efforts that the code still cites lives in `docs/design/`.
 
 *Last checked against the code: 2026-09-29.*
 
+## Priority
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. **Settle the agent path first** (see *Per-user database credentials* below): today an API-key session can obtain the decrypted password, and the page must not state a guarantee the app does not keep — or must state that gap | S |
+
 ## To test manually in the app
 
 Built, never exercised by hand. Everything else below is still to build.
@@ -142,6 +148,18 @@ presets are no longer auto-created, and the import dialog has its catalog tab.
 |----|------|--------|
 | 🔜 | `linkr-portal`'s `build.sh`: check it uses the shared indexer rather than its own | S |
 | 💤 | "Propose to catalog" prefill | S |
+
+## Data quality standards — [dq-standards-plan.md](dq-standards-plan.md)
+
+OHDSI DQD published as a public DQ rule set (generated from a pinned DQD release),
+and a data catalog emitting its rule sets' latest results as W3C DQV in its
+HealthDCAT-AP export. QUANTUM label: Linkr supplies the evidence, not the questionnaire.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Arbitrate the 5 decisions (Kahn context field, vocabulary access, DQV granularity, stale results, QUANTUM column) | S |
+| 🔜 | DQD generator + `dq-rule-sets/omop-cdm-5.4-dqd` public repo | M |
+| 🔜 | DQV emission + catalog `dqRuleSetRefs` + "Data quality" section on the published page | M |
 
 ## Format package & public content
 

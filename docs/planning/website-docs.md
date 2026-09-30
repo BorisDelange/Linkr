@@ -21,7 +21,7 @@ stub left, `<PlannedFeature>` pages for web apps, the Pipeline, reports and skil
 
 | Topic | Where | Effort |
 |-------|-------|--------|
-| Threat model of database credentials (per-user-db-credentials plan §11): what an admin, a server root and a script can see | `administration/` | S |
+| **Priority** — threat model of database credentials (per-user-db-credentials plan §11): what another user, an admin, a backup, the server root and a script or agent can see. Depends on the agent-path decision (planning README) | `administration/` | S |
 
 ## When the feature ships
 
