@@ -361,6 +361,13 @@ two-factor step validated. The provider interface is already there
 
 ## F. Documentation
 
+**Done:** website branch `security-docs` (linkr-website): new page
+`administration/spe-checklist` (FR + EN), linked from `concepts/health-data-warehouse`;
+`/var/lib/linkr` and the loopback API port in the install pages; password change and
+trusted-header sign-in in `auth-permissions`; the new variables and access-log actions in
+`configuration`; the masking in `concept-mapping/export`. In this repo: `ai-agents-plan.md`
+(AES-GCM, recipe path) and the per-user plan's `application_name` aligned with the code.
+
 - **Deployment checklist for an SPE** (`linkr-website`, `administration/`, FR + EN), for
   the DPO and the DPIA. It covers:
   - one instance per SPE;
