@@ -15,7 +15,8 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { gitCloneToZip, GitRemoteError } from '@/lib/api/git'
-import { isServerMode } from '@/lib/api-client'
+import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-client'
+import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
 import { ImportCatalogTab } from '@/components/ui/import-catalog-tab'
@@ -94,7 +95,15 @@ export function ImportSourceDialog({
   const [token, setToken] = useState('')
   const [cloning, setCloning] = useState(false)
   const [importing, setImporting] = useState(false)
+  /** A clone that failed — shown inline, next to the URL and token that fix it. */
   const [error, setError] = useState<string | null>(null)  // full raw error, shown by GitErrorInline
+  /**
+   * An import that failed once its ZIP was in hand (refused version, wrong entity
+   * type, unreadable tree) — shown in its own dialog, the one the Projects page
+   * always used, so every page reports a refused import the same way. Nothing in
+   * this dialog can fix it, so it closes.
+   */
+  const [importFailure, setImportFailure] = useState<FormattedError | null>(null)
   const [errorCode, setErrorCode] = useState<GitErrorCode | undefined>(undefined)
   const [dragActive, setDragActive] = useState(false)
 
@@ -126,10 +135,16 @@ export function ImportSourceDialog({
       await onImport(file)
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failImport(err)
     } finally {
       setImporting(false)
     }
+  }
+
+  const failImport = (err: unknown) => {
+    console.error('[import] import failed:', err)
+    onOpenChange(false)
+    setImportFailure(formatApiError(err))
   }
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -152,11 +167,22 @@ export function ImportSourceDialog({
     setError(null)
     setErrorCode(undefined)
     setCloning(true)
+    // Users often paste a repo web-page URL (…/-/tree/main?ref_type=heads); clean
+    // it to the bare clone URL so both the clone and the stored link work.
+    const cleanUrl = cleanGitUrl(url.trim())
+    let cloned: Awaited<ReturnType<typeof gitCloneToZip>>
     try {
-      // Users often paste a repo web-page URL (…/-/tree/main?ref_type=heads); clean
-      // it to the bare clone URL so both the clone and the stored link work.
-      const cleanUrl = cleanGitUrl(url.trim())
-      const cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
+      cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
+    } catch (err) {
+      console.error('[import] git clone failed:', err)
+      // Keep the backend's typed code alongside the raw text: it is what turns
+      // "something went wrong" into "this repo needs a token".
+      setErrorCode(err instanceof GitRemoteError ? err.code : undefined)
+      setError(err instanceof Error ? err.message : String(err))
+      setCloning(false)
+      return
+    }
+    try {
       const blob = cloned.blob
       const syncedOid = cloned.oid ?? undefined
       const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: token || undefined, syncedOid }
@@ -168,11 +194,7 @@ export function ImportSourceDialog({
       await onImport(new File([blob], `${repoName(cleanUrl)}.zip`, { type: 'application/zip' }), gitRemote)
       onOpenChange(false)
     } catch (err) {
-      console.error('[import] git clone/import failed:', err)
-      // Keep the backend's typed code alongside the raw text: it is what turns
-      // "something went wrong" into "this repo needs a token".
-      setErrorCode(err instanceof GitRemoteError ? err.code : undefined)
-      setError(err instanceof Error ? err.message : String(err))
+      failImport(err)
     } finally {
       setCloning(false)
       setImporting(false)
@@ -182,6 +204,7 @@ export function ImportSourceDialog({
   const busy = importing || cloning
 
   return (
+    <>
     <Dialog open={open} onOpenChange={(o) => {
       if (busy) return  // don't let the modal close mid-import
       if (!o) { setError(null); setErrorCode(undefined) }
@@ -239,9 +262,6 @@ export function ImportSourceDialog({
                 <input ref={fileInputRef} type="file" accept={accept} className="hidden" onChange={handleFile} />
               </div>
             )}
-            {/* A failed upload set `error` but only the git tab rendered it, so a
-                rejected ZIP looked like nothing had happened at all. */}
-            {!importing && error && <div className="mt-3"><GitErrorInline detail={error} message={t('import_source.upload_failed')} /></div>}
           </TabsContent>
 
           {/* Clone from Git — server-side only; hidden when a remote is already linked */}
@@ -297,5 +317,7 @@ export function ImportSourceDialog({
         {catalogType && <CatalogInstallOutcome install={catalogInstall} language={language} />}
       </DialogContent>
     </Dialog>
+    <ImportErrorDialog error={importFailure} onClose={() => setImportFailure(null)} />
+    </>
   )
 }

@@ -5748,7 +5748,6 @@
     "catalog_empty": "Nothing of this type is published in the catalog yet.",
     "drag_drop_or": "Drag and drop a file here, or click to browse",
     "upload_hint": "ZIP file exported from Linkr",
-    "upload_failed": "Import failed.",
     "choose_file": "Choose file",
     "git_url": "Repository URL",
     "git_branch": "Branch",
