@@ -310,6 +310,21 @@ def compact(today: date | None = None) -> None:
     _apply_retention(root, today)
 
 
+# SEC-JOU-4 of the CNIL CDW framework: access logs are kept 6 to 12 months.
+RETENTION_RANGE = (180, 365)
+
+
+def retention_warning(days: int) -> str | None:
+    """Why `days` falls outside the recommended range, or None. Warned at boot,
+    not clamped: an institution may have its own reason (a legal hold) to differ."""
+    low, high = RETENTION_RANGE
+    if days < low:
+        return f"access log kept {days} days, under the {low} (6 months) SEC-JOU-4 asks for"
+    if days > high:
+        return f"access log kept {days} days, over the {high} (12 months) SEC-JOU-4 allows"
+    return None
+
+
 def _retention_cutoff(today: date) -> date:
     return today - timedelta(days=settings.audit_retention_days)
 

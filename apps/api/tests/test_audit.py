@@ -326,3 +326,17 @@ async def test_downloads_exports_and_previews_are_logged(client):
     assert preview[0]["row_count"] == 2 and preview[0]["username"] == "admin"
     exports = {(r["project_uid"], r["workspace_id"]) for r in _lines("export")}
     assert (uid, ws) in exports and (None, ws) in exports
+
+
+@pytest.mark.parametrize("days, warned", [(1, True), (179, True), (180, False), (365, False), (366, True), (3650, True)])
+def test_retention_outside_six_to_twelve_months_is_warned(days, warned):
+    assert (audit.retention_warning(days) is not None) is warned
+
+
+def test_a_retention_of_zero_is_refused():
+    from pydantic import ValidationError
+
+    from app.config import Settings
+
+    with pytest.raises(ValidationError):
+        Settings(audit_retention_days=0)
