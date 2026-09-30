@@ -1,6 +1,6 @@
 # Security & compliance — plan
 
-**Status: audit done 2026-09-30; section A fixed on `feature/security-a`.** Frame: [../deployment-context.md](../deployment-context.md)
+**Status: audit done 2026-09-30; section A fixed (A1 and A4 keep an open remainder, see each item).** Frame: [../deployment-context.md](../deployment-context.md)
 (Linkr inside a per-project SPE; one instance per SPE; a global instance with no patient
 data). Reference text: CNIL *référentiel entrepôts de données de santé*, délibération
 n° 2021-118 ([PDF](https://www.cnil.fr/sites/cnil/files/atoms/files/referentiel_entrepot.pdf)) —
