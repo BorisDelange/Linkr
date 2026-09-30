@@ -164,9 +164,27 @@ export function checkEmptyBadges(bag: IssueBag, path: string, manifest: unknown)
   }
 }
 
+/**
+ * `minAppVersion`, when present, must be an `X.Y.Z` the importer can compare: a
+ * malformed one would never refuse anything, which is the silent failure the
+ * field exists to prevent.
+ */
+export function checkMinAppVersion(tree: EntityTree, kind: LayoutKind, bag: IssueBag): void {
+  const path = manifestPath(tree, kind)
+  const parsed = readJson(tree, path)
+  if (!parsed.ok || !isObject(parsed.value) || !('minAppVersion' in parsed.value)) return
+  const min = parsed.value.minAppVersion
+  if (typeof min !== 'string' || !/^\d+\.\d+\.\d+$/.test(min)) {
+    bag.error(path, '/minAppVersion', 'wrong-type',
+      '"minAppVersion" must be a version such as "2.4.3".',
+      'let the app stamp it on export rather than writing it by hand')
+  }
+}
+
 export function validateEntity(tree: EntityTree, kind: EntityKind): Issue[] {
   const bag = new IssueBag()
   checkLegacyLayout(tree, kind, bag)
+  checkMinAppVersion(tree, kind, bag)
   switch (kind) {
     case 'sql-collection':
       validateScriptCollection(tree, bag, manifestPath(tree, kind), 'SQL collection')

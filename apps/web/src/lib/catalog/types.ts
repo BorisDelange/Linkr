@@ -68,7 +68,13 @@ export interface CatalogEntry {
   organization?: CatalogEntryOrganization
   badges?: string[]
   license?: string
-  linkrVersion?: string
+  /**
+   * The oldest Linkr able to read the entity, copied from its manifest by the
+   * catalog scanner. An older app shows the entry but refuses to install it, and
+   * says which version it needs — installing would otherwise succeed and leave a
+   * half-read, silently wrong entity.
+   */
+  minAppVersion?: string
   status?: CatalogEntryStatus
   homepage?: string
   createdAt?: string

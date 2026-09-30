@@ -10,7 +10,8 @@
  * Shared by the Catalog page and the import dialog's catalog tab.
  */
 import { useTranslation } from 'react-i18next'
-import { Check, Download, ExternalLink, FolderOpen, Loader2, MoreHorizontal, Upload } from 'lucide-react'
+import { Check, Download, ExternalLink, FolderOpen, Loader2, MoreHorizontal, TriangleAlert, Upload } from 'lucide-react'
+import { isAppTooOld } from '@linkr/format'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -29,6 +30,7 @@ import { humanBytes } from '@/lib/format-helpers'
 import { ENTRY_TYPE_META } from '@/lib/catalog/entry-meta'
 import type { InstalledInfo } from '@/lib/catalog/installed'
 import type { CatalogEntry } from '@/lib/catalog/types'
+import { APP_VERSION } from '@/lib/version'
 import type { EntityLicense } from '@/types'
 
 /**
@@ -74,6 +76,9 @@ export function CatalogEntryCard({
   const meta = ENTRY_TYPE_META[entry.type]
   const typeLabel = t(meta.labelKey)
   const Icon = meta.icon
+  // Installing would succeed and leave a half-read entity, so the card says so up
+  // front — the entry stays listed: knowing it exists is what prompts an update.
+  const requiredVersion = isAppTooOld(entry.minAppVersion, APP_VERSION) ? entry.minAppVersion! : null
 
   // Clicking the card does the obvious thing for its state: an installed entity opens
   // where it lives in the app, an uninstalled one opens the repo it would come from.
@@ -132,8 +137,25 @@ export function CatalogEntryCard({
               )}
             </div>
 
-            {(entry.status || (entry.badges ?? []).length > 0) && (
+            {(entry.status || requiredVersion || (entry.badges ?? []).length > 0) && (
               <div className="mt-1.5 flex h-5 items-center gap-1 overflow-hidden">
+                {requiredVersion && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 gap-1 border-destructive/40 bg-destructive/10 text-destructive"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <TriangleAlert size={10} />
+                        {t('catalog.requires_version', { version: requiredVersion })}
+                      </Badge>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" className="max-w-64 text-xs">
+                      {t('catalog.requires_version_hint', { required: requiredVersion, current: APP_VERSION })}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
                 {entry.status && (
                   <Badge
                     variant="outline"
@@ -175,6 +197,7 @@ export function CatalogEntryCard({
               // must stay enabled even when no workspace is selected (or exists).
               hasWorkspace={hasWorkspace || entry.type === 'workspace'}
               localVersion={installed?.version}
+              requiredVersion={requiredVersion}
               busy={busy}
               onClick={onInstall}
             />
@@ -235,6 +258,8 @@ interface InstallButtonProps {
   serverMode: boolean
   hasWorkspace: boolean
   localVersion?: string
+  /** Set when this Linkr is too old for the entry: the version it needs. */
+  requiredVersion: string | null
   busy: boolean
   onClick: () => void
 }
@@ -252,14 +277,14 @@ interface InstallButtonProps {
  * tooltip — a greyed control on each card says "this entry could be installed, but not
  * here" far more precisely than one banner above the whole list.
  */
-function InstallButton({ state, serverMode, hasWorkspace, localVersion, busy, onClick }: InstallButtonProps) {
+function InstallButton({ state, serverMode, hasWorkspace, localVersion, requiredVersion, busy, onClick }: InstallButtonProps) {
   const { t } = useTranslation()
 
   const label = state === 'outdated'
     ? t('catalog.update')
     : state === 'installed' ? t('catalog.installed') : t('catalog.install')
   const Icon = state === 'outdated' ? Upload : state === 'installed' ? Check : Download
-  const disabled = !serverMode || !hasWorkspace || busy
+  const disabled = !serverMode || !hasWorkspace || !!requiredVersion || busy
 
   const button = (
     <Button
@@ -279,8 +304,11 @@ function InstallButton({ state, serverMode, hasWorkspace, localVersion, busy, on
 
   // Server mode is checked first: without a backend, which workspace is selected is
   // moot, so "pick a workspace" would be misleading advice.
+  // The version comes first: no server or workspace choice would make it installable.
   const hint = busy
     ? null
+    : requiredVersion
+      ? t('catalog.requires_version_hint', { required: requiredVersion, current: APP_VERSION })
     : !serverMode
       ? t('catalog.install_requires_server_short')
       : !hasWorkspace

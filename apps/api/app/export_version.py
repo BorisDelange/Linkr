@@ -40,3 +40,34 @@ def _read_export_version() -> str:
 
 
 EXPORT_APP_VERSION = _read_export_version()
+
+
+# The oldest Linkr able to read an entity, per kind — twin of MIN_APP_VERSION in
+# packages/linkr-format/src/app-version.ts (a parity test there reads this dict).
+# Raised to the first release carrying a structure change an older reader would
+# misread; every export of that kind then stamps ``minAppVersion``.
+MIN_APP_VERSION: dict[str, str] = {
+    "schema-preset": "2.4.3",
+}
+
+
+def _version_key(version: str) -> tuple[int, ...]:
+    core = version.strip().lstrip("vV").split("-")[0].split("+")[0]
+    return tuple(int(p) if p.isdigit() else 0 for p in core.split("."))
+
+
+def compare_versions(a: str, b: str) -> int:
+    """Numeric ``X.Y.Z`` comparison, twin of ``compareVersions``."""
+    ka, kb = _version_key(a), _version_key(b)
+    width = max(len(ka), len(kb))
+    ka, kb = ka + (0,) * (width - len(ka)), kb + (0,) * (width - len(kb))
+    return (ka > kb) - (ka < kb)
+
+
+def min_app_version_for(entity_type: str, app_version: str) -> str | None:
+    """The ``minAppVersion`` to stamp, capped at the writer's own version so a
+    build always reads its own exports — twin of ``minAppVersionFor``."""
+    declared = MIN_APP_VERSION.get(entity_type)
+    if declared is None:
+        return None
+    return app_version if compare_versions(declared, app_version) > 0 else declared

@@ -211,8 +211,27 @@ createdAt                           when
 createdBy, createdByDetails, organization   by whom (person AND publishing org)
 lineageId, parentLineageId          from what
 version, license                    how it is published
-appVersion                          the file's format version, last
+appVersion, minAppVersion?          the file's format version, last
 ```
+
+**`minAppVersion` — the oldest Linkr able to read the tree.** `appVersion` records who
+wrote a file, not who can read it: most exports stay readable by older apps, so refusing
+every newer `appVersion` would block trees that import fine. The readers are tolerant, so
+a structure change an older app does not know makes it import the tree *partly and
+silently* (a 2.4.2 reads a v2 `mapping.json` as an empty mapping). When a kind's structure
+changes that way, raise its entry in `MIN_APP_VERSION` — `packages/linkr-format/src/app-version.ts`
+and its twin in `apps/api/app/export_version.py` (a parity test reads the Python dict) —
+to the first release carrying the change. Every export of that kind then stamps
+`minAppVersion`, capped at the writer's own `VERSION` so a build still numbered before
+that release reads its own exports. Kinds with no entry stamp nothing.
+
+It is enforced at three places, before anything is written: every ZIP parser
+(`loadImportZip` and the project / database / workspace parsers), every clone applied
+(`applyClonedEntity`, the database pull), and the catalog install. The check
+(`lib/app-version-compat.ts`) reads every manifest in the tree, nested ones included, and
+throws `IncompatibleAppVersionError`, whose message names both versions. The catalog
+scanner copies the field into the entry, so the card is greyed out, with the reason,
+before any clone.
 
 `organization` sits with the author rather than beside `version`/`license`: the Edit
 dialog's authoring section edits the two together — it is co-authorship, not packaging.

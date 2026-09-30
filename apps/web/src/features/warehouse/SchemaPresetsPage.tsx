@@ -55,6 +55,7 @@ import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { SchemaPresetPull } from '@/components/versioning/SchemaPresetPull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
+import { IncompatibleAppVersionError } from '@/lib/app-version-compat'
 import { parseImportZip, readImportedManifest, reassemblePresetMapping, SCHEMA_PRESET_DDL_FILE, SCHEMA_PRESET_MAPPING_FILE } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid, mintEntityId } from '@/components/ui/entity-id-field'
@@ -1194,8 +1195,9 @@ export function SchemaPresetsPage() {
         await doPresetImport(mapping, false, gitRemote, parsed)
       }
       setImportOpen(false)
-    } catch {
-      setImportError(t('settings.schema_preset_import_invalid'))
+    } catch (err) {
+      // A tree too new for this build is not an invalid one: say which version it needs.
+      setImportError(err instanceof IncompatibleAppVersionError ? err.message : t('settings.schema_preset_import_invalid'))
     }
   }, [customPresets, language, doPresetImport, t])
 

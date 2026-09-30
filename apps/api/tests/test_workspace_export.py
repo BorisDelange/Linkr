@@ -18,6 +18,7 @@ from pathlib import Path
 
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.export_layout import (
+    version_stamp,
     CONTENT_SCHEMA_DDL,
     order_provenance,
     TYPE_SCHEMA_PRESET,
@@ -234,7 +235,7 @@ def _build_tree() -> dict[str, bytes]:
         stripped = order_provenance(
             {**stripped, "organization": _org_snapshot(data["organization"])}
         )
-        stripped["appVersion"] = APP_VERSION
+        stripped.update(version_stamp(TYPE_SCHEMA_PRESET, APP_VERSION))
         for key in ("presetId", "templateId"):
             mapping.pop(key, None)
         tree = {

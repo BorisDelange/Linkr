@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadCatalogCache, saveCatalogCache } from '@/lib/catalog/cache'
-import { getCatalogSource } from '@/lib/catalog/settings'
+import { catalogSourceOf, type CatalogConfig } from '@/lib/catalog/settings'
 import {
   CatalogError,
   diffCatalog,
@@ -39,24 +39,51 @@ interface UseCatalogResult {
   refresh: () => Promise<void>
 }
 
-export function useCatalog(): UseCatalogResult {
-  const [cache, setCache] = useState<CatalogCache | null>(() => loadCatalogCache())
+/**
+ * `catalog` is the repo to read; null (no catalog configured) reads as never loaded.
+ * Switching it swaps to that catalog's own cache.
+ */
+export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
+  const catalogId = catalog?.id ?? ''
+  const [cache, setCache] = useState<CatalogCache | null>(() => (catalogId ? loadCatalogCache(catalogId) : null))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<CatalogFetchError | null>(null)
   const [update, setUpdate] = useState<CatalogDiff | null>(null)
-  const checkedRef = useRef(false)
+  /** Which catalog the update check already ran for — once per catalog per mount. */
+  const checkedRef = useRef('')
+  /** The catalog on screen now, so a download that outlives a switch lands nowhere. */
+  const shownRef = useRef('')
+
+  // Swapped during render rather than in an effect, so the previous catalog's
+  // entries never paint under the new one's name. Keyed on the URL too: editing a
+  // catalog's repo clears its cache (updateCatalogs) under the same id.
+  const cacheKey = catalog ? `${catalog.id}|${catalog.url}|${catalog.branch}` : ''
+  const [cacheFor, setCacheFor] = useState(cacheKey)
+  if (cacheFor !== cacheKey) {
+    setCacheFor(cacheKey)
+    setCache(catalogId ? loadCatalogCache(catalogId) : null)
+    setError(null)
+    setUpdate(null)
+  }
+  useEffect(() => { shownRef.current = cacheKey }, [cacheKey])
 
   const download = useCallback(async () => {
+    if (!catalog) return
+    const source = catalogSourceOf(catalog)
+    if (!source) {
+      setError('not-found')
+      return
+    }
     setLoading(true)
     setError(null)
     try {
-      const source = getCatalogSource()
       // Fetch both: the index supplies the per-entry hashes that make the *next*
       // update check able to say what changed.
-      const catalog = await fetchCatalog(source)
+      const fetched = await fetchCatalog(source)
       const index = await fetchCatalogIndex(source).catch(() => null)
-      const next = toCache(catalog, index, new Date().toISOString())
-      saveCatalogCache(next)
+      const next = toCache(fetched, index, new Date().toISOString())
+      saveCatalogCache(catalog.id, next)
+      if (shownRef.current !== cacheKey) return
       setCache(next)
       setUpdate(null)
     } catch (err) {
@@ -64,16 +91,17 @@ export function useCatalog(): UseCatalogResult {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [catalog, cacheKey])
 
   // Once a cache exists, check for updates once per mount (cheap: ~2 KB).
   useEffect(() => {
-    if (!cache || checkedRef.current) return
-    checkedRef.current = true
+    const source = catalog ? catalogSourceOf(catalog) : null
+    if (!cache || !source || checkedRef.current === cacheKey) return
+    checkedRef.current = cacheKey
     let cancelled = false
     void (async () => {
       try {
-        const index = await fetchCatalogIndex(getCatalogSource())
+        const index = await fetchCatalogIndex(source)
         if (cancelled) return
         if (index.contentHash === cache.contentHash) {
           setUpdate(null)
@@ -87,7 +115,7 @@ export function useCatalog(): UseCatalogResult {
       }
     })()
     return () => { cancelled = true }
-  }, [cache])
+  }, [cache, catalog, cacheKey])
 
   return {
     // NOT `?? []`: a fresh literal each render is a new reference, and callers use

@@ -6,6 +6,8 @@ byte for byte, so a drift here is a red build rather than a silent divergence.
 Change one, change the other in the same commit.
 """
 
+from app.export_version import min_app_version_for
+
 # The one manifest name every entity export uses. Readers stay tolerant of the
 # per-kind names that preceded it (project.json, _pipeline.json, …) so already
 # published repos keep importing; writers only ever emit this.
@@ -82,11 +84,24 @@ def with_entity_type(
     if "entityId" in meta:
         out["entityId"] = meta["entityId"]
     out["type"] = entity_type
-    rest = {k: v for k, v in meta.items() if k not in ("id", "entityId")}
+    # The stamps describe the FILE and are re-added last; an imported row may
+    # still carry the ones its manifest had.
+    dropped = ("id", "entityId", "minAppVersion") + (("appVersion",) if app_version is not None else ())
+    rest = {k: v for k, v in meta.items() if k not in dropped}
     out.update(order_provenance(rest))
     if app_version is not None:
-        out["appVersion"] = app_version
+        out.update(version_stamp(entity_type, app_version))
     return out
+
+
+def version_stamp(entity_type: str, app_version: str) -> dict:
+    """``appVersion``, then ``minAppVersion`` when the kind declares one — the
+    tail of every manifest. Twin of ``versionStamp`` in entity-io.ts."""
+    stamp = {"appVersion": app_version}
+    minimum = min_app_version_for(entity_type, app_version)
+    if minimum is not None:
+        stamp["minAppVersion"] = minimum
+    return stamp
 
 def git_pointer_manifest(
     entity_type: str,

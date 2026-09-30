@@ -1,9 +1,8 @@
 import type { ConceptMapping, ConceptSet, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { ENTITY_MANIFEST } from '@linkr/format'
-import { APP_VERSION } from '@/lib/version'
 import { readsFromFlatSource } from './mapping-status'
 import { localized } from '@/lib/localized'
-import { stripInstanceFields, attachEntityOrganization, licenseMeta, orderProvenance, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
+import { stripInstanceFields, attachEntityOrganization, licenseMeta, orderProvenance, versionStamp, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
@@ -761,6 +760,8 @@ export function cleanMappingProjectMeta(
     // import), so a pointer to it resolved nowhere and flipped in git between
     // two users who each imported ATHENA.
     vocabularyDataSourceRef: _vocabRef,
+    appVersion: _av,
+    minAppVersion: _min,
     ...rest
   } = stripInstanceFields(projectRest) as Record<string, unknown>
   return {
@@ -784,7 +785,7 @@ export function cleanMappingProjectMeta(
       ...(conceptSetRefs.length > 0 ? { conceptSets: conceptSetRefs } : {}),
     }),
     // The export-format version stamp, as every other kind carries it.
-    appVersion: APP_VERSION,
+    ...versionStamp('mapping-project'),
   }
 }
 

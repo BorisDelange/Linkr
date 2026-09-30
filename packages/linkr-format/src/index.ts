@@ -82,3 +82,5 @@ export { detectEntityKind, detectTreeKind, validateEntity } from './validate/ent
 export type { EntityKind } from './validate/entities.js'
 export { validateDatasets } from './validate/datasets.js'
 export type { DatasetColumn, DatasetIndex, DatasetInfo } from './validate/datasets.js'
+
+export { compareVersions, isAppTooOld, MIN_APP_VERSION, minAppVersionFor } from './app-version.js'

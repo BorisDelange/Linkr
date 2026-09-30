@@ -16,7 +16,9 @@
  */
 
 import type JSZip from 'jszip'
-import { CONTENT_FILE, ENTITY_MANIFEST, MANIFEST } from '@linkr/format'
+import { CONTENT_FILE, ENTITY_MANIFEST, isAppTooOld, MANIFEST } from '@linkr/format'
+import { IncompatibleAppVersionError, requiredAppVersion } from '@/lib/app-version-compat'
+import { APP_VERSION } from '@/lib/version'
 import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '@/lib/entity-io'
 import type { GitLinkedEntity, ParsedWorkspaceZip } from '@/lib/entity-io'
 import { findLineageMatch, type ImportTarget } from '@/lib/import-identity'
@@ -42,6 +44,8 @@ export type InstallFailure =
   | 'clone-failed'
   | 'apply-failed'
   | 'unsupported-type'
+  /** The entity needs a newer Linkr than this one (its `minAppVersion`). */
+  | 'app-too-old'
 
 export interface InstallResult {
   ok: boolean
@@ -271,6 +275,11 @@ export async function prepareCatalogInstall(
   workspaceId?: string,
 ): Promise<PrepareResult> {
   if (!isServerMode()) return { ok: false, failure: 'server-mode-required' }
+  // Declared by the catalog: refuse before cloning anything. The cloned tree is
+  // checked again below — an entry can lag behind the repo it points at.
+  if (isAppTooOld(entry.minAppVersion, APP_VERSION)) {
+    return { ok: false, failure: 'app-too-old', error: new IncompatibleAppVersionError(entry.minAppVersion!).message }
+  }
 
   const branch = entry.git.branch || 'main'
   try {
@@ -282,6 +291,10 @@ export async function prepareCatalogInstall(
       return { ok: false, failure: 'clone-failed', error: 'The entity archive is too large to install.' }
     }
     const zip = await JSZipMod.loadAsync(cloned.blob)
+    const required = await requiredAppVersion(zip)
+    if (required && isAppTooOld(required, APP_VERSION)) {
+      return { ok: false, failure: 'app-too-old', error: new IncompatibleAppVersionError(required).message }
+    }
 
     // ENTITY_MANIFEST first: a repo published in the new format names its
     // manifest the same way whatever its type.

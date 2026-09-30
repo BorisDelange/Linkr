@@ -40,6 +40,7 @@ from app.services.export_layout import (
     TYPE_SCHEMA_PRESET,
     TYPE_SQL_COLLECTION,
     TYPE_WORKSPACE,
+    version_stamp,
     with_entity_type,
     CONTENT_DQ_CHECKS,
 )
@@ -218,7 +219,7 @@ def _build_projects_section(
             # url+branch only: the stored config also carries authToken and the
             # transient syncedOid, and this line undoes the strip above.
             project_meta_out["gitRemoteConfig"] = {"url": git["url"], "branch": git["branch"]}
-        project_meta_out["appVersion"] = APP_VERSION
+        project_meta_out.update(version_stamp(TYPE_PROJECT, APP_VERSION))
 
         if git:
             # createdAt rides along so the pointer-create records the real creation
@@ -620,7 +621,7 @@ def build_workspace_tree(
     ws_out["organization"] = org_snapshot(organization) if has_org else None
     # appVersion last, after the provenance keys are ordered into place.
     ws_out = order_provenance(ws_out)
-    ws_out["appVersion"] = APP_VERSION
+    ws_out.update(version_stamp(TYPE_WORKSPACE, APP_VERSION))
     tree[ENTITY_MANIFEST] = _json(ws_out)
 
     if workspace.get("organizationId") and organization:

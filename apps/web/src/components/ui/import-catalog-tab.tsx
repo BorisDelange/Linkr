@@ -21,6 +21,8 @@ import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { isServerMode } from '@/lib/api-client'
 import { findInstalled, type InstalledInfo } from '@/lib/catalog/installed'
 import { useCatalog } from '@/hooks/use-catalog'
+import { useActiveCatalog } from '@/stores/catalog-sources-store'
+import { CatalogSwitcher } from '@/features/catalog/CatalogSwitcher'
 import { CatalogBrowser } from '@/features/catalog/CatalogBrowser'
 import { useOpenInstalled } from '@/features/catalog/use-open-installed'
 import type { CatalogEntryType } from '@/lib/catalog/types'
@@ -40,7 +42,8 @@ interface ImportCatalogTabProps {
 
 export function ImportCatalogTab({ type, workspaceId, install, language, installedNonce, onClose }: ImportCatalogTabProps) {
   const { t } = useTranslation()
-  const { entries, loaded, loading, error, load } = useCatalog()
+  const catalog = useActiveCatalog()
+  const { entries, loaded, loading, error, load } = useCatalog(catalog)
   const [installed, setInstalled] = useState<Record<string, InstalledInfo>>({})
   const openInApp = useOpenInstalled(workspaceId, onClose)
 
@@ -71,16 +74,23 @@ export function ImportCatalogTab({ type, workspaceId, install, language, install
 
   if (!loaded) {
     return (
-      <div className="flex h-[320px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-8">
-        <Store size={32} className="text-muted-foreground/50" />
-        <p className="mt-3 text-center text-sm text-muted-foreground">{t('catalog.not_loaded')}</p>
-        <Button size="sm" className="mt-4 gap-1" onClick={load} disabled={loading}>
-          {loading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-          {t('catalog.load')}
-        </Button>
-        {error && (
-          <p className="mt-3 text-xs text-destructive">{t(`catalog.error_${error.replace(/-/g, '_')}`)}</p>
-        )}
+      <div className="space-y-3">
+        <div className="flex justify-end"><CatalogSwitcher /></div>
+        <div className="flex h-[320px] flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-8">
+          <Store size={32} className="text-muted-foreground/50" />
+          <p className="mt-3 text-center text-sm text-muted-foreground">
+            {catalog ? t('catalog.not_loaded') : t('catalog.sources_none')}
+          </p>
+          {catalog && (
+            <Button size="sm" className="mt-4 gap-1" onClick={load} disabled={loading}>
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+              {t('catalog.load')}
+            </Button>
+          )}
+          {error && (
+            <p className="mt-3 text-xs text-destructive">{t(`catalog.error_${error.replace(/-/g, '_')}`)}</p>
+          )}
+        </div>
       </div>
     )
   }
@@ -103,6 +113,7 @@ export function ImportCatalogTab({ type, workspaceId, install, language, install
         openInApp={(entry) => openInApp(entry, installed[entry.id])}
         lockedType={type}
         gridClassName="sm:grid-cols-2"
+        toolbarExtra={<CatalogSwitcher />}
       />
     </div>
   )
