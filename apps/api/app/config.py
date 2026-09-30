@@ -121,6 +121,11 @@ class Settings(BaseSettings):
     # source is kept alive between queries before it is closed for inactivity.
     pool_ttl_seconds: int = 300
 
+    # Small-count threshold of what leaves the instance in a mapping project's
+    # source-concepts.csv (services/export_masking.py): a count under it becomes
+    # "<k", a profile under it is withheld. 1 disables the masking.
+    export_min_count: int = 11
+
     # Access log (core/audit.py): how long its entries are kept.
     audit_retention_days: int = 365
 

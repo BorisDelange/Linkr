@@ -165,6 +165,16 @@ that kernel's web token. That is the 🤔 in *Per-user database credentials*.
 
 ### B3. Exports towards the global instance carry small counts — SEC-EXP-1
 
+**Fixed:** `services/export_masking.py` + its twin `lib/concept-mapping/export-masking.ts`
+(shared fixture `__fixtures__/export-masking/`), applied wherever `source-concepts.csv`
+and `mappings.json` leave the app (server tree for ZIP / workspace export / git, client
+ZIP builder, the Export tab's CSV download, the Usagi CSV). Count cells 1..k-1 → `<k`;
+a profile under k is withheld; above it, `min`/`max`/`range` go and every histogram
+bin, category, ward or year under k records (direct or implied by its percentage) is
+dropped; a `sourceFrequency` under k becomes null. k = `LINKR_EXPORT_MIN_COUNT`
+(default 11) on the server; the client uses 11 (client-only mode has no instance
+config). DQ rule sets and SQL collections export definitions only — nothing to mask.
+
 - Under `minPatients` (default 11), `buildConceptProfile` withholds the profile JSON but
   still returns `rowsCount` / `patientsCount`
   (`apps/web/src/lib/concept-mapping/concept-profile.ts:831-832`).

@@ -27,6 +27,7 @@ import {
   exportUnmappedToConcept,
   downloadFile,
   buildMappingProjectFolder,
+  maskedSourceConcepts,
   type ScoresSelection,
 } from '@/lib/concept-mapping/export'
 import {
@@ -325,8 +326,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
               ? project.fileSourceData.rawFileBuffer
               : new Uint8Array(project.fileSourceData.rawFileBuffer)
+            const out = await maskedSourceConcepts(buf, project.fileSourceData.columnMapping)
             // TS lib.dom's BlobPart rejects the generic Uint8Array<ArrayBufferLike>; runtime accepts it
-            const csvBlob = new Blob([buf as BlobPart], { type: 'text/csv' })
+            const csvBlob = new Blob([out as BlobPart], { type: 'text/csv' })
             downloadBlob(csvBlob, `${slugify(localized(project.name, 'en'))}-source-concepts.csv`)
           } catch {
             setSourceCsvTooLarge(true)

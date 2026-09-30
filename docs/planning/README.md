@@ -179,7 +179,6 @@ and the CNIL CDW framework. Section A (A1–A4) is done — as-built in `docs/ar
 |----|------|--------|
 | 🔜 | B1. Access log: successful login by username, downloads (`/raw`, blob, export ZIPs), row previews | S |
 | 🔜 | B2. Clamp or document `audit_retention_days` (6–12 months) | S |
-| 🔜 | B3. Mapping-project exports (`source-concepts.csv`, git sync) carry `record_count`/`patient_count` under the threshold, extremes and small histogram bins — mask at export, client + server | M |
 | 🔜 | B4. Password change: `/auth/change-password` does not exist | S |
 | 🔜 | D. Security headers (CSP, HSTS…), bind uploads to their uploader, offline mirrors (`indexUrl` http, `trusted-host`) | M |
 | 🔜 | F. SPE deployment checklist (website `administration/`, FR + EN) + stale texts (`ai-agents-plan.md` Fernet, `application_name`) | S |

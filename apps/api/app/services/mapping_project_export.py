@@ -24,6 +24,7 @@ from typing import Any
 from app.core.json_export import export_json as _json
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import entity_doc_files
+from app.services.export_masking import mask_frequency, mask_source_concepts_csv
 from app.services.entity_docs import license_meta as _license_meta
 from app.services.export_layout import (
     ENTITY_MANIFEST,
@@ -80,7 +81,7 @@ def _serialize_mappings(mappings: list[dict]) -> bytes:
     kept — it is provenance, and dropping it re-stamped every row on reimport."""
     cleaned = [
         {
-            k: v
+            k: mask_frequency(v) if k == "sourceFrequency" else v
             for k, v in m.items()
             if k not in ("id", "projectId", "updatedAt", "sourceConceptId")
         }
@@ -227,6 +228,16 @@ def _csv_escape(value: Any) -> str:
     return s
 
 
+def _masked_csv_bytes(data: bytes, column_mapping: dict | None) -> bytes:
+    """Small counts and single-patient values masked (export_masking). Bytes that
+    are not UTF-8 text are left alone: nothing in them could be read to mask."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    return mask_source_concepts_csv(text, column_mapping).encode("utf-8")
+
+
 def _as_csv_bytes(source: bytes) -> bytes:
     """Return the source concepts as CSV text.
 
@@ -303,7 +314,9 @@ def build_mapping_project_tree(
     if source_csv and (
         project.get("sourceType") == "file" or project.get("fileSourceData")
     ):
-        tree["source-concepts.csv"] = _as_csv_bytes(source_csv)
+        tree["source-concepts.csv"] = _masked_csv_bytes(
+            _as_csv_bytes(source_csv), (project.get("fileSourceData") or {}).get("columnMapping")
+        )
 
     # source-concept-ids/: written only when the project has assigned ids. The
     # whole folder is skipped when both are empty (matches the TS no-op).

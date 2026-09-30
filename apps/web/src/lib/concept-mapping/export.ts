@@ -8,6 +8,7 @@ import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
 import { toConceptSetRefs } from '@/lib/concept-mapping/concept-set-refs'
+import { maskFrequency, maskSourceConceptsCsv } from '@/lib/concept-mapping/export-masking'
 import { csvPathForMethod, SCORES_PARQUET_FILE, type ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
 
 // ---------------------------------------------------------------------------
@@ -56,6 +57,27 @@ export async function parquetBufferToCsv(buf: Uint8Array): Promise<string | null
   } catch {
     return null
   }
+}
+
+/**
+ * The source concepts as they may leave the instance: Parquet converted to CSV,
+ * then small counts and single-patient values masked (export-masking.ts). Bytes
+ * that are neither Parquet nor UTF-8 text go out as they are — nothing in them
+ * could be read to mask. Every writer of source-concepts.csv goes through here.
+ */
+export async function maskedSourceConcepts(
+  buf: Uint8Array,
+  columnMapping?: Partial<FileColumnMapping> | null,
+): Promise<string | Uint8Array> {
+  let text: string | null = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : null
+  if (text === null) {
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(buf)
+    } catch {
+      return buf
+    }
+  }
+  return maskSourceConceptsCsv(text, columnMapping)
 }
 
 export function csvEscape(value: string | number | undefined | null): string {
@@ -223,7 +245,7 @@ export function exportToUsagiCsv(
     return [
       csvEscape(m.sourceConceptCode),
       csvEscape(m.sourceConceptName),
-      csvEscape(m.sourceFrequency),
+      csvEscape(maskFrequency(m.sourceFrequency)),
       csvEscape(m.sourceConceptId),
       csvEscape(m.matchScore ?? 0),
       csvEscape(usagiStatus),
@@ -708,7 +730,7 @@ export interface ScoresSelection {
 function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
   const cleaned = mappings.map((m) => {
     const { id: _id, projectId: _p, updatedAt: _u, sourceConceptId: _s, ...rest } = m
-    return rest
+    return 'sourceFrequency' in rest ? { ...rest, sourceFrequency: maskFrequency(rest.sourceFrequency) } : rest
   })
   // Sort by sourceConceptCode first (readable diffs), then break EVERY tie down to
   // the full merge identity: a source concept can map to several targets, so
@@ -822,20 +844,19 @@ export async function buildMappingProjectFolder(
       const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
         ? project.fileSourceData.rawFileBuffer
         : new Uint8Array(project.fileSourceData.rawFileBuffer)
-      const asCsv = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : null
-      if (asCsv) {
-        zip.file(`${prefix}source-concepts.csv`, asCsv)
-      } else {
-        // Pass the raw buffer directly without compression (avoids memory overflow on large files)
-        zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
-      }
+      const out = await maskedSourceConcepts(buf, project.fileSourceData.columnMapping)
+      // Undecodable bytes go uncompressed (avoids memory overflow on large files)
+      zip.file(`${prefix}source-concepts.csv`, out, typeof out === 'string' ? {} : { compression: 'STORE' })
     } else if (project.fileSourceData.rows.length > 0) {
       // Legacy format: export from parsed rows
       zip.file(
         `${prefix}source-concepts.csv`,
-        exportSourceConceptsCsv(
-          project.fileSourceData.rows,
-          project.fileSourceData.columns,
+        maskSourceConceptsCsv(
+          exportSourceConceptsCsv(
+            project.fileSourceData.rows,
+            project.fileSourceData.columns,
+            project.fileSourceData.columnMapping,
+          ),
           project.fileSourceData.columnMapping,
         ),
       )
@@ -849,9 +870,8 @@ export async function buildMappingProjectFolder(
           const { fetchRawFileFromServer } = await import('@/lib/api/mapping-projects')
           const buf = await fetchRawFileFromServer(project.id)
           if (buf && buf.byteLength > 0) {
-            const asCsv = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : null
-            if (asCsv) zip.file(`${prefix}source-concepts.csv`, asCsv)
-            else zip.file(`${prefix}source-concepts.csv`, buf, { compression: 'STORE' })
+            const out = await maskedSourceConcepts(buf, project.fileSourceData.columnMapping)
+            zip.file(`${prefix}source-concepts.csv`, out, typeof out === 'string' ? {} : { compression: 'STORE' })
           }
         }
       } catch {
@@ -869,7 +889,7 @@ export async function buildMappingProjectFolder(
         if (sql) {
           const rows = await options.queryDataSource(ds.id, sql)
           if (rows.length > 0) {
-            zip.file(`${prefix}source-concepts.csv`, buildSourceConceptsCsvFromRows(rows))
+            zip.file(`${prefix}source-concepts.csv`, maskSourceConceptsCsv(buildSourceConceptsCsvFromRows(rows)))
           }
         }
       } catch {
