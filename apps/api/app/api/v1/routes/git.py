@@ -25,7 +25,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user
-from app.core.permissions import require_project_permission, require_permission
+from app.core.permissions import (
+    effective_workspace_permissions,
+    has_global_permission,
+    require_permission,
+    require_project_permission,
+)
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.git import (
@@ -1209,6 +1214,19 @@ _register_all_entity_git_routes()
 # --- Verify + Clone (no entity, just authenticated) -----------------------
 
 
+async def _check_may_fetch(db: AsyncSession, user: User, workspace_id: str | None) -> None:
+    """Fetching a remote makes the server open a connection a user chose: only
+    for someone who can write something in the workspace the content is for, or
+    create a workspace when the repo is one."""
+    if workspace_id is None:
+        allowed = await has_global_permission(db, user, "workspaces:write")
+    else:
+        perms = await effective_workspace_permissions(db, workspace_id, user)
+        allowed = any(p.endswith(":write") for p in perms)
+    if not allowed:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions")
+
+
 @router.post("/verify-remote", response_model=GitVerifyResponse)
 async def verify_remote(
     body: GitVerifyRequest,
@@ -1220,6 +1238,7 @@ async def verify_remote(
     instead of silently saved and only failing later in the sync panel. On
     success, remember the token for this user + host so the token-less sync ops
     (status/diff/commit-push) can use it afterwards."""
+    await _check_may_fetch(db, user, body.workspace_id)
     try:
         result = await git_service.verify_remote(body.url, body.token)
     except git_service.GitError as exc:
@@ -1240,6 +1259,7 @@ async def clone(
     is remembered for this user + host so later sync ops find it."""
     from fastapi.responses import Response
 
+    await _check_may_fetch(db, user, body.workspace_id)
     # Fall back to the user's stored (user, host) token when the request carries
     # none — so a retry clone of a private repo (the card's "content not imported"
     # button, which has no token to hand) reuses the token saved at first import.

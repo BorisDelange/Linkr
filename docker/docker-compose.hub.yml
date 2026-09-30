@@ -30,10 +30,12 @@ services:
   api:
     image: interhop/linkr:api-2.4.2
     ports:
-      - "8000:8000"
+      # Loopback only: the web container reaches the API over the compose
+      # network; publishing it on every interface would bypass nginx.
+      - "127.0.0.1:8000:8000"
     environment:
-      - LINKR_DATABASE_URL=sqlite+aiosqlite:////root/.linkr/linkr.db
-      - LINKR_DATA_DIR=/root/.linkr
+      - LINKR_DATABASE_URL=sqlite+aiosqlite:////var/lib/linkr/linkr.db
+      - LINKR_DATA_DIR=/var/lib/linkr
       # Signs login tokens. Generate it once and keep it: changing it logs
       # everyone out. Stored secrets (database passwords, git tokens) are
       # sealed with a separate key, LINKR_ENCRYPTION_KEY if set, otherwise
@@ -50,13 +52,13 @@ services:
       # with ordinary tools. To keep the data in a REAL folder you can see and
       # archive, replace the line below with a path of your own:
       #
-      #   - ./linkr-data:/root/.linkr        (beside this file)
-      #   - /srv/linkr:/root/.linkr          (a server path)
+      #   - ./linkr-data:/var/lib/linkr        (beside this file)
+      #   - /srv/linkr:/var/lib/linkr          (a server path)
       #
       # Docker creates it if missing; nothing else changes. Only `down -v`
       # deletes a named volume — a bind-mounted folder is never touched, which
       # is the other reason to prefer one for anything you care about.
-      - linkr-data:/root/.linkr
+      - linkr-data:/var/lib/linkr
 
   # MCP server: lets agents (LibreChat, OpenCode…) act on this instance, each
   # user with their own Linkr API key (User settings → API keys). Point the

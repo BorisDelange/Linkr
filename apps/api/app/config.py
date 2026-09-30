@@ -110,6 +110,13 @@ class Settings(BaseSettings):
     # .duckdb anywhere the server process can write (Create from schema, Location).
     fs_browse_roots: str = ""
 
+    # Hosts external databases may be reached at: comma-separated names, IPs or
+    # CIDRs (e.g. "datamart.chu.local,10.20.0.0/16"). A name not listed passes
+    # when every address it resolves to is in a listed network. Empty = any host,
+    # so anyone with databases:write can make the server connect anywhere; an
+    # SPE deployment should set it to the datamart's hosts.
+    db_allowed_hosts: str = ""
+
     # Server-side query engine: how long a warm DuckDB connection to a data
     # source is kept alive between queries before it is closed for inactivity.
     pool_ttl_seconds: int = 300

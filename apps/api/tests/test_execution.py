@@ -19,10 +19,11 @@ async def _admin_headers(client) -> dict:
 
 
 async def _project(client, headers) -> str:
-    """Create a real (workspace-less) project and return its uid. Execution
-    endpoints require the project to exist (access derives from it), so kernel
-    tests can't use a made-up uid."""
-    r = await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}})
+    """Create a real project and return its uid. Execution endpoints require the
+    project to exist (access derives from it), so kernel tests can't use a
+    made-up uid."""
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    r = await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})
     return r.json()["uid"]
 
 

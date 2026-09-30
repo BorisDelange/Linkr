@@ -7,13 +7,13 @@ of finished efforts that the code still cites lives in `docs/design/`.
 **Status**: 🔜 ready to do · 🤔 needs your decision · 💤 later/maybe
 **Effort**: S (< ½ day) · M (½–2 days) · L (several days)
 
-*Last checked against the code: 2026-09-29.*
+*Last checked against the code: 2026-09-30.*
 
 ## Priority
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. **Settle the agent path first** (see *Per-user database credentials* below): today an API-key session can obtain the decrypted password, and the page must not state a guarantee the app does not keep — or must state that gap | S |
+| 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. **Settle the agent path first** (see *Per-user database credentials* below): a kernel started by an API key no longer gets the password (A4), but an agent running in the user's own `default` kernel still can, and the page must not state a guarantee the app does not keep — or must state that gap | S |
 
 ## To test manually in the app
 
@@ -170,13 +170,29 @@ on a database), stable check ids, run export and catalog publish as W3C DQV.
 | 💤 | Convert the bundled MIMIC-IV ETL to C/CR (its scripts still join `source_to_concept_map`) | M |
 | 💤 | `00b_custom_vocabulary.sql`: only the seed loader generates it — remove? | S |
 
+## Security & compliance — [security-compliance-plan.md](security-compliance-plan.md)
+
+Audit of 2026-09-30 against the SPE frame ([../deployment-context.md](../deployment-context.md))
+and the CNIL CDW framework. Section A (A1–A4) is done — as-built in `docs/architecture.md` § Permissions; what it left open is below.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | B1. Access log: successful login by username, downloads (`/raw`, blob, export ZIPs), row previews | S |
+| 🔜 | B2. Clamp or document `audit_retention_days` (6–12 months) | S |
+| 🔜 | B3. Mapping-project exports (`source-concepts.csv`, git sync) carry `record_count`/`patient_count` under the threshold, extremes and small histogram bins — mask at export, client + server | M |
+| 🔜 | B4. Password change: `/auth/change-password` does not exist | S |
+| 🔜 | D. Security headers (CSP, HSTS…), bind uploads to their uploader, offline mirrors (`indexUrl` http, `trusted-host`) | M |
+| 🔜 | F. SPE deployment checklist (website `administration/`, FR + EN) + stale texts (`ai-agents-plan.md` Fernet, `application_name`) | S |
+| 🤔 | C1. Aggregate-only access: `rows` action on databases/datasets/patient-data/cohorts + default role `aggregates` + route classification — validate the design | M |
+| 🔜 | C2. Dashboard aggregate mode: frozen published snapshot first, then a live server aggregation endpoint with suppression + cell-key noise | L |
+| 🔜 | E. Trusted-header auth provider (identity from the SPE's two-factor proxy) | M |
+| 💤 | A1 follow-up: kernels under their own OS identity, no read access to `data_dir` | L |
+
 ## Permissions
 
 | St | Item | Effort |
 |----|------|--------|
 | 🤔 | PO validation of the resources × actions catalogue: which blocks, at which level, default roles, edge cases (shared resources, project role `none`, workspace→project inheritance) | S (review) |
-| 🔜 | `POST /data-sources/test-connection` opens a connection to any host — reuse the SSRF guard `git_service` already has | S |
-| 💤 | Unassigned project open to every user (`workspace_id is None → owner`, `core/permissions.py`) + `update_project` destination-workspace check | M |
 | 💤 | Minors: inline gating by context, organizations readable by all | S |
 
 ## Per-user database credentials — [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md)
@@ -186,8 +202,7 @@ Built: personal accounts, per-user pools and caches, session-only passwords, acc
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | `client_recipe` still hands the decrypted password to API-key sessions — refuse it there (nothing checks the caller's auth kind in `routes/client_lib.py`) | S |
-| 🤔 | …and that is not enough: the MCP's `run_code` runs in the user's IDE kernel, which can fetch the recipe itself and print it to the model (plan §7). Server-side query proxy, or forbid DB access to agent runs? | S–M |
+| 🤔 | …and that is not enough: a kernel an API key starts gets no recipe since A4, but the MCP's `run_code` defaults to session `default`, shared with the user's IDE — a kernel the user started holds a web kernel token the agent's code can read and use (plan §7). Server-side query proxy, separate agent sessions, or forbid DB access to agent runs? | S–M |
 | 🔜 | IDE connections: split settings (per project) from login (per user), reusing `DatabaseCredential` | S |
 | 🔜 | Per-workspace browse roots for file-based databases; `serverPath` registration behind `databases:manage` | M |
 | 🔜 | *My activity* page (the route exists, no page) | S |

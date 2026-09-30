@@ -35,6 +35,7 @@ from app.services.data import (
     db_connect,
     managed_db,
 )
+from app.services.data.db_host_guard import DbHostNotAllowed
 
 # External network databases reached via DuckDB's ATTACH extensions.
 _EXTERNAL_ENGINES = ("postgresql", "mysql")
@@ -881,11 +882,14 @@ async def client_recipe(db: AsyncSession, source: DataSource, login: Login | Non
     if engine in _EXTERNAL_ENGINES:
         if login is None:
             return {"engine": engine, "kind": "external", "connectable": False, "needs_login": True}
+        try:
+            recipe = db_connect.attach_recipe(with_login(config, login), login.password)
+        except DbHostNotAllowed:
+            return {"engine": engine, "kind": "external", "connectable": False}
         # A password handed to user code: one line per database it went out for.
         audit.write({**audit.actor(), "method": "GET", "route": "client-recipe",
                      "action": "client_recipe", "data_source_id": source.id,
                      "workspace_id": source.workspace_id, "status": 200})
-        recipe = db_connect.attach_recipe(with_login(config, login), login.password)
         return {
             "engine": engine,
             "kind": "external",

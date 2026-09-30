@@ -248,7 +248,6 @@ async def effective_project_role(
     project override        → replaces the inherited role (widen, restrict, or
                               "none" = access removed even to a workspace member)
     else inherited          → the user's workspace role on the project's workspace
-    else (no workspace)     → "owner" for a legacy/unassigned project (any user)
 
     Returns None when the user has no access at all.
     """
@@ -273,9 +272,6 @@ async def effective_project_role(
         # but a global all-projects grant still confers cross-cutting access.
         base = None if override.role == "none" else override.role
         return _widen(base)
-    if project.workspace_id is None:
-        # Unassigned project: no membership model applies, open to any user.
-        return "owner"
     member = await db.get(WorkspaceMember, (project.workspace_id, user.id))
     return _widen(member.role if member is not None else None)
 
@@ -320,8 +316,6 @@ async def effective_project_permissions(
     if override is not None:
         if override.role != "none":
             perms |= set(await _role_permissions(db, override.role))
-    elif project.workspace_id is None:
-        perms |= set(PERMISSIONS)  # unassigned project: open
     else:
         perms |= set(await effective_workspace_permissions(db, project.workspace_id, user))
     granted = await global_grant_role(db, user, "all-projects")
@@ -342,7 +336,6 @@ async def has_project_permission(
       - a per-project override (project_members) → that role's permissions
         ("none" = access removed);
       - else the inherited WORKSPACE role's permissions (custom roles included);
-      - else, for a workspace-less project, open to any user;
       - plus a global all-projects grant widening everything."""
     if user.role == "admin":
         return True
@@ -351,8 +344,6 @@ async def has_project_permission(
     if override is not None:
         if override.role != "none" and await _role_grants(db, override.role, permission):
             return True
-    elif project.workspace_id is None:
-        return True  # unassigned project: no membership model applies
     elif await has_permission(db, project.workspace_id, user, permission):
         return True  # inherited workspace role (custom names handled here)
 
@@ -410,6 +401,11 @@ def require_project_permission(permission: str):
     return _dep
 
 
+async def has_global_permission(db: AsyncSession, user: User, permission: str) -> bool:
+    """True if the user's global role grants the global-tier `permission`."""
+    return user.role == "admin" or await _role_grants(db, user.role, permission)
+
+
 def require_global_permission(permission: str):
     """Dependency factory: require a global-tier `permission` (e.g.
     "app-database:read"). The user's global role is consulted; admins pass."""
@@ -418,7 +414,7 @@ def require_global_permission(permission: str):
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        if user.role == "admin" or await _role_grants(db, user.role, permission):
+        if await has_global_permission(db, user, permission):
             return user
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

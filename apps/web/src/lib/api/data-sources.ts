@@ -27,10 +27,11 @@ export interface TestConnectionResult {
  */
 export function testConnectionOnServer(
   connectionConfig: Record<string, unknown>,
+  workspaceId: string | undefined,
 ): Promise<TestConnectionResult> {
   return apiRequest<TestConnectionResult>('/data-sources/test-connection', {
     method: 'POST',
-    body: JSON.stringify({ connectionConfig }),
+    body: JSON.stringify({ connectionConfig, workspaceId }),
   })
 }
 

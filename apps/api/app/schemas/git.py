@@ -162,11 +162,15 @@ class GitCloneRequest(CamelModel):
     url: str
     branch: str | None = None
     token: str | None = None
+    # The workspace the content is for; omitted when the repo IS a workspace
+    # being imported (then creating a workspace is the permission that counts).
+    workspace_id: str | None = None
 
 
 class GitVerifyRequest(CamelModel):
     url: str
     token: str | None = None
+    workspace_id: str | None = None
 
 
 class GitVerifyResponse(CamelModel):

@@ -35,10 +35,9 @@ async def _check_project(db: AsyncSession, project_uid: str, user: User, permiss
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    if project.workspace_id is not None:
-        # ide is a project-tier resource → resolve via the project (honours per-
-        # project overrides), not just the raw workspace role.
-        await check_project_permission(db, project, user, permission)
+    # ide is a project-tier resource → resolve via the project (honours per-
+    # project overrides), not just the raw workspace role.
+    await check_project_permission(db, project, user, permission)
     # Cache the path bindings so the sync scan/dir helpers resolve ide_path.
     project_fs.prime_binding(project_uid, project.ide_path, project.scripts_path, project.datasets_path)
 

@@ -22,6 +22,7 @@ import duckdb
 
 from app.config import settings
 from app.services.data import connection_pool, file_reader, query_cancel
+from app.services.data.db_host_guard import check_db_host
 
 _ATTACH_ALIAS = "ext"
 
@@ -158,7 +159,9 @@ def _dsn_value(value: str) -> str:
 def _dsn(config: dict, password: str | None) -> str:
     """Build a key=value DSN. Both the libpq (Postgres) and MySQL ATTACH strings
     accept host/port/user/password; the database key differs (dbname vs database).
-    Every client-controlled value is quoted (see _dsn_value)."""
+    Every client-controlled value is quoted (see _dsn_value). Every external
+    connection is built here, so this is where the host allowlist applies."""
+    check_db_host(config.get("host"))
     is_mysql = config.get("engine") == "mysql"
     parts: list[str] = []
     if host := config.get("host"):

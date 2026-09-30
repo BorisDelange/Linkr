@@ -140,6 +140,8 @@ class TestConnectionRequest(CamelModel):
     opens the connection, introspects the schema, and discards the credential.
     """
 
+    # The workspace the database is for: testing needs databases:write there.
+    workspace_id: str
     connection_config: dict
 
 

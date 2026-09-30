@@ -21,6 +21,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import project_fs
+from app.services.execution.child_env import child_env
 from app.services.execution.package_spec import validate_package_spec
 
 # A hung `Rscript` (network black-hole resolving a package) must not pin a worker
@@ -61,11 +62,9 @@ def is_built(project_uid: str) -> bool:
 
 
 def _renv_env(project_uid: str, options: dict | None = None) -> dict[str, str]:
-    import os
-
     options = options or {}
     return {
-        **os.environ,
+        **child_env(provision=True),
         # Shared, instance-wide renv cache (one copy of each package for all projects).
         "RENV_PATHS_CACHE": str(project_fs.env_package_cache("renv")),
         # The project's private library — the build target.
@@ -332,6 +331,7 @@ def check_kernel_updates(options: dict | None = None) -> dict[str, str]:
         res = subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", code],
             capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+            env=child_env(provision=True),
         )
     except (subprocess.SubprocessError, OSError):
         return {}
@@ -362,6 +362,7 @@ def upgrade_kernel_package(package: str, on_log=None, options: dict | None = Non
         res = subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", code],
             capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+            env=child_env(provision=True),
         )
     except (subprocess.SubprocessError, OSError) as e:
         raise ProvisionError(str(e)) from e
@@ -394,6 +395,7 @@ def ensure_r_sandbox(on_log=None) -> None:
         subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", code],
             capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+            env=child_env(provision=True),
         )
     except (subprocess.SubprocessError, OSError) as e:
         if on_log is not None:
@@ -438,6 +440,7 @@ def ensure_kernel_r_lib(on_log=None) -> None:
         res = subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", code],
             capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+            env=child_env(provision=True),
         )
     except (subprocess.SubprocessError, OSError) as e:
         # Best-effort: a failure here surfaces as the kernel's own import error, which
@@ -560,6 +563,7 @@ def ensure_client_r_lib(on_log=None) -> None:
         res = subprocess.run(
             [settings.rscript_bin, "--vanilla", "-e", code],
             capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+            env=child_env(provision=True),
         )
         if res.returncode != 0 and on_log is not None:
             on_log(f"client R deps install failed (exit {res.returncode}): {res.stderr.strip()[:2000]}")
@@ -572,6 +576,7 @@ def ensure_client_r_lib(on_log=None) -> None:
                 "--no-test-load", f"--library={kernel_lib}", str(source),
             ],
             capture_output=True, text=True, timeout=_R_EDIT_TIMEOUT,
+            env=child_env(provision=True),
         )
     except (subprocess.SubprocessError, OSError) as e:
         # Best-effort, like the kernel library: a failure here surfaces to the user as

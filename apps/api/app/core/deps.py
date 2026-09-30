@@ -117,6 +117,7 @@ async def get_kernel_user(
     A personal API token is refused, unlike everywhere else: these endpoints hand
     back the user's decrypted database passwords, and an agent's never-expiring
     key must not read what it may not write (``save_my_login`` refuses it too).
+    So is a kernel token minted for an API-key session (``via``).
     """
     if api_token_service.is_api_token(credentials.credentials):
         raise HTTPException(
@@ -134,6 +135,13 @@ async def get_kernel_user(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This token is scoped to another project",
+            )
+        # The same rule as for the API key itself, one hop later: a kernel an
+        # API-key session started would otherwise fetch the password for it.
+        if token_type == "kernel" and payload.get("via") != "web":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Kernels started with an API token cannot call the client-library endpoints",
             )
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):

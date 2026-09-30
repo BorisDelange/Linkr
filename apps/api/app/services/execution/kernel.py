@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from app.config import settings
+from app.services.execution.child_env import child_env
 from app.services.execution.runtime import RuntimeOutput, ExecutionError
 
 if TYPE_CHECKING:
@@ -716,11 +717,7 @@ class Kernel:
         # One result line carries the whole JSON output (stdout + base64 figures +
         # table), which easily exceeds asyncio's default 64 KB StreamReader limit
         # and would raise LimitOverrunError on readline(). Raise it to 64 MB.
-        proc_env = None
-        if self._env:
-            import os
-
-            proc_env = {**os.environ, **self._env}
+        proc_env = child_env(self._env)
         self._proc = await asyncio.create_subprocess_exec(
             *self._cmd,
             cwd=self._cwd,

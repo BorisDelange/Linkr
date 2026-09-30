@@ -261,8 +261,11 @@ async def run_as_job(
 
 def _kernel_token(user: User, project_uid: str) -> str:
     """The LINKR_TOKEN handed to a kernel/terminal for the R/Python client
-    libraries. Minted per spawn, scoped to this user and this project."""
-    return create_kernel_token(user.id, user.username, user.role, project_uid)
+    libraries. Minted per spawn, scoped to this user and this project, and
+    stamped with how this request authenticated (every auth path names it in the
+    audit context) — an unnamed one counts as not a web session."""
+    via = audit.actor().get("via") or "unknown"
+    return create_kernel_token(user.id, user.username, user.role, project_uid, via=via)
 
 
 async def _run_in_kernel(
@@ -614,7 +617,7 @@ async def _terminal_pty_loop(
         shell = await pty_kernel.manager.create(
             project_uid, session_id, user.id, _kernel_token(user, project_uid)
         )
-    except pty_kernel.SessionLimitReached as e:
+    except (pty_kernel.SessionLimitReached, pty_kernel.TerminalUnsupported) as e:
         await websocket.send_json({"type": "error", "message": str(e)})
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return

@@ -27,15 +27,17 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.api
     ports:
-      - "8000:8000"
+      # Loopback only: the web container reaches the API over the compose
+      # network; publishing it on every interface would bypass nginx.
+      - "127.0.0.1:8000:8000"
     environment:
-      - LINKR_DATABASE_URL=sqlite+aiosqlite:////root/.linkr/linkr.db
-      - LINKR_DATA_DIR=/root/.linkr
+      - LINKR_DATABASE_URL=sqlite+aiosqlite:////var/lib/linkr/linkr.db
+      - LINKR_DATA_DIR=/var/lib/linkr
       - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?set LINKR_SECRET_KEY before up}
       - LINKR_CORS_ORIGINS=http://localhost:3000
       - LINKR_DEBUG=false
     volumes:
-      - linkr-data:/root/.linkr
+      - linkr-data:/var/lib/linkr
 
   # MCP server: lets agents (LibreChat, OpenCode…) act on this instance, each with
   # their own Linkr API key (User settings → API keys). Point the client at

@@ -61,6 +61,16 @@ def _isolate_data_dir(tmp_path, monkeypatch):
     audit.reset()
 
 
+@pytest.fixture(autouse=True)
+def _local_git_remotes(monkeypatch):
+    """The git tests use bare repos on disk as remotes, which the app refuses
+    (a local remote would clone the server's own disk). Tests of that refusal
+    set the flag back."""
+    from app.services import git_service
+
+    monkeypatch.setattr(git_service, "_LOCAL_REMOTES_ALLOWED", True)
+
+
 @pytest_asyncio.fixture(autouse=True)
 async def _shutdown_kernels():
     """Kill any persistent execution kernels a test started (they're a module-level

@@ -4,6 +4,16 @@
 # schema is already current.
 set -e
 
+# Started as root: hand the data dir to the unprivileged user, then re-exec this
+# script as that user. Never serve as root — a kernel is code its user wrote.
+if [ "$(id -u)" = "0" ]; then
+  data_dir="${LINKR_DATA_DIR:-/var/lib/linkr}"
+  mkdir -p "$data_dir"
+  # Only when needed: a recursive chown of a large volume on every start is slow.
+  [ "$(stat -c %U "$data_dir")" = linkr ] || chown -R linkr:linkr "$data_dir"
+  exec setpriv --reuid=linkr --regid=linkr --init-groups env HOME=/home/linkr "$0" "$@"
+fi
+
 # Seed the runtime data volume's DuckDB extension dir from the image-baked
 # bundle, so first use (native .xlsx read, external DB connectors) works fully
 # offline. db_connect sets extension_directory to $LINKR_DATA_DIR/_duckdb_ext.

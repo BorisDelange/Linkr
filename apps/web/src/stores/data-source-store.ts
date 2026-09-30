@@ -578,7 +578,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       let updated: Partial<DataSource>
       try {
         if (isExternalEngine) {
-          const result = await testConnectionOnServer(connectionConfig)
+          const result = await testConnectionOnServer(connectionConfig, newSource.workspaceId)
           if (!result.ok) throw new Error(result.error ?? 'Connection failed')
         }
         // Only the (free) table count from the schema — no COUNT(*) on connect,

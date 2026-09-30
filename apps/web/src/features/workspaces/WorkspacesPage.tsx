@@ -233,7 +233,7 @@ export function WorkspacesPage() {
       // Server-side clone only: the backend clones the repo; load its ZIP bytes
       // into JSZip so applyClonedEntity reads it as before.
       const JSZip = (await import('jszip')).default
-      const cloned = await gitCloneToZip(e.url, e.branch, opts.token ?? cloneToken ?? undefined)
+      const cloned = await gitCloneToZip(e.url, e.branch, opts.token ?? cloneToken ?? undefined, opts.workspaceId)
       const zip = await JSZip.loadAsync(cloned.blob)
       // Keep the git link on the restored entity (the repo's project.json strips it).
       // Only url+branch are stored — the token is persisted separately, encrypted.
