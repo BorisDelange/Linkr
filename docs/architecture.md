@@ -90,6 +90,8 @@ settings
 
 ## Dual Deployment
 
+Where each mode fits in a clinical data warehouse (server mode = the per-project SPE deployment; client-only = demos and open/synthetic data only): `docs/deployment-context.md`.
+
 Via `queryDataSource(dataSourceId, sql)` abstraction:
 - **Local mode**: DuckDB-WASM + Pyodide + webR + IndexedDB (static site, no backend)
 - **Server mode**: FastAPI + PostgreSQL
@@ -646,6 +648,8 @@ DuckDB; months past `LINKR_AUDIT_RETENTION_DAYS` (365) are deleted.
   `GET /auth/my-activity`. UI: Settings → Access log, on `DataTable`'s server mode.
 
 ## Permissions Model (as-built)
+
+Known holes and the planned aggregate-only split: `docs/planning/security-compliance-plan.md`.
 
 - **Three tiers** — Global / Workspace / Project — over a resources × actions catalogue (`apps/api/app/core/permissions.py`): most resources carry `read/write/delete`. `execute` is split by risk: `ide:execute` = run **arbitrary** code (the RCE-sensitive one), while `patient-data`/`datasets`/`dashboards` carry a **view-time** `execute` (running a widget/analysis, not free-form code). Global resources: `workspaces` (= create), `users`, `roles`, `organizations`, `app-database`, plus cross-cutting `all-workspaces` / `all-projects`; `reports` is reserved (stub page) so roles can pre-grant.
 - **Resolution**: global admin > project override (`project_members` — may broaden, restrict, or set `none` = project hidden) > inherited workspace role. Roles are permission bundles (viewer < editor < owner, plus custom roles).

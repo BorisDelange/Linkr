@@ -9,6 +9,7 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 - Fuzzy search rules → `docs/fuzzy-search.md`
 - Available shadcn/ui components (upstream catalogue) → `docs/shadcn-components.md`
 - Long-term vision → `docs/vision-roadmap.md`
+- **Deployment context (read before any security/compliance work)** → `docs/deployment-context.md` — Linkr runs inside a per-project SPE of a clinical data warehouse; what the SPE covers and what Linkr must still guarantee
 - **Ongoing work-in-progress plans** → start at `docs/planning/README.md` (remaining items only, plus the manual-test list) before starting related work; the as-built lives in `docs/architecture.md`, the rationale of finished efforts the code still cites in `docs/design/`.
 
 ## Related repos
