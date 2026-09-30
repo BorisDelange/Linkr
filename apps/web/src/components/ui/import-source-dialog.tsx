@@ -17,6 +17,7 @@ import { cleanGitUrl } from '@/lib/git-clone'
 import { gitCloneToZip, GitRemoteError } from '@/lib/api/git'
 import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-client'
 import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
+import { IncompatibleAppVersionError, WrongEntityTypeError } from '@/lib/app-version-compat'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
 import { ImportCatalogTab } from '@/components/ui/import-catalog-tab'
@@ -142,7 +143,11 @@ export function ImportSourceDialog({
   }
 
   const failImport = (err: unknown) => {
-    console.error('[import] import failed:', err)
+    // A refusal is an answer, not a fault: its dialog already says everything. Only
+    // an unexpected failure is worth its stack in the console.
+    if (!(err instanceof IncompatibleAppVersionError || err instanceof WrongEntityTypeError)) {
+      console.error('[import] import failed:', err)
+    }
     onOpenChange(false)
     setImportFailure(formatApiError(err))
   }
