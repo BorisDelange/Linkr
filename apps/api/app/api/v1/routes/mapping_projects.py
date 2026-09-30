@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.schemas.base import CamelModel
 
 from app.core.database import get_db
@@ -891,6 +892,8 @@ async def get_raw_file(
     if not project.raw_file_sha or not blob_store.exists(project.raw_file_sha):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No source file")
     data = await blob_store.read_bytes(project.raw_file_sha)
+    audit.bind(action="download", workspace_id=project.workspace_id,
+               detail=f"mapping project {project.id} source file ({len(data)} bytes)")
     return Response(
         content=data,
         media_type="application/octet-stream",
@@ -919,6 +922,8 @@ async def export_zip(
     zip_bytes = await assemble_mapping_project_zip(
         db, project, scores_format, [] if no_scores else score_methods
     )
+    audit.bind(action="export", workspace_id=project.workspace_id,
+               detail=f"mapping project {project.id} export ({len(zip_bytes)} bytes)")
     slug = _localized(project.name, "en") or project.id
     return Response(
         content=zip_bytes,

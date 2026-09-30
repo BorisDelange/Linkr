@@ -140,6 +140,13 @@ that kernel's web token. That is the 🤔 in *Per-user database credentials*.
 
 ### B1. Access log gaps — SEC-JOU-1
 
+**Fixed:** actions bound — `login` (by username) and `login_failed` (the attempted
+username in `detail`); `download` (dataset `/raw`, DB file blob, mapping-project source
+file) with the file and its size; `export` (project, workspace, mapping-project ZIPs,
+settings) with the size; `preview` (dataset `rows/query` with `row_count`, `distinct`).
+Tested per action (`test_audit.py`). A browser that pulled a blob then queries it
+locally: the blob download is logged, the queries cannot be — the fix is C1.
+
 - `_worth_logging` (`core/audit.py:166-171`) keeps a line only when an action was bound,
   the request was refused, or the request is a mutating one with a known actor.
 - Missing:

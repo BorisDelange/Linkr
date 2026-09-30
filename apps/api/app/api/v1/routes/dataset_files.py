@@ -10,6 +10,7 @@ import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission
@@ -129,6 +130,8 @@ async def query_rows(
         res["parquet"], col_types, offset=body.offset, limit=body.limit,
         sort=sort, filters=filters, na=na, columns=native_columns,
     )
+    audit.bind(action="preview", project_uid=project_uid, row_count=len(rows),
+               detail=f"datasets/{path} rows {body.offset}+{len(rows)}")
     return DatasetRowsPage(rows=rows, total=total)
 
 
@@ -166,6 +169,7 @@ async def column_distinct(
     if col is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Column not found")
     native_columns = res["columns"] if res.get("native") else None
+    audit.bind(action="preview", project_uid=project_uid, detail=f"datasets/{path} distinct {col_id}")
     return dataset_rows.distinct_values(res["parquet"], col_id, limit=limit, search=search, columns=native_columns)
 
 
@@ -187,6 +191,8 @@ async def get_raw(
     if not p.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     name = path.rsplit("/", 1)[-1]
+    audit.bind(action="download", project_uid=project_uid,
+               detail=f"datasets/{path} ({p.stat().st_size} bytes)")
     return FileResponse(p, filename=name, headers={"x-file-name": name})
 
 

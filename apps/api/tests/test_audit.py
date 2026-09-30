@@ -4,6 +4,8 @@ through DuckDB — and written by the middleware without any route asking."""
 import json
 from datetime import date, timedelta
 
+import pytest
+
 from app.config import settings
 from app.core import audit
 from app.core.security import hash_password
@@ -267,3 +269,60 @@ async def test_routes_page_filter_and_export(client):
     r = await client.get(f"{API}/audit-log/export", headers=headers, params={"filters": _json.dumps({"what": ["query"]})})
     assert r.status_code == 200 and r.headers["content-type"].startswith("text/csv")
     assert len(r.text.strip().splitlines()) == 3
+
+
+# --- What reaches the log (security plan B1) ----------------------------------
+
+
+@pytest.mark.parametrize("ctx, logged", [
+    ({"method": "GET", "status": 200}, False),                        # UI polling
+    ({"method": "GET", "status": 200, "action": "download"}, True),   # a file left
+    ({"method": "POST", "status": 200, "action": "preview"}, True),   # rows were read
+    ({"method": "GET", "status": 200, "action": "export"}, True),
+    ({"method": "POST", "status": 200, "action": "login"}, True),
+    ({"method": "POST", "status": 401, "action": "login_failed"}, True),
+    ({"method": "POST", "status": 401}, True),                         # refused
+    ({"method": "POST", "status": 200, "user_id": 1}, True),           # a change
+    ({"method": "POST", "status": 200}, False),                        # anonymous POST
+])
+def test_worth_logging(ctx, logged):
+    assert audit._worth_logging(ctx) is logged
+
+
+def _lines(action: str) -> list[dict]:
+    return audit.query(filters={"action": [action]})[0]
+
+
+async def test_login_is_logged_by_username_success_and_failure(client):
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/auth/login", json={"username": "admin", "password": "wrong"})
+    await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    failed, ok = _lines("login_failed"), _lines("login")
+    assert [r["detail"] for r in failed] == ["admin"] and failed[0]["status"] == 401
+    assert [r["username"] for r in ok] == ["admin"] and ok[0]["status"] == 200
+
+
+async def test_downloads_exports_and_previews_are_logged(client):
+    from app.services import project_fs
+
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})).json()["access_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    ws = (await client.post(f"{API}/workspaces", headers=h, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=h, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    csv_path = project_fs.dataset_path(uid, "d.csv")
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+    csv_path.write_text("a,b\n1,x\n2,y\n")
+
+    assert (await client.get(f"{API}/dataset-files/raw", headers=h, params={"projectUid": uid, "path": "d.csv"})).status_code == 200
+    assert (await client.post(f"{API}/dataset-files/rows/query", headers=h, params={"projectUid": uid, "path": "d.csv"},
+                              json={"offset": 0, "limit": 10})).status_code == 200
+    assert (await client.get(f"{API}/projects/{uid}/export-zip", headers=h)).status_code == 200
+    assert (await client.post(f"{API}/workspaces/{ws}/export-zip", headers=h, json={})).status_code == 200
+
+    download = _lines("download")
+    assert download[0]["project_uid"] == uid and "datasets/d.csv" in download[0]["detail"]
+    preview = _lines("preview")
+    assert preview[0]["row_count"] == 2 and preview[0]["username"] == "admin"
+    exports = {(r["project_uid"], r["workspace_id"]) for r in _lines("export")}
+    assert (uid, ws) in exports and (None, ws) in exports

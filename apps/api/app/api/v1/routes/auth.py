@@ -5,6 +5,7 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.auth_providers import get_auth_provider
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_session_user
@@ -46,6 +47,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await get_auth_provider().authenticate(
         request.username, request.password, db
     )
+    if user is None or not user.is_active:
+        audit.bind(action="login_failed", detail=request.username)
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -59,6 +62,8 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
 
     user.last_login = datetime.now(timezone.utc)
     await db.commit()
+    audit.set_actor(user.id, user.username, "web")
+    audit.bind(action="login")
     return _issue_tokens(user)
 
 

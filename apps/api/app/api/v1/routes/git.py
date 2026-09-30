@@ -23,6 +23,7 @@ import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user
 from app.core.permissions import (
@@ -1533,6 +1534,7 @@ async def settings_export_zip(
     from fastapi.responses import Response
 
     data = await assemble_settings_zip(db, SettingsSelection())
+    audit.bind(action="export", detail=f"settings export ({len(data)} bytes)")
     return Response(
         content=data,
         media_type="application/zip",

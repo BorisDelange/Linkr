@@ -200,6 +200,8 @@ async def get_data_source_file_blob(
     if not blob_store.exists(file.content_hash):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Blob missing")
     data = await blob_store.read_bytes(file.content_hash)
+    audit.bind(action="download", data_source_id=file.data_source_id,
+               detail=f"{file.file_name} ({len(data)} bytes)")
     return Response(
         content=data,
         media_type="application/octet-stream",

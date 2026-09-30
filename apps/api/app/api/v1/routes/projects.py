@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission, require_project_permission
@@ -67,6 +68,8 @@ async def export_zip(
     from app.services.project_export_assemble import assemble_project_zip
 
     zip_bytes = await assemble_project_zip(db, project)
+    audit.bind(action="export", project_uid=project.uid, workspace_id=project.workspace_id,
+               detail=f"project export ({len(zip_bytes)} bytes)")
     name = project.name.get("en") if isinstance(project.name, dict) else project.name
     slug = _slugify(name or project.uid)
     return Response(

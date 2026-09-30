@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import require_global_permission, require_permission
@@ -90,6 +91,8 @@ async def export_zip(
         exclude_entities=opts.exclude_entities,
     )
     zip_bytes = await assemble_workspace_zip(db, workspace, options)
+    audit.bind(action="export", workspace_id=workspace.id,
+               detail=f"workspace export ({len(zip_bytes)} bytes)")
     name = workspace.name.get("en") if isinstance(workspace.name, dict) else workspace.name
     slug = _slugify(name or workspace.id)
     return Response(
