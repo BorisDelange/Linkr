@@ -13,7 +13,7 @@ export const apiSchemaPresetStorage: SchemaPresetStorage = {
 
   // Resolves an `id` or a `presetId`: the row is keyed on `id` on both sides
   // now, but a URL, an export tree or a catalog entry may still hold the
-  // retired `presetId` — see docs/planning/schema-preset-identity-plan.md.
+  // retired `presetId` — see docs/design/schema-preset-identity-plan.md.
   getById: async (id) => {
     const all = await apiRequest<CustomSchemaPreset[]>('/schema-presets')
     return all.find((p) => p.id === id) ?? all.find((p) => p.presetId === id)

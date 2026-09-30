@@ -5,7 +5,7 @@ import type { CustomSchemaPreset, DataSource } from '@/types'
  *
  * `id ?? presetId`, the same key SchemaPresetsPage uses — `presetId` stopped
  * being the key when presets gained a separate identity (see
- * docs/planning/schema-preset-identity-plan.md). The option value and the lookup
+ * docs/design/schema-preset-identity-plan.md). The option value and the lookup
  * that reads it back must agree, or a preset installed from the catalog (where
  * id, entityId and presetId all differ) selects but resolves to no mapping.
  */

@@ -122,7 +122,7 @@ export function buildSchemaPreset(
     // `id` is the uuid that will become the key; `entityId` the readable slug
     // the UI and the URL will show. Both are written from now on so the
     // migration that switches the key has populated values to move to.
-    // See docs/planning/schema-preset-identity-plan.md.
+    // See docs/design/schema-preset-identity-plan.md.
     id: existing?.id ?? crypto.randomUUID(),
     entityId: existing?.entityId ?? presetId,
     mapping: { ...mapping, presetId },

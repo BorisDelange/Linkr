@@ -1,7 +1,7 @@
 /**
  * Class contracts: the columns every class relation exposes, whatever the source
  * looks like. A consumer queries `linkr_visit.start_datetime`, never the mapping
- * fields behind it — see docs/planning/schema-classes-plan.md §5.
+ * fields behind it — see docs/design/schema-classes-plan.md §5.
  *
  * An optional column that the mapping cannot fill is still emitted, as NULL, so a
  * query referencing it always binds; `ClassRelation.mapped` says which ones carry

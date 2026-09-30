@@ -93,9 +93,11 @@ every feature of the workspace. Mapping projects stop owning them.
   repo to import).
 - Removing a set from a project **detaches** it; deleting from the workspace
   happens only in the dictionary settings, and warns about the projects using it.
-- Workspace export: a repo dictionary exports as a pointer (repo + commit), a
-  local one with its content; vocabularies are not exported (too big — the
+- Workspace export: **a dictionary is never embedded** in the workspace repo
+  (decided 2026-09-30). It exports as a pointer (repo URL + ref/commit + name) so an
+  import re-downloads it; vocabularies are not exported either (too big — the
   inventory `vocabulary_id` + version is, so an import can say what is missing).
+  Open: what a dictionary with no repo (local import) becomes.
 
 ## Phases
 
@@ -105,7 +107,7 @@ every feature of the workspace. Mapping projects stop owning them.
 | 2 | Vocabulary library: model + storage + import with per-vocabulary version preview + Settings tab; switch consumers (mapping editor, ConceptSetsTab browse, concept detail, ETL `vocab.`, MCP); migrate existing vocabulary DBs | L |
 | 3 | Data dictionaries: model (+ units tables), repo import/update with preview, Settings tab; Concepts page + mapping project + MCP read from it | L |
 | 4 | Local resolution against the library + SQL generation port (goldens) | M |
-| 5 | `docs/architecture.md`, linkr-website docs (concept mapping, workspace settings) | S |
+| 5 | `docs/architecture.md` (user docs: [website-docs.md](website-docs.md)) | S |
 
 ## Decisions (2026-09-28)
 
@@ -127,5 +129,6 @@ every feature of the workspace. Mapping projects stop owning them.
   library's views read each vocabulary from its owner. Server-side it is rewritten.
 - The library's metadata lives on its data source (`connectionConfig.vocabularies`),
   not in a table of its own.
-- Not done yet: workspace export of dictionaries / vocabulary inventory, the pull of
-  `conceptSets` refs, website docs (see the planning README).
+- Not done yet: the workspace export still embeds every concept set in full
+  (`concept-sets/*.json`) instead of a dictionary pointer; no vocabulary inventory;
+  the pull of `conceptSets` refs (see the planning README).

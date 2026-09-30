@@ -298,6 +298,6 @@ permissions, as today.
 | 🔜 | 11. `client_recipe` refused for API-key sessions; IDE connections split settings / login | S |
 | 🔜 | 12. Per-workspace browse roots; `serverPath` registration behind `databases:manage` | M |
 | ✅ | 13a. MCP relays the 428; tests; `docs/architecture.md` | S |
-| 🔜 | 13b. User docs on linkr-website (databases page, new settings tabs, threat model §11) | S |
+| → | 13b. User docs: tracked in [website-docs.md](website-docs.md) | — |
 | 💤 | Server-side query proxy for kernels (no password in the kernel) | M |
 | 💤 | Per-user OS identity for file access (spawner) | L |

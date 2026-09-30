@@ -47,7 +47,7 @@ export interface RelationJoin extends RelationTable {
  * How one class relation is read from the source: the visual form (`from`,
  * `joins`, `where`, `fields`), or SQL (`customSql`) — the Cohort "Modified"
  * pattern. Effective SQL = `customSql ?? generate(visual form)`.
- * See docs/planning/schema-classes-plan.md §3-4.
+ * See docs/design/schema-classes-plan.md §3-4.
  */
 export interface RelationSpec {
   /** The grain table: one row of the class per row of this table. */
@@ -171,7 +171,7 @@ export interface CustomSchemaPreset extends Authored, Lineaged {
    * RETIRED identity, kept only so rows and trees written before the split stay
    * readable — it played the roles `id` and `entityId` now hold separately.
    * Nothing should read it as an identity: `id` is the key, `entityId` the slug.
-   * See docs/planning/schema-preset-identity-plan.md.
+   * See docs/design/schema-preset-identity-plan.md.
    */
   presetId?: string
   workspaceId?: string

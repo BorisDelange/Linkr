@@ -77,7 +77,7 @@ export const paths = {
   // Shortened like every other uuid-keyed entity. It used to carry the raw
   // presetId because that field was at once the key and the readable slug; the
   // slug now lives in `entityId` and the key is a uuid, so the exception went
-  // with it (docs/planning/schema-preset-identity-plan.md).
+  // with it (docs/design/schema-preset-identity-plan.md).
   warehouseSchema: (wsUid: string, id: string) =>
     `${ws(wsUid)}/warehouse/schemas/${shortenId(id)}`,
   warehouseDatabases: (wsUid: string) => `${ws(wsUid)}/warehouse/databases`,

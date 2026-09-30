@@ -3,7 +3,7 @@
 The `linkr` MCP server: it drives a **running Linkr instance** through its REST API,
 as one user. Agents run in an external client — LibreChat beside Linkr, Claude Code.
 
-Plan: [`docs/planning/ai-agents-plan.md`](../../docs/planning/ai-agents-plan.md) §4.
+Plan: [`docs/design/ai-agents-plan.md`](../../docs/design/ai-agents-plan.md) §4.
 
 ## What it does
 
@@ -48,7 +48,7 @@ wants (Claude Code: the repo's `.mcp.json` sets it).
 
 **Out of reach by design**: permissions, roles, members and users; deleting a project or
 a workspace; git commit / push; secrets (database passwords and logins, connection
-details, API keys, git host tokens) — see `docs/planning/ai-agents-plan.md` §6.
+details, API keys, git host tokens) — see `docs/design/ai-agents-plan.md` §6.
 
 ### `context` — always direct
 

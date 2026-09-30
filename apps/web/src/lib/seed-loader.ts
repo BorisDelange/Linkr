@@ -910,7 +910,7 @@ async function loadWorkspaceInternals(
     const mapping = reassemblePresetMapping(sp, mappingFile ?? sp.mapping)
     // A seed file predates id/entityId, so fill them in rather than storing a
     // row the rest of the app expects to carry them (see
-    // docs/planning/schema-preset-identity-plan.md).
+    // docs/design/schema-preset-identity-plan.md).
     //
     // NOT a fresh uuid: `save` is an upsert keyed on this, so minting one for an
     // export (which carries no id) inserted a second copy of every preset on

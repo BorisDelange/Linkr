@@ -1,6 +1,6 @@
 # SPC / control-chart plugin — theory, chart choice, and design
 
-Status: **built, not yet exercised in the running app.** §6 was arbitrated (one plugin,
+Status: **built.** §6 was arbitrated (one plugin,
 auto-detect with an explicit override, all-data baseline by default, risk adjustment via
 an optional expected column, both compute paths). What ships:
 
@@ -9,67 +9,20 @@ an optional expected column, both compute paths). What ships:
 - `apps/api/…/render/spc.py` + the `spc` kind, 125 pytest tests **that run the emitted
   program and assert on the numbers it prints**, against the same references as the TS
 
-Verified against the real NeoCLIP dataset: the plugin reproduces an independent pandas
-computation exactly (centre 0.06667 over 47 periods, limits to 1e-9), and steers a
-low-volume unit off a monthly proportion onto the g-chart — which reads it as the stable
-process it is (12 intervals, no signal) where the p-chart flagged all 47 periods.
-
-**What remains: running it in the app** (no plugin has a validator — loading it and using
-it is the only check that exists), then migrating the NeoCLIP widgets. Kept below: the
-reading path, the chart-selection tree and the formulas, which are the reference for
-reviewing what was built.
-
-> Prior art in this repo: two projects already do SPC by hand —
-> `@Linkr private portal RiCDC/projects/micu-clip` (`_sources/spc_ewma_pavm.R`,
-> `_sources/spc_gchart.R`) and `.../neoclip` (the EWMA script, inline in **20 widgets**).
-> `micu-clip/INDICATEURS_CANDIDATS.md` already carries a "which chart for which
-> indicator" doctrine. This plan generalises all of it.
+Kept below: the reading path, the chart-selection tree and the formulas, which are the
+reference for reviewing what was built.
 
 ---
 
-## 1. Why a plugin (the evidence)
+## 1. Why a plugin
 
-The NeoCLIP dashboard (75 widgets) carries **two** generic SPC scripts, copy-pasted inline
-into **39 widgets**, ~25 000 characters each — roughly **1 MB of duplicated statistics in one
-dashboard document**:
-
-| Family | Widgets | Script |
-|---|---|---|
-| **EWMA** | **20** | "Widget EWMA — toutes variables (numérique ou catégorielle) + règle de couleur" |
-| **Shewhart u-chart** | **19** | "Widget Shewhart u-chart — Taux d'evts par periode (Poisson)" |
-
-Diffing two EWMA widgets (gestational age vs. deaths) gives **3 differing lines out of ~700**:
-
-```
--y_var       <- "ga_weeks"          +y_var       <- "death_status"
--x_var       <- "birthdatetime"     +x_var       <- "discharge_datetime"
--chart_title <- "…âges gestationnels…"  +chart_title <- "…décès…"
-```
-
-Four consequences, all already real:
-
-- **Drift, and it has already happened.** Widget 37 alone received a `str_wrap()` fix for
-  overflowing titles (and a `stringr` dependency the other 19 lack). Widget 27 (CLABSI) is a
-  genuine **fork** of the u-chart script: it adds a fourth denominator mode, `device_days`
-  (device-days by overlap, the CLABSI/VAP standard, with four extra parameters) — and pays for
-  it by dropping most of the explanatory comments. **The best version of the u-chart lives in
-  exactly one widget, and the other 18 will never receive it.**
-- **No review surface.** The control limits are the clinical claim — "this month is out of
-  control" — and they live in 39 unreviewed string blobs rather than in tested code.
-- **Most of the configuration is dead weight.** Across the 20 EWMA widgets, **14 of the 24
-  parameters never vary** (`lambda` 0.2, `L` 1.96, `run_len` 6, `rate_basis` 1000, `agg_fn`
-  "median", …). Only 9 parameters plus the title actually differ. That is precisely a
-  `configSchema` with sensible defaults.
-- **R-only.** The scripts need `dplyr`/`lubridate`/`ggplot2` in a project R environment.
-  A Python project, or a client-only (WASM) deployment, gets nothing.
-
-A component plugin fixes all four at once, and matches where the other nine analysis
-plugins already are: `runtime: ["component"]`, TypeScript compute, Python parity server-side.
-
-**The u-chart script already covers five chart types** — `p`, `np`, `c`, `u`, and **`t`**
-(Nelson's 1994 time-between-events chart, via the `Y = T^(1/3.6)` transform) — but all 19
-widgets use `u`. So p/np/c/t are written, tested by nobody, and reachable only by editing a
-string. The plugin turns them into a dropdown.
+Before it, SPC in Linkr meant a generic R script pasted inline into every widget that
+needed a chart. Copies drift (a fix lands in one widget and never reaches the others), the
+control limits — the clinical claim that "this month is out of control" — live in
+unreviewed string blobs instead of tested code, most of the script's parameters never vary,
+and it needs an R environment, so Python projects and client-only deployments get nothing.
+A component plugin fixes all four: `runtime: ["component"]`, TypeScript compute, Python
+parity server-side, a `configSchema` with sensible defaults.
 
 ---
 
@@ -234,8 +187,7 @@ Notes that decide real cases:
 
 - **Rare events are the trap.** A "VAP rate per 1000 days" computed on 2 events/month is
   noise plotted with authority. Below ~5 events per period, move to a g/t chart: it follows
-  the *interval between* events, and the line going **up** means improvement. This is exactly
-  why `micu-clip` uses a g-chart for CLABSI and unplanned extubations.
+  the *interval between* events, and the line going **up** means improvement.
 - **EWMA vs CUSUM vs Shewhart.** Shewhart is best at big abrupt shifts (>2σ) and is the most
   readable. EWMA and CUSUM detect small sustained shifts (0.5–1σ) far sooner, at the cost of
   a line that no longer shows the raw data. EWMA with λ=0.2 is the practical default and what
@@ -270,8 +222,7 @@ reference. `ȳ` = centre line, `n_t` = denominator of period *t*, `L` = limit wi
 
 The **t-chart** (Nelson 1994) is the continuous sibling of the g-chart: it charts the *time*
 between rare events rather than the count between them, normalising via `Y = T^(1/3.6)` and
-back-transforming the limits. **The NeoCLIP u-chart script already implements it** (along with
-`p`, `np` and `c`) — none of the 19 widgets use it, because reaching it means editing a string.
+back-transforming the limits. 
 
 **Laney's `σ_z`** — the whole point of P′/U′. Compute `z_t = (p_t - p̄)/σ_t` (the ordinary
 binomial/Poisson sigma), then `σ_z = MR̄(z)/1.128`, the moving-range SD of that z series. If
@@ -317,10 +268,8 @@ should carry over. Ranked by subtlety:
    denominator for CLABSI and VAP, where the population at risk is "patients with a line
    in place", not "patients present".
 
-**Mode 4 exists in exactly one widget.** It was added in the CLABSI fork (widget 27) with four
-extra parameters (`device_start_var`, `device_end_var`, `device_id_prefix`, `device_filters`),
-and the other 18 u-chart widgets never received it. It is the single strongest argument for the
-plugin: a correct denominator, written once, that is currently stranded in one string blob.
+**Mode 4** takes four extra parameters (`device_start_var`, `device_end_var`,
+`device_id_prefix`, `device_filters`).
 
 One operational note the script itself carries and the plugin must honour: with an overlap
 denominator, **the dataset must not be pre-filtered to the event rows** — the numerator is
@@ -348,20 +297,12 @@ everything except CUSUM.
 numeric and switches model accordingly. I would rather make the **statistic type explicit**
 (proportion / rate / measurement / rare event) and let it *suggest* the chart type.
 
-**This is no longer a preference — the auto-detection is actively misfiring in production.**
-The script branches on `is_numeric` **first**, and only consults `denominator` when the column
-is categorical. So in the NeoCLIP dashboard, **18 of the 20 EWMA widgets set a `denominator`
-that is silently ignored**: widgets 61-63 and 67-70 declare
-`denominator = "patient_days_overlap"` alongside a numeric `y_var = "vent_duration_days"`, and
-get an x-bar chart on the median ventilation duration instead of the events-per-patient-day
-rate their title promises. Only widgets 37 and 38 (`growth_anomaly_birth`, `death_status`)
-actually exercise the proportion branch. A user set an option, the chart rendered, nothing
-warned, and the statistic is not the one asked for.
+A script that branches on "is the column numeric?" first and only then reads its
+`denominator` option silently ignores that option on a numeric column: the user asks for an
+events-per-patient-day rate and gets an x-bar chart of a duration, with no warning.
 
 That is the argument for making the statistic type the **first, explicit** field, and for the
 plugin to refuse (or warn on) an incoherent combination rather than silently picking a branch.
-Tell me if you would rather keep the auto-detection for continuity — but note that migrating
-those 18 widgets will change their numbers, which is a conversation to have with their readers.
 
 **(c) Phase I / Phase II defaults.** The scripts default to `calibration_until = "auto"` with
 12 months. Options: keep that, default to using all data (no freeze, simplest, less correct),
@@ -517,6 +458,3 @@ server mode, then `const result = server ? serverResult : localResult`. Both hal
 the same result shape. Results are cached per `(kind, project, dataset, filters, spec)`;
 the shell's Run button clears that cache and forces a remount.
 
-Then migrate: the NeoCLIP dashboard's 20 inline widgets become 20 plugin widgets with a config
-each, and `micu-clip`'s two `_sources` scripts get deleted in favour of the plugin. That
-migration is the real acceptance test.

@@ -11,7 +11,7 @@ class SchemaPreset(Base, TimestampMixin):
     # from preset_id in revision e6f7a8b9c0d1; the mapping has to agree with the
     # database or `db.get()` queries the wrong column and every lookup by id 404s.
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    # RETIRED identity — see docs/planning/schema-preset-identity-plan.md. It played
+    # RETIRED identity — see docs/design/schema-preset-identity-plan.md. It played
     # three roles at once (local PK, user-facing slug, cross-instance identity)
     # where every other entity splits them into id + entity_id + lineage_id. Kept
     # so rows and export trees written before the split stay readable.

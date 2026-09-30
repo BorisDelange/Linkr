@@ -270,7 +270,7 @@ A third-party client holds a long-lived credential in its own config:
 mcpServers:
   linkr:
     type: streamable-http
-    url: https://linkr.chu-xxx.fr/mcp
+    url: https://linkr.example.org/mcp
     headers:
       Authorization: "Bearer ${LINKR_TOKEN}"
 ```

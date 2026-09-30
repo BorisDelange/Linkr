@@ -948,7 +948,7 @@ function getDB(): Promise<IDBPDatabase<LinkrDB>> {
       //
       // `presetId` used to be the key, the user-facing slug AND the
       // cross-instance identity all at once — see
-      // docs/planning/schema-preset-identity-plan.md. A keyPath cannot be
+      // docs/design/schema-preset-identity-plan.md. A keyPath cannot be
       // altered in place, so the store is recreated and its rows copied over,
       // the way v6 moved omop_stats_cache → database_stats_cache.
       //

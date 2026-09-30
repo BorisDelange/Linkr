@@ -502,7 +502,7 @@ export function serializeEntity<K extends SerializableEntityKind>(
             // field for this kind precisely because a repo's local primary key
             // must not become the installing instance's. `presetId` is the
             // retired identity — read on import, never written. See
-            // docs/planning/schema-preset-identity-plan.md.
+            // docs/design/schema-preset-identity-plan.md.
             entityId: s.presetId,
             type: 'schema-preset' as const,
             name: localized(s.presetLabel),

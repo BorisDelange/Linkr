@@ -1062,7 +1062,7 @@ export function SchemaPresetsPage() {
   // The row's id is the entity key. It used to be `presetId`, which broke every
   // action on a preset installed from the catalog: those carry a uuid `id` and a
   // slug `presetId`, so delete, navigate and the actions menu addressed a value
-  // that is no longer the key. See docs/planning/schema-preset-identity-plan.md.
+  // that is no longer the key. See docs/design/schema-preset-identity-plan.md.
   const allSchemas = useMemo(() => {
     return customPresets.map(cp => ({ id: cp.id ?? cp.presetId, mapping: cp.mapping, preset: cp }))
   }, [customPresets])

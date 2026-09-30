@@ -1,7 +1,7 @@
 """schema presets: the primary key becomes `id`
 
 The last step of the identity harmonisation (see
-docs/planning/schema-preset-identity-plan.md). `preset_id` stops being the key
+docs/design/schema-preset-identity-plan.md). `preset_id` stops being the key
 and becomes an ordinary column; `id` — the uuid every other entity keys on —
 takes over, and `entity_id` holds the readable slug.
 

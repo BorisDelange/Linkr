@@ -1140,7 +1140,7 @@ export interface DatasetFile extends Seedable, Authored {
   parseOptions?: DatasetParseOptions
   /** Ordered edit log replayed over the parsed raw file — the only way a dataset
    *  is ever mutated, since the raw itself is immutable. See @linkr/format's
-   *  dataset-ops and docs/planning/dataset-edit-plan.md. */
+   *  dataset-ops and docs/design/dataset-edit-plan.md. */
   ops?: DatasetOp[]
   createdAt: string
   updatedAt: string

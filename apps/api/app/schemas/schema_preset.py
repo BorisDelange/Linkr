@@ -8,7 +8,7 @@ class SchemaPresetSave(CamelModel):
 
     preset_id: str
     # Local uuid PK and readable slug, taking over from preset_id — see
-    # docs/planning/schema-preset-identity-plan.md. Optional while both shapes
+    # docs/design/schema-preset-identity-plan.md. Optional while both shapes
     # coexist: an older client sends neither.
     id: str | None = None
     entity_id: str | None = None
