@@ -180,7 +180,6 @@ and the CNIL CDW framework. Section A (A1–A4) is done — as-built in `docs/ar
 | 🔜 | F. SPE deployment checklist (website `administration/`, FR + EN) + stale texts (`ai-agents-plan.md` Fernet, `application_name`) | S |
 | 🤔 | C1. Aggregate-only access: `rows` action on databases/datasets/patient-data/cohorts + default role `aggregates` + route classification — validate the design | M |
 | 🔜 | C2. Dashboard aggregate mode: frozen published snapshot first, then a live server aggregation endpoint with suppression + cell-key noise | L |
-| 🔜 | E. Trusted-header auth provider (identity from the SPE's two-factor proxy) | M |
 | 💤 | A1 follow-up: kernels under their own OS identity, no read access to `data_dir` | L |
 
 ## Permissions

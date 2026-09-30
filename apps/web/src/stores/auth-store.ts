@@ -35,6 +35,8 @@ interface AuthState {
 
   checkSetupStatus: () => Promise<void>
   login: (username: string, password: string) => Promise<boolean>
+  /** Sign in as the user the front proxy names (settings.trusted_header). */
+  trustedLogin: () => Promise<boolean>
   logout: () => void
   validateToken: () => Promise<boolean>
   setTokens: (accessToken: string, refreshToken: string, user: AuthUser) => void
@@ -97,6 +99,9 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         const res = await fetch(`${getApiBaseUrl()}/api/v1/setup/status`)
         if (res.ok) {
           const data = await res.json()
+          // The front proxy already authenticated this person (e.g. an SPE's
+          // two-factor gateway): sign in as the user it names, no form.
+          if (data.trusted_header_login && !get().token) await get().trustedLogin()
           set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false })
         } else if (res.status === 502 || res.status === 503 || res.status === 504) {
           // Gateway errors come from the reverse proxy (nginx), not the backend:
@@ -138,6 +143,19 @@ export const useAuthStore = create<AuthState>()((set, get) => {
         return true
       } catch {
         set({ loginError: 'unreachable' })
+        return false
+      }
+    },
+
+    trustedLogin: async () => {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/api/v1/auth/trusted-login`, { method: 'POST' })
+        if (!res.ok) return false
+        const data = await res.json()
+        get().setTokens(data.access_token, data.refresh_token, data.user)
+        await get().validateToken()
+        return true
+      } catch {
         return false
       }
     },

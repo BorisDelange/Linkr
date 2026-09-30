@@ -56,6 +56,8 @@ class TokenResponse(BaseModel):
 
 class SetupStatusResponse(BaseModel):
     needs_setup: bool
+    # The front proxy authenticates: try /auth/trusted-login before the form.
+    trusted_header_login: bool = False
 
 
 class DbInfoResponse(BaseModel):

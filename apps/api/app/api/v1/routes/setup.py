@@ -3,6 +3,7 @@ from sqlalchemy import func, make_url, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core import trusted_header
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user_optional
 from app.core.security import hash_password
@@ -25,7 +26,7 @@ async def setup_status(db: AsyncSession = Depends(get_db)):
     """Check if initial setup is needed (no users exist)."""
     result = await db.execute(select(func.count(User.id)))
     count = result.scalar_one()
-    return SetupStatusResponse(needs_setup=count == 0)
+    return SetupStatusResponse(needs_setup=count == 0, trusted_header_login=trusted_header.enabled())
 
 
 @router.get("/db-info", response_model=DbInfoResponse)

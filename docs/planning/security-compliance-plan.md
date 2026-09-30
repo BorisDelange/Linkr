@@ -347,6 +347,12 @@ checklist says so:
 - tokens in `localStorage`;
 - no idle timeout in the UI.
 
+**Built:** `LINKR_TRUSTED_HEADER` + `LINKR_TRUSTED_PROXIES` (`core/trusted_header.py`,
+`POST /auth/trusted-login`, tried by the app before the form when `/setup/status` says
+so). The header names an existing active user; it is believed only from a listed peer
+address, and logged as `login` via `trusted_header`. Off by default. The proxy must
+overwrite the header on every request, and be the only way in (checklist, F).
+
 Worth building (M): a **trusted-header auth provider**. The SPE's proxy passes the
 authenticated identity in a header, only accepted from a configured proxy address, and
 Linkr maps it to a user. One login, and the access log then carries the identity the

@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     encryption_key: str | None = None
     encryption_old_keys: str = ""
     auth_provider: str = "local"  # local, ldap, oidc, saml (only local implemented)
+    # Sign-in by a header the front proxy sets (e.g. the SPE's two-factor gateway):
+    # the header NAMES an existing Linkr user, and is believed only on a request
+    # whose peer address is one of trusted_proxies (IPs or CIDRs). Both must be
+    # set; unset = off. The proxy must overwrite the header on every request, and
+    # nothing but it may reach Linkr — otherwise anyone can name any user.
+    trusted_header: str = ""
+    trusted_proxies: str = ""
 
     # CORS — comma-separated string in env; exposed as a list via cors_origin_list.
     cors_origins: str = "http://localhost:3000"

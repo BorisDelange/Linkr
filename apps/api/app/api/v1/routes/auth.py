@@ -1,12 +1,12 @@
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core import audit
+from app.core import audit, trusted_header
 from app.core.auth_providers import get_auth_provider
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_session_user
@@ -67,6 +67,28 @@ async def login(request: LoginRequest, db: AsyncSession = Depends(get_db)):
     user.last_login = datetime.now(timezone.utc)
     await db.commit()
     audit.set_actor(user.id, user.username, "web")
+    audit.bind(action="login")
+    return _issue_tokens(user)
+
+
+@router.post("/trusted-login", response_model=TokenResponse)
+async def trusted_login(request: Request, db: AsyncSession = Depends(get_db)):
+    """Sign in the user the front proxy names in `settings.trusted_header`. The
+    access log then carries the identity the proxy's own (two-factor) sign-in
+    validated."""
+    if not trusted_header.enabled():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    name = trusted_header.username(request.headers, request.client.host if request.client else None)
+    if name is None:
+        audit.bind(action="login_failed", detail="trusted header: not from a trusted proxy, or absent")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "No identity from a trusted proxy")
+    user = await db.scalar(select(User).where(User.username == name))
+    if user is None or not user.is_active:
+        audit.bind(action="login_failed", detail=f"trusted header: {name}")
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Unknown or disabled user")
+    user.last_login = datetime.now(timezone.utc)
+    await db.commit()
+    audit.set_actor(user.id, user.username, "trusted_header")
     audit.bind(action="login")
     return _issue_tokens(user)
 
