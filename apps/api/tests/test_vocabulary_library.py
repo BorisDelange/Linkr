@@ -2,11 +2,14 @@
 version of each held at a time, read back as union views."""
 
 import asyncio
+import errno
+import os
 import tempfile
 from pathlib import Path
 
 import duckdb
 
+from app.config import settings
 from app.services import blob_store
 from app.services import vocabulary_library as lib
 
@@ -91,6 +94,23 @@ def test_reimport_replaces_only_the_chosen_vocabulary():
     assert names == {1: "Heart rate", 2: "Pulse rate", 3: "Vital signs"}
     lib.remove_partitions("ws", "SNOMED")
     assert sorted(n for n, _ in lib.library_files("ws") if n.startswith("concept/")) == ["concept/vocab-LOINC.parquet"]
+
+
+def test_import_never_renames_across_filesystems(monkeypatch):
+    # Deployed, the data dir is a volume and /tmp another filesystem: a rename
+    # between them fails with EXDEV. Here both are under pytest's tmp, so draw
+    # that boundary at the data dir.
+    real_replace = os.replace
+    data = settings.data_path.resolve()
+
+    def replace(src, dst, **kw):
+        if Path(src).resolve().is_relative_to(data) != Path(dst).resolve().is_relative_to(data):
+            raise OSError(errno.EXDEV, "Invalid cross-device link", str(src))
+        return real_replace(src, dst, **kw)
+
+    monkeypatch.setattr(os, "replace", replace)
+    lib.write_partitions("ws", _export(), ["LOINC", "SNOMED"])
+    assert lib.present_tables("ws") == ["concept", "concept_ancestor", "concept_relationship", "domain", "vocabulary"]
 
 
 def test_a_parquet_export_reads_like_a_csv_one():
