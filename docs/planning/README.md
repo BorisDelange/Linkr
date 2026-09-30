@@ -151,15 +151,15 @@ presets are no longer auto-created, and the import dialog has its catalog tab.
 
 ## Data quality standards — [dq-standards-plan.md](dq-standards-plan.md)
 
-OHDSI DQD published as a public DQ rule set (generated from a pinned DQD release),
-and a data catalog emitting its rule sets' latest results as W3C DQV in its
-HealthDCAT-AP export. QUANTUM label: Linkr supplies the evidence, not the questionnaire.
+Thematic public DQ rule sets (DQD-derived: structure, sex plausibility, units; ours:
+lab values, vital signs, ICU), quality profiles (checks picked across rule sets, run
+on a database), stable check ids, run export and catalog publish as W3C DQV.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | Arbitrate the 5 decisions (Kahn context field, vocabulary access, DQV granularity, stale results, QUANTUM column) | S |
-| 🔜 | DQD generator + `dq-rule-sets/omop-cdm-5.4-dqd` public repo | M |
-| 🔜 | DQV emission + catalog `dqRuleSetRefs` + "Data quality" section on the published page | M |
+| 🔜 | Stable `checkKey`; quality profiles (checks picked across rule sets, overrides, release review) + Runs; DQ home with 3 widgets like concept mapping | L |
+| 🔜 | DQD generator + the 3 DQD-derived public rule sets | M |
+| 🔜 | `dqRunToDqv()`, run export, catalog publish with a "Data quality" section | M |
 
 ## Format package & public content
 
