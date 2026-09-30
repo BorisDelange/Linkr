@@ -281,7 +281,8 @@ def _reject_internal_host(url: str) -> None:
 
 
 def _with_credentials(url: str, token: str | None) -> str:
-    """Inject an access token into an https remote URL for a single call.
+    """The URL handed to git for one network call: ``.git`` appended to an https
+    remote that lacks it, and the access token injected when there is one.
 
     The token goes in the *password* with a fixed ``oauth2`` username. GitLab
     requires this for push (the older ``<token>:x-oauth-basic`` form authenticates
@@ -289,14 +290,21 @@ def _with_credentials(url: str, token: str | None) -> str:
     accepts it too (it ignores the username for a PAT). Non-https URLs (ssh) are
     returned unchanged — the token doesn't apply there.
     """
-    if not token:
-        return url
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         return url
+    # Name the repo as the forge serves it. GitLab (framagit included) answers
+    # `…/repo/info/refs` with a 301 to `…/repo.git/info/refs`, and redirects are off
+    # (_git_env: a redirect would slip past the internal-host check), so a remote
+    # written without `.git` — every catalog entry is — failed to clone at all.
+    path = parts.path.rstrip("/")
+    if path and not path.endswith(".git"):
+        path += ".git"
+    if not token:
+        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
     userinfo = f"oauth2:{quote(token, safe='')}@"
     netloc = parts.netloc.rsplit("@", 1)[-1]  # drop any existing credentials
-    return urlunsplit((parts.scheme, userinfo + netloc, parts.path, parts.query, parts.fragment))
+    return urlunsplit((parts.scheme, userinfo + netloc, path, parts.query, parts.fragment))
 
 
 def _scrub(text: str, token: str | None) -> str:
