@@ -3874,8 +3874,6 @@
     "sources_add": "Ajouter un catalogue",
     "sources_add_title": "Ajouter un catalogue",
     "sources_edit_title": "Modifier le catalogue",
-    "sources_name_en": "Nom (anglais)",
-    "sources_name_fr": "Nom (français)",
     "sources_url_hint": "Le dépôt d'index du catalogue, sous forme d'URL GitLab.",
     "sources_duplicate": "Un autre catalogue lit déjà ce dépôt.",
     "sources_empty": "Aucun catalogue configuré",

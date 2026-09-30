@@ -16,7 +16,7 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import { localized } from '@/lib/localized'
+import { cleanLocalized, localized, localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
 import { DEFAULT_CATALOG_BRANCH, DEFAULT_CATALOG_URL, parseCatalogUrl } from '@/lib/catalog/remote'
 import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, type CatalogConfig } from '@/lib/catalog/settings'
 import { useCatalogSourcesStore } from '@/stores/catalog-sources-store'
@@ -175,24 +175,24 @@ function CatalogSourceForm({
   onSave: (catalog: CatalogConfig) => void
 }) {
   const { t } = useTranslation()
-  const [nameEn, setNameEn] = useState(initial?.name.en ?? '')
-  const [nameFr, setNameFr] = useState(initial?.name.fr ?? '')
+  const language = useAppStore((s) => s.language)
+  // One field, edited in the active language like every other multilingual name;
+  // seeded once so an untranslated catalog starts from its other-language name.
+  const [name, setName] = useState(() => seedLocalizedForEditing(initial?.name, language))
   const [url, setUrl] = useState(initial?.url ?? '')
   const [branch, setBranch] = useState(initial?.branch ?? DEFAULT_CATALOG_BRANCH)
 
   const source = parseCatalogUrl(url, branch)
   const invalidUrl = url.trim().length > 0 && !source
   const duplicate = !!source && takenUrls.some((u) => parseCatalogUrl(u)?.repoUrl === source.repoUrl)
-  const canSave = !!source && !duplicate && (nameEn.trim() || nameFr.trim())
+  const canSave = !!source && !duplicate && localizedRaw(name, language).trim() !== ''
 
   const submit = () => {
     if (!canSave || !source) return
-    const en = nameEn.trim()
-    const fr = nameFr.trim()
     onSave({
       id: initial?.id ?? crypto.randomUUID(),
-      // Either language alone is enough: `localized` falls back to the other.
-      name: { ...(en ? { en } : {}), ...(fr ? { fr } : {}) },
+      // The other language may stay blank: `localized` falls back to this one.
+      name: cleanLocalized(name) ?? {},
       url: source.repoUrl,
       branch: source.branch,
     })
@@ -200,14 +200,16 @@ function CatalogSourceForm({
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <FormField label={t('catalog.sources_name_en')}>
-          {({ id }) => <Input id={id} value={nameEn} onChange={(e) => setNameEn(e.target.value)} autoFocus />}
-        </FormField>
-        <FormField label={t('catalog.sources_name_fr')}>
-          {({ id }) => <Input id={id} value={nameFr} onChange={(e) => setNameFr(e.target.value)} />}
-        </FormField>
-      </div>
+      <FormField label={t('common.name')} required>
+        {({ id }) => (
+          <Input
+            id={id}
+            value={localizedRaw(name, language)}
+            onChange={(e) => setName(setLocalized(name, language, e.target.value))}
+            autoFocus
+          />
+        )}
+      </FormField>
       <div className="grid gap-3 sm:grid-cols-[1fr_8rem]">
         <FormField label={t('catalog.settings_url')} required hint={t('catalog.sources_url_hint')}>
           {({ id }) => (

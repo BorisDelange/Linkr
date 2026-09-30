@@ -3874,8 +3874,6 @@
     "sources_add": "Add a catalog",
     "sources_add_title": "Add a catalog",
     "sources_edit_title": "Edit catalog",
-    "sources_name_en": "Name (English)",
-    "sources_name_fr": "Name (French)",
     "sources_url_hint": "The catalog's index repository, as a GitLab URL.",
     "sources_duplicate": "Another catalog already reads this repository.",
     "sources_empty": "No catalog configured",
