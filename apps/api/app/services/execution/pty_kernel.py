@@ -23,13 +23,21 @@ datasets/ are reachable by readable relative paths.
 """
 
 import asyncio
-import fcntl
 import os
-import pty
 import struct
-import termios
 
 from app.services import project_fs
+
+# PTYs are POSIX-only. Without them (Windows) the terminal is refused at open,
+# but the module — and the execution router that imports it — still loads.
+try:
+    import fcntl
+    import pty
+    import termios
+
+    SUPPORTED = True
+except ImportError:
+    SUPPORTED = False
 
 
 class PtyShell:
@@ -135,6 +143,10 @@ class SessionLimitReached(Exception):
     """A user has hit max_kernels_per_user concurrent terminal shells."""
 
 
+class TerminalUnsupported(Exception):
+    """The host has no pseudo-terminals (Windows)."""
+
+
 class PtyManager:
     """Live PTY shells keyed by (project_uid, session_id). A shell is a stateful
     interactive session, so each WebSocket connection gets its own — no sharing,
@@ -155,6 +167,8 @@ class PtyManager:
     ) -> PtyShell:
         from app.config import settings
 
+        if not SUPPORTED:
+            raise TerminalUnsupported("The server terminal needs a Linux or macOS host.")
         if self._count_for_user(user_id) >= settings.max_kernels_per_user:
             raise SessionLimitReached(
                 f"Terminal session limit reached ({settings.max_kernels_per_user})."
