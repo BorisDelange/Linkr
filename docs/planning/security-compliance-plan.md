@@ -302,6 +302,18 @@ only in the cohort report, the data catalog and concept profiles.
 
 ## D. Deployment defaults
 
+**Fixed:** API port on loopback (A1). API responses carry nosniff, `X-Frame-Options:
+DENY`, `Referrer-Policy: no-referrer` and `CSP: default-src 'none'; frame-ancestors
+'none'; sandbox` (`core/security_headers.py`, `/api/` only). nginx sets on the app's
+pages `frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'`,
+`X-Frame-Options`, nosniff, `Referrer-Policy`, `Permissions-Policy`; **no `script-src`**:
+the R/Python widgets run inline scripts in srcdoc iframes, which inherit the page's
+CSP — a script policy needs its own test pass in a browser. HSTS is the TLS proxy's.
+Upload sessions are bound to their uploader (404 for anyone else). Plain-http indexes
+and `trustedHost`: allowed in the server and workspace layers, and in a project's
+`options.json` only for a host one of those layers chose. `fs_browse_roots` → the
+checklist (F).
+
 - **The API publishes `8000:8000` on every interface** (`docker/docker-compose.yml`,
   `docker-compose.hub.yml` l.32-33), which bypasses nginx. Bind it to `127.0.0.1` or drop
   it, as was done for MCP.

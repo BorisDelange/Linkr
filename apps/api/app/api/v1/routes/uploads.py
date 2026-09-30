@@ -36,6 +36,20 @@ def _session_dir(upload_id: str) -> Path:
     return settings.data_path / "_tmp" / upload_id
 
 
+def _own_session(upload_id: str, user: User) -> tuple[Path, dict]:
+    """The session dir and its meta, for the user who opened it only. Anyone else
+    gets the same 404 as for an unknown id: another user's upload is neither
+    readable, appendable nor completable, nor even confirmed to exist."""
+    d = _session_dir(upload_id)
+    meta_path = d / "_meta.json"
+    if not meta_path.exists():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown upload")
+    meta = json.loads(meta_path.read_text())
+    if meta.get("userId") != user.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown upload")
+    return d, meta
+
+
 def _session_bytes(d: Path) -> int:
     """Total bytes already written for this upload session (chunk files only)."""
     return sum(p.stat().st_size for p in d.iterdir() if p.name.isdigit())
@@ -59,7 +73,7 @@ class CompleteResponse(CamelModel):
 
 
 @router.post("", response_model=InitResponse)
-async def init_upload(body: InitRequest, _user: User = Depends(get_current_user)):
+async def init_upload(body: InitRequest, user: User = Depends(get_current_user)):
     # Reject early when the declared size already exceeds the cap (saves the
     # round-trips); put_chunk still enforces the real size for clients that lie
     # about or omit file_size.
@@ -74,18 +88,16 @@ async def init_upload(body: InitRequest, _user: User = Depends(get_current_user)
     (d / "_meta.json").write_text(
         json.dumps(
             {"fileName": body.file_name, "totalChunks": body.total_chunks,
-             "fileSize": body.file_size}
+             "fileSize": body.file_size, "userId": user.id}
         )
     )
     return InitResponse(upload_id=upload_id, received=[])
 
 
 @router.get("/{upload_id}", response_model=InitResponse)
-async def upload_status(upload_id: str, _user: User = Depends(get_current_user)):
+async def upload_status(upload_id: str, user: User = Depends(get_current_user)):
     """Report which chunk indices are already stored, so the client resumes."""
-    d = _session_dir(upload_id)
-    if not (d / "_meta.json").exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown upload")
+    d, _ = _own_session(upload_id, user)
     received = sorted(int(p.name) for p in d.iterdir() if p.name.isdigit())
     return InitResponse(upload_id=upload_id, received=received)
 
@@ -95,11 +107,9 @@ async def put_chunk(
     upload_id: str,
     index: int,
     request: Request,
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    d = _session_dir(upload_id)
-    if not (d / "_meta.json").exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown upload")
+    d, _ = _own_session(upload_id, user)
     if index < 0:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid chunk index")
     # Stream the raw body to disk without buffering the whole chunk in memory,
@@ -125,12 +135,8 @@ async def put_chunk(
 
 
 @router.post("/{upload_id}/complete", response_model=CompleteResponse)
-async def complete_upload(upload_id: str, _user: User = Depends(get_current_user)):
-    d = _session_dir(upload_id)
-    meta_path = d / "_meta.json"
-    if not meta_path.exists():
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Unknown upload")
-    meta = json.loads(meta_path.read_text())
+async def complete_upload(upload_id: str, user: User = Depends(get_current_user)):
+    d, meta = _own_session(upload_id, user)
     total = int(meta["totalChunks"])
 
     missing = [i for i in range(total) if not (d / str(i)).exists()]

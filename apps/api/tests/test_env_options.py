@@ -80,3 +80,25 @@ def test_repos_and_index_url_must_be_clean_http_urls():
     ok = "https://packagemanager.posit.co/cran/latest"
     assert env_options._sanitize("r", {"repos": ok})["repos"] == ok
     assert env_options._sanitize("python", {"indexUrl": ok})["indexUrl"] == ok
+
+
+def test_plain_http_and_tls_off_only_for_a_mirror_the_server_or_workspace_chose(monkeypatch):
+    # Package downloads are code the server runs: a project override may not
+    # route them over plain http, or with TLS checks off, to a host of its choice.
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "pip_index_url", "http://mirror.chu.local/simple")
+    monkeypatch.setattr(settings, "r_repos", "https://cran.chu.local")
+    ws = {"python": {"indexUrl": "https://ws-mirror.local/simple"}}
+    py = lambda override: env_options.resolve("python", ws, override)  # noqa: E731
+
+    assert py({"indexUrl": "http://mirror.chu.local/other"})["indexUrl"] == "http://mirror.chu.local/other"
+    assert py({"indexUrl": "http://evil.example/simple"})["indexUrl"] == "https://ws-mirror.local/simple"
+    assert py({"indexUrl": "https://evil.example/simple"})["indexUrl"] == "https://evil.example/simple"
+    assert py({"trustedHost": "ws-mirror.local"})["trustedHost"] == "ws-mirror.local"
+    assert "trustedHost" not in py({"trustedHost": "evil.example"})
+    assert env_options.resolve("r", None, {"repos": "http://evil.example"})["repos"] == "https://cran.chu.local"
+    # The workspace layer itself (an owner's choice) may use them.
+    assert env_options.resolve("python", {"python": {"indexUrl": "http://ws.local/s", "trustedHost": "ws.local"}}, {}) == {
+        "indexUrl": "http://ws.local/s", "trustedHost": "ws.local",
+    }

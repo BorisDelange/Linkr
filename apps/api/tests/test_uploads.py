@@ -118,3 +118,25 @@ async def test_chunk_enforces_limit_when_size_understated(client, monkeypatch):
         f"{API}/uploads/{uid}/chunk?index=0", headers=headers, content=b"x" * (2 * 1024 * 1024)
     )
     assert r.status_code == 413
+
+
+async def test_an_upload_session_belongs_to_its_uploader(client, db):
+    # Sessions were not bound: any account holding an upload id could read its
+    # progress, append chunks to it or complete it.
+    from app.core.security import hash_password
+    from app.models.user import User
+
+    owner = await _admin_headers(client)
+    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    await db.commit()
+    token = (await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw"})).json()["access_token"]
+    bob = {"Authorization": f"Bearer {token}"}
+    uid, chunks = await _upload(client, owner, b"a,b\n1,2\n", 64)
+
+    assert (await client.get(f"{API}/uploads/{uid}", headers=bob)).status_code == 404
+    assert (await client.put(f"{API}/uploads/{uid}/chunk?index=0", headers=bob, content=b"x")).status_code == 404
+    assert (await client.post(f"{API}/uploads/{uid}/complete", headers=bob)).status_code == 404
+
+    for i, ch in enumerate(chunks):
+        assert (await client.put(f"{API}/uploads/{uid}/chunk?index={i}", headers=owner, content=ch)).status_code == 204
+    assert (await client.post(f"{API}/uploads/{uid}/complete", headers=owner)).status_code == 200

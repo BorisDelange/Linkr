@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
 from app.core import audit
+from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.database import async_session
 from app.core.logging import setup_logging
 from app.core.migrations import run_migrations
@@ -176,6 +177,7 @@ app.add_middleware(
     #                        "behind" and blocked the next push with "pull first".
     expose_headers=["x-file-name", "x-git-cloned-oid"],
 )
+app.add_middleware(SecurityHeadersMiddleware)
 # Outermost, so a request refused by any layer below is still logged.
 app.add_middleware(audit.AuditMiddleware)
 

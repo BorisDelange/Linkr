@@ -19,6 +19,7 @@ Shape (camelCase, matching the frontend):
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from app.config import settings
 from app.services import project_fs
@@ -38,6 +39,11 @@ _R_METHODS = {"auto", "libcurl", "curl", "wget", "internal", "wininet"}
 # that could terminate the R string literal it lands in.
 _URL_KEYS = ("repos", "indexUrl")
 _URL_RE = re.compile(r"^https?://[^\s'\"\\`;]+$")
+# Plain http and trustedHost (TLS checks off) are for an internal mirror the
+# administrator (server config) or a workspace owner (workspace default) chose.
+# A project's options.json — edited by any editor, and imported with the project
+# from git — cannot send package downloads, code the server will run, over an
+# unauthenticated channel to a host of its own choosing.
 
 
 def _options_path(project_uid: str, language: str) -> Path:
@@ -74,7 +80,9 @@ def resolve(language: str, workspace_default: dict | None, env_override: dict) -
     keeping only non-empty values. Returns the effective options for `language`."""
     server = _server_defaults(language)
     ws = _sanitize(language, (workspace_default or {}).get(language) or {})
-    override = _sanitize(language, env_override)
+    approved = {_host(v) for layer in (server, ws) for k, v in layer.items() if k in _URL_KEYS}
+    approved |= {ws["trustedHost"].lower()} if ws.get("trustedHost") else set()
+    override = _confine_override(_sanitize(language, env_override), approved)
     merged = dict(server)
     for layer in (ws, override):
         for k, v in layer.items():
@@ -105,4 +113,20 @@ def _sanitize(language: str, data: dict) -> dict:
     for key in _URL_KEYS:
         if out.get(key) and not _URL_RE.match(out[key]):
             out.pop(key, None)
+    return out
+
+
+def _host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
+
+
+def _confine_override(override: dict, approved: set[str]) -> dict:
+    """A project override may use plain http, or turn TLS checks off, only for a
+    host the server or workspace layer already chose."""
+    out = dict(override)
+    for key in _URL_KEYS:
+        if out.get(key, "").lower().startswith("http://") and _host(out[key]) not in approved:
+            out.pop(key, None)
+    if out.get("trustedHost") and out["trustedHost"].strip().lower() not in approved:
+        out.pop("trustedHost", None)
     return out
