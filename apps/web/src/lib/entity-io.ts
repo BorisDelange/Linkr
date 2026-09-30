@@ -18,7 +18,7 @@ import { MAPPING_DIR } from '@/lib/duckdb/mapping-source'
 import { deterministicId } from '@/lib/deterministic-id'
 import { deletePatientBoard } from '@/lib/cohort-board-storage'
 import { validateImportZip } from '@/lib/import-validation'
-import { assertAppVersionSupported } from '@/lib/app-version-compat'
+import { assertAppVersionSupported, assertEntityType } from '@/lib/app-version-compat'
 import {
   type PathNode, type TreeNode,
   type TreeFkKey,
@@ -2075,6 +2075,7 @@ export async function parseProjectZip(file: File): Promise<ParsedProjectZip | nu
   const projectFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.project]
   if (!projectFile) return null
   const projectRaw = JSON.parse(await projectFile.async('string'))
+  assertEntityType(projectRaw, 'project')
   // Clean git-versioned exports strip `uid` (the local PK) and identify the project
   // by its stable `projectId` (and `lineageId` when it has one); the target uid is
   // supplied by the caller, not read here. Accept any of the three as proof that
@@ -3400,7 +3401,11 @@ export function readImportedManifest<T>(
 ): T | undefined {
   for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...legacyNames]) {
     const found = parsed[name]
-    if (found !== undefined) return found as T
+    // A manifest is an object: a mapping project's `mappings.json` (its layout
+    // name) is the mappings array, not its metadata.
+    if (found === undefined || typeof found !== 'object' || found === null || Array.isArray(found)) continue
+    assertEntityType(found, kind)
+    return found as T
   }
   return undefined
 }
@@ -3765,6 +3770,7 @@ export async function parseDatabaseZip(file: File): Promise<ParsedDatabaseZip | 
   const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
   if (!metaEntry) return null
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
+  assertEntityType(meta, 'database')
   const key = meta.entityId ?? meta.id ?? meta.lineageId
   if (!key) return null
   return {
@@ -4883,6 +4889,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   if (!wsFile) return null
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
   if (!workspace) return null
+  assertEntityType(workspace, 'workspace')
   // A manifest no longer carries the writing instance's `id`. The importer mints
   // the local key, so what has to be present is a NAME — enough to build a
   // workspace from. `lineageId` is what identifies it across instances, and a

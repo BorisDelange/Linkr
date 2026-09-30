@@ -3791,7 +3791,8 @@
     "back_to_mapping_projects": "Retour aux projets d'alignement",
     "back_to_sql_collections": "Retour aux collections",
     "back_to_data_catalogs": "Retour aux catalogues",
-    "import_app_too_old": "Ce contenu nécessite Linkr {{required}} ou plus récent, et cette instance est en {{current}}. Son format a changé en {{required}} : une version antérieure ne l'importerait qu'en partie, sans le signaler. Mettez Linkr à jour, puis importez-le de nouveau."
+    "import_app_too_old": "Ce contenu nécessite Linkr {{required}} ou plus récent, et cette instance est en {{current}}. Son format a changé en {{required}} : une version antérieure ne l'importerait qu'en partie, sans le signaler. Mettez Linkr à jour, puis importez-le de nouveau.",
+    "import_wrong_type": "Ce fichier est de type « {{found}} », pas « {{expected}} ». Importez-le depuis la page de ce type d'entité."
   },
   "user_menu": {
     "profile": "Paramètres utilisateur",

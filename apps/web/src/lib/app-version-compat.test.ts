@@ -1,7 +1,8 @@
 import JSZip from 'jszip'
 import { describe, expect, it } from 'vitest'
 import { APP_VERSION } from '@/lib/version'
-import { assertAppVersionSupported, IncompatibleAppVersionError, requiredAppVersion } from './app-version-compat'
+import { readImportedManifest } from '@/lib/entity-io'
+import { assertAppVersionSupported, assertEntityType, IncompatibleAppVersionError, requiredAppVersion, WrongEntityTypeError } from './app-version-compat'
 
 /**
  * The import-side guard of `minAppVersion`: a tree written for a newer Linkr must
@@ -49,5 +50,27 @@ describe('assertAppVersionSupported', () => {
     expect(err).toBeInstanceOf(IncompatibleAppVersionError)
     expect(err.required).toBe('999.0.0')
     expect(err.current).toBe(APP_VERSION)
+  })
+})
+
+describe('assertEntityType', () => {
+  it('refuses a manifest declaring another kind — a schema dropped on the Projects page', () => {
+    expect(() => assertEntityType({ type: 'schema-preset' }, 'project')).toThrow(WrongEntityTypeError)
+  })
+
+  it('accepts the expected kind, and a manifest that predates `type`', () => {
+    expect(() => assertEntityType({ type: 'project' }, 'project')).not.toThrow()
+    expect(() => assertEntityType({ entityId: 'p' }, 'project')).not.toThrow()
+  })
+})
+
+describe('readImportedManifest', () => {
+  it('checks the declared type', () => {
+    expect(() => readImportedManifest({ 'entity.json': { type: 'project' } }, 'etl-pipeline')).toThrow(WrongEntityTypeError)
+  })
+
+  it("skips a mapping project's mappings.json, which is its mappings, not its metadata", () => {
+    const parsed = { 'mappings.json': [{ id: 'm' }], 'project.json': { name: 'MP' } }
+    expect(readImportedManifest(parsed, 'mapping-project', 'project.json')).toEqual({ name: 'MP' })
   })
 })

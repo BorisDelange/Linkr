@@ -40,22 +40,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { EntitySecondaryTabsTrigger } from '@/components/ui/entity-secondary-tabs'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog'
-import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
 import { SchemaPresetPull } from '@/components/versioning/SchemaPresetPull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
-import { IncompatibleAppVersionError } from '@/lib/app-version-compat'
+import { IncompatibleAppVersionError, WrongEntityTypeError } from '@/lib/app-version-compat'
 import { parseImportZip, readImportedManifest, reassemblePresetMapping, SCHEMA_PRESET_DDL_FILE, SCHEMA_PRESET_MAPPING_FILE } from '@/lib/entity-io'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { EntityIdField, isEntityIdValid, mintEntityId } from '@/components/ui/entity-id-field'
@@ -1045,7 +1036,6 @@ export function SchemaPresetsPage() {
   const [newPresetBadges, setNewPresetBadges] = useState<ProjectBadge[]>([])
   const [newPresetVersion, setNewPresetVersion] = useState('0.1.0')
   const [importOpen, setImportOpen] = useState(false)
-  const [importError, setImportError] = useState<string | null>(null)
   const [importConflict, setImportConflict] = useState<{ name: string; mapping: SchemaMapping; parsed?: Record<string, unknown>; gitRemote?: ImportGitRemote; existing: CustomSchemaPreset } | null>(null)
 
   const loadCustomPresets = useCallback(() => loadPresets(wsUid), [loadPresets, wsUid])
@@ -1171,14 +1161,14 @@ export function SchemaPresetsPage() {
     return typeof ddl === 'string' && ddl ? { ...mapping, ddl } : mapping
   }
 
+  // Errors are thrown, not stored: ImportSourceDialog shows a thrown error inline
+  // and stays open. Storing one here closed the dialog as a success, and closing
+  // it cleared the error — so a refused import said nothing at all.
   const handleImportSource = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     try {
       const parsed = await parseImportZip(file)
       const mapping = extractMapping(parsed)
-      if (!mapping || !parsed) {
-        setImportError(t('settings.schema_preset_import_invalid'))
-        return
-      }
+      if (!mapping || !parsed) throw new Error(t('settings.schema_preset_import_invalid'))
       // Lineage first: it is the identity that survives an install minting a
       // fresh local id, so it recognises "the same preset, already here" where
       // the copied mapping id no longer would. The id stays as the fallback for
@@ -1196,8 +1186,9 @@ export function SchemaPresetsPage() {
       }
       setImportOpen(false)
     } catch (err) {
-      // A tree too new for this build is not an invalid one: say which version it needs.
-      setImportError(err instanceof IncompatibleAppVersionError ? err.message : t('settings.schema_preset_import_invalid'))
+      // A tree too new for this build, or of another kind, is not an invalid one: say what it is.
+      if (err instanceof IncompatibleAppVersionError || err instanceof WrongEntityTypeError) throw err
+      throw new Error(t('settings.schema_preset_import_invalid'))
     }
   }, [customPresets, language, doPresetImport, t])
 
@@ -1494,23 +1485,11 @@ export function SchemaPresetsPage() {
               MIMIC schemas reach a fresh instance. */}
           <ImportSourceDialog
             open={importOpen}
-            onOpenChange={(o) => { setImportOpen(o); if (!o) setImportError(null) }}
+            onOpenChange={setImportOpen}
             accept=".zip"
             onImport={handleImportSource}
             scope="schema-presets"
           />
-
-          <AlertDialog open={importError !== null} onOpenChange={(open) => { if (!open) setImportError(null) }}>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{t('common.import_error_title')}</AlertDialogTitle>
-                <AlertDialogDescription>{importError}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogAction onClick={() => setImportError(null)}>{t('common.ok')}</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
 
           {/* Import conflict */}
           <ImportConflictDialog

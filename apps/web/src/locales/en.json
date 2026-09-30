@@ -3791,7 +3791,8 @@
     "back_to_mapping_projects": "Back to mapping projects",
     "back_to_sql_collections": "Back to collections",
     "back_to_data_catalogs": "Back to catalogs",
-    "import_app_too_old": "This content needs Linkr {{required}} or later, and this instance runs {{current}}. Its format changed in {{required}}: an older version would import it only partly, without saying so. Update Linkr, then import it again."
+    "import_app_too_old": "This content needs Linkr {{required}} or later, and this instance runs {{current}}. Its format changed in {{required}}: an older version would import it only partly, without saying so. Update Linkr, then import it again.",
+    "import_wrong_type": "This file is a \"{{found}}\", not a \"{{expected}}\". Import it from the page for that kind of entity."
   },
   "user_menu": {
     "profile": "User settings",
