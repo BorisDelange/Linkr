@@ -113,3 +113,8 @@ class _UserSource:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._obj, name)
+
+
+class PasswordChange(CamelModel):
+    current_password: str
+    new_password: str

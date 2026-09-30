@@ -210,6 +210,12 @@ config). DQ rule sets and SQL collections export definitions only — nothing to
 
 ### B4. Password change is broken
 
+**Fixed:** `POST /auth/change-password` (session only, current password required,
+local provider only), policy `password_policy_error` (≥ 12 characters, not the
+username, not the current one), logged as `password_change` / `password_change_failed`.
+The dialog now calls it through the API client (it built its own URL, without
+`/api/v1` or the bearer token). Existing sessions stay valid until they expire (E).
+
 - `apps/web/src/features/settings/ChangePasswordDialog.tsx:41` calls
   `/auth/change-password`, which does not exist. `PATCH /me` refuses the password field
   (`auth.py:138`).

@@ -12,6 +12,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
+PASSWORD_MIN_LENGTH = 12
+
+
+def password_policy_error(password: str, username: str) -> str | None:
+    """Why `password` may not be set for `username`, or None when it may."""
+    if len(password) < PASSWORD_MIN_LENGTH:
+        return f"The password must be at least {PASSWORD_MIN_LENGTH} characters."
+    if password.strip().lower() == username.strip().lower():
+        return "The password must not be the username."
+    return None
+
+
 def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 

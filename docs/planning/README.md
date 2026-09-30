@@ -177,7 +177,6 @@ and the CNIL CDW framework. Section A (A1–A4) is done — as-built in `docs/ar
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | B4. Password change: `/auth/change-password` does not exist | S |
 | 🔜 | D. Security headers (CSP, HSTS…), bind uploads to their uploader, offline mirrors (`indexUrl` http, `trusted-host`) | M |
 | 🔜 | F. SPE deployment checklist (website `administration/`, FR + EN) + stale texts (`ai-agents-plan.md` Fernet, `application_name`) | S |
 | 🤔 | C1. Aggregate-only access: `rows` action on databases/datasets/patient-data/cohorts + default role `aggregates` + route classification — validate the design | M |

@@ -5,6 +5,7 @@ from jose import JWTError
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core import audit
 from app.core.auth_providers import get_auth_provider
 from app.core.database import get_db
@@ -14,6 +15,9 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
+    hash_password,
+    password_policy_error,
+    verify_password,
 )
 from app.models.role import Role
 from app.models.user import User
@@ -27,7 +31,7 @@ from app.schemas.auth import (
 )
 from app.schemas.audit import AuditPage
 from app.schemas.data_source import DatabaseLoginEntry
-from app.schemas.user import ProfileUpdate
+from app.schemas.user import PasswordChange, ProfileUpdate
 from app.services import api_token_service, database_credential_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -146,6 +150,29 @@ async def update_me(
     await db.commit()
     await db.refresh(user)
     return await _build_me(user, db)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+async def change_password(
+    body: PasswordChange,
+    user: User = Depends(get_session_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Change one's own password: the current one proves it is the user at the
+    keyboard, not a stolen session. Session only — an API token cannot take over
+    the account it belongs to."""
+    if settings.auth_provider != "local" or not user.password_hash:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passwords are managed by the identity provider")
+    if not verify_password(body.current_password, user.password_hash):
+        audit.bind(action="password_change_failed")
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "The current password is incorrect")
+    if body.new_password == body.current_password:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The new password is the current one")
+    if error := password_policy_error(body.new_password, user.username):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, error)
+    user.password_hash = hash_password(body.new_password)
+    await db.commit()
+    audit.bind(action="password_change")
 
 
 # Personal API tokens. All three require a session JWT (get_session_user): an API

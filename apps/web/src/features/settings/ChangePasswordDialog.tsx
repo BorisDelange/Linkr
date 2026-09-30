@@ -4,8 +4,12 @@ import { Info, Lock } from 'lucide-react'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import { apiFetch } from '@/lib/api-client'
 
 const isServerMode = !!import.meta.env.VITE_API_URL
+// Mirrors the server's policy (core/security.py PASSWORD_MIN_LENGTH), which is
+// what actually enforces it.
+const MIN_LENGTH = 12
 
 interface ChangePasswordDialogProps {
   open: boolean
@@ -29,25 +33,24 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
     onOpenChange(o)
   }
 
-  const canSubmit = current.length > 0 && next.length >= 8 && next === confirm && !submitting
+  const canSubmit = current.length > 0 && next.length >= MIN_LENGTH && next === confirm && !submitting
 
   const handleSubmit = async () => {
     setError(null)
     if (next !== confirm) { setError(t('profile.password_mismatch')); return }
-    if (next.length < 8) { setError(t('profile.password_too_short')); return }
+    if (next.length < MIN_LENGTH) { setError(t('profile.password_too_short', { count: MIN_LENGTH })); return }
     setSubmitting(true)
     try {
-      const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
-      const res = await fetch(`${baseUrl}/auth/change-password`, {
+      const res = await apiFetch('/api/v1/auth/change-password', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
         body: JSON.stringify({ currentPassword: current, newPassword: next }),
       })
       if (!res.ok) {
-        const msg = res.status === 401 || res.status === 403
+        const msg = res.status === 403
           ? t('profile.password_current_wrong')
-          : t('profile.password_change_error')
+          : res.status === 422
+            ? t('profile.password_policy_rejected', { count: MIN_LENGTH })
+            : t('profile.password_change_error')
         setError(msg)
         setSubmitting(false)
         return
