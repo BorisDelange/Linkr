@@ -7,7 +7,9 @@ class ProjectCreate(CamelModel):
     uid: str | None = None  # client supplies crypto.randomUUID()
     entity_id: str | None = None
     project_id: str | None = None
-    workspace_id: str | None = None
+    # Required: a project's access is inherited from its workspace, and a project
+    # without one would have no membership model to check against.
+    workspace_id: str
     name: dict[str, str]
     description: dict[str, str] = {}
     short_description: dict[str, str] = {}

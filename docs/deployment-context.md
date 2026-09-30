@@ -54,8 +54,9 @@ Inheriting the SPE's security only holds if Linkr does not undo it from the insi
 
 1. **No privilege escalation inside an instance.** A member with a low role must not
    become admin, read another member's database password, rewrite the access log, or
-   reach files outside what the deployment mounted. (Today it can — see the plan, item
-   A1.)
+   reach files outside what the deployment mounted. Closed for the API routes (plan item
+   A1); a kernel still runs as the API's OS user, so `ide:execute` means trusted with
+   the instance.
 2. **Traceability of what happens inside Linkr.** The SPE logs who entered; only Linkr
    knows which queries ran and which files were produced. Every row-level read and every
    download must reach the access log, which is also written to stdout for the

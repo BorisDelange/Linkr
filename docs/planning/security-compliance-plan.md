@@ -1,6 +1,6 @@
 # Security & compliance — plan
 
-**Status: audit done 2026-09-30, nothing fixed yet.** Frame: [../deployment-context.md](../deployment-context.md)
+**Status: audit done 2026-09-30; section A fixed on `feature/security-a`.** Frame: [../deployment-context.md](../deployment-context.md)
 (Linkr inside a per-project SPE; one instance per SPE; a global instance with no patient
 data). Reference text: CNIL *référentiel entrepôts de données de santé*, délibération
 n° 2021-118 ([PDF](https://www.cnil.fr/sites/cnil/files/atoms/files/referentiel_entrepot.pdf)) —
@@ -24,6 +24,12 @@ happens in Linkr (SEC-JOU-1/4), nothing patient-level towards the global instanc
 ## A. Blocking — whatever the deployment
 
 ### A1. Any account can take over the server *(verified)*
+
+**Fixed:** `projects.workspace_id` NOT NULL (migration `d3e4f5a6b7c8` moves orphans to a
+personal workspace of their owner), the `"owner"` fallback removed, moves checked on the
+destination; kernels / PTY / provisioners start from `execution/child_env.py`; the image
+serves as `linkr` with data in `/var/lib/linkr`; API port on loopback. The separate kernel
+identity stays 💤 — documented as "`ide:execute` = trusted with the instance".
 
 The chain:
 

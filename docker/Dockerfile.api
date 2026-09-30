@@ -79,6 +79,14 @@ PY
 COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh
 
+# The API — and every kernel, terminal and package install it spawns — runs as
+# this unprivileged user, never root. The entrypoint starts as root only to hand
+# the data volume to it (a volume written by an older, root-run image is still
+# owned by root), then drops to it for good.
+RUN useradd --system --create-home --home-dir /home/linkr --shell /bin/bash linkr \
+    && mkdir -p /var/lib/linkr && chown linkr:linkr /var/lib/linkr
+ENV LINKR_DATA_DIR=/var/lib/linkr
+
 EXPOSE 8000
 
 # Migrate then serve (see api-entrypoint.sh).

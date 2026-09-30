@@ -13,7 +13,7 @@ of finished efforts that the code still cites lives in `docs/design/`.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **Any account can take over the server** — project without workspace → `owner` → `ide:execute` → kernel inherits `LINKR_SECRET_KEY` (root in Docker) → forged admin JWT. Forbid unassigned projects, scrub the kernel env, non-root API, API port on loopback. [security-compliance-plan.md](security-compliance-plan.md) A1 | M |
+| ✅ | **Any account can take over the server** — project without workspace → `owner` → `ide:execute` → kernel inherits `LINKR_SECRET_KEY` (root in Docker) → forged admin JWT. Forbid unassigned projects, scrub the kernel env, non-root API, API port on loopback. [security-compliance-plan.md](security-compliance-plan.md) A1 | M |
 | 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. **Settle the agent path first** (see *Per-user database credentials* below): today an API-key session can obtain the decrypted password, and the page must not state a guarantee the app does not keep — or must state that gap | S |
 
 ## To test manually in the app

@@ -44,8 +44,6 @@ async def list_databases(
     project = await db.get(Project, project_uid)
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
-    if project.workspace_id is None:
-        return []
     if not await has_permission(db, project.workspace_id, user, "databases:read"):
         raise HTTPException(
             status.HTTP_403_FORBIDDEN, "Insufficient workspace permissions"

@@ -63,8 +63,9 @@ async def test_project_crud_under_workspace(client):
 
 async def test_client_supplied_uid_kept(client):
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     r = await client.post(
-        f"{API}/projects", headers=headers, json={"uid": "proj-fixed", "name": {"en": "X"}}
+        f"{API}/projects", headers=headers, json={"workspaceId": ws, "uid": "proj-fixed", "name": {"en": "X"}}
     )
     assert r.status_code == 201 and r.json()["uid"] == "proj-fixed"
 
@@ -114,8 +115,9 @@ async def test_create_stamps_author_from_creator(client):
     # A plain creation (no author snapshot in the payload) stamps the
     # authenticated user as the original author.
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     r = await client.post(
-        f"{API}/projects", headers=headers, json={"name": {"en": "P"}}
+        f"{API}/projects", headers=headers, json={"workspaceId": ws, "name": {"en": "P"}}
     )
     p = r.json()
     me = (await client.get(f"{API}/auth/me", headers=headers)).json()
@@ -127,10 +129,11 @@ async def test_import_keeps_author_snapshot_when_no_local_match(client):
     # An imported project carries the original author's snapshot but no local
     # user matches (unknown ORCID) — keep the snapshot, createdById stays NULL.
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     r = await client.post(
         f"{API}/projects",
         headers=headers,
-        json={
+        json={"workspaceId": ws,
             "name": {"en": "Imported"},
             "createdBy": "Original Author",
             "createdByDetails": {
@@ -150,6 +153,7 @@ async def test_import_relinks_author_by_orcid(client, db):
     # An imported project whose author has an ORCID matching a local account
     # re-links createdById to that local user (live name resolution).
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     db.add(
         User(
             username="carol",
@@ -165,7 +169,7 @@ async def test_import_relinks_author_by_orcid(client, db):
     r = await client.post(
         f"{API}/projects",
         headers=headers,
-        json={
+        json={"workspaceId": ws,
             "name": {"en": "Imported"},
             "createdBy": "Carol Elsewhere",
             "createdByDetails": {"orcid": "0000-0002-1111-2222"},
@@ -184,8 +188,9 @@ async def test_clone_update_relinks_author_from_snapshot(client, db):
     explicit createdById must re-resolve the id (ORCID/email match, else NULL) —
     not leave the importer's id, which the UI would re-hydrate as the author."""
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     r = await client.post(
-        f"{API}/projects", headers=headers, json={"name": {"en": "Pointer"}}
+        f"{API}/projects", headers=headers, json={"workspaceId": ws, "name": {"en": "Pointer"}}
     )
     uid = r.json()["uid"]
     assert r.json()["createdBy"] == "admin"  # pointer create → importer stamped
@@ -229,10 +234,11 @@ async def test_foreign_created_by_id_never_persisted(client):
     # A createdById in the payload is a foreign instance's local id — it must be
     # ignored, not written verbatim (which would corrupt the FK / attribution).
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     r = await client.post(
         f"{API}/projects",
         headers=headers,
-        json={
+        json={"workspaceId": ws,
             "name": {"en": "Forged"},
             "createdById": 99999,
             "createdBy": "Ghost",
@@ -249,10 +255,11 @@ async def test_lineage_identity_preserved_and_forkable(client):
     # stores the client-supplied value verbatim (import keeps the same work), and
     # a PATCH can set parent_lineage_id (fork records its source).
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     r = await client.post(
         f"{API}/projects",
         headers=headers,
-        json={"name": {"en": "P"}, "uid": "proj-l", "lineageId": "lin-123"},
+        json={"workspaceId": ws, "name": {"en": "P"}, "uid": "proj-l", "lineageId": "lin-123"},
     )
     assert r.status_code == 201
     assert r.json()["lineageId"] == "lin-123"
@@ -273,17 +280,18 @@ async def test_created_at_preserved_on_import_and_restored_on_clone(client):
     # authoritative project.json) restores it — so a git-pointer create that stamped
     # func.now() gets corrected to the real date instead of drifting each pull.
     headers = await _bootstrap_admin(client)
+    ws = await _make_workspace(client, headers)
     r = await client.post(
         f"{API}/projects",
         headers=headers,
-        json={"name": {"en": "P"}, "uid": "proj-ca", "createdAt": "2020-03-15T08:09:10.123Z"},
+        json={"workspaceId": ws, "name": {"en": "P"}, "uid": "proj-ca", "createdAt": "2020-03-15T08:09:10.123Z"},
     )
     assert r.status_code == 201
     assert r.json()["createdAt"] == "2020-03-15T08:09:10.123Z"
 
     # A create WITHOUT createdAt stamps now; the clone-PATCH then restores the real date.
     r = await client.post(
-        f"{API}/projects", headers=headers, json={"name": {"en": "Q"}, "uid": "proj-cb"}
+        f"{API}/projects", headers=headers, json={"workspaceId": ws, "name": {"en": "Q"}, "uid": "proj-cb"}
     )
     assert r.status_code == 201 and r.json()["createdAt"] != "2019-01-02T03:04:05.000Z"
     r = await client.patch(
@@ -309,3 +317,31 @@ async def test_cascade_delete_with_workspace(client, db):
     assert (await client.delete(f"{API}/workspaces/{ws_id}", headers=headers)).status_code == 204
     r = await client.get(f"{API}/projects/{uid}", headers=headers)
     assert r.status_code == 404
+
+
+async def test_project_without_workspace_refused(client, db):
+    # A workspace-less project used to resolve to "owner" for any user — and so
+    # to ide:execute, i.e. code on the server. None can be created any more.
+    await _bootstrap_admin(client)
+    bob = await _create_user(db, client, "bob")
+    r = await client.post(f"{API}/projects", headers=bob, json={"name": {"en": "Mine"}})
+    assert r.status_code == 422
+
+
+async def test_move_needs_projects_write_on_destination(client, db):
+    admin = await _bootstrap_admin(client)
+    ws_a = await _make_workspace(client, admin)
+    ws_b = await _make_workspace(client, admin)
+    bob = await _create_user(db, client, "bob")
+    bob_id = (await client.get(f"{API}/auth/me", headers=bob)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws_a}/members", headers=admin, json={"userId": bob_id, "role": "owner"})
+    uid = (await client.post(
+        f"{API}/projects", headers=bob, json={"name": {"en": "P"}, "workspaceId": ws_a}
+    )).json()["uid"]
+
+    r = await client.patch(f"{API}/projects/{uid}", headers=bob, json={"workspaceId": ws_b})
+    assert r.status_code == 403
+    r = await client.patch(f"{API}/projects/{uid}", headers=bob, json={"workspaceId": None})
+    assert r.status_code == 400
+    r = await client.patch(f"{API}/projects/{uid}", headers=admin, json={"workspaceId": ws_b})
+    assert r.status_code == 200 and r.json()["workspaceId"] == ws_b

@@ -26,17 +26,25 @@ async def create_project(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    # Creating a project needs projects:write on the target workspace.
-    if body.workspace_id is not None:
-        # The imported ZIP may reference a workspace that doesn't exist on this
-        # instance; reject it cleanly instead of letting the FK insert 500.
-        if await db.get(Workspace, body.workspace_id) is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Workspace not found",
-            )
-        await check_workspace_permission(db, body.workspace_id, user, "projects:write")
+    await _check_target_workspace(db, body.workspace_id, user)
     return await project_service.create(db, body, user)
+
+
+async def _check_target_workspace(db: AsyncSession, workspace_id: str | None, user: User) -> None:
+    """A project lands in a workspace only with projects:write there."""
+    if workspace_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A project must belong to a workspace",
+        )
+    # The imported ZIP may reference a workspace that doesn't exist on this
+    # instance; reject it cleanly instead of letting the FK insert 500.
+    if await db.get(Workspace, workspace_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Workspace not found",
+        )
+    await check_workspace_permission(db, workspace_id, user, "projects:write")
 
 
 @router.get("/{project_uid}", response_model=ProjectResponse)
@@ -72,13 +80,16 @@ async def export_zip(
 async def update_project(
     body: ProjectUpdate,
     project=Depends(require_project_permission("project-settings:write")),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    fields = body.model_dump(exclude_unset=True)
+    if "workspace_id" in fields and fields["workspace_id"] != project.workspace_id:
+        await _check_target_workspace(db, fields["workspace_id"], user)
     # A path binding is persisted here via a plain PATCH — enforce the browse-root
     # boundary at the point of persistence, not just in the picker (client-side
     # validation is not a security control). Rejects an out-of-roots / non-existent
     # bind before it reaches the IDE/dataset file routes.
-    fields = body.model_dump(exclude_unset=True)
     for key in ("ide_path", "scripts_path", "datasets_path"):
         if key in fields and fields[key]:
             try:

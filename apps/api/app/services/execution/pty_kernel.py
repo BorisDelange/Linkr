@@ -30,6 +30,7 @@ import struct
 import termios
 
 from app.services import project_fs
+from app.services.execution.child_env import child_env
 
 
 class PtyShell:
@@ -51,7 +52,7 @@ class PtyShell:
         if self._proc is not None:
             return
         master_fd, slave_fd = pty.openpty()
-        env = dict(os.environ, TERM="xterm-256color", **self._extra_env)
+        env = child_env({"TERM": "xterm-256color", **self._extra_env})
         try:
             # Only bash is fork/exec'd (by asyncio); the server process is never
             # forked. The slave end becomes bash's controlling terminal via

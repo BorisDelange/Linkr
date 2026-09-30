@@ -44,10 +44,11 @@ def _zip(files: dict[str, str]) -> bytes:
 
 async def test_git_token_never_persisted_on_entity(client, db):
     headers = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
     r = await client.post(
         f"{API}/projects",
         headers=headers,
-        json={
+        json={"workspaceId": ws,
             "uid": "p-git-1",
             "name": {"en": "P"},
             "gitRemoteConfig": {
@@ -101,10 +102,11 @@ async def test_host_token_is_stored_per_user_and_not_returned(client, db):
 async def test_git_status_endpoint_reports_added_files(client):
     """Hitting the status route proves the git router is mounted and gated."""
     headers = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
     await client.post(
         f"{API}/projects",
         headers=headers,
-        json={"uid": "p-git-2", "name": {"en": "P2"}},
+        json={"workspaceId": ws, "uid": "p-git-2", "name": {"en": "P2"}},
     )
     files = {
         "file": ("export.zip", _zip({"project.json": '{"a":1}'}), "application/zip")
@@ -137,10 +139,11 @@ async def test_project_set_and_read_sync_state(client, db):
     from app.services import git_sync_state_service
 
     headers = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
     await client.post(
         f"{API}/projects",
         headers=headers,
-        json={"uid": "p-git-sync", "name": {"en": "PS"}},
+        json={"workspaceId": ws, "uid": "p-git-sync", "name": {"en": "PS"}},
     )
 
     r = await client.post(

@@ -19,8 +19,8 @@ class Project(Base, TimestampMixin):
     # the rename stay readable.
     entity_id: Mapped[str | None] = mapped_column(String(255))
     project_id: Mapped[str | None] = mapped_column(String(255))
-    workspace_id: Mapped[str | None] = mapped_column(
-        ForeignKey("workspaces.id", ondelete="CASCADE")
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False
     )
     name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)

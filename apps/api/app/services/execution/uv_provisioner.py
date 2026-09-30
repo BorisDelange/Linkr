@@ -20,6 +20,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.services import project_fs
+from app.services.execution.child_env import child_env
 from app.services.execution.package_spec import validate_package_spec
 
 # A hung `uv` (network black-hole resolving against the index) must not pin a
@@ -156,12 +157,9 @@ def _run(project_uid: str, args: list[str], on_log=None, options: dict | None = 
 
 
 def _base_env() -> dict[str, str]:
-    import os
-
-    # Inherit PATH etc. so `uv` finds its managed pythons, but drop any ambient
-    # VIRTUAL_ENV that would make uv target the caller's venv instead of ours.
-    env = {k: v for k, v in os.environ.items() if k != "VIRTUAL_ENV"}
-    return env
+    # PATH etc. so `uv` finds its managed pythons; never an ambient VIRTUAL_ENV,
+    # which would make uv target the caller's venv instead of ours.
+    return child_env(provision=True)
 
 
 def add_packages(project_uid: str, packages: list[str], on_log=None, options: dict | None = None) -> None:

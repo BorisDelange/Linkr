@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.models.job import Job
 from app.models.project import Project
+from app.models.workspace import Workspace
 from app.models.user import User
 from app.core.security import hash_password
 from app.services.execution import jobs
@@ -20,7 +21,9 @@ async def _seed(db, engine, monkeypatch):
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(jobs, "async_session", maker)
     monkeypatch.setattr(jobs, "_semaphore", None)
-    db.add(Project(uid="proj-1"))
+    db.add(Workspace(id="ws1"))
+    await db.flush()
+    db.add(Project(uid="proj-1", workspace_id="ws1"))
     db.add(User(id=1, username="u", password_hash=hash_password("x"), role="user"))
     await db.commit()
 

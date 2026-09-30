@@ -5,14 +5,17 @@ from sqlalchemy import select
 
 from app.models.environment import Environment
 from app.models.project import Project
+from app.models.workspace import Workspace
 from app.services.execution import environments
 
 
 @pytest.fixture(autouse=True)
 async def _projects(db):
     # The environments.project_uid FK requires the project to exist.
-    db.add(Project(uid="proj-1"))
-    db.add(Project(uid="proj-2"))
+    db.add(Workspace(id="ws1"))
+    await db.flush()
+    db.add(Project(uid="proj-1", workspace_id="ws1"))
+    db.add(Project(uid="proj-2", workspace_id="ws1"))
     await db.commit()
 
 
