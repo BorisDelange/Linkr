@@ -401,6 +401,11 @@ def require_project_permission(permission: str):
     return _dep
 
 
+async def has_global_permission(db: AsyncSession, user: User, permission: str) -> bool:
+    """True if the user's global role grants the global-tier `permission`."""
+    return user.role == "admin" or await _role_grants(db, user.role, permission)
+
+
 def require_global_permission(permission: str):
     """Dependency factory: require a global-tier `permission` (e.g.
     "app-database:read"). The user's global role is consulted; admins pass."""
@@ -409,7 +414,7 @@ def require_global_permission(permission: str):
         user: User = Depends(get_current_user),
         db: AsyncSession = Depends(get_db),
     ) -> User:
-        if user.role == "admin" or await _role_grants(db, user.role, permission):
+        if await has_global_permission(db, user, permission):
             return user
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

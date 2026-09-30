@@ -5,11 +5,15 @@ changes."""
 import io
 import subprocess
 import zipfile
+from pathlib import Path
 
+import pytest
 from sqlalchemy import select
 
+from app.core.security import hash_password
 from app.models.git_credential import GitCredential
 from app.models.project import Project
+from app.models.user import User
 
 API = "/api/v1"
 
@@ -314,3 +318,76 @@ def test_cloned_oid_header_is_exposed_to_the_browser():
             exposed = [h.lower() for h in mw.kwargs.get("expose_headers", [])]
     assert exposed is not None, "CORS middleware not installed"
     assert "x-git-cloned-oid" in exposed
+
+
+def _local_repo_with_secret(tmp_path) -> Path:
+    repo = tmp_path / "server-side"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    (repo / "secret.txt").write_text("server file")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "c"],
+        check=True,
+    )
+    return repo
+
+
+async def _user(client, db, username: str) -> dict:
+    db.add(User(username=username, password_hash=hash_password("pw"), role="user"))
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw"})
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+@pytest.mark.parametrize("form", ["path", "file", "ext"])
+async def test_clone_refuses_local_and_non_network_remotes(client, tmp_path, monkeypatch, form):
+    # A local path or file:// remote had the server clone a repository sitting on
+    # its own disk and hand it back as a ZIP.
+    from app.services import git_service
+
+    monkeypatch.setattr(git_service, "_LOCAL_REMOTES_ALLOWED", False)
+    admin = await _bootstrap_admin(client)
+    repo = _local_repo_with_secret(tmp_path)
+    url = {"path": str(repo), "file": f"file://{repo}", "ext": f"ext::sh -c touch% {tmp_path}/pwned"}[form]
+
+    r = await client.post(f"{API}/git/clone", headers=admin, json={"url": url, "branch": "main"})
+    assert r.status_code == 400
+    assert b"server file" not in r.content
+    assert not (tmp_path / "pwned").exists()
+    r = await client.post(f"{API}/git/verify-remote", headers=admin, json={"url": url})
+    assert r.status_code == 400
+
+
+def test_only_https_and_ssh_remotes_pass(monkeypatch):
+    from app.services import git_service as g
+
+    monkeypatch.setattr(g, "_LOCAL_REMOTES_ALLOWED", False)
+    for ok in ("https://framagit.org/g/r.git", "ssh://git@framagit.org/g/r.git", "git@framagit.org:g/r.git"):
+        g._require_network_remote(ok)
+    for bad in ("http://framagit.org/g/r.git", "/srv/repo", "file:///srv/repo", "ext::sh -c id",
+                "git@-oProxyCommand=id:x", "ssh://-oProxyCommand=id/x", "C:/repo"):
+        with pytest.raises(g.GitError):
+            g._require_network_remote(bad)
+    env = g._git_env()
+    assert env["GIT_ALLOW_PROTOCOL"] == "https:ssh"
+    assert ("http.followRedirects", "false") in [
+        (env[f"GIT_CONFIG_KEY_{i}"], env[f"GIT_CONFIG_VALUE_{i}"]) for i in range(int(env["GIT_CONFIG_COUNT"]))
+    ]
+
+
+async def test_clone_and_verify_need_a_write_permission(client, db, tmp_path):
+    admin = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    bob = await _user(client, db, "bob")
+    carol = await _user(client, db, "carol")
+    bob_id = (await client.get(f"{API}/auth/me", headers=bob)).json()["id"]
+    carol_id = (await client.get(f"{API}/auth/me", headers=carol)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": bob_id, "role": "editor"})
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": carol_id, "role": "viewer"})
+    url = f"file://{_local_repo_with_secret(tmp_path)}"
+
+    for route, extra in (("clone", {"branch": "main"}), ("verify-remote", {})):
+        assert (await client.post(f"{API}/git/{route}", headers=bob, json={"url": url, **extra})).status_code == 403
+        assert (await client.post(f"{API}/git/{route}", headers=carol, json={"url": url, "workspaceId": ws, **extra})).status_code == 403
+        assert (await client.post(f"{API}/git/{route}", headers=bob, json={"url": url, "workspaceId": ws, **extra})).status_code == 200
+        assert (await client.post(f"{API}/git/{route}", headers=admin, json={"url": url, **extra})).status_code == 200

@@ -230,15 +230,40 @@ def _clean_url(url: str) -> str:
     return url.rstrip("/")
 
 
-def _reject_internal_host(url: str) -> None:
-    """Refuse an http(s) remote whose host resolves to a loopback/link-local/
-    private/reserved address — the clone & sync flows let any authenticated user
-    make the server open a connection to an arbitrary URL, so block SSRF to the
-    metadata endpoint (169.254.169.254), localhost, and the internal network.
+# Remotes are network repositories only: a local path or file:// would have the
+# server clone its own disk (and hand it back as a ZIP), and ext:: runs a command.
+# Tests flip this to use local bare repos as remotes.
+_LOCAL_REMOTES_ALLOWED = False
 
-    ssh/git remotes are left to the OS (no server-side HTTP fetch); a host that
-    fails to resolve is left for git to error on (network code), not blocked here.
+_SCP_LIKE = re.compile(r"[\w.+-]+@([\w.-]+):(?!//)\S+")
+
+
+def _require_network_remote(url: str) -> None:
+    if _LOCAL_REMOTES_ALLOWED:
+        return
+    parts = urlsplit(url)
+    if parts.scheme.lower() in ("https", "ssh"):
+        host = parts.hostname or ""
+    else:
+        scp = _SCP_LIKE.fullmatch(url)
+        if scp is None:
+            raise GitError("remote must be an https:// or ssh URL", "network")
+        host = scp.group(1)
+    # A host starting with "-" would be read by ssh as an option.
+    if not host or host.startswith("-"):
+        raise GitError("remote URL has no valid host", "network")
+
+
+def _reject_internal_host(url: str) -> None:
+    """Refuse anything but an https/ssh remote, and an http(s) remote whose host
+    resolves to a loopback/link-local/private/reserved address — the clone & sync
+    flows make the server open a connection to a URL a user typed, so block SSRF
+    to the metadata endpoint (169.254.169.254), localhost, and the internal network.
+
+    ssh remotes are left to the OS (no server-side HTTP fetch); a host that fails
+    to resolve is left for git to error on (network code), not blocked here.
     """
+    _require_network_remote(url)
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         return
@@ -291,6 +316,9 @@ def _git_env() -> dict:
     - GIT_CONFIG_NOSYSTEM + HOME=/dev/null-ish: ignore system & user gitconfig.
     - credential.helper='' via GIT_CONFIG_COUNT: disable any credential helper
       (osxkeychain, cache, store) so no ambient credentials are ever used.
+    - GIT_ALLOW_PROTOCOL + http.followRedirects=false: whatever path reaches git,
+      it only speaks https/ssh, and a redirect cannot carry a request past the
+      internal-host check (which resolved the original host only).
     """
     import os
 
@@ -305,11 +333,14 @@ def _git_env() -> dict:
         #  0) credential.helper='' — disable keychain/cache/store (no ambient creds)
         #  1) init.defaultBranch=main — we ignore user gitconfig, so pin the default
         #     branch (git would otherwise fall back to 'master' on `git init`).
-        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_COUNT": "3",
         "GIT_CONFIG_KEY_0": "credential.helper",
         "GIT_CONFIG_VALUE_0": "",
         "GIT_CONFIG_KEY_1": "init.defaultBranch",
         "GIT_CONFIG_VALUE_1": "main",
+        "GIT_CONFIG_KEY_2": "http.followRedirects",
+        "GIT_CONFIG_VALUE_2": "false",
+        "GIT_ALLOW_PROTOCOL": "https:ssh:file" if _LOCAL_REMOTES_ALLOWED else "https:ssh",
     }
 
 

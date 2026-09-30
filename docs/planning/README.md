@@ -179,7 +179,7 @@ and the CNIL CDW framework. A1 is in *Priority*.
 | St | Item | Effort |
 |----|------|--------|
 | ✅ | A2. `test-connection` SSRF — permission + configurable host allowlist (private IPs are where an SPE's datamart lives) | S |
-| 🔜 | A3. Git: `clone`/`verify-remote`/`host-token` open to any user; local paths and `file://` not refused (to confirm by test); `GIT_ALLOW_PROTOCOL` | S |
+| ✅ | A3. Git: `clone`/`verify-remote`/`host-token` open to any user; local paths and `file://` not refused (to confirm by test); `GIT_ALLOW_PROTOCOL` | S |
 | 🔜 | A4. API-key session → `/execute` → kernel token → decrypted DB password (the 🤔 below): refuse the recipe to kernels started by an API key | S |
 | 🔜 | B1. Access log: successful login by username, downloads (`/raw`, blob, export ZIPs), row previews | S |
 | 🔜 | B2. Clamp or document `audit_retention_days` (6–12 months) | S |

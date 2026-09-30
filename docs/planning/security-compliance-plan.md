@@ -94,6 +94,15 @@ paths included). Empty = no restriction, so the SPE checklist (F) must set it.
 
 ### A3. Git routes — no entity check, local paths not refused
 
+**Confirmed by test, then fixed:** a plain user got `200` and the server-side repository
+as a ZIP for both a bare path and `file://`. Now every remote goes through
+`_require_network_remote` (https, `ssh://`, `user@host:path`; no host starting with
+`-`), `_git_env` sets `GIT_ALLOW_PROTOCOL=https:ssh` and `http.followRedirects=false`,
+and clone / verify-remote need a write permission in the `workspaceId` they send (or
+global `workspaces:write` without one). Left as is: `PUT /git/host-token` stores the
+caller's own token and opens no connection; ssh remotes are still not checked against
+internal addresses (an internal GitLab over ssh must keep working).
+
 - `POST /git/clone`, `/git/verify-remote` and `PUT /git/host-token` are open to any
   authenticated user (`api/v1/routes/git.py:1213-1300`).
 - `_reject_internal_host` returns early for any non-http(s) scheme
