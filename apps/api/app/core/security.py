@@ -42,7 +42,7 @@ def create_refresh_token(user_id: int, username: str, role: str) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
-def create_kernel_token(user_id: int, username: str, role: str, project_uid: str) -> str:
+def create_kernel_token(user_id: int, username: str, role: str, project_uid: str, *, via: str) -> str:
     """Mint the token injected into a kernel/terminal as ``LINKR_TOKEN``, for the
     client libraries (``linkr::databases()``).
 
@@ -57,6 +57,9 @@ def create_kernel_token(user_id: int, username: str, role: str, project_uid: str
         checked on every request, so it cannot read a project the script does not
         run in.
       * ``exp`` — kernel_token_expire_minutes, not 24 hours.
+      * ``via`` — how the caller that started the kernel authenticated. Only a
+        ``"web"`` one may fetch database recipes: a kernel started by an API key
+        runs an agent's code, which must not get the decrypted password.
 
     It carries the acting user's identity, so the permission checks behind the
     endpoints it may reach resolve to exactly what that user could already do in
@@ -68,6 +71,7 @@ def create_kernel_token(user_id: int, username: str, role: str, project_uid: str
         "username": username,
         "role": role,
         "project": project_uid,
+        "via": via,
         "type": "kernel",
         "iat": now,
         "exp": now + timedelta(minutes=settings.kernel_token_expire_minutes),

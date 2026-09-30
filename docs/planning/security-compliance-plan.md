@@ -121,6 +121,13 @@ internal addresses (an internal GitLab over ssh must keep working).
 
 ### A4. Agents can obtain the decrypted DB password
 
+**Fixed (the S part):** kernel tokens carry `via` (how the request that spawned the
+kernel authenticated, read from the audit context every auth path fills), and
+`get_kernel_user` refuses any kernel token whose `via` is not `web`. **Still open:** a
+kernel is shared per (project, user, language, session), and MCP `run_code` defaults to
+`default`, the user's IDE session — an agent running in a kernel the user started reads
+that kernel's web token. That is the 🤔 in *Per-user database credentials*.
+
 - `get_kernel_user` now refuses API tokens (`core/deps.py:120-125`).
 - But an API-key session can still call `POST /execute` (`api/v1/routes/execution.py:170-173`).
 - The spawned kernel gets a **kernel** token for that user (l.262-265). A script can then
