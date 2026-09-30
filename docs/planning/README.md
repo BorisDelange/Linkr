@@ -173,7 +173,7 @@ on a database), stable check ids, run export and catalog publish as W3C DQV.
 ## Security & compliance — [security-compliance-plan.md](security-compliance-plan.md)
 
 Audit of 2026-09-30 against the SPE frame ([../deployment-context.md](../deployment-context.md))
-and the CNIL CDW framework. Section A (A1–A4) is done — as-built in `docs/architecture.md` § Permissions; what it left open is below.
+and the CNIL CDW framework. Sections A, B, D, E and F are done — as-built in `docs/architecture.md` § Permissions; what is left is below.
 
 | St | Item | Effort |
 |----|------|--------|
