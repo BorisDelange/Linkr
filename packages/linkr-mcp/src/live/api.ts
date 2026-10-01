@@ -17,7 +17,7 @@ import type {
 import type { DerivePlanTable, DeriveRequest } from '@/lib/api/data-sources'
 import type { Job } from '@/lib/api/environments'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
-import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
+import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { effectiveMapping } from '@/lib/schema-classes/overrides'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
@@ -26,10 +26,10 @@ import type { ExecutionOutput, RunLanguage } from './ide.js'
 /** The database as the app's store publishes it: `schemaMapping` is the EFFECTIVE mapping (the
  *  stored base with the database's own overrides applied, e.g. a table removed from the preset),
  *  which is what every query must read; `schemaBaseMapping` keeps the stored base. */
-function withV2Mapping(ds: DataSource): DataSource {
+export function withV2Mapping(ds: DataSource): DataSource {
   if (!ds?.schemaMapping) return ds
   const base = sanitizeSchemaMapping(ds.schemaMapping)
-  return { ...ds, schemaBaseMapping: base, schemaMapping: effectiveMapping(base, ds.schemaOverrides) }
+  return { ...ds, schemaBaseMapping: base, schemaMapping: effectiveMapping(base, sanitizeSchemaOverrides(ds.schemaOverrides)) }
 }
 
 export interface Project {
