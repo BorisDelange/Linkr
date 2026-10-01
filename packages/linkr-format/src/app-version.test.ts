@@ -17,6 +17,17 @@ describe('compareVersions', () => {
   })
 })
 
+describe('compareVersions parity with the server', () => {
+  const here = dirname(fileURLToPath(import.meta.url))
+  const fixture = JSON.parse(readFileSync(resolve(here, 'app-version.fixture.json'), 'utf-8')) as {
+    cases: { a: string; b: string; expected: number }[]
+  }
+
+  it.each(fixture.cases)('compareVersions($a, $b) = $expected', ({ a, b, expected }) => {
+    expect(compareVersions(a, b)).toBe(expected)
+  })
+})
+
 describe('minAppVersionFor', () => {
   it('stamps nothing for a kind with no declared minimum', () => {
     expect(minAppVersionFor('project', '9.9.9')).toBeUndefined()

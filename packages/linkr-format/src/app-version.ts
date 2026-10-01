@@ -24,11 +24,21 @@ export const MIN_APP_VERSION: Partial<Record<LayoutKind, string>> = {
 }
 
 /**
+ * A version as it may be written: `X.Y.Z`, optionally `v`-prefixed, with a
+ * pre-release or build suffix (`2.4.3-beta`, `2.4.3+abc`). What the validator
+ * accepts in `minAppVersion`, and what `compareVersions` reads in full.
+ */
+export const VERSION_PATTERN = /^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?$/i
+
+/**
  * Compare two `X.Y.Z` versions numerically (`2.10.0` > `2.9.0`). A pre-release or
- * build suffix is ignored, and a missing segment reads as 0.
+ * build suffix is ignored, a segment counts its leading digits (`3rc1` reads 3,
+ * `rc` reads 0), and a missing segment reads as 0. Twin of `compare_versions`
+ * (apps/api/app/export_version.py); app-version.fixture.json holds the cases both
+ * must agree on.
  */
 export function compareVersions(a: string, b: string): number {
-  const parts = (v: string) => v.trim().replace(/^v/i, '').split(/[-+]/)[0]!.split('.').map((n) => parseInt(n, 10) || 0)
+  const parts = (v: string) => v.trim().replace(/^v/i, '').split(/[-+]/)[0]!.split('.').map((n) => Number(/^\d+/.exec(n)?.[0] ?? 0))
   const pa = parts(a)
   const pb = parts(b)
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {

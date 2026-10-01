@@ -397,9 +397,11 @@ describe('minAppVersion', () => {
     'schema.ddl': 'CREATE TABLE t (id INTEGER);',
   })
 
-  it('accepts a stamped version', () => {
-    const issues = validateEntity(preset({ minAppVersion: '2.4.3' }), 'schema-preset')
-    expect(issues.filter((i) => i.pointer === '/minAppVersion')).toEqual([])
+  it('accepts a stamped version, with the suffixes the importer reads past', () => {
+    for (const ok of ['2.4.3', '2.4.3-beta', 'v2.4.3-rc.1', '2.4.3+build.7']) {
+      const issues = validateEntity(preset({ minAppVersion: ok }), 'schema-preset')
+      expect(issues.filter((i) => i.pointer === '/minAppVersion')).toEqual([])
+    }
   })
 
   it('refuses one the importer could not compare', () => {
