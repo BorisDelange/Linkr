@@ -230,10 +230,11 @@ export async function uploadDataSourceFile(
  */
 export function retestConnectionOnServer(
   dataSourceId: string,
+  opts?: { promptLogin?: boolean },
 ): Promise<TestConnectionResult> {
   return apiRequest<TestConnectionResult>(`/data-sources/${dataSourceId}/retest`, {
     method: 'POST',
-  })
+  }, opts)
 }
 
 /**

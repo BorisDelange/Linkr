@@ -195,7 +195,9 @@ interface DataSourceState {
   rebuildFromSchema: (id: string) => Promise<void>
   /** Re-validate a server-mode external source (Postgres) using its stored
    *  credentials, refreshing status + stats. No-op in front-only mode. */
-  retestDataSource: (id: string) => Promise<void>
+  /** `background`: a repair the user did not ask for — never prompts for their
+   *  login, and leaves the database as it was when one is needed. */
+  retestDataSource: (id: string, opts?: { background?: boolean }) => Promise<void>
   /** `deleteData` (server mode) also removes what Linkr created for it — see
    *  `createdData`. Never offered for a connection someone added. */
   removeDataSource: (id: string, opts?: { deleteData?: boolean }) => Promise<void>
@@ -391,7 +393,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         // UI must not wait on one database per failed row before it renders.
         if (isServerMode()) {
           const broken = all.filter((ds) => ds.status === 'error')
-          void Promise.all(broken.map((ds) => get().retestDataSource(ds.id).catch(() => {})))
+          void Promise.all(broken.map((ds) => get().retestDataSource(ds.id, { background: true }).catch(() => {})))
         }
       } finally {
         // Only clear the slot if it is still ours: a forced reload started while
@@ -720,7 +722,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
   },
 
-  retestDataSource: async (id) => {
+  retestDataSource: async (id, opts) => {
     if (!isServerMode()) return
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds) return
@@ -752,7 +754,18 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       }))
       return
     }
-    const result = await retestConnectionOnServer(id)
+    let result
+    try {
+      result = await retestConnectionOnServer(id, { promptLogin: !opts?.background })
+    } catch (e) {
+      // Nothing was learned (no login yet, or the request failed): put back what
+      // the row said, instead of leaving it stuck on 'configuring'.
+      set((s) => ({
+        dataSources: s.dataSources.map((d) => (d.id === id ? { ...d, status: ds.status, errorMessage: ds.errorMessage } : d)),
+      }))
+      if (opts?.background) return
+      throw e
+    }
     let updated: Partial<DataSource>
     if (result.ok) {
       // No COUNT(*) on re-test either — just the free table count from the schema.

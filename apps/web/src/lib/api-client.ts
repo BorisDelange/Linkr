@@ -72,6 +72,7 @@ async function refreshTokens(): Promise<boolean> {
 export async function apiFetch(
   path: string,
   options: RequestInit = {},
+  { promptLogin = true }: { promptLogin?: boolean } = {},
 ): Promise<Response> {
   const url = `${getApiBaseUrl()}${path}`
   const token = getStoredToken()
@@ -108,7 +109,10 @@ export async function apiFetch(
 
   // 428 "enter your own login": wait for the user to give one, then retry once.
   // Never for the login route itself, which would prompt about its own refusal.
-  if (res.status === 428 && !path.includes('/my-login')) {
+  // Background work (`promptLogin: false`) gets the 428 back instead: a dialog
+  // the user did not ask for, on whatever page they are on, is worse than a
+  // database that stays as it was until they open it.
+  if (res.status === 428 && promptLogin && !path.includes('/my-login')) {
     const detail = credentialRequiredDetail(await res.clone().json().catch(() => null))
     if (detail && await requestDatabaseLogin(detail.dataSourceId, detail.sessionOnly)) {
       const retryHeaders = new Headers(options.headers)
@@ -187,8 +191,12 @@ export function formatApiError(err: unknown): FormattedError {
  * Typed JSON request helper for API entity storage adapters.
  * Prefixes /api/v1, adds auth + refresh via apiFetch, throws ApiError on failure.
  */
-export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await apiFetch(`/api/v1${path}`, init)
+export async function apiRequest<T>(
+  path: string,
+  init?: RequestInit,
+  opts?: { promptLogin?: boolean },
+): Promise<T> {
+  const res = await apiFetch(`/api/v1${path}`, init, opts)
   if (!res.ok) {
     throw new ApiError(res.status, await res.text())
   }
