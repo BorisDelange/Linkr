@@ -208,3 +208,20 @@ async def test_finished_imports_are_pruned_when_a_new_one_starts():
 
 def test_literal_drops_nul():
     assert lib._lit("a\0'b") == "'a''b'"
+
+
+async def test_a_removal_during_an_import_answers_409_at_once(client):
+    headers = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "vocab", "name": "Vocabularies", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "vocabularyLibrary": True},
+        "schemaMapping": {"knownTables": list(lib.LIBRARY_TABLES)},
+        "isVocabularyReference": True,
+    })
+    remove = client.delete(f"{API}/workspaces/{ws}/vocabulary-library/vocabularies/LOINC", headers=headers)
+    async with lib.workspace_lock(ws):
+        r = await asyncio.wait_for(remove, timeout=5)
+    assert r.status_code == 409
+    r = await client.delete(f"{API}/workspaces/{ws}/vocabulary-library/vocabularies/LOINC", headers=headers)
+    assert r.status_code == 204
