@@ -28,7 +28,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // Relative paths, not `@linkr/format`: the workspace link is not installed in
@@ -38,6 +38,8 @@ import {
   buildSeedManifest, buildSeedProjectIndex, buildSeedRoot,
 } from '../packages/linkr-format/src/seed-manifest.js'
 import { FsTree } from '../packages/linkr-format/src/node/fs-tree.js'
+import { isAppTooOld } from '../packages/linkr-format/src/app-version.js'
+import { ENTITY_MANIFEST, MANIFEST } from '../packages/linkr-format/src/layout.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SEED_DIR = join(ROOT, 'apps/web/public/data/seed')
@@ -158,6 +160,8 @@ function main() {
     copyTree(child, join(target, dir, link.folder))
   }
 
+  refuseTooNew(target)
+
   // Index the assembled tree. The generator is shared with linkr-portal's build,
   // so both produce the same manifest from the same tree.
   const manifest = buildSeedManifest(new FsTree(target), {
@@ -193,6 +197,36 @@ function main() {
     fail('the workspace was fetched but indexed to nothing — refusing to ship an empty seed')
   }
   log(`${manifest.entities.length} entities indexed → ${target}`)
+}
+
+const MANIFEST_NAMES = new Set([ENTITY_MANIFEST, ...Object.values(MANIFEST)])
+
+/**
+ * Fail when a manifest of the assembled tree needs a newer Linkr than the one
+ * being built. The browser reads the seed file by file, past the ZIP import's
+ * up-front check; shipping such content would land it half-read in every
+ * install of this build, so the build stops instead.
+ */
+function refuseTooNew(root) {
+  const appVersion = readFileSync(join(ROOT, 'VERSION'), 'utf-8').trim()
+  const tooNew = []
+  for (const rel of readdirSync(root, { recursive: true, encoding: 'utf-8' })) {
+    if (/(^|[/\\])\.git([/\\]|$)/.test(rel) || !MANIFEST_NAMES.has(rel.split(/[/\\]/).pop())) continue
+    const text = readFileSync(join(root, rel), 'utf-8')
+    // A record list sharing a manifest's name (mappings.json) carries no stamp.
+    if (text.trimStart().startsWith('[')) continue
+    let min
+    try {
+      min = JSON.parse(text)?.minAppVersion
+    } catch {
+      continue
+    }
+    if (isAppTooOld(min, appVersion)) tooNew.push(`${rel} (needs ${min})`)
+  }
+  if (tooNew.length) {
+    fail(`content needs a newer Linkr than this build (${appVersion}):\n  ${tooNew.join('\n  ')}\n`
+      + 'Pin the linked repos to a ref this version reads, or build a newer Linkr.')
+  }
 }
 
 function readJsonIfPresent(path) {

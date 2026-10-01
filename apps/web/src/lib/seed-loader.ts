@@ -11,7 +11,7 @@
  */
 
 import {
-  CONTENT_FILE, ENTITY_MANIFEST, MANIFEST, SCRIPTS_DIR, SIDECAR,
+  CONTENT_FILE, ENTITY_MANIFEST, isAppTooOld, MANIFEST, SCRIPTS_DIR, SIDECAR,
   type LayoutKind, type SeedProjectIndex as FormatSeedProjectIndex,
 } from '@linkr/format'
 import { getStorage, type Storage } from '@/lib/storage'
@@ -27,6 +27,7 @@ import {
   type CohortBoardBundle, type CompactSourceConceptIdEntries, type DashboardBundle,
 } from '@/lib/entity-io'
 import i18n from '@/lib/i18n'
+import { APP_VERSION } from '@/lib/version'
 import { beginSeedPhase, reportSeedStep, endSeed } from '@/lib/seed-progress'
 import { deterministicId } from '@/lib/deterministic-id'
 import { fromPathTree, readPathTree, storablePathNode } from '@/lib/entity-tree'
@@ -237,9 +238,22 @@ async function fetchJson<T>(path: string): Promise<T | null> {
 async function fetchManifest<T>(dir: string, kind: LayoutKind, ...legacy: string[]): Promise<T | null> {
   for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...legacy]) {
     const found = await fetchJson<T>(`${dir}/${name}`)
-    if (found) return found
+    if (found) return tooNewToSeed(found, `${dir}/${name}`) ? null : found
   }
   return null
+}
+
+/**
+ * Whether a seeded manifest needs a newer Linkr than this build. The seed is read
+ * file by file over HTTP, so the ZIP import's up-front check never sees it: each
+ * manifest is checked as it is read, and one too new is skipped rather than
+ * half-read by tolerant readers.
+ */
+function tooNewToSeed(meta: unknown, where: string): boolean {
+  const min = (meta as { minAppVersion?: unknown } | null)?.minAppVersion
+  if (!isAppTooOld(min, APP_VERSION)) return false
+  console.warn(`[seed-loader] ${where} needs Linkr ${String(min)} or later (this is ${APP_VERSION}), skipping`)
+  return true
 }
 
 
@@ -899,7 +913,7 @@ async function loadWorkspaceInternals(
   // --- schemas/ ---
   for (const path of index.schemas ?? []) {
     const sp = await fetchJson<CustomSchemaPreset>(`${base}/${path}`)
-    if (!sp) continue
+    if (!sp || tooNewToSeed(sp, path)) continue
     // The mapping and the DDL are their own files since the schema split; only a
     // tree written before it has them inline. Reading just the inline form seeded
     // every published preset with an empty mapping and no DDL — a schema that
@@ -940,7 +954,7 @@ async function loadWorkspaceInternals(
   // --- databases/ (metadata only, no credentials/files) ---
   for (const path of index.databases ?? []) {
     const ds = await fetchJson<Partial<DataSource>>(`${base}/${path}`)
-    if (!ds) continue
+    if (!ds || tooNewToSeed(ds, path)) continue
     const id = entityKey(ds, path.split('/').at(-2) ?? path)
     const existingDs = await storage.dataSources.getById(id)
     if (existingDs) continue
@@ -1078,7 +1092,7 @@ async function loadWorkspaceInternals(
     const pluginMeta =
       await fetchJson<{ id: string; createdAt: string; updatedAt: string }>(`${pluginBase}/${ENTITY_MANIFEST}`)
       ?? await fetchJson<{ id: string; createdAt: string; updatedAt: string }>(`${pluginBase}/${MANIFEST['user-plugin']}`)
-    if (!pluginMeta) continue
+    if (!pluginMeta || tooNewToSeed(pluginMeta, pluginBase)) continue
     const files: Record<string, string> = {}
     for (const fileName of index.pluginFiles?.[pluginFolder] ?? []) {
       // The entity manifest is provenance, not plugin source — a copy inside
