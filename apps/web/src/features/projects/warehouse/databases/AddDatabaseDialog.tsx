@@ -636,8 +636,12 @@ export function AddDatabaseDialog({
   // before the slow part (upload / WASM mount) finishes and this dialog closes,
   // so the check would match the row we just created and report the name we are
   // importing under as already taken.
+  // Names are unique per workspace: the store holds every workspace's databases,
+  // and a new one joins the active workspace.
+  const targetWorkspaceId = editingSource ? editingSource.workspaceId : activeWorkspaceId ?? undefined
   const nameIsDuplicate = !uploading && name.trim()
-    && dataSources.some(ds => localized(ds.name, language).toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
+    && dataSources.some(ds => ds.workspaceId === targetWorkspaceId
+      && localized(ds.name, language).toLowerCase() === name.trim().toLowerCase() && ds.id !== editingSource?.id)
 
   // Pointing at server data replaces the upload entirely: nothing is copied, so
   // the file requirement is satisfied by the path instead.
