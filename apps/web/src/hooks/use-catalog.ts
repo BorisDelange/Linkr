@@ -61,6 +61,7 @@ export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
   if (cacheFor !== cacheKey) {
     setCacheFor(cacheKey)
     setCache(catalog ? loadCatalogCache(catalog.id, catalog) : null)
+    setLoading(false)
     setError(null)
     setUpdate(null)
   }
@@ -68,6 +69,9 @@ export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
 
   const download = useCallback(async () => {
     if (!catalog) return
+    // Every state write below is for THIS catalog: a switch mid-download must not
+    // paint its spinner, error or result on the next one.
+    const key = cacheKey
     const source = catalogSourceOf(catalog)
     if (!source) {
       setError('not-found')
@@ -81,14 +85,14 @@ export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
       const fetched = await fetchCatalog(source)
       const index = await fetchCatalogIndex(source).catch(() => null)
       const next = toCache(fetched, index, new Date().toISOString())
-      if (shownRef.current !== cacheKey) return
+      if (shownRef.current !== key) return
       saveCatalogCache(catalog.id, catalog, next)
       setCache(next)
       setUpdate(null)
     } catch (err) {
-      setError(err instanceof CatalogError ? err.kind : 'network')
+      if (shownRef.current === key) setError(err instanceof CatalogError ? err.kind : 'network')
     } finally {
-      setLoading(false)
+      if (shownRef.current === key) setLoading(false)
     }
   }, [catalog, cacheKey])
 
