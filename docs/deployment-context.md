@@ -39,6 +39,7 @@ checkpoint, and must carry no patient-level data.
 | Extract a project's regulatory datamart, per-project pseudonyms | CDW management platform |
 | Two-factor authentication, network isolation, disk encryption | SPE |
 | Approve / check exports leaving the SPE | SPE export checkpoint |
+| Show someone aggregates without the rows behind them | Not provided — whoever may read a project in Linkr reads its rows. People limited to aggregates get exported results, through the export checkpoint |
 
 Consequences for design:
 
@@ -64,10 +65,7 @@ Inheriting the SPE's security only holds if Linkr does not undo it from the insi
 3. **Nothing patient-level in what travels to the global instance.** Mapping projects,
    DQ rule sets, SQL collections, wiki pages exported from an SPE must carry no
    patient-level values and no small counts.
-4. **Aggregate-only restitution when asked.** A dashboard shown to people who may only
-   see aggregates must be computed server-side with small-cell suppression, including
-   under filtering.
-5. **Works offline.** No runtime dependency on the internet in server mode:
+4. **Works offline.** No runtime dependency on the internet in server mode:
    - package installs go through institution mirrors (`pip_index_url`, `r_repos`);
    - the community catalog and git remotes are optional;
    - the MCP ships its docs index (`packages/linkr-mcp/data/docs-index.json.gz`);

@@ -178,8 +178,6 @@ and the CNIL CDW framework. Sections A, B, D, E and F are done — as-built in `
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | D follow-up: a `script-src` CSP for the app's pages — R/Python widgets run inline scripts in srcdoc iframes, which inherit the page's CSP, so it needs a pass in a real browser (widgets, Monaco, DuckDB-WASM workers, maps) | S |
-| 🤔 | C1. Aggregate-only access: `rows` action on databases/datasets/patient-data/cohorts + default role `aggregates` + route classification — validate the design | M |
-| 🔜 | C2. Dashboard aggregate mode: frozen published snapshot first, then a live server aggregation endpoint with suppression + cell-key noise | L |
 | 💤 | A1 follow-up: kernels under their own OS identity, no read access to `data_dir` | L |
 
 ## Permissions

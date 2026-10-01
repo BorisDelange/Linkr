@@ -19,7 +19,7 @@ extraction, export approval (SEC-AUT, SEC-RES, SEC-LOG-2/3, SEC-PSE, SEC-ESP-2, 
 
 Still Linkr's job: no privilege escalation inside an instance, traceability of what
 happens in Linkr (SEC-JOU-1/4), nothing patient-level towards the global instance
-(SEC-EXP-1), aggregate-only restitution when needed (SEC-HAB-2, SEC-EXP-4).
+(SEC-EXP-1). Aggregate-only restitution (SEC-HAB-2, SEC-EXP-4) was considered and dropped — see C.
 
 ## A. Blocking — whatever the deployment
 
@@ -225,6 +225,10 @@ The dialog now calls it through the API client (it built its own URL, without
   - log it (`password_change`).
 
 ## C. Aggregate-only access — SEC-HAB-2, SEC-EXP-4
+
+**Dropped (decision 2026-10-01): not built.** Aggregate-only restitution is out of
+Linkr's scope; whoever may read a project's data in Linkr may read its rows. The analysis
+below is kept for the record only.
 
 Needed when some members of an SPE, or the audience of a steering dashboard, may see
 aggregates but not rows. Today `databases:read` / `datasets:read` return raw rows
