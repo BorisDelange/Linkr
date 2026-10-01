@@ -33,6 +33,7 @@ import {
   type EntityDocs,
 } from '@/lib/entity-docs-pull'
 import type { LocalizedString } from '@/types'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 /** The manifest carrying the preset's mapping config and its name/description. */
 export const PRESET_MANIFEST_FILE = ENTITY_MANIFEST
@@ -213,7 +214,7 @@ export async function prepareSchemaPresetPull(
   const url = preset?.gitRemoteConfig?.url
   if (!url) throw new Error('Schema preset is not linked to a git remote')
 
-  const cloned = await gitCloneToZip(cleanGitUrl(url), branch)
+  const cloned = await gitCloneToZip(cleanGitUrl(url), branch, undefined, getActiveWorkspaceId())
   const parsed = await parseImportZip(new File([cloned.blob], 'pull.zip'))
 
   const rawRemote = readImportedManifest<CustomSchemaPreset>(parsed, 'schema-preset')

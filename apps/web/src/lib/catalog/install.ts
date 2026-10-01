@@ -34,6 +34,7 @@ import { stampAuthored } from '@/stores/app-store'
 import type { Storage } from '@/lib/storage'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import type { CatalogEntry } from './types'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 // A published entity is small (metadata + scripts). This is a guard against a
 // hostile/oversized catalog repo, not a real content limit.
@@ -284,7 +285,7 @@ export async function prepareCatalogInstall(
   const branch = entry.git.branch || 'main'
   try {
     const JSZipMod = (await import('jszip')).default
-    const cloned = await gitCloneToZip(entry.git.url, branch)
+    const cloned = await gitCloneToZip(entry.git.url, branch, undefined, getActiveWorkspaceId())
     // The catalog is untrusted: cap the archive before decompressing so an entry
     // pointing at a huge or zip-bomb repo can't hang or OOM the tab.
     if (cloned.blob.size > MAX_CLONE_BYTES) {
@@ -573,7 +574,7 @@ async function cloneWorkspaceChildren(
       if (match) id = match.id
     }
     try {
-      const cloned = await gitCloneToZip(child.url, child.branch)
+      const cloned = await gitCloneToZip(child.url, child.branch, undefined, getActiveWorkspaceId())
       if (cloned.blob.size > MAX_CLONE_BYTES) {
         failed.push({ name: child.name, reason: 'The archive is too large to install.' })
         continue

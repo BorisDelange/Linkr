@@ -10,6 +10,7 @@
 import { isServerMode } from '@/lib/api-client'
 import { gitCloneToZip } from '@/lib/api/git'
 import { isDictionaryFile, readDictionaryTree, type DictionaryContent } from './content'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 export const DEFAULT_DICTIONARY_REPO = 'https://github.com/indicate-eu/data-dictionary'
 export const DEFAULT_DICTIONARY_BRANCH = 'main'
@@ -26,7 +27,7 @@ export function repoName(url: string): string {
 }
 
 async function fromClone(url: string, branch: string): Promise<{ files: Record<string, string>; commit: string | null }> {
-  const { blob, oid } = await gitCloneToZip(url, branch)
+  const { blob, oid } = await gitCloneToZip(url, branch, undefined, getActiveWorkspaceId())
   const JSZip = (await import('jszip')).default
   const zip = await JSZip.loadAsync(blob)
   const files: Record<string, string> = {}

@@ -6,7 +6,6 @@
  * buildWorkspaceZip). The backend unpacks it, then diffs / commits / pushes.
  */
 import { apiFetch, apiRequest } from '@/lib/api-client'
-import { useWorkspaceStore } from '@/stores/workspace-store'
 import type { FileChangeType } from '@/types'
 
 export type GitScope =
@@ -213,10 +212,14 @@ export async function gitError(res: Response): Promise<GitRemoteError> {
  * Throws GitRemoteError (with a code) if the URL is wrong or auth fails, so the
  * caller can refuse to save a link that doesn't actually work.
  */
-export async function gitVerifyRemote(url: string, token?: string): Promise<GitVerifyResult> {
+export async function gitVerifyRemote(
+  url: string,
+  token: string | undefined,
+  workspaceId: string | undefined,
+): Promise<GitVerifyResult> {
   const res = await apiFetch('/api/v1/git/verify-remote', {
     method: 'POST',
-    body: JSON.stringify({ url, token: token || undefined, workspaceId: activeWorkspaceId() }),
+    body: JSON.stringify({ url, token: token || undefined, workspaceId }),
   })
   if (!res.ok) throw await gitError(res)
   return res.json()
@@ -246,20 +249,16 @@ export async function gitHostTokenStatus(url: string): Promise<GitHostTokenStatu
   return apiRequest<GitHostTokenStatus>(`/git/host-token?url=${encodeURIComponent(url)}`)
 }
 
-/** The server lets a user fetch a remote only for a workspace they can write in
- *  (or, with none, when they may create workspaces): the active one by default. */
-function activeWorkspaceId(): string | undefined {
-  return useWorkspaceStore.getState().activeWorkspaceId ?? undefined
-}
-
 /** Clone a remote server-side, returning its content as a ZIP Blob for import,
  *  plus the cloned HEAD oid (so the import can anchor the new entity's sync
- *  state to it — see gitSetSyncState). */
+ *  state to it — see gitSetSyncState). The server lets a user fetch a remote only
+ *  for a workspace they can write in (or, with none, when they may create
+ *  workspaces), hence `workspaceId` — usually the active one. */
 export async function gitCloneToZip(
   url: string,
   branch: string,
-  token?: string,
-  workspaceId: string | undefined = activeWorkspaceId(),
+  token: string | undefined,
+  workspaceId: string | undefined,
 ): Promise<{ blob: Blob; oid: string | null }> {
   const res = await apiFetch('/api/v1/git/clone', {
     method: 'POST',

@@ -18,6 +18,7 @@ import { GitErrorInline } from './GitErrorInline'
 import { GitTokenDialog } from './GitTokenDialog'
 import { GitConfigDialog } from './GitConfigDialog'
 import { GitReinstallDialog } from './GitReinstallDialog'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 interface GitRepositoryTabProps {
   /** Current git link, or null when unlinked. */
@@ -101,7 +102,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
       // A successful verify with a token also stores it for this user + host, so
       // the token-less sync ops can use it afterwards.
       if (isServerMode()) {
-        const check = await gitVerifyRemote(cleanUrl, token || undefined)
+        const check = await gitVerifyRemote(cleanUrl, token || undefined, getActiveWorkspaceId())
         if (check.default) resolvedBranch = check.default
       }
       // The link on the entity is url + branch only — the token lives per-user.
