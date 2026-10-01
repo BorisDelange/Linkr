@@ -3852,6 +3852,7 @@
     "type_dq_rule_set": "Règles de qualité",
     "type_schema_preset": "Préréglage de schéma",
     "type_database": "Base de données",
+    "type_user_plugin": "Plugin utilisateur",
     "settings_url": "URL du dépôt du catalogue",
     "settings_branch": "Branche",
     "settings_invalid_url": "Saisissez une URL https vers un dépôt GitLab (groupe/dépôt).",

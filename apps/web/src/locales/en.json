@@ -3852,6 +3852,7 @@
     "type_dq_rule_set": "Quality rules",
     "type_schema_preset": "Schema preset",
     "type_database": "Database",
+    "type_user_plugin": "User plugin",
     "settings_url": "Catalog repository URL",
     "settings_branch": "Branch",
     "settings_invalid_url": "Enter an https URL to a GitLab repository (group/repo).",
