@@ -695,6 +695,12 @@ interface BuildMappingProjectFolderOptions {
    * of MB, so it only travels when the user asks for it.
    */
   scores?: ScoresSelection
+  /**
+   * Keep counts and profiles as they are, for a copy that stays in this
+   * instance (duplication). Everything that leaves it — ZIP, git, workspace
+   * export — is masked, which is the default.
+   */
+  unmasked?: boolean
 }
 
 export interface ScoresSelection {
@@ -720,10 +726,10 @@ export interface ScoresSelection {
  * compared by the merge, so stripping them there would fabricate conflicts). Rows
  * are sorted by a stable key so DB ordering never shows up as a spurious diff.
  */
-function serializeMappingsForVersioning(mappings: ConceptMapping[]): string {
+function serializeMappingsForVersioning(mappings: ConceptMapping[], unmasked = false): string {
   const cleaned = mappings.map((m) => {
     const { id: _id, projectId: _p, updatedAt: _u, sourceConceptId: _s, ...rest } = m
-    return 'sourceFrequency' in rest ? { ...rest, sourceFrequency: maskFrequency(rest.sourceFrequency) } : rest
+    return 'sourceFrequency' in rest && !unmasked ? { ...rest, sourceFrequency: maskFrequency(rest.sourceFrequency) } : rest
   })
   // Sort by sourceConceptCode first (readable diffs), then break EVERY tie down to
   // the full merge identity: a source concept can map to several targets, so
@@ -825,7 +831,17 @@ export async function buildMappingProjectFolder(
   writeReadmeFiles(zip, prefix, project.readme)
   writeLicenseFile(zip, prefix, project.license)
   await writeAttachmentFiles(zip, prefix, storage, 'mapping-project', project.id)
-  zip.file(`${prefix}mappings.json`, serializeMappingsForVersioning(mappings))
+  zip.file(`${prefix}mappings.json`, serializeMappingsForVersioning(mappings, options.unmasked))
+  const maskCsv = (csv: string) => (options.unmasked ? csv : maskSourceConceptsCsv(csv, project.fileSourceData?.columnMapping))
+  const writeSource = async (buf: Uint8Array) => {
+    if (!options.unmasked) {
+      zip.file(`${prefix}source-concepts.csv`, await maskedSourceConcepts(buf, project.fileSourceData?.columnMapping))
+      return
+    }
+    const csv = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : null
+    // Raw bytes go uncompressed (avoids memory overflow on large files)
+    zip.file(`${prefix}source-concepts.csv`, csv ?? buf, csv === null ? { compression: 'STORE' } : {})
+  }
 
   // SSSOM / Usagi / source-to-concept-map are derivable from mappings.json — they
   // were dropped from the project ZIP to keep it lean. Use the dedicated buttons in
@@ -839,19 +855,16 @@ export async function buildMappingProjectFolder(
       const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
         ? project.fileSourceData.rawFileBuffer
         : new Uint8Array(project.fileSourceData.rawFileBuffer)
-      zip.file(`${prefix}source-concepts.csv`, await maskedSourceConcepts(buf, project.fileSourceData.columnMapping))
+      await writeSource(buf)
     } else if (project.fileSourceData.rows.length > 0) {
       // Legacy format: export from parsed rows
       zip.file(
         `${prefix}source-concepts.csv`,
-        maskSourceConceptsCsv(
-          exportSourceConceptsCsv(
-            project.fileSourceData.rows,
-            project.fileSourceData.columns,
-            project.fileSourceData.columnMapping,
-          ),
+        maskCsv(exportSourceConceptsCsv(
+          project.fileSourceData.rows,
+          project.fileSourceData.columns,
           project.fileSourceData.columnMapping,
-        ),
+        )),
       )
     } else {
       // Server mode: the raw bytes never came to the browser (no rawFileBuffer,
@@ -863,7 +876,7 @@ export async function buildMappingProjectFolder(
           const { fetchRawFileFromServer } = await import('@/lib/api/mapping-projects')
           const buf = await fetchRawFileFromServer(project.id)
           if (buf && buf.byteLength > 0) {
-            zip.file(`${prefix}source-concepts.csv`, await maskedSourceConcepts(buf, project.fileSourceData.columnMapping))
+            await writeSource(buf)
           }
         }
       } catch (err) {
@@ -882,7 +895,7 @@ export async function buildMappingProjectFolder(
         if (sql) {
           const rows = await options.queryDataSource(ds.id, sql)
           if (rows.length > 0) {
-            zip.file(`${prefix}source-concepts.csv`, maskSourceConceptsCsv(buildSourceConceptsCsvFromRows(rows)))
+            zip.file(`${prefix}source-concepts.csv`, options.unmasked ? buildSourceConceptsCsvFromRows(rows) : maskSourceConceptsCsv(buildSourceConceptsCsvFromRows(rows)))
           }
         }
       } catch {

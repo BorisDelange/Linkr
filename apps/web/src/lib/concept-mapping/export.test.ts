@@ -176,6 +176,33 @@ describe('buildMappingProjectFolder — portable entity.json', () => {
   })
 })
 
+describe('buildMappingProjectFolder — masking', () => {
+  const csv = 'terminology,concept_code,record_count\nLOCAL,A,4\n'
+  const fileProject = {
+    ...project,
+    sourceType: 'file',
+    fileSourceData: { rawFileBuffer: new TextEncoder().encode(csv), rows: [], columns: [], columnMapping: {} },
+  } as unknown as MappingProject
+  const storage = {
+    conceptMappings: { getByProject: async () => [{ ...makeMapping(), sourceFrequency: 4 }] },
+  } as unknown as Storage
+
+  const build = async (unmasked?: boolean) => {
+    const zip = new JSZip()
+    await buildMappingProjectFolder(zip, '', fileProject, storage, { unmasked })
+    const mappings = JSON.parse(await zip.file('mappings.json')!.async('string')) as ConceptMapping[]
+    return { source: await zip.file('source-concepts.csv')!.async('string'), frequency: mappings[0].sourceFrequency }
+  }
+
+  it('masks what leaves the instance', async () => {
+    expect(await build()).toEqual({ source: 'terminology,concept_code,record_count\nLOCAL,A,<11\n', frequency: null })
+  })
+
+  it('keeps a duplicate made inside the instance whole', async () => {
+    expect(await build(true)).toEqual({ source: csv, frequency: 4 })
+  })
+})
+
 describe('restoreFileSourceDataFromCsv — LFS pointer guard', () => {
   const base = () => ({
     sourceType: 'file',
