@@ -98,12 +98,39 @@ function injectBootBytes(): Plugin {
 // Sub-path deployments (e.g. reverse proxy exposing the app under
 // /docker-9250/): BASE_PATH prefixes all asset URLs and, via Vite's BASE_URL,
 // the router basename in main.tsx. Normalized to /…/ as Vite requires.
-// Set it only when the proxy does NOT strip the prefix — when it does, the app
-// sees "/" and a prefix here would break every asset URL.
+// In a production build, set it only when the proxy does NOT strip the prefix —
+// when it does, nginx sees "/" and a prefix here would break every asset URL.
+// The dev server copes with both (see restoreBasePrefix).
 function normalizeBasePath(raw: string | undefined) {
   const trimmed = (raw || '/').trim()
   if (trimmed === '' || trimmed === '/') return '/'
   return `/${trimmed.replace(/^\/+|\/+$/g, '')}/`
+}
+
+/**
+ * Put the BASE_PATH prefix back on dev-server requests that arrive without it.
+ *
+ * A proxy that strips the prefix forwards `/src/main.tsx` while the page, built
+ * with `base`, keeps asking for `/docker-9250/src/main.tsx`; Vite only serves
+ * under `base` and answers the stripped form with a redirect loop or a 404.
+ * Re-prefixing at the socket, before Vite's own middlewares, makes both proxy
+ * styles look the same to it — HTTP and the HMR websocket upgrade alike.
+ */
+function restoreBasePrefix(prefix: string): Plugin {
+  const restore = (req: { url?: string }) => {
+    const url = req.url
+    if (!url || url === prefix || url.startsWith(`${prefix}/`)) return
+    req.url = `${prefix}${url}`
+  }
+  return {
+    name: 'restore-base-prefix',
+    apply: 'serve',
+    configureServer(server) {
+      if (!prefix) return
+      server.httpServer?.prependListener('request', restore)
+      server.httpServer?.prependListener('upgrade', restore)
+    },
+  }
 }
 
 export default defineConfig(({ mode }) => {
@@ -115,6 +142,10 @@ export default defineConfig(({ mode }) => {
   const webPort = Number(env.WEB_PORT) || 3000
   const apiPort = Number(env.API_PORT) || 8000
   const basePath = normalizeBasePath(env.BASE_PATH)
+  // The same prefix without its trailing slash, '' at the root: what dev-server
+  // request paths start with once restoreBasePrefix has run.
+  const basePrefix = basePath.slice(0, -1)
+  const unprefix = (p: string) => p.slice(basePrefix.length)
 
   // Remote dev (VS Code container, devbox, VM): the browser is not on the host
   // running vite, so the server must listen beyond loopback — WEB_HOST=0.0.0.0.
@@ -156,7 +187,14 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: basePath,
-    plugins: [react(), tailwindcss(), seedHashesPlugin(), injectBootBytes(), stripCoiInServerMode(!!env.VITE_API_URL)],
+    plugins: [
+      react(),
+      tailwindcss(),
+      seedHashesPlugin(),
+      injectBootBytes(),
+      stripCoiInServerMode(!!env.VITE_API_URL),
+      restoreBasePrefix(basePrefix),
+    ],
     define: {
       __APP_BUILD_HASH__: JSON.stringify(gitHash),
       __APP_VERSION__: JSON.stringify(appVersion),
@@ -180,14 +218,18 @@ export default defineConfig(({ mode }) => {
         'Cross-Origin-Opener-Policy': 'same-origin',
         'Cross-Origin-Embedder-Policy': 'credentialless',
       },
+      // Under a sub-path, API calls carry the prefix; the backend serves /api and
+      // /ws at its root, so the prefix comes off on the way through.
       proxy: {
-        '/api': {
+        [`${basePrefix}/api`]: {
           target: `http://localhost:${apiPort}`,
           changeOrigin: true,
+          rewrite: unprefix,
         },
-        '/ws': {
+        [`${basePrefix}/ws`]: {
           target: `ws://localhost:${apiPort}`,
           ws: true,
+          rewrite: unprefix,
         },
       },
     },
