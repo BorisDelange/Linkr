@@ -128,7 +128,7 @@ export function AccessLogTab() {
   ], [t, i18n.language, sourceName])
 
   return (
-    <Card className="mt-4 gap-2">
+    <Card className="mt-4 min-h-0 flex-1 gap-2">
       <CardHeader>
         <CardTitle className="text-sm">{t('access_log.title')}</CardTitle>
         <CardDescription>{t('access_log.description')}</CardDescription>
@@ -147,7 +147,7 @@ export function AccessLogTab() {
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className="space-y-2">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-2">
         {error && <p className="text-xs text-destructive">{error}</p>}
         {verify && (
           <div className={verify.ok ? 'flex items-center gap-2 text-xs text-muted-foreground' : 'flex items-center gap-2 text-xs text-destructive'}>
@@ -157,7 +157,8 @@ export function AccessLogTab() {
               : t('access_log.verify_broken', { seq: verify.brokenAtSeq })}
           </div>
         )}
-        <div className="h-[560px] overflow-hidden rounded-lg border">
+        {/* Fills what the page leaves; never so short the table cannot be used. */}
+        <div className="min-h-[360px] flex-1 overflow-hidden rounded-lg border">
           <DataTable
             data={entries}
             columns={columns}

@@ -33,11 +33,13 @@ export function SettingsPage() {
   // same tab; ?tab= is still read for old links.
   const requestedTab = tab ?? searchParams.get('tab') ?? 'general'
   const activeTab = TABS.includes(requestedTab) ? requestedTab : 'general'
+  const fullPage = activeTab === 'access-log'
 
   return (
     <div className="h-full overflow-auto">
-      {/* The access log is a wide table: it takes the page's full width. */}
-      <div className={cn('mx-auto px-6 py-10', activeTab === 'access-log' ? 'max-w-none' : 'max-w-5xl')}>
+      {/* The access log is a large table: it takes the page's full width and
+          height, the table scrolling inside rather than the page. */}
+      <div className={cn('mx-auto px-6 py-10', fullPage ? 'flex h-full max-w-none flex-col' : 'max-w-5xl')}>
         <h1 className="text-2xl font-bold text-foreground">
           {t('settings.title')}
         </h1>
@@ -48,7 +50,7 @@ export function SettingsPage() {
         <Tabs
           value={activeTab}
           onValueChange={(v) => navigate(`/settings/${v}`, { replace: true })}
-          className="mt-6"
+          className={cn('mt-6', fullPage && 'min-h-0 flex-1')}
         >
           <TabsList className="mx-auto w-fit">
             <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
@@ -78,7 +80,7 @@ export function SettingsPage() {
             {canVersionSettings ? <SettingsBackupSyncTab /> : <NoAccessNotice />}
           </TabsContent>
           {isServerMode() && (
-            <TabsContent value="access-log">
+            <TabsContent value="access-log" className="flex min-h-0 flex-col">
               {canReadAccessLog ? <AccessLogTab /> : <NoAccessNotice />}
             </TabsContent>
           )}
