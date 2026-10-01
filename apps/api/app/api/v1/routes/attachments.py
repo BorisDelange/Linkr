@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import audit
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission, check_workspace_permission
@@ -132,6 +133,8 @@ async def get_readme_blob(
         db, owner_type=att.owner_type, owner_id=att.owner_id, user=user, action="read"
     )
     data = await blob_store.read_bytes(att.blob_sha)
+    audit.bind(action="download", workspace_id=att.workspace_id,
+               detail=f"{att.owner_type} {att.owner_id} README attachment {att.file_name} ({len(data)} bytes)")
     return Response(content=data, media_type=att.mime_type or "application/octet-stream",
                     headers={"x-file-name": att.file_name})
 
@@ -227,6 +230,8 @@ async def get_wiki_blob(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await check_workspace_permission(db, att.workspace_id, user, "wiki:read")
     data = await blob_store.read_bytes(att.blob_sha)
+    audit.bind(action="download", workspace_id=att.workspace_id,
+               detail=f"wiki attachment {att.file_name} ({len(data)} bytes)")
     return Response(content=data, media_type=att.mime_type or "application/octet-stream",
                     headers={"x-file-name": att.file_name})
 

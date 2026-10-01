@@ -335,3 +335,61 @@ def test_a_retention_of_zero_is_refused():
 
     with pytest.raises(ValidationError):
         Settings(audit_retention_days=0)
+
+
+async def test_attachment_scores_and_clone_downloads_are_logged(client, db, tmp_path):
+    import subprocess
+
+    from app.models.mapping_project import MappingProject
+    from app.services import blob_store
+
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
+    h = {"Authorization": f"Bearer {token}"}
+    ws = (await client.post(f"{API}/workspaces", headers=h, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=h, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+
+    png = b"\x89PNG\r\n\x1a\nbytes"
+    await client.post(f"{API}/readme-attachments?id=a1&ownerType=project&ownerId={uid}&fileName=r.png&mimeType=image/png",
+                      headers=h, content=png)
+    page = (await client.post(f"{API}/wiki-pages", headers=h, json={
+        "id": "w1", "workspaceId": ws, "parentId": None, "title": {"en": "Page"},
+        "slug": "page", "content": {"en": ""}, "sortOrder": 0,
+    })).json()["id"]
+    await client.post(f"{API}/wiki-attachments?id=wa1&pageId={page}&workspaceId={ws}&fileName=w.png&mimeType=image/png",
+                      headers=h, content=png)
+    assert (await client.get(f"{API}/readme-attachments/a1/blob", headers=h)).status_code == 200
+    assert (await client.get(f"{API}/wiki-attachments/wa1/blob", headers=h)).status_code == 200
+
+    await client.post(f"{API}/mapping-projects", headers=h, json={
+        "id": "mp1", "workspaceId": ws, "name": {"en": "M"}, "description": {},
+        "sourceType": "database", "dataSourceId": "src-1", "conceptSetIds": [],
+    })
+    sha, _ = await blob_store.store_bytes(b"PAR1scores")
+    mp = await db.get(MappingProject, "mp1")
+    mp.scores_file_sha = sha
+    await db.commit()
+    assert (await client.get(f"{API}/mapping-projects/mp1/scores-file", headers=h)).status_code == 200
+
+    repo = tmp_path / "remote"
+    subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+    (repo / "f.txt").write_text("x")
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.name=x", "-c", "user.email=x@x", "commit", "-qm", "c"], check=True)
+    r = await client.post(f"{API}/git/clone", headers=h, json={"url": str(repo), "branch": "main", "workspaceId": ws})
+    assert r.status_code == 200
+
+    details = [d["detail"] for d in _lines("download")]
+    assert any("README attachment r.png (" in d for d in details)
+    assert any("wiki attachment w.png (" in d for d in details)
+    assert any("mapping project mp1 scores file (10 bytes)" == d for d in details)
+    assert any(d.startswith(f"git clone {repo} (") for d in details)
+    assert all(d["workspace_id"] == ws for d in _lines("download"))
+
+
+def test_a_logged_clone_url_carries_no_credentials():
+    from app.api.v1.routes.git import _without_credentials
+
+    assert _without_credentials("https://oauth2:glpat-x@gitlab.chu.local:8443/g/r.git") == "https://gitlab.chu.local:8443/g/r.git"
+    assert _without_credentials("https://framagit.org/g/r.git") == "https://framagit.org/g/r.git"
+    assert _without_credentials("git@framagit.org:g/r.git") == "git@framagit.org:g/r.git"

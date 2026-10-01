@@ -139,7 +139,9 @@ action, a refusal, or a mutation with a known actor), to standard output for the
 and to daily files in `data_dir/audit/`, compacted per month and chained by hash.
 Actions bound at the choke points: `login` and `login_failed` (attempted username in
 `detail`), `password_change` / `password_change_failed`, `download` (dataset raw file,
-database file blob, mapping-project source file, with size), `export` (project,
+database file blob, mapping-project source file and scores file, a file pulled from a
+mapping project's remote, README and wiki attachments, a server-side git clone — its URL
+without credentials —, with size), `export` (project,
 workspace, mapping-project ZIPs, settings, with size), `preview` (dataset rows with
 `row_count`, distinct values), plus queries and code runs. Downloads and exports carry
 author and size because that is what the SPE's export checkpoint matches against the
