@@ -29,6 +29,33 @@ Notes / follow-ups:
 
 ---
 
+## 2026-10-01 — SPE security batch (A1–A4, B1–B4, D, E), mapping-export masking, minAppVersion + import refusal, several catalogs, Parquet grouping by name/DDL, MCP single-type schemas, fixes of the 2026-09-28 review
+
+- Reviewed by: Claude Opus 5.5 — five parallel scope reviewers (backend security, export masking + minAppVersion + import refusal, catalog/UI, Parquet/MCP/dev server, previous-review fix commits); gates run by the lead; the four 🔴 re-checked against the code by the lead (trusted header + nginx topology, masking fail-open, temporal dates) or reproduced live by the reviewer (COPY bypass on duckdb 1.5.5).
+- Range: 1773862061f5..34b3169b (**76 commits**, 245 files, +6,063 / −3,013)
+- Last reviewed commit: 34b3169b511d973ae74c5909736f4cd2fa0a9153
+- Verdict: **Fix-then-ship** (release 2.4.3 planned after the fixes). 4 🔴, ~17 🟠, ~40 🟡. Fixes launched in-session on feature/fix-auth, fix-masking, fix-parquet-mcp, fix-catalog-import.
+- Tests: frontend **3736 passed** (265 files) · `@linkr/format` **373** · `@linkr/mcp` **247** but **`tsc --noEmit` 15 errors** (regression, see below; not gated by CI/pre-push) · backend **1391 passed, 2 skipped** · ruff clean · **Typecheck (web): 0 errors** · **Lint: 0 errors**, 194 warnings (unchanged) · i18n: en/fr identical key sets.
+
+Findings:
+
+- 🔴 **Trusted-header sign-in spoofable** — `core/trusted_header.py` + `docker/nginx.conf`: in Docker the peer is always nginx, which passes `X-Remote-User` through; kernel code can `POST http://web/api/v1/auth/trusted-login` with `X-Remote-User: admin` → admin tokens (only when the feature is enabled). → require a gateway-only shared secret (`LINKR_TRUSTED_PROXY_SECRET`, `hmac.compare_digest`), document the topology.
+- 🔴 **COPY refusal bypassed** — `services/data/db_connect.py` `_FORBIDDEN_IN_SHARED_READ` / `_copies_to_a_file` look at the first keyword only: `EXPLAIN ANALYZE COPY … TO` and `PREPARE q AS COPY …; EXECUTE q` overwrite the concept cache and ETL role blobs (reproduced). → classify with DuckDB's parser; refuse PREPARE/EXECUTE/EXPLAIN ANALYZE wrapping COPY.
+- 🔴 **Masking fails open on unreadable bytes** — `concept-mapping/export.ts` `maskedSourceConcepts` + `mapping_project_export.py` `_masked_csv_bytes`: a cp1252 CSV (typical French hospital extract) or a failed Parquet conversion exports raw counts/extremes. → cp1252 fallback, then fail closed, both twins.
+- 🔴 **First/last event dates published** — `temporal_distribution.start_date/end_date` (MIN/MAX of one patient's timestamps) survive `mask_profile` and its TS twin. → drop them.
+- 🟠 Masking: min/max recoverable from data-anchored histogram centres (+ p1/p99 at small n) · dropped small entries recoverable by subtraction (rows_count − kept; the fixture shows 5000−4990) · `impliedSmall` from rounded percentages not conservative (0.0% kept) · NaN profile JSON: browser keeps the raw profile Python withholds · duplicating a mapping project now silently masks the local copy · BOM handled differently front/server.
+- 🟠 `MIN_APP_VERSION` misses `database` (its `mapping-overrides.json` now carries `removed`; a 2.4.2 app ignores it and queries removed relations) — flagged by two reviewers.
+- 🟠 `routes/data_sources.py` `retest`/`schema` still return the driver error A2 scrubbed (port scanner back) · change-password leaves stolen refresh tokens valid forever (rotation) · A4 does not hold against hostile agent code (same uid as API: `data_dir/secret.key`, `/proc/1/environ`).
+- 🟠 Flat Parquet import + schema-qualified DDL moves tables to `hosp`/`icu`: `role.table` in ETL breaks (catalog.main lookup, reproduced) and the R/Python clients create a view literally named `"hosp.admissions"` · MCP `criteria` doc claims array/JSON-string accepted; the SDK validator rejects both.
+- 🟠 `use-catalog.ts` switch-during-download race (spinner/error leak to the new catalog) · catalog cache keyed by id only (repointed URL / setup wizard read another repo's entries).
+- 🟡 (grouped, all assigned) MCP tsc broken by `lib/api/git.ts` importing `workspace-store` · remaining MCP union schemas · MCP overrides unsanitized · agent can restart the IDE's web kernel · project move without source-workspace permission · http/trustedHost downgrade of an approved mirror · missing download audit binds · vocab remove blocks on lock · `.git` suffix vs non-GitLab hosts · ssh error text · DNS-rebinding accepted risk undocumented · DDL regex twins · same-named directory captures undeclared tables · `buildReaderExpr` without escSql/quoteIdent · vite base-prefix with query · uv.lock stale for pytz · per-machine R test cache shared across worktrees · CatalogSourcesDialog footer/Enter, duplicate restore, empty name · legacy migration branch · stale `removed` badge · `/settings/catalog` redirect · compareVersions twin drift ('3rc1') + validator stricter than importer + manifest-named array parse · seed-loader/fetch-default-data skip minAppVersion · entity-type check missing on catalog install/applyClonedEntity · silent success on 4 list pages · `catalog.type_user_plugin` label · editor overwrite-import swallowed delete · data-catalog untied branch without 1-way concept crossing; service ranking by unpublished totals · stats-cache 0-row overwrite silent · `\r` in MCP tables · masking numeric-parse twins, threshold applied after trustedLogin, ExportTab error message.
+
+Notes / follow-ups:
+- Strong range overall: the migration making workspaces mandatory is careful (orphans to per-owner workspaces, no cascade on SQLite batch rebuild), git protocol confinement and upload-session binding are tested at the property level, catalog URL handling is https-only and rebuilt, and the 2026-09-28 fixes hold apart from the COPY bypass.
+- Release note for 2.4.3: mapping repos already pushed keep unmasked `source-concepts.csv` in their git history; masking applies from this release on.
+
+---
+
 ## 2026-09-28 — Fixes of the 2026-09-28 review
 
 - Fixed by: five fixers (Claude Opus), one per review scope, each in its own worktree; every fix verified by its scope's tests plus, per branch, the relevant full suite. All 29 findings (1 🔴, 7 🟠, the 🟡 set) addressed, none skipped.
