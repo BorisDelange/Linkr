@@ -55,6 +55,7 @@ import { moveDatabaseFileOnServer } from '@/lib/api/data-sources'
 import { Input } from '@/components/ui/input'
 import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
@@ -899,10 +900,16 @@ export function AddDatabaseDialog({
                       ))}
                     </SelectContent>
                   </Select>
-                  {presetsLoaded && customPresets.length === 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      {t('databases.no_schemas_installed')}
-                    </p>
+                  {/* Optional, but without it Linkr cannot find patients, visits or
+                      concepts — say so rather than let pages fail later. */}
+                  {schemaPresetId === '__none__' && !isCreatedFromSchema && (
+                    <NoticeBanner
+                      tone="warning"
+                      title={t('databases.no_schema_warning_title')}
+                      description={presetsLoaded && customPresets.length === 0
+                        ? `${t('databases.no_schema_warning')} ${t('databases.no_schemas_installed')}`
+                        : t('databases.no_schema_warning')}
+                    />
                   )}
                 </div>
 

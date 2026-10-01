@@ -829,6 +829,8 @@
     "no_presets_with_ddl": "No schemas with DDL available. Add a DDL to a schema in the Schemas page.",
     "no_schema": "No schema (raw SQL access)",
     "no_schemas_installed": "No schema installed in this workspace. Add one from the Schemas page.",
+    "no_schema_warning_title": "No schema selected",
+    "no_schema_warning": "Linkr won't know which tables hold patients, visits and concepts: the Concepts and Patient data pages, cohorts and the database statistics won't work. SQL access stays available, and you can choose a schema later.",
     "database_name": "Database name",
     "database_name_placeholder": "e.g. OMOP CDM (empty)",
     "created_from_preset": "Created from {{preset}} preset (empty)",
