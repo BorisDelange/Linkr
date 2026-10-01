@@ -973,6 +973,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                             editorRef={editorRef}
                             value={selectedFile.content ?? ''}
                             language={selectedFile.name.endsWith('.md') ? 'markdown' : 'sql'}
+                            completion={{ kind: 'sql', dataSourceId: activeDbId }}
                             onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
                             onSave={handleSaveFile}
                             onRunFile={handleRunFile}

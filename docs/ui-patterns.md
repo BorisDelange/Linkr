@@ -533,6 +533,22 @@ hint `text-xs text-muted-foreground`, `RequiredMark` for required fields. Use
 `components/ui/` still do, so copying a neighbour is not a safe guide here.
 Reach for `SearchableSelect` when a `<Select>` gets long.
 
+### Code editors: completion
+
+`CodeEditor` takes a `completion` prop; pass it wherever the editor targets
+something completion can read:
+
+- `{ kind: 'sql', dataSourceId }` — schemas after `FROM`, a schema's tables after
+  `schema.`, an alias's columns after `alias.`, the FROM tables' columns elsewhere
+  (`lib/sql-completion.ts`, catalog from `lib/sql-catalog.ts`, cached a minute).
+- `{ kind: 'kernel', projectUid }` — Python (jedi) / R (utils' engine) from the
+  live session kernel, so `df.` / `df$` list real columns. Server: `POST
+  /execute/complete`, never starts a kernel; Python falls back to static jedi.
+  Client: Pyodide / webR, only once loaded.
+
+Monaco providers are global per language; `components/editor/completion-providers.ts`
+maps each editor's model to its context — never register a provider elsewhere.
+
 ### File drop zones: `FileDropZone`
 
 The dashed "choose a file" area is `components/ui/file-drop-zone.tsx` — icon,

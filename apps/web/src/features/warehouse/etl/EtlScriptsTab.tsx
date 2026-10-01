@@ -1073,6 +1073,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                           editorRef={editorRef}
                           value={selectedFile.content ?? ''}
                           language={editorLanguage}
+                          completion={{ kind: 'sql', dataSourceId: activeDbId }}
                           onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
                           onSave={handleEditorSave}
                           onRunFile={handleRunFile}

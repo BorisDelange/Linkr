@@ -6,7 +6,8 @@
  */
 
 import type { WebR } from 'webr'
-import type { RuntimeOutput, RuntimeFigure, RuntimeStatus } from './types'
+import type { RuntimeOutput, RuntimeFigure, RuntimeStatus, CodeCompletionItem } from './types'
+import { rCompletionItems } from '@/lib/code-completion'
 import { registerDuckDBBridgeR } from './bridge'
 import { syncToWebR, syncFromWebR } from './shared-fs'
 
@@ -422,4 +423,31 @@ interface Shelter {
     images: ImageBitmap[]
   }>
   purge(): void
+}
+
+/**
+ * Completions from R's own engine (the one RStudio uses) over the global env, so
+ * `df$` lists the frame's columns. Only once webR is loaded and idle: completion
+ * never triggers the runtime download, nor queues behind a run.
+ */
+export async function completeR(code: string, cursor: number): Promise<CodeCompletionItem[]> {
+  const webR = _webR
+  if (!webR || _status !== 'ready') return []
+  const before = code.slice(0, cursor)
+  const line = before.slice(before.lastIndexOf('\n') + 1)
+  try {
+    // JSON string literals are valid R string literals (same escapes, \uXXXX included).
+    const out = (await webR.evalRRaw(`local({
+      .l <- ${JSON.stringify(line)}
+      utils:::.assignLinebuffer(.l)
+      utils:::.assignEnd(nchar(.l))
+      .t <- utils:::.guessTokenFromLine()
+      utils:::.completeToken()
+      c(.t, head(utils:::.retrieveCompletions(), 300))
+    })`, 'string[]')) as string[]
+    const [token = '', ...completions] = out
+    return rCompletionItems(token, completions)
+  } catch {
+    return []
+  }
 }

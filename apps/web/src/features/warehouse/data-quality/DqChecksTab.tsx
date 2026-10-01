@@ -973,6 +973,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                       value={(queryField === 'sql' ? selectedCheck.sql : selectedCheck.exploreSql) ?? ''}
                       onChange={(value) => updateCheckQuery(selectedCheck.id, queryField, value ?? '')}
                       language="sql"
+                      completion={{ kind: 'sql', dataSourceId }}
                       readOnly={!canWrite}
                       onSave={() => void handleSave()}
                       onRunSelectionOrLine={() => (queryField === 'sql' ? void handleTest() : investigate())}

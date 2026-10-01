@@ -20,6 +20,8 @@ from app.core.ws_auth import authenticate_ws
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.execution import (
+    CompleteRequest,
+    CompletionItem,
     ExecuteRequest,
     ExecuteResponse,
     JobResponse,
@@ -40,7 +42,7 @@ from app.services import (
     project_fs,
 )
 from app.services.data import dataset_fs
-from app.services.execution import environments, injection, kernel, pty_kernel, render, runtime
+from app.services.execution import completion, environments, injection, kernel, pty_kernel, render, runtime
 
 logger = structlog.get_logger()
 
@@ -413,6 +415,22 @@ async def restart_kernel(
     next run starts with a clean namespace."""
     await _require_code_execution(db, body.project_uid, user)
     await kernel.manager.restart(body.project_uid, user.id, body.language, body.session_id)
+
+
+@router.post("/complete", response_model=list[CompletionItem])
+async def complete_code(
+    body: CompleteRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Completions at the cursor for the IDE editor, from the caller's live kernel
+    for (project, language, session) — never started for this. Python falls back
+    to static analysis of the text when no kernel is running or it is busy."""
+    await _require_code_execution(db, body.project_uid, user)
+    live = kernel.manager.peek(
+        body.project_uid, user.id, body.language, body.session_id, via=audit.actor().get("via")
+    )
+    return await completion.complete(live, body.language, body.code, body.cursor)
 
 
 @router.post("/interrupt", status_code=status.HTTP_204_NO_CONTENT)

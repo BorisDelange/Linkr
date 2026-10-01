@@ -6,6 +6,7 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import { matchesCombo } from '@/hooks/use-shortcuts'
 import { defineLinkrThemes } from './monaco-themes'
+import { bindEditorCompletion, type EditorCompletion } from './completion-providers'
 
 /**
  * Control over a CodeEditor's not-yet-committed keystrokes.
@@ -37,6 +38,9 @@ interface CodeEditorProps {
   onRunSelectionOrLine?: () => void
   onRunFile?: () => void
   onRunFileAsJob?: () => void
+  /** Context-aware completion: a database's schema for SQL, the project's kernel
+   *  for Python/R. Without it the editor keeps Monaco's word-based suggestions. */
+  completion?: EditorCompletion
 }
 
 const languageMap: Record<string, string> = {
@@ -110,6 +114,7 @@ export function CodeEditor({
   onRunSelectionOrLine,
   onRunFile,
   onRunFileAsJob,
+  completion,
 }: CodeEditorProps) {
   const internalRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const { editorSettings, darkMode } = useAppStore()
@@ -185,7 +190,9 @@ export function CodeEditor({
   const onRunSelectionOrLineRef = useRef(onRunSelectionOrLine)
   const onRunFileRef = useRef(onRunFile)
   const onRunFileAsJobRef = useRef(onRunFileAsJob)
+  const completionRef = useRef(completion)
   useEffect(() => {
+    completionRef.current = completion
     onSaveRef.current = onSave
     onRunSelectionOrLineRef.current = onRunSelectionOrLine
     onRunFileRef.current = onRunFile
@@ -242,6 +249,9 @@ export function CodeEditor({
       const node = editor.getDomNode()
       node?.addEventListener('keydown', onKeyDown, true)
       editor.onDidDispose(() => node?.removeEventListener('keydown', onKeyDown, true))
+
+      const model = editor.getModel()
+      if (model) editor.onDidDispose(bindEditorCompletion(monaco, model, () => completionRef.current))
 
       const shortcuts = useShortcutStore.getState().shortcuts
       // Clear terminal / output (Cmd+K) — dispatch a global keydown so the

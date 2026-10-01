@@ -430,25 +430,41 @@ export interface IntrospectedTable {
 }
 
 /**
- * Introspect the full database schema (all tables + columns)
- * via information_schema.columns. Uses queryDataSource() so
- * search_path is set correctly for both schema-based and ATTACHed sources.
+ * Introspect the full database schema (all tables + columns). Table names follow
+ * `discoverTables`: bare for `main`, `schema.table` for a module schema — the
+ * same shape the server's schema endpoint returns.
  */
 export async function discoverFullSchema(dataSourceId: string): Promise<IntrospectedTable[]> {
   // Server mode: use the native-catalog introspection endpoint (see discoverTables).
   if (isServerMode()) {
     return fetchDataSourceSchema(dataSourceId)
   }
-  const rows = await queryDataSource(
-    dataSourceId,
-    `SELECT table_name, column_name, data_type, is_nullable, ordinal_position
-     FROM information_schema.columns
-     ORDER BY table_name, ordinal_position`,
-  )
+  if (shouldGuardMount(dataSourceId, !!mountGuard)) {
+    await mountGuard!(dataSourceId)
+  }
+  const db = await getDuckDB()
+  const conn = await db.connect()
+  const schema = schemaName(dataSourceId)
+  // information_schema lists every mounted source, whatever the search_path:
+  // scope it to this one, in either mount layout (see discoverTables).
+  let rows: Record<string, unknown>[]
+  try {
+    const result = await conn.query(
+      `SELECT table_schema, table_name, column_name, data_type, is_nullable
+       FROM information_schema.columns
+       WHERE table_schema = '${schema}' OR table_catalog = '${schema}'
+       ORDER BY table_schema, table_name, ordinal_position`,
+    )
+    rows = result.toArray()
+  } finally {
+    await conn.close()
+  }
 
   const tableMap = new Map<string, IntrospectedColumn[]>()
   for (const row of rows) {
-    const tableName = String(row.table_name)
+    const s = String(row.table_schema)
+    const t = String(row.table_name)
+    const tableName = s === schema || s === 'main' ? t : `${s}.${t}`
     if (!tableMap.has(tableName)) tableMap.set(tableName, [])
     tableMap.get(tableName)!.push({
       name: String(row.column_name),

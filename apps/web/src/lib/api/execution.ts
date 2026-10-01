@@ -2,7 +2,7 @@ import { apiRequest } from '@/lib/api-client'
 import { useAppStore } from '@/stores/app-store'
 import { useSessionStore } from '@/stores/session-store'
 import { TerminalSocket } from '@/lib/api/terminal-ws'
-import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable } from '@/lib/runtimes/types'
+import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable, CodeCompletionItem } from '@/lib/runtimes/types'
 import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import type { Job } from '@/lib/api/environments'
 
@@ -296,5 +296,21 @@ export function interruptServerKernel(
   return apiRequest<void>('/execute/interrupt', {
     method: 'POST',
     body: JSON.stringify({ language, projectUid, sessionId }),
+  })
+}
+
+/** Completions at `cursor` from the caller's live kernel for the active session
+ *  (static analysis for Python when none is running). Never starts a kernel. */
+export function completeOnServer(
+  language: 'python' | 'r',
+  code: string,
+  cursor: number,
+  projectUid: string,
+  signal?: AbortSignal,
+): Promise<CodeCompletionItem[]> {
+  return apiRequest<CodeCompletionItem[]>('/execute/complete', {
+    method: 'POST',
+    body: JSON.stringify({ language, projectUid, sessionId: activeSessionFor(projectUid, language), code, cursor }),
+    signal,
   })
 }

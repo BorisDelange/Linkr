@@ -27,3 +27,15 @@ export interface RuntimeOutput {
    *  read this, never `stderr`. Absent on older payloads → treated as false. */
   failed?: boolean
 }
+
+/**
+ * One code completion, in the same shape from the server kernel, Pyodide and
+ * webR: `insert` replaces the `typed` characters before the cursor; `label` is
+ * what the list shows (R completes `df$col` whole but shows `col`).
+ */
+export interface CodeCompletionItem {
+  label: string
+  insert: string
+  kind: string
+  typed: number
+}

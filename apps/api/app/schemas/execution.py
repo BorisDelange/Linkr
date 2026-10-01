@@ -77,6 +77,22 @@ class RestartKernelRequest(CamelModel):
     session_id: str = "default"
 
 
+class CompleteRequest(CamelModel):
+    language: str
+    project_uid: str
+    session_id: str = "default"
+    code: str
+    # Offset in `code`, in characters.
+    cursor: int
+
+
+class CompletionItem(CamelModel):
+    label: str
+    insert: str
+    kind: str
+    typed: int
+
+
 class RuntimeFigureResponse(CamelModel):
     id: str
     type: str  # 'svg' | 'png'

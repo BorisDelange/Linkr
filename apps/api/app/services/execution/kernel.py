@@ -100,6 +100,19 @@ def _read_rss_kb(pid: int) -> int | None:
     except (subprocess.SubprocessError, ValueError):
         return None
 
+# A completion runs while the user types: past this, give up rather than lag.
+_COMPLETE_TIMEOUT_S = 3.0
+
+
+def _jedi_site() -> str | None:
+    """The site dir holding the server's jedi + parso, lent to venvs without them."""
+    try:
+        import jedi
+    except ImportError:
+        return None
+    return str(Path(jedi.__file__).resolve().parent.parent)
+
+
 # Callback invoked with (kind, data) for each incremental output chunk, where
 # kind is "stdout" or "stderr". May be sync or async.
 ChunkHandler = Callable[[str, str], Awaitable[None] | None]
@@ -308,6 +321,35 @@ def _run(code, stream):
             "failed": failed, "__linkr_done__": True}
 
 
+# Completion ("C" request): jedi over the live namespace, so `df.` lists the
+# columns and methods of the frame the user built. A venv without jedi borrows the
+# server's copy (LINKR_JEDI_PATH), off sys.path again once imported so it never
+# shadows the project's own packages.
+def _complete(payload):
+    try:
+        req = json.loads(base64.b64decode(payload).decode("utf-8"))
+        try:
+            import jedi
+        except ImportError:
+            import os
+            extra = os.environ.get("LINKR_JEDI_PATH")
+            if not extra:
+                return []
+            sys.path.append(extra)
+            try:
+                import jedi
+            finally:
+                sys.path.remove(extra)
+        code, cursor = req["code"], req["cursor"]
+        before = code[:cursor]
+        line = before.count("\n") + 1
+        col = len(before) - (before.rfind("\n") + 1)
+        return [{"label": c.name, "kind": c.type, "typed": len(c.name) - len(c.complete)}
+                for c in jedi.Interpreter(code, [_ns]).complete(line, col)[:300]]
+    except BaseException:  # noqa: BLE001 — a completion must never end the kernel
+        return []
+
+
 # Explicit readline (not `for line in sys.stdin`) so sql_query can do its own
 # readline() for RPC responses without fighting the iterator's read-ahead buffer.
 _run_n = 0
@@ -322,6 +364,11 @@ while True:
         break
     line = line.strip()
     if not line:
+        continue
+    # A completion is not a run: no ack, no done, and the run counter stays put so
+    # the host's own counter (bumped only for runs) stays in lockstep.
+    if line[:1] == "C":
+        _emit({"__linkr_complete__": _complete(line[1:])})
         continue
     # Bump the counter BEFORE anything interruptible, so the done emitted below always
     # carries THIS run's tag — a tag from the previous run would be discarded as stale
@@ -513,6 +560,19 @@ sql_query <- function(sql) {
   names(.df) <- .cols
   as.data.frame(.df, stringsAsFactors = FALSE, optional = TRUE)
 }
+.linkr_complete <- function(payload) {
+  tryCatch({
+    .req <- fromJSON(rawToChar(base64decode(payload)))
+    .before <- substr(.req$code, 1, .req$cursor)
+    .parts <- strsplit(.before, "\n", fixed = TRUE)[[1]]
+    .cur <- if (length(.parts) == 0 || endsWith(.before, "\n")) "" else .parts[length(.parts)]
+    utils:::.assignLinebuffer(.cur)
+    utils:::.assignEnd(nchar(.cur))
+    .token <- utils:::.guessTokenFromLine()
+    utils:::.completeToken()
+    list(token = .token, completions = I(head(utils:::.retrieveCompletions(), 300)))
+  }, error = function(e) list(token = "", completions = I(character(0))))
+}
 repeat {
   # Absorb a stray SIGINT arriving during the idle read (a late Stop from a
   # finished run) so it can't bleed into the next run. See Python notes below.
@@ -523,6 +583,10 @@ repeat {
   if (length(.line) == 0) break
   .line <- trimws(.line)
   if (nchar(.line) == 0) next
+  if (substr(.line, 1, 1) == "C") {
+    .emit(list("__linkr_complete__" = .linkr_complete(substr(.line, 2, nchar(.line)))))
+    next
+  }
   .run_n <- .run_n + 1
   # Ack before any interruptible work: tells the host we're inside the
   # interrupt-catching loop, so Stop works even for a run that prints nothing.
@@ -872,6 +936,9 @@ class Kernel:
                 msg = json.loads(line.decode("utf-8"))
             except ValueError:
                 continue  # not JSON — ignore stray output
+            # A completion reply that arrived after its request timed out.
+            if "__linkr_complete__" in msg:
+                continue
             if msg.get("__linkr_rpc__") == "query":
                 resp = await _resolve_query(query_resolver, msg.get("sql", ""))
                 proc.stdin.write((json.dumps(resp) + "\n").encode("utf-8"))
@@ -913,6 +980,35 @@ class Kernel:
                 return msg
             # An unmarked JSON line (legacy) is treated as the final payload.
             return msg
+
+    async def complete(self, code: str, cursor: int) -> object | None:
+        """Ask the live kernel for completions at `cursor`; the raw reply, or None
+        when it cannot answer right now. Never waits behind a run (a busy kernel
+        reads no stdin until it finishes) and never starts a process."""
+        if not self.alive or self._lock.locked():
+            return None
+        async with self._lock:
+            proc = self._proc
+            assert proc is not None and proc.stdin is not None and proc.stdout is not None
+            payload = json.dumps({"code": code, "cursor": cursor}).encode("utf-8")
+            try:
+                proc.stdin.write(b"C" + base64.b64encode(payload) + b"\n")
+                await proc.stdin.drain()
+                while True:
+                    line = await asyncio.wait_for(proc.stdout.readline(), timeout=_COMPLETE_TIMEOUT_S)
+                    if not line:
+                        return None
+                    try:
+                        msg = json.loads(line.decode("utf-8"))
+                    except ValueError:
+                        continue
+                    # Anything else is a stopped run's leftover, which the next
+                    # run's reader would discard anyway.
+                    if isinstance(msg, dict) and "__linkr_complete__" in msg:
+                        return msg["__linkr_complete__"]
+            except (asyncio.TimeoutError, BrokenPipeError, ConnectionResetError):
+                # A slow reply is skipped by the next run's reader; the kernel lives on.
+                return None
 
     async def shutdown(self) -> None:
         if self._proc is not None and self._proc.returncode is None:
@@ -1006,6 +1102,16 @@ class KernelManager:
             and kernel.env_stamp is not None
             and kernel.env_stamp != want
         )
+
+    def peek(
+        self, project_uid: str, user_id: int, language: str, session_id: str, via: str | None = None
+    ) -> Kernel | None:
+        """The caller's live kernel, or None — never spawns one. Same rule as `get`
+        for a session the web IDE started: an API-key caller does not see into it."""
+        kernel = self._kernels.get((project_uid, user_id, language, session_id))
+        if kernel is None or (kernel.spawned_via in _WEB_ORIGIN and via not in _WEB_ORIGIN):
+            return None
+        return kernel
 
     async def get(
         self,
@@ -1200,6 +1306,9 @@ class KernelManager:
                         f"{client_src}{os.pathsep}{existing}" if existing else str(client_src)
                     ),
                 }
+            jedi_site = _jedi_site()
+            if jedi_site is not None:
+                env = {**env, "LINKR_JEDI_PATH": jedi_site}
             return Kernel([python, "-c", _PY_KERNEL_LOOP], cwd=cwd, env=env, env_stamp=stamp)
         if language == "r":
             # renv keeps a shared Rscript; a project env is isolated by its private

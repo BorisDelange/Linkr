@@ -134,6 +134,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
             <CodeEditor
               value={sql}
               language="sql"
+              completion={{ kind: 'sql', dataSourceId }}
               editorRef={editorRef}
               onChange={(v) => {
                 setSql(v ?? '')

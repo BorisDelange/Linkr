@@ -6,7 +6,7 @@
  */
 
 import type { PyodideInterface } from 'pyodide'
-import type { RuntimeOutput, RuntimeFigure, RuntimeStatus } from './types'
+import type { RuntimeOutput, RuntimeFigure, RuntimeStatus, CodeCompletionItem } from './types'
 import { registerDuckDBBridgePython } from './bridge'
 import { syncToPyodide, syncFromPyodide } from './shared-fs'
 
@@ -417,4 +417,36 @@ del _d
   }
 
   return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), figures, table, html: null, failed }
+}
+
+let _jedi: Promise<void> | null = null
+
+/**
+ * Completions from the live Python namespace (jedi). Only once Pyodide is loaded
+ * and idle: completion never triggers the runtime download, nor runs beside code.
+ */
+export async function completePython(code: string, cursor: number): Promise<CodeCompletionItem[]> {
+  const pyodide = _pyodide
+  if (!pyodide || _status !== 'ready') return []
+  if (!_jedi) {
+    _jedi = pyodide.loadPackage(['jedi']).then(() => pyodide.runPythonAsync(`
+def __linkr_complete(code, cursor):
+    import jedi, json
+    before = code[:cursor]
+    line = before.count("\\n") + 1
+    col = len(before) - (before.rfind("\\n") + 1)
+    return json.dumps([{"label": c.name, "insert": c.name, "kind": c.type,
+                        "typed": len(c.name) - len(c.complete)}
+                       for c in jedi.Interpreter(code, [globals()]).complete(line, col)[:300]])
+`)).then(() => undefined)
+    _jedi.catch(() => { _jedi = null })
+  }
+  try {
+    await _jedi
+    if (_status !== 'ready') return []
+    const fn = pyodide.globals.get('__linkr_complete') as (code: string, cursor: number) => string
+    return JSON.parse(fn(code, cursor)) as CodeCompletionItem[]
+  } catch {
+    return []
+  }
 }

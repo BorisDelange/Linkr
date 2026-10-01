@@ -2086,6 +2086,9 @@ export function FilesPage() {
                             key={`${selectedFileId}-${shortcutVersion}`}
                             value={selectedNode.content ?? ''}
                             language={selectedNode.language ?? 'plaintext'}
+                            completion={selectedNode.language === 'sql'
+                              ? { kind: 'sql', dataSourceId: activeConnectionId }
+                              : { kind: 'kernel', projectUid: activeProjectUid }}
                             onChange={isVirtualFile ? undefined : (v) =>
                               updateFileContent(selectedNode.id, v ?? '')
                             }
