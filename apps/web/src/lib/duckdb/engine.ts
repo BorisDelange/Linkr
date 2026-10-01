@@ -1011,10 +1011,10 @@ async function createSourceView(
   reader: string,
 ): Promise<void> {
   const { schema, table } = splitTableKey(key)
-  const target = schema ?? 'main'
-  if (schema) await conn.query(`CREATE SCHEMA IF NOT EXISTS "${catalog}"."${schema}"`)
+  const target = quoteIdent(schema ?? 'main')
+  if (schema) await conn.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(catalog)}.${target}`)
   await conn.query(
-    `CREATE OR REPLACE VIEW "${catalog}"."${target}"."${table}" AS SELECT * FROM ${reader}`,
+    `CREATE OR REPLACE VIEW ${quoteIdent(catalog)}.${target}.${quoteIdent(table)} AS SELECT * FROM ${reader}`,
   )
 }
 
@@ -1073,12 +1073,15 @@ function fileReaderFn(fileName: string): string {
   return 'read_csv_auto'
 }
 
+// Quotes doubled only, not `escSql`: DuckDB reads a backslash in a literal as
+// itself, so doubling it would no longer name the registered `C:\data\x.csv`.
+const pathLiteral = (path: string): string => `'${path.replace(/'/g, "''")}'`
+
 /** Build a DuckDB reader expression for one or more files (auto-detects CSV vs Parquet). */
-function buildReaderExpr(fileNames: string[]): string {
+export function buildReaderExpr(fileNames: string[]): string {
   const fn = fileReaderFn(fileNames[0])
-  if (fileNames.length === 1) return `${fn}('${fileNames[0]}')`
-  const list = fileNames.map((n) => `'${n}'`).join(', ')
-  return `${fn}([${list}])`
+  if (fileNames.length === 1) return `${fn}(${pathLiteral(fileNames[0])})`
+  return `${fn}([${fileNames.map(pathLiteral).join(', ')}])`
 }
 
 /**

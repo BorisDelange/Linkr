@@ -235,3 +235,10 @@ def test_role_reaches_a_ddl_placed_table_by_its_two_part_name(tmp_path):
         assert con.execute("SELECT id FROM source.other").fetchone() == (1,)
     finally:
         con.close()
+
+
+def test_reader_escapes_a_quote_in_a_path():
+    from app.services.data.db_connect import _reader
+
+    assert _reader(["/srv/O'Brien.parquet"]) == "read_parquet('/srv/O''Brien.parquet')"
+    assert _reader(["/a.parquet", "/O'B.parquet"]) == "read_parquet(['/a.parquet', '/O''B.parquet'])"

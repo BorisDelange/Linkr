@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commonDirPrefix, defaultSchemaAliases, extractTableName, extractTableRef, fileGroupingTables, groupFilesByTable } from './engine'
+import { buildReaderExpr, commonDirPrefix, defaultSchemaAliases, extractTableName, extractTableRef, fileGroupingTables, groupFilesByTable } from './engine'
 
 const MIMIC_IV_FILES = [
   'admissions', 'caregiver', 'chartevents', 'd_hcpcs', 'd_icd_diagnoses',
@@ -270,5 +270,16 @@ describe('defaultSchemaAliases', () => {
 
   it('leaves a module directory alone — its schema is real, not borrowed', () => {
     expect(defaultSchemaAliases(['mimic/hosp/admissions.parquet', 'mimic/icu/icustays.parquet'], ['hosp.admissions']).size).toBe(0)
+  })
+})
+
+describe('buildReaderExpr', () => {
+  it('escapes a quote in a file name', () => {
+    expect(buildReaderExpr(["db/O'Brien.parquet"])).toBe("read_parquet('db/O''Brien.parquet')")
+    expect(buildReaderExpr(["a/x.csv", "a/O'B.csv"])).toBe("read_csv_auto(['a/x.csv', 'a/O''B.csv'])")
+  })
+
+  it('keeps a backslash as is, since DuckDB does not read it as an escape', () => {
+    expect(buildReaderExpr(['C:\\data\\x.parquet'])).toBe("read_parquet('C:\\data\\x.parquet')")
   })
 })

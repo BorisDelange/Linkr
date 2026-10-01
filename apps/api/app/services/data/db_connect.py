@@ -871,8 +871,8 @@ def group_parquet_tables(
 
 def _reader(paths: list[str]) -> str:
     if len(paths) == 1:
-        return f"read_parquet('{paths[0]}')"
-    lst = ", ".join(f"'{p}'" for p in paths)
+        return f"read_parquet('{_sql_path(paths[0])}')"
+    lst = ", ".join(f"'{_sql_path(p)}'" for p in paths)
     return f"read_parquet([{lst}])"
 
 
