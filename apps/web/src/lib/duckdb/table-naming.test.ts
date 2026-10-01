@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commonDirPrefix, extractTableName, extractTableRef, fileGroupingTables, groupFilesByTable } from './engine'
+import { commonDirPrefix, defaultSchemaAliases, extractTableName, extractTableRef, fileGroupingTables, groupFilesByTable } from './engine'
 
 const MIMIC_IV_FILES = [
   'admissions', 'caregiver', 'chartevents', 'd_hcpcs', 'd_icd_diagnoses',
@@ -255,5 +255,20 @@ describe('fileGroupingTables', () => {
     const files = ['db/visit.parquet', 'db/document/1999-01.parquet', 'db/document/1999-02.parquet']
       .map((fileName) => ({ fileName }) as never)
     expect([...groupFilesByTable(files, known).keys()].sort()).toEqual(['document', 'visit'])
+  })
+})
+
+describe('defaultSchemaAliases', () => {
+  it('aliases in main each table a flat import placed in a DDL schema', () => {
+    const known = ['hosp.admissions', 'icu.icustays']
+    const files = ['mimic/admissions.parquet', 'mimic/icustays.parquet', 'mimic/other.parquet']
+    expect([...defaultSchemaAliases(files, known)]).toEqual([
+      ['admissions', 'hosp.admissions'],
+      ['icustays', 'icu.icustays'],
+    ])
+  })
+
+  it('leaves a module directory alone — its schema is real, not borrowed', () => {
+    expect(defaultSchemaAliases(['mimic/hosp/admissions.parquet', 'mimic/icu/icustays.parquet'], ['hosp.admissions']).size).toBe(0)
   })
 })

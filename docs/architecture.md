@@ -327,6 +327,7 @@ server instead. `serializeProject` is left without a caller.
 
 - Imported databases are **always read-only** (DuckDB files, Parquet folders).
 - "Copy" creates a **Parquet folder** copy (never DuckDB copy — avoids write lock issues). Uses `read_parquet()` + `COPY ... TO`.
+- **Parquet folder → tables** (`engine.ts` `extractTableRef` / `db_connect.py` `_table_ref_of`, twins): a file is its own table (`admissions.parquet`), unless it is a shard — `part-00000`, `0001`, a date like `1999-01`, or a name suffixed after its directory (`document/document_1.parquet`) — whose directory then names the table; a directory below the picked root is a schema (`hosp/`, `icu/`). A table the mapping's DDL declares in exactly one schema borrows it when the folder is flat, and also gets an alias view in the catalog's `main`, because a source is a catalog and `ds_x.admissions` / `source.admissions` reads `main` (front mount; server ETL roles). **Remounting after e93acd0a merges `document_1`, `document_2` shards into one `document` table**: saved SQL naming the old per-file tables must be updated.
 - **Active database**: one per project, persisted in `localStorage` key `linkr-active-datasources`. Use `getActiveSource(projectUid)` from `useDataSourceStore` (fallback to first connected mapped source).
 - **Edit mode**: `editingSource` prop on Add Database dialog. New files → remove + recreate source. Source type locked after creation.
 - **Storage modes**: IndexedDB copy ("Browser copy") or File System Access API handles ("Direct link", Chrome/Edge only).

@@ -762,6 +762,15 @@ def _table_ref_of(file_name: str, root: list[str], known: list[str]) -> tuple[st
     A directory *below* the selected root names a schema — MIMIC-IV's `hosp`/`icu`,
     eHOP's Oracle schemas. The root itself never does: it is the download folder,
     and treating it as a schema would put every flat import inside one."""
+    schema, table, _ = _placed_table_ref(file_name, root, known)
+    return schema, table
+
+
+def _placed_table_ref(
+    file_name: str, root: list[str], known: list[str]
+) -> tuple[str | None, str, bool]:
+    """`_table_ref_of` plus whether the schema was borrowed from the known tables
+    rather than read off a module directory."""
     table = _table_of(file_name, known)
     parts = [p for p in file_name.replace("\\", "/").split("/") if p]
     below = (
@@ -775,7 +784,10 @@ def _table_ref_of(file_name: str, root: list[str], known: list[str]) -> tuple[st
     # remaining segment is the schema.
     if dirs and dirs[-1].lower() == table:
         dirs = dirs[:-1]
-    return (dirs[-1].lower() if dirs else _known_schema_of(table, known)), table
+    if dirs:
+        return dirs[-1].lower(), table, False
+    borrowed = _known_schema_of(table, known)
+    return borrowed, table, borrowed is not None
 
 
 def _known_schema_of(table: str, known: list[str]) -> str | None:
@@ -797,21 +809,49 @@ def _group_parquet(
 
     `schema` is None for a flat folder, which is the overwhelmingly common shape
     and the one every source imported before schemas were understood."""
+    return _group_parquet_placed(files, known)[0]
+
+
+def _group_parquet_placed(
+    files: list[tuple[str, str]], known: list[str]
+) -> tuple[dict[tuple[str | None, str], list[str]], set[tuple[str | None, str]]]:
+    """`_group_parquet` plus the groups whose schema was borrowed from the DDL."""
     root = _common_dir([n for n, _ in files if n.lower().endswith((".parquet", ".pq"))])
     groups: dict[tuple[str | None, str], list[str]] = {}
+    borrowed: set[tuple[str | None, str]] = set()
     for file_name, path in files:
         if not file_name.lower().endswith((".parquet", ".pq")):
             continue
-        schema, table = _table_ref_of(file_name, root, known)
+        schema, table, is_borrowed = _placed_table_ref(file_name, root, known)
         # Both are interpolated into quoted identifiers; a name that doesn't yield
         # a plain identifier is skipped rather than risking a broken (or injected)
         # CREATE VIEW.
         if _SAFE_IDENT.fullmatch(table) is None:
             continue
         if schema is not None and _SAFE_IDENT.fullmatch(schema) is None:
-            schema = None
+            schema, is_borrowed = None, False
         groups.setdefault((schema, table), []).append(path)
-    return groups
+        if is_borrowed:
+            borrowed.add((schema, table))
+    return groups, borrowed
+
+
+def _default_schema_aliases(
+    groups: dict[tuple[str | None, str], list[str]],
+    borrowed: set[tuple[str | None, str]],
+) -> dict[str, list[str]]:
+    """Table -> paths for each table a flat import placed in a DDL schema, to be
+    exposed in the default schema as well.
+
+    A role is ATTACHed as a catalog, and DuckDB reads the two-part `role.table`
+    as `role.main.table`: a flat folder whose tables moved into `hosp` would
+    otherwise break every pipeline written against it. A name the default schema
+    already holds is left alone."""
+    return {
+        table: groups[(schema, table)]
+        for schema, table in borrowed
+        if (None, table) not in groups
+    }
 
 
 def group_parquet_tables(
@@ -1384,9 +1424,11 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
         # Attach a real (empty, in-memory) database named after the role and put
         # the views in ITS main schema. A schema of the same name in `memory`
         # would not resolve: `role.table` is looked up as schema-of-target first.
-        groups = _group_parquet(spec.get("files") or [], spec.get("known") or [])
+        groups, borrowed = _group_parquet_placed(spec.get("files") or [], spec.get("known") or [])
+        aliases = _default_schema_aliases(groups, borrowed)
         con.execute(f'ATTACH \':memory:\' AS "{role}"')
-        for (schema, table), paths in groups.items():
+        views = {**groups, **{(None, table): paths for table, paths in aliases.items()}}
+        for (schema, table), paths in views.items():
             safe_table = _require_ident(table, "parquet table name")
             # A folder laid out per module keeps its schemas, so `source.hosp.t`
             # works and two modules can hold the same table name. Without one the

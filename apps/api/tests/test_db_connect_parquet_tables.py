@@ -206,3 +206,32 @@ def test_flat_import_borrows_the_ddl_schema_when_unambiguous():
 def test_module_directory_wins_over_the_ddl_schema():
     root = ["db"]
     assert _table_ref_of("db/zone/visit.parquet", root, ["app.visit"]) == ("zone", "visit")
+
+
+def test_role_reaches_a_ddl_placed_table_by_its_two_part_name(tmp_path):
+    # A role is a catalog: `source.admissions` reads `source.main.admissions`, so a
+    # flat folder whose tables the DDL moved into `hosp` broke every pipeline.
+    import duckdb
+
+    from app.services.data.db_connect import _attach_role
+
+    seed = duckdb.connect()
+    for name in ("admissions", "other"):
+        seed.execute(f"COPY (SELECT 1 AS id) TO '{tmp_path / name}.parquet' (FORMAT parquet)")
+    seed.close()
+    spec = {
+        "kind": "parquet",
+        "files": [
+            ("db/admissions.parquet", str(tmp_path / "admissions.parquet")),
+            ("db/other.parquet", str(tmp_path / "other.parquet")),
+        ],
+        "known": ["hosp.admissions"],
+    }
+    con = duckdb.connect()
+    try:
+        _attach_role(con, "source", spec)
+        assert con.execute("SELECT id FROM source.hosp.admissions").fetchone() == (1,)
+        assert con.execute("SELECT id FROM source.admissions").fetchone() == (1,)
+        assert con.execute("SELECT id FROM source.other").fetchone() == (1,)
+    finally:
+        con.close()
