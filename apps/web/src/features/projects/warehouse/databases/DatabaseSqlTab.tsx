@@ -3,16 +3,17 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { Keyboard, Loader2, Play } from 'lucide-react'
+import { Keyboard, Loader2, Lock, Play } from 'lucide-react'
 import type * as Monaco from 'monaco-editor'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShortcutsDialog'
 import type { ShortcutActionId } from '@/types/shortcuts'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { formatApiError } from '@/lib/api-client'
+import { formatApiError, isServerMode } from '@/lib/api-client'
 import { formatDateTimeLocale, formatSqlCell } from '@/lib/format-helpers'
 
 /** Rows shown; the query itself is capped server-side too. */
@@ -115,6 +116,19 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
           </span>
         )}
         <div className="flex-1" />
+        {/* Every engine opens the source read-only here (see db_connect / engine.ts):
+            the SQL tab reads, an ETL pipeline is what writes. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge variant="outline" className="gap-1 text-muted-foreground">
+              <Lock size={10} />
+              {t('databases.sql_read_only')}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-xs">
+            {t(isServerMode() ? 'databases.sql_read_only_hint_server' : 'databases.sql_read_only_hint_client')}
+          </TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon-xs" onClick={() => setShortcutsOpen(true)} aria-label={t('files.shortcuts')}>
