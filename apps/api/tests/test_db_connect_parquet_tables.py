@@ -147,3 +147,35 @@ def test_table_part_agrees_with_table_of():
         "omop/PERSON.parquet",
     ):
         assert _table_ref_of(path, [], [])[1] == _table_of(path, [])
+
+
+def test_shards_named_after_their_directory_use_it():
+    assert _table_of("db/document/document_1.parquet", []) == "document"
+    assert _table_of("db/document/document-2.parquet", []) == "document"
+    assert _table_of("db/document/document_1999-01.parquet", []) == "document"
+
+
+def test_tables_sharing_their_schema_prefix_stay_apart():
+    assert _table_of("db/ehop/ehop_patient.parquet", []) == "ehop_patient"
+    assert _table_of("db/document/document_type.parquet", []) == "document_type"
+
+
+def test_named_shards_group_into_one_table_without_schema():
+    files = [
+        ("db/visit.parquet", "/tmp/v.parquet"),
+        ("db/document/document_1.parquet", "/tmp/d1.parquet"),
+        ("db/document/document_1999-01.parquet", "/tmp/d2.parquet"),
+    ]
+    groups = _group_parquet(files, [])
+    assert set(groups) == {(None, "visit"), (None, "document")}
+    assert len(groups[(None, "document")]) == 2
+
+
+def test_known_tables_include_the_ddl_tables():
+    from app.models.data_source import DataSource
+    from app.services.data_source_service import _known_tables
+
+    ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "Edbm"."DOCUMENT" (\n  id INTEGER\n);'
+    source = DataSource(schema_mapping={"knownTables": ["Person"], "ddl": ddl})
+    assert _known_tables(source) == ["document", "person", "visit"]
+    assert _table_of("db/document/doc_a.parquet", _known_tables(source)) == "document"

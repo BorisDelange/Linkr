@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -91,10 +92,23 @@ async def source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, 
     return await _source_files(db, source)
 
 
+# Mirrors the table head of the frontend's `TABLE_RE` (lib/ddl-parse.ts).
+_DDL_TABLE_RE = re.compile(
+    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?\s*\(', re.IGNORECASE
+)
+
+
 def _known_tables(source: DataSource) -> list[str]:
+    """Table names that identify a Parquet file by its path: the mapping's
+    `knownTables` plus every table its DDL declares. Mirrors the frontend's
+    `fileGroupingTables`."""
     mapping = source.schema_mapping or {}
     known = mapping.get("knownTables")
-    return [str(t) for t in known] if isinstance(known, list) else []
+    names = {str(t).lower() for t in known} if isinstance(known, list) else set()
+    ddl = mapping.get("ddl")
+    if isinstance(ddl, str):
+        names.update(m.group(1).lower() for m in _DDL_TABLE_RE.finditer(ddl))
+    return sorted(names)
 
 
 def _is_parquet_folder(config: dict, files: list[tuple[str, str]]) -> bool:

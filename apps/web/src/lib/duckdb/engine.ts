@@ -9,6 +9,7 @@ import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { grainTable } from '@/lib/schema-classes/spec'
 import { quoteIdent } from '@/lib/format-helpers'
+import { parseDdl } from '@/lib/ddl-parse'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -210,7 +211,7 @@ export async function mountDataSource(
 
     if (config.fileIds && config.fileIds.length > 0) {
       // Multi-file folder mode -> ATTACH a catalog + views per table
-      const knownTables = dataSource.schemaMapping?.knownTables
+      const knownTables = fileGroupingTables(dataSource.schemaMapping)
       await mountFileFolder(db, conn, schema, files, knownTables)
       attachedSources.add(dataSource.id)
     } else if (files.length > 0) {
@@ -825,13 +826,36 @@ function isShardFileName(baseName: string): boolean {
 }
 
 /**
+ * A shard named after its table directory: `document/document_1.parquet`,
+ * `document/document_1999-01.parquet`. Only a numeric/date suffix counts, so a
+ * schema directory whose tables share its prefix (`ehop/ehop_patient`) keeps
+ * them apart.
+ */
+function isNamedShard(baseName: string, dirName: string): boolean {
+  return baseName.startsWith(dirName) && /^[-_.]\d+([-_.]\d+)*$/.test(baseName.slice(dirName.length))
+}
+
+/**
+ * The table names that identify a Parquet file by its path: the mapping's
+ * `knownTables` plus every table its DDL declares, so a custom schema groups
+ * `document/*.parquet` into its `document` table. Lower-cased, as paths are
+ * compared lower-cased.
+ */
+export function fileGroupingTables(mapping: SchemaMapping | undefined): string[] | undefined {
+  if (!mapping) return undefined
+  const names = new Set((mapping.knownTables ?? []).map((t) => t.toLowerCase()))
+  if (mapping.ddl) for (const t of parseDdl(mapping.ddl)) names.add(t.bareName.toLowerCase())
+  return names.size > 0 ? [...names] : undefined
+}
+
+/**
  * Extract a table name from a file path.
  * If knownTables is provided, matches against that set.
  * Otherwise uses file/directory name heuristic.
  */
 export function extractTableName(filePath: string, knownTables?: string[]): string {
   const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
-  const knownSet = knownTables ? new Set(knownTables) : null
+  const knownSet = knownTables ? new Set(knownTables.map((t) => t.toLowerCase())) : null
   const baseName = parts[parts.length - 1].replace(/\.[^.]+$/, '').toLowerCase()
 
   if (knownSet) {
@@ -844,8 +868,9 @@ export function extractTableName(filePath: string, knownTables?: string[]): stri
 
   // The file name is the table name (`admissions.parquet`), unless it is a
   // numbered shard — only then does the parent directory carry the identity.
-  if (parts.length >= 2 && isShardFileName(baseName)) {
-    return parts[parts.length - 2].toLowerCase()
+  if (parts.length >= 2) {
+    const dirName = parts[parts.length - 2].toLowerCase()
+    if (isShardFileName(baseName) || isNamedShard(baseName, dirName)) return dirName
   }
   return baseName
 }
@@ -1065,7 +1090,7 @@ export async function mountDataSourceFromHandles(
       // Multi-file folder mode -> ATTACH a catalog, as the IDB path does
       await conn.query(`ATTACH ':memory:' AS "${schema}"`)
       attachedSources.add(dataSource.id)
-      const knownTables = dataSource.schemaMapping?.knownTables
+      const knownTables = fileGroupingTables(dataSource.schemaMapping)
       const byTable = groupHandlesByTable(handles, knownTables)
 
       for (const [key, tableHandles] of byTable) {

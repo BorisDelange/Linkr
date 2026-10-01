@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { commonDirPrefix, extractTableName, extractTableRef, groupFilesByTable } from './engine'
+import { commonDirPrefix, extractTableName, extractTableRef, fileGroupingTables, groupFilesByTable } from './engine'
 
 const MIMIC_IV_FILES = [
   'admissions', 'caregiver', 'chartevents', 'd_hcpcs', 'd_icd_diagnoses',
@@ -45,6 +45,21 @@ describe('extractTableName', () => {
     expect(new Set(paths.map((p) => extractTableName(p)))).toEqual(
       new Set(['admissions', 'patients']),
     )
+  })
+
+  it('uses the parent directory for shards named after it', () => {
+    expect(extractTableName('db/document/document_1.parquet')).toBe('document')
+    expect(extractTableName('db/document/document-2.parquet')).toBe('document')
+    expect(extractTableName('db/document/document_1999-01.parquet')).toBe('document')
+  })
+
+  it('keeps tables that merely share their schema directory prefix', () => {
+    expect(extractTableName('db/ehop/ehop_patient.parquet')).toBe('ehop_patient')
+    expect(extractTableName('db/document/document_type.parquet')).toBe('document_type')
+  })
+
+  it('matches knownTables case-insensitively', () => {
+    expect(extractTableName('db/document/doc_a.parquet', ['DOCUMENT'])).toBe('document')
   })
 
   it('treats a real table whose name starts with a shard keyword as a table', () => {
@@ -193,5 +208,26 @@ describe('commonDirPrefix', () => {
     expect(commonDirPrefix(['admissions.parquet'])).toBe('')
     expect(commonDirPrefix(['a/x.parquet', 'b/y.parquet'])).toBe('')
     expect(commonDirPrefix([])).toBe('')
+  })
+})
+
+describe('fileGroupingTables', () => {
+  it('merges knownTables with the tables the DDL declares, lower-cased', () => {
+    const ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE "Edbm"."DOCUMENT" (\n  id INTEGER\n);'
+    expect(new Set(fileGroupingTables({ knownTables: ['Person'], ddl } as never))).toEqual(
+      new Set(['person', 'visit', 'document']),
+    )
+  })
+
+  it('returns undefined when the mapping names no table', () => {
+    expect(fileGroupingTables(undefined)).toBeUndefined()
+    expect(fileGroupingTables({} as never)).toBeUndefined()
+  })
+
+  it('groups a folder of dated shards into the DDL table, with no schema', () => {
+    const known = fileGroupingTables({ ddl: 'CREATE TABLE document (\n  id INTEGER\n);' } as never)
+    const files = ['db/visit.parquet', 'db/document/doc_a.parquet', 'db/document/doc_b.parquet']
+      .map((fileName) => ({ fileName }) as never)
+    expect([...groupFilesByTable(files, known).keys()].sort()).toEqual(['document', 'visit'])
   })
 })

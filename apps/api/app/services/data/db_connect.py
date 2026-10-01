@@ -705,6 +705,9 @@ def introspect_file(engine: str, path: str) -> list[dict]:
 
 
 _SHARD_RE = re.compile(r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+$")
+# A shard named after its table directory (`document/document_1999-01`): only a
+# numeric/date suffix counts, so `ehop/ehop_patient` stays a table of its own.
+_NAMED_SHARD_SUFFIX_RE = re.compile(r"^[-_.]\d+([-_.]\d+)*$")
 
 
 def _table_of(file_name: str, known: list[str]) -> str:
@@ -720,8 +723,12 @@ def _table_of(file_name: str, known: list[str]) -> str:
             if stem in known_set:
                 return stem
     stem = re.sub(r"\.[^.]+$", "", parts[-1]).lower()
-    if len(parts) >= 2 and _SHARD_RE.match(stem):
-        return parts[-2].lower()
+    if len(parts) >= 2:
+        dir_name = parts[-2].lower()
+        if _SHARD_RE.match(stem) or (
+            stem.startswith(dir_name) and _NAMED_SHARD_SUFFIX_RE.match(stem[len(dir_name):])
+        ):
+            return dir_name
     return stem
 
 

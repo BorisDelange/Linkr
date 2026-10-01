@@ -6,7 +6,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, localizedRaw, setLocalized } from '@/lib/localized'
-import { commonDirPrefix, extractTableName, generateAlias } from '@/lib/duckdb/engine'
+import { commonDirPrefix, extractTableName, fileGroupingTables, generateAlias } from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
 import type {
   DataSource,
@@ -710,7 +710,7 @@ export function AddDatabaseDialog({
   const parquetTables = isParquetMode && uploadedFiles.length > 0
     ? [...new Set(uploadedFiles.map((f) => {
         const path = (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
-        return extractTableName(path, schemaMapping?.knownTables)
+        return extractTableName(path, fileGroupingTables(schemaMapping))
       }))]
     : []
 
