@@ -1,5 +1,5 @@
 """Deployment defaults that keep a user's code from owning the host
-(security-compliance-plan A1): the API never serves as root, and its port is
+(docs/design/spe-security.md §1): the API never serves as root, and its port is
 published on loopback only, so nothing reaches it around nginx."""
 
 import re

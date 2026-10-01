@@ -1,5 +1,5 @@
 """LINKR_DB_ALLOWED_HOSTS bounds where the server opens database connections
-(security-compliance-plan A2). Private addresses must stay reachable when listed:
+(docs/design/spe-security.md §2). Private addresses must stay reachable when listed:
 that is where an SPE's datamart lives."""
 
 import socket

@@ -668,7 +668,7 @@ DuckDB; months past `LINKR_AUDIT_RETENTION_DAYS` (365) are deleted.
 
 ## Permissions Model (as-built)
 
-Audit of these guarantees against the SPE frame, item by item (fixed or dropped, and why): `docs/design/security-compliance-plan.md`.
+What Linkr guarantees inside an SPE, how, and what was left out by decision: `docs/design/spe-security.md`.
 
 - **Three tiers** — Global / Workspace / Project — over a resources × actions catalogue (`apps/api/app/core/permissions.py`): most resources carry `read/write/delete`. `execute` is split by risk: `ide:execute` = run **arbitrary** code (the RCE-sensitive one), while `patient-data`/`datasets`/`dashboards` carry a **view-time** `execute` (running a widget/analysis, not free-form code). Global resources: `workspaces` (= create), `users`, `roles`, `organizations`, `app-database`, plus cross-cutting `all-workspaces` / `all-projects`; `reports` is reserved (stub page) so roles can pre-grant.
 - **Resolution**: global admin > project override (`project_members` — may broaden, restrict, or set `none` = project hidden) > inherited workspace role. Roles are permission bundles (viewer < editor < owner, plus custom roles).

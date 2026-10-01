@@ -168,7 +168,7 @@ on a database), stable check ids, run export and catalog publish as W3C DQV.
 | 💤 | Convert the bundled MIMIC-IV ETL to C/CR (its scripts still join `source_to_concept_map`) | M |
 | 💤 | `00b_custom_vocabulary.sql`: only the seed loader generates it — remove? | S |
 
-## Security & compliance — done, rationale in [../design/security-compliance-plan.md](../design/security-compliance-plan.md)
+## Security & compliance — done, design in [../design/spe-security.md](../design/spe-security.md)
 
 | St | Item | Effort |
 |----|------|--------|

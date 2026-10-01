@@ -1,5 +1,5 @@
 """A user's code runs in kernels, the terminal and package installs; none of
-them may inherit the API's secrets (security-compliance-plan A1)."""
+them may inherit the API's secrets (docs/design/spe-security.md §1)."""
 
 import json
 
