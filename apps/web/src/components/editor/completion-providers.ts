@@ -138,8 +138,7 @@ const EXPECTS_NAME = /(?:\b(?:select|where|and|or|not|on|by|having|when|then|els
 /**
  * Opens the SQL list without a keystroke where the user is plainly about to name
  * something: after a pause of a second following `SELECT ⎵` / `WHERE ⎵` (a table
- * slot already opens on the space itself), and on a click that lands after a
- * space at the end of a line. A click mid-query never opens it — that is editing.
+ * slot already opens on the space itself).
  */
 export function attachSqlAutoSuggest(
   monaco: typeof Monaco,
@@ -161,10 +160,7 @@ export function attachSqlAutoSuggest(
     return { model, pos, slot: sqlCompletions(model.getValue(), offset, EMPTY_CATALOG).slot }
   }
   const suggest = () => editor.trigger('auto', 'editor.action.triggerSuggest', {})
-  // A table slot always wants a name; an expression only after certain words.
   const wantsName = (at: NonNullable<ReturnType<typeof slotAtCursor>>) => {
-    if (at.slot === 'table') return true
-    if (at.slot !== 'expression') return false
     const from = at.model.getOffsetAt({ lineNumber: Math.max(1, at.pos.lineNumber - 1), column: 1 })
     return EXPECTS_NAME.test(at.model.getValue().slice(from, at.model.getOffsetAt(at.pos)))
   }
@@ -183,14 +179,5 @@ export function attachSqlAutoSuggest(
     }, IDLE_MS)
   })
 
-  const onClick = editor.onDidChangeCursorPosition((e) => {
-    if (e.source !== 'mouse') return
-    clear()
-    const at = slotAtCursor()
-    if (!at || !wantsName(at)) return
-    const rest = at.model.getLineContent(at.pos.lineNumber).slice(at.pos.column - 1)
-    if (rest.trim() === '') suggest()
-  })
-
-  return () => { clear(); onType.dispose(); onClick.dispose() }
+  return () => { clear(); onType.dispose() }
 }
