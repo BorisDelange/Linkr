@@ -78,6 +78,21 @@ export class WrongEntityTypeError extends Error {
 }
 
 /**
+ * A ZIP holding no manifest the importer can read for `expected`: not an export
+ * of that kind at all. Thrown rather than returned, so the import dialog shows it
+ * instead of closing as if something had been imported.
+ */
+export class MissingManifestError extends Error {
+  readonly expected: string
+
+  constructor(expected: string) {
+    super(i18n.t('common.import_no_manifest', { expected: typeLabel(expected) }))
+    this.name = 'MissingManifestError'
+    this.expected = expected
+  }
+}
+
+/**
  * Throw when a manifest declares a known entity type other than `expected`. A
  * manifest with no `type` (trees exported before it was written) passes.
  */
