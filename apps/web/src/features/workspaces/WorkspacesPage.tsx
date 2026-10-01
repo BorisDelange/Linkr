@@ -62,6 +62,7 @@ import { gitCloneToZip } from '@/lib/api/git'
 import { anchorClonedEntity } from '@/lib/git-clone-anchor'
 import { getStorage } from '@/lib/storage'
 import type { Workspace } from '@/types'
+import { CardGrid } from '@/components/ui/card-grid'
 
 export function WorkspacesPage() {
   const { t, i18n } = useTranslation()
@@ -449,7 +450,7 @@ export function WorkspacesPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-foreground">
             {t('workspaces.title')}
@@ -511,7 +512,7 @@ export function WorkspacesPage() {
             </div>
           </Card>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <CardGrid className="mt-6">
             {filteredWorkspaces.map((ws) => {
               const raw = _workspacesRaw.find((w) => w.id === ws.id)
               const badges = raw?.badges ?? []
@@ -604,7 +605,7 @@ export function WorkspacesPage() {
                 </Card>
               )
             })}
-          </div>
+          </CardGrid>
         )}
       </div>
 

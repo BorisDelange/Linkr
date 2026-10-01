@@ -91,6 +91,7 @@ import type { AuthorDetails } from '@/types/author'
 import type { EntityLicense, LocalizedString, OrganizationInfo, ProjectBadge } from '@/types'
 import type * as Monaco from 'monaco-editor'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
+import { CardGrid } from '@/components/ui/card-grid'
 
 // ---------------------------------------------------------------------------
 // DDL Table of Contents — sidebar with collapsible sections
@@ -1292,7 +1293,7 @@ export function SchemaPresetsPage() {
   // ── Otherwise, show list ──
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>
@@ -1356,7 +1357,7 @@ export function SchemaPresetsPage() {
               <p className="mt-2 text-sm text-muted-foreground">{t('common.no_results')}</p>
             </div>
           ) : (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <CardGrid>
             {filteredSchemas.map(({ id, mapping, preset }) => {
               const item = toSchemaPresetItem(preset)
               return (
@@ -1415,7 +1416,7 @@ export function SchemaPresetsPage() {
                 />
               )
             })}
-          </div>
+          </CardGrid>
           )}
 
           {/* Create schema dialog */}

@@ -21,6 +21,7 @@ import { GatedButton } from '@/components/ui/gated-button'
 import { Card } from '@/components/ui/card'
 import { PageContainer, PageHeader } from '@/components/ui/page-header'
 import { EmptyState } from '@/components/ui/empty-state'
+import { CardGrid } from '@/components/ui/card-grid'
 import {
   Tooltip,
   TooltipContent,
@@ -182,7 +183,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
   const [licenseTarget, setLicenseTarget] = useState<T | null>(null)
 
   return (
-    <PageContainer>
+    <PageContainer width="wide">
         <PageHeader
           title={t(titleKey)}
           description={t(descriptionKey)}
@@ -245,7 +246,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
             />
           </Card>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <CardGrid className="mt-6">
             {items.map((item) => (
               <Card
                 key={item.id}
@@ -315,7 +316,7 @@ export function ListPageTemplate<T extends { id: string; name: LocalizedString |
                 </div>
               </Card>
             ))}
-          </div>
+          </CardGrid>
         )}
 
       {/* Create dialog */}

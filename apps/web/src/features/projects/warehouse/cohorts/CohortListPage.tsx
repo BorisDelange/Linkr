@@ -27,6 +27,7 @@ import {
 import { CohortCard } from './CohortCard'
 import { CreateCohortDialog, type CohortFormData } from './CreateCohortDialog'
 import { ProjectCohortHost, useCohortHost } from './cohort-host'
+import { CardGrid } from '@/components/ui/card-grid'
 
 /** The project's Cohorts page. */
 export function CohortListPage() {
@@ -89,7 +90,7 @@ export function CohortList() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className={host.kind === 'project' ? 'mx-auto max-w-4xl px-6 py-10' : 'mx-auto max-w-4xl px-6 pt-2 pb-10'}>
+      <div className={host.kind === 'project' ? 'mx-auto max-w-[96rem] px-6 py-10' : 'mx-auto max-w-[96rem] px-6 pt-2 pb-10'}>
         <div className="flex items-center justify-between gap-4">
           {/* On a database the tab already says "Cohorts": a second page title
               under it would only repeat it. */}
@@ -151,7 +152,7 @@ export function CohortList() {
             <p className="mt-2 text-sm text-muted-foreground">{t('cohorts.no_results')}</p>
           </div>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <CardGrid className="mt-6">
             {filteredCohorts.map((cohort) => (
               <CohortCard
                 key={cohort.id}
@@ -166,7 +167,7 @@ export function CohortList() {
                 onSelectClick={(e) => selection.onCardClick(e, cohort.id)}
               />
             ))}
-          </div>
+          </CardGrid>
         )}
       </div>
 

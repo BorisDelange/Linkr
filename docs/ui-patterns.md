@@ -415,6 +415,14 @@ screen — page header, `ListPageToolbar`, cards with `EntityActionsMenu` +
 `CardMetaFooter` + `BadgeStrip`, and the empty state. 7 pages use it. If you're
 building an entity list, start here, not from a blank page.
 
+### Card grids: `CardGrid`
+
+Every entity-card list renders into **`CardGrid`** (`components/ui/card-grid.tsx`)
+inside a wide page column (`PageContainer width="wide"`, or `max-w-[96rem]` on a
+hand-rolled page). The grid fits as many ≥20rem columns as its own width allows —
+2 on a laptop, 4 on a wide screen, fewer in a dialog — so never write
+`grid sm:grid-cols-2` for a card list or pass column classes per call site.
+
 ### Card-grid multi-selection
 
 Every card grid supports Cmd/Ctrl-click multi-selection through two shared
@@ -481,7 +489,7 @@ retried in place, so the card keeps navigating).
 Use **`PageHeader`** + **`PageContainer`** (`components/ui/page-header.tsx`):
 
 ```tsx
-<PageContainer>            {/* width="4xl" default; 3xl / 5xl available */}
+<PageContainer>            {/* width="4xl" default; 3xl / 5xl / wide (card lists) */}
   <PageHeader
     title={t('...')}
     description={t('...')}

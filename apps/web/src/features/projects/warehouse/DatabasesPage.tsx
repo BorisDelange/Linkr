@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
+import { CardGrid } from '@/components/ui/card-grid'
 
 const EMPTY_IDS: string[] = []
 
@@ -111,7 +112,7 @@ export function DatabasesPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -170,7 +171,7 @@ export function DatabasesPage() {
             <p className="mt-2 text-sm text-muted-foreground">{t('databases.no_results')}</p>
           </div>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <CardGrid className="mt-6">
             {filteredSources.map((ds) => (
               <DatabaseCard
                 key={ds.id}
@@ -193,7 +194,7 @@ export function DatabasesPage() {
                 onSelectClick={(e) => selection.onCardClick(e, ds.id)}
               />
             ))}
-          </div>
+          </CardGrid>
         )}
       </div>
 

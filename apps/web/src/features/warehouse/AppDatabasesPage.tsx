@@ -56,6 +56,7 @@ import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCa
 import { AddDatabaseDialog } from '@/features/projects/warehouse/databases/AddDatabaseDialog'
 import { DatabaseDetailPage } from '@/features/projects/warehouse/databases/DatabaseDetailPage'
 import { foldAccents } from '@/lib/fold-accents'
+import { CardGrid } from '@/components/ui/card-grid'
 
 const DATA_SOURCE_STATUSES = ['connected', 'disconnected', 'error', 'configuring'] as const
 const STATUS_DOT: Record<string, string> = {
@@ -418,7 +419,7 @@ export function AppDatabasesPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">{t('app_warehouse.nav_databases')}</h1>
@@ -502,7 +503,7 @@ export function AppDatabasesPage() {
           <p className="mt-2 text-sm text-muted-foreground">{t('databases.no_results')}</p>
         </div>
       ) : (
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <CardGrid className="mt-4">
           {filteredSources.map((ds) => (
             <DatabaseCard
               key={ds.id}
@@ -544,7 +545,7 @@ export function AppDatabasesPage() {
               onSelectClick={(e) => selection.onCardClick(e, ds.id)}
             />
           ))}
-        </div>
+        </CardGrid>
       )}
 
       <CreateFromPresetDialog

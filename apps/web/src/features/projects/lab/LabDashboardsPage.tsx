@@ -46,6 +46,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { applySort, baseSortFields } from '@/lib/list-sort'
 import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { DashboardEditDialog } from './DashboardEditDialog'
+import { CardGrid } from '@/components/ui/card-grid'
 
 export function LabDashboardsPage() {
   const { t } = useTranslation()
@@ -126,7 +127,7 @@ export function LabDashboardsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -184,7 +185,7 @@ export function LabDashboardsPage() {
             <p className="mt-2 text-sm text-muted-foreground">{t('dashboard.no_results')}</p>
           </div>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <CardGrid className="mt-6">
             {filteredDashboards.map((dash) => {
               const description = dash.description ? localized(dash.description, language) : ''
               return (
@@ -255,7 +256,7 @@ export function LabDashboardsPage() {
                 </Card>
               )
             })}
-          </div>
+          </CardGrid>
         )}
       </div>
 

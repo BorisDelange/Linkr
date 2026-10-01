@@ -40,7 +40,8 @@ export function PageContainer({
   className,
 }: {
   children: ReactNode
-  width?: '3xl' | '4xl' | '5xl'
+  /** `wide` is for card-grid list pages, whose `CardGrid` fills it with as many columns as fit. */
+  width?: '3xl' | '4xl' | '5xl' | 'wide'
   className?: string
 }) {
   return (
@@ -51,6 +52,7 @@ export function PageContainer({
           width === '3xl' && 'max-w-3xl',
           width === '4xl' && 'max-w-4xl',
           width === '5xl' && 'max-w-5xl',
+          width === 'wide' && 'max-w-[96rem]',
           className,
         )}
       >

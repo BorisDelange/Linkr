@@ -112,7 +112,6 @@ export function ImportCatalogTab({ type, workspaceId, install, language, install
         // overlay doesn't linger over the page it navigates to.
         openInApp={(entry) => openInApp(entry, installed[entry.id])}
         lockedType={type}
-        gridClassName="sm:grid-cols-2"
         toolbarExtra={<CatalogSwitcher />}
       />
     </div>

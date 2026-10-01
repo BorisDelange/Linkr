@@ -21,6 +21,7 @@ import { usePersistedSort } from '@/lib/use-persisted-sort'
 import { ENTRY_TYPES, ENTRY_TYPE_META } from '@/lib/catalog/entry-meta'
 import type { InstalledInfo } from '@/lib/catalog/installed'
 import type { CatalogEntry, CatalogEntryType } from '@/lib/catalog/types'
+import { CardGrid } from '@/components/ui/card-grid'
 import { CatalogEntryCard } from './CatalogEntryCard'
 
 /** Organization label used by the filter list, the filter test and the search haystack. */
@@ -42,8 +43,6 @@ interface CatalogBrowserProps {
   lockedType?: CatalogEntryType
   /** Extra controls for the toolbar (the page puts its workspace picker here). */
   toolbarExtra?: React.ReactNode
-  /** Grid column classes; the dialog is wider than the page's two columns. */
-  gridClassName?: string
   className?: string
 }
 
@@ -58,7 +57,6 @@ export function CatalogBrowser({
   openInApp,
   lockedType,
   toolbarExtra,
-  gridClassName = 'sm:grid-cols-2',
   className,
 }: CatalogBrowserProps) {
   const { t } = useTranslation()
@@ -171,7 +169,7 @@ export function CatalogBrowser({
           </div>
         </Card>
       ) : (
-        <div className={`mt-6 grid gap-3 ${gridClassName}`}>
+        <CardGrid className="mt-6">
           {filtered.map((entry) => (
             <CatalogEntryCard
               key={entry.id}
@@ -185,7 +183,7 @@ export function CatalogBrowser({
               installed={installed[entry.id]}
             />
           ))}
-        </div>
+        </CardGrid>
       )}
     </div>
   )

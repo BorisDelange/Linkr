@@ -57,6 +57,7 @@ import { getStatusClasses, getStatusDotClass } from './ProjectSettingsPage'
 import { badgeFilterOptions } from '@/lib/badge-filter-options'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import type { GitRemoteConfig, LocalizedString, Project } from '@/types'
+import { CardGrid } from '@/components/ui/card-grid'
 
 export function ProjectsPage() {
   const { t, i18n } = useTranslation()
@@ -405,7 +406,7 @@ export function ProjectsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">
@@ -478,7 +479,7 @@ export function ProjectsPage() {
             <p className="mt-2 text-sm text-muted-foreground">{t('projects.no_results')}</p>
           </div>
         ) : (
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <CardGrid className="mt-4">
             {filteredProjects.map((project) => {
               const raw = _projectsRaw.find((p) => p.uid === project.uid)
               const badges = raw?.badges ?? []
@@ -586,7 +587,7 @@ export function ProjectsPage() {
                 </Card>
               )
             })}
-          </div>
+          </CardGrid>
         )}
       </div>
 

@@ -39,6 +39,7 @@ import { buildPointer } from '@/lib/import-identity'
 import { PatientBoardEditDialog } from './patient-data/PatientBoardEditDialog'
 import { PatientBoardCard } from './patient-data/PatientBoardCard'
 import type { PatientDashboard } from '@/types'
+import { CardGrid } from '@/components/ui/card-grid'
 
 export function PatientDataListPage() {
   const { t } = useTranslation()
@@ -128,7 +129,7 @@ export function PatientDataListPage() {
   // actually happened instead.
   if (loadError) {
     return (
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <h1 className="text-2xl font-bold text-foreground">{t('patient_data.title')}</h1>
         <p className="mt-2 text-sm text-destructive">{t('common.load_failed')}</p>
         <p className="mt-1 text-xs text-muted-foreground">{loadError}</p>
@@ -140,7 +141,7 @@ export function PatientDataListPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-4xl px-6 py-10">
+      <div className="mx-auto max-w-[96rem] px-6 py-10">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold text-foreground">{t('patient_data.title')}</h1>
@@ -207,7 +208,7 @@ export function PatientDataListPage() {
             <p className="mt-2 text-sm text-muted-foreground">{t('patient_data.no_board_results')}</p>
           </div>
         ) : (
-          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+          <CardGrid className="mt-6">
             {filteredBoards.map((board) => (
               <PatientBoardCard
                 key={board.id}
@@ -222,7 +223,7 @@ export function PatientDataListPage() {
                 onSelectClick={(e) => selection.onCardClick(e, board.id)}
               />
             ))}
-          </div>
+          </CardGrid>
         )}
       </div>
 
