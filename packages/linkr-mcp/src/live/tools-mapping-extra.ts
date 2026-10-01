@@ -257,7 +257,7 @@ export function registerMappingExtraTools(server: Server): void {
         },
         search: { type: 'string', description: 'Words in the source or target name or code.' },
         concept_codes: { type: 'array', items: { type: 'string' }, description: 'Source codes (or vocabulary/code).' },
-        target_concept_id: { type: ['number', 'string'] },
+        target_concept_id: { type: 'number' },
         equivalence: { type: 'string', enum: EQUIVALENCES },
         mapped_by: { type: 'string', description: 'Author name (a person or a model).' },
         category: { type: 'string', description: 'Source category.' },

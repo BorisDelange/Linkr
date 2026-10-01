@@ -10,7 +10,7 @@ const ITEMS_SCHEMA = {
   items: {
     type: 'object',
     properties: {
-      concept_id: { type: ['number', 'string'] }, name: { type: 'string' }, vocabulary: { type: 'string' }, code: { type: 'string' },
+      concept_id: { type: 'number' }, name: { type: 'string' }, vocabulary: { type: 'string' }, code: { type: 'string' },
     },
     required: ['concept_id'],
   },
@@ -118,7 +118,7 @@ export function registerConceptTools(server: Server) {
         name: { type: 'string' },
         description: { type: 'string' },
         add: ITEMS_SCHEMA,
-        remove_ids: { type: 'array', items: { type: ['number', 'string'] } },
+        remove_ids: { type: 'array', items: { type: 'number' } },
       },
       required: ['concept_list_id'],
     }),

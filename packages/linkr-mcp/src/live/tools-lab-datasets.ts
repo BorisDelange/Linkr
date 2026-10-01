@@ -85,8 +85,8 @@ export function registerLabDatasetTools(server: Server): void {
             type: 'object',
             properties: {
               column: { type: 'string', description: 'Name or id.' },
-              equals: { type: ['string', 'number', 'boolean'] },
-              one_of: { type: 'array', items: { type: ['string', 'number'] } },
+              equals: { type: 'string', description: 'As text, whatever the column type: "42", "true".' },
+              one_of: { type: 'array', items: { type: 'string' } },
               contains: { type: 'string' },
               min: { type: 'number' }, max: { type: 'number' },
               from: { type: 'string' }, to: { type: 'string' },
@@ -261,7 +261,7 @@ export function registerLabDatasetTools(server: Server): void {
             properties: {
               row: { type: 'number', description: 'Row number from find_dataset_rows.' },
               column: { type: 'string', description: 'Name or id.' },
-              value: { type: ['string', 'number', 'boolean', 'null'], description: 'null or "" empties the cell.' },
+              value: { type: 'string', description: 'As text, read as the column type ("42", "true", "2024-01-31"); "" empties the cell.' },
             },
             required: ['row', 'column', 'value'],
           },
