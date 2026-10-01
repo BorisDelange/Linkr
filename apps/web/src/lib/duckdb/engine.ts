@@ -9,7 +9,7 @@ import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { grainTable } from '@/lib/schema-classes/spec'
 import { quoteIdent } from '@/lib/format-helpers'
-import { parseDdl } from '@/lib/ddl-parse'
+import { parseDdl, qualifiedName } from '@/lib/ddl-parse'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -838,14 +838,32 @@ function isNamedShard(baseName: string, dirName: string): boolean {
 /**
  * The table names that identify a Parquet file by its path: the mapping's
  * `knownTables` plus every table its DDL declares, so a custom schema groups
- * `document/*.parquet` into its `document` table. Lower-cased, as paths are
- * compared lower-cased.
+ * `document/*.parquet` into its `document` table. A DDL table keeps its schema
+ * (`zone.document`), which a flat import then borrows — see `extractTableRef`.
+ * Lower-cased, as paths are compared lower-cased.
  */
 export function fileGroupingTables(mapping: SchemaMapping | undefined): string[] | undefined {
   if (!mapping) return undefined
   const names = new Set((mapping.knownTables ?? []).map((t) => t.toLowerCase()))
-  if (mapping.ddl) for (const t of parseDdl(mapping.ddl)) names.add(t.bareName.toLowerCase())
+  if (mapping.ddl) for (const t of parseDdl(mapping.ddl)) names.add(qualifiedName(t.schema, t.bareName).toLowerCase())
   return names.size > 0 ? [...names] : undefined
+}
+
+const bareTableName = (known: string): string => known.slice(known.lastIndexOf('.') + 1)
+
+/**
+ * The schema the known tables give `table`, when exactly one schema declares it:
+ * a schema-qualified preset (`zone.document`) still resolves over a
+ * folder imported without its schema directories. Two schemas declaring the same
+ * name leave it unplaced rather than guessing.
+ */
+function knownSchemaOf(table: string, knownTables: string[] | undefined): string | undefined {
+  const schemas = new Set<string>()
+  for (const known of knownTables ?? []) {
+    const dot = known.lastIndexOf('.')
+    if (dot > 0 && known.slice(dot + 1).toLowerCase() === table) schemas.add(known.slice(0, dot).toLowerCase())
+  }
+  return schemas.size === 1 ? [...schemas][0] : undefined
 }
 
 /**
@@ -855,7 +873,7 @@ export function fileGroupingTables(mapping: SchemaMapping | undefined): string[]
  */
 export function extractTableName(filePath: string, knownTables?: string[]): string {
   const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
-  const knownSet = knownTables ? new Set(knownTables.map((t) => t.toLowerCase())) : null
+  const knownSet = knownTables ? new Set(knownTables.map((t) => bareTableName(t).toLowerCase())) : null
   const baseName = parts[parts.length - 1].replace(/\.[^.]+$/, '').toLowerCase()
 
   if (knownSet) {
@@ -911,7 +929,7 @@ export function extractTableRef(
     : dirs
   const schema = remaining.length > 0
     ? remaining[remaining.length - 1].toLowerCase()
-    : undefined
+    : knownSchemaOf(table, knownTables)
   return { schema, table }
 }
 

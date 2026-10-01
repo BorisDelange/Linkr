@@ -716,7 +716,7 @@ def _table_of(file_name: str, known: list[str]) -> str:
     dir only for numbered shards (`admissions/part-00000.parquet`), where the
     directory carries the table identity."""
     parts = [p for p in file_name.replace("\\", "/").split("/") if p]
-    known_set = {k.lower() for k in known}
+    known_set = {k.rsplit(".", 1)[-1].lower() for k in known}
     if known_set:
         for seg in reversed(parts):
             stem = re.sub(r"\.[^.]+$", "", seg).lower()
@@ -770,7 +770,19 @@ def _table_ref_of(file_name: str, root: list[str], known: list[str]) -> tuple[st
     # remaining segment is the schema.
     if dirs and dirs[-1].lower() == table:
         dirs = dirs[:-1]
-    return (dirs[-1].lower() if dirs else None), table
+    return (dirs[-1].lower() if dirs else _known_schema_of(table, known)), table
+
+
+def _known_schema_of(table: str, known: list[str]) -> str | None:
+    """The schema the known tables give `table` when exactly one declares it, so a
+    schema-qualified preset still resolves over a folder imported without its
+    schema directories. Mirrors the frontend's `knownSchemaOf`."""
+    schemas = {
+        k.rsplit(".", 1)[0].lower()
+        for k in known
+        if "." in k and k.rsplit(".", 1)[1].lower() == table
+    }
+    return schemas.pop() if len(schemas) == 1 else None
 
 
 def _group_parquet(

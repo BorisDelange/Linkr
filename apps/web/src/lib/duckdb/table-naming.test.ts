@@ -212,11 +212,29 @@ describe('commonDirPrefix', () => {
 })
 
 describe('fileGroupingTables', () => {
-  it('merges knownTables with the tables the DDL declares, lower-cased', () => {
+  it('merges knownTables with the tables the DDL declares, lower-cased and schema-qualified', () => {
     const ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE "Edbm"."DOCUMENT" (\n  id INTEGER\n);'
     expect(new Set(fileGroupingTables({ knownTables: ['Person'], ddl } as never))).toEqual(
-      new Set(['person', 'visit', 'document']),
+      new Set(['person', 'visit', 'edbm.document']),
     )
+  })
+
+  it('places a flat import in the schema the DDL gives each table', () => {
+    const ddl = [
+      'CREATE TABLE "APP"."visit" (\n  id INTEGER\n);',
+      'CREATE TABLE "APP"."document" (\n  id INTEGER\n);',
+      'CREATE TABLE "APP"."patient" (\n  id INTEGER\n);',
+      'CREATE TABLE "NOMINATIVE"."patient" (\n  id INTEGER\n);',
+    ].join('\n')
+    const known = fileGroupingTables({ ddl } as never)
+    const files = ['db/visit.parquet', 'db/document/document_1.parquet', 'db/document/x.parquet', 'db/patient.parquet', 'db/other.parquet']
+      .map((fileName) => ({ fileName }) as never)
+    // `patient` is declared in two schemas, so it is left unplaced rather than guessed.
+    expect([...groupFilesByTable(files, known).keys()].sort()).toEqual(['app.document', 'app.visit', 'other', 'patient'])
+  })
+
+  it('keeps the schema a module directory gives over the DDL one', () => {
+    expect(extractTableRef('db/zone/visit.parquet', 'db', ['app.visit'])).toEqual({ schema: 'zone', table: 'visit' })
   })
 
   it('returns undefined when the mapping names no table', () => {

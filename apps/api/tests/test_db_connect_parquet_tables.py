@@ -177,5 +177,25 @@ def test_known_tables_include_the_ddl_tables():
 
     ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "Edbm"."DOCUMENT" (\n  id INTEGER\n);'
     source = DataSource(schema_mapping={"knownTables": ["Person"], "ddl": ddl})
-    assert _known_tables(source) == ["document", "person", "visit"]
+    assert _known_tables(source) == ["edbm.document", "person", "visit"]
     assert _table_of("db/document/doc_a.parquet", _known_tables(source)) == "document"
+
+
+def test_flat_import_borrows_the_ddl_schema_when_unambiguous():
+    known = ["app.visit", "app.document", "app.patient", "nominative.patient"]
+    files = [
+        ("db/visit.parquet", "/tmp/v.parquet"),
+        ("db/document/document_1.parquet", "/tmp/d1.parquet"),
+        ("db/document/x.parquet", "/tmp/d2.parquet"),
+        ("db/patient.parquet", "/tmp/p.parquet"),
+        ("db/other.parquet", "/tmp/o.parquet"),
+    ]
+    groups = _group_parquet(files, known)
+    # `patient` is declared in two schemas, so it is left unplaced rather than guessed.
+    assert set(groups) == {("app", "visit"), ("app", "document"), (None, "patient"), (None, "other")}
+    assert len(groups[("app", "document")]) == 2
+
+
+def test_module_directory_wins_over_the_ddl_schema():
+    root = ["db"]
+    assert _table_ref_of("db/zone/visit.parquet", root, ["app.visit"]) == ("zone", "visit")

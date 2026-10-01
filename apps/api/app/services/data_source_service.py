@@ -94,20 +94,23 @@ async def source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, 
 
 # Mirrors the table head of the frontend's `TABLE_RE` (lib/ddl-parse.ts).
 _DDL_TABLE_RE = re.compile(
-    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\.)?"?(\w+)"?\s*\(', re.IGNORECASE
+    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(', re.IGNORECASE
 )
 
 
 def _known_tables(source: DataSource) -> list[str]:
     """Table names that identify a Parquet file by its path: the mapping's
-    `knownTables` plus every table its DDL declares. Mirrors the frontend's
-    `fileGroupingTables`."""
+    `knownTables` plus every table its DDL declares, schema-qualified when the DDL
+    qualifies it. Mirrors the frontend's `fileGroupingTables`."""
     mapping = source.schema_mapping or {}
     known = mapping.get("knownTables")
     names = {str(t).lower() for t in known} if isinstance(known, list) else set()
     ddl = mapping.get("ddl")
     if isinstance(ddl, str):
-        names.update(m.group(1).lower() for m in _DDL_TABLE_RE.finditer(ddl))
+        names.update(
+            (f"{m.group(1)}.{m.group(2)}" if m.group(1) else m.group(2)).lower()
+            for m in _DDL_TABLE_RE.finditer(ddl)
+        )
     return sorted(names)
 
 
