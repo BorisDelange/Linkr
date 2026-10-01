@@ -92,9 +92,10 @@ async def source_files(db: AsyncSession, source: DataSource) -> list[tuple[str, 
     return await _source_files(db, source)
 
 
-# Mirrors the table head of the frontend's `TABLE_RE` (lib/ddl-parse.ts).
+# Twin of the frontend's `TABLE_HEAD_RE` (lib/ddl-parse.ts); ASCII, as JS `\w` is.
 _DDL_TABLE_RE = re.compile(
-    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(', re.IGNORECASE
+    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(',
+    re.IGNORECASE | re.ASCII,
 )
 
 

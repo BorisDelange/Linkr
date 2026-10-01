@@ -242,3 +242,15 @@ def test_reader_escapes_a_quote_in_a_path():
 
     assert _reader(["/srv/O'Brien.parquet"]) == "read_parquet('/srv/O''Brien.parquet')"
     assert _reader(["/a.parquet", "/O'B.parquet"]) == "read_parquet(['/a.parquet', '/O''B.parquet'])"
+
+
+def test_ddl_table_names_match_the_frontend():
+    # Same cases as `ddlTableNames` in apps/web/src/lib/ddl-parse.test.ts.
+    from app.services.data_source_service import _DDL_TABLE_RE
+
+    def names(ddl: str) -> list[str]:
+        return [f"{m[1]}.{m[2]}" if m[1] else m[2] for m in _DDL_TABLE_RE.finditer(ddl)]
+
+    ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "App"."Doc" (id INTEGER)'
+    assert names(ddl) == ["visit", "App.Doc"]
+    assert names("CREATE TABLE café (id INTEGER);") == []

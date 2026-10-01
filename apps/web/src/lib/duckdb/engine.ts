@@ -9,7 +9,7 @@ import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { grainTable } from '@/lib/schema-classes/spec'
 import { quoteIdent } from '@/lib/format-helpers'
-import { parseDdl, qualifiedName } from '@/lib/ddl-parse'
+import { ddlTableNames } from '@/lib/ddl-parse'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -861,7 +861,7 @@ function isNamedShard(baseName: string, dirName: string): boolean {
 export function fileGroupingTables(mapping: SchemaMapping | undefined): string[] | undefined {
   if (!mapping) return undefined
   const names = new Set((mapping.knownTables ?? []).map((t) => t.toLowerCase()))
-  if (mapping.ddl) for (const t of parseDdl(mapping.ddl)) names.add(qualifiedName(t.schema, t.bareName).toLowerCase())
+  if (mapping.ddl) for (const name of ddlTableNames(mapping.ddl)) names.add(name.toLowerCase())
   return names.size > 0 ? [...names] : undefined
 }
 

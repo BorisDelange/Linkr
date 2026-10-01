@@ -116,6 +116,15 @@ export function indexTables(tables: ParsedTable[]): {
   return { byQualified, byBare }
 }
 
+// The head alone, so a table whose body this parser cannot read still names a
+// table. Twin of the server's `_DDL_TABLE_RE` (data_source_service.py).
+const TABLE_HEAD_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(/gi
+
+/** Every table a DDL declares, `schema.table` when qualified, as written. */
+export function ddlTableNames(ddl: string): string[] {
+  return [...ddl.matchAll(TABLE_HEAD_RE)].map((m) => qualifiedName(m[1], m[2]))
+}
+
 const TABLE_RE = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(([\s\S]*?)\);/gi
 const ALTER_PK_RE = /ALTER\s+TABLE\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s+ADD\s+CONSTRAINT\s+\w+\s+PRIMARY\s+KEY\s*\(([^)]+)\)/gi
 const ALTER_FK_RE = /ALTER\s+TABLE\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s+ADD\s+CONSTRAINT\s+\w+\s+FOREIGN\s+KEY\s*\(([^)]+)\)\s*REFERENCES\s+(?:"?(\w+)"?\.)?"?(\w+)"?\s*\(([^)]+)\)/gi
