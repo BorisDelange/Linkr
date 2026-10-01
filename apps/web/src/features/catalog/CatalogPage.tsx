@@ -12,11 +12,14 @@ import {
 } from '@/components/ui/select'
 import { isServerMode } from '@/lib/api-client'
 import { formatDate } from '@/lib/format-helpers'
-import { getCatalogSource, loadCatalogTargetWorkspace, saveCatalogTargetWorkspace } from '@/lib/catalog/settings'
+import { catalogSourceOf, loadCatalogTargetWorkspace, saveCatalogTargetWorkspace } from '@/lib/catalog/settings'
 import { findInstalled, type InstalledInfo } from '@/lib/catalog/installed'
 import { useCatalog } from '@/hooks/use-catalog'
 import { useAppStore } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useActiveCatalog } from '@/stores/catalog-sources-store'
+import { EmptyState } from '@/components/ui/empty-state'
+import { CatalogSwitcher } from './CatalogSwitcher'
 import { CatalogBrowser } from './CatalogBrowser'
 import { useOpenInstalled } from './use-open-installed'
 import { CatalogInstallOutcome } from './CatalogInstallDialog'
@@ -25,7 +28,8 @@ import { useCatalogInstall } from './use-catalog-install'
 export function CatalogPage() {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
-  const { entries, loaded, loading, error, fetchedAt, update, load, refresh } = useCatalog()
+  const catalog = useActiveCatalog()
+  const { entries, loaded, loading, error, fetchedAt, update, load, refresh } = useCatalog(catalog)
 
   const workspaces = useWorkspaceStore((s) => s.workspaces)
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
@@ -39,7 +43,7 @@ export function CatalogPage() {
   const [installedNonce, setInstalledNonce] = useState(0)
 
   const serverMode = isServerMode()
-  const source = getCatalogSource()
+  const source = catalog ? catalogSourceOf(catalog) : null
 
   useEffect(() => { void loadWorkspaces() }, [loadWorkspaces])
 
@@ -90,7 +94,13 @@ export function CatalogPage() {
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-foreground">{t('catalog.title')}</h1>
             <p className="mt-1 text-sm text-muted-foreground">{t('catalog.description')}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
+          </div>
+          <CatalogSwitcher />
+        </div>
+
+        {source && (
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
               {t('catalog.contribute')}{' '}
               <a
                 href={source.repoUrl}
@@ -102,19 +112,19 @@ export function CatalogPage() {
                 <ExternalLink size={11} />
               </a>
             </p>
+            {loaded && (
+              <div className="flex shrink-0 items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {t('catalog.last_updated', { date: formatDate(fetchedAt ?? undefined, language) })}
+                </span>
+                <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={refresh} disabled={loading}>
+                  {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  {t('catalog.refresh')}
+                </Button>
+              </div>
+            )}
           </div>
-          {loaded && (
-            <div className="flex shrink-0 items-center gap-2">
-              <span className="text-xs text-muted-foreground">
-                {t('catalog.last_updated', { date: formatDate(fetchedAt ?? undefined, language) })}
-              </span>
-              <Button size="sm" variant="outline" className="gap-1 text-xs" onClick={refresh} disabled={loading}>
-                {loading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {t('catalog.refresh')}
-              </Button>
-            </div>
-          )}
-        </div>
+        )}
 
         {loaded && update && (
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -125,7 +135,15 @@ export function CatalogPage() {
           </div>
         )}
 
-        {!loaded ? (
+        {!source ? (
+          <Card className="mt-6">
+            <EmptyState
+              icon={Store}
+              title={t('catalog.sources_none')}
+              description={t('catalog.sources_none_description')}
+            />
+          </Card>
+        ) : !loaded ? (
           <Card className="mt-6">
             <div className="flex flex-col items-center py-12">
               <Store size={40} className="text-muted-foreground" />

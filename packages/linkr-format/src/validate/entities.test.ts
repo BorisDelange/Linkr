@@ -390,3 +390,22 @@ describe('database', () => {
     expect(issues.filter((i) => i.path.startsWith('cohorts/'))).toEqual([])
   })
 })
+
+describe('minAppVersion', () => {
+  const preset = (extra: Record<string, unknown>) => new MemoryTree({
+    'entity.json': JSON.stringify({ entityId: 'p', type: 'schema-preset', name: { en: 'P' }, ...extra }),
+    'schema.ddl': 'CREATE TABLE t (id INTEGER);',
+  })
+
+  it('accepts a stamped version', () => {
+    const issues = validateEntity(preset({ minAppVersion: '2.4.3' }), 'schema-preset')
+    expect(issues.filter((i) => i.pointer === '/minAppVersion')).toEqual([])
+  })
+
+  it('refuses one the importer could not compare', () => {
+    for (const bad of ['latest', 2.4, '2.4']) {
+      const issues = validateEntity(preset({ minAppVersion: bad }), 'schema-preset')
+      expect(issues.some((i) => i.pointer === '/minAppVersion' && i.severity === 'error')).toBe(true)
+    }
+  })
+})

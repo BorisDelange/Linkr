@@ -11,7 +11,7 @@ import { validateDashboards } from './dashboards.js'
 import { validateDatasets } from './datasets.js'
 import { validateCohortBoardFiles, validateCohortFiles } from './records.js'
 import { validateScripts } from './scripts.js'
-import { checkEmptyBadges, manifestPath } from './entities.js'
+import { checkEmptyBadges, checkMinAppVersion, manifestPath } from './entities.js'
 
 /** Validate a whole project tree. Returns every issue found, errors and warnings. */
 export function validateProject(tree: EntityTree): Issue[] {
@@ -47,6 +47,7 @@ function validateProjectFile(tree: EntityTree, bag: IssueBag): void {
   }
 
   checkEmptyBadges(bag, path, project)
+  checkMinAppVersion(tree, 'project', bag)
 
   checkLocalized(bag, path, '/name', project.name, { required: true })
   if (project.description != null) {

@@ -30,6 +30,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { CatalogInstallOutcome } from '@/features/catalog/CatalogInstallDialog'
 import { useCatalogInstall } from '@/features/catalog/use-catalog-install'
 import { useCatalog } from '@/hooks/use-catalog'
+import { DEFAULT_CATALOG } from '@/lib/catalog/settings'
 import {
   DEFAULT_DATA_ENTRY_ID,
   findDefaultDataEntry,
@@ -48,7 +49,8 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
   // `error` is deliberately not read: a catalog that failed to load and one that
   // publishes no default-data entry are the same thing here — an instance that
   // starts empty — and both are covered by `unavailable` below.
-  const { entries, loaded, loading, load } = useCatalog()
+  // The community catalog whatever the user's list holds: it publishes the default data.
+  const { entries, loaded, loading, load } = useCatalog(DEFAULT_CATALOG)
   const [wanted, setWanted] = useState(true)
   /** Workspace the install created, once it has. Also the "done" flag for this step. */
   const [installedWorkspaceId, setInstalledWorkspaceId] = useState<string | null>(null)

@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils'
 import { NoAccessNotice } from '@/components/ui/no-access-notice'
 import { useHasGlobalPermission } from '@/stores/auth-store'
 import { GeneralTab } from './GeneralTab'
-import { CatalogSettingsTab } from './CatalogSettingsTab'
 import { UsersTab } from './UsersTab'
 import { RolesTab } from './RolesTab'
 import { OrganizationsTab } from './OrganizationsTab'
@@ -13,7 +12,7 @@ import { SettingsBackupSyncTab } from './SettingsBackupSyncTab'
 import { AccessLogTab } from './AccessLogTab'
 import { isServerMode } from '@/lib/api-client'
 
-const TABS = ['general', 'organizations', 'users', 'roles', 'catalog', 'backup-sync', 'access-log']
+const TABS = ['general', 'organizations', 'users', 'roles', 'backup-sync', 'access-log']
 
 export function SettingsPage() {
   const { t } = useTranslation()
@@ -57,7 +56,6 @@ export function SettingsPage() {
             <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
             <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
             <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
-            <TabsTrigger value="catalog">{t('nav.catalog')}</TabsTrigger>
             <TabsTrigger value="backup-sync">{t('settings.tab_backup_sync')}</TabsTrigger>
             {isServerMode() && <TabsTrigger value="access-log">{t('settings.tab_access_log')}</TabsTrigger>}
           </TabsList>
@@ -72,9 +70,6 @@ export function SettingsPage() {
           </TabsContent>
           <TabsContent value="roles">
             {canManageRoles ? <RolesTab /> : <NoAccessNotice />}
-          </TabsContent>
-          <TabsContent value="catalog">
-            <CatalogSettingsTab />
           </TabsContent>
           <TabsContent value="backup-sync">
             {canVersionSettings ? <SettingsBackupSyncTab /> : <NoAccessNotice />}

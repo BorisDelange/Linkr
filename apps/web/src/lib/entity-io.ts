@@ -8,6 +8,7 @@ import { isEmptyOverrides } from '@/lib/schema-classes/overrides'
 import type { SchemaOverrides } from '@/types/schema-mapping'
 import {
   CONTENT_FILE, EDITS_SUFFIX, editsFileName, ENTITY_MANIFEST, MANIFEST, ROOT_FILE, SCRIPTS_DIR, SIDECAR, type LayoutKind,
+  minAppVersionFor,
   buildTabKeyMap, buildWidgetKeyMap, canonicalOps, canonicalSchemaMapping, canonicalSchemaOverrides,
   dashboardKey as sharedDashboardKey, slugify, type DatasetOp, type Issue,
 } from '@linkr/format'
@@ -17,6 +18,7 @@ import { MAPPING_DIR } from '@/lib/duckdb/mapping-source'
 import { deterministicId } from '@/lib/deterministic-id'
 import { deletePatientBoard } from '@/lib/cohort-board-storage'
 import { validateImportZip } from '@/lib/import-validation'
+import { assertAppVersionSupported, assertEntityType } from '@/lib/app-version-compat'
 import {
   type PathNode, type TreeNode,
   type TreeFkKey,
@@ -511,7 +513,9 @@ export async function parseImportZip(
  * parseImportZip decodes every entry as UTF-8 text, which corrupts them.
  */
 export async function loadImportZip(file: File): Promise<JSZip> {
-  return stripRootFolder(await JSZip.loadAsync(file))
+  const zip = stripRootFolder(await JSZip.loadAsync(file))
+  await assertAppVersionSupported(zip)
+  return zip
 }
 
 // ---------------------------------------------------------------------------
@@ -1270,7 +1274,7 @@ export async function buildProjectZip(
     // pointer it could not look up.
     ...(exportedRefs.length > 0 ? { linkedDataSourceRefs: exportedRefs } : {}),
     ...(licenseMeta(projectLicense) ? { license: licenseMeta(projectLicense) } : {}),
-    appVersion: APP_VERSION,
+    ...versionStamp('project'),
   }))
 
   // --- README.md (+ README.<lang>.md per extra language) ---
@@ -2065,19 +2069,20 @@ export async function importProjectContent(
 }
 
 export async function parseProjectZip(file: File): Promise<ParsedProjectZip | null> {
-  const zipData = stripRootFolder(await JSZip.loadAsync(file))
+  const zipData = await loadImportZip(file)
 
   // --- Read project.json ---
   const projectFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.project]
   if (!projectFile) return null
   const projectRaw = JSON.parse(await projectFile.async('string'))
+  assertEntityType(projectRaw, 'project')
   // Clean git-versioned exports strip `uid` (the local PK) and identify the project
   // by its stable `projectId` (and `lineageId` when it has one); the target uid is
   // supplied by the caller, not read here. Accept any of the three as proof that
   // this is a real project.json — `lineageId` alone is often null on a fresh export.
   if (!projectRaw || (!projectRaw.uid && !projectRaw.entityId && !projectRaw.projectId && !projectRaw.lineageId)) return null
   // Strip export-only fields
-  const { appVersion: _av, ...projectMeta } = projectRaw as Project & { appVersion?: string }
+  const { appVersion: _av, minAppVersion: _min, ...projectMeta } = projectRaw as Project & { appVersion?: string; minAppVersion?: string }
 
   // Organization provenance snapshot: for a standalone project ZIP it's inlined
   // on project.json (project.organization). A legacy root organization.json is
@@ -2263,7 +2268,9 @@ function withEntityType<T extends Record<string, unknown>>(
   // `isSameEntity` matches on `lineageId` or the git remote and treats a shared
   // id as a hazard to defend against. `entityId` is the portable slug, and
   // `lineageId` the cross-instance identity; `id` had no third job.
-  const { id: _localKey, entityId, ...rest } = meta
+  // The stamps describe the FILE and are re-added last; an imported row may
+  // still carry the ones its manifest had.
+  const { id: _localKey, entityId, appVersion: _av, minAppVersion: _min, ...rest } = meta
   return {
     ...(entityId !== undefined ? { entityId } : {}),
     type,
@@ -2271,8 +2278,18 @@ function withEntityType<T extends Record<string, unknown>>(
     // The export-format version belongs on every entity, not just the three that
     // happened to write it — a reader needs to know which format version produced
     // a tree whatever kind it is.
-    ...(stampVersion ? { appVersion: APP_VERSION } : {}),
+    ...(stampVersion ? versionStamp(type) : {}),
   }
+}
+
+/**
+ * `appVersion`, then `minAppVersion` when the kind declares one (see
+ * `MIN_APP_VERSION` in @linkr/format) — the tail of every manifest. Twin of
+ * `version_stamp` in apps/api/app/services/export_layout.py.
+ */
+export function versionStamp(kind: LayoutKind): { appVersion: string; minAppVersion?: string } {
+  const minAppVersion = minAppVersionFor(kind, APP_VERSION)
+  return { appVersion: APP_VERSION, ...(minAppVersion ? { minAppVersion } : {}) }
 }
 
 /**
@@ -3034,10 +3051,11 @@ export async function attachEntityOrganization(
   // used to trail the whole file — an artifact of re-opening it here, never a
   // decision. `appVersion` stays last: it is the format version of the file, not
   // part of the provenance.
-  const { appVersion, ...rest } = meta
+  const { appVersion, minAppVersion, ...rest } = meta
   zip.file(metaPath, json({
     ...orderProvenance({ ...rest, organization: orgSnapshot(org) }),
     ...(appVersion !== undefined ? { appVersion } : {}),
+    ...(minAppVersion !== undefined ? { minAppVersion } : {}),
   }))
 }
 
@@ -3196,7 +3214,7 @@ export async function buildSchemaPresetFolder(
   // entity, but an imported row keeps whatever the manifest carried. Re-assigning
   // an existing key keeps its original position, which would strand the stamp
   // mid-block on the next export and show as a diff with no content change.
-  const { entityId: _slug, appVersion: _stamp, ...presetRest } = portable as Record<string, unknown>
+  const { entityId: _slug, appVersion: _stamp, minAppVersion: _min, ...presetRest } = portable as Record<string, unknown>
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json({
     entityId: preset.entityId ?? preset.presetId,
     type: 'schema-preset' as const,
@@ -3212,7 +3230,7 @@ export async function buildSchemaPresetFolder(
     // original had it before, so export → import → re-export produced a diff with
     // no content change in it.
     ...orderProvenance(presetRest),
-    appVersion: APP_VERSION,
+    ...versionStamp('schema-preset'),
   }))
   // `mapping` is 83% of what this file used to be — identity buried under
   // payload, in the file a human opens first on the forge. The preset already
@@ -3383,7 +3401,11 @@ export function readImportedManifest<T>(
 ): T | undefined {
   for (const name of [ENTITY_MANIFEST, MANIFEST[kind], ...legacyNames]) {
     const found = parsed[name]
-    if (found !== undefined) return found as T
+    // A manifest is an object: a mapping project's `mappings.json` (its layout
+    // name) is the mappings array, not its metadata.
+    if (found === undefined || typeof found !== 'object' || found === null || Array.isArray(found)) continue
+    assertEntityType(found, kind)
+    return found as T
   }
   return undefined
 }
@@ -3744,10 +3766,11 @@ export interface ParsedDatabaseZip {
  * is why a catalog install of the very same repo kept working.
  */
 export async function parseDatabaseZip(file: File): Promise<ParsedDatabaseZip | null> {
-  const zip = stripRootFolder(await JSZip.loadAsync(file))
+  const zip = await loadImportZip(file)
   const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
   if (!metaEntry) return null
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
+  assertEntityType(meta, 'database')
   const key = meta.entityId ?? meta.id ?? meta.lineageId
   if (!key) return null
   return {
@@ -3860,6 +3883,7 @@ export async function applyClonedEntity(
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
 ): Promise<ApplyClonedResult> {
+  await assertAppVersionSupported(zip)
   const readJson = async <T>(name: string): Promise<T | null> => {
     const entry = zip.files[name]
     return entry ? (JSON.parse(await entry.async('string')) as T) : null
@@ -4374,7 +4398,7 @@ export async function buildWorkspaceZip(
   )
   zip.file(ENTITY_MANIFEST, json({
     ...workspaceMeta,
-    appVersion: APP_VERSION,
+    ...versionStamp('workspace'),
   }))
 
   // --- organization.json ---
@@ -4858,13 +4882,14 @@ export function collectGitLinkedEntities(parsed: ParsedWorkspaceZip): GitLinkedE
 }
 
 export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip | null> {
-  const zipData = stripRootFolder(await JSZip.loadAsync(file))
+  const zipData = await loadImportZip(file)
 
   // --- workspace.json ---
   const wsFile = zipData.files[ENTITY_MANIFEST] ?? zipData.files[MANIFEST.workspace]
   if (!wsFile) return null
   const workspace = JSON.parse(await wsFile.async('string')) as Workspace & { appVersion?: string }
   if (!workspace) return null
+  assertEntityType(workspace, 'workspace')
   // A manifest no longer carries the writing instance's `id`. The importer mints
   // the local key, so what has to be present is a NAME — enough to build a
   // workspace from. `lineageId` is what identifies it across instances, and a

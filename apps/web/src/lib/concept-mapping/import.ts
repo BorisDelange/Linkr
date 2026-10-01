@@ -98,7 +98,7 @@ export async function importMappingProjectContent(
 
   // `readmeLang` is an export-only marker (which language the suffix-free
   // README.md holds); it rides on project.json but is not part of the entity.
-  const project = readImportedManifest<MappingProject & { readmeLang?: string; conceptSets?: ConceptSetRef[] }>(files, 'project', '_project.json')
+  const project = readImportedManifest<MappingProject & { readmeLang?: string; conceptSets?: ConceptSetRef[] }>(files, 'mapping-project', 'project.json', '_project.json')
   // A readable manifest is all this needs: the row is written under `targetId`,
   // and `project.id` is used nowhere below. It used to gate on that field, which
   // stopped travelling when exports dropped the writing instance's local key —

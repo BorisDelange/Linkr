@@ -1,5 +1,5 @@
 /**
- * Persist the downloaded catalog in localStorage.
+ * Persist each downloaded catalog in localStorage, one key per configured catalog.
  *
  * Deliberately not IndexedDB: the catalog is re-downloadable public data, so it doesn't
  * warrant a `DB_VERSION` bump and an `upgrade()` case in idb-storage. Key prefix follows
@@ -8,11 +8,11 @@
 
 import type { CatalogCache } from './types'
 
-const CACHE_KEY = 'linkr-catalog-cache'
+const cacheKey = (catalogId: string) => `linkr-catalog-cache:${catalogId}`
 
-export function loadCatalogCache(): CatalogCache | null {
+export function loadCatalogCache(catalogId: string): CatalogCache | null {
   try {
-    const raw = localStorage.getItem(CACHE_KEY)
+    const raw = localStorage.getItem(cacheKey(catalogId))
     if (!raw) return null
     const parsed = JSON.parse(raw) as CatalogCache
     // A cache written by an older/newer build may not have entries; treat as absent
@@ -24,18 +24,18 @@ export function loadCatalogCache(): CatalogCache | null {
   }
 }
 
-export function saveCatalogCache(cache: CatalogCache): void {
+export function saveCatalogCache(catalogId: string, cache: CatalogCache): void {
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(cache))
+    localStorage.setItem(cacheKey(catalogId), JSON.stringify(cache))
   } catch {
     // Quota exceeded or storage disabled — the catalog still works for this session,
     // it just won't survive a reload.
   }
 }
 
-export function clearCatalogCache(): void {
+export function clearCatalogCache(catalogId: string): void {
   try {
-    localStorage.removeItem(CACHE_KEY)
+    localStorage.removeItem(cacheKey(catalogId))
   } catch {
     /* nothing to do */
   }

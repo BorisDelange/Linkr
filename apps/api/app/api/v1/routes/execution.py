@@ -619,7 +619,7 @@ async def _terminal_pty_loop(
         shell = await pty_kernel.manager.create(
             project_uid, session_id, user.id, _kernel_token(user, project_uid)
         )
-    except pty_kernel.SessionLimitReached as e:
+    except (pty_kernel.SessionLimitReached, pty_kernel.TerminalUnsupported) as e:
         await websocket.send_json({"type": "error", "message": str(e)})
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return

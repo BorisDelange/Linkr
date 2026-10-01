@@ -289,7 +289,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   const readProjectZip = useCallback(async (file: File): Promise<{ project: MappingProject; children: ImportChildren } | null> => {
     // Scores are binary or large: read as bytes below, never decoded as text.
     const parsed = await parseImportZip(file, { skip: isScoresPath })
-    const project = readImportedManifest<MappingProject>(parsed, 'project', '_project.json')
+    const project = readImportedManifest<MappingProject>(parsed, 'mapping-project', 'project.json', '_project.json')
     if (!project) return null
     withEntityDocs(project, parsed)
     const mappings = (parsed['mappings.json'] ?? []) as import('@/types').ConceptMapping[]

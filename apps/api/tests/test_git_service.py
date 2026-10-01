@@ -41,6 +41,13 @@ def test_with_credentials_replaces_existing_userinfo():
     assert url == "https://oauth2:tok@gitlab.com/g/r.git"
 
 
+def test_with_credentials_names_an_https_repo_with_git_suffix():
+    # GitLab 301s `…/repo/info/refs` to `…/repo.git/info/refs`, and git runs with
+    # redirects off: without the suffix, every catalog entry failed to clone.
+    assert g._with_credentials("https://framagit.org/g/sub/repo", None) == "https://framagit.org/g/sub/repo.git"
+    assert g._with_credentials("https://framagit.org/g/repo/", "tok") == "https://oauth2:tok@framagit.org/g/repo.git"
+
+
 def test_with_credentials_leaves_ssh_and_tokenless_urls_untouched():
     assert g._with_credentials("git@github.com:g/r.git", "tok") == "git@github.com:g/r.git"
     assert g._with_credentials("https://gitlab.com/g/r.git", None) == "https://gitlab.com/g/r.git"

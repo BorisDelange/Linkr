@@ -938,10 +938,9 @@ async def _attach_org(db: AsyncSession, tree: dict[str, bytes], meta_path: str, 
     if org is None or meta_path not in tree:
         return
     meta = json.loads(tree[meta_path].decode("utf-8"))
-    app_version = meta.pop("appVersion", None)
+    stamp = {k: meta.pop(k) for k in ("appVersion", "minAppVersion") if k in meta}
     meta = order_provenance({**meta, "organization": org})
-    if app_version is not None:
-        meta["appVersion"] = app_version
+    meta.update(stamp)
     tree[meta_path] = _json(meta)
 
 
