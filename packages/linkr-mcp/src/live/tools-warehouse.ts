@@ -195,7 +195,7 @@ export function registerWarehouseTools(server: Server): void {
     },
     database_id: { type: 'string', description: 'Which linked database it runs on. Default: the project\'s first usable one.' },
     // Typed as one type: strict providers (grammar-constrained decoding, e.g. ModelRun) reject a
-    // parameter that can be read several ways. normalizeCriteria still accepts an array or a JSON string.
+    // parameter that can be read several ways.
     criteria: { type: 'object', description: CRITERIA_FORMAT },
   } as const
 
