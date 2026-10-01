@@ -20,9 +20,8 @@ def test_resolve_falls_back_to_server_default():
 
 
 def test_resolve_python_index_and_trusted_host():
-    ws = {"python": {"indexUrl": "https://ws/simple"}}
-    override = {"trustedHost": "ws"}
-    out = env_options.resolve("python", ws, override)
+    ws = {"python": {"indexUrl": "https://ws/simple", "trustedHost": "ws"}}
+    out = env_options.resolve("python", ws, {"trustedHost": "ws"})
     assert out["indexUrl"] == "https://ws/simple"
     assert out["trustedHost"] == "ws"
 
@@ -95,10 +94,28 @@ def test_plain_http_and_tls_off_only_for_a_mirror_the_server_or_workspace_chose(
     assert py({"indexUrl": "http://mirror.chu.local/other"})["indexUrl"] == "http://mirror.chu.local/other"
     assert py({"indexUrl": "http://evil.example/simple"})["indexUrl"] == "https://ws-mirror.local/simple"
     assert py({"indexUrl": "https://evil.example/simple"})["indexUrl"] == "https://evil.example/simple"
-    assert py({"trustedHost": "ws-mirror.local"})["trustedHost"] == "ws-mirror.local"
     assert "trustedHost" not in py({"trustedHost": "evil.example"})
     assert env_options.resolve("r", None, {"repos": "http://evil.example"})["repos"] == "https://cran.chu.local"
     # The workspace layer itself (an owner's choice) may use them.
     assert env_options.resolve("python", {"python": {"indexUrl": "http://ws.local/s", "trustedHost": "ws.local"}}, {}) == {
         "indexUrl": "http://ws.local/s", "trustedHost": "ws.local",
     }
+
+
+def test_an_override_cannot_downgrade_a_mirror_the_upper_layers_reach_over_https(monkeypatch):
+    monkeypatch.setattr(settings, "pip_index_url", "https://pypi.chu.local/simple")
+    monkeypatch.setattr(settings, "r_repos", "https://cran.chu.local")
+    ws = {"python": {"indexUrl": "https://ws-mirror.local/simple"}, "r": {"repos": "https://ws-cran.local"}}
+    py = lambda override: env_options.resolve("python", ws, override)  # noqa: E731
+
+    assert py({"indexUrl": "http://ws-mirror.local/simple"})["indexUrl"] == "https://ws-mirror.local/simple"
+    assert py({"indexUrl": "http://pypi.chu.local/simple"})["indexUrl"] == "https://ws-mirror.local/simple"
+    assert env_options.resolve("r", ws, {"repos": "http://cran.chu.local"})["repos"] == "https://ws-cran.local"
+    assert "trustedHost" not in py({"trustedHost": "ws-mirror.local"})
+    assert "trustedHost" not in py({"trustedHost": "pypi.chu.local"})
+
+
+def test_an_override_may_repeat_what_an_upper_layer_set():
+    ws = {"python": {"indexUrl": "http://ws.local/simple", "trustedHost": "ws.local"}}
+    out = env_options.resolve("python", ws, {"indexUrl": "http://ws.local/other", "trustedHost": "WS.local"})
+    assert out == {"indexUrl": "http://ws.local/other", "trustedHost": "WS.local"}

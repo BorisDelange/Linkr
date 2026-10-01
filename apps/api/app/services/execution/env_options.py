@@ -39,11 +39,6 @@ _R_METHODS = {"auto", "libcurl", "curl", "wget", "internal", "wininet"}
 # that could terminate the R string literal it lands in.
 _URL_KEYS = ("repos", "indexUrl")
 _URL_RE = re.compile(r"^https?://[^\s'\"\\`;]+$")
-# Plain http and trustedHost (TLS checks off) are for an internal mirror the
-# administrator (server config) or a workspace owner (workspace default) chose.
-# A project's options.json — edited by any editor, and imported with the project
-# from git — cannot send package downloads, code the server will run, over an
-# unauthenticated channel to a host of its own choosing.
 
 
 def _options_path(project_uid: str, language: str) -> Path:
@@ -80,9 +75,7 @@ def resolve(language: str, workspace_default: dict | None, env_override: dict) -
     keeping only non-empty values. Returns the effective options for `language`."""
     server = _server_defaults(language)
     ws = _sanitize(language, (workspace_default or {}).get(language) or {})
-    approved = {_host(v) for layer in (server, ws) for k, v in layer.items() if k in _URL_KEYS}
-    approved |= {ws["trustedHost"].lower()} if ws.get("trustedHost") else set()
-    override = _confine_override(_sanitize(language, env_override), approved)
+    override = _confine_override(_sanitize(language, env_override), (server, ws))
     merged = dict(server)
     for layer in (ws, override):
         for k, v in layer.items():
@@ -120,13 +113,26 @@ def _host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower()
 
 
-def _confine_override(override: dict, approved: set[str]) -> dict:
-    """A project override may use plain http, or turn TLS checks off, only for a
-    host the server or workspace layer already chose."""
+def _is_plain_http(url: str) -> bool:
+    return url.lower().startswith("http://")
+
+
+def _confine_override(override: dict, upper_layers: tuple[dict, ...]) -> dict:
+    """Plain http and trustedHost (TLS checks off) are for an internal mirror the
+    administrator (server config) or a workspace owner (workspace default) chose.
+    A project's options.json — edited by any editor, and imported with the project
+    from git — cannot send package downloads, code the server will run, over an
+    unauthenticated channel to a host of its own choosing, nor downgrade a mirror
+    an upper layer reaches over https: plain http only to a host an upper layer
+    itself uses over http, trustedHost only as an upper layer set it."""
+    http_hosts = {
+        _host(v) for layer in upper_layers for k, v in layer.items() if k in _URL_KEYS and _is_plain_http(v)
+    }
+    trusted = {layer["trustedHost"].lower() for layer in upper_layers if layer.get("trustedHost")}
     out = dict(override)
     for key in _URL_KEYS:
-        if out.get(key, "").lower().startswith("http://") and _host(out[key]) not in approved:
+        if _is_plain_http(out.get(key, "")) and _host(out[key]) not in http_hosts:
             out.pop(key, None)
-    if out.get("trustedHost") and out["trustedHost"].strip().lower() not in approved:
+    if out.get("trustedHost") and out["trustedHost"].strip().lower() not in trusted:
         out.pop("trustedHost", None)
     return out

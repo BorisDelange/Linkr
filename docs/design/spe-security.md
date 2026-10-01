@@ -92,8 +92,9 @@ institution's internal GitLab over ssh is a normal setup.
 
 **Package indexes: chosen by the instance or the workspace.** A plain-http index or a
 `trustedHost` (TLS checks off) may be set in the server and workspace layers; a
-project's `options.json` may use them only for a host one of those layers already chose
-(`services/execution/env_options.py`, `_confine_override`). Why: the project file travels
+project's `options.json` may use plain http only for a host one of those layers itself
+reaches over http, and `trustedHost` only as one of them set it — never to downgrade a
+mirror they reach over https (`services/execution/env_options.py`, `_confine_override`). Why: the project file travels
 with git, so it must not be able to point installs at a host of its author's choosing.
 
 ## 3. Database passwords and agents
