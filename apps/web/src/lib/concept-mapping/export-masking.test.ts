@@ -37,12 +37,23 @@ describe('maskFrequency', () => {
 })
 
 describe('setExportMinCount', () => {
-  it('makes the instance threshold the default of every mask, and ignores a nonsense value', () => {
+  it('makes the instance threshold the default of every mask, and ignores a non-integer', () => {
     try {
       setExportMinCount(20)
-      setExportMinCount(0)
+      setExportMinCount(2.5)
+      setExportMinCount(Number.NaN)
       expect(maskFrequency(15)).toBeNull()
       expect(maskSourceConceptsCsv('concept,patient_count\na,15\n')).toBe('concept,patient_count\na,<20\n')
+    } finally {
+      setExportMinCount(EXPORT_MIN_COUNT)
+    }
+  })
+
+  it('follows a server that turns masking off with 0, as the server does', () => {
+    try {
+      setExportMinCount(0)
+      expect(maskFrequency(5)).toBe(5)
+      expect(maskSourceConceptsCsv('concept,patient_count\na,5\n')).toBe('concept,patient_count\na,5\n')
     } finally {
       setExportMinCount(EXPORT_MIN_COUNT)
     }

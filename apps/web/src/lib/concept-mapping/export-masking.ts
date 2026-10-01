@@ -11,15 +11,17 @@
 import Papa from 'papaparse'
 import type { FileColumnMapping } from '@/types'
 
-/** The threshold a server instance applies by default (LINKR_EXPORT_MIN_COUNT). */
+/** The threshold a server instance applies by default (LINKR_EXPORT_MIN_COUNT),
+ *  and the one a client-only (WASM) deployment always uses. */
 export const EXPORT_MIN_COUNT = 11
 
 let exportMinCount = EXPORT_MIN_COUNT
 
 /** The instance's threshold, read from the server at boot: the exports the
- *  browser builds must mask like the ones the server builds. */
+ *  browser builds must mask like the ones the server builds — k ≤ 1 masking
+ *  nothing on both sides. */
 export function setExportMinCount(k: number): void {
-  if (Number.isInteger(k) && k >= 1) exportMinCount = k
+  if (Number.isInteger(k)) exportMinCount = k
 }
 
 const JSON_HEADERS = ['info_json', 'metadata_json', 'json_metadata']

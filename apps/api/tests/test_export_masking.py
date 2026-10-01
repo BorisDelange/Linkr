@@ -81,3 +81,9 @@ def test_a_byte_order_mark_is_dropped_as_the_browser_drops_it():
     data = b"\xef\xbb\xbf" + (FIXTURES / "input.csv").read_bytes()
     assert _masked_csv_bytes(data, None).decode() == _read("expected.csv")
     assert mask_source_concepts_csv("\ufeffa,b\n1,2\n", None, 11) == "a,b\n1,2\n"
+
+
+def test_a_threshold_of_0_masks_nothing_as_in_the_browser():
+    text = "concept,patient_count\na,5\n"
+    assert mask_frequency(5, 0) == 5
+    assert mask_source_concepts_csv(text, None, 0) == text
