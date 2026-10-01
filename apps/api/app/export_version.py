@@ -48,6 +48,7 @@ EXPORT_APP_VERSION = _read_export_version()
 # misread; every export of that kind then stamps ``minAppVersion``.
 MIN_APP_VERSION: dict[str, str] = {
     "schema-preset": "2.4.3",
+    "database": "2.4.3",
 }
 
 

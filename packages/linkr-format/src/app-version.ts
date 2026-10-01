@@ -18,6 +18,9 @@ export const MIN_APP_VERSION: Partial<Record<LayoutKind, string>> = {
   // mapping.json v2: relations instead of event tables, database overrides with a
   // `removed` list. A 2.4.2 reads the file as an empty mapping.
   'schema-preset': '2.4.3',
+  // _database/mapping-overrides.json gained a `removed` list of relations the site
+  // dropped. A 2.4.2 ignores it and queries tables that are not there.
+  'database': '2.4.3',
 }
 
 /**

@@ -364,12 +364,11 @@ def _build_tree() -> dict[str, bytes]:
         # lands beside the author it belongs with, with appVersion still last. The
         # database carries no snapshot of its own, so the org resolves from the
         # parent workspace — the first export freezes it into the repo.
-        app_version = meta.pop("appVersion", None)
+        stamp = {k: meta.pop(k) for k in ("appVersion", "minAppVersion") if k in meta}
         meta = order_provenance(
             {**meta, "organization": _org_snapshot(data["organization"])}
         )
-        if app_version is not None:
-            meta["appVersion"] = app_version
+        meta.update(stamp)
         tree = {ENTITY_MANIFEST: _json_bytes(meta)}
         if schema_mapping:
             mapping = dict(schema_mapping)
