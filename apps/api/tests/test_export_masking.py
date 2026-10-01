@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from app.services.export_masking import _js_json, mask_frequency, mask_source_concepts_csv
-from app.services.mapping_project_export import build_mapping_project_tree
+from app.services.export_masking import SourceConceptsUnreadable, _js_json, mask_frequency, mask_source_concepts_csv
+from app.services.mapping_project_export import _as_csv_bytes, _masked_csv_bytes, build_mapping_project_tree
 
 FIXTURES = Path(__file__).resolve().parents[2] / "web" / "src" / "lib" / "concept-mapping" / "__fixtures__" / "export-masking"
 
@@ -59,3 +59,31 @@ def test_every_server_export_goes_through_it(monkeypatch):
     assert tree["source-concepts.csv"].decode() == _read("expected.csv")
     assert [m["sourceFrequency"] for m in json.loads(tree["mappings.json"])] == [None, 400]
     assert mask_frequency(True) is True
+
+
+def test_a_windows_1252_file_is_read_not_shipped_unmasked():
+    data = (FIXTURES / "input-cp1252.csv").read_bytes()
+    assert _masked_csv_bytes(data, None).decode() == _read("expected.csv")
+
+
+@pytest.mark.parametrize("data", [b"a,b\n\x81\n", b"a,record_count\nx,\x003\n"])
+def test_bytes_that_cannot_be_read_are_refused(data):
+    with pytest.raises(SourceConceptsUnreadable):
+        _masked_csv_bytes(data, None)
+
+
+def test_an_unreadable_parquet_is_refused():
+    with pytest.raises(SourceConceptsUnreadable):
+        _as_csv_bytes(b"PAR1\x00\x01")
+
+
+def test_a_byte_order_mark_is_dropped_as_the_browser_drops_it():
+    data = b"\xef\xbb\xbf" + (FIXTURES / "input.csv").read_bytes()
+    assert _masked_csv_bytes(data, None).decode() == _read("expected.csv")
+    assert mask_source_concepts_csv("\ufeffa,b\n1,2\n", None, 11) == "a,b\n1,2\n"
+
+
+def test_a_threshold_of_0_masks_nothing_as_in_the_browser():
+    text = "concept,patient_count\na,5\n"
+    assert mask_frequency(5, 0) == 5
+    assert mask_source_concepts_csv(text, None, 0) == text

@@ -4550,6 +4550,8 @@
     "export_scores_none_hint": "Aucun fichier de scores chargé. Chargez-en un depuis l'onglet Suggestions.",
     "export_scores_probing": "Recherche d'un fichier de scores…",
     "source_csv_too_large": "Le fichier CSV source est trop volumineux pour être téléchargé dans le navigateur. Ajoutez-le manuellement à votre dépôt git aux côtés du contenu du ZIP.",
+    "source_csv_unreadable": "Le fichier des concepts sources n'a pas pu être lu (ni texte UTF-8 ou Windows-1252, ni Parquet lisible) : il ne peut pas être masqué, il n'a donc pas été exporté. Réimportez-le en CSV UTF-8.",
+    "export_zip_failed": "L'export a échoué : {{reason}}",
     "export_usagi": "USAGI CSV",
     "export_usagi_desc": "Compatible avec l'outil OHDSI Usagi. Format standard pour le partage d'alignements de concepts.",
     "export_stcm": "SOURCE_TO_CONCEPT_MAP",

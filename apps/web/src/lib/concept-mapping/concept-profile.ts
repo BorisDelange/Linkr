@@ -28,6 +28,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { classRelation, conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { binCentre } from '@/lib/concept-mapping/export-masking'
 
 // ---------------------------------------------------------------------------
 // Options
@@ -487,11 +488,11 @@ export function histogramBins(count: number, bins: number | 'auto'): number {
 }
 
 /**
- * Binned distribution of the trimmed values.
+ * Binned distribution of the trimmed values, as bin index + width per row.
  *
- * `x` is the bin CENTRE, not its edge — the detail view plots these on a linear
- * axis, so a left edge would shift every bar half a bin left of the values it
- * counts.
+ * The width is a round m × 10^e near (max − min) / bins, and the edges are its
+ * multiples: bins anchored on the minimum would give the minimum and maximum
+ * back through their centres, and those are one patient's values each.
  */
 export function buildHistogramQuery(
   source: ProfileSource,
@@ -504,15 +505,29 @@ export function buildHistogramQuery(
     SELECT e.value_number AS value
     ${eventScope(source.event, conceptId)} AND e.value_number IS NOT NULL${withinBounds(bounds)}
   ),
-  bounds AS (
-    SELECT MIN(value) AS min_val, (MAX(value) - MIN(value)) / ${bins} AS bin_width FROM filtered
+  spread AS (
+    SELECT (MAX(value) - MIN(value)) / ${bins} AS width FROM filtered
   ),
-  binned AS (
-    SELECT FLOOR((f.value - b.min_val) / NULLIF(b.bin_width, 0)) AS bin_idx, b.min_val, b.bin_width
-    FROM filtered f, bounds b
+  magnitude AS (
+    SELECT width / POW(10, FLOOR(LOG10(width))) AS mantissa, CAST(FLOOR(LOG10(width)) AS INTEGER) AS step_e
+    FROM spread WHERE width > 0
+  ),
+  step AS (
+    SELECT CASE WHEN mantissa <= 1 THEN 1 WHEN mantissa <= 2 THEN 2 WHEN mantissa <= 5 THEN 5 ELSE 10 END AS step_m, step_e
+    FROM magnitude
   )
-  SELECT ROUND(min_val + (bin_idx * bin_width) + (bin_width / 2), 1) AS x, COUNT(*) AS count
-  FROM binned GROUP BY bin_idx, min_val, bin_width ORDER BY bin_idx`
+  SELECT CAST(FLOOR(CASE WHEN s.step_e < 0 THEN f.value * POW(10, -s.step_e) / s.step_m
+                         ELSE f.value / (s.step_m * POW(10, s.step_e)) END) AS INTEGER) AS bin_idx,
+         s.step_m, s.step_e, COUNT(*) AS count
+  FROM filtered f, step s GROUP BY ALL ORDER BY bin_idx`
+}
+
+/** The histogram query's rows as {x: bin centre, count}. */
+export function histogramFromRows(rows: Record<string, unknown>[]): { x: number; count: number }[] {
+  return rows.map((row) => ({
+    x: binCentre(Number(row.bin_idx), Number(row.step_m), Number(row.step_e)),
+    count: Number(row.count),
+  }))
 }
 
 /**
@@ -871,7 +886,7 @@ export async function buildConceptProfile(
   if (sections.histogram && numericCount > 0) {
     const bins = histogramBins(numericCount, options.bins)
     const rows = await run(buildHistogramQuery(source, concept.conceptId, bounds, bins))
-    if (rows.length) results.histogram = rows as unknown as { x: number; count: number }[]
+    if (rows.length) results.histogram = histogramFromRows(rows)
   }
 
   if (sections.categorical) {

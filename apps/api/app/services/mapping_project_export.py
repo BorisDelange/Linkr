@@ -24,7 +24,12 @@ from typing import Any
 from app.core.json_export import export_json as _json
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import entity_doc_files
-from app.services.export_masking import mask_frequency, mask_source_concepts_csv
+from app.services.export_masking import (
+    SourceConceptsUnreadable,
+    decode_source_text,
+    mask_frequency,
+    mask_source_concepts_csv,
+)
 from app.services.entity_docs import license_meta as _license_meta
 from app.services.export_layout import (
     ENTITY_MANIFEST,
@@ -230,11 +235,10 @@ def _csv_escape(value: Any) -> str:
 
 def _masked_csv_bytes(data: bytes, column_mapping: dict | None) -> bytes:
     """Small counts and single-patient values masked (export_masking). Bytes that
-    are not UTF-8 text are left alone: nothing in them could be read to mask."""
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        return data
+    cannot be read cannot be masked, so they raise rather than leave as they are."""
+    text = decode_source_text(data)
+    if text is None:
+        raise SourceConceptsUnreadable()
     return mask_source_concepts_csv(text, column_mapping).encode("utf-8")
 
 
@@ -270,11 +274,10 @@ def _as_csv_bytes(source: bytes) -> bytes:
                 rows = rel.fetchall()
             finally:
                 con.close()
-    except Exception:
-        # Unreadable parquet: keep the original bytes rather than losing the file.
-        return source
+    except Exception as exc:
+        raise SourceConceptsUnreadable() from exc
     if not columns:
-        return source
+        raise SourceConceptsUnreadable()
     lines = [",".join(_csv_escape(c) for c in columns)]
     lines.extend(",".join(_csv_escape(v) for v in row) for row in rows)
     return "\n".join(lines).encode("utf-8")

@@ -11,31 +11,73 @@
 import Papa from 'papaparse'
 import type { FileColumnMapping } from '@/types'
 
-/** The threshold a server instance applies by default (LINKR_EXPORT_MIN_COUNT). */
+/** The threshold a server instance applies by default (LINKR_EXPORT_MIN_COUNT),
+ *  and the one a client-only (WASM) deployment always uses. */
 export const EXPORT_MIN_COUNT = 11
 
 let exportMinCount = EXPORT_MIN_COUNT
 
 /** The instance's threshold, read from the server at boot: the exports the
- *  browser builds must mask like the ones the server builds. */
+ *  browser builds must mask like the ones the server builds — k ≤ 1 masking
+ *  nothing on both sides. */
 export function setExportMinCount(k: number): void {
-  if (Number.isInteger(k) && k >= 1) exportMinCount = k
+  if (Number.isInteger(k)) exportMinCount = k
 }
 
 const JSON_HEADERS = ['info_json', 'metadata_json', 'json_metadata']
 const EXTREMES = new Set(['min', 'max'])
+// Under this many values, a 1st/5th percentile sits on one patient's value.
+const NEAR_EXTREMES_MIN_COUNT = 100
+const NEAR_EXTREMES = new Set(['p1', 'p5', 'p95', 'p99'])
 
 type Json = Record<string, unknown>
 
+/** Thrown when source-concepts bytes cannot be read, hence cannot be masked:
+ *  the file is then not exported at all rather than exported as it is. */
+export class SourceConceptsUnreadableError extends Error {
+  constructor() {
+    super('The source concepts file is neither UTF-8 nor Windows-1252 text nor readable Parquet: it cannot be masked, so it is not exported.')
+    this.name = 'SourceConceptsUnreadableError'
+  }
+}
+
+// The five bytes Windows-1252 leaves undefined: TextDecoder maps them to C1
+// controls where Python's cp1252 codec refuses them, so both sides refuse them.
+const CP1252_UNDEFINED = /[\x81\x8d\x8f\x90\x9d]/
+
+/** Source bytes as text — UTF-8, else Windows-1252 (the usual export of a French
+ *  hospital's spreadsheet) — or null when they are not text at all. */
+export function decodeSourceText(buf: Uint8Array): string | null {
+  let text: string
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(buf)
+  } catch {
+    text = new TextDecoder('windows-1252').decode(buf)
+    if (CP1252_UNDEFINED.test(text)) return null
+  }
+  return text.includes('\0') ? null : text
+}
+
+// Plain decimal only, read alike by both sides: Number() also takes "0x5" and
+// Python's float() "1_0", so a looser parse masked a cell on one side only.
+const NUMBER_TEXT = /^[0-9]+(\.[0-9]+)?$/
+
+function toNumber(value: unknown): number {
+  if (typeof value === 'number') return value
+  if (typeof value !== 'string') return NaN
+  const text = value.replace(/^[ \t]+|[ \t]+$/g, '')
+  return NUMBER_TEXT.test(text) ? Number(text) : NaN
+}
+
 function isSmall(value: unknown, k: number): boolean {
-  if (value == null || value === '' || typeof value === 'boolean') return false
-  const n = Number(value)
+  const n = toNumber(value)
   return Number.isFinite(n) && n > 0 && n < k
 }
 
-function impliedSmall(percentage: unknown, total: unknown, k: number): boolean {
-  if (percentage == null || total == null || percentage === '' || total === '') return false
-  return isSmall((Number(percentage) / 100) * Number(total), k)
+/** Percentages are rounded to one decimal, so the count is taken at the lowest
+ *  the rounding allows — and 0.0% may still hide a few records. */
+function impliedCount(percentage: unknown, total: unknown): number {
+  return (Math.max(0, toNumber(percentage) - 0.05) / 100) * toNumber(total)
 }
 
 /** A mapping's source frequency as it may leave the instance: a small one is
@@ -45,6 +87,74 @@ export function maskFrequency<T>(value: T, k: number = exportMinCount): T | null
 }
 
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** A bin width of m × 10^e, m in {1, 2, 5}: the smallest one not under `width`. */
+export function niceStep(width: number): [number, number] {
+  for (let e = Math.floor(Math.log10(width)) - 1; ; e++) {
+    for (const m of [1, 2, 5]) if (stepWidth(m, e) >= width * (1 - 1e-9)) return [m, e]
+  }
+}
+
+function stepWidth(m: number, e: number): number {
+  return e >= 0 ? m * 10 ** e : m / 10 ** -e
+}
+
+/** Index of the bin of width m × 10^e holding `x`, bins starting at multiples of the width. */
+export function binIndex(x: number, m: number, e: number): number {
+  return Math.floor(e >= 0 ? x / (m * 10 ** e) : (x * 10 ** -e) / m)
+}
+
+/** Centre of bin `i` of width m × 10^e, written as the decimal it is. */
+export function binCentre(i: number, m: number, e: number): number {
+  return e >= 0 ? ((2 * i + 1) * m * 10 ** e) / 2 : ((2 * i + 1) * m) / (2 * 10 ** -e)
+}
+
+/**
+ * The histogram moved onto a grid of round widths whose edges are multiples of
+ * the width, or null when it cannot be (under two bins, a bin that is not
+ * {x, count}). A profile built before such grids anchored its bins on the
+ * minimum — centre = min + (i + ½)·(max − min)/bins — so its first and last
+ * centres gave the minimum and the maximum back. Each old bin joins the round
+ * bin its centre falls in; a histogram already on the grid comes out unchanged.
+ */
+function regrid(histogram: unknown[]): Json[] | null {
+  const bins = histogram.map((b) => (isObject(b) ? { x: toNumber(b.x), count: toNumber(b.count) } : null))
+  if (bins.length < 2 || bins.some((b) => b === null || !Number.isFinite(b.x) || !Number.isFinite(b.count))) return null
+  const xs = bins.map((b) => b!.x).sort((a, b) => a - b)
+  let width = Infinity
+  for (let i = 1; i < xs.length; i++) if (xs[i] - xs[i - 1] > 0 && xs[i] - xs[i - 1] < width) width = xs[i] - xs[i - 1]
+  if (!Number.isFinite(width)) return null
+  const [m, e] = niceStep(width)
+  const counts = new Map<number, number>()
+  for (const b of bins) {
+    const i = binIndex(b!.x, m, e)
+    counts.set(i, (counts.get(i) ?? 0) + b!.count)
+  }
+  return [...counts.keys()].sort((a, b) => a - b).map((i) => ({ x: binCentre(i, m, e), count: counts.get(i)! }))
+}
+
+/**
+ * `entries` without the small ones. When what was dropped totals under k, the
+ * total minus the kept entries would give it back, so the smallest kept entries
+ * go too until the dropped mass reaches k (secondary suppression).
+ */
+function suppress(entries: unknown[], small: (e: Json) => boolean, mass: (e: Json) => number, k: number): unknown[] {
+  const dropped = (e: unknown) => isObject(e) && small(e)
+  const weight = (e: unknown) => {
+    const m = isObject(e) ? mass(e) : NaN
+    return Number.isFinite(m) ? m : 0
+  }
+  const kept = entries.filter((e) => !dropped(e))
+  if (kept.length === entries.length) return kept
+  let droppedMass = 0
+  for (const e of entries) if (dropped(e)) droppedMass += weight(e)
+  while (droppedMass < k && kept.length > 0) {
+    let smallest = 0
+    for (let i = 1; i < kept.length; i++) if (weight(kept[i]) < weight(kept[smallest])) smallest = i
+    droppedMass += weight(kept.splice(smallest, 1)[0])
+  }
+  return kept
+}
 
 /** The profile as it may leave the instance, or null to withhold it. */
 export function maskProfile(profile: Json, k: number): Json | null {
@@ -58,23 +168,40 @@ export function maskProfile(profile: Json, k: number): Json | null {
     }
   }
   const total = profile.rows_count
+  const counted = (e: Json) => toNumber(e.count)
+  const implied = (e: Json) => impliedCount(e.percentage, total)
+  const numeric = out.numeric_data
+  if (isObject(numeric)) {
+    const sizes = [toNumber(numeric.numeric_count), toNumber(total)]
+    if (Array.isArray(profile.histogram)) {
+      let sum = 0
+      for (const b of profile.histogram) sum += isObject(b) ? toNumber(b.count) : NaN
+      sizes.push(sum)
+    }
+    const known = sizes.filter(Number.isFinite)
+    if (known.length === 0 || Math.min(...known) < NEAR_EXTREMES_MIN_COUNT) {
+      out.numeric_data = Object.fromEntries(Object.entries(numeric).filter(([name]) => !NEAR_EXTREMES.has(name)))
+    }
+  }
   if (Array.isArray(out.histogram)) {
-    out.histogram = out.histogram.filter((b) => !(isObject(b) && isSmall(b.count, k)))
+    const grid = regrid(out.histogram)
+    if (grid === null) delete out.histogram
+    else out.histogram = suppress(grid, (b) => isSmall(b.count, k), counted, k)
   }
   if (Array.isArray(out.categorical_data)) {
-    out.categorical_data = out.categorical_data.filter((c) => !(isObject(c) && (
-      isSmall(c.count, k) || (!('count' in c) && impliedSmall(c.percentage, total, k))
-    )))
+    const mass = (c: Json) => ('count' in c ? counted(c) : implied(c))
+    out.categorical_data = suppress(out.categorical_data, (c) => ('count' in c ? isSmall(c.count, k) : mass(c) < k), mass, k)
   }
   if (Array.isArray(out.hospital_units)) {
-    out.hospital_units = out.hospital_units.filter((u) => !(isObject(u) && impliedSmall(u.percentage, total, k)))
+    out.hospital_units = suppress(out.hospital_units, (u) => implied(u) < k, implied, k)
   }
   const temporal = out.temporal_distribution
-  if (isObject(temporal) && Array.isArray(temporal.by_year)) {
-    out.temporal_distribution = {
-      ...temporal,
-      by_year: temporal.by_year.filter((y) => !(isObject(y) && impliedSmall(y.percentage, total, k))),
-    }
+  if (isObject(temporal)) {
+    // The first and last dates are one patient's event each.
+    const { start_date: _start, end_date: _end, ...rest } = temporal
+    out.temporal_distribution = Array.isArray(rest.by_year)
+      ? { ...rest, by_year: suppress(rest.by_year, (y) => implied(y) < k, implied, k) }
+      : rest
   }
   return out
 }
@@ -99,6 +226,7 @@ export function maskSourceConceptsCsv(
   columnMapping?: Partial<FileColumnMapping> | null,
   k: number = exportMinCount,
 ): string {
+  if (text.startsWith('\uFEFF')) text = text.slice(1)
   if (k <= 1 || !text || text.startsWith('version https://git-lfs')) return text
   const firstLine = text.split('\n', 1)[0]
   const delimiter = [',', ';', '\t'].reduce((best, d) =>
@@ -127,14 +255,13 @@ export function maskSourceConceptsCsv(
       }
     }
     if (jsonIdx >= 0 && jsonIdx < cells.length && cells[jsonIdx].trim()) {
-      let profile: unknown
+      let profile: unknown = null
       try {
         profile = JSON.parse(cells[jsonIdx])
       } catch {
-        continue
+        // Unreadable here may be readable elsewhere (Python takes NaN): withheld.
       }
-      if (!isObject(profile)) continue
-      const masked = withheld ? null : maskProfile(profile, k)
+      const masked = withheld || !isObject(profile) ? null : maskProfile(profile, k)
       const next = masked === null ? '' : JSON.stringify(masked)
       if (masked === null || next !== JSON.stringify(profile)) {
         cells[jsonIdx] = next

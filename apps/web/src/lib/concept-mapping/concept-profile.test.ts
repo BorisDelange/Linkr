@@ -18,6 +18,7 @@ import {
   effectiveSections,
   frequencyLabel,
   histogramBins,
+  histogramFromRows,
   outlierBounds,
   resolveProfileSource,
   type ProfileSource,
@@ -197,10 +198,21 @@ describe('query builders', () => {
     expect(buildHistogramQuery(source(), 42, bounds, 10)).toContain('<= 60')
   })
 
-  it('bins on the centre, not the edge', () => {
+  it('bins on a round grid, not on the minimum', () => {
+    // Edges anchored on the minimum give the minimum and maximum back.
+    const sql = buildHistogramQuery(source(), 42, null, 10)
+    expect(sql).not.toContain('MIN(value) AS')
+    expect(sql).toContain('WHEN mantissa <= 2 THEN 2')
+  })
+
+  it('plots each bin at its centre, written as the decimal it is', () => {
     // The detail view plots x on a linear axis: a left edge would shift every
     // bar half a bin away from the values it counts.
-    expect(buildHistogramQuery(source(), 42, null, 10)).toContain('(bin_width / 2)')
+    expect(histogramFromRows([
+      { bin_idx: 3, step_m: 10, step_e: 0, count: 4 },
+      { bin_idx: 1, step_m: 2, step_e: -1, count: 5 },
+      { bin_idx: -3, step_m: 2, step_e: 0, count: 6 },
+    ])).toEqual([{ x: 35, count: 4 }, { x: 0.3, count: 5 }, { x: -5, count: 6 }])
   })
 
   it('keeps rare categories out and takes the top N', () => {
@@ -438,7 +450,7 @@ describe('buildConceptProfile', () => {
         }],
       },
       { match: 'STDDEV', rows: [{ min: 1, max: 60, mean: 20, median: 20, sd: 5 }] },
-      { match: 'bin_width', rows: [{ x: 5, count: 100 }] },
+      { match: 'step_m', rows: [{ bin_idx: 2, step_m: 2, step_e: 0, count: 100 }] },
     ])
     const result = await buildConceptProfile(OMOP, source(), { conceptId: 42 }, DEFAULT_PROFILE_OPTIONS, query)
     expect(result.rowsCount).toBe(1000)

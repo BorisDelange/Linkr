@@ -9,13 +9,18 @@ const dir = join(__dirname, '__fixtures__', 'export-masking')
 const read = (name: string) => readFileSync(join(dir, name), 'utf-8')
 
 describe('maskSourceConceptsCsv', () => {
-  it('masks small counts, withholds small profiles, drops extremes and small bins', () => {
+  it('masks small counts, withholds small profiles, drops extremes, event dates and small bins', () => {
     expect(maskSourceConceptsCsv(read('input.csv'), null, 11)).toBe(read('expected.csv'))
   })
 
   it('follows the project column mapping and the file delimiter', () => {
     expect(maskSourceConceptsCsv(read('input-semicolon.csv'), { recordCountColumn: 'n_records' }, 11))
       .toBe(read('expected-semicolon.csv'))
+  })
+
+  it('drops a byte order mark, as the server does', () => {
+    expect(maskSourceConceptsCsv(`\uFEFF${read('input.csv')}`, null, 11)).toBe(read('expected.csv'))
+    expect(maskSourceConceptsCsv('\uFEFFa,b\n1,2\n', null, 11)).toBe('a,b\n1,2\n')
   })
 
   it('leaves a file with nothing to mask byte for byte', () => {
@@ -32,12 +37,23 @@ describe('maskFrequency', () => {
 })
 
 describe('setExportMinCount', () => {
-  it('makes the instance threshold the default of every mask, and ignores a nonsense value', () => {
+  it('makes the instance threshold the default of every mask, and ignores a non-integer', () => {
     try {
       setExportMinCount(20)
-      setExportMinCount(0)
+      setExportMinCount(2.5)
+      setExportMinCount(Number.NaN)
       expect(maskFrequency(15)).toBeNull()
       expect(maskSourceConceptsCsv('concept,patient_count\na,15\n')).toBe('concept,patient_count\na,<20\n')
+    } finally {
+      setExportMinCount(EXPORT_MIN_COUNT)
+    }
+  })
+
+  it('follows a server that turns masking off with 0, as the server does', () => {
+    try {
+      setExportMinCount(0)
+      expect(maskFrequency(5)).toBe(5)
+      expect(maskSourceConceptsCsv('concept,patient_count\na,5\n')).toBe('concept,patient_count\na,5\n')
     } finally {
       setExportMinCount(EXPORT_MIN_COUNT)
     }
