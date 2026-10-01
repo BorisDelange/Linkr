@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -41,82 +42,75 @@ export function SettingsPage() {
   const serverOnly = ['access-log', 'import', 'export', 'versioning']
   const available = TABS.filter((id) => serverMode || !serverOnly.includes(id))
   const activeTab = available.includes(requestedTab) ? requestedTab : 'general'
-  const fullPage = activeTab === 'access-log'
+
+  // Same shell as workspace / project settings: title on the left, tabs centered,
+  // each tab's content in its own scroll area. The access log is a large table
+  // and takes the full width, scrolling inside rather than the page.
+  const pane = (id: string, content: ReactNode) => (
+    <TabsContent
+      value={id}
+      className={cn('min-h-0 flex-1 pb-6', id === 'access-log' ? 'flex flex-col' : 'overflow-auto')}
+    >
+      {id === 'access-log' ? content : <div className="mx-auto max-w-5xl">{content}</div>}
+    </TabsContent>
+  )
 
   return (
-    <div className="h-full overflow-auto">
-      {/* The access log is a large table: it takes the page's full width and
-          height, the table scrolling inside rather than the page. */}
-      <div className={cn('mx-auto px-6 pt-10', fullPage ? 'flex h-full max-w-none flex-col pb-4' : 'max-w-5xl pb-10')}>
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0 px-6 pt-6 pb-2">
         <h1 className="text-2xl font-bold text-foreground">
           {t('settings.title')}
         </h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('settings.description')}
         </p>
-
-        <Tabs
-          value={activeTab}
-          onValueChange={(v) => navigate(`/settings/${v}`, { replace: true })}
-          className={cn('mt-6', fullPage && 'min-h-0 flex-1')}
-        >
-          {/* Two groups so the app's own database (General) is never confused
-              with moving accounts in and out (Import / Export / Versioning). */}
-          <div className="flex flex-wrap items-end justify-center gap-x-6 gap-y-3">
-            <div className="flex flex-col items-center gap-1">
-              <SectionLabel>{t('settings.group_application')}</SectionLabel>
-              <TabsList>
-                <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
-                {serverMode && <TabsTrigger value="access-log">{t('settings.tab_access_log')}</TabsTrigger>}
-              </TabsList>
-            </div>
-            <div className="flex flex-col items-center gap-1">
-              <SectionLabel>{t('settings.group_accounts')}</SectionLabel>
-              <TabsList>
-                <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
-                <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
-                <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
-                {serverMode && (
-                  <>
-                    <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-                    <TabsTrigger value="import">{t('settings.tab_import')}</TabsTrigger>
-                    <TabsTrigger value="export">{t('settings.tab_export')}</TabsTrigger>
-                    <TabsTrigger value="versioning">{t('settings.tab_versioning')}</TabsTrigger>
-                  </>
-                )}
-              </TabsList>
-            </div>
-          </div>
-          <TabsContent value="general">
-            <GeneralTab />
-          </TabsContent>
-          <TabsContent value="organizations">
-            {canManageOrgs ? <OrganizationsTab /> : <NoAccessNotice />}
-          </TabsContent>
-          <TabsContent value="users">
-            {canManageUsers ? <UsersTab /> : <NoAccessNotice />}
-          </TabsContent>
-          <TabsContent value="roles">
-            {canManageRoles ? <RolesTab /> : <NoAccessNotice />}
-          </TabsContent>
-          {serverMode && (
-            <>
-              <TabsContent value="import">
-                {canVersionSettings ? <SettingsImportTab /> : <NoAccessNotice />}
-              </TabsContent>
-              <TabsContent value="export">
-                {canVersionSettings ? <SettingsExportTab /> : <NoAccessNotice />}
-              </TabsContent>
-              <TabsContent value="versioning">
-                {canVersionSettings ? <SettingsVersioningTab /> : <NoAccessNotice />}
-              </TabsContent>
-              <TabsContent value="access-log" className="flex min-h-0 flex-col">
-                {canReadAccessLog ? <AccessLogTab /> : <NoAccessNotice />}
-              </TabsContent>
-            </>
-          )}
-        </Tabs>
       </div>
+
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => navigate(`/settings/${v}`, { replace: true })}
+        className="flex min-h-0 flex-1 flex-col px-6"
+      >
+        {/* Two groups so the app's own database (General) is never confused
+            with moving accounts in and out (Import / Export / Versioning). */}
+        <div className="flex shrink-0 flex-wrap items-end justify-center gap-x-6 gap-y-3">
+          <div className="flex flex-col items-center gap-1">
+            <SectionLabel>{t('settings.group_application')}</SectionLabel>
+            <TabsList>
+              <TabsTrigger value="general">{t('settings.tab_general')}</TabsTrigger>
+              {serverMode && <TabsTrigger value="access-log">{t('settings.tab_access_log')}</TabsTrigger>}
+            </TabsList>
+          </div>
+          <div className="flex flex-col items-center gap-1">
+            <SectionLabel>{t('settings.group_accounts')}</SectionLabel>
+            <TabsList>
+              <TabsTrigger value="organizations">{t('settings.tab_organizations')}</TabsTrigger>
+              <TabsTrigger value="users">{t('settings.tab_users')}</TabsTrigger>
+              <TabsTrigger value="roles">{t('settings.tab_roles')}</TabsTrigger>
+              {serverMode && (
+                <>
+                  <span aria-hidden className="mx-1 h-4 w-px bg-border" />
+                  <TabsTrigger value="import">{t('settings.tab_import')}</TabsTrigger>
+                  <TabsTrigger value="export">{t('settings.tab_export')}</TabsTrigger>
+                  <TabsTrigger value="versioning">{t('settings.tab_versioning')}</TabsTrigger>
+                </>
+              )}
+            </TabsList>
+          </div>
+        </div>
+        {pane('general', <GeneralTab />)}
+        {pane('organizations', canManageOrgs ? <OrganizationsTab /> : <NoAccessNotice />)}
+        {pane('users', canManageUsers ? <UsersTab /> : <NoAccessNotice />)}
+        {pane('roles', canManageRoles ? <RolesTab /> : <NoAccessNotice />)}
+        {serverMode && (
+          <>
+            {pane('import', canVersionSettings ? <SettingsImportTab /> : <NoAccessNotice />)}
+            {pane('export', canVersionSettings ? <SettingsExportTab /> : <NoAccessNotice />)}
+            {pane('versioning', canVersionSettings ? <SettingsVersioningTab /> : <NoAccessNotice />)}
+            {pane('access-log', canReadAccessLog ? <AccessLogTab /> : <NoAccessNotice />)}
+          </>
+        )}
+      </Tabs>
     </div>
   )
 }
