@@ -173,6 +173,7 @@ on a database), stable check ids, run export and catalog publish as W3C DQV.
 | St | Item | Effort |
 |----|------|--------|
 | 💤 | A1 follow-up: kernels under their own OS identity, no read access to `data_dir` (judged minor inside a per-project SPE) | L |
+| 💤 | A4 follow-up: the same separate identity is what would hold against a hostile agent — today agent code in its own kernel can read `data_dir/secret.key` + `linkr.db` and so open saved database passwords; A4 only keeps them out of the API's answers | — (same item) |
 
 ## Permissions
 

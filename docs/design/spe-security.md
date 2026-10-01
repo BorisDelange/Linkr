@@ -52,8 +52,13 @@ holds whatever the deployer put there, and code a user wrote must see none of it
 `setpriv` before migrations and uvicorn. Data lives in `/var/lib/linkr`. The API port is
 published on `127.0.0.1` only, so the way in is the front proxy.
 
-**What code can still reach.** A kernel runs as the same system user as the server, so it
-can read `data_dir` — `secret.key`, `linkr.db`, the access log files. This is accepted:
+**What code can still reach.** At startup the API makes itself non-dumpable
+(`core/hardening.py`, `prctl(PR_SET_DUMPABLE, 0)` on Linux, a logged no-op elsewhere), so
+a same-user kernel can neither read `/proc/<api pid>/environ` — where `LINKR_SECRET_KEY`,
+`LINKR_ENCRYPTION_KEY` and the trusted-proxy secret live — nor attach a debugger to it;
+kernels reset the flag on exec and are unaffected. The files are another matter: a
+kernel runs as the same system user as the server, so it can read `data_dir` —
+`secret.key`, `linkr.db`, the access log files. This is accepted:
 inside a per-project SPE, everyone with `ide:execute` is a project member already
 authorised on the same data, and the remaining risk is traceability within the team
 (using a colleague's saved database password, rewriting Linkr's local log copy — the
@@ -110,6 +115,13 @@ The IDE's client libraries (`linkr_connect()`) obtain the user's password throug
   default to a session of their own, `agent` (`packages/linkr-mcp/src/live/shared.ts`,
   `AGENT_SESSION`). The other direction stays open: the IDE may open what an agent
   started, whose token holds no password.
+
+What these two rules hold against: an agent fetching a decrypted password **through the
+API**. They do not hold against agent code that sets out to find one: its kernel runs as
+the API's system user, reads `data_dir/secret.key` and `linkr.db` like any kernel (§1),
+and can unseal every saved database password from them. Only kernels under a separate
+system identity would close that (*Not built*); until then, an agent given
+`ide:execute` is trusted with the instance like any other holder of it.
 
 An agent queries databases with `run_sql`, which the server runs without exposing a
 password. A server-side query proxy for code was not built: it would remove the native
@@ -229,6 +241,7 @@ else gets 404.
 - **Kernels under their own system identity**, without read access to `data_dir`
   (§1). Parked (💤 in the planning README): it needs privilege separation for process
   launch, per-project file rights and a different image, for a risk judged minor inside
-  a per-project SPE.
+  a per-project SPE. It is also the only real barrier between a hostile agent's code and
+  the saved database passwords (§3).
 - **A recommended range for log retention.** Dropped: the duration is each institution's
   rule (§4).
