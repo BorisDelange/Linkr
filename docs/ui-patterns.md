@@ -273,7 +273,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 |---|---|
 | `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter selects all matches. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `DataTable` uses it, so you only reach for it directly in a bespoke table. |
-| `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. |
+| `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page; the copy button copies all of it. |
 | `OverflowBadgeList` | A badge row too narrow for its items. Keeps whole badges, folds the rest into `+N` with the full list as bullets on hover. Never clip a badge row with `overflow-hidden`. |
 | `DebouncedInput` | Any search box over a large set (300 ms). One shared copy at `ui/debounced-input` — do not re-declare it locally. |
 

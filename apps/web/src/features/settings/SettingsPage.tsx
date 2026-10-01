@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate, useParams, useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { cn } from '@/lib/utils'
 import { NoAccessNotice } from '@/components/ui/no-access-notice'
 import { useHasGlobalPermission } from '@/stores/auth-store'
 import { GeneralTab } from './GeneralTab'
@@ -35,7 +36,8 @@ export function SettingsPage() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className="mx-auto max-w-5xl px-6 py-10">
+      {/* The access log is a wide table: it takes the page's full width. */}
+      <div className={cn('mx-auto px-6 py-10', activeTab === 'access-log' ? 'max-w-none' : 'max-w-5xl')}>
         <h1 className="text-2xl font-bold text-foreground">
           {t('settings.title')}
         </h1>

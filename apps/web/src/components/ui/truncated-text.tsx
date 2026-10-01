@@ -6,6 +6,20 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 /** Hover dwell before a tooltip is built, matching Radix's old delayDuration. */
 const HOVER_DELAY_MS = 200
 
+/** How much of the text a tooltip shows. A cell can hold a whole SQL query or
+ *  script; shown in full, the tooltip runs off the page. The copy button still
+ *  copies all of it. */
+const TOOLTIP_MAX_CHARS = 500
+const TOOLTIP_MAX_LINES = 12
+
+/** `text` cut to what a tooltip can show, with an ellipsis when it was cut. */
+export function clipForTooltip(text: string, maxChars = TOOLTIP_MAX_CHARS, maxLines = TOOLTIP_MAX_LINES): string {
+  const lines = text.split('\n')
+  let clipped = lines.length > maxLines ? lines.slice(0, maxLines).join('\n') : text
+  if (clipped.length > maxChars) clipped = clipped.slice(0, maxChars)
+  return clipped.length < text.length ? `${clipped.trimEnd()} …` : text
+}
+
 interface TruncatedTextProps {
   /** Full text; shown truncated inline and in full inside the tooltip. */
   text: string
@@ -35,7 +49,8 @@ interface TruncatedTextProps {
  *
  * By default the tooltip is readable, not just glanceable: its text is
  * selectable and it carries a copy button, so a long concept name can be lifted
- * out of a narrow column. That means it must NOT close the moment the pointer
+ * out of a narrow column. A very long value (a query, a script) is cut in the
+ * tooltip so it stays on the page; the copy button copies all of it. That means it must NOT close the moment the pointer
  * leaves the cell — hovering the tooltip itself keeps it open. Pass `readOnly`
  * where that reachability isn't worth a hoverable panel sitting over the rows
  * below (dense pick-a-row tables).
@@ -118,10 +133,10 @@ export function TruncatedText({
           )}
         >
           {readOnly ? (
-            text
+            clipForTooltip(text)
           ) : (
             <div className="flex items-start gap-1.5">
-              <span className="select-text">{text}</span>
+              <span className="select-text">{clipForTooltip(text)}</span>
               <CopyIconButton text={text} className="mt-px" />
             </div>
           )}
