@@ -128,7 +128,7 @@ export function AccessLogTab() {
   ], [t, i18n.language, sourceName])
 
   return (
-    <Card className="mt-4 min-h-0 flex-1 gap-2">
+    <Card className="mt-4 min-h-0 flex-1 gap-2 pb-4">
       <CardHeader>
         <CardTitle className="text-sm">{t('access_log.title')}</CardTitle>
         <CardDescription>{t('access_log.description')}</CardDescription>

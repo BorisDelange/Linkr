@@ -39,7 +39,7 @@ export function SettingsPage() {
     <div className="h-full overflow-auto">
       {/* The access log is a large table: it takes the page's full width and
           height, the table scrolling inside rather than the page. */}
-      <div className={cn('mx-auto px-6 py-10', fullPage ? 'flex h-full max-w-none flex-col' : 'max-w-5xl')}>
+      <div className={cn('mx-auto px-6 pt-10', fullPage ? 'flex h-full max-w-none flex-col pb-4' : 'max-w-5xl pb-10')}>
         <h1 className="text-2xl font-bold text-foreground">
           {t('settings.title')}
         </h1>
