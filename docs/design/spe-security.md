@@ -88,7 +88,10 @@ http(s) host check runs at DNS time, a redirect would bypass it). Clone and
 verify-remote need a write permission in the workspace they name, or global
 `workspaces:write`. Why: a server-side clone came back as a ZIP, so a local path read the
 server's own disk. ssh remotes are not checked against internal addresses, because an
-institution's internal GitLab over ssh is a normal setup.
+institution's internal GitLab over ssh is a normal setup; their failures answer a generic
+message, ssh's own text (which hosts and ports answer) going to the server log
+(`git_service._failure`). An https remote is tried as written, then with `.git` when the
+host redirects or answers not found (`_url_candidates`).
 
 **Package indexes: chosen by the instance or the workspace.** A plain-http index or a
 `trustedHost` (TLS checks off) may be set in the server and workspace layers; a

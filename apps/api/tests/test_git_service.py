@@ -92,6 +92,16 @@ def test_an_auth_failure_is_not_retried_with_the_suffix(monkeypatch):
     assert probed == ["https://gitlab.com/g/private"]
 
 
+def test_an_ssh_failure_does_not_tell_which_hosts_answer():
+    error = g._failure(
+        "ssh: connect to host 10.0.0.5 port 22: Connection refused\nfatal: Could not read from remote repository.",
+        None, ["ls-remote", "git@10.0.0.5:g/r.git"],
+    )
+    assert "10.0.0.5" not in str(error) and error.code == "not_found"
+    https = g._failure("fatal: repository 'https://h/r.git/' not found", None, ["ls-remote", "https://h/r.git"])
+    assert "not found" in str(https)
+
+
 def test_with_credentials_leaves_ssh_and_tokenless_urls_untouched():
     assert g._with_credentials("git@github.com:g/r.git", "tok") == "git@github.com:g/r.git"
     assert g._with_credentials("https://gitlab.com/g/r.git", None) == "https://gitlab.com/g/r.git"
