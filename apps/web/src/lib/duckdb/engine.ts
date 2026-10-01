@@ -822,7 +822,8 @@ function isShardFileName(baseName: string): boolean {
   // `part-00000`, `part-00000-<uuid>-c000`, `chunk_3`, `data.1`, `0001`. The
   // digits after the separator are what distinguish a shard from a real table
   // that merely starts with one of these words (`data_quality`, `file_registry`).
-  return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName) || /^\d+$/.test(baseName)
+  // A bare number or date (`0001`, `1999-01`) names no table either.
+  return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName) || /^\d+([-_.]\d+)*$/.test(baseName)
 }
 
 /**
@@ -877,10 +878,12 @@ export function extractTableName(filePath: string, knownTables?: string[]): stri
   const baseName = parts[parts.length - 1].replace(/\.[^.]+$/, '').toLowerCase()
 
   if (knownSet) {
-    // Walk segments from right to left, find the first known table name
-    for (let i = parts.length - 1; i >= 0; i--) {
+    if (knownSet.has(baseName)) return baseName
+    // A known directory claims only the files that carry no name of their own,
+    // so an undeclared `document/document_type.parquet` stays a table.
+    for (let i = parts.length - 2; i >= 0; i--) {
       const seg = parts[i].replace(/\.[^.]+$/, '').toLowerCase()
-      if (knownSet.has(seg)) return seg
+      if (knownSet.has(seg) && (isShardFileName(baseName) || isNamedShard(baseName, seg))) return seg
     }
   }
 

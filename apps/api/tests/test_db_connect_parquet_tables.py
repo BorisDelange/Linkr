@@ -178,7 +178,14 @@ def test_known_tables_include_the_ddl_tables():
     ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "Edbm"."DOCUMENT" (\n  id INTEGER\n);'
     source = DataSource(schema_mapping={"knownTables": ["Person"], "ddl": ddl})
     assert _known_tables(source) == ["edbm.document", "person", "visit"]
-    assert _table_of("db/document/doc_a.parquet", _known_tables(source)) == "document"
+    assert _table_of("db/document/1999-01.parquet", _known_tables(source)) == "document"
+
+
+def test_known_directory_claims_only_files_that_name_no_table():
+    assert _table_of("db/document/document_type.parquet", ["app.document"]) == "document_type"
+    assert _table_of("db/document/doc_a.parquet", ["document"]) == "doc_a"
+    assert _table_of("db/document/1999-01.parquet", ["document"]) == "document"
+    assert _table_of("db/document/document_2.parquet", ["document"]) == "document"
 
 
 def test_flat_import_borrows_the_ddl_schema_when_unambiguous():
@@ -186,7 +193,7 @@ def test_flat_import_borrows_the_ddl_schema_when_unambiguous():
     files = [
         ("db/visit.parquet", "/tmp/v.parquet"),
         ("db/document/document_1.parquet", "/tmp/d1.parquet"),
-        ("db/document/x.parquet", "/tmp/d2.parquet"),
+        ("db/document/1999-01.parquet", "/tmp/d2.parquet"),
         ("db/patient.parquet", "/tmp/p.parquet"),
         ("db/other.parquet", "/tmp/o.parquet"),
     ]

@@ -704,7 +704,7 @@ def introspect_file(engine: str, path: str) -> list[dict]:
     return [{"name": name, "columns": cols} for name, cols in tables.items()]
 
 
-_SHARD_RE = re.compile(r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+$")
+_SHARD_RE = re.compile(r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+([-_.]\d+)*$")
 # A shard named after its table directory (`document/document_1999-01`): only a
 # numeric/date suffix counts, so `ehop/ehop_patient` stays a table of its own.
 _NAMED_SHARD_SUFFIX_RE = re.compile(r"^[-_.]\d+([-_.]\d+)*$")
@@ -717,19 +717,24 @@ def _table_of(file_name: str, known: list[str]) -> str:
     directory carries the table identity."""
     parts = [p for p in file_name.replace("\\", "/").split("/") if p]
     known_set = {k.rsplit(".", 1)[-1].lower() for k in known}
-    if known_set:
-        for seg in reversed(parts):
-            stem = re.sub(r"\.[^.]+$", "", seg).lower()
-            if stem in known_set:
-                return stem
     stem = re.sub(r"\.[^.]+$", "", parts[-1]).lower()
-    if len(parts) >= 2:
-        dir_name = parts[-2].lower()
-        if _SHARD_RE.match(stem) or (
-            stem.startswith(dir_name) and _NAMED_SHARD_SUFFIX_RE.match(stem[len(dir_name):])
-        ):
+    if stem in known_set:
+        return stem
+    # A known directory claims only the files that carry no name of their own, so
+    # an undeclared `document/document_type.parquet` stays a table.
+    for seg in reversed(parts[:-1]):
+        dir_name = re.sub(r"\.[^.]+$", "", seg).lower()
+        if dir_name in known_set and _is_shard_of(stem, dir_name):
             return dir_name
+    if len(parts) >= 2 and _is_shard_of(stem, parts[-2].lower()):
+        return parts[-2].lower()
     return stem
+
+
+def _is_shard_of(stem: str, dir_name: str) -> bool:
+    return bool(_SHARD_RE.match(stem)) or (
+        stem.startswith(dir_name) and bool(_NAMED_SHARD_SUFFIX_RE.match(stem[len(dir_name):]))
+    )
 
 
 def _common_dir(names: list[str]) -> list[str]:

@@ -59,7 +59,15 @@ describe('extractTableName', () => {
   })
 
   it('matches knownTables case-insensitively', () => {
-    expect(extractTableName('db/document/doc_a.parquet', ['DOCUMENT'])).toBe('document')
+    expect(extractTableName('db/document/part-0.parquet', ['DOCUMENT'])).toBe('document')
+    expect(extractTableName('db/Document.parquet', ['app.DOCUMENT'])).toBe('document')
+  })
+
+  it('lets a known directory claim only the files that name no table of their own', () => {
+    expect(extractTableName('db/document/document_type.parquet', ['app.document'])).toBe('document_type')
+    expect(extractTableName('db/document/doc_a.parquet', ['document'])).toBe('doc_a')
+    expect(extractTableName('db/document/1999-01.parquet', ['document'])).toBe('document')
+    expect(extractTableName('db/document/document_2.parquet', ['document'])).toBe('document')
   })
 
   it('treats a real table whose name starts with a shard keyword as a table', () => {
@@ -227,7 +235,7 @@ describe('fileGroupingTables', () => {
       'CREATE TABLE "NOMINATIVE"."patient" (\n  id INTEGER\n);',
     ].join('\n')
     const known = fileGroupingTables({ ddl } as never)
-    const files = ['db/visit.parquet', 'db/document/document_1.parquet', 'db/document/x.parquet', 'db/patient.parquet', 'db/other.parquet']
+    const files = ['db/visit.parquet', 'db/document/document_1.parquet', 'db/document/1999-01.parquet', 'db/patient.parquet', 'db/other.parquet']
       .map((fileName) => ({ fileName }) as never)
     // `patient` is declared in two schemas, so it is left unplaced rather than guessed.
     expect([...groupFilesByTable(files, known).keys()].sort()).toEqual(['app.document', 'app.visit', 'other', 'patient'])
@@ -244,7 +252,7 @@ describe('fileGroupingTables', () => {
 
   it('groups a folder of dated shards into the DDL table, with no schema', () => {
     const known = fileGroupingTables({ ddl: 'CREATE TABLE document (\n  id INTEGER\n);' } as never)
-    const files = ['db/visit.parquet', 'db/document/doc_a.parquet', 'db/document/doc_b.parquet']
+    const files = ['db/visit.parquet', 'db/document/1999-01.parquet', 'db/document/1999-02.parquet']
       .map((fileName) => ({ fileName }) as never)
     expect([...groupFilesByTable(files, known).keys()].sort()).toEqual(['document', 'visit'])
   })
