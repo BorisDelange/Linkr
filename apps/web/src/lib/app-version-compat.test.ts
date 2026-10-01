@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { APP_VERSION } from '@/lib/version'
 import { readImportedManifest } from '@/lib/entity-io'
 import { assertAppVersionSupported, assertEntityType, IncompatibleAppVersionError, requiredAppVersion, WrongEntityTypeError } from './app-version-compat'
@@ -37,6 +37,18 @@ describe('requiredAppVersion', () => {
       'entity.json': '{ not json',
     })
     expect(await requiredAppVersion(zip)).toBeNull()
+  })
+
+  it('does not parse a record list sharing a manifest name', async () => {
+    const list = `  [${'{"sourceCode":"x"},'.repeat(50)}{}]`
+    const zip = zipOf({ 'mappings/mappings.json': list, 'entity.json': { minAppVersion: '2.4.3' } })
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(await requiredAppVersion(zip)).toBe('2.4.3')
+      expect(parse.mock.calls.some(([text]) => text === list)).toBe(false)
+    } finally {
+      parse.mockRestore()
+    }
   })
 })
 

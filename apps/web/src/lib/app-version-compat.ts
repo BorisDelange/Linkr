@@ -33,9 +33,13 @@ export async function requiredAppVersion(zip: JSZip): Promise<string | null> {
   let highest: string | null = null
   for (const [path, entry] of Object.entries(zip.files)) {
     if (entry.dir || !MANIFEST_NAMES.has(path.split('/').pop() ?? '')) continue
+    const text = await entry.async('string')
+    // A record list sharing a manifest's name (a mapping project's mappings.json
+    // can run to megabytes) carries no stamp: not worth parsing.
+    if (text.trimStart().startsWith('[')) continue
     let meta: unknown
     try {
-      meta = JSON.parse(await entry.async('string'))
+      meta = JSON.parse(text)
     } catch {
       continue
     }
