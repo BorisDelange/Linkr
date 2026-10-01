@@ -87,8 +87,6 @@ async def lifespan(app: FastAPI):
                 "or run with LINKR_DEBUG=true for local development."
             )
         logger.warning("cors_wildcard_with_credentials", origins=settings.cors_origin_list)
-    if warning := audit.retention_warning(settings.audit_retention_days):
-        logger.warning("audit_retention_out_of_range", detail=warning)
     logger.info("starting_linkr", version=settings.app_version, mode=settings.app_mode)
     # Run in a worker thread: Alembic's async env.py calls asyncio.run(), which
     # cannot run inside the already-running lifespan event loop.

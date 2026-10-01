@@ -133,9 +133,8 @@ class Settings(BaseSettings):
     # "<k", a profile under it is withheld. 1 disables the masking.
     export_min_count: int = 11
 
-    # Access log (core/audit.py): how long its entries are kept. SEC-JOU-4 asks
-    # for 180–365 days; outside that range the server warns at boot. At least 1:
-    # 0 would delete the whole log at the next compaction.
+    # Access log (core/audit.py): how long its entries are kept. At least 1: 0
+    # would delete the whole log at the next compaction.
     audit_retention_days: int = Field(365, ge=1)
 
     model_config = {"env_prefix": "LINKR_", "env_file": str(_ENV_FILE)}

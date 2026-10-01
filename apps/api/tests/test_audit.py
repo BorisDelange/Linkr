@@ -328,11 +328,6 @@ async def test_downloads_exports_and_previews_are_logged(client):
     assert (uid, ws) in exports and (None, ws) in exports
 
 
-@pytest.mark.parametrize("days, warned", [(1, True), (179, True), (180, False), (365, False), (366, True), (3650, True)])
-def test_retention_outside_six_to_twelve_months_is_warned(days, warned):
-    assert (audit.retention_warning(days) is not None) is warned
-
-
 def test_a_retention_of_zero_is_refused():
     from pydantic import ValidationError
 

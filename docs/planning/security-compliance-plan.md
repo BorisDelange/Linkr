@@ -166,9 +166,9 @@ locally: the blob download is logged, the queries cannot be — the fix is C1.
 
 ### B2. Log retention bounds — SEC-JOU-4
 
-**Fixed:** a warning at boot outside 180–365 days (`audit.retention_warning`), not a
-clamp — a legal hold may justify more; `audit_retention_days` must be ≥ 1 (0 would
-empty the log at the next compaction). The SPE checklist (F) states the range.
+**Fixed:** `audit_retention_days` must be ≥ 1 (0 would empty the log at the next
+compaction). No other bound and no warning, by decision: Linkr is used outside France,
+and the right duration is each institution's rule, not one country's framework.
 
 - `audit_retention_days` (`config.py:118`) has no bounds.
 - SEC-JOU-4 asks for 6 to 12 months. Either clamp it (warn at boot outside 180–365), or
