@@ -3,7 +3,7 @@
 The frame every security and compliance decision is taken against. User-facing version:
 `linkr-website/src/pages/docs/concepts/health-data-warehouse.mdx` (FR + EN) — keep the two
 consistent. Open security work derived from this frame:
-[planning/security-compliance-plan.md](planning/security-compliance-plan.md).
+[design/security-compliance-plan.md](design/security-compliance-plan.md).
 
 ## The layers
 

@@ -168,14 +168,11 @@ on a database), stable check ids, run export and catalog publish as W3C DQV.
 | 💤 | Convert the bundled MIMIC-IV ETL to C/CR (its scripts still join `source_to_concept_map`) | M |
 | 💤 | `00b_custom_vocabulary.sql`: only the seed loader generates it — remove? | S |
 
-## Security & compliance — [security-compliance-plan.md](security-compliance-plan.md)
-
-Audit of 2026-09-30 against the SPE frame ([../deployment-context.md](../deployment-context.md))
-and the CNIL CDW framework. Sections A, B, D, E and F are done — as-built in `docs/architecture.md` § Permissions; what is left is below.
+## Security & compliance — done, rationale in [../design/security-compliance-plan.md](../design/security-compliance-plan.md)
 
 | St | Item | Effort |
 |----|------|--------|
-| 💤 | A1 follow-up: kernels under their own OS identity, no read access to `data_dir` | L |
+| 💤 | A1 follow-up: kernels under their own OS identity, no read access to `data_dir` (judged minor inside a per-project SPE) | L |
 
 ## Permissions
 
