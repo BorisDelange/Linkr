@@ -345,3 +345,24 @@ async def test_move_needs_projects_write_on_destination(client, db):
     assert r.status_code == 400
     r = await client.patch(f"{API}/projects/{uid}", headers=admin, json={"workspaceId": ws_b})
     assert r.status_code == 200 and r.json()["workspaceId"] == ws_b
+
+
+async def test_move_needs_projects_write_on_the_source_too(client, db):
+    # A project-level owner who is only a viewer of the workspace must not carry
+    # the project off into a workspace of their own.
+    admin = await _bootstrap_admin(client)
+    ws_a = await _make_workspace(client, admin)
+    bob = await _create_user(db, client, "bob")
+    bob_id = (await client.get(f"{API}/auth/me", headers=bob)).json()["id"]
+    ws_b = await _make_workspace(client, admin)
+    await client.put(f"{API}/workspaces/{ws_b}/members", headers=admin, json={"userId": bob_id, "role": "owner"})
+    uid = (await client.post(
+        f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws_a}
+    )).json()["uid"]
+    await client.put(f"{API}/workspaces/{ws_a}/members", headers=admin, json={"userId": bob_id, "role": "viewer"})
+    await client.put(f"{API}/projects/{uid}/members", headers=admin, json={"userId": bob_id, "role": "owner"})
+
+    r = await client.patch(f"{API}/projects/{uid}", headers=bob, json={"workspaceId": ws_b})
+    assert r.status_code == 403
+    assert (await client.get(f"{API}/projects/{uid}", headers=admin)).json()["workspaceId"] == ws_a
+    assert (await client.patch(f"{API}/projects/{uid}", headers=bob, json={"name": {"en": "Q"}})).status_code == 200

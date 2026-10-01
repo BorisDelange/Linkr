@@ -33,8 +33,10 @@ Linkr guarantees three things the SPE cannot see from outside:
 
 **Every project belongs to a workspace.** `projects.workspace_id` is NOT NULL and
 `ProjectCreate.workspace_id` required; a project's rights come from its workspace and
-project roles (`core/permissions.py`), with no fallback. Moving a project checks the
-right to create in the destination (`routes/projects.py`, `_check_target_workspace`).
+project roles (`core/permissions.py`), with no fallback. Moving a project checks
+`projects:write` in both the source and the destination workspace (`routes/projects.py`,
+`update_project`, `_check_target_workspace`): a project-level role alone cannot take a
+project out of its workspace.
 Migration `d3e4f5a6b7c8` gave every former unassigned project a personal workspace of
 its owner. Why: an unassigned project used to make *any* user its owner, and owner
 carries `ide:execute` — the entry point to everything below.
