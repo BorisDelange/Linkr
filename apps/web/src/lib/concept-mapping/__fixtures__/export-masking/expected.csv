@@ -4,3 +4,7 @@ LOCAL,NA,Sodium,900,300,"{""full_name"":""Sodium"",""rows_count"":900,""patients
 LOCAL,RARE,"Rare ""thing""",40,<11,
 LOCAL,FEW,Few records,<11,,
 LOCAL,ZERO,Never seen,0,0,
+LOCAL,AT_K,At the threshold,11,11,
+LOCAL,BELOW_K,Just under it,<11,<11,
+LOCAL,PADDED,Padded cell,<11,<11,
+LOCAL,FOREIGN,Not plain decimal,0x5,1_0,

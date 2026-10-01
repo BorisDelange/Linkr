@@ -53,15 +53,24 @@ export function decodeSourceText(buf: Uint8Array): string | null {
   return text.includes('\0') ? null : text
 }
 
+// Plain decimal only, read alike by both sides: Number() also takes "0x5" and
+// Python's float() "1_0", so a looser parse masked a cell on one side only.
+const NUMBER_TEXT = /^[0-9]+(\.[0-9]+)?$/
+
+function toNumber(value: unknown): number {
+  if (typeof value === 'number') return value
+  if (typeof value !== 'string') return NaN
+  const text = value.replace(/^[ \t]+|[ \t]+$/g, '')
+  return NUMBER_TEXT.test(text) ? Number(text) : NaN
+}
+
 function isSmall(value: unknown, k: number): boolean {
-  if (value == null || value === '' || typeof value === 'boolean') return false
-  const n = Number(value)
+  const n = toNumber(value)
   return Number.isFinite(n) && n > 0 && n < k
 }
 
 function impliedSmall(percentage: unknown, total: unknown, k: number): boolean {
-  if (percentage == null || total == null || percentage === '' || total === '') return false
-  return isSmall((Number(percentage) / 100) * Number(total), k)
+  return isSmall((toNumber(percentage) / 100) * toNumber(total), k)
 }
 
 /** A mapping's source frequency as it may leave the instance: a small one is

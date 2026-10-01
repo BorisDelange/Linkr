@@ -19,6 +19,7 @@ import csv
 import io
 import json
 import math
+import re
 
 from app.config import settings
 
@@ -50,14 +51,24 @@ def decode_source_text(data: bytes) -> str | None:
 _EXTREMES = ("min", "max")
 
 
+# Plain decimal only, read alike by both sides: float() also takes "1_0" and
+# JavaScript's Number() "0x5", so a looser parse masked a cell on one side only.
+_NUMBER_TEXT = re.compile(r"[0-9]+(\.[0-9]+)?")
+
+
+def _number(value: object) -> float:
+    if isinstance(value, bool):
+        return math.nan
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        text = value.strip(" \t")
+        return float(text) if _NUMBER_TEXT.fullmatch(text) else math.nan
+    return math.nan
+
+
 def _small(value: object, k: int) -> bool:
-    if isinstance(value, bool) or value is None or value == "":
-        return False
-    try:
-        n = float(value)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return False
-    return 0 < n < k
+    return 0 < _number(value) < k
 
 
 def mask_frequency(value: object, k: int | None = None) -> object:
@@ -67,10 +78,7 @@ def mask_frequency(value: object, k: int | None = None) -> object:
 
 
 def _implied_small(percentage: object, total: object, k: int) -> bool:
-    try:
-        return _small(float(percentage) / 100 * float(total), k)  # type: ignore[arg-type]
-    except (TypeError, ValueError):
-        return False
+    return _small(_number(percentage) / 100 * _number(total), k)
 
 
 def mask_profile(profile: dict, k: int) -> dict | None:
