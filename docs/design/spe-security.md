@@ -93,6 +93,13 @@ message, ssh's own text (which hosts and ports answer) going to the server log
 (`git_service._failure`). An https remote is tried as written, then with `.git` when the
 host redirects or answers not found (`_url_candidates`).
 
+The http(s) host check resolves the name once, and git resolves it again: a DNS answer
+that changes in between (rebinding) could still reach an internal address, and the same
+holds for `db_host_guard` and external databases. Accepted: pinning the resolved address
+(libpq `hostaddr`, a git `--resolve`-style override) is not built, since inside an SPE
+the resolver is the institution's and the allowlist (`LINKR_DB_ALLOWED_HOSTS`) names
+hosts the deployer chose.
+
 **Package indexes: chosen by the instance or the workspace.** A plain-http index or a
 `trustedHost` (TLS checks off) may be set in the server and workspace layers; a
 project's `options.json` may use plain http only for a host one of those layers itself
