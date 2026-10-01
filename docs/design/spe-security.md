@@ -172,13 +172,24 @@ requires the current password; the new one must pass `password_policy_error` (�
 characters, not the username) and differ from the current one. Other sessions stay
 valid until their tokens expire.
 
-**Sign-in through the SPE's proxy.** With `LINKR_TRUSTED_HEADER` and
-`LINKR_TRUSTED_PROXIES` set, the app calls `POST /auth/trusted-login` before showing the
-form (`/setup/status` says when): the header names an existing active user, and is
-believed only from a listed peer address (`core/trusted_header.py`). The log records
-`login` via `trusted_header`. One login for the user, and the access log carries the
-identity the two-factor step validated. Off by default; the proxy must overwrite the
-header on every request and be the only way in.
+**Sign-in through the SPE's proxy.** With `LINKR_TRUSTED_HEADER`,
+`LINKR_TRUSTED_PROXIES` and `LINKR_TRUSTED_PROXY_SECRET` set, the app calls
+`POST /auth/trusted-login` before showing the form (`/setup/status` says when): the
+header names an existing active user, and is believed only from a listed peer address
+that also sends the shared secret in `X-Linkr-Proxy-Secret` (`core/trusted_header.py`,
+compared in constant time). The log records `login` via `trusted_header`. One login for
+the user, and the access log carries the identity the two-factor step validated. Off by
+default; the gateway must overwrite both headers on every request.
+
+Why a secret on top of the peer address: in the Docker deployment every request reaches
+the API from the image's nginx, which passes client headers through, and a kernel can
+call that nginx too (`http://web/api/v1/auth/trusted-login`) — the peer check alone would
+let any `ide:execute` holder name the admin. The secret is at least 32 characters (the
+API refuses to boot with the header set and no usable secret or proxy list), never set
+in this nginx (it would vouch for kernels), and kept from kernels like the other secrets
+(`child_env.SECRET_NAMES`, §1). uvicorn's `FORWARDED_ALLOW_IPS` stays at its default:
+widened to the proxy, the peer address would be read from `X-Forwarded-For`, which the
+client writes.
 
 ## 7. HTTP surface
 

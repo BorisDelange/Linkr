@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
-from app.core import audit
+from app.core import audit, trusted_header
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.database import async_session
 from app.core.logging import setup_logging
@@ -87,6 +87,9 @@ async def lifespan(app: FastAPI):
                 "or run with LINKR_DEBUG=true for local development."
             )
         logger.warning("cors_wildcard_with_credentials", origins=settings.cors_origin_list)
+    trusted_header_error = trusted_header.configuration_error()
+    if trusted_header_error:
+        raise RuntimeError(trusted_header_error)
     logger.info("starting_linkr", version=settings.app_version, mode=settings.app_mode)
     # Run in a worker thread: Alembic's async env.py calls asyncio.run(), which
     # cannot run inside the already-running lifespan event loop.
