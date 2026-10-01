@@ -20,3 +20,21 @@ export function ensureUniqueAlias(alias: string, existingAliases: string[]): str
   while (existingAliases.includes(`${alias}_${i}`)) i++
   return `${alias}_${i}`
 }
+
+/**
+ * The aliases a database of `workspaceId` must not reuse. In server mode a script
+ * finds a database by alias within its project's workspace (`linkr.connect`), so
+ * the workspace is the scope — the same database installed in two workspaces
+ * keeps its alias, and scripts stay portable. Client-only mode mounts every
+ * database in one browser DuckDB as `ds_<alias>`, so there it is the instance.
+ */
+export function aliasesInScope(
+  sources: { id: string; alias?: string; workspaceId?: string }[],
+  workspaceId: string | undefined,
+  { instanceWide, exceptId }: { instanceWide: boolean; exceptId?: string },
+): string[] {
+  return sources
+    .filter((ds) => ds.id !== exceptId && (instanceWide || ds.workspaceId === workspaceId))
+    .map((ds) => ds.alias)
+    .filter((a): a is string => !!a)
+}

@@ -142,6 +142,8 @@ async def create_data_source(
         return await data_source_service.create(db, body, user)
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except data_source_service.AliasTaken as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @router.post("/test-connection", response_model=TestConnectionResult)
@@ -243,6 +245,8 @@ async def update_data_source(
         return await data_source_service.update(db, source, body, editor_id=user.id)
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+    except data_source_service.AliasTaken as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)

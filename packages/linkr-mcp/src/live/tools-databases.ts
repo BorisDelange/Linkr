@@ -123,13 +123,14 @@ export function registerDatabaseTools(server: Server): void {
     }),
   }, guard(async (args) => {
     const lang = langOf(args.language)
-    const all = await rest.databases()
-    const db = all.find((d) => d.id === args.database_id)
+    const allDatabases = await rest.databases()
+    const db = allDatabases.find((d) => d.id === args.database_id)
     if (!db) return failure(`Unknown database_id ${args.database_id}: see list_databases.`)
+    const all = allDatabases.filter((d) => d.workspaceId === db.workspaceId)
     const changes: Record<string, unknown> = {}
     if (args.name !== undefined) {
       if (!args.name.trim()) return failure('The name cannot be empty.')
-      if (nameTaken(args.name, all, db.id)) return failure(`Another database is already named "${args.name.trim()}".`)
+      if (nameTaken(args.name, all, db.id)) return failure(`Another database of this workspace is already named "${args.name.trim()}".`)
       changes.name = setLocalized(db.name, lang, args.name.trim())
     }
     if (args.description !== undefined) changes.description = setLocalized(db.description, lang, args.description.trim())
@@ -265,8 +266,11 @@ export function registerDatabaseTools(server: Server): void {
     const ws = await resolveWorkspace(args.workspace_id)
     if (typeof ws === 'string') return failure(ws)
     if (!args.name.trim()) return failure('The name is empty.')
-    const [all, presets] = await Promise.all([rest.databases(), rest.presets()])
-    if (nameTaken(args.name, all)) return failure(`A database is already named "${args.name.trim()}".`)
+    const [allDatabases, presets] = await Promise.all([rest.databases(), rest.presets()])
+    // Names and aliases are unique per workspace: the same database installed in
+    // two workspaces keeps both (scripts find a database by alias in their own).
+    const all = allDatabases.filter((d) => d.workspaceId === ws.id)
+    if (nameTaken(args.name, all)) return failure(`A database is already named "${args.name.trim()}" in this workspace.`)
     const wsPresets = presets.filter((p) => p.workspaceId === ws.id)
     const preset = args.preset_id ? findPreset(wsPresets, args.preset_id) : undefined
     if (args.preset_id && !preset) return failure(`No preset ${args.preset_id} in "${name(ws.name)}": see list_schema_presets.`)

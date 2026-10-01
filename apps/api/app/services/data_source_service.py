@@ -242,8 +242,42 @@ async def get(db: AsyncSession, source_id: str) -> DataSource | None:
     return await db.get(DataSource, source_id)
 
 
+class AliasTaken(ValueError):
+    """Another database of the same workspace already has this alias."""
+
+
+async def _aliases_in_workspace(
+    db: AsyncSession, workspace_id: str | None, except_id: str | None = None
+) -> set[str]:
+    # A script finds a database by alias within its project's workspace
+    # (linkr.connect), so the alias is unique there — not instance-wide: the same
+    # database installed in two workspaces keeps its alias in both.
+    query = select(DataSource.id, DataSource.alias).where(DataSource.workspace_id == workspace_id)
+    return {alias for id_, alias in (await db.execute(query)).all() if id_ != except_id}
+
+
+async def ensure_alias_free(
+    db: AsyncSession, workspace_id: str | None, alias: str, except_id: str | None = None
+) -> None:
+    if alias in await _aliases_in_workspace(db, workspace_id, except_id):
+        raise AliasTaken(f"Another database of this workspace already uses the alias '{alias}'.")
+
+
+async def free_alias(db: AsyncSession, workspace_id: str | None, alias: str) -> str:
+    """`alias`, or `alias_2`, `alias_3`… — for a row registered after work already
+    done, where refusing would lose it."""
+    taken = await _aliases_in_workspace(db, workspace_id)
+    if alias not in taken:
+        return alias
+    n = 2
+    while f"{alias}_{n}" in taken:
+        n += 1
+    return f"{alias}_{n}"
+
+
 async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataSource:
     payload = data.model_dump(exclude_none=True)
+    await ensure_alias_free(db, payload.get("workspace_id"), payload["alias"], payload.get("id"))
     # A foreign instance's created_by_id is meaningless here — never persist it;
     # stamp_creator derives the right local id (ORCID/email match, or NULL).
     payload.pop("created_by_id", None)
@@ -279,6 +313,8 @@ async def update(
     A login typed in the edit form becomes the editor's own (`editor_id`).
     Changing where the database points drops every user's login to it."""
     changes = data.model_dump(exclude_unset=True)
+    if changes.get("alias") is not None and changes["alias"] != source.alias:
+        await ensure_alias_free(db, source.workspace_id, changes["alias"], source.id)
     login = None
     before = dict(source.connection_config or {})
     if "connection_config" in changes:

@@ -11,6 +11,7 @@ import type { DeriveRequest } from '@/lib/api/data-sources'
 import type { DerivationJobResult, Job } from '@/lib/api/environments'
 import * as engine from '@/lib/duckdb/engine'
 import { generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
+import { aliasesInScope } from '@/lib/alias'
 import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { isMappingV1 } from '@/lib/schema-classes/v1'
 import { effectiveMapping } from '@/lib/schema-classes/overrides'
@@ -517,7 +518,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
 
     // Generate unique alias from name (or use explicit override)
-    const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
+    const existingAliases = aliasesInScope(get().dataSources, useWorkspaceStore.getState().activeWorkspaceId ?? undefined, { instanceWide: !isServerMode() })
     const baseAlias = source.alias ?? generateAlias(localized(source.name, 'en'))
     const alias = ensureUniqueAlias(baseAlias, existingAliases)
 
@@ -821,7 +822,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     if (!parent) throw new Error('unknown database')
     const id = crypto.randomUUID()
     const now = new Date().toISOString()
-    const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
+    const existingAliases = aliasesInScope(get().dataSources, parent.workspaceId, { instanceWide: !isServerMode() })
     const created: DataSource = {
       id,
       ...derivedDatabaseRow(parent, name, existingAliases),
@@ -873,7 +874,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
       : { engine: 'duckdb', inMemory: true }
 
     // Generate unique alias
-    const existingAliases = get().dataSources.map((ds) => ds.alias).filter(Boolean)
+    const existingAliases = aliasesInScope(get().dataSources, useWorkspaceStore.getState().activeWorkspaceId ?? undefined, { instanceWide: !isServerMode() })
     const baseAlias = source.alias ?? generateAlias(localized(source.name, 'en'))
     const alias = ensureUniqueAlias(baseAlias, existingAliases)
 

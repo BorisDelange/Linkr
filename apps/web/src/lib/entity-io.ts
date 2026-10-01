@@ -45,6 +45,7 @@ import type {
   AuthorDetails, ProjectBadge, DerivedFrom,
 } from '@/types'
 import * as engine from '@/lib/duckdb/engine'
+import { aliasesInScope } from '@/lib/alias'
 import { localized, toLocalized } from '@/lib/localized'
 import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
 import { README_FILE_RE } from '@/lib/entity-tree'
@@ -3555,9 +3556,16 @@ async function applyClonedDatabase(
   }
 
   const existing = await storage.dataSources.getById(targetId).catch(() => null)
+  // A new row takes the repo's alias unless another database in its scope holds
+  // it: two sharing one would both resolve to `ds_<alias>` (and be ambiguous to
+  // `linkr.connect`), and the server refuses it. An overwrite keeps the row's.
+  const alias = existing?.alias ?? engine.ensureUniqueAlias(
+    meta.alias ?? targetId,
+    aliasesInScope(await storage.dataSources.getAll().catch(() => []), workspaceId, { instanceWide: !isServerMode(), exceptId: targetId }),
+  )
   const record = {
     id: targetId,
-    alias: meta.alias ?? targetId,
+    alias,
     name: toLocalized(meta.name ?? targetId),
     description: toLocalized(meta.description ?? ''),
     sourceType: 'database' as const,
@@ -3810,21 +3818,6 @@ export async function importParsedDatabase(
       ?? resolveSlugLanding(parsed.id, rows.find((ds) => ds.id === parsed.id), wsId)
   const ok = await applyClonedDatabase(parsed.zip, targetId, storage, workspaceId, gitRemoteConfig)
   if (!ok) return null
-  // The alias names the DuckDB schema, so a copy sharing the original's alias
-  // would have both databases resolve to `ds_<alias>` — the copy silently
-  // shadowing the original's tables. Only a duplicate can collide: an overwrite
-  // reuses the row it replaces.
-  if (duplicate) {
-    const others = (await storage.dataSources.getAll().catch(() => []))
-      .filter((ds) => ds.id !== targetId)
-      .map((ds) => ds.alias)
-      .filter((a): a is string => !!a)
-    const created = await storage.dataSources.getById(targetId).catch(() => null)
-    const unique = engine.ensureUniqueAlias(created?.alias ?? targetId, others)
-    if (created && unique !== created.alias) {
-      await storage.dataSources.update(targetId, { alias: unique }).catch(() => {})
-    }
-  }
   return targetId
 }
 

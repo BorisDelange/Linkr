@@ -831,6 +831,8 @@
     "no_schemas_installed": "Aucun schéma installé dans cet espace de travail. Ajoutez-en un depuis la page Schémas.",
     "no_schema_warning_title": "Aucun schéma sélectionné",
     "no_schema_warning": "Linkr ne saura pas quelles tables contiennent les patients, les séjours et les concepts : les pages Concepts et Données individuelles, les cohortes et les statistiques de la base ne fonctionneront pas. L'accès SQL reste possible, et vous pourrez choisir un schéma plus tard.",
+    "alias_taken_workspace": "Une autre base de cet espace de travail utilise déjà cet identifiant.",
+    "alias_taken_instance": "Une autre base utilise déjà cet identifiant : dans le navigateur, toutes les bases partagent un même DuckDB.",
     "database_name": "Nom de la base",
     "database_name_placeholder": "ex. OMOP CDM (vide)",
     "created_from_preset": "Créée depuis le preset {{preset}} (vide)",

@@ -6,7 +6,8 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, localizedRaw, setLocalized } from '@/lib/localized'
-import { commonDirPrefix, extractTableName, fileGroupingTables, generateAlias } from '@/lib/duckdb/engine'
+import { commonDirPrefix, extractTableName, fileGroupingTables, generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
+import { aliasesInScope } from '@/lib/alias'
 import { getStorage } from '@/lib/storage'
 import type {
   DataSource,
@@ -647,7 +648,11 @@ export function AddDatabaseDialog({
   // the file requirement is satisfied by the path instead.
   const usesServerPath = isServerMode() && fileOrigin === 'server' && !!serverPath
 
-  const isNameValid = !!name.trim() && !nameIsDuplicate
+  // Fixed after creation, so only checked on create. Same submit guard as the name.
+  const takenAliases = aliasesInScope(dataSources, targetWorkspaceId, { instanceWide: !isServerMode(), exceptId: editingSource?.id })
+  const aliasIsDuplicate = !isEditMode && !uploading && !!alias.trim() && takenAliases.includes(alias.trim())
+
+  const isNameValid = !!name.trim() && !nameIsDuplicate && !aliasIsDuplicate
   const isConnectionValid =
     (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles || usesServerPath) &&
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
@@ -802,7 +807,9 @@ export function AddDatabaseDialog({
                       value={name}
                       onChange={(e) => {
                         setName(e.target.value)
-                        if (!aliasManuallyEdited) setAlias(generateAlias(e.target.value))
+                        // The suggestion is already free, so `_2` shows here rather
+                        // than appearing only after the database is created.
+                        if (!aliasManuallyEdited) setAlias(ensureUniqueAlias(generateAlias(e.target.value), takenAliases))
                       }}
                       placeholder={t('databases.field_name_placeholder')}
                       autoFocus
@@ -843,7 +850,13 @@ export function AddDatabaseDialog({
                       className="font-mono text-xs"
                       readOnly={isEditMode}
                       disabled={isEditMode}
+                      aria-invalid={aliasIsDuplicate}
                     />
+                    {aliasIsDuplicate && (
+                      <p className="text-xs text-destructive">
+                        {t(isServerMode() ? 'databases.alias_taken_workspace' : 'databases.alias_taken_instance')}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>{t('databases.field_description')}</Label>

@@ -322,7 +322,7 @@ async def _derive(
         # other user enters theirs. The password never passes through the client.
         registered = DataSource(
             workspace_id=target.workspace_id,
-            alias=t.register_alias or t.schema_name,
+            alias=await data_source_service.free_alias(db, target.workspace_id, t.register_alias or t.schema_name),
             name=t.register_name if isinstance(t.register_name, dict) else {"en": t.register_name},
             source_type="database",
             connection_config={**{k: v for k, v in (target.connection_config or {}).items() if k != "allowWrites"}, "schema": t.schema_name},
