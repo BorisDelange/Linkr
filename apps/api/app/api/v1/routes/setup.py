@@ -6,7 +6,7 @@ from app.config import settings
 from app.core import trusted_header
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user_optional
-from app.core.security import hash_password
+from app.core.security import hash_password, password_policy_error
 from app.models.user import User
 from app.schemas.auth import (
     DbInfoResponse,
@@ -69,6 +69,8 @@ async def setup_initialize(
             detail="Setup already completed",
         )
 
+    if error := password_policy_error(request.password, request.username):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, error)
     user = User(
         username=request.username,
         email=request.email,

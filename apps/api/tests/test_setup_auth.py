@@ -8,7 +8,7 @@ async def test_setup_status_and_initialize(client):
 
     r = await client.post(
         f"{API}/setup/initialize",
-        json={"username": "admin", "password": "pw", "email": "a@b.c"},
+        json={"username": "admin", "password": "pw-for-tests-only", "email": "a@b.c"},
     )
     assert r.status_code == 200
     body = r.json()
@@ -27,11 +27,11 @@ async def test_setup_status_and_initialize(client):
 
 async def test_login_me_refresh(client):
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
 
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     assert r.status_code == 200
     tokens = r.json()
@@ -56,7 +56,7 @@ async def test_login_me_refresh(client):
 
 async def test_login_bad_password(client):
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
         f"{API}/auth/login", json={"username": "admin", "password": "wrong"}

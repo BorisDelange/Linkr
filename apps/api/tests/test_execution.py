@@ -13,8 +13,8 @@ requires_r = pytest.mark.skipif(not _HAS_R, reason="Rscript not installed")
 
 
 async def _admin_headers(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -562,8 +562,8 @@ async def test_execute_forbidden_without_project_membership(client):
     )).json()["uid"]
 
     await client.post(f"{API}/users", headers=admin,
-                      json={"username": "mallory", "password": "pw", "role": "user"})
-    r = await client.post(f"{API}/auth/login", json={"username": "mallory", "password": "pw"})
+                      json={"username": "mallory", "password": "pw-for-tests-only", "role": "user"})
+    r = await client.post(f"{API}/auth/login", json={"username": "mallory", "password": "pw-for-tests-only"})
     mallory = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
     run = await client.post(f"{API}/execute", headers=mallory,
@@ -583,10 +583,10 @@ async def test_code_execution_requires_write_not_just_read(client):
         f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws}
     )).json()["uid"]
     await client.post(f"{API}/users", headers=admin,
-                      json={"username": "val", "password": "pw", "role": "user"})
+                      json={"username": "val", "password": "pw-for-tests-only", "role": "user"})
     val_id = (await client.get(f"{API}/users", headers=admin)).json()
     val_id = next(u["id"] for u in val_id if u["username"] == "val")
-    val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw'})).json()['access_token']}"}
+    val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw-for-tests-only'})).json()['access_token']}"}
 
     # Viewer: no code execution.
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
@@ -610,9 +610,9 @@ async def test_render_execute_gated_per_resource(client):
         f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws}
     )).json()["uid"]
     await client.post(f"{API}/users", headers=admin,
-                      json={"username": "val", "password": "pw", "role": "user"})
+                      json={"username": "val", "password": "pw-for-tests-only", "role": "user"})
     val_id = next(u["id"] for u in (await client.get(f"{API}/users", headers=admin)).json() if u["username"] == "val")
-    val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw'})).json()['access_token']}"}
+    val = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'val', 'password': 'pw-for-tests-only'})).json()['access_token']}"}
 
     # Viewer: no code execution (IDE / code-backed widget). A built-in component
     # render is a view op, but it must go through /execute/render (server-owned
@@ -920,8 +920,8 @@ async def test_ws_auth_accepts_valid_access_token(client):
     from app.core.ws_auth import authenticate_ws
 
     # Create a real user via setup, then mint an access token for them.
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    login = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    login = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     token = login.json()["access_token"]
 
     ws = _FakeWebSocket({"token": token})

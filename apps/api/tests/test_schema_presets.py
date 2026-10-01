@@ -9,10 +9,10 @@ API = "/api/v1"
 
 async def _admin_headers(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -25,10 +25,10 @@ async def _create_user(db, client, username: str) -> dict:
     if existing is None:
         db.add(Role(name="ws-user", scope="global", permissions=["workspaces:write"]))
         await db.commit()
-    db.add(User(username=username, password_hash=hash_password("pw"), role="ws-user"))
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role="ws-user"))
     await db.commit()
     r = await client.post(
-        f"{API}/auth/login", json={"username": username, "password": "pw"}
+        f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 

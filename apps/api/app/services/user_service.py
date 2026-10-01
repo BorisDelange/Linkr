@@ -3,7 +3,7 @@ from sqlalchemy import func, select
 from sqlalchemy import update as sql_update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import hash_password
+from app.core.security import hash_password, password_policy_error, set_password
 from app.models.base import Base
 from app.models.user import User
 from app.schemas.user import UserCreate, UserUpdate
@@ -26,12 +26,18 @@ async def _active_admin_count(db: AsyncSession) -> int:
     )
 
 
+def _check_password(password: str, username: str) -> None:
+    if error := password_policy_error(password, username):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=error)
+
+
 async def create(db: AsyncSession, data: UserCreate) -> User:
     exists = await db.scalar(select(User).where(User.username == data.username))
     if exists is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Username already exists"
         )
+    _check_password(data.password, data.username)
     payload = data.model_dump(exclude={"password"})
     user = User(**payload, password_hash=hash_password(data.password))
     db.add(user)
@@ -80,10 +86,12 @@ async def update(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT, detail="Username already exists"
             )
+    if data.password is not None:
+        _check_password(data.password, changes.get("username") or user.username)
     for key, value in changes.items():
         setattr(user, key, value)
     if data.password is not None:
-        user.password_hash = hash_password(data.password)
+        set_password(user, data.password)
     await db.commit()
     await db.refresh(user)
     return user

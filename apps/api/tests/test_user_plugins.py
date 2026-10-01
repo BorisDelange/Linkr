@@ -5,8 +5,8 @@ API = "/api/v1"
 
 
 async def _admin_headers(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -50,9 +50,9 @@ async def test_non_member_cannot_manage_workspace_plugin(client, db):
     })
 
     # An unrelated user can neither see nor edit nor delete the workspace's plugin.
-    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    db.add(User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
-    bob = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'bob', 'password': 'pw'})).json()['access_token']}"}
+    bob = {"Authorization": f"Bearer {(await client.post(f'{API}/auth/login', json={'username': 'bob', 'password': 'pw-for-tests-only'})).json()['access_token']}"}
 
     assert (await client.get(f"{API}/user-plugins?workspaceId={ws}", headers=bob)).status_code == 403
     assert (await client.patch(f"{API}/user-plugins/pl1", headers=bob,

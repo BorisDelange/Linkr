@@ -24,7 +24,7 @@ def trusted(monkeypatch):
 
 
 async def _alice(db, active=True):
-    db.add(User(username="alice", password_hash=hash_password("pw"), role="user", is_active=active))
+    db.add(User(username="alice", password_hash=hash_password("pw-for-tests-only"), role="user", is_active=active))
     await db.commit()
 
 

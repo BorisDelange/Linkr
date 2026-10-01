@@ -10,7 +10,7 @@ from app.services import git_credential_service as svc
 
 
 async def _user(db, username: str) -> User:
-    u = User(username=username, password_hash=hash_password("pw"), role="user")
+    u = User(username=username, password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(u)
     await db.commit()
     await db.refresh(u)

@@ -6,15 +6,15 @@ API = "/api/v1"
 
 async def _bootstrap_admin(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-async def _login(client, username, password="pw") -> dict:
+async def _login(client, username, password="pw-for-tests-only") -> dict:
     r = await client.post(
         f"{API}/auth/login", json={"username": username, "password": password}
     )
@@ -29,7 +29,7 @@ async def test_user_crud_and_identity_fields(client):
         headers=headers,
         json={
             "username": "alice",
-            "password": "secret1",
+            "password": "secret1-long-enough",
             "role": "user",
             "firstName": "Alice",
             "lastName": "Martin",
@@ -47,7 +47,7 @@ async def test_user_crud_and_identity_fields(client):
     uid = u["id"]
 
     # The created user can actually log in with the admin-set password.
-    alice = await _login(client, "alice", "secret1")
+    alice = await _login(client, "alice", "secret1-long-enough")
 
     r = await client.get(f"{API}/users", headers=headers)
     assert any(x["id"] == uid for x in r.json())
@@ -59,10 +59,10 @@ async def test_user_crud_and_identity_fields(client):
 
     # Password reset via update.
     r = await client.patch(
-        f"{API}/users/{uid}", headers=headers, json={"password": "newpass"}
+        f"{API}/users/{uid}", headers=headers, json={"password": "newpass-long-enough"}
     )
     assert r.status_code == 200
-    await _login(client, "alice", "newpass")
+    await _login(client, "alice", "newpass-long-enough")
 
     r = await client.delete(f"{API}/users/{uid}", headers=headers)
     assert r.status_code == 204
@@ -73,15 +73,15 @@ async def test_user_crud_and_identity_fields(client):
 
 async def test_duplicate_username_rejected(client):
     headers = await _bootstrap_admin(client)
-    body = {"username": "dup", "password": "pw"}
+    body = {"username": "dup", "password": "pw-for-tests-only"}
     assert (await client.post(f"{API}/users", headers=headers, json=body)).status_code == 201
     assert (await client.post(f"{API}/users", headers=headers, json=body)).status_code == 409
 
 
 async def test_rename_username_keeps_id_and_rejects_clash(client):
     headers = await _bootstrap_admin(client)
-    a = (await client.post(f"{API}/users", headers=headers, json={"username": "alice", "password": "pw"})).json()
-    (await client.post(f"{API}/users", headers=headers, json={"username": "bob", "password": "pw"}))
+    a = (await client.post(f"{API}/users", headers=headers, json={"username": "alice", "password": "pw-for-tests-only"})).json()
+    (await client.post(f"{API}/users", headers=headers, json={"username": "bob", "password": "pw-for-tests-only"}))
 
     # Rename alice → alice2: same id (memberships keyed on id are unaffected).
     r = await client.patch(f"{API}/users/{a['id']}", headers=headers, json={"username": "alice2"})
@@ -95,13 +95,13 @@ async def test_rename_username_keeps_id_and_rejects_clash(client):
 
 async def test_users_admin_only(client, db):
     await _bootstrap_admin(client)
-    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    db.add(User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
     bob = await _login(client, "bob")
 
     assert (await client.get(f"{API}/users", headers=bob)).status_code == 403
     assert (
-        await client.post(f"{API}/users", headers=bob, json={"username": "x", "password": "pw"})
+        await client.post(f"{API}/users", headers=bob, json={"username": "x", "password": "pw-for-tests-only"})
     ).status_code == 403
 
 
@@ -109,7 +109,7 @@ async def test_directory_available_to_any_user(client, db):
     """The light directory (id+username) is readable by non-admins (member
     pickers need it) and exposes no email/role."""
     await _bootstrap_admin(client)
-    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    db.add(User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
     bob = await _login(client, "bob")
 
@@ -141,7 +141,7 @@ async def test_delete_user_detaches_owned_content(client):
     await client.post(
         f"{API}/users",
         headers=admin,
-        json={"username": "delange", "password": "pw", "role": "admin"},
+        json={"username": "delange", "password": "pw-for-tests-only", "role": "admin"},
     )
     delange = await _login(client, "delange")
 
@@ -171,7 +171,7 @@ async def test_cannot_remove_last_admin(client):
     await client.post(
         f"{API}/users",
         headers=headers,
-        json={"username": "admin2", "password": "pw", "role": "admin"},
+        json={"username": "admin2", "password": "pw-for-tests-only", "role": "admin"},
     )
     r = await client.patch(f"{API}/users/{me['id']}", headers=headers, json={"role": "user"})
     assert r.status_code == 200
@@ -188,7 +188,7 @@ async def test_cannot_enable_password_less_account(client, db):
     r = await client.post(
         f"{API}/users",
         headers=headers,
-        json={"username": "ghost", "password": "tmp", "role": "user"},
+        json={"username": "ghost", "password": "tmp-long-enough", "role": "user"},
     )
     ghost_id = r.json()["id"]
     # The response exposes hasPassword — never the hash itself.
@@ -208,7 +208,7 @@ async def test_cannot_enable_password_less_account(client, db):
     assert r.status_code == 400
     # ...but setting a password in the same request enables it.
     r = await client.patch(
-        f"{API}/users/{ghost_id}", headers=headers, json={"isActive": True, "password": "newpw"}
+        f"{API}/users/{ghost_id}", headers=headers, json={"isActive": True, "password": "newpw-long-enough"}
     )
     assert r.status_code == 200
     assert r.json()["isActive"] is True and r.json()["hasPassword"] is True
@@ -223,7 +223,7 @@ async def test_cannot_disable_or_delete_own_account(client):
     await client.post(
         f"{API}/users",
         headers=headers,
-        json={"username": "admin2", "password": "pw", "role": "admin"},
+        json={"username": "admin2", "password": "pw-for-tests-only", "role": "admin"},
     )
     r = await client.patch(f"{API}/users/{me['id']}", headers=headers, json={"isActive": False})
     assert r.status_code == 400

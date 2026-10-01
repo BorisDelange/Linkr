@@ -3,10 +3,10 @@ API = "/api/v1"
 
 async def _admin_headers(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -103,10 +103,10 @@ async def test_read_open_write_requires_permission(client):
     await client.post(
         f"{API}/users",
         headers=admin,
-        json={"username": "bob", "password": "pw", "role": "user"},
+        json={"username": "bob", "password": "pw-for-tests-only", "role": "user"},
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "bob", "password": "pw"}
+        f"{API}/auth/login", json={"username": "bob", "password": "pw-for-tests-only"}
     )
     bob = {"Authorization": f"Bearer {r.json()['access_token']}"}
 

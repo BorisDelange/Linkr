@@ -10,15 +10,15 @@ API = "/api/v1"
 
 async def _bootstrap_admin(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
-async def _login(client, username, password="pw") -> dict:
+async def _login(client, username, password="pw-for-tests-only") -> dict:
     r = await client.post(
         f"{API}/auth/login", json={"username": username, "password": password}
     )
@@ -98,7 +98,7 @@ async def test_role_in_use_not_deletable(client, db, seed_roles):
     # so we don't collide with the workspace creator (auto-added as owner).
     ws = await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})
     ws_id = ws.json()["id"]
-    bob = User(username="bob", password_hash=hash_password("pw"), role="user")
+    bob = User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(bob)
     await db.commit()
     await db.refresh(bob)
@@ -109,7 +109,7 @@ async def test_role_in_use_not_deletable(client, db, seed_roles):
 
 async def test_roles_admin_only(client, db):
     await _bootstrap_admin(client)
-    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    db.add(User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
     bob = await _login(client, "bob")
     assert (await client.get(f"{API}/roles", headers=bob)).status_code == 403
@@ -123,7 +123,7 @@ async def test_has_permission_resolves_role(client, db, seed_roles):
     ws = await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})
     ws_id = ws.json()["id"]
 
-    bob = User(username="bob", password_hash=hash_password("pw"), role="user")
+    bob = User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(bob)
     await db.commit()
     await db.refresh(bob)

@@ -185,8 +185,8 @@ def test_export_is_every_matching_row(tmp_path):
 # --- Written by the middleware -------------------------------------------------
 
 async def _admin(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -238,9 +238,9 @@ async def test_the_log_is_admin_only_but_own_activity_is_open(client, db):
     source_id = await _file_database(client, headers)
     await client.post(f"{API}/data-sources/{source_id}/query", headers=headers, json={"sql": "SELECT 1"})
 
-    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    db.add(User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
-    r = await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw"})
+    r = await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw-for-tests-only"})
     bob = {"Authorization": f"Bearer {r.json()['access_token']}"}
 
     assert (await client.get(f"{API}/audit-log", headers=bob)).status_code == 403
@@ -294,9 +294,9 @@ def _lines(action: str) -> list[dict]:
 
 
 async def test_login_is_logged_by_username_success_and_failure(client):
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
     await client.post(f"{API}/auth/login", json={"username": "admin", "password": "wrong"})
-    await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     failed, ok = _lines("login_failed"), _lines("login")
     assert [r["detail"] for r in failed] == ["admin"] and failed[0]["status"] == 401
     assert [r["username"] for r in ok] == ["admin"] and ok[0]["status"] == 200
@@ -305,8 +305,8 @@ async def test_login_is_logged_by_username_success_and_failure(client):
 async def test_downloads_exports_and_previews_are_logged(client):
     from app.services import project_fs
 
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})).json()["access_token"]
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
     h = {"Authorization": f"Bearer {token}"}
     ws = (await client.post(f"{API}/workspaces", headers=h, json={"name": {"en": "W"}})).json()["id"]
     uid = (await client.post(f"{API}/projects", headers=h, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]

@@ -25,8 +25,8 @@ DDL = (
 
 
 async def _admin(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -131,10 +131,10 @@ async def test_derive_needs_write_on_the_target(client, db):
     admin = await _admin(client)
     ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
     src = await _managed(client, admin, ws, "src", seed=True)
-    viewer = User(username="viewer", password_hash=hash_password("pw"), role="user")
+    viewer = User(username="viewer", password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(viewer)
     await db.commit()
-    token = (await client.post(f"{API}/auth/login", json={"username": "viewer", "password": "pw"})).json()["access_token"]
+    token = (await client.post(f"{API}/auth/login", json={"username": "viewer", "password": "pw-for-tests-only"})).json()["access_token"]
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": viewer.id, "role": "viewer"})
     r = await client.post(f"{API}/data-sources/{src}/derive", headers={"Authorization": f"Bearer {token}"}, json={
         "membershipSql": MEMBERSHIP, "level": "patient",
@@ -254,10 +254,10 @@ async def test_an_agent_derivation_is_notified_and_its_job_readable_by_id(client
     assert (await client.get(f"{API}/notifications", headers=headers)).json() == []
 
     # Someone else's job is not theirs to read.
-    other = User(username="other", password_hash=hash_password("pw"), role="user")
+    other = User(username="other", password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(other)
     await db.commit()
-    token = (await client.post(f"{API}/auth/login", json={"username": "other", "password": "pw"})).json()["access_token"]
+    token = (await client.post(f"{API}/auth/login", json={"username": "other", "password": "pw-for-tests-only"})).json()["access_token"]
     assert (await client.get(f"{API}/jobs/{job['id']}", headers={"Authorization": f"Bearer {token}"})).status_code == 404
 
 

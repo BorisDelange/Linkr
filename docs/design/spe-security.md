@@ -165,14 +165,21 @@ workspaces with their data files hold patient data and do not go to the global i
 ## 6. Accounts and sign-in
 
 **Behind the SPE's front door.** Linkr has no MFA, no lockout on `/auth/login`, stateless
-JWTs (access 24 h, refresh 30 d, not revocable), tokens in `localStorage`, no idle
+JWTs (access 24 h, refresh 30 d, revoked only by a password change), tokens in `localStorage`, no idle
 timeout in the UI. Each of these is covered by the SPE's two-factor entry, and the
 checklist says so; building them inside Linkr would duplicate what the SPE already does.
 
 **Password change.** `POST /auth/change-password` (session only, local provider only)
 requires the current password; the new one must pass `password_policy_error` (≥ 12
-characters, not the username) and differ from the current one. Other sessions stay
-valid until their tokens expire.
+characters, not the username) and differ from the current one. The same policy applies
+to the first admin (`/setup/initialize`) and to passwords an admin sets
+(`user_service.create` / `update`). Setting a password stamps `users.password_changed_at`,
+and every session token (access, refresh, WebSocket) issued before it is refused
+(`security.predates_password_change`): refresh rotation would otherwise keep a stolen
+session alive for ever. The caller of `change-password` gets fresh tokens back. `iat` has
+whole-second resolution, so a token issued in the very second of the change survives.
+Kernel tokens are not checked — they live in a running kernel's environment and expire
+within `kernel_token_expire_minutes` (12 h).
 
 **Sign-in through the SPE's proxy.** With `LINKR_TRUSTED_HEADER`,
 `LINKR_TRUSTED_PROXIES` and `LINKR_TRUSTED_PROXY_SECRET` set, the app calls

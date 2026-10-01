@@ -8,19 +8,19 @@ API = "/api/v1"
 
 async def _bootstrap_admin(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 async def _create_user(db, client, username: str, role: str = "user") -> dict:
-    db.add(User(username=username, password_hash=hash_password("pw"), role=role))
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role=role))
     await db.commit()
     r = await client.post(
-        f"{API}/auth/login", json={"username": username, "password": "pw"}
+        f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -157,7 +157,7 @@ async def test_import_relinks_author_by_orcid(client, db):
     db.add(
         User(
             username="carol",
-            password_hash=hash_password("pw"),
+            password_hash=hash_password("pw-for-tests-only"),
             orcid="0000-0002-1111-2222",
         )
     )
@@ -208,7 +208,7 @@ async def test_clone_update_relinks_author_from_snapshot(client, db):
     assert p["createdById"] is None  # importer's id cleared, no local match
 
     # Same PATCH when the repo author has a local account → re-linked to it.
-    db.add(User(username="boris", password_hash=hash_password("pw"), orcid="0000-0003-1111-2222"))
+    db.add(User(username="boris", password_hash=hash_password("pw-for-tests-only"), orcid="0000-0003-1111-2222"))
     await db.commit()
     boris = (await db.execute(select(User).where(User.username == "boris"))).scalars().first()
     r = await client.patch(

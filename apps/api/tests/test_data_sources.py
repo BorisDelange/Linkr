@@ -19,19 +19,19 @@ API = "/api/v1"
 
 async def _admin_headers(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 async def _create_user(db, client, username: str) -> dict:
-    db.add(User(username=username, password_hash=hash_password("pw"), role="user"))
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
     r = await client.post(
-        f"{API}/auth/login", json={"username": username, "password": "pw"}
+        f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -450,7 +450,7 @@ async def test_non_member_cannot_access(client, db):
 
 # Opt-in live test: set LINKR_TEST_PG_DSN to a JSON connectionConfig, e.g.
 #   LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":5432,
-#                       "database":"linkr","username":"me","password":"pw"}'
+#                       "database":"linkr","username":"me","password":"pw-for-tests-only"}'
 @pytest.mark.skipif(
     not os.environ.get("LINKR_TEST_PG_DSN"),
     reason="set LINKR_TEST_PG_DSN to run the live Postgres introspection test",

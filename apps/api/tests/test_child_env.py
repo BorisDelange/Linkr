@@ -45,8 +45,8 @@ def test_secret_names_cover_the_settings_that_open_the_instance():
 async def test_a_spawned_kernel_sees_no_secret(client, monkeypatch):
     for k, v in _SECRETS.items():
         monkeypatch.setenv(k, v)
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})).json()["access_token"]
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
     uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]

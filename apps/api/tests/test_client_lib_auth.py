@@ -8,8 +8,8 @@ API = "/api/v1"
 
 
 async def _setup(client) -> tuple[dict, str, str]:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})).json()["access_token"]
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
     uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]

@@ -6,8 +6,8 @@ API = "/api/v1"
 
 
 async def _admin_headers(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -80,8 +80,8 @@ async def test_schema_lists_tables_and_columns(client):
 async def test_requires_admin(client):
     admin = await _admin_headers(client)
     await client.post(f"{API}/users", headers=admin,
-                      json={"username": "bob", "password": "pw", "role": "user"})
-    r = await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw"})
+                      json={"username": "bob", "password": "pw-for-tests-only", "role": "user"})
+    r = await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw-for-tests-only"})
     bob = {"Authorization": f"Bearer {r.json()['access_token']}"}
     assert (await client.post(f"{API}/database/query", headers=bob,
             json={"sql": "SELECT 1"})).status_code == 403

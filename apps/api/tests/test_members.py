@@ -11,17 +11,17 @@ API = "/api/v1"
 
 
 async def _bootstrap_admin(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 async def _make_user(db, client, username: str) -> tuple[int, dict]:
-    u = User(username=username, password_hash=hash_password("pw"), role="user")
+    u = User(username=username, password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(u)
     await db.commit()
     await db.refresh(u)
-    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw"})
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"})
     return u.id, {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -289,11 +289,11 @@ async def test_project_override_none_hides_from_workspace_member(client, db):
 
 
 async def _make_user_with_role(db, client, username: str, role_name: str) -> tuple[int, dict]:
-    u = User(username=username, password_hash=hash_password("pw"), role=role_name)
+    u = User(username=username, password_hash=hash_password("pw-for-tests-only"), role=role_name)
     db.add(u)
     await db.commit()
     await db.refresh(u)
-    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw"})
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"})
     return u.id, {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 

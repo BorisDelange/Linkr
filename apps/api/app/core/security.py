@@ -28,6 +28,26 @@ def hash_password(password: str) -> str:
     return pwd_context.hash(password)
 
 
+def set_password(user, password: str) -> None:
+    """Hash `password` onto `user` and end the sessions issued before it."""
+    user.password_hash = hash_password(password)
+    user.password_changed_at = datetime.now(timezone.utc)
+
+
+def predates_password_change(payload: dict, user) -> bool:
+    """Whether a session token was issued before `user` last set a password.
+
+    `iat` has whole-second resolution, so the change is floored to its second:
+    the tokens handed to the caller right after the change, in the same second,
+    must stay valid."""
+    changed = user.password_changed_at
+    if changed is None:
+        return False
+    if changed.tzinfo is None:
+        changed = changed.replace(tzinfo=timezone.utc)
+    return int(payload.get("iat", 0)) < int(changed.timestamp())
+
+
 def create_access_token(user_id: int, username: str, role: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {

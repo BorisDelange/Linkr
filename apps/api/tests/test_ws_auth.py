@@ -17,8 +17,8 @@ class _FakeSocket:
 
 
 async def _tokens(client) -> tuple[str, str]:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    jwt = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})).json()["access_token"]
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    jwt = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
     key = (await client.post(f"{API}/auth/api-tokens", headers={"Authorization": f"Bearer {jwt}"}, json={"name": "mcp"})).json()["token"]
     return jwt, key
 
