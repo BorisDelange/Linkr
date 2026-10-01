@@ -17,7 +17,7 @@
 
 import type JSZip from 'jszip'
 import { CONTENT_FILE, ENTITY_MANIFEST, isAppTooOld, MANIFEST } from '@linkr/format'
-import { IncompatibleAppVersionError, requiredAppVersion } from '@/lib/app-version-compat'
+import { assertEntityType, IncompatibleAppVersionError, requiredAppVersion, WrongEntityTypeError } from '@/lib/app-version-compat'
 import { APP_VERSION } from '@/lib/version'
 import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '@/lib/entity-io'
 import type { GitLinkedEntity, ParsedWorkspaceZip } from '@/lib/entity-io'
@@ -302,6 +302,15 @@ export async function prepareCatalogInstall(
     const meta = metaEntry
       ? (JSON.parse(await metaEntry.async('string')) as Record<string, unknown>)
       : {}
+    // The entry's declared type is the catalog's word; the repo's own manifest is
+    // what the importer reads. A mismatch would land as an empty entity of the
+    // wrong kind.
+    try {
+      assertEntityType(meta, entry.type)
+    } catch (err) {
+      if (err instanceof WrongEntityTypeError) return { ok: false, failure: 'apply-failed', error: err.message }
+      throw err
+    }
     // No id in the repo (or no metadata file at all): fall back to a fresh id, which
     // can't collide — better than refusing the install outright.
     const repoId = idOf(entry.type, meta) ?? crypto.randomUUID()
