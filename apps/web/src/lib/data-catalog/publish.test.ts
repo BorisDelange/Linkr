@@ -175,6 +175,12 @@ describe('the concept list at category level', () => {
     expect(publishedConcepts(cat, withoutOneWay).map((c) => c.status)).toEqual([SECONDARY, PRIMARY, SECONDARY, PRIMARY])
   })
 
+  it('ranks the categories by code when their 1-way crossing is not published', () => {
+    // D (194 patients) before C (52) would tell their unpublished totals apart.
+    const ranked = { ...cache, modalities: { ...cache.modalities, concept: ['D', 'C'] } } as CatalogResultCache
+    expect(buildPublishedCatalog(categoryCatalog([['concept', 'sex']]), ranked).variables.concept!.mods).toEqual(['C', 'D'])
+  })
+
   it('is caught by the audit when the list is masked alone', async () => {
     const cat = categoryCatalog([['concept']])
     const published = buildPublishedCatalog(cat, cache)

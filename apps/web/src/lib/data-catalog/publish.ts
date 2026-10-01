@@ -434,7 +434,11 @@ export function publishedVariables(
       mods = publishedRank(mods, mask ? oneWay : undefined, (_code, _row, i) => mask!.status[i] as CellStatus, catalog.anonymization)
     }
     if (id === 'concept') {
-      mods = publishedRank(mods, oneWay, (code, row) => masks.conceptModalities.get(code) ?? primaryRule(code, row), catalog.anonymization)
+      // At category level nothing else publishes a category's patients: with
+      // its 1-way crossing unpublished, the categories rank by code, as services do.
+      const byCategory = (catalog.variables.concept?.level ?? 'concept') !== 'concept'
+      const ranked = byCategory && !masks.masks.has('concept') ? undefined : oneWay
+      mods = publishedRank(mods, ranked, (code, row) => masks.conceptModalities.get(code) ?? primaryRule(code, row), catalog.anonymization)
       if (!reveal && catalog.anonymization.mode === 'suppress') {
         mods = mods.filter((m) => (masks.conceptModalities.get(m) ?? PUBLISHED) === PUBLISHED)
       }
