@@ -50,6 +50,9 @@ def decode_source_text(data: bytes) -> str | None:
             return None
     return None if "\0" in text else text
 _EXTREMES = ("min", "max")
+# Under this many values, a 1st/5th percentile sits on one patient's value.
+_NEAR_EXTREMES_MIN_COUNT = 100
+_NEAR_EXTREMES = ("p1", "p5", "p95", "p99")
 
 
 # Plain decimal only, read alike by both sides: float() also takes "1_0" and
@@ -82,6 +85,57 @@ def _implied_count(percentage: object, total: object) -> float:
     """Percentages are rounded to one decimal, so the count is taken at the lowest
     the rounding allows — and 0.0% may still hide a few records."""
     return max(0.0, _number(percentage) - 0.05) / 100 * _number(total)
+
+
+def nice_step(width: float) -> tuple[int, int]:
+    """A bin width of m × 10^e, m in {1, 2, 5}: the smallest one not under `width`."""
+    e = math.floor(math.log10(width)) - 1
+    while True:
+        for m in (1, 2, 5):
+            if _step_width(m, e) >= width * (1 - 1e-9):
+                return m, e
+        e += 1
+
+
+def _step_width(m: int, e: int) -> float:
+    return m * float(10**e) if e >= 0 else m / float(10**-e)
+
+
+def bin_index(x: float, m: int, e: int) -> int:
+    """Index of the bin of width m × 10^e holding `x`, bins starting at multiples of the width."""
+    return math.floor(x / (m * float(10**e)) if e >= 0 else x * float(10**-e) / m)
+
+
+def bin_centre(i: int, m: int, e: int) -> float:
+    """Centre of bin `i` of width m × 10^e, written as the decimal it is."""
+    if e >= 0:
+        return (2 * i + 1) * m * float(10**e) / 2
+    return (2 * i + 1) * m / (2 * float(10**-e))
+
+
+def _regrid(histogram: list) -> list[dict] | None:
+    """The histogram moved onto a grid of round widths whose edges are multiples
+    of the width, or None when it cannot be (under two bins, a bin that is not
+    {x, count}). A profile built before such grids anchored its bins on the
+    minimum — centre = min + (i + ½)·(max − min)/bins — so its first and last
+    centres gave the minimum and the maximum back. Each old bin joins the round
+    bin its centre falls in; a histogram already on the grid comes out unchanged."""
+    bins = [(_number(b.get("x")), _number(b.get("count"))) if isinstance(b, dict) else None for b in histogram]
+    if len(bins) < 2 or any(b is None or not (math.isfinite(b[0]) and math.isfinite(b[1])) for b in bins):
+        return None
+    xs = sorted(b[0] for b in bins)  # type: ignore[index]
+    width = math.inf
+    for a, b in zip(xs, xs[1:]):
+        if 0 < b - a < width:
+            width = b - a
+    if not math.isfinite(width):
+        return None
+    m, e = nice_step(width)
+    counts: dict[int, float] = {}
+    for x, count in bins:  # type: ignore[misc]
+        i = bin_index(x, m, e)
+        counts[i] = counts.get(i, 0.0) + count
+    return [{"x": bin_centre(i, m, e), "count": counts[i]} for i in sorted(counts)]
 
 
 def _suppress(entries: list, small: Callable[[dict], bool], mass: Callable[[dict], float], k: int) -> list:
@@ -129,8 +183,23 @@ def mask_profile(profile: dict, k: int) -> dict | None:
     def implied(e: dict) -> float:
         return _implied_count(e.get("percentage"), total)
 
+    numeric = out.get("numeric_data")
+    if isinstance(numeric, dict):
+        sizes = [_number(numeric.get("numeric_count")), _number(total)]
+        if isinstance(profile.get("histogram"), list):
+            histogram_sum = 0.0
+            for b in profile["histogram"]:
+                histogram_sum += _number(b.get("count")) if isinstance(b, dict) else math.nan
+            sizes.append(histogram_sum)
+        known = [n for n in sizes if math.isfinite(n)]
+        if not known or min(known) < _NEAR_EXTREMES_MIN_COUNT:
+            out["numeric_data"] = {k_: v for k_, v in numeric.items() if k_ not in _NEAR_EXTREMES}
     if isinstance(out.get("histogram"), list):
-        out["histogram"] = _suppress(out["histogram"], lambda b: _small(b.get("count"), k), counted, k)
+        grid = _regrid(out["histogram"])
+        if grid is None:
+            del out["histogram"]
+        else:
+            out["histogram"] = _suppress(grid, lambda b: _small(b.get("count"), k), counted, k)
     if isinstance(out.get("categorical_data"), list):
 
         def category_mass(c: dict) -> float:

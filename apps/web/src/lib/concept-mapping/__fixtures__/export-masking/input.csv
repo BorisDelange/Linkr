@@ -14,3 +14,6 @@ LOCAL,SCALAR,Not an object,500,50,42
 LOCAL,WARDS,Ward split,4000,400,"{""rows_count"":4000,""patients_count"":400,""hospital_units"":[{""unit"":""A"",""percentage"":99.3},{""unit"":""B"",""percentage"":0.3},{""unit"":""C"",""percentage"":0},{""unit"":""D"",""percentage"":0.4}]}"
 LOCAL,CATS,Dropped mass reaches k,813,80,"{""rows_count"":813,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""y"",""count"":6},{""category"":""z"",""count"":7},{""category"":""w"",""count"":300}]}"
 LOCAL,CATS2,Dropped mass under k,825,80,"{""rows_count"":825,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""y"",""count"":5},{""category"":""z"",""count"":20},{""category"":""w"",""count"":300}]}"
+LOCAL,SMALL_N,Few values,60,30,"{""rows_count"":60,""patients_count"":30,""numeric_data"":{""p5"":1.2,""p25"":3,""median"":5,""p95"":9.8},""histogram"":[{""x"":1,""count"":20},{""x"":3,""count"":25},{""x"":5,""count"":15}]}"
+LOCAL,ONE_BIN,One bin,50,20,"{""rows_count"":50,""patients_count"":20,""histogram"":[{""x"":7,""count"":50}]}"
+LOCAL,FINE,Fine grid,400,40,"{""rows_count"":400,""patients_count"":400,""histogram"":[{""x"":0.15,""count"":100},{""x"":0.25,""count"":150},{""x"":0.35,""count"":150}]}"

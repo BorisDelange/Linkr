@@ -24,6 +24,9 @@ export function setExportMinCount(k: number): void {
 
 const JSON_HEADERS = ['info_json', 'metadata_json', 'json_metadata']
 const EXTREMES = new Set(['min', 'max'])
+// Under this many values, a 1st/5th percentile sits on one patient's value.
+const NEAR_EXTREMES_MIN_COUNT = 100
+const NEAR_EXTREMES = new Set(['p1', 'p5', 'p95', 'p99'])
 
 type Json = Record<string, unknown>
 
@@ -83,6 +86,51 @@ export function maskFrequency<T>(value: T, k: number = exportMinCount): T | null
 
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
 
+/** A bin width of m × 10^e, m in {1, 2, 5}: the smallest one not under `width`. */
+export function niceStep(width: number): [number, number] {
+  for (let e = Math.floor(Math.log10(width)) - 1; ; e++) {
+    for (const m of [1, 2, 5]) if (stepWidth(m, e) >= width * (1 - 1e-9)) return [m, e]
+  }
+}
+
+function stepWidth(m: number, e: number): number {
+  return e >= 0 ? m * 10 ** e : m / 10 ** -e
+}
+
+/** Index of the bin of width m × 10^e holding `x`, bins starting at multiples of the width. */
+export function binIndex(x: number, m: number, e: number): number {
+  return Math.floor(e >= 0 ? x / (m * 10 ** e) : (x * 10 ** -e) / m)
+}
+
+/** Centre of bin `i` of width m × 10^e, written as the decimal it is. */
+export function binCentre(i: number, m: number, e: number): number {
+  return e >= 0 ? ((2 * i + 1) * m * 10 ** e) / 2 : ((2 * i + 1) * m) / (2 * 10 ** -e)
+}
+
+/**
+ * The histogram moved onto a grid of round widths whose edges are multiples of
+ * the width, or null when it cannot be (under two bins, a bin that is not
+ * {x, count}). A profile built before such grids anchored its bins on the
+ * minimum — centre = min + (i + ½)·(max − min)/bins — so its first and last
+ * centres gave the minimum and the maximum back. Each old bin joins the round
+ * bin its centre falls in; a histogram already on the grid comes out unchanged.
+ */
+function regrid(histogram: unknown[]): Json[] | null {
+  const bins = histogram.map((b) => (isObject(b) ? { x: toNumber(b.x), count: toNumber(b.count) } : null))
+  if (bins.length < 2 || bins.some((b) => b === null || !Number.isFinite(b.x) || !Number.isFinite(b.count))) return null
+  const xs = bins.map((b) => b!.x).sort((a, b) => a - b)
+  let width = Infinity
+  for (let i = 1; i < xs.length; i++) if (xs[i] - xs[i - 1] > 0 && xs[i] - xs[i - 1] < width) width = xs[i] - xs[i - 1]
+  if (!Number.isFinite(width)) return null
+  const [m, e] = niceStep(width)
+  const counts = new Map<number, number>()
+  for (const b of bins) {
+    const i = binIndex(b!.x, m, e)
+    counts.set(i, (counts.get(i) ?? 0) + b!.count)
+  }
+  return [...counts.keys()].sort((a, b) => a - b).map((i) => ({ x: binCentre(i, m, e), count: counts.get(i)! }))
+}
+
 /**
  * `entries` without the small ones. When what was dropped totals under k, the
  * total minus the kept entries would give it back, so the smallest kept entries
@@ -120,8 +168,23 @@ export function maskProfile(profile: Json, k: number): Json | null {
   const total = profile.rows_count
   const counted = (e: Json) => toNumber(e.count)
   const implied = (e: Json) => impliedCount(e.percentage, total)
+  const numeric = out.numeric_data
+  if (isObject(numeric)) {
+    const sizes = [toNumber(numeric.numeric_count), toNumber(total)]
+    if (Array.isArray(profile.histogram)) {
+      let sum = 0
+      for (const b of profile.histogram) sum += isObject(b) ? toNumber(b.count) : NaN
+      sizes.push(sum)
+    }
+    const known = sizes.filter(Number.isFinite)
+    if (known.length === 0 || Math.min(...known) < NEAR_EXTREMES_MIN_COUNT) {
+      out.numeric_data = Object.fromEntries(Object.entries(numeric).filter(([name]) => !NEAR_EXTREMES.has(name)))
+    }
+  }
   if (Array.isArray(out.histogram)) {
-    out.histogram = suppress(out.histogram, (b) => isSmall(b.count, k), counted, k)
+    const grid = regrid(out.histogram)
+    if (grid === null) delete out.histogram
+    else out.histogram = suppress(grid, (b) => isSmall(b.count, k), counted, k)
   }
   if (Array.isArray(out.categorical_data)) {
     const mass = (c: Json) => ('count' in c ? counted(c) : implied(c))
