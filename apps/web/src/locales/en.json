@@ -4550,6 +4550,8 @@
     "export_scores_none_hint": "No scores file loaded. Load one from the Suggestions tab first.",
     "export_scores_probing": "Checking for a scores file…",
     "source_csv_too_large": "The source CSV file is too large to download in the browser. Add it manually to your git repository alongside the ZIP contents.",
+    "source_csv_unreadable": "The source concepts file could not be read (neither UTF-8 nor Windows-1252 text, nor readable Parquet): it cannot be masked, so it was not exported. Re-import it as a UTF-8 CSV.",
+    "export_zip_failed": "The export failed: {{reason}}",
     "export_usagi": "USAGI CSV",
     "export_usagi_desc": "Compatible with OHDSI Usagi tool. Standard format for sharing concept mappings.",
     "export_stcm": "SOURCE_TO_CONCEPT_MAP",
