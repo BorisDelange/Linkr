@@ -49,9 +49,10 @@ interface TruncatedTextProps {
  *
  * By default the tooltip is readable, not just glanceable: its text is
  * selectable and it carries a copy button, so a long concept name can be lifted
- * out of a narrow column. A very long value (a query, a script) is cut in the
- * tooltip so it stays on the page; the copy button copies all of it. That means it must NOT close the moment the pointer
- * leaves the cell — hovering the tooltip itself keeps it open. Pass `readOnly`
+ * out of a narrow column. That means it must NOT close the moment the pointer
+ * leaves the cell — hovering the tooltip itself keeps it open. A very long value
+ * (a query, a script) is cut in the tooltip so it stays on the page; the copy
+ * button copies all of it. Pass `readOnly`
  * where that reachability isn't worth a hoverable panel sitting over the rows
  * below (dense pick-a-row tables).
  *
