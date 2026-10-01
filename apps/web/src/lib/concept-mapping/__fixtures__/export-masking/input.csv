@@ -11,3 +11,4 @@ LOCAL,FOREIGN,Not plain decimal,0x5,1_0,
 LOCAL,NAN,NaN in the profile,500,50,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""mean"":NaN}}"
 LOCAL,QUOTED,Single-quoted profile,500,50,{'rows_count': 500}
 LOCAL,SCALAR,Not an object,500,50,42
+LOCAL,WARDS,Ward split,4000,400,"{""rows_count"":4000,""patients_count"":400,""hospital_units"":[{""unit"":""A"",""percentage"":99.3},{""unit"":""B"",""percentage"":0.3},{""unit"":""C"",""percentage"":0},{""unit"":""D"",""percentage"":0.4}]}"

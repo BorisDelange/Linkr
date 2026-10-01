@@ -78,7 +78,12 @@ def mask_frequency(value: object, k: int | None = None) -> object:
 
 
 def _implied_small(percentage: object, total: object, k: int) -> bool:
-    return _small(_number(percentage) / 100 * _number(total), k)
+    """Percentages are rounded to one decimal, so the count is taken at the lowest
+    the rounding allows — and 0.0% may still hide a few records."""
+    p, n = _number(percentage), _number(total)
+    if not (math.isfinite(p) and math.isfinite(n)):
+        return False
+    return max(0.0, p - 0.05) / 100 * n < k
 
 
 def mask_profile(profile: dict, k: int) -> dict | None:

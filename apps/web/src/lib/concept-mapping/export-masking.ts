@@ -69,8 +69,13 @@ function isSmall(value: unknown, k: number): boolean {
   return Number.isFinite(n) && n > 0 && n < k
 }
 
+/** Percentages are rounded to one decimal, so the count is taken at the lowest
+ *  the rounding allows — and 0.0% may still hide a few records. */
 function impliedSmall(percentage: unknown, total: unknown, k: number): boolean {
-  return isSmall((toNumber(percentage) / 100) * toNumber(total), k)
+  const p = toNumber(percentage)
+  const n = toNumber(total)
+  if (!Number.isFinite(p) || !Number.isFinite(n)) return false
+  return (Math.max(0, p - 0.05) / 100) * n < k
 }
 
 /** A mapping's source frequency as it may leave the instance: a small one is
