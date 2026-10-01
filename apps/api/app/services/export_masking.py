@@ -8,11 +8,18 @@ every export (ZIP, workspace export, git push), twin of
 front-only and a server client pushing the same repo would fight over the file.
 
 The rule, with k the threshold:
-- a count column cell in 1..k-1 becomes "<k";
-- the profile JSON of a concept under k patients (or records) is withheld;
+- a count column cell in 1..k-1 becomes "<k" (a count is plain decimal text);
+- the profile JSON of a concept under k patients (or records) is withheld, and
+  so is a cell that is not a JSON object;
 - otherwise the profile loses its extremes (min/max, per-patient min/max,
-  range) and every histogram bin, category, hospital unit or year that holds
-  fewer than k records — directly, or implied by its percentage of the total.
+  range, first and last event dates), p1/p5/p95/p99 under 100 values, and
+  every histogram bin, category, hospital unit or year that holds fewer than k
+  records — directly, or implied by its percentage of the total at the lowest
+  count the rounding allows — then the smallest kept ones while what was
+  dropped totals under k;
+- the histogram is first moved onto a round grid not anchored on the minimum.
+Bytes that cannot be read as text raise SourceConceptsUnreadable: never
+exported unmasked.
 """
 
 import csv

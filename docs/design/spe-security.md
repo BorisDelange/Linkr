@@ -142,19 +142,34 @@ pass, `services/export_masking.py` and its byte-identical twin
 (`__fixtures__/export-masking/`). With k the threshold:
 
 - a count cell in 1..k-1 becomes `<k`;
-- a concept's profile under k patients or records is withheld;
-- other profiles lose their extremes (`min`, `max`, `range`, per-patient min/max) and
-  every histogram bin, category, ward or year under k records, directly or implied by
-  its percentage of the total;
+- a concept's profile under k patients or records is withheld, and so is a profile
+  cell that is not a JSON object (`NaN`, single quotes);
+- other profiles lose their extremes (`min`, `max`, `range`, per-patient min/max,
+  `temporal_distribution.start_date`/`end_date`), `p1`/`p5`/`p95`/`p99` under 100
+  values, and every histogram bin, category, ward or year under k records, directly
+  or implied by its percentage of the total (taken at the lowest count the
+  one-decimal rounding allows, so 0.0% counts as small);
+- secondary suppression: when what a list dropped totals under k, the smallest kept
+  entries go too, or the total minus the rest would give the small count back;
+- histograms are moved onto a round grid (width m × 10^e, edges its multiples):
+  profiles built before the profiler used that grid anchored their bins on the
+  minimum, so the first and last centres gave the extremes back;
 - a mapping's `sourceFrequency` under k becomes null (the field is a number).
 
-Percentiles, mean, median and the shape of the distribution stay: enough to compare two
-sites, not enough to find a patient. The source file inside the instance is untouched.
-k is `LINKR_EXPORT_MIN_COUNT` (default 11); the front reads it from `/setup/status`, so
-exports built in the browser mask like the server's, and client-only mode uses 11. Both
-sides write the same bytes because a client-only and a server user pushing the same repo
-must not fight over the file — hence `_js_json` on the Python side, which formats numbers
-as `JSON.stringify` does.
+Quartiles (p5/p95 too from 100 values), mean, median and the shape of the distribution stay:
+enough to compare two sites, not enough to find a patient. The source file inside
+the instance is untouched, and duplicating a mapping project inside the instance
+copies it unmasked. A source file that is neither UTF-8 nor Windows-1252 text (a
+leading BOM is dropped) nor readable Parquet stops the export: it is never shipped
+as it is. k is `LINKR_EXPORT_MIN_COUNT` (default 11, ≤ 1 masks nothing); the front
+reads it from `/setup/status`, so exports built in the browser mask like the
+server's, and client-only mode uses 11. Both sides write the same bytes because a
+client-only and a server user pushing the same repo must not fight over the file —
+hence `_js_json` on the Python side, which formats numbers as `JSON.stringify` does,
+and a plain-decimal count parser on both.
+
+A repository pushed before these rules keeps the earlier `source-concepts.csv` in
+its history; masking applies to what is pushed from now on.
 
 Quality rule sets and SQL collections export definitions only. The wiki is free text
 that Linkr cannot check; the checklist says to read it before it leaves. Projects and
