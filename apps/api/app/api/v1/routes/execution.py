@@ -282,10 +282,12 @@ async def _run_in_kernel(
         try:
             k = await kernel.manager.get(
                 project_uid, user.id, language, session_id, environment,
-                _kernel_token(user, project_uid),
+                _kernel_token(user, project_uid), via=audit.actor().get("via"),
             )
         except kernel.KernelLimitReached as e:
             raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, str(e))
+        except kernel.KernelSessionForeign as e:
+            raise HTTPException(status.HTTP_409_CONFLICT, str(e))
         out = await k.execute(code, query_resolver=resolver)
     except runtime.ExecutionError as e:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
@@ -527,9 +529,9 @@ async def _terminal_kernel_loop(
     try:
         k = await kernel.manager.get(
             project_uid, user.id, language, session_id, environment,
-            _kernel_token(user, project_uid),
+            _kernel_token(user, project_uid), via=audit.actor().get("via"),
         )
-    except kernel.KernelLimitReached as e:
+    except (kernel.KernelLimitReached, kernel.KernelSessionForeign) as e:
         await websocket.send_json({"type": "error", "data": str(e)})
         await websocket.close()
         return

@@ -2,7 +2,7 @@
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { embedReportHtml } from './report.js'
 import { figuresHtml, formatExecution, renderScriptTree, runLanguageFor, type RunLanguage } from './ide.js'
-import { DESTRUCTIVE, READ, WRITE, api, failure, guard, text, type Server, type ToolResult } from './shared.js'
+import { AGENT_SESSION, DESTRUCTIVE, READ, WRITE, api, failure, guard, text, type Server, type ToolResult } from './shared.js'
 
 const DATA_NOTE = 'Print aggregates (counts, summaries, model coefficients), not patient-level rows: the output '
   + 'is sent to you, and you may be a remote model.'
@@ -20,7 +20,7 @@ async function run(args: {
 }): Promise<ToolResult> {
   const out = await api.execute({
     projectUid: args.project_uid, language: args.language, code: args.code,
-    sessionId: args.session ?? 'default',
+    sessionId: args.session ?? AGENT_SESSION,
     ...(args.dataset_path ? { datasetFileId: args.dataset_path } : {}),
     ...(args.database_id ? { connectionId: args.database_id } : {}),
     ...(args.label ? { label: args.label } : {}),
@@ -41,7 +41,8 @@ async function run(args: {
 const RUN_OPTIONS = {
   session: {
     type: 'string',
-    description: 'Kernel session. Default "default": the one the user\'s IDE uses, so variables are shared both ways.',
+    description: `Kernel session. Default "${AGENT_SESSION}": your own, kept between runs. The user\'s IDE session `
+      + '("default") refuses code from an agent.',
   },
   dataset_path: {
     type: 'string',

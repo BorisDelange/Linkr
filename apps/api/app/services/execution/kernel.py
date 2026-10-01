@@ -672,6 +672,10 @@ class Kernel:
         # against the environment's current stamp is how the UI can tell the user
         # their session predates the build (see manager.stale_sessions).
         self.env_stamp = env_stamp
+        # How the request that spawned it authenticated (audit `via`). Its token
+        # carries the same, and a web one lets the client libraries fetch the
+        # user's saved database passwords — see KernelManager.get.
+        self.spawned_via: str | None = None
         # Extra env layered over the server's own (LINKR_IDE/DATASETS/PROJECT), so a
         # script reaches the datasets dir without hard-coding its absolute path.
         self._env = env
@@ -925,6 +929,16 @@ class KernelLimitReached(Exception):
     """A user has hit max_kernels_per_user concurrent R/Python kernels."""
 
 
+class KernelSessionForeign(Exception):
+    """An API-key request aimed at a session the user's web IDE started."""
+
+
+# Callers whose kernel token may hold the user's saved database passwords: a web
+# session, and code running in a kernel it started (a non-web kernel token is
+# refused at auth).
+_WEB_ORIGIN = frozenset({"web", "kernel"})
+
+
 class KernelManager:
     """Holds live kernels keyed by (project_uid, language, session_id).
 
@@ -1001,6 +1015,7 @@ class KernelManager:
         session_id: str,
         environment: "Environment | None" = None,
         token: str | None = None,
+        via: str | None = None,
     ) -> Kernel:
         """Return the caller's live kernel, launching one on a cache miss.
 
@@ -1012,17 +1027,25 @@ class KernelManager:
         process env at spawn. A live kernel therefore keeps the token it started
         with: it outlives a single request, so it cannot be refreshed per call. The
         token's lifetime is what bounds this — an expired one is re-minted by the
-        next kernel this session starts."""
+        next kernel this session starts.
+
+        A kernel the web IDE started holds a token that can fetch the user's saved
+        database passwords; an agent (API key) running code in it could read one
+        and print it into its conversation. So a non-web `via` is refused there
+        (KernelSessionForeign): agents run in sessions of their own."""
         # BEFORE the lock: provisioning the shared R sandbox / kernel-infra library
         # shells out to Rscript (~9s on a cold cache, ~0.3s warm). Doing it inside
         # _make — which runs under self._lock — froze the whole event loop and queued
         # every other user's kernel op behind it.
         await self._prepare_r_shared(language)
         key = (project_uid, user_id, language, session_id)
+        foreign = False
         async with self._lock:
             to_shutdown = self._sweep_idle_locked()
             kernel = self._kernels.get(key)
-            if kernel is None:
+            if kernel is not None and kernel.spawned_via in _WEB_ORIGIN and via not in _WEB_ORIGIN:
+                foreign = True
+            elif kernel is None:
                 if self._count_for_user(user_id) >= settings.max_kernels_per_user:
                     for k in to_shutdown:
                         await k.shutdown()
@@ -1030,9 +1053,15 @@ class KernelManager:
                         f"Kernel session limit reached ({settings.max_kernels_per_user})."
                     )
                 kernel = self._make(language, project_uid, environment, token)
+                kernel.spawned_via = via
                 self._kernels[key] = kernel
         for k in to_shutdown:
             await k.shutdown()
+        if foreign:
+            raise KernelSessionForeign(
+                f'Session "{session_id}" was started by the IDE and can hold the user\'s database '
+                "passwords; code sent with an API key runs in a session of its own."
+            )
         return kernel
 
     async def _prepare_r_shared(self, language: str) -> None:

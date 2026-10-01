@@ -1,6 +1,6 @@
 # Security & compliance — plan
 
-**Status: audit done 2026-09-30; section A fixed (A1 and A4 keep an open remainder, see each item).** Frame: [../deployment-context.md](../deployment-context.md)
+**Status: audit done 2026-09-30; section A fixed (A1 keeps an open remainder, see that item).** Frame: [../deployment-context.md](../deployment-context.md)
 (Linkr inside a per-project SPE; one instance per SPE; a global instance with no patient
 data). Reference text: CNIL *référentiel entrepôts de données de santé*, délibération
 n° 2021-118 ([PDF](https://www.cnil.fr/sites/cnil/files/atoms/files/referentiel_entrepot.pdf)) —
@@ -123,10 +123,13 @@ internal addresses (an internal GitLab over ssh must keep working).
 
 **Fixed (the S part):** kernel tokens carry `via` (how the request that spawned the
 kernel authenticated, read from the audit context every auth path fills), and
-`get_kernel_user` refuses any kernel token whose `via` is not `web`. **Still open:** a
-kernel is shared per (project, user, language, session), and MCP `run_code` defaults to
-`default`, the user's IDE session — an agent running in a kernel the user started reads
-that kernel's web token. That is the 🤔 in *Per-user database credentials*.
+`get_kernel_user` refuses any kernel token whose `via` is not `web`. **Fixed (the
+shared-session part, option "separate agent sessions"):** a kernel remembers the `via`
+that spawned it, and `KernelManager.get` refuses (409) a non-web request into a kernel
+the web started — an agent can no longer read a web kernel token from the user's IDE
+session. MCP `run_code` / `run_script` default to session `agent`; the agent keeps
+`run_sql` (server-side, no password exposed). The query proxy was not built: it would
+cost the native DBI/dbplyr handles for a need no one has yet.
 
 - `get_kernel_user` now refuses API tokens (`core/deps.py:120-125`).
 - But an API-key session can still call `POST /execute` (`api/v1/routes/execution.py:170-173`).

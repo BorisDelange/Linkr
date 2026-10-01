@@ -131,8 +131,8 @@ details, API keys, git host tokens) — see `docs/design/ai-agents-plan.md` §6.
 | Tool | Purpose |
 |---|---|
 | `list_scripts`, `read_script`, `write_script`, `move_script`, `delete_script` | the project's IDE scripts, shown live in the user's IDE |
-| `run_code`, `run_script` | R or Python in the project's server kernel (session `default`, shared with the IDE); stdout, stderr, returned table; figures as a `ui://` resource; `destructiveHint` (the code can overwrite data) |
-| `list_sessions`, `create_session`, `delete_session` | the user's kernel sessions (isolated R / Python namespaces; `default` is the IDE's) with live-kernel state (idle / busy, memory) |
+| `run_code`, `run_script` | R or Python in the project's server kernel (session `agent` by default; the IDE's `default` session refuses code sent with an API key); stdout, stderr, returned table; figures as a `ui://` resource; `destructiveHint` (the code can overwrite data) |
+| `list_sessions`, `create_session`, `delete_session` | the user's kernel sessions (isolated R / Python namespaces; `default` is the IDE's, `agent` the agent's) with live-kernel state (idle / busy, memory) |
 | `restart_kernel`, `interrupt_kernel` | a session's kernel: restart (variables lost, `destructiveHint`; needed after a build) or Stop the running code |
 | `run_as_job`, `get_job_output` | a script or code run as a background job (fresh process, jobs panel), returns the `job_id`; then its log, table and figures (`ui://`); the run is `destructiveHint` |
 | `list_jobs`, `clear_finished_jobs` | the jobs panel of a project (runs, builds, package ops) or a workspace (derivations); clearing finished ones is `destructiveHint` |

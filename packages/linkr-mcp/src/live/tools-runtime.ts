@@ -13,7 +13,7 @@ import {
   parsePackages, type EnvLanguage, type LiveKernel, type OptionsInput,
 } from './runtime.js'
 import {
-  DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, projectDatabases, text, type Server, type ToolResult,
+  AGENT_SESSION, DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, projectDatabases, text, type Server, type ToolResult,
 } from './shared.js'
 
 const q = encodeURIComponent
@@ -60,7 +60,7 @@ const rt = {
 const LANGUAGE = { type: 'string', enum: ['python', 'r'] } as const
 const SESSION = {
   type: 'string',
-  description: 'Kernel session id. Default "default": the one the user\'s IDE uses (list_sessions for the others).',
+  description: `Kernel session id. Default "${AGENT_SESSION}", the one run_code uses (list_sessions for the others).`,
 } as const
 const ENV_NOTE = 'Each project has one Python and one R environment (managed with uv / renv); its spec is versioned '
   + 'with the project. The server re-locks the spec here; the packages are installed by a build (build: true, '
@@ -105,7 +105,7 @@ export function registerRuntimeTools(server: Server): void {
 
   server.registerTool('list_sessions', {
     description: 'The user\'s kernel sessions in a project: named, isolated R / Python namespaces (variables live '
-      + 'per session) — "default" first, the one the IDE uses — with the state of each live kernel '
+      + 'per session) — "default" (the IDE\'s, closed to agents) and "agent" (run_code\'s) first — with the state of each live kernel '
       + '(idle / running code, memory). Pass a session id as `session` to run_code / run_script.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ project_uid: string; language?: EnvLanguage }>({
@@ -120,7 +120,7 @@ export function registerRuntimeTools(server: Server): void {
 
   server.registerTool('create_session', {
     description: 'Create a named kernel session: a separate R or Python namespace, so a long analysis does not share '
-      + 'variables with the IDE\'s "default" one. The user sees it in the IDE\'s Session menu (after a reload).',
+      + `variables with the "${AGENT_SESSION}" one. The user sees it in the IDE's Session menu (after a reload).`,
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ project_uid: string; language: EnvLanguage; name: string }>({
       type: 'object',
@@ -158,8 +158,8 @@ export function registerRuntimeTools(server: Server): void {
       required: ['project_uid', 'language'],
     }),
   }, guard(async ({ project_uid, language, session }) => {
-    await rt.restart(language, project_uid, session ?? 'default')
-    return text(`Restarted the ${language} kernel of session "${session ?? 'default'}".`)
+    await rt.restart(language, project_uid, session ?? AGENT_SESSION)
+    return text(`Restarted the ${language} kernel of session "${session ?? AGENT_SESSION}".`)
   }))
 
   server.registerTool('interrupt_kernel', {
@@ -172,8 +172,8 @@ export function registerRuntimeTools(server: Server): void {
       required: ['project_uid', 'language'],
     }),
   }, guard(async ({ project_uid, language, session }) => {
-    await rt.interrupt(language, project_uid, session ?? 'default')
-    return text(`Interrupt sent to the ${language} kernel of session "${session ?? 'default'}".`)
+    await rt.interrupt(language, project_uid, session ?? AGENT_SESSION)
+    return text(`Interrupt sent to the ${language} kernel of session "${session ?? AGENT_SESSION}".`)
   }))
 
   // --- Background jobs -------------------------------------------------------

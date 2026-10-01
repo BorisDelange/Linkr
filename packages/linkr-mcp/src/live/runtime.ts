@@ -4,6 +4,7 @@ import type { EnvPackage, EnvInstallOptions, EnvUpdates, Job, ProjectEnvironment
 import type { ExecutionSession } from '@/lib/api/execution-sessions'
 import type { IdeConnection } from '@/types'
 import { formatExecution } from './ide.js'
+import { AGENT_SESSION } from './shared.js'
 
 export type EnvLanguage = 'python' | 'r'
 
@@ -27,7 +28,7 @@ function kernelState(k: LiveKernel | undefined): string {
 }
 
 /**
- * Sessions per language — the implicit `default` first, then the named ones —
+ * Sessions per language — the implicit `default` and agent ones first, then the named ones —
  * each with the state of its live kernel. A live kernel with no named session
  * (other than default) is listed too, so nothing running is hidden.
  */
@@ -39,9 +40,10 @@ export function formatSessions(
   const blocks = languages.map((language) => {
     const live = kernels.filter((k) => k.language === language)
     const named = sessions.filter((s) => s.language === language)
-    const known = new Set(['default', ...named.map((s) => s.id)])
+    const known = new Set(['default', AGENT_SESSION, ...named.map((s) => s.id)])
     const rows = [
-      `- default (session "default", shared with the user's IDE) — ${kernelState(live.find((k) => k.sessionId === 'default'))}`,
+      `- default (session "default", the user's IDE: closed to agents) — ${kernelState(live.find((k) => k.sessionId === 'default'))}`,
+      `- agent (session "${AGENT_SESSION}", run_code's default) — ${kernelState(live.find((k) => k.sessionId === AGENT_SESSION))}`,
       ...named.map((s) => `- "${s.name}" (session "${s.id}") — ${kernelState(live.find((k) => k.sessionId === s.id))}`),
       ...live.filter((k) => !known.has(k.sessionId)).map((k) => `- session "${k.sessionId}" — ${kernelState(k)}`),
     ]

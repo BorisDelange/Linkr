@@ -14,7 +14,7 @@ const job = (over: Partial<Job>): Job => ({
 })
 
 describe('formatSessions', () => {
-  it('lists default first, named sessions, and orphan live kernels, per language', () => {
+  it('lists default and agent first, named sessions, and orphan live kernels, per language', () => {
     const out = formatSessions(
       [{ id: 's1', projectUid: 'p1', language: 'r', name: 'Long fit' }],
       [
@@ -28,8 +28,9 @@ describe('formatSessions', () => {
     expect(lines[0]).toBe('R:')
     expect(lines[1]).toContain('default')
     expect(lines[1]).toContain('idle 12s, 200 MB')
-    expect(lines[2]).toContain('"Long fit" (session "s1") — running code')
-    expect(lines[3]).toContain('session "ghost"')
+    expect(lines[2]).toContain('session "agent"')
+    expect(lines[3]).toContain('"Long fit" (session "s1") — running code')
+    expect(lines[4]).toContain('session "ghost"')
   })
 
   it('says when a session has no live kernel', () => {

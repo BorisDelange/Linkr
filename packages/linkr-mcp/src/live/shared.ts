@@ -33,6 +33,11 @@ export const text = (body: string): ToolResult => ({ content: [{ type: 'text', t
 /** Failure the model is meant to read and correct, not a server fault. */
 export const failure = (body: string): ToolResult => ({ isError: true, content: [{ type: 'text', text: body }] })
 
+/** The kernel session agent code runs in by default. The IDE's "default" session
+ *  refuses code sent with an API key: a kernel the IDE started can fetch the
+ *  user's saved database passwords, which must not reach a conversation. */
+export const AGENT_SESSION = 'agent'
+
 export const READ = { readOnlyHint: true, openWorldHint: false } as const
 export const WRITE = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const
 

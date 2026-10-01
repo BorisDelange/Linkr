@@ -7,7 +7,7 @@ import pytest
 
 from app.config import settings
 from app.services.execution import kernel as kernel_mod
-from app.services.execution.kernel import KernelLimitReached, KernelManager
+from app.services.execution.kernel import KernelLimitReached, KernelManager, KernelSessionForeign
 
 
 class _FakeKernel:
@@ -54,6 +54,18 @@ async def test_per_user_cap(mgr, monkeypatch):
         await mgr.get("p", 7, "python", "e3")
     # A different user is unaffected.
     await mgr.get("p", 8, "python", "e1b")
+
+
+async def test_an_api_key_cannot_run_in_a_session_the_ide_started(mgr):
+    # A web-started kernel's token fetches the user's saved database passwords:
+    # code sent by an agent (API key) must not run there.
+    ide = await mgr.get("p", 1, "r", "default", via="web")
+    with pytest.raises(KernelSessionForeign):
+        await mgr.get("p", 1, "r", "default", via="api_key")
+    assert await mgr.get("p", 1, "r", "default", via="kernel") is ide
+    agent = await mgr.get("p", 1, "r", "agent", via="api_key")
+    # The IDE may still open what an agent started: that token holds no password.
+    assert await mgr.get("p", 1, "r", "agent", via="web") is agent
 
 
 async def test_idle_kernels_are_evicted(mgr, monkeypatch):

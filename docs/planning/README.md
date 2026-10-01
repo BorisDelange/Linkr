@@ -13,7 +13,7 @@ of finished efforts that the code still cites lives in `docs/design/`.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. **Settle the agent path first** (see *Per-user database credentials* below): a kernel started by an API key no longer gets the password (A4), but an agent running in the user's own `default` kernel still can, and the page must not state a guarantee the app does not keep — or must state that gap | S |
+| 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. The agent path is settled (A4): an API key gets no password, neither in a kernel it starts nor in one the user's IDE started (refused) | S |
 
 ## To test manually in the app
 
@@ -194,7 +194,6 @@ Built: personal accounts, per-user pools and caches, session-only passwords, acc
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | …and that is not enough: a kernel an API key starts gets no recipe since A4, but the MCP's `run_code` defaults to session `default`, shared with the user's IDE — a kernel the user started holds a web kernel token the agent's code can read and use (plan §7). Server-side query proxy, separate agent sessions, or forbid DB access to agent runs? | S–M |
 | 🔜 | IDE connections: split settings (per project) from login (per user), reusing `DatabaseCredential` | S |
 | 🔜 | Per-workspace browse roots for file-based databases; `serverPath` registration behind `databases:manage` | M |
 | 🔜 | *My activity* page (the route exists, no page) | S |
