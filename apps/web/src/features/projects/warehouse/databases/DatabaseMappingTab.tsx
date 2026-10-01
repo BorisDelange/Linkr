@@ -75,14 +75,14 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
     }
   }
 
-  const removedKeys = pendingOverrides?.removed ?? []
+  // A removal whose relation the preset no longer has removes nothing: not shown.
+  const removedKeys = (pendingOverrides?.removed ?? []).filter((key) => specAt(base, key))
   /** Bring a removed base relation back: re-added to the draft, or the removal
-   *  dropped from the stored overrides. */
+   *  dropped from the stored overrides (also where a stale removal goes). */
   const restore = (specKey: string) => {
     const baseSpec = specAt(base, specKey)
-    if (!baseSpec) return
-    if (draft) setDraft({ ...draft, mapping: effectiveMapping(draft.mapping, { relations: { [specKey]: baseSpec } }) })
-    else if (overrides) void save(revertOverride(overrides, specKey))
+    if (draft && baseSpec) setDraft({ ...draft, mapping: effectiveMapping(draft.mapping, { relations: { [specKey]: baseSpec } }) })
+    else if (!draft && overrides) void save(revertOverride(overrides, specKey))
   }
 
   /** Push one override up into the preset, then follow the preset: the relation

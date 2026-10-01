@@ -11,6 +11,7 @@ tests pin it, so a drift fails CI rather than shipping silently.
 """
 
 import os
+import re
 from pathlib import Path
 
 
@@ -48,16 +49,22 @@ EXPORT_APP_VERSION = _read_export_version()
 # misread; every export of that kind then stamps ``minAppVersion``.
 MIN_APP_VERSION: dict[str, str] = {
     "schema-preset": "2.4.3",
+    "database": "2.4.3",
 }
 
 
 def _version_key(version: str) -> tuple[int, ...]:
-    core = version.strip().lstrip("vV").split("-")[0].split("+")[0]
-    return tuple(int(p) if p.isdigit() else 0 for p in core.split("."))
+    stripped = version.strip()
+    if stripped[:1] in ("v", "V"):
+        stripped = stripped[1:]
+    core = re.split(r"[-+]", stripped, maxsplit=1)[0]
+    return tuple(int(m.group()) if (m := re.match(r"\d+", p)) else 0 for p in core.split("."))
 
 
 def compare_versions(a: str, b: str) -> int:
-    """Numeric ``X.Y.Z`` comparison, twin of ``compareVersions``."""
+    """Numeric ``X.Y.Z`` comparison, twin of ``compareVersions``: a suffix is
+    ignored and each segment counts its leading digits. The cases both must agree
+    on are in packages/linkr-format/src/app-version.fixture.json."""
     ka, kb = _version_key(a), _version_key(b)
     width = max(len(ka), len(kb))
     ka, kb = ka + (0,) * (width - len(ka)), kb + (0,) * (width - len(kb))

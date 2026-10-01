@@ -17,6 +17,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
 import { attachTreeIds, buildSqlCollectionFolder, parseImportZip, readImportedManifest, readImportedTree, reconstructTreeFiles } from '@/lib/entity-io'
+import { MissingManifestError } from '@/lib/app-version-compat'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
 import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
@@ -159,7 +160,7 @@ export function SqlScriptsListPage() {
     // New git-friendly layout (_collection.json + _tree.json + raw files) with a fallback
     // to the legacy layout (collection.json + files.json).
     const collection = readImportedManifest<SqlScriptCollection>(parsed, 'sql-collection', 'collection.json')
-    if (!collection) return
+    if (!collection) throw new MissingManifestError('sql-collection')
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.

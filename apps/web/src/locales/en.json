@@ -3793,7 +3793,8 @@
     "back_to_sql_collections": "Back to collections",
     "back_to_data_catalogs": "Back to catalogs",
     "import_app_too_old": "This content needs Linkr {{required}} or later, and this instance runs {{current}}. Its format changed in {{required}}: an older version would import it only partly, without saying so. Update Linkr, then import it again.",
-    "import_wrong_type": "This file is a \"{{found}}\", not a \"{{expected}}\". Import it from the page for that kind of entity."
+    "import_wrong_type": "This file is a \"{{found}}\", not a \"{{expected}}\". Import it from the page for that kind of entity.",
+    "import_no_manifest": "This ZIP is not a \"{{expected}}\" export: it holds no manifest Linkr can read."
   },
   "user_menu": {
     "profile": "User settings",
@@ -3852,6 +3853,7 @@
     "type_dq_rule_set": "Quality rules",
     "type_schema_preset": "Schema preset",
     "type_database": "Database",
+    "type_user_plugin": "User plugin",
     "settings_url": "Catalog repository URL",
     "settings_branch": "Branch",
     "settings_invalid_url": "Enter an https URL to a GitLab repository (group/repo).",
@@ -4564,6 +4566,7 @@
     "export_json": "Full JSON",
     "export_json_desc": "Complete export with all metadata. Use for backup, sharing, or re-import.",
     "import_invalid_zip": "This ZIP does not contain a valid mapping project (missing project.json).",
+    "import_overwrite_forbidden": "You can't replace this mapping project: overwriting deletes it first, and your role in this workspace doesn't allow deleting mapping projects. Import it as a copy, or ask a workspace owner.",
     "import_error": "Failed to import mapping project: {{error}}",
     "duplicates_removed_title": "Duplicate source concepts removed",
     "duplicates_removed_desc_one": "1 duplicate source concept (same vocabulary + code) was removed. The original file is kept unchanged.",

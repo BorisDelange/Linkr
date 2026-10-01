@@ -6,11 +6,15 @@
  * the app convention (`linkr-*`).
  */
 
-import type { CatalogCache } from './types'
+import type { CatalogCache, CatalogCacheSource } from './types'
 
 const cacheKey = (catalogId: string) => `linkr-catalog-cache:${catalogId}`
 
-export function loadCatalogCache(catalogId: string): CatalogCache | null {
+/**
+ * The cache of `catalogId`, or null when there is none or it was downloaded from
+ * another repo than `source` (a cache with no recorded source counts as another).
+ */
+export function loadCatalogCache(catalogId: string, source: CatalogCacheSource): CatalogCache | null {
   try {
     const raw = localStorage.getItem(cacheKey(catalogId))
     if (!raw) return null
@@ -18,15 +22,17 @@ export function loadCatalogCache(catalogId: string): CatalogCache | null {
     // A cache written by an older/newer build may not have entries; treat as absent
     // rather than rendering a broken page.
     if (!Array.isArray(parsed?.entries)) return null
+    if (parsed.source?.url !== source.url || parsed.source?.branch !== source.branch) return null
     return parsed
   } catch {
     return null
   }
 }
 
-export function saveCatalogCache(catalogId: string, cache: CatalogCache): void {
+export function saveCatalogCache(catalogId: string, source: CatalogCacheSource, cache: CatalogCache): void {
   try {
-    localStorage.setItem(cacheKey(catalogId), JSON.stringify(cache))
+    const tagged: CatalogCache = { ...cache, source: { url: source.url, branch: source.branch } }
+    localStorage.setItem(cacheKey(catalogId), JSON.stringify(tagged))
   } catch {
     // Quota exceeded or storage disabled — the catalog still works for this session,
     // it just won't survive a reload.

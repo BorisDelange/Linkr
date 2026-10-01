@@ -27,6 +27,19 @@ describe('loadCatalogSettings', () => {
     expect(store.has('linkr-catalog-source')).toBe(false)
   })
 
+  it('carries the community repo over when it was set on another branch', () => {
+    store.set('linkr-catalog-source', JSON.stringify({ url: DEFAULT_CATALOG.url, branch: 'staging' }))
+    const settings = loadCatalogSettings()
+    expect(settings.catalogs).toHaveLength(2)
+    expect(settings.catalogs[1]).toMatchObject({ url: DEFAULT_CATALOG.url, branch: 'staging' })
+  })
+
+  it('drops the single-catalog setting when it named the community repo on its default branch', () => {
+    store.set('linkr-catalog-source', JSON.stringify({ url: DEFAULT_CATALOG.url, branch: DEFAULT_CATALOG.branch }))
+    expect(loadCatalogSettings().catalogs).toEqual([DEFAULT_CATALOG])
+    expect(store.has('linkr-catalog-source')).toBe(false)
+  })
+
   it('keeps an emptied list empty — the community catalog can be removed', () => {
     store.set('linkr-catalogs', JSON.stringify({ catalogs: [], activeId: '' }))
     expect(loadCatalogSettings()).toEqual({ catalogs: [], activeId: '' })

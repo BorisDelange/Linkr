@@ -3793,7 +3793,8 @@
     "back_to_sql_collections": "Retour aux collections",
     "back_to_data_catalogs": "Retour aux catalogues",
     "import_app_too_old": "Ce contenu nécessite Linkr {{required}} ou plus récent, et cette instance est en {{current}}. Son format a changé en {{required}} : une version antérieure ne l'importerait qu'en partie, sans le signaler. Mettez Linkr à jour, puis importez-le de nouveau.",
-    "import_wrong_type": "Ce fichier est de type « {{found}} », pas « {{expected}} ». Importez-le depuis la page de ce type d'entité."
+    "import_wrong_type": "Ce fichier est de type « {{found}} », pas « {{expected}} ». Importez-le depuis la page de ce type d'entité.",
+    "import_no_manifest": "Ce ZIP n'est pas un export de type « {{expected}} » : il ne contient aucun manifeste lisible par Linkr."
   },
   "user_menu": {
     "profile": "Paramètres utilisateur",
@@ -3852,6 +3853,7 @@
     "type_dq_rule_set": "Règles de qualité",
     "type_schema_preset": "Préréglage de schéma",
     "type_database": "Base de données",
+    "type_user_plugin": "Plugin utilisateur",
     "settings_url": "URL du dépôt du catalogue",
     "settings_branch": "Branche",
     "settings_invalid_url": "Saisissez une URL https vers un dépôt GitLab (groupe/dépôt).",
@@ -4564,6 +4566,7 @@
     "export_json": "JSON complet",
     "export_json_desc": "Export complet avec toutes les métadonnées. Pour sauvegarde, partage ou ré-import.",
     "import_invalid_zip": "Ce ZIP ne contient pas de projet d'alignement valide (project.json manquant).",
+    "import_overwrite_forbidden": "Vous ne pouvez pas remplacer ce projet d'alignement : l'écraser le supprime d'abord, et votre rôle dans cet espace de travail ne permet pas de supprimer des projets d'alignement. Importez-le comme copie, ou demandez à un propriétaire de l'espace de travail.",
     "import_error": "Échec de l'import du projet d'alignement : {{error}}",
     "duplicates_removed_title": "Concepts sources en double retirés",
     "duplicates_removed_desc_one": "1 concept source en double (même vocabulaire + code) a été retiré. Le fichier original est conservé tel quel.",

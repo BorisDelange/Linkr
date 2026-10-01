@@ -60,10 +60,13 @@ function isCatalogConfig(value: unknown): value is CatalogConfig {
 function fromLegacy(): CatalogSettings | null {
   const raw = localStorage.getItem(LEGACY_SETTINGS_KEY)
   if (!raw) return null
-  localStorage.removeItem(LEGACY_SETTINGS_KEY)
+  // Parsed before the key goes: a throw here leaves it for the next load.
   const { url, branch } = JSON.parse(raw) as { url?: string; branch?: string }
+  localStorage.removeItem(LEGACY_SETTINGS_KEY)
   const source = url ? parseCatalogUrl(url, branch) : null
-  if (!source || source.repoUrl === parseCatalogUrl(DEFAULT_CATALOG_URL)!.repoUrl) return null
+  const isDefault = source?.repoUrl === parseCatalogUrl(DEFAULT_CATALOG_URL)!.repoUrl
+    && source.branch === DEFAULT_CATALOG_BRANCH
+  if (!source || isDefault) return null
   const custom: CatalogConfig = {
     id: crypto.randomUUID(),
     name: { en: source.project, fr: source.project },

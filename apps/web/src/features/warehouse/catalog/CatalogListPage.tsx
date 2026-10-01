@@ -17,6 +17,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
 import { buildDataCatalogFolder, parseImportZip, readImportedManifest } from '@/lib/entity-io'
+import { MissingManifestError } from '@/lib/app-version-compat'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
@@ -147,7 +148,7 @@ export function CatalogListPage() {
   const handleImport = useCallback(async (file: File, gitRemote?: ImportGitRemote) => {
     const parsed = await parseImportZip(file)
     const catalog = readImportedManifest<DataCatalog>(parsed, 'data-catalog')
-    if (!catalog) return
+    if (!catalog) throw new MissingManifestError('data-catalog')
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.

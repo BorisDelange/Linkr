@@ -3891,6 +3891,9 @@ export async function applyClonedEntity(
   /** The cloned repo's manifest, under the shared name or the kind's own. */
   const readManifest = async <T>(kind: LayoutKind): Promise<T | null> =>
     (await readJson<T>(ENTITY_MANIFEST)) ?? (await readJson<T>(MANIFEST[kind]))
+  // The link says which kind the repo holds; a repo repointed at another kind
+  // would be read as an empty one of this.
+  assertEntityType(await readJson(ENTITY_MANIFEST), type)
   const readText = async (name: string): Promise<string | null> => {
     const entry = zip.files[name]
     return entry && !entry.dir ? entry.async('string') : null
