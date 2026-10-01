@@ -163,14 +163,13 @@ export function maskSourceConceptsCsv(
       }
     }
     if (jsonIdx >= 0 && jsonIdx < cells.length && cells[jsonIdx].trim()) {
-      let profile: unknown
+      let profile: unknown = null
       try {
         profile = JSON.parse(cells[jsonIdx])
       } catch {
-        continue
+        // Unreadable here may be readable elsewhere (Python takes NaN): withheld.
       }
-      if (!isObject(profile)) continue
-      const masked = withheld ? null : maskProfile(profile, k)
+      const masked = withheld || !isObject(profile) ? null : maskProfile(profile, k)
       const next = masked === null ? '' : JSON.stringify(masked)
       if (masked === null || next !== JSON.stringify(profile)) {
         cells[jsonIdx] = next

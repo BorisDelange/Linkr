@@ -158,6 +158,19 @@ def _js_json(value: object) -> str:
     raise TypeError(type(value))
 
 
+def _reject(constant: str) -> None:
+    raise ValueError(constant)
+
+
+def _parse_profile(text: str) -> object:
+    """The cell as JSON.parse reads it, or None where JSON.parse would throw:
+    NaN and Infinity are refused, and every integer becomes a double."""
+    try:
+        return json.loads(text, parse_constant=_reject, parse_int=float)
+    except (ValueError, RecursionError):
+        return None
+
+
 def _cell(value: str, delimiter: str) -> str:
     if delimiter in value or '"' in value or "\n" in value or "\r" in value:
         return '"' + value.replace('"', '""') + '"'
@@ -205,13 +218,8 @@ def mask_source_concepts_csv(text: str, column_mapping: dict | None = None, k: i
                 cells[i] = f"<{k}"
                 changed = True
         if 0 <= json_idx < len(cells) and cells[json_idx].strip():
-            try:
-                profile = json.loads(cells[json_idx])
-            except ValueError:
-                continue
-            if not isinstance(profile, dict):
-                continue
-            masked = None if withheld else mask_profile(profile, k)
+            profile = _parse_profile(cells[json_idx])
+            masked = None if withheld or not isinstance(profile, dict) else mask_profile(profile, k)
             new = "" if masked is None else _js_json(masked)
             if masked != profile or masked is None:
                 cells[json_idx] = new

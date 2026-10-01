@@ -1,5 +1,5 @@
 terminology,concept_code,concept_name,record_count,patient_count,info_json
-LOCAL,HR,"Heart, rate",5000,120,"{""full_name"":""Fréquence cardiaque"",""unit"":""bpm"",""rows_count"":5000,""patients_count"":120,""range"":[20,250],""numeric_data"":{""min"":20.0,""p5"":55.5,""median"":80,""mean"":81.25,""max"":250,""sd"":1e-05},""histogram"":[{""x"":20,""count"":3},{""x"":60,""count"":2400},{""x"":100,""count"":2590},{""x"":240,""count"":7}],""categorical_data"":[{""category"":""normal"",""count"":4990,""percentage"":99.8},{""category"":""rare"",""count"":10,""percentage"":0.2}],""records_per_patient"":{""mean"":41.6,""median"":30,""min"":1,""max"":900},""temporal_distribution"":{""start_date"":""2019-01-01"",""end_date"":""2023-12-31"",""by_year"":[{""year"":2019,""percentage"":0.1},{""year"":2020,""percentage"":99.9}]},""hospital_units"":[{""unit"":""Réa, Nord"",""percentage"":99.9},{""unit"":""Pédiatrie"",""percentage"":0.1}],""big"":1e+21}"
+LOCAL,HR,"Heart, rate",5000,120,"{""full_name"":""Fréquence cardiaque"",""unit"":""bpm"",""rows_count"":5000,""patients_count"":120,""range"":[20,250],""numeric_data"":{""min"":20.0,""p5"":55.5,""median"":80,""mean"":81.25,""max"":250,""sd"":1e-05},""histogram"":[{""x"":20,""count"":3},{""x"":60,""count"":2400},{""x"":100,""count"":2590},{""x"":240,""count"":7}],""categorical_data"":[{""category"":""normal"",""count"":4990,""percentage"":99.8},{""category"":""rare"",""count"":10,""percentage"":0.2}],""records_per_patient"":{""mean"":41.6,""median"":30,""min"":1,""max"":900},""temporal_distribution"":{""start_date"":""2019-01-01"",""end_date"":""2023-12-31"",""by_year"":[{""year"":2019,""percentage"":0.1},{""year"":2020,""percentage"":99.9}]},""hospital_units"":[{""unit"":""Réa, Nord"",""percentage"":99.9},{""unit"":""Pédiatrie"",""percentage"":0.1}],""big"":1e+21,""big_int"":9007199254740993}"
 LOCAL,NA,Sodium,900,300,"{""full_name"":""Sodium"",""rows_count"":900,""patients_count"":300,""numeric_data"":{""median"":140}}"
 LOCAL,RARE,"Rare ""thing""",40,4,"{""full_name"":""Rare"",""rows_count"":40,""patients_count"":4}"
 LOCAL,FEW,Few records,7,,
@@ -8,3 +8,6 @@ LOCAL,AT_K,At the threshold,11,11,
 LOCAL,BELOW_K,Just under it,10,10,
 LOCAL,PADDED,Padded cell, 7 ,	8,
 LOCAL,FOREIGN,Not plain decimal,0x5,1_0,
+LOCAL,NAN,NaN in the profile,500,50,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""mean"":NaN}}"
+LOCAL,QUOTED,Single-quoted profile,500,50,{'rows_count': 500}
+LOCAL,SCALAR,Not an object,500,50,42
