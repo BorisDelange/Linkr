@@ -13,7 +13,9 @@
  */
 import type { ConceptMapping, GitRemoteConfig, LocalizedString, MappingProject, SourceConceptIdRange } from '@/types'
 import type { Storage } from '@/lib/storage'
-import { isServerMode } from '@/lib/api-client'
+import { ApiError, isServerMode } from '@/lib/api-client'
+import { membersApi } from '@/lib/api/members'
+import i18n from '@/lib/i18n'
 import { readImportedManifest, readLicense } from '@/lib/entity-io'
 import { resolvePointer } from '@/lib/import-identity'
 import { README_FILE_RE } from '@/lib/entity-tree'
@@ -76,6 +78,36 @@ export async function recomputeImportedStats(
   } catch { /* keep the imported counters rather than losing the project */ }
 }
 
+/** An overwrite asked of a user who may not delete mapping projects here. */
+export class MappingOverwriteForbiddenError extends Error {
+  constructor() {
+    super(i18n.t('concept_mapping.import_overwrite_forbidden'))
+    this.name = 'MappingOverwriteForbiddenError'
+  }
+}
+
+/**
+ * Clear the row an overwrite replaces, refusing before anything is deleted when
+ * the user lacks `concept-mapping:delete` in the target workspace. Swallowing the
+ * refused delete left the old row and its mappings in place under the restore,
+ * which then reported success.
+ */
+async function deleteForOverwrite(targetId: string, workspaceId: string, storage: Storage): Promise<void> {
+  if (isServerMode() && workspaceId) {
+    const role = await membersApi.myWorkspaceRole(workspaceId).catch(() => null)
+    // An unreadable role is decided by the delete itself, below.
+    if (role && !(role.permissions ?? []).includes('concept-mapping:delete')) throw new MappingOverwriteForbiddenError()
+  }
+  try {
+    await storage.conceptMappings.deleteByProject(targetId)
+    await storage.mappingProjects.delete(targetId)
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 403) throw new MappingOverwriteForbiddenError()
+    // Nothing there yet: nothing to replace.
+    if (!(err instanceof ApiError && err.status === 404)) throw err
+  }
+}
+
 /**
  * Restore a mapping project's full content from a parsed export/repo ZIP.
  *
@@ -106,10 +138,7 @@ export async function importMappingProjectContent(
   // project". `name` is what every kind must carry.
   if (!project?.name) return false
 
-  if (replaceExisting) {
-    await storage.conceptMappings.deleteByProject(targetId).catch(() => {})
-    await storage.mappingProjects.delete(targetId).catch(() => {})
-  }
+  if (replaceExisting) await deleteForOverwrite(targetId, workspaceId, storage)
 
   // Restore the source CSV → fileSourceData (+ rawFileBuffer) BEFORE create, so
   // the persisted project carries the source concepts the table renders.
@@ -219,9 +248,8 @@ export async function importMappingProjectContent(
   // index, so the editor shows suggestions without a reload. An overwrite starts
   // from none: the scores of the replaced project would otherwise merge with the
   // incoming CSVs. Front-only, that takes an explicit delete (OPFS/IDB scores
-  // outlive the row); server-side they went with the deleted row, and the delete
-  // endpoint needs a permission (`concept-mapping:delete`) a write-role importer
-  // may not hold. Its own try: a failed delete must not cancel the restore.
+  // outlive the row); server-side they went with the row deleted above. Its own
+  // try: a failed delete must not cancel the restore.
   if (replaceExisting && !isServerMode()) {
     try {
       const { useSuggestionScoresStore } = await import('@/stores/suggestion-scores-store')

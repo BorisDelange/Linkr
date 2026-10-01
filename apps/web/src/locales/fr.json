@@ -4564,6 +4564,7 @@
     "export_json": "JSON complet",
     "export_json_desc": "Export complet avec toutes les métadonnées. Pour sauvegarde, partage ou ré-import.",
     "import_invalid_zip": "Ce ZIP ne contient pas de projet d'alignement valide (project.json manquant).",
+    "import_overwrite_forbidden": "Vous ne pouvez pas remplacer ce projet d'alignement : l'écraser le supprime d'abord, et votre rôle dans cet espace de travail ne permet pas de supprimer des projets d'alignement. Importez-le comme copie, ou demandez à un propriétaire de l'espace de travail.",
     "import_error": "Échec de l'import du projet d'alignement : {{error}}",
     "duplicates_removed_title": "Concepts sources en double retirés",
     "duplicates_removed_desc_one": "1 concept source en double (même vocabulaire + code) a été retiré. Le fichier original est conservé tel quel.",

@@ -4564,6 +4564,7 @@
     "export_json": "Full JSON",
     "export_json_desc": "Complete export with all metadata. Use for backup, sharing, or re-import.",
     "import_invalid_zip": "This ZIP does not contain a valid mapping project (missing project.json).",
+    "import_overwrite_forbidden": "You can't replace this mapping project: overwriting deletes it first, and your role in this workspace doesn't allow deleting mapping projects. Import it as a copy, or ask a workspace owner.",
     "import_error": "Failed to import mapping project: {{error}}",
     "duplicates_removed_title": "Duplicate source concepts removed",
     "duplicates_removed_desc_one": "1 duplicate source concept (same vocabulary + code) was removed. The original file is kept unchanged.",
