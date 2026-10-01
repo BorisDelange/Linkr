@@ -45,8 +45,11 @@ function registerProviders(monaco: typeof Monaco) {
   }
 
   monaco.languages.registerCompletionItemProvider('sql', {
-    triggerCharacters: ['.'],
-    async provideCompletionItems(model, position) {
+    // Space opens the list only where a table is expected (`FROM ⎵`): the list is
+    // short and wanted there. After `SELECT ⎵` it would pop on every space while the
+    // user types `*` or `COUNT(` — the first letter, or Ctrl+Space, opens it.
+    triggerCharacters: ['.', ' '],
+    async provideCompletionItems(model, position, context) {
       const ctx = contextOf(model)
       if (ctx?.kind !== 'sql' || !ctx.dataSourceId) return { suggestions: [] }
       let catalog
@@ -56,7 +59,8 @@ function registerProviders(monaco: typeof Monaco) {
         return { suggestions: [] }
       }
       const offset = model.getOffsetAt(position)
-      const { items, wordStart } = sqlCompletions(model.getValue(), offset, catalog)
+      const { items, wordStart, slot } = sqlCompletions(model.getValue(), offset, catalog)
+      if (context.triggerCharacter === ' ' && slot !== 'table') return { suggestions: [] }
       const start = model.getPositionAt(wordStart)
       const range = new monaco.Range(start.lineNumber, start.column, position.lineNumber, position.column)
       return {

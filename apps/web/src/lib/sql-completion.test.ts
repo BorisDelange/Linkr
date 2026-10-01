@@ -130,6 +130,16 @@ describe('sqlCompletions — where nothing belongs', () => {
   })
 })
 
+describe('sqlCompletions — slot', () => {
+  it('tells a table slot from an expression one, so a space opens the list only after FROM', () => {
+    expect(complete('SELECT * FROM |').slot).toBe('table')
+    expect(complete('SELECT * FROM person p JOIN |').slot).toBe('table')
+    expect(complete('SELECT |').slot).toBe('expression')
+    expect(complete('SELECT * FROM person |').slot).toBe('keywords')
+    expect(complete('SELECT * FROM cdm.|').slot).toBe('qualified')
+  })
+})
+
 describe('quoteIdent', () => {
   it('leaves plain lower-case names alone and quotes the rest', () => {
     expect(quoteIdent('person_id')).toBe('person_id')

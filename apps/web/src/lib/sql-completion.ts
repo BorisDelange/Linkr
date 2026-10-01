@@ -46,7 +46,12 @@ export interface SqlCompletionResult {
   items: SqlCompletion[]
   /** Offset where the word being replaced starts. */
   wordStart: number
+  /** What the cursor expects: lets the editor open the list unprompted only where
+   *  it is short and wanted (a table after FROM). */
+  slot: SqlSlot
 }
+
+export type SqlSlot = 'none' | 'keywords' | 'table' | 'qualified' | 'expression'
 
 type Token =
   | { t: 'ident'; v: string; quoted: boolean; start: number; end: number; open?: boolean }
@@ -333,7 +338,7 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
   // An unterminated string or quoted identifier swallows the cursor.
   const open = statement.find((tok) =>
     tok.start < offset && (tok.end > offset || tok.open) && (tok.v === "'" || (tok.t === 'ident' && tok.quoted)))
-  if (open) return { items: [], wordStart }
+  if (open) return { items: [], wordStart, slot: 'none' }
 
   const ctx = cursorContext(before)
   const { refs, ctes } = collectRefs(statement)
@@ -374,10 +379,10 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
     for (const f of FUNCTIONS) push({ label: f, kind: 'function', insertText: f, rank: rank + 1 })
   }
 
-  if (ctx.kind === 'none') return { items: [], wordStart }
+  if (ctx.kind === 'none') return { items: [], wordStart, slot: ctx.kind }
   if (ctx.kind === 'keywords') {
     keywordItems(0)
-    return { items: dedupe(items), wordStart }
+    return { items: dedupe(items), wordStart, slot: ctx.kind }
   }
 
   if (ctx.kind === 'table') {
@@ -389,7 +394,7 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
     tableItems(defaults, multi ? 2 : 1, multi)
     for (const c of ctes) push({ label: c, kind: 'table', insertText: quoteIdent(c), detail: 'CTE', rank: 0 })
     keywordItems(5)
-    return { items: dedupe(items), wordStart }
+    return { items: dedupe(items), wordStart, slot: ctx.kind }
   }
 
   if (ctx.kind === 'qualified') {
@@ -400,19 +405,19 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
       const ref = refs.find((r) => (r.alias && eq(r.alias, last)) || (!r.alias && eq(r.path[r.path.length - 1], last)))
       if (ref) {
         columnItems(resolveTable(catalog, ref.path).map((x) => ({ ...x, via: ref.alias ?? x.table.name })), 0)
-        return { items: dedupe(items), wordStart }
+        return { items: dedupe(items), wordStart, slot: ctx.kind }
       }
     }
     // schema. → its tables (or, in an expression, schema.table. comes next)
     const schema = findSchema(catalog, last)
     if (schema) {
       tableItems([schema], 0, false)
-      return { items: dedupe(items), wordStart }
+      return { items: dedupe(items), wordStart, slot: ctx.kind }
     }
     // schema.table. / table. → columns
     const resolved = resolveTable(catalog, path)
     if (resolved.length) columnItems(resolved, 0)
-    return { items: dedupe(items), wordStart }
+    return { items: dedupe(items), wordStart, slot: ctx.kind }
   }
 
   // Expression: the columns of the tables in FROM, else every table's columns.
@@ -427,7 +432,7 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
     columnItems(catalog.schemas.flatMap((s) => s.tables.map((table) => ({ schema: s.name, table }))), 2)
   }
   keywordItems(3)
-  return { items: dedupe(items), wordStart }
+  return { items: dedupe(items), wordStart, slot: ctx.kind }
 }
 
 function dedupe(items: SqlCompletion[]): SqlCompletion[] {
