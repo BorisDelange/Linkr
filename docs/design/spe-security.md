@@ -110,7 +110,9 @@ The IDE's client libraries (`linkr_connect()`) obtain the user's password throug
   started gets no password.
 - **An agent cannot run code in a kernel the IDE started.** A kernel remembers its
   `spawned_via`, and `KernelManager.get` raises `KernelSessionForeign` (409) when a
-  non-web request reaches a web-started kernel (`web` and `kernel` count as web: a
+  non-web request reaches a web-started kernel — so do `restart`, `interrupt` and
+  `shutdown_session`, or an agent could kill the IDE's kernel and respawn it under its
+  own token for the IDE to keep using (`web` and `kernel` count as web: a
   non-web kernel token is refused at auth anyway). The MCP's `run_code` / `run_script`
   default to a session of their own, `agent` (`packages/linkr-mcp/src/live/shared.ts`,
   `AGENT_SESSION`). The other direction stays open: the IDE may open what an agent
