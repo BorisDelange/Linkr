@@ -315,7 +315,9 @@ DENY`, `Referrer-Policy: no-referrer` and `CSP: default-src 'none'; frame-ancest
 pages `frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'`,
 `X-Frame-Options`, nosniff, `Referrer-Policy`, `Permissions-Policy`; **no `script-src`**:
 the R/Python widgets run inline scripts in srcdoc iframes, which inherit the page's
-CSP — a script policy needs its own test pass in a browser. HSTS is the TLS proxy's.
+CSP — a script policy would need its own test pass in a browser. Dropped by decision
+(2026-10-01): a second line of defence against injected script, low value in an SPE
+where only the project's members reach the instance. HSTS is the TLS proxy's.
 Upload sessions are bound to their uploader (404 for anyone else). Plain-http indexes
 and `trustedHost`: allowed in the server and workspace layers, and in a project's
 `options.json` only for a host one of those layers chose. `fs_browse_roots` → the

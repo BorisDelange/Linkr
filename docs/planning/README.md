@@ -11,9 +11,7 @@ of finished efforts that the code still cites lives in `docs/design/`.
 
 ## Priority
 
-| St | Item | Effort |
-|----|------|--------|
-| 🔜 | **Threat model of database credentials, as a user-doc page** (`administration/`, FR + EN): who can recover a database password — another user, an admin through the UI/API, a copy of the Linkr DB or its backups, write access to that DB, the server's administrator — and what session-only passwords change. Source: [per-user-db-credentials-plan.md](per-user-db-credentials-plan.md) §11. The agent path is settled (A4): an API key gets no password, neither in a kernel it starts nor in one the user's IDE started (refused) | S |
+Nothing flagged right now.
 
 ## To test manually in the app
 
@@ -177,7 +175,6 @@ and the CNIL CDW framework. Sections A, B, D, E and F are done — as-built in `
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | D follow-up: a `script-src` CSP for the app's pages — R/Python widgets run inline scripts in srcdoc iframes, which inherit the page's CSP, so it needs a pass in a real browser (widgets, Monaco, DuckDB-WASM workers, maps) | S |
 | 💤 | A1 follow-up: kernels under their own OS identity, no read access to `data_dir` | L |
 
 ## Permissions
