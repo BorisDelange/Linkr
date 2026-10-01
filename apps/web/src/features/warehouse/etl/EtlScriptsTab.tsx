@@ -81,7 +81,7 @@ import { inferEtlLanguage, nextEtlOrder } from './etl-file-language'
 import { RunProgressBar } from './RunProgressBar'
 import { statementLineAt } from './statement-preview'
 import { csvDelimiterFor, parseCsvPreview } from '@/lib/csv-preview'
-import { formatDuration, formatTimeLocale } from '@/lib/format-helpers'
+import { formatDuration, formatTimeLocale, formatSqlCell } from '@/lib/format-helpers'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { compareByRole } from './role-presentation'
 import { PipelineDbPicker } from './PipelineDbPicker'
@@ -373,7 +373,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
         if (rows.length > 0) {
           const headers = Object.keys(rows[0])
           const tableRows = rows.slice(0, 1000).map((row) =>
-            headers.map((h) => String(row[h] ?? ''))
+            headers.map((h) => formatSqlCell(row[h]))
           )
           addOutputTab({
             id: `sql-result-${label}`,

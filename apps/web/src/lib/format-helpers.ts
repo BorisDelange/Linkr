@@ -296,3 +296,31 @@ export function formatDuration(ms: number): string {
   const min = totalMin % 60
   return `${hours}h${String(min).padStart(2, '0')}min`
 }
+
+// ISO date-time as the server (`2180-05-06T22:23:00`) and DuckDB-WASM
+// (`2180-05-06T22:23:00.000Z`, Z although a TIMESTAMP has no zone) send it.
+const ISO_DATETIME = /^(\d{4,}-\d{2}-\d{2})T(\d{2}:\d{2}(?::\d{2})?)(\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$/
+
+/**
+ * One cell of a SQL result, written the way SQL tools print it: a timestamp as
+ * `2180-05-06 22:23:00` (not ISO with its `T`, nor a locale format that would be
+ * ambiguous and not pasteable back into a query), a list or struct as JSON.
+ */
+export function formatSqlCell(value: unknown): string {
+  if (value == null) return ''
+  if (typeof value === 'string') {
+    const m = ISO_DATETIME.exec(value)
+    if (!m) return value
+    const fraction = m[3]?.replace(/0+$/, '')
+    const zone = m[4] && m[4] !== 'Z' ? m[4] : ''
+    return `${m[1]} ${m[2]}${fraction && fraction !== '.' ? fraction : ''}${zone}`
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value, (_k, v: unknown) => (typeof v === 'bigint' ? Number(v) : v))
+    } catch {
+      return String(value)
+    }
+  }
+  return String(value)
+}

@@ -13,7 +13,7 @@ import { KeyboardShortcutsDialog } from '@/features/projects/files/KeyboardShort
 import type { ShortcutActionId } from '@/types/shortcuts'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { formatApiError } from '@/lib/api-client'
-import { formatDateTimeLocale } from '@/lib/format-helpers'
+import { formatDateTimeLocale, formatSqlCell } from '@/lib/format-helpers'
 
 /** Rows shown; the query itself is capped server-side too. */
 const SHOWN_ROWS = 1000
@@ -64,7 +64,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
       setOutcome({
         kind: 'rows',
         headers,
-        rows: rows.slice(0, SHOWN_ROWS).map((row) => headers.map((h) => (row[h] == null ? '' : String(row[h])))),
+        rows: rows.slice(0, SHOWN_ROWS).map((row) => headers.map((h) => formatSqlCell(row[h]))),
         total: rows.length,
         ms: Math.round(performance.now() - start),
         at,

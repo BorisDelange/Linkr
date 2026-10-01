@@ -1,18 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import {
-  escSql,
-  isSafeIdentifier,
-  quoteTableRef,
-  validateIntegerIds,
-  columnLabel,
-  capitalize,
-  daysBetween,
-  humanBytes,
-  compactCount,
-  formatDateTimeLocale,
-  formatTimeLocale,
-  formatStayDuration,
-} from './format-helpers'
+import { escSql, isSafeIdentifier, quoteTableRef, validateIntegerIds, columnLabel, capitalize, daysBetween, humanBytes, compactCount, formatDateTimeLocale, formatTimeLocale, formatStayDuration, formatSqlCell } from './format-helpers'
 import type { TFunction } from 'i18next'
 
 // These are security-critical: escSql / isSafeIdentifier / validateIntegerIds
@@ -328,5 +315,29 @@ describe('quoteTableRef', () => {
 
   it('does not split more than one dot', () => {
     expect(quoteTableRef('a.b.c')).toBe('"a.b.c"')
+  })
+})
+
+describe('formatSqlCell', () => {
+  it('prints timestamps the way SQL tools do, from both the server and DuckDB-WASM', () => {
+    expect(formatSqlCell('2180-05-06T22:23:00')).toBe('2180-05-06 22:23:00')
+    expect(formatSqlCell('2180-05-06T22:23:00.000Z')).toBe('2180-05-06 22:23:00')
+    expect(formatSqlCell('2180-05-06T22:23:00.250Z')).toBe('2180-05-06 22:23:00.25')
+    expect(formatSqlCell('2180-05-06T22:23:00+02:00')).toBe('2180-05-06 22:23:00+02:00')
+  })
+
+  it('leaves dates and other text alone', () => {
+    expect(formatSqlCell('2180-05-06')).toBe('2180-05-06')
+    expect(formatSqlCell('see 2180-05-06T22:23:00')).toBe('see 2180-05-06T22:23:00')
+    expect(formatSqlCell('abc')).toBe('abc')
+  })
+
+  it('prints null as empty, numbers as is, lists and structs as JSON', () => {
+    expect(formatSqlCell(null)).toBe('')
+    expect(formatSqlCell(undefined)).toBe('')
+    expect(formatSqlCell(42.5)).toBe('42.5')
+    expect(formatSqlCell(false)).toBe('false')
+    expect(formatSqlCell([1, 2])).toBe('[1,2]')
+    expect(formatSqlCell({ a: 1n })).toBe('{"a":1}')
   })
 })

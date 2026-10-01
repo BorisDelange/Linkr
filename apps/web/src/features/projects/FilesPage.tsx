@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
+import { formatSqlCell } from '@/lib/format-helpers'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -568,7 +569,7 @@ export function FilesPage() {
         if (rows.length > 0) {
           const headers = Object.keys(rows[0])
           const tableRows = rows.slice(0, 1000).map((row) =>
-            headers.map((h) => String(row[h] ?? ''))
+            headers.map((h) => formatSqlCell(row[h]))
           )
           addOutputTab({
             id: `sql-result-${label}`,
