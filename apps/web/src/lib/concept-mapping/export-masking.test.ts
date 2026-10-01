@@ -18,6 +18,11 @@ describe('maskSourceConceptsCsv', () => {
       .toBe(read('expected-semicolon.csv'))
   })
 
+  it('drops a byte order mark, as the server does', () => {
+    expect(maskSourceConceptsCsv(`\uFEFF${read('input.csv')}`, null, 11)).toBe(read('expected.csv'))
+    expect(maskSourceConceptsCsv('\uFEFFa,b\n1,2\n', null, 11)).toBe('a,b\n1,2\n')
+  })
+
   it('leaves a file with nothing to mask byte for byte', () => {
     const text = 'terminology,concept_code,record_count\r\nX,1,500\r\n'
     expect(maskSourceConceptsCsv(text, null, 11)).toBe(text)

@@ -75,3 +75,9 @@ def test_bytes_that_cannot_be_read_are_refused(data):
 def test_an_unreadable_parquet_is_refused():
     with pytest.raises(SourceConceptsUnreadable):
         _as_csv_bytes(b"PAR1\x00\x01")
+
+
+def test_a_byte_order_mark_is_dropped_as_the_browser_drops_it():
+    data = b"\xef\xbb\xbf" + (FIXTURES / "input.csv").read_bytes()
+    assert _masked_csv_bytes(data, None).decode() == _read("expected.csv")
+    assert mask_source_concepts_csv("\ufeffa,b\n1,2\n", None, 11) == "a,b\n1,2\n"

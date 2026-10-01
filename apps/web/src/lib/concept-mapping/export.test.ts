@@ -251,6 +251,11 @@ describe('maskedSourceConcepts', () => {
     expect(await maskedSourceConcepts(new Uint8Array(fixture('input.csv')))).toBe(expected)
   })
 
+  it('drops a UTF-8 byte order mark', async () => {
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf, ...fixture('input.csv')])
+    expect(await maskedSourceConcepts(bom)).toBe(expected)
+  })
+
   it('reads a Windows-1252 file instead of shipping it unmasked', async () => {
     expect(await maskedSourceConcepts(new Uint8Array(fixture('input-cp1252.csv')))).toBe(expected)
   })

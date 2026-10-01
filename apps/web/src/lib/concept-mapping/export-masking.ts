@@ -125,6 +125,7 @@ export function maskSourceConceptsCsv(
   columnMapping?: Partial<FileColumnMapping> | null,
   k: number = exportMinCount,
 ): string {
+  if (text.startsWith('\uFEFF')) text = text.slice(1)
   if (k <= 1 || !text || text.startsWith('version https://git-lfs')) return text
   const firstLine = text.split('\n', 1)[0]
   const delimiter = [',', ';', '\t'].reduce((best, d) =>

@@ -40,7 +40,7 @@ def decode_source_text(data: bytes) -> str | None:
     """Source bytes as text — UTF-8, else Windows-1252 (the usual export of a
     French hospital's spreadsheet) — or None when they are not text at all."""
     try:
-        text = data.decode("utf-8")
+        text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         try:
             text = data.decode("cp1252")
@@ -169,6 +169,7 @@ def _index(headers: list[str], mapped: str | None, guesses: tuple[str, ...]) -> 
 def mask_source_concepts_csv(text: str, column_mapping: dict | None = None, k: int | None = None) -> str:
     """`text` with every cell the rule masks rewritten; unchanged when nothing is."""
     k = settings.export_min_count if k is None else k
+    text = text.removeprefix("\ufeff")
     if k <= 1 or not text or text.startswith("version https://git-lfs"):
         return text
     first_line = text.split("\n", 1)[0]
