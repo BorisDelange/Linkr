@@ -186,8 +186,8 @@ ZIP builder, the Export tab's CSV download, the Usagi CSV). Count cells 1..k-1 �
 a profile under k is withheld; above it, `min`/`max`/`range` go and every histogram
 bin, category, ward or year under k records (direct or implied by its percentage) is
 dropped; a `sourceFrequency` under k becomes null. k = `LINKR_EXPORT_MIN_COUNT`
-(default 11) on the server; the client uses 11 (client-only mode has no instance
-config). DQ rule sets and SQL collections export definitions only — nothing to mask.
+(default 11) on the server; the client reads it from `/setup/status` in server mode,
+and uses 11 in client-only mode (no instance config). DQ rule sets and SQL collections export definitions only — nothing to mask.
 
 - Under `minPatients` (default 11), `buildConceptProfile` withholds the profile JSON but
   still returns `rowsCount` / `patientsCount`

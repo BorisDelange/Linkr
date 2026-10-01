@@ -4,7 +4,7 @@ API = "/api/v1"
 async def test_setup_status_and_initialize(client):
     r = await client.get(f"{API}/setup/status")
     assert r.status_code == 200
-    assert r.json() == {"needs_setup": True, "trusted_header_login": False}
+    assert r.json() == {"needs_setup": True, "trusted_header_login": False, "export_min_count": 11}
 
     r = await client.post(
         f"{API}/setup/initialize",
@@ -16,7 +16,7 @@ async def test_setup_status_and_initialize(client):
     assert body["role"] == "admin"
 
     r = await client.get(f"{API}/setup/status")
-    assert r.json() == {"needs_setup": False, "trusted_header_login": False}
+    assert r.json() == {"needs_setup": False, "trusted_header_login": False, "export_min_count": 11}
 
     # Second initialize is rejected once a user exists.
     r = await client.post(

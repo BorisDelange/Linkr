@@ -14,6 +14,14 @@ import type { FileColumnMapping } from '@/types'
 /** The threshold a server instance applies by default (LINKR_EXPORT_MIN_COUNT). */
 export const EXPORT_MIN_COUNT = 11
 
+let exportMinCount = EXPORT_MIN_COUNT
+
+/** The instance's threshold, read from the server at boot: the exports the
+ *  browser builds must mask like the ones the server builds. */
+export function setExportMinCount(k: number): void {
+  if (Number.isInteger(k) && k >= 1) exportMinCount = k
+}
+
 const JSON_HEADERS = ['info_json', 'metadata_json', 'json_metadata']
 const EXTREMES = new Set(['min', 'max'])
 
@@ -32,7 +40,7 @@ function impliedSmall(percentage: unknown, total: unknown, k: number): boolean {
 
 /** A mapping's source frequency as it may leave the instance: a small one is
  *  unknown (null) — the field is a number, so it cannot read "<k". */
-export function maskFrequency<T>(value: T, k: number = EXPORT_MIN_COUNT): T | null {
+export function maskFrequency<T>(value: T, k: number = exportMinCount): T | null {
   return isSmall(value, k) ? null : value
 }
 
@@ -89,7 +97,7 @@ function columnIndex(headers: string[], mapped: string | undefined, guesses: str
 export function maskSourceConceptsCsv(
   text: string,
   columnMapping?: Partial<FileColumnMapping> | null,
-  k: number = EXPORT_MIN_COUNT,
+  k: number = exportMinCount,
 ): string {
   if (k <= 1 || !text || text.startsWith('version https://git-lfs')) return text
   const firstLine = text.split('\n', 1)[0]

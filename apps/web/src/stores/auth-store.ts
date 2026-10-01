@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { getApiBaseUrl, isServerMode } from '@/lib/api-client'
+import { setExportMinCount } from '@/lib/concept-mapping/export-masking'
 
 export interface AuthUser {
   id: number
@@ -102,6 +103,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
           // The front proxy already authenticated this person (e.g. an SPE's
           // two-factor gateway): sign in as the user it names, no form.
           if (data.trusted_header_login && !get().token) await get().trustedLogin()
+          if (typeof data.export_min_count === 'number') setExportMinCount(data.export_min_count)
           set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false })
         } else if (res.status === 502 || res.status === 503 || res.status === 504) {
           // Gateway errors come from the reverse proxy (nginx), not the backend:

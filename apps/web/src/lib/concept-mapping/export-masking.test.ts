@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { maskFrequency, maskSourceConceptsCsv } from './export-masking'
+import { EXPORT_MIN_COUNT, maskFrequency, maskSourceConceptsCsv, setExportMinCount } from './export-masking'
 
 // Shared with apps/api/tests/test_export_masking.py: the two sides must emit the
 // same bytes, or front-only and server clients would fight over the file in git.
@@ -28,5 +28,18 @@ describe('maskSourceConceptsCsv', () => {
 describe('maskFrequency', () => {
   it('turns a small frequency into unknown', () => {
     expect([maskFrequency(3), maskFrequency(0), maskFrequency(11), maskFrequency(null)]).toEqual([null, 0, 11, null])
+  })
+})
+
+describe('setExportMinCount', () => {
+  it('makes the instance threshold the default of every mask, and ignores a nonsense value', () => {
+    try {
+      setExportMinCount(20)
+      setExportMinCount(0)
+      expect(maskFrequency(15)).toBeNull()
+      expect(maskSourceConceptsCsv('concept,patient_count\na,15\n')).toBe('concept,patient_count\na,<20\n')
+    } finally {
+      setExportMinCount(EXPORT_MIN_COUNT)
+    }
   })
 })

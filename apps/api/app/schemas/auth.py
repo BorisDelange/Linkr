@@ -58,6 +58,9 @@ class SetupStatusResponse(BaseModel):
     needs_setup: bool
     # The front proxy authenticates: try /auth/trusted-login before the form.
     trusted_header_login: bool = False
+    # Small-count threshold of mapping exports, so the ones the browser builds
+    # mask like the server's (LINKR_EXPORT_MIN_COUNT).
+    export_min_count: int = 11
 
 
 class DbInfoResponse(BaseModel):
