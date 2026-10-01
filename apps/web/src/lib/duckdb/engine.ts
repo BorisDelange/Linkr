@@ -837,8 +837,11 @@ function isShardFileName(baseName: string): boolean {
   // `part-00000`, `part-00000-<uuid>-c000`, `chunk_3`, `data.1`, `0001`. The
   // digits after the separator are what distinguish a shard from a real table
   // that merely starts with one of these words (`data_quality`, `file_registry`).
-  // A bare number or date (`0001`, `1999-01`) names no table either.
-  return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName) || /^\d+([-_.]\d+)*$/.test(baseName)
+  // A bare number or date (`0001`, `1999-01`) names no table either, nor the
+  // vocabulary library's per-vocabulary partitions (`concept/vocab-SNOMED`).
+  return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName)
+    || /^\d+([-_.]\d+)*$/.test(baseName)
+    || /^vocab-[\w-]+$/.test(baseName)
 }
 
 /**

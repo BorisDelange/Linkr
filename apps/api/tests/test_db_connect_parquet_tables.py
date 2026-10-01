@@ -186,6 +186,7 @@ def test_known_directory_claims_only_files_that_name_no_table():
     assert _table_of("db/document/doc_a.parquet", ["document"]) == "doc_a"
     assert _table_of("db/document/1999-01.parquet", ["document"]) == "document"
     assert _table_of("db/document/document_2.parquet", ["document"]) == "document"
+    assert _table_of("concept/vocab-SNOMED.parquet", ["concept"]) == "concept"
 
 
 def test_flat_import_borrows_the_ddl_schema_when_unambiguous():

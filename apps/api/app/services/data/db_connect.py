@@ -704,7 +704,11 @@ def introspect_file(engine: str, path: str) -> list[dict]:
     return [{"name": name, "columns": cols} for name, cols in tables.items()]
 
 
-_SHARD_RE = re.compile(r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+([-_.]\d+)*$")
+# Numbered shards, bare numbers/dates, and the vocabulary library's
+# per-vocabulary partitions (`concept/vocab-SNOMED.parquet`).
+_SHARD_RE = re.compile(
+    r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+([-_.]\d+)*$|^vocab-[\w-]+$"
+)
 # A shard named after its table directory (`document/document_1999-01`): only a
 # numeric/date suffix counts, so `ehop/ehop_patient` stays a table of its own.
 _NAMED_SHARD_SUFFIX_RE = re.compile(r"^[-_.]\d+([-_.]\d+)*$")
