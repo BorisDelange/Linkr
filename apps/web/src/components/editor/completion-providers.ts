@@ -128,3 +128,69 @@ function registerProviders(monaco: typeof Monaco) {
     })
   }
 }
+
+const EMPTY_CATALOG = { schemas: [], defaultSchemas: [] }
+const IDLE_MS = 1000
+// The pause opens the list only when the word before the space calls for a name;
+// after `x = 1 ⎵` the user has finished a term and is about to type a keyword.
+const EXPECTS_NAME = /(?:\b(?:select|where|and|or|not|on|by|having|when|then|else|distinct|set|qualify)|[,(=<>+\-/])\s+$/i
+
+/**
+ * Opens the SQL list without a keystroke where the user is plainly about to name
+ * something: after a pause of a second following `SELECT ⎵` / `WHERE ⎵` (a table
+ * slot already opens on the space itself), and on a click that lands after a
+ * space at the end of a line. A click mid-query never opens it — that is editing.
+ */
+export function attachSqlAutoSuggest(
+  monaco: typeof Monaco,
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  get: () => EditorCompletion | undefined,
+): () => void {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const clear = () => { if (timer) { clearTimeout(timer); timer = null } }
+
+  const slotAtCursor = () => {
+    const model = editor.getModel()
+    const pos = editor.getPosition()
+    const ctx = get()
+    if (!model || !pos || ctx?.kind !== 'sql' || !ctx.dataSourceId) return null
+    if (model.getLanguageId() !== 'sql' || editor.getOption(monaco.editor.EditorOption.readOnly)) return null
+    const offset = model.getOffsetAt(pos)
+    // Right after whitespace, with no word started.
+    if (offset === 0 || !/\s/.test(model.getValue().charAt(offset - 1))) return null
+    return { model, pos, slot: sqlCompletions(model.getValue(), offset, EMPTY_CATALOG).slot }
+  }
+  const suggest = () => editor.trigger('auto', 'editor.action.triggerSuggest', {})
+  // A table slot always wants a name; an expression only after certain words.
+  const wantsName = (at: NonNullable<ReturnType<typeof slotAtCursor>>) => {
+    if (at.slot === 'table') return true
+    if (at.slot !== 'expression') return false
+    const from = at.model.getOffsetAt({ lineNumber: Math.max(1, at.pos.lineNumber - 1), column: 1 })
+    return EXPECTS_NAME.test(at.model.getValue().slice(from, at.model.getOffsetAt(at.pos)))
+  }
+
+  const onType = editor.onDidChangeModelContent(() => {
+    clear()
+    const at = slotAtCursor()
+    // A table slot already opened on the space itself.
+    if (!at || at.slot !== 'expression' || !wantsName(at)) return
+    const version = at.model.getVersionId()
+    const { lineNumber, column } = at.pos
+    timer = setTimeout(() => {
+      timer = null
+      const pos = editor.getPosition()
+      if (at.model.getVersionId() === version && pos?.lineNumber === lineNumber && pos.column === column) suggest()
+    }, IDLE_MS)
+  })
+
+  const onClick = editor.onDidChangeCursorPosition((e) => {
+    if (e.source !== 'mouse') return
+    clear()
+    const at = slotAtCursor()
+    if (!at || !wantsName(at)) return
+    const rest = at.model.getLineContent(at.pos.lineNumber).slice(at.pos.column - 1)
+    if (rest.trim() === '') suggest()
+  })
+
+  return () => { clear(); onType.dispose(); onClick.dispose() }
+}

@@ -6,7 +6,7 @@ import { useShortcutStore } from '@/stores/shortcut-store'
 import type { KeyCombo, ShortcutActionId } from '@/types/shortcuts'
 import { matchesCombo } from '@/hooks/use-shortcuts'
 import { defineLinkrThemes } from './monaco-themes'
-import { bindEditorCompletion, type EditorCompletion } from './completion-providers'
+import { attachSqlAutoSuggest, bindEditorCompletion, type EditorCompletion } from './completion-providers'
 
 /**
  * Control over a CodeEditor's not-yet-committed keystrokes.
@@ -252,6 +252,7 @@ export function CodeEditor({
 
       const model = editor.getModel()
       if (model) editor.onDidDispose(bindEditorCompletion(monaco, model, () => completionRef.current))
+      editor.onDidDispose(attachSqlAutoSuggest(monaco, editor, () => completionRef.current))
 
       const shortcuts = useShortcutStore.getState().shortcuts
       // Clear terminal / output (Cmd+K) — dispatch a global keydown so the
