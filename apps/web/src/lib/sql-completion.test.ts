@@ -43,6 +43,11 @@ describe('sqlCompletions — table slots', () => {
     expect(labels('SELECT * FROM |', 'table')).toEqual(['notes'])
   })
 
+  it('inserts a schema with its dot and asks for its tables next', () => {
+    const cdm = complete('SELECT * FROM |').items.find((i) => i.label === 'cdm')
+    expect(cdm).toMatchObject({ insertText: 'cdm.', retrigger: true })
+  })
+
   it('offers tables directly after FROM when there is a single schema', () => {
     expect(labels('SELECT * FROM |', 'schema', flat)).toEqual([])
     expect(labels('SELECT * FROM |', 'table', flat)).toEqual(['person', 'measurement'])

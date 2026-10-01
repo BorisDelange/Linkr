@@ -71,6 +71,7 @@ function registerProviders(monaco: typeof Monaco) {
           filterText: it.label,
           sortText: `${it.rank}_${it.label.toLowerCase()}`,
           range,
+          command: it.retrigger ? { id: 'editor.action.triggerSuggest', title: '' } : undefined,
         })),
       }
     },

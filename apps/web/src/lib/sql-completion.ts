@@ -40,6 +40,8 @@ export interface SqlCompletion {
   detail?: string
   /** Lower sorts first: what fits the context ranks above keywords. */
   rank: number
+  /** Accepting it leads straight to more completions (a schema → its tables). */
+  retrigger?: boolean
 }
 
 export interface SqlCompletionResult {
@@ -347,7 +349,8 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
 
   const schemaItems = () => {
     for (const s of catalog.schemas) {
-      push({ label: s.name, kind: 'schema', insertText: quoteIdent(s.name), rank: 1 })
+      // A schema is only ever a qualifier here: write the dot too.
+      push({ label: s.name, kind: 'schema', insertText: `${quoteIdent(s.name)}.`, rank: 1, retrigger: true })
     }
   }
   const tableItems = (schemas: SqlCatalogSchema[], rank: number, showSchema: boolean) => {
