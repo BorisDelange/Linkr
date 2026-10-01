@@ -44,8 +44,7 @@ interface UseCatalogResult {
  * Switching it swaps to that catalog's own cache.
  */
 export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
-  const catalogId = catalog?.id ?? ''
-  const [cache, setCache] = useState<CatalogCache | null>(() => (catalogId ? loadCatalogCache(catalogId) : null))
+  const [cache, setCache] = useState<CatalogCache | null>(() => (catalog ? loadCatalogCache(catalog.id, catalog) : null))
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<CatalogFetchError | null>(null)
   const [update, setUpdate] = useState<CatalogDiff | null>(null)
@@ -55,13 +54,13 @@ export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
   const shownRef = useRef('')
 
   // Swapped during render rather than in an effect, so the previous catalog's
-  // entries never paint under the new one's name. Keyed on the URL too: editing a
-  // catalog's repo clears its cache (updateCatalogs) under the same id.
+  // entries never paint under the new one's name. Keyed on the URL too: an id can
+  // be repointed at another repo, whose cache then reads as absent.
   const cacheKey = catalog ? `${catalog.id}|${catalog.url}|${catalog.branch}` : ''
   const [cacheFor, setCacheFor] = useState(cacheKey)
   if (cacheFor !== cacheKey) {
     setCacheFor(cacheKey)
-    setCache(catalogId ? loadCatalogCache(catalogId) : null)
+    setCache(catalog ? loadCatalogCache(catalog.id, catalog) : null)
     setError(null)
     setUpdate(null)
   }
@@ -82,8 +81,8 @@ export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
       const fetched = await fetchCatalog(source)
       const index = await fetchCatalogIndex(source).catch(() => null)
       const next = toCache(fetched, index, new Date().toISOString())
-      saveCatalogCache(catalog.id, next)
       if (shownRef.current !== cacheKey) return
+      saveCatalogCache(catalog.id, catalog, next)
       setCache(next)
       setUpdate(null)
     } catch (err) {

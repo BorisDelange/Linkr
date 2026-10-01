@@ -132,6 +132,17 @@ export interface CatalogCache {
   generatedAt: string
   entries: CatalogEntry[]
   hashes: Record<string, string>
+  /**
+   * The repo this was downloaded from. The cache is keyed by catalog id, and an id
+   * can be repointed (or shared: the setup wizard reads the community catalog under
+   * the id a user entry may have repointed), so a load checks it still matches.
+   */
+  source?: CatalogCacheSource
+}
+
+export interface CatalogCacheSource {
+  url: string
+  branch: string
 }
 
 export type CatalogChangeType = 'added' | 'modified' | 'removed'
