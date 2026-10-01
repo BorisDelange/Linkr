@@ -23,6 +23,30 @@ import math
 from app.config import settings
 
 _JSON_HEADERS = ("info_json", "metadata_json", "json_metadata")
+
+
+class SourceConceptsUnreadable(ValueError):
+    """Source-concepts bytes that cannot be read, hence cannot be masked: the file
+    is then not exported at all rather than exported as it is."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The source concepts file is neither UTF-8 nor Windows-1252 text nor readable Parquet: "
+            "it cannot be masked, so it is not exported."
+        )
+
+
+def decode_source_text(data: bytes) -> str | None:
+    """Source bytes as text — UTF-8, else Windows-1252 (the usual export of a
+    French hospital's spreadsheet) — or None when they are not text at all."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        try:
+            text = data.decode("cp1252")
+        except UnicodeDecodeError:
+            return None
+    return None if "\0" in text else text
 _EXTREMES = ("min", "max")
 
 

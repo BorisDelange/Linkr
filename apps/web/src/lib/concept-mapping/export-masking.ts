@@ -27,6 +27,32 @@ const EXTREMES = new Set(['min', 'max'])
 
 type Json = Record<string, unknown>
 
+/** Thrown when source-concepts bytes cannot be read, hence cannot be masked:
+ *  the file is then not exported at all rather than exported as it is. */
+export class SourceConceptsUnreadableError extends Error {
+  constructor() {
+    super('The source concepts file is neither UTF-8 nor Windows-1252 text nor readable Parquet: it cannot be masked, so it is not exported.')
+    this.name = 'SourceConceptsUnreadableError'
+  }
+}
+
+// The five bytes Windows-1252 leaves undefined: TextDecoder maps them to C1
+// controls where Python's cp1252 codec refuses them, so both sides refuse them.
+const CP1252_UNDEFINED = /[\x81\x8d\x8f\x90\x9d]/
+
+/** Source bytes as text — UTF-8, else Windows-1252 (the usual export of a French
+ *  hospital's spreadsheet) — or null when they are not text at all. */
+export function decodeSourceText(buf: Uint8Array): string | null {
+  let text: string
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(buf)
+  } catch {
+    text = new TextDecoder('windows-1252').decode(buf)
+    if (CP1252_UNDEFINED.test(text)) return null
+  }
+  return text.includes('\0') ? null : text
+}
+
 function isSmall(value: unknown, k: number): boolean {
   if (value == null || value === '' || typeof value === 'boolean') return false
   const n = Number(value)
