@@ -168,6 +168,13 @@ describe('the concept list at category level', () => {
     }
   })
 
+  it('protects the list by its own category sums when the 1-way crossing was never computed', () => {
+    const cat = categoryCatalog([['concept', 'sex']])
+    const withoutOneWay = { ...cache, crossings: cache.crossings!.filter((c) => c.id !== 'concept') } as CatalogResultCache
+    // C's records are 90 + 10 whether or not a 1-way crossing says so: c1 published gives c2 away.
+    expect(publishedConcepts(cat, withoutOneWay).map((c) => c.status)).toEqual([SECONDARY, PRIMARY, SECONDARY, PRIMARY])
+  })
+
   it('is caught by the audit when the list is masked alone', async () => {
     const cat = categoryCatalog([['concept']])
     const published = buildPublishedCatalog(cat, cache)
@@ -211,6 +218,36 @@ describe('the published order of ranked modalities', () => {
     expect(a.variables.concept!.mods).toEqual(['3', '2', '1', '5'])
     expect(b.variables.concept!.mods).toEqual(a.variables.concept!.mods)
     expect(b.crossings).toEqual(a.crossings)
+  })
+})
+
+describe('the published order of services', () => {
+  const defaults = defaultCatalogVariables()
+  const cat = {
+    variables: { ...defaults, service: { ...defaults.service, enabled: true } },
+    crossings: [['service', 'sex']],
+    anonymization: { threshold: 10, mode: 'replace' },
+  } as unknown as Pick<DataCatalog, 'variables' | 'anonymization' | 'counts' | 'crossings'>
+  const results = {
+    concepts: [],
+    crossings: [
+      { id: 'service', variables: ['service'], rows: [{ values: ['ICU'], patients: 40, stays: 40 }, { values: ['CARDIO'], patients: 300, stays: 320 }, { values: ['NEURO'], patients: 120, stays: 130 }] },
+      { id: 'service-sex', variables: ['service', 'sex'], rows: [
+        { values: ['ICU', 'male'], patients: 20, stays: 20 }, { values: ['ICU', 'female'], patients: 20, stays: 20 },
+        { values: ['CARDIO', 'male'], patients: 150, stays: 160 }, { values: ['CARDIO', 'female'], patients: 150, stays: 160 },
+        { values: ['NEURO', 'male'], patients: 60, stays: 65 }, { values: ['NEURO', 'female'], patients: 60, stays: 65 },
+      ] },
+    ],
+    modalities: { service: ['CARDIO', 'NEURO', 'ICU'], sex: ['male', 'female'] },
+  } as unknown as CatalogResultCache
+
+  it('ranks by code when the 1-way service crossing is not published: its totals stay unsaid', () => {
+    expect(buildPublishedCatalog(cat, results).variables.service!.mods).toEqual(['CARDIO', 'ICU', 'NEURO'])
+  })
+
+  it('ranks by the published totals when it is', () => {
+    const published = { ...cat, crossings: [['service'], ['service', 'sex']] } as typeof cat
+    expect(buildPublishedCatalog(published, results).variables.service!.mods).toEqual(['CARDIO', 'NEURO', 'ICU'])
   })
 })
 
