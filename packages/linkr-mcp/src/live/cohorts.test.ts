@@ -153,6 +153,10 @@ describe('rendering', () => {
     expect(out).toContain('7 more row(s)')
   })
 
+  it('keeps a row on one line whatever its line breaks', () => {
+    expect(formatRows([{ a: 'x\r\ny\rz\nw' }], 5).split('\n')).toEqual(['a', 'x y z w'])
+  })
+
   it('escapes backslashes before pipes, in headers too', () => {
     const out = formatRows([{ 'a|b': String.raw`x\|y`, c: 'C:\\dir' }], 5)
     const [header, row] = out.split('\n')

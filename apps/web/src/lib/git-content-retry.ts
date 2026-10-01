@@ -6,6 +6,7 @@ import { anchorClonedEntity } from '@/lib/git-clone-anchor'
 import { applyClonedEntity, type ApplyClonedResult, type GitLinkedEntity } from '@/lib/entity-io'
 import { validateClonedEntity } from '@/lib/import-validation'
 import type { Issue } from '@linkr/format'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 /** Outcome of a content re-clone. On failure, `error` holds the underlying git
  *  message so the badge can surface *why* (volatile, not persisted). A tree the
@@ -42,7 +43,7 @@ export async function retryGitContentClone(args: {
   const { scope, type, id, url, branch, workspaceId, token } = args
   try {
     const JSZip = (await import('jszip')).default
-    const cloned = await gitCloneToZip(url, branch, token)
+    const cloned = await gitCloneToZip(url, branch, token, getActiveWorkspaceId())
     const zip = await JSZip.loadAsync(cloned.blob)
     const applied = await applyClonedEntity(zip, type, id, getStorage(), workspaceId, { url, branch })
     const { ok, reason, context } = applied

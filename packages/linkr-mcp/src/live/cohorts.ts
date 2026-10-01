@@ -30,7 +30,7 @@ Group:     {"children": [<nodes>], "operator": "AND"|"OR", "exclude": false, "la
 
 "operator" links a node to its PREVIOUS sibling (ignored on the first; default AND).
 "exclude": true negates the node (NOT). Ids are assigned for you.
-Pass the root group object (an array of top-level nodes is also accepted).
+Pass the root group object, as a JSON object.
 
 Criterion types and their config:
 - age:       {"ageReference": "admission"|"current", "min"?: n, "max"?: n, "ageUnit"?: "years"|"months"|"days"}
@@ -366,7 +366,7 @@ export function formatRows(rows: Record<string, unknown>[], maxRows: number, max
   // Escape the separator rather than drop it: values such as EHRSQL's "icd10|g40909" must reach
   // the agent intact, or a WHERE clause copied from the output matches nothing. Backslashes
   // first, so a value already holding "\|" cannot read back as an escape.
-  const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\n/g, ' ')
+  const escape = (s: string) => s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r\n|[\r\n]/g, ' ')
   const cell = (v: unknown) => {
     const s = v == null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v)
     return escape(s.length > 80 ? `${s.slice(0, 77)}...` : s)

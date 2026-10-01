@@ -9,6 +9,7 @@ import { gitVerifyRemote } from '@/lib/api/git'
 import { toGitError } from '@/lib/git-error-message'
 import type { GitErrorCode } from '@/lib/api/git'
 import { GitErrorInline } from './GitErrorInline'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 interface GitTokenDialogProps {
   url: string
@@ -29,7 +30,7 @@ export function GitTokenDialog({ url, onSave, onClose }: GitTokenDialogProps) {
     setSaving(true)
     setError(null)
     try {
-      await gitVerifyRemote(url, token.trim())
+      await gitVerifyRemote(url, token.trim(), getActiveWorkspaceId())
       await onSave(token.trim())
       onClose()
     } catch (err) {

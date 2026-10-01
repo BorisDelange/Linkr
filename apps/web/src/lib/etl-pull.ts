@@ -44,6 +44,7 @@ import {
   type EntityDocs,
 } from '@/lib/entity-docs-pull'
 import { setVersionedMany } from '@/lib/entity-versioning'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 /** Pullable groups of an ETL pipeline, in display order. */
 export type EtlPullGroup = 'docs' | 'scripts' | 'mappings' | 'other'
@@ -316,7 +317,7 @@ export async function prepareEtlPull(
   const url = pipeline?.gitRemoteConfig?.url
   if (!url) throw new Error('Pipeline is not linked to a git remote')
 
-  const cloned = await gitCloneToZip(cleanGitUrl(url), branch)
+  const cloned = await gitCloneToZip(cleanGitUrl(url), branch, undefined, getActiveWorkspaceId())
   const parsed = await parseImportZip(new File([cloned.blob], 'pull.zip'))
 
   const { tree, filePrefix } = readImportedTree(parsed)

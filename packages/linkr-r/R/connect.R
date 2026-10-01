@@ -83,15 +83,35 @@ linkr_connect <- function(alias, read_only = TRUE) {
   on.exit(
     if (!ok) .linkr_dbi("dbDisconnect")(con, shutdown = TRUE), add = TRUE
   )
+  # A `schema.table` entry (a module directory, or the schema the database's DDL
+  # gives it) gets a view in that schema, and every schema goes on the search
+  # path so the bare name resolves as in the app.
+  ident <- function(name) {
+    as.character(.linkr_dbi("dbQuoteIdentifier")(con, name))
+  }
+  schemas <- character(0)
   for (entry in tables) {
+    name <- as.character(entry$table)
+    dot <- regexpr("\\.[^.]*$", name)
+    target <- ident(name)
+    if (dot > 0) {
+      schema <- substr(name, 1, dot - 1)
+      .linkr_exec(con, sprintf("CREATE SCHEMA IF NOT EXISTS %s", ident(schema)))
+      schemas <- union(schemas, schema)
+      target <- paste0(ident(schema), ".", ident(substr(name, dot + 1, nchar(name))))
+    }
     quoted <- vapply(
       entry$paths, function(p) .linkr_quote(con, p), character(1)
     )
     .linkr_exec(con, sprintf(
       "CREATE OR REPLACE VIEW %s AS SELECT * FROM read_parquet([%s])",
-      .linkr_dbi("dbQuoteIdentifier")(con, entry$table),
+      target,
       paste(quoted, collapse = ", ")
     ))
+  }
+  if (length(schemas) > 0) {
+    search_path <- paste(c("main", vapply(sort(schemas), ident, character(1))), collapse = ",")
+    .linkr_exec(con, sprintf("SET search_path = %s", .linkr_quote(con, search_path)))
   }
   ok <- TRUE
   con

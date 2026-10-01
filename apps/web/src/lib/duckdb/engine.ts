@@ -9,7 +9,7 @@ import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { grainTable } from '@/lib/schema-classes/spec'
 import { quoteIdent } from '@/lib/format-helpers'
-import { parseDdl, qualifiedName } from '@/lib/ddl-parse'
+import { ddlTableNames } from '@/lib/ddl-parse'
 import type { DataSource, DatabaseConnectionConfig, StoredFile, StoredFileHandle, DataSourceStats, SchemaMapping, FileColumnMapping } from '@/types'
 
 const resetHooks = new Set<() => void>()
@@ -162,6 +162,13 @@ export function schemaName(dataSourceId: string): string {
 
 /** Track which data sources are ATTACHed (vs schema-based). */
 const attachedSources = new Set<string>()
+
+/**
+ * Per catalog, the `main` views that only alias a table placed in a DDL schema
+ * (see `defaultSchemaAliases`) — kept out of table discovery, which would
+ * otherwise list the table twice.
+ */
+const defaultAliasViews = new Map<string, Set<string>>()
 
 /**
  * Mounts a source if it is not in DuckDB yet, so a query never has to assume
@@ -406,10 +413,12 @@ export async function discoverTables(dataSourceId: string): Promise<string[]> {
        WHERE table_schema = '${schema}' OR table_catalog = '${schema}'
        ORDER BY table_schema, table_name`,
     )
-    return result.toArray().map((row: Record<string, unknown>) => {
+    const aliases = defaultAliasViews.get(schema)
+    return result.toArray().flatMap((row: Record<string, unknown>) => {
       const s = String(row.table_schema)
       const t = String(row.table_name)
-      return s === schema || s === 'main' ? t : `${s}.${t}`
+      if (s === 'main' && aliases?.has(t)) return []
+      return [s === schema || s === 'main' ? t : `${s}.${t}`]
     })
   } finally {
     await conn.close()
@@ -441,14 +450,19 @@ export async function discoverFullSchema(dataSourceId: string): Promise<Introspe
   }
   const rows = await queryDataSource(
     dataSourceId,
-    `SELECT table_name, column_name, data_type, is_nullable, ordinal_position
+    `SELECT table_catalog, table_schema, table_name, column_name, data_type, is_nullable, ordinal_position
      FROM information_schema.columns
      ORDER BY table_name, ordinal_position`,
   )
 
+  const aliases = defaultAliasViews.get(schemaName(dataSourceId))
   const tableMap = new Map<string, IntrospectedColumn[]>()
   for (const row of rows) {
     const tableName = String(row.table_name)
+    if (
+      aliases?.has(tableName) && String(row.table_schema) === 'main'
+      && String(row.table_catalog) === schemaName(dataSourceId)
+    ) continue
     if (!tableMap.has(tableName)) tableMap.set(tableName, [])
     tableMap.get(tableName)!.push({
       name: String(row.column_name),
@@ -755,6 +769,7 @@ async function safeDropSchema(
     // Leave undefined — isAttachedCatalog falls back to what we remember.
   }
 
+  defaultAliasViews.delete(schema)
   if (isAttachedCatalog({ remembered: attachedSources.has(dataSourceId), catalogRows })) {
     try {
       await conn.query(`DETACH "${schema}"`)
@@ -822,7 +837,11 @@ function isShardFileName(baseName: string): boolean {
   // `part-00000`, `part-00000-<uuid>-c000`, `chunk_3`, `data.1`, `0001`. The
   // digits after the separator are what distinguish a shard from a real table
   // that merely starts with one of these words (`data_quality`, `file_registry`).
-  return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName) || /^\d+$/.test(baseName)
+  // A bare number or date (`0001`, `1999-01`) names no table either, nor the
+  // vocabulary library's per-vocabulary partitions (`concept/vocab-SNOMED`).
+  return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName)
+    || /^\d+([-_.]\d+)*$/.test(baseName)
+    || /^vocab-[\w-]+$/.test(baseName)
 }
 
 /**
@@ -845,7 +864,7 @@ function isNamedShard(baseName: string, dirName: string): boolean {
 export function fileGroupingTables(mapping: SchemaMapping | undefined): string[] | undefined {
   if (!mapping) return undefined
   const names = new Set((mapping.knownTables ?? []).map((t) => t.toLowerCase()))
-  if (mapping.ddl) for (const t of parseDdl(mapping.ddl)) names.add(qualifiedName(t.schema, t.bareName).toLowerCase())
+  if (mapping.ddl) for (const name of ddlTableNames(mapping.ddl)) names.add(name.toLowerCase())
   return names.size > 0 ? [...names] : undefined
 }
 
@@ -877,10 +896,12 @@ export function extractTableName(filePath: string, knownTables?: string[]): stri
   const baseName = parts[parts.length - 1].replace(/\.[^.]+$/, '').toLowerCase()
 
   if (knownSet) {
-    // Walk segments from right to left, find the first known table name
-    for (let i = parts.length - 1; i >= 0; i--) {
+    if (knownSet.has(baseName)) return baseName
+    // A known directory claims only the files that carry no name of their own,
+    // so an undeclared `document/document_type.parquet` stays a table.
+    for (let i = parts.length - 2; i >= 0; i--) {
       const seg = parts[i].replace(/\.[^.]+$/, '').toLowerCase()
-      if (knownSet.has(seg)) return seg
+      if (knownSet.has(seg) && (isShardFileName(baseName) || isNamedShard(baseName, seg))) return seg
     }
   }
 
@@ -911,6 +932,16 @@ export function extractTableRef(
   root: string,
   knownTables?: string[],
 ): { schema: string | undefined; table: string } {
+  const { schema, table } = placeTableRef(filePath, root, knownTables)
+  return { schema, table }
+}
+
+/** `extractTableRef` plus whether the schema was borrowed from the known tables. */
+function placeTableRef(
+  filePath: string,
+  root: string,
+  knownTables?: string[],
+): { schema: string | undefined; table: string; borrowed: boolean } {
   const table = extractTableName(filePath, knownTables)
   const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
   const rootParts = root.replace(/\\/g, '/').split('/').filter(Boolean)
@@ -927,10 +958,31 @@ export function extractTableRef(
   const remaining = dirs.length > 0 && dirs[dirs.length - 1].toLowerCase() === table
     ? dirs.slice(0, -1)
     : dirs
-  const schema = remaining.length > 0
-    ? remaining[remaining.length - 1].toLowerCase()
-    : knownSchemaOf(table, knownTables)
-  return { schema, table }
+  if (remaining.length > 0) return { schema: remaining[remaining.length - 1].toLowerCase(), table, borrowed: false }
+  const borrowed = knownSchemaOf(table, knownTables)
+  return { schema: borrowed, table, borrowed: borrowed !== undefined }
+}
+
+/**
+ * Table -> grouping key for each table a flat import placed in a DDL schema, to
+ * be exposed in the catalog's `main` as well.
+ *
+ * A source is a catalog, and DuckDB reads the two-part `ds_x.admissions` as
+ * `ds_x.main.admissions`: a flat folder whose tables moved into `hosp` would
+ * otherwise break every query written against it. A name `main` already holds is
+ * left alone. Twin of the server's `_default_schema_aliases`.
+ */
+export function defaultSchemaAliases(fileNames: string[], knownTables?: string[]): Map<string, string> {
+  const root = commonDirPrefix(fileNames)
+  const keys = new Set<string>()
+  const borrowed = new Map<string, string>()
+  for (const fileName of fileNames) {
+    const ref = placeTableRef(fileName, root, knownTables)
+    keys.add(tableKey(ref))
+    if (ref.borrowed) borrowed.set(ref.table, tableKey(ref))
+  }
+  for (const table of borrowed.keys()) if (keys.has(table)) borrowed.delete(table)
+  return borrowed
 }
 
 /**
@@ -962,11 +1014,29 @@ async function createSourceView(
   reader: string,
 ): Promise<void> {
   const { schema, table } = splitTableKey(key)
-  const target = schema ?? 'main'
-  if (schema) await conn.query(`CREATE SCHEMA IF NOT EXISTS "${catalog}"."${schema}"`)
+  const target = quoteIdent(schema ?? 'main')
+  if (schema) await conn.query(`CREATE SCHEMA IF NOT EXISTS ${quoteIdent(catalog)}.${target}`)
   await conn.query(
-    `CREATE OR REPLACE VIEW "${catalog}"."${target}"."${table}" AS SELECT * FROM ${reader}`,
+    `CREATE OR REPLACE VIEW ${quoteIdent(catalog)}.${target}.${quoteIdent(table)} AS SELECT * FROM ${reader}`,
   )
+}
+
+/** The `main` views of `defaultSchemaAliases`, once every table's own view exists. */
+async function createDefaultSchemaAliases(
+  conn: duckdb.AsyncDuckDBConnection,
+  catalog: string,
+  fileNames: string[],
+  knownTables: string[] | undefined,
+): Promise<void> {
+  const aliases = defaultSchemaAliases(fileNames, knownTables)
+  for (const [table, key] of aliases) {
+    const { schema } = splitTableKey(key)
+    await conn.query(
+      `CREATE OR REPLACE VIEW ${quoteIdent(catalog)}.main.${quoteIdent(table)} AS `
+      + `SELECT * FROM ${quoteIdent(catalog)}.${quoteIdent(schema!)}.${quoteIdent(table)}`,
+    )
+  }
+  defaultAliasViews.set(catalog, new Set(aliases.keys()))
 }
 
 /**
@@ -1006,12 +1076,15 @@ function fileReaderFn(fileName: string): string {
   return 'read_csv_auto'
 }
 
+// Quotes doubled only, not `escSql`: DuckDB reads a backslash in a literal as
+// itself, so doubling it would no longer name the registered `C:\data\x.csv`.
+const pathLiteral = (path: string): string => `'${path.replace(/'/g, "''")}'`
+
 /** Build a DuckDB reader expression for one or more files (auto-detects CSV vs Parquet). */
-function buildReaderExpr(fileNames: string[]): string {
+export function buildReaderExpr(fileNames: string[]): string {
   const fn = fileReaderFn(fileNames[0])
-  if (fileNames.length === 1) return `${fn}('${fileNames[0]}')`
-  const list = fileNames.map((n) => `'${n}'`).join(', ')
-  return `${fn}([${list}])`
+  if (fileNames.length === 1) return `${fn}(${pathLiteral(fileNames[0])})`
+  return `${fn}([${fileNames.map(pathLiteral).join(', ')}])`
 }
 
 /**
@@ -1042,6 +1115,7 @@ async function mountFileFolder(
 
     await createSourceView(conn, schema, key, buildReaderExpr(registeredNames))
   }
+  await createDefaultSchemaAliases(conn, schema, files.map((f) => f.fileName), knownTables)
 }
 
 // --- File System Access API (zero-copy) ---
@@ -1126,6 +1200,7 @@ export async function mountDataSourceFromHandles(
 
         await createSourceView(conn, schema, key, buildReaderExpr(registeredNames))
       }
+      await createDefaultSchemaAliases(conn, schema, handles.map((h) => h.fileName), knownTables)
     } else if (handles.length > 0) {
       // Single file -> ATTACH
       const h = handles[0]

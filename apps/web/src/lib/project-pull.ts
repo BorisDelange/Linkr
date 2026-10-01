@@ -33,6 +33,7 @@ import {
   type ParsedProjectZip,
   type ProjectPullGroup,
 } from '@/lib/entity-io'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 /** One remote entity the user can choose to pull, within a group. */
 export interface PullItem {
@@ -222,7 +223,7 @@ export async function prepareProjectPull(
   const url = project?.gitRemoteConfig?.url
   if (!url) throw new Error('Project is not linked to a git remote')
 
-  const cloned = await gitCloneToZip(cleanGitUrl(url), branch)
+  const cloned = await gitCloneToZip(cleanGitUrl(url), branch, undefined, getActiveWorkspaceId())
   const parsed = await parseProjectZip(new File([cloned.blob], 'pull.zip'))
   if (!parsed) throw new Error('Cloned repository is not a valid project export')
 

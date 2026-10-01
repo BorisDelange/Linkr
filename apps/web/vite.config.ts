@@ -119,7 +119,8 @@ function normalizeBasePath(raw: string | undefined) {
 function restoreBasePrefix(prefix: string): Plugin {
   const restore = (req: { url?: string }) => {
     const url = req.url
-    if (!url || url === prefix || url.startsWith(`${prefix}/`)) return
+    const path = url?.split('?')[0]
+    if (!url || path === prefix || path?.startsWith(`${prefix}/`)) return
     req.url = `${prefix}${url}`
   }
   return {

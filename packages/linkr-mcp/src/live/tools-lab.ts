@@ -374,8 +374,8 @@ export function registerLabTools(server: Server): void {
         name: { type: 'string' },
         description: { type: 'string' },
         dataset_path: {
-          type: ['string', 'null'],
-          description: 'New default dataset for widgets that do not name one; "" or null clears it.',
+          type: 'string',
+          description: 'New default dataset for widgets that do not name one; "" clears it.',
         },
       },
       required: ['dashboard_id'],

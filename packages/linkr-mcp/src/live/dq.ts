@@ -135,7 +135,7 @@ export function validateCheckFields(f: CheckFields, current?: DqCustomCheck): st
     }
   }
   if (f.group != null && f.group.trim() && groupKey(f.group) === '') {
-    errors.push(`"${OTHER_GROUP}" is the checks with no group: pass group null instead.`)
+    errors.push(`"${OTHER_GROUP}" is the checks with no group: pass group "" instead.`)
   }
   return errors
 }

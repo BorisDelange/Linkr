@@ -178,7 +178,15 @@ def test_known_tables_include_the_ddl_tables():
     ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "Edbm"."DOCUMENT" (\n  id INTEGER\n);'
     source = DataSource(schema_mapping={"knownTables": ["Person"], "ddl": ddl})
     assert _known_tables(source) == ["edbm.document", "person", "visit"]
-    assert _table_of("db/document/doc_a.parquet", _known_tables(source)) == "document"
+    assert _table_of("db/document/1999-01.parquet", _known_tables(source)) == "document"
+
+
+def test_known_directory_claims_only_files_that_name_no_table():
+    assert _table_of("db/document/document_type.parquet", ["app.document"]) == "document_type"
+    assert _table_of("db/document/doc_a.parquet", ["document"]) == "doc_a"
+    assert _table_of("db/document/1999-01.parquet", ["document"]) == "document"
+    assert _table_of("db/document/document_2.parquet", ["document"]) == "document"
+    assert _table_of("concept/vocab-SNOMED.parquet", ["concept"]) == "concept"
 
 
 def test_flat_import_borrows_the_ddl_schema_when_unambiguous():
@@ -186,7 +194,7 @@ def test_flat_import_borrows_the_ddl_schema_when_unambiguous():
     files = [
         ("db/visit.parquet", "/tmp/v.parquet"),
         ("db/document/document_1.parquet", "/tmp/d1.parquet"),
-        ("db/document/x.parquet", "/tmp/d2.parquet"),
+        ("db/document/1999-01.parquet", "/tmp/d2.parquet"),
         ("db/patient.parquet", "/tmp/p.parquet"),
         ("db/other.parquet", "/tmp/o.parquet"),
     ]
@@ -199,3 +207,51 @@ def test_flat_import_borrows_the_ddl_schema_when_unambiguous():
 def test_module_directory_wins_over_the_ddl_schema():
     root = ["db"]
     assert _table_ref_of("db/zone/visit.parquet", root, ["app.visit"]) == ("zone", "visit")
+
+
+def test_role_reaches_a_ddl_placed_table_by_its_two_part_name(tmp_path):
+    # A role is a catalog: `source.admissions` reads `source.main.admissions`, so a
+    # flat folder whose tables the DDL moved into `hosp` broke every pipeline.
+    import duckdb
+
+    from app.services.data.db_connect import _attach_role
+
+    seed = duckdb.connect()
+    for name in ("admissions", "other"):
+        seed.execute(f"COPY (SELECT 1 AS id) TO '{tmp_path / name}.parquet' (FORMAT parquet)")
+    seed.close()
+    spec = {
+        "kind": "parquet",
+        "files": [
+            ("db/admissions.parquet", str(tmp_path / "admissions.parquet")),
+            ("db/other.parquet", str(tmp_path / "other.parquet")),
+        ],
+        "known": ["hosp.admissions"],
+    }
+    con = duckdb.connect()
+    try:
+        _attach_role(con, "source", spec)
+        assert con.execute("SELECT id FROM source.hosp.admissions").fetchone() == (1,)
+        assert con.execute("SELECT id FROM source.admissions").fetchone() == (1,)
+        assert con.execute("SELECT id FROM source.other").fetchone() == (1,)
+    finally:
+        con.close()
+
+
+def test_reader_escapes_a_quote_in_a_path():
+    from app.services.data.db_connect import _reader
+
+    assert _reader(["/srv/O'Brien.parquet"]) == "read_parquet('/srv/O''Brien.parquet')"
+    assert _reader(["/a.parquet", "/O'B.parquet"]) == "read_parquet(['/a.parquet', '/O''B.parquet'])"
+
+
+def test_ddl_table_names_match_the_frontend():
+    # Same cases as `ddlTableNames` in apps/web/src/lib/ddl-parse.test.ts.
+    from app.services.data_source_service import _DDL_TABLE_RE
+
+    def names(ddl: str) -> list[str]:
+        return [f"{m[1]}.{m[2]}" if m[1] else m[2] for m in _DDL_TABLE_RE.finditer(ddl)]
+
+    ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "App"."Doc" (id INTEGER)'
+    assert names(ddl) == ["visit", "App.Doc"]
+    assert names("CREATE TABLE café (id INTEGER);") == []

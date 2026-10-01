@@ -108,28 +108,28 @@ export function registerUserPluginTools(server: Server): void {
   server.registerTool('update_user_plugin', {
     description:
       'Edit a workspace plugin\'s files (get_user_plugin first): each entry of `files` replaces or adds that file '
-      + '(plugin.json included — keep its id), null deletes it. Checked like the app reads it before saving; '
+      + '(plugin.json included — keep its id); `delete_files` removes files. Checked like the app reads it before saving; '
       + 'built-in plugins cannot be edited. Widgets using it pick the change up on their next run.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ plugin_id: string; files: Record<string, string | null>; version?: string }>({
+    inputSchema: fromJsonSchema<{ plugin_id: string; files?: Record<string, string>; delete_files?: string[]; version?: string }>({
       type: 'object',
       properties: {
         plugin_id: { type: 'string' },
-        files: { type: 'object', additionalProperties: { type: ['string', 'null'] }, description: 'file name → content (null deletes).' },
+        files: { type: 'object', additionalProperties: { type: 'string' }, description: 'file name → new content.' },
+        delete_files: { type: 'array', items: { type: 'string' }, description: 'File names to delete.' },
         version: { type: 'string', description: 'Also set the manifest version (semver).' },
       },
-      required: ['plugin_id', 'files'],
+      required: ['plugin_id'],
     }),
-  }, guard(async ({ plugin_id, files: changes, version }) => {
+  }, guard(async ({ plugin_id, files: changes = {}, delete_files: deleted = [], version }) => {
     const row = await plugins.get(plugin_id)
     const before = manifestOf(row)
     if (isBuiltinRow(before)) return failure('A built-in plugin is read-only; duplicate it in Linkr to change it.')
-    if (changes['plugin.json'] === null) return failure('plugin.json cannot be deleted.')
+    if (deleted.includes('plugin.json')) return failure('plugin.json cannot be deleted.')
+    if (!Object.keys(changes).length && !deleted.length) return failure('Nothing to change: give files or delete_files.')
     const files: Record<string, string> = { ...row.files }
-    for (const [f, content] of Object.entries(changes)) {
-      if (content === null) delete files[f]
-      else files[f] = content
-    }
+    for (const f of deleted) delete files[f]
+    Object.assign(files, changes)
     const checked = checkPluginFiles(files)
     if (checked.errors.length) return failure(`Not saved:\n- ${checked.errors.join('\n- ')}`)
     const manifest = checked.manifest!
