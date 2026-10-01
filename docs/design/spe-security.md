@@ -33,8 +33,10 @@ Linkr guarantees three things the SPE cannot see from outside:
 
 **Every project belongs to a workspace.** `projects.workspace_id` is NOT NULL and
 `ProjectCreate.workspace_id` required; a project's rights come from its workspace and
-project roles (`core/permissions.py`), with no fallback. Moving a project checks the
-right to create in the destination (`routes/projects.py`, `_check_target_workspace`).
+project roles (`core/permissions.py`), with no fallback. Moving a project checks
+`projects:write` in both the source and the destination workspace (`routes/projects.py`,
+`update_project`, `_check_target_workspace`): a project-level role alone cannot take a
+project out of its workspace.
 Migration `d3e4f5a6b7c8` gave every former unassigned project a personal workspace of
 its owner. Why: an unassigned project used to make *any* user its owner, and owner
 carries `ide:execute` — the entry point to everything below.
@@ -52,8 +54,13 @@ holds whatever the deployer put there, and code a user wrote must see none of it
 `setpriv` before migrations and uvicorn. Data lives in `/var/lib/linkr`. The API port is
 published on `127.0.0.1` only, so the way in is the front proxy.
 
-**What code can still reach.** A kernel runs as the same system user as the server, so it
-can read `data_dir` — `secret.key`, `linkr.db`, the access log files. This is accepted:
+**What code can still reach.** At startup the API makes itself non-dumpable
+(`core/hardening.py`, `prctl(PR_SET_DUMPABLE, 0)` on Linux, a logged no-op elsewhere), so
+a same-user kernel can neither read `/proc/<api pid>/environ` — where `LINKR_SECRET_KEY`,
+`LINKR_ENCRYPTION_KEY` and the trusted-proxy secret live — nor attach a debugger to it;
+kernels reset the flag on exec and are unaffected. The files are another matter: a
+kernel runs as the same system user as the server, so it can read `data_dir` —
+`secret.key`, `linkr.db`, the access log files. This is accepted:
 inside a per-project SPE, everyone with `ide:execute` is a project member already
 authorised on the same data, and the remaining risk is traceability within the team
 (using a colleague's saved database password, rewriting Linkr's local log copy — the
@@ -67,7 +74,9 @@ identity is parked (see *Not built*).
 `db_connect._dsn`, which checks `LINKR_DB_ALLOWED_HOSTS`
 (`services/data/db_host_guard.py`: names, IPs, CIDRs, libpq host lists and socket paths).
 `POST /data-sources/test-connection` needs `databases:write` in the workspace it names
-and answers "Connection failed", the driver's text going to the server log only. Why an
+and answers "Connection failed", the driver's text going to the server log only; so do
+`/retest` and `/schema` of a stored external source (a managed or uploaded file keeps
+its message, which names only its own file). Why an
 allowlist and not a block of private addresses: in an SPE the datamart *is* on a
 private address; what must be prevented is reaching the rest of the warehouse's
 network. Empty means unrestricted, so the SPE checklist sets it.
@@ -79,12 +88,23 @@ http(s) host check runs at DNS time, a redirect would bypass it). Clone and
 verify-remote need a write permission in the workspace they name, or global
 `workspaces:write`. Why: a server-side clone came back as a ZIP, so a local path read the
 server's own disk. ssh remotes are not checked against internal addresses, because an
-institution's internal GitLab over ssh is a normal setup.
+institution's internal GitLab over ssh is a normal setup; their failures answer a generic
+message, ssh's own text (which hosts and ports answer) going to the server log
+(`git_service._failure`). An https remote is tried as written, then with `.git` when the
+host redirects or answers not found (`_url_candidates`).
+
+The http(s) host check resolves the name once, and git resolves it again: a DNS answer
+that changes in between (rebinding) could still reach an internal address, and the same
+holds for `db_host_guard` and external databases. Accepted: pinning the resolved address
+(libpq `hostaddr`, a git `--resolve`-style override) is not built, since inside an SPE
+the resolver is the institution's and the allowlist (`LINKR_DB_ALLOWED_HOSTS`) names
+hosts the deployer chose.
 
 **Package indexes: chosen by the instance or the workspace.** A plain-http index or a
 `trustedHost` (TLS checks off) may be set in the server and workspace layers; a
-project's `options.json` may use them only for a host one of those layers already chose
-(`services/execution/env_options.py`, `_confine_override`). Why: the project file travels
+project's `options.json` may use plain http only for a host one of those layers itself
+reaches over http, and `trustedHost` only as one of them set it — never to downgrade a
+mirror they reach over https (`services/execution/env_options.py`, `_confine_override`). Why: the project file travels
 with git, so it must not be able to point installs at a host of its author's choosing.
 
 ## 3. Database passwords and agents
@@ -103,11 +123,20 @@ The IDE's client libraries (`linkr_connect()`) obtain the user's password throug
   started gets no password.
 - **An agent cannot run code in a kernel the IDE started.** A kernel remembers its
   `spawned_via`, and `KernelManager.get` raises `KernelSessionForeign` (409) when a
-  non-web request reaches a web-started kernel (`web` and `kernel` count as web: a
+  non-web request reaches a web-started kernel — so do `restart`, `interrupt` and
+  `shutdown_session`, or an agent could kill the IDE's kernel and respawn it under its
+  own token for the IDE to keep using (`web` and `kernel` count as web: a
   non-web kernel token is refused at auth anyway). The MCP's `run_code` / `run_script`
   default to a session of their own, `agent` (`packages/linkr-mcp/src/live/shared.ts`,
   `AGENT_SESSION`). The other direction stays open: the IDE may open what an agent
   started, whose token holds no password.
+
+What these two rules hold against: an agent fetching a decrypted password **through the
+API**. They do not hold against agent code that sets out to find one: its kernel runs as
+the API's system user, reads `data_dir/secret.key` and `linkr.db` like any kernel (§1),
+and can unseal every saved database password from them. Only kernels under a separate
+system identity would close that (*Not built*); until then, an agent given
+`ide:execute` is trusted with the instance like any other holder of it.
 
 An agent queries databases with `run_sql`, which the server runs without exposing a
 password. A server-side query proxy for code was not built: it would remove the native
@@ -120,7 +149,9 @@ action, a refusal, or a mutation with a known actor), to standard output for the
 and to daily files in `data_dir/audit/`, compacted per month and chained by hash.
 Actions bound at the choke points: `login` and `login_failed` (attempted username in
 `detail`), `password_change` / `password_change_failed`, `download` (dataset raw file,
-database file blob, mapping-project source file, with size), `export` (project,
+database file blob, mapping-project source file and scores file, a file pulled from a
+mapping project's remote, README and wiki attachments, a server-side git clone — its URL
+without credentials —, with size), `export` (project,
 workspace, mapping-project ZIPs, settings, with size), `preview` (dataset rows with
 `row_count`, distinct values), plus queries and code runs. Downloads and exports carry
 author and size because that is what the SPE's export checkpoint matches against the
@@ -178,22 +209,40 @@ workspaces with their data files hold patient data and do not go to the global i
 ## 6. Accounts and sign-in
 
 **Behind the SPE's front door.** Linkr has no MFA, no lockout on `/auth/login`, stateless
-JWTs (access 24 h, refresh 30 d, not revocable), tokens in `localStorage`, no idle
+JWTs (access 24 h, refresh 30 d, revoked only by a password change), tokens in `localStorage`, no idle
 timeout in the UI. Each of these is covered by the SPE's two-factor entry, and the
 checklist says so; building them inside Linkr would duplicate what the SPE already does.
 
 **Password change.** `POST /auth/change-password` (session only, local provider only)
 requires the current password; the new one must pass `password_policy_error` (≥ 12
-characters, not the username) and differ from the current one. Other sessions stay
-valid until their tokens expire.
+characters, not the username) and differ from the current one. The same policy applies
+to the first admin (`/setup/initialize`) and to passwords an admin sets
+(`user_service.create` / `update`). Setting a password stamps `users.password_changed_at`,
+and every session token (access, refresh, WebSocket) issued before it is refused
+(`security.predates_password_change`): refresh rotation would otherwise keep a stolen
+session alive for ever. The caller of `change-password` gets fresh tokens back. `iat` has
+whole-second resolution, so a token issued in the very second of the change survives.
+Kernel tokens are not checked — they live in a running kernel's environment and expire
+within `kernel_token_expire_minutes` (12 h).
 
-**Sign-in through the SPE's proxy.** With `LINKR_TRUSTED_HEADER` and
-`LINKR_TRUSTED_PROXIES` set, the app calls `POST /auth/trusted-login` before showing the
-form (`/setup/status` says when): the header names an existing active user, and is
-believed only from a listed peer address (`core/trusted_header.py`). The log records
-`login` via `trusted_header`. One login for the user, and the access log carries the
-identity the two-factor step validated. Off by default; the proxy must overwrite the
-header on every request and be the only way in.
+**Sign-in through the SPE's proxy.** With `LINKR_TRUSTED_HEADER`,
+`LINKR_TRUSTED_PROXIES` and `LINKR_TRUSTED_PROXY_SECRET` set, the app calls
+`POST /auth/trusted-login` before showing the form (`/setup/status` says when): the
+header names an existing active user, and is believed only from a listed peer address
+that also sends the shared secret in `X-Linkr-Proxy-Secret` (`core/trusted_header.py`,
+compared in constant time). The log records `login` via `trusted_header`. One login for
+the user, and the access log carries the identity the two-factor step validated. Off by
+default; the gateway must overwrite both headers on every request.
+
+Why a secret on top of the peer address: in the Docker deployment every request reaches
+the API from the image's nginx, which passes client headers through, and a kernel can
+call that nginx too (`http://web/api/v1/auth/trusted-login`) — the peer check alone would
+let any `ide:execute` holder name the admin. The secret is at least 32 characters (the
+API refuses to boot with the header set and no usable secret or proxy list), never set
+in this nginx (it would vouch for kernels), and kept from kernels like the other secrets
+(`child_env.SECRET_NAMES`, §1). uvicorn's `FORWARDED_ALLOW_IPS` stays at its default:
+widened to the proxy, the peer address would be read from `X-Forwarded-For`, which the
+client writes.
 
 ## 7. HTTP surface
 
@@ -224,6 +273,7 @@ else gets 404.
 - **Kernels under their own system identity**, without read access to `data_dir`
   (§1). Parked (💤 in the planning README): it needs privilege separation for process
   launch, per-project file rights and a different image, for a risk judged minor inside
-  a per-project SPE.
+  a per-project SPE. It is also the only real barrier between a hostile agent's code and
+  the saved database passwords (§3).
 - **A recommended range for log retention.** Dropped: the duration is each institution's
   rule (§4).

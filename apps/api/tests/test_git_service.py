@@ -41,11 +41,65 @@ def test_with_credentials_replaces_existing_userinfo():
     assert url == "https://oauth2:tok@gitlab.com/g/r.git"
 
 
-def test_with_credentials_names_an_https_repo_with_git_suffix():
+def test_url_candidates_try_the_written_form_then_the_git_suffix():
+    assert g._url_candidates("https://framagit.org/g/sub/repo") == [
+        "https://framagit.org/g/sub/repo", "https://framagit.org/g/sub/repo.git",
+    ]
+    assert g._url_candidates("https://framagit.org/g/repo/") == [
+        "https://framagit.org/g/repo", "https://framagit.org/g/repo.git",
+    ]
+    assert g._url_candidates("https://gitlab.com/g/r.git") == ["https://gitlab.com/g/r.git"]
+
+
+def _fake_ls_remote(monkeypatch, answers: dict[str, str | None]):
+    """`git ls-remote <url>` answers per URL: None = success, else stderr."""
+    probed = []
+
+    def run(cmd, **kwargs):
+        url = cmd[2]
+        probed.append(url)
+        err = answers[url]
+        return subprocess.CompletedProcess(cmd, 0 if err is None else 128, "", err or "")
+
+    monkeypatch.setattr(g.subprocess, "run", run)
+    monkeypatch.setattr(g, "_answering_form", {})
+    return probed
+
+
+def test_a_gitlab_remote_without_suffix_gets_it(monkeypatch):
     # GitLab 301s `…/repo/info/refs` to `…/repo.git/info/refs`, and git runs with
     # redirects off: without the suffix, every catalog entry failed to clone.
-    assert g._with_credentials("https://framagit.org/g/sub/repo", None) == "https://framagit.org/g/sub/repo.git"
+    probed = _fake_ls_remote(monkeypatch, {
+        "https://oauth2:tok@framagit.org/g/repo": "fatal: unable to access '…': The requested URL returned error: 301",
+        "https://oauth2:tok@framagit.org/g/repo.git": None,
+    })
     assert g._with_credentials("https://framagit.org/g/repo/", "tok") == "https://oauth2:tok@framagit.org/g/repo.git"
+    assert g._with_credentials("https://framagit.org/g/repo", "tok") == "https://oauth2:tok@framagit.org/g/repo.git"
+    assert len(probed) == 2  # the answer is remembered
+
+
+def test_a_remote_served_without_suffix_keeps_its_form(monkeypatch):
+    probed = _fake_ls_remote(monkeypatch, {"https://dev.azure.com/org/p/_git/repo": None})
+    assert g._with_credentials("https://dev.azure.com/org/p/_git/repo", None) == "https://dev.azure.com/org/p/_git/repo"
+    assert probed == ["https://dev.azure.com/org/p/_git/repo"]
+
+
+def test_an_auth_failure_is_not_retried_with_the_suffix(monkeypatch):
+    probed = _fake_ls_remote(monkeypatch, {
+        "https://gitlab.com/g/private": "remote: HTTP Basic: Access denied",
+    })
+    assert g._with_credentials("https://gitlab.com/g/private", None) == "https://gitlab.com/g/private"
+    assert probed == ["https://gitlab.com/g/private"]
+
+
+def test_an_ssh_failure_does_not_tell_which_hosts_answer():
+    error = g._failure(
+        "ssh: connect to host 10.0.0.5 port 22: Connection refused\nfatal: Could not read from remote repository.",
+        None, ["ls-remote", "git@10.0.0.5:g/r.git"],
+    )
+    assert "10.0.0.5" not in str(error) and error.code == "not_found"
+    https = g._failure("fatal: repository 'https://h/r.git/' not found", None, ["ls-remote", "https://h/r.git"])
+    assert "not found" in str(https)
 
 
 def test_with_credentials_leaves_ssh_and_tokenless_urls_untouched():

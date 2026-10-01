@@ -735,6 +735,8 @@ async def get_scores_file(
         data = files.get(scores_export.SCORES_PARQUET_FILE)
         if data is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores for these methods")
+    audit.bind(action="download", workspace_id=project.workspace_id,
+               detail=f"mapping project {project.id} scores file ({len(data)} bytes)")
     return Response(
         content=data,
         media_type="application/octet-stream",

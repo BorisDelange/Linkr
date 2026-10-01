@@ -88,6 +88,9 @@ async def update_project(
 ):
     fields = body.model_dump(exclude_unset=True)
     if "workspace_id" in fields and fields["workspace_id"] != project.workspace_id:
+        # Leaving a workspace takes the project out of its members' reach: the
+        # source must allow it too, not just a project-level role.
+        await check_workspace_permission(db, project.workspace_id, user, "projects:write")
         await _check_target_workspace(db, fields["workspace_id"], user)
     # A path binding is persisted here via a plain PATCH — enforce the browse-root
     # boundary at the point of persistence, not just in the picker (client-side

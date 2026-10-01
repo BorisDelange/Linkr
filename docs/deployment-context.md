@@ -57,7 +57,9 @@ Inheriting the SPE's security only holds if Linkr does not undo it from the insi
    become admin, read another member's database password, rewrite the access log, or
    reach files outside what the deployment mounted. Closed for the API routes (plan item
    A1); a kernel still runs as the API's OS user, so `ide:execute` means trusted with
-   the instance.
+   the instance. Sign-in by the SPE gateway's header (`LINKR_TRUSTED_HEADER`) is believed
+   only with a secret the gateway alone sends (`LINKR_TRUSTED_PROXY_SECRET`), since a
+   kernel reaches the API through the same nginx as the gateway.
 2. **Traceability of what happens inside Linkr.** The SPE logs who entered; only Linkr
    knows which queries ran and which files were produced. Every row-level read and every
    download must reach the access log, which is also written to stdout for the

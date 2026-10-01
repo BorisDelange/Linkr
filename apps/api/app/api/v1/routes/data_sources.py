@@ -678,7 +678,19 @@ async def retest_data_source(
     """
     source = await _load_source(db, source_id, user, "databases:read")
     ok, error, tables = await data_source_service.test_connection_stored(source, await _login(db, source, user))
+    if not ok and _reaches_the_network(source):
+        logger.info("retest of %s failed: %s", source.id, error)
+        error = "Connection failed"
     return TestConnectionResult(ok=ok, error=error, tables=tables)
+
+
+def _reaches_the_network(source) -> bool:
+    """An external engine's driver error names hosts and ports that answer (see
+    `test_connection`); a managed or uploaded file's names only its own file."""
+    return (
+        not data_source_service.is_managed(source)
+        and data_source_service.is_external_engine((source.connection_config or {}).get("engine"))
+    )
 
 
 @router.get("/{source_id}/schema", response_model=list[IntrospectedTable])
@@ -693,11 +705,17 @@ async def get_data_source_schema(
     login = await _login(db, source, user)
     try:
         return await data_source_service.introspect(db, source, login)
+    except database_credential_service.CredentialRequired:
+        raise
     except Exception as e:  # noqa: BLE001 — the driver's message is the diagnosis
         # Reaching the database is the one thing this route does, so a driver
         # failure is not a server fault: unhandled, it became a bare 500 whose
         # "Internal server error" hid the only text that says what went wrong —
-        # a held file lock, a missing file, bad credentials.
+        # a held file lock, a missing file. An external engine's text stays in
+        # the server log, like `test_connection`'s.
+        if _reaches_the_network(source):
+            logger.info("introspection of %s failed: %s", source.id, e)
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Connection failed") from e
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
 
 

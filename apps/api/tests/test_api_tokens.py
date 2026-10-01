@@ -13,9 +13,9 @@ API = "/api/v1"
 
 
 async def _login(db, client, username: str, role: str = "user") -> dict:
-    db.add(User(username=username, password_hash=hash_password("pw"), role=role))
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role=role))
     await db.commit()
-    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw"})
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 

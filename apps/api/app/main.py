@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.config import settings
-from app.core import audit
+from app.core import audit, hardening, trusted_header
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.database import async_session
 from app.core.logging import setup_logging
@@ -68,6 +68,7 @@ _INSECURE_SECRET = "dev-secret-change-in-production"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging(debug=settings.debug)
+    hardening.forbid_same_user_inspection()
     # The secret_key signs every JWT. Booting with the shipped default in a real
     # deployment would let anyone forge admin tokens.
     if settings.secret_key == _INSECURE_SECRET and not settings.debug:
@@ -87,6 +88,9 @@ async def lifespan(app: FastAPI):
                 "or run with LINKR_DEBUG=true for local development."
             )
         logger.warning("cors_wildcard_with_credentials", origins=settings.cors_origin_list)
+    trusted_header_error = trusted_header.configuration_error()
+    if trusted_header_error:
+        raise RuntimeError(trusted_header_error)
     logger.info("starting_linkr", version=settings.app_version, mode=settings.app_mode)
     # Run in a worker thread: Alembic's async env.py calls asyncio.run(), which
     # cannot run inside the already-running lifespan event loop.

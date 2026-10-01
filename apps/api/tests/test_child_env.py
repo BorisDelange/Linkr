@@ -11,6 +11,7 @@ _SECRETS = {
     "LINKR_ENCRYPTION_KEY": "aes-key",
     "LINKR_ENCRYPTION_OLD_KEYS": "old",
     "LINKR_DATABASE_URL": "postgresql://linkr:pw@db/linkr",
+    "LINKR_TRUSTED_PROXY_SECRET": "gateway-secret",
     "LINKR_GIT_TOKEN": "glpat-x",
     "DATABASE_URL": "postgresql://u:pw@h/db",
     "GITLAB_TOKEN": "glpat-y",
@@ -36,14 +37,16 @@ def test_only_allowlisted_names_pass(monkeypatch):
 
 
 def test_secret_names_cover_the_settings_that_open_the_instance():
-    assert {"LINKR_SECRET_KEY", "LINKR_ENCRYPTION_KEY", "LINKR_ENCRYPTION_OLD_KEYS"} <= SECRET_NAMES
+    assert {
+        "LINKR_SECRET_KEY", "LINKR_ENCRYPTION_KEY", "LINKR_ENCRYPTION_OLD_KEYS", "LINKR_TRUSTED_PROXY_SECRET",
+    } <= SECRET_NAMES
 
 
 async def test_a_spawned_kernel_sees_no_secret(client, monkeypatch):
     for k, v in _SECRETS.items():
         monkeypatch.setenv(k, v)
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})).json()["access_token"]
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    token = (await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})).json()["access_token"]
     headers = {"Authorization": f"Bearer {token}"}
     ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
     uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]

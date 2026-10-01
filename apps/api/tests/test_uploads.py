@@ -7,10 +7,10 @@ API = "/api/v1"
 
 async def _admin_headers(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -127,9 +127,9 @@ async def test_an_upload_session_belongs_to_its_uploader(client, db):
     from app.models.user import User
 
     owner = await _admin_headers(client)
-    db.add(User(username="bob", password_hash=hash_password("pw"), role="user"))
+    db.add(User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
-    token = (await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw"})).json()["access_token"]
+    token = (await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw-for-tests-only"})).json()["access_token"]
     bob = {"Authorization": f"Bearer {token}"}
     uid, chunks = await _upload(client, owner, b"a,b\n1,2\n", 64)
 

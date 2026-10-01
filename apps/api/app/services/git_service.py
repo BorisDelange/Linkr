@@ -280,31 +280,83 @@ def _reject_internal_host(url: str) -> None:
             raise GitError("remote host is not allowed (internal address)", "network")
 
 
-def _with_credentials(url: str, token: str | None) -> str:
-    """The URL handed to git for one network call: ``.git`` appended to an https
-    remote that lacks it, and the access token injected when there is one.
-
-    The token goes in the *password* with a fixed ``oauth2`` username. GitLab
+def _inject_token(url: str, token: str | None) -> str:
+    """The token goes in the *password* with a fixed ``oauth2`` username. GitLab
     requires this for push (the older ``<token>:x-oauth-basic`` form authenticates
     read/clone but is rejected on push with "HTTP Basic: Access denied"); GitHub
-    accepts it too (it ignores the username for a PAT). Non-https URLs (ssh) are
-    returned unchanged — the token doesn't apply there.
-    """
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https"):
-        return url
-    # Name the repo as the forge serves it. GitLab (framagit included) answers
-    # `…/repo/info/refs` with a 301 to `…/repo.git/info/refs`, and redirects are off
-    # (_git_env: a redirect would slip past the internal-host check), so a remote
-    # written without `.git` — every catalog entry is — failed to clone at all.
-    path = parts.path.rstrip("/")
-    if path and not path.endswith(".git"):
-        path += ".git"
+    accepts it too (it ignores the username for a PAT)."""
     if not token:
-        return urlunsplit((parts.scheme, parts.netloc, path, parts.query, parts.fragment))
-    userinfo = f"oauth2:{quote(token, safe='')}@"
+        return url
+    parts = urlsplit(url)
     netloc = parts.netloc.rsplit("@", 1)[-1]  # drop any existing credentials
-    return urlunsplit((parts.scheme, userinfo + netloc, path, parts.query, parts.fragment))
+    return urlunsplit(parts._replace(netloc=f"oauth2:{quote(token, safe='')}@{netloc}"))
+
+
+def _url_candidates(url: str) -> list[str]:
+    """The forms of an https remote worth trying, in order: as written, then with
+    ``.git``. GitLab (framagit included) answers `…/repo/info/refs` with a 301 to
+    `…/repo.git/info/refs`, and redirects are off (_git_env: a redirect would slip
+    past the internal-host check), so a remote written without `.git` — every
+    catalog entry is — needs the suffix. Hosts such as Azure DevOps serve the
+    repo only without it, so the written form goes first."""
+    parts = urlsplit(url)
+    path = parts.path.rstrip("/")
+    as_written = urlunsplit(parts._replace(path=path))
+    if not path or path.endswith(".git"):
+        return [as_written]
+    return [as_written, urlunsplit(parts._replace(path=path + ".git"))]
+
+
+_REDIRECTED_OR_MISSING = re.compile(
+    r"returned error: (30\d|404)|repository '[^']*' not found|repository not found", re.IGNORECASE
+)
+# Credential-less written URL → the candidate that answered. Successes only.
+_answering_form: dict[str, str] = {}
+
+
+def _remote_form(url: str, token: str | None) -> str:
+    candidates = _url_candidates(url)
+    if len(candidates) == 1:
+        return candidates[0]
+    known = _answering_form.get(candidates[0])
+    if known:
+        return known
+    for candidate in candidates:
+        proc = subprocess.run(
+            ["git", "ls-remote", _inject_token(candidate, token), "HEAD"],
+            capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+        )
+        if proc.returncode == 0:
+            _answering_form[candidates[0]] = candidate
+            return candidate
+        if not _REDIRECTED_OR_MISSING.search(proc.stderr):
+            break
+    return candidates[0]
+
+
+def _with_credentials(url: str, token: str | None) -> str:
+    """The URL handed to git for one network call: an https remote in the form its
+    host answers to (`_url_candidates`), with the access token injected when there
+    is one. Non-https URLs (ssh) are returned unchanged — the token doesn't apply."""
+    if urlsplit(url).scheme not in ("http", "https"):
+        return url
+    return _inject_token(_remote_form(url, token), token)
+
+
+def _is_ssh_remote(arg: str) -> bool:
+    return arg.startswith("ssh://") or _SCP_LIKE.fullmatch(arg) is not None
+
+
+def _failure(text: str, token: str | None, args) -> GitError:
+    """A GitError for a failed git call. ssh remotes are not checked against
+    internal addresses (`_reject_internal_host`), so ssh's own text — which hosts
+    and ports answer — stays in the server log: returned, it would scan the network."""
+    msg = _scrub(text, token)
+    code = _classify_error(msg)
+    if any(_is_ssh_remote(a) for a in args):
+        logger.info("git_ssh_failure", detail=msg)
+        msg = "The ssh remote could not be reached, or refused access."
+    return GitError(msg, code)
 
 
 def _scrub(text: str, token: str | None) -> str:
@@ -372,8 +424,7 @@ def _run(repo: Path, *args: str, token: str | None = None, check: bool = True, e
     except subprocess.TimeoutExpired as exc:
         raise GitError(f"git {args[0]} timed out", "network") from exc
     if check and proc.returncode != 0:
-        msg = _scrub(proc.stderr.strip() or proc.stdout.strip(), token)
-        raise GitError(msg, _classify_error(msg))
+        raise _failure(proc.stderr.strip() or proc.stdout.strip(), token, args)
     return proc.stdout
 
 
@@ -1679,13 +1730,12 @@ async def verify_remote(url: str, token: str | None) -> dict:
             env=_git_env(),
         )
         if proc.returncode != 0:
-            msg = _scrub(proc.stderr.strip() or "remote not reachable", token)
-            code = _classify_error(msg)
+            error = _failure(proc.stderr.strip() or "remote not reachable", token, [cleaned])
             # A private repo probed without a token reads as auth_failed; signal
             # "token required" so the UI can ask for one rather than just erroring.
-            if code == "auth_failed" and not token:
-                code = "auth_required"
-            raise GitError(msg, code)
+            if error.code == "auth_failed" and not token:
+                error.code = "auth_required"
+            raise error
         default = None
         branches_found: list[str] = []
         for line in proc.stdout.splitlines():
@@ -1728,8 +1778,7 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
                 ["git", *args], capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env()
             )
             if proc.returncode != 0:
-                msg = _scrub(proc.stderr.strip(), token)
-                raise GitError(msg, _classify_error(msg))
+                raise _failure(proc.stderr.strip(), token, [cleaned])
             repo = tmp / "repo"
             # Resolve Git LFS pointers to their real content. _git_env() isolates git
             # from the host config (HOME=/nonexistent, GIT_CONFIG_NOSYSTEM), so the

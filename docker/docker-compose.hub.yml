@@ -43,6 +43,15 @@ services:
       - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?generate one - see the header of this file}
       - LINKR_CORS_ORIGINS=http://localhost:3000
       - LINKR_DEBUG=false
+      # Sign-in by the SPE gateway's header (off unless all three are set). The
+      # gateway must overwrite both headers on every request; the secret (≥ 32
+      # chars) is what proves a request came through it — every request reaches
+      # the API from nginx, a kernel's included. Keep uvicorn's
+      # FORWARDED_ALLOW_IPS at its default: widened, the peer address is read
+      # from X-Forwarded-For, which a client chooses.
+      # - LINKR_TRUSTED_HEADER=X-Remote-User
+      # - LINKR_TRUSTED_PROXIES=172.16.0.0/12
+      # - LINKR_TRUSTED_PROXY_SECRET=${LINKR_TRUSTED_PROXY_SECRET}
     volumes:
       # Everything your users create lives here — the database and every file.
       # This is what you back up; the images hold no data of their own.

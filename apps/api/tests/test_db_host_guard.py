@@ -62,6 +62,6 @@ def test_every_external_connection_goes_through_the_guard(allow):
     allow("10.20.0.0/16")
     config = {"engine": "postgresql", "host": "127.0.0.1", "port": 5432}
     with pytest.raises(DbHostNotAllowed):
-        db_connect.attach_recipe(config, "pw")
+        db_connect.attach_recipe(config, "pw-for-tests-only")
     with pytest.raises(DbHostNotAllowed):
-        db_connect.introspect_external(config, "pw")
+        db_connect.introspect_external(config, "pw-for-tests-only")

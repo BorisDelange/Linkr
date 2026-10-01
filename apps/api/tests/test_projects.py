@@ -8,19 +8,19 @@ API = "/api/v1"
 
 async def _bootstrap_admin(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 async def _create_user(db, client, username: str, role: str = "user") -> dict:
-    db.add(User(username=username, password_hash=hash_password("pw"), role=role))
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role=role))
     await db.commit()
     r = await client.post(
-        f"{API}/auth/login", json={"username": username, "password": "pw"}
+        f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -157,7 +157,7 @@ async def test_import_relinks_author_by_orcid(client, db):
     db.add(
         User(
             username="carol",
-            password_hash=hash_password("pw"),
+            password_hash=hash_password("pw-for-tests-only"),
             orcid="0000-0002-1111-2222",
         )
     )
@@ -208,7 +208,7 @@ async def test_clone_update_relinks_author_from_snapshot(client, db):
     assert p["createdById"] is None  # importer's id cleared, no local match
 
     # Same PATCH when the repo author has a local account → re-linked to it.
-    db.add(User(username="boris", password_hash=hash_password("pw"), orcid="0000-0003-1111-2222"))
+    db.add(User(username="boris", password_hash=hash_password("pw-for-tests-only"), orcid="0000-0003-1111-2222"))
     await db.commit()
     boris = (await db.execute(select(User).where(User.username == "boris"))).scalars().first()
     r = await client.patch(
@@ -345,3 +345,24 @@ async def test_move_needs_projects_write_on_destination(client, db):
     assert r.status_code == 400
     r = await client.patch(f"{API}/projects/{uid}", headers=admin, json={"workspaceId": ws_b})
     assert r.status_code == 200 and r.json()["workspaceId"] == ws_b
+
+
+async def test_move_needs_projects_write_on_the_source_too(client, db):
+    # A project-level owner who is only a viewer of the workspace must not carry
+    # the project off into a workspace of their own.
+    admin = await _bootstrap_admin(client)
+    ws_a = await _make_workspace(client, admin)
+    bob = await _create_user(db, client, "bob")
+    bob_id = (await client.get(f"{API}/auth/me", headers=bob)).json()["id"]
+    ws_b = await _make_workspace(client, admin)
+    await client.put(f"{API}/workspaces/{ws_b}/members", headers=admin, json={"userId": bob_id, "role": "owner"})
+    uid = (await client.post(
+        f"{API}/projects", headers=admin, json={"name": {"en": "P"}, "workspaceId": ws_a}
+    )).json()["uid"]
+    await client.put(f"{API}/workspaces/{ws_a}/members", headers=admin, json={"userId": bob_id, "role": "viewer"})
+    await client.put(f"{API}/projects/{uid}/members", headers=admin, json={"userId": bob_id, "role": "owner"})
+
+    r = await client.patch(f"{API}/projects/{uid}", headers=bob, json={"workspaceId": ws_b})
+    assert r.status_code == 403
+    assert (await client.get(f"{API}/projects/{uid}", headers=admin)).json()["workspaceId"] == ws_a
+    assert (await client.patch(f"{API}/projects/{uid}", headers=bob, json={"name": {"en": "Q"}})).status_code == 200

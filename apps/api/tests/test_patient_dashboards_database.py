@@ -9,8 +9,8 @@ API = "/api/v1"
 
 
 async def _admin(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
@@ -66,10 +66,10 @@ async def test_board_follows_database_permissions_and_lifetime(client, db):
     ws, ds = await _database(client, admin)
     await _cohort(client, admin, ds)
     await _board(client, admin, ds)
-    viewer = User(username="viewer", password_hash=hash_password("pw"), role="user")
+    viewer = User(username="viewer", password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(viewer)
     await db.commit()
-    token = (await client.post(f"{API}/auth/login", json={"username": "viewer", "password": "pw"})).json()["access_token"]
+    token = (await client.post(f"{API}/auth/login", json={"username": "viewer", "password": "pw-for-tests-only"})).json()["access_token"]
     vh = {"Authorization": f"Bearer {token}"}
     await client.put(f"{API}/workspaces/{ws}/members", headers=admin,
                      json={"userId": viewer.id, "role": "viewer"})

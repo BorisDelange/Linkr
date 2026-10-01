@@ -932,6 +932,16 @@ class KernelLimitReached(Exception):
 class KernelSessionForeign(Exception):
     """An API-key request aimed at a session the user's web IDE started."""
 
+    def __init__(self, session_id: str):
+        super().__init__(
+            f'Session "{session_id}" was started by the IDE and can hold the user\'s database '
+            "passwords; code sent with an API key runs in a session of its own."
+        )
+
+
+def _foreign(kernel: "Kernel | None", via: str | None) -> bool:
+    return kernel is not None and kernel.spawned_via in _WEB_ORIGIN and via not in _WEB_ORIGIN
+
 
 # Callers whose kernel token may hold the user's saved database passwords: a web
 # session, and code running in a kernel it started (a non-web kernel token is
@@ -1043,7 +1053,7 @@ class KernelManager:
         async with self._lock:
             to_shutdown = self._sweep_idle_locked()
             kernel = self._kernels.get(key)
-            if kernel is not None and kernel.spawned_via in _WEB_ORIGIN and via not in _WEB_ORIGIN:
+            if _foreign(kernel, via):
                 foreign = True
             elif kernel is None:
                 if self._count_for_user(user_id) >= settings.max_kernels_per_user:
@@ -1058,10 +1068,7 @@ class KernelManager:
         for k in to_shutdown:
             await k.shutdown()
         if foreign:
-            raise KernelSessionForeign(
-                f'Session "{session_id}" was started by the IDE and can hold the user\'s database '
-                "passwords; code sent with an API key runs in a session of its own."
-            )
+            raise KernelSessionForeign(session_id)
         return kernel
 
     async def _prepare_r_shared(self, language: str) -> None:
@@ -1104,24 +1111,34 @@ class KernelManager:
         return self._make(language, project_uid, environment)
 
     async def restart(
-        self, project_uid: str, user_id: int, language: str, session_id: str
+        self, project_uid: str, user_id: int, language: str, session_id: str,
+        via: str | None = None,
     ) -> None:
+        """Kill the kernel so the next run starts afresh. Refused like `get` for a
+        non-web caller on a web-started kernel: the agent's own next run would
+        respawn it under its token, a kernel the IDE then keeps using."""
         key = (project_uid, user_id, language, session_id)
         async with self._lock:
-            kernel = self._kernels.pop(key, None)
+            kernel = self._kernels.get(key)
+            if _foreign(kernel, via):
+                raise KernelSessionForeign(session_id)
+            self._kernels.pop(key, None)
         if kernel is not None:
             await kernel.shutdown()
 
     def interrupt(
-        self, project_uid: str, user_id: int, language: str, session_id: str
+        self, project_uid: str, user_id: int, language: str, session_id: str,
+        via: str | None = None,
     ) -> bool:
         """SIGINT the caller's live kernel for (project, language, session) — the
         Stop button. Returns False if there's no live kernel to interrupt."""
         kernel = self._kernels.get((project_uid, user_id, language, session_id))
+        if _foreign(kernel, via):
+            raise KernelSessionForeign(session_id)
         return kernel.interrupt() if kernel is not None else False
 
     async def shutdown_session(
-        self, project_uid: str, user_id: int, session_id: str
+        self, project_uid: str, user_id: int, session_id: str, via: str | None = None,
     ) -> None:
         """Kill every kernel (python + r) of one session for a user — used when the
         user deletes that session."""
@@ -1130,6 +1147,8 @@ class KernelManager:
                 k for k in self._kernels
                 if k[0] == project_uid and k[1] == user_id and k[3] == session_id
             ]
+            if any(_foreign(self._kernels[k], via) for k in keys):
+                raise KernelSessionForeign(session_id)
             kernels = [self._kernels.pop(k) for k in keys]
         for k in kernels:
             await k.shutdown()

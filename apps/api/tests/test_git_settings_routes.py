@@ -9,8 +9,8 @@ API = "/api/v1"
 
 
 async def _bootstrap_admin(client) -> dict:
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
-    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 

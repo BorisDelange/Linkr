@@ -5,6 +5,7 @@ import { PasswordInput } from '@/components/ui/password-input'
 import { Label } from '@/components/ui/label'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { apiFetch } from '@/lib/api-client'
+import { useAuthStore } from '@/stores/auth-store'
 
 const isServerMode = !!import.meta.env.VITE_API_URL
 // Mirrors the server's policy (core/security.py PASSWORD_MIN_LENGTH), which is
@@ -55,6 +56,9 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
         setSubmitting(false)
         return
       }
+      // The change ends every session issued before it, this one included.
+      const data = await res.json()
+      useAuthStore.getState().setTokens(data.access_token, data.refresh_token, data.user)
       handleOpenChange(false)
     } catch {
       setError(t('profile.password_change_error'))
