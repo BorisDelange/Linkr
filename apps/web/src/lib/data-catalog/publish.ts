@@ -221,6 +221,26 @@ function maskOfRows(rows: readonly CatalogCrossingRow[], statusOf: (row: Catalog
 }
 
 /**
+ * The category margin of the concept list (`[category, concept]` rows), summed
+ * from the list: exact on records, an upper bound on distinct patients. A
+ * concept with no category is in no category's cell, so in no total.
+ */
+function categoryTotals(rows: readonly CatalogCrossingRow[]): MaskTable {
+  const byCategory = new Map<string, CatalogCrossingRow>()
+  for (const r of rows) {
+    const category = r.values[0]
+    if (category === NO_CATEGORY) continue
+    const total = byCategory.get(category)
+    if (total) {
+      byCategory.set(category, { ...total, patients: total.patients + r.patients, records: (total.records ?? 0) + (r.records ?? 0) })
+    } else {
+      byCategory.set(category, { values: [category], patients: r.patients, records: r.records ?? 0 })
+    }
+  }
+  return { id: 'concept', variables: ['concept'], rows: [...byCategory.values()] }
+}
+
+/**
  * The masks of everything a catalog publishes: its crossings and its concept
  * list, worked out together.
  *
@@ -238,7 +258,7 @@ function maskOfRows(rows: readonly CatalogCrossingRow[], statusOf: (row: Catalog
  * the category's cell. The list then takes part as the `concept ×
  * CONCEPT_MEMBER` crossing, grouped by category under the computed 1-way
  * crossing — published or not, a category total can be recovered from its
- * other crossings.
+ * other crossings — or, never computed, under the list's own category sums.
  */
 export function computeCatalogMasks(
   catalog: Pick<DataCatalog, 'variables' | 'crossings'>,
@@ -274,7 +294,12 @@ export function computeCatalogMasks(
       rows: listRows.map((r, i) => ({ ...r, values: [categoryOf(cache.concepts[i]), r.values[0]] })),
     }
     masks = computeCrossingMasks(crossings, threshold)
-    marginMask = computeCrossingMasks([...(computedOneWay ? [computedOneWay] : []), margin], threshold).get(CONCEPT_LIST)!
+    // The category totals the list's groups add up to. Without the computed
+    // 1-way crossing they come from the list itself: records add up exactly
+    // across a category's concepts, so its total is known either way — masking
+    // the list with no total to protect left a concept recoverable by subtraction.
+    const totals = computedOneWay ?? categoryTotals(margin.rows)
+    marginMask = computeCrossingMasks([totals, margin], threshold).get(CONCEPT_LIST)!
   }
   const marginStatus = new Map(margin.rows.map((r, i) => [r.values[r.values.length - 1], marginMask.status[i] as CellStatus]))
   const concepts = Uint8Array.from(listRows, (r) => marginStatus.get(r.values[0]) ?? PUBLISHED)
@@ -403,11 +428,17 @@ export function publishedVariables(
     // periods before the first and after the last that reach the threshold.
     if (id === 'period') mods = trimPeriods(mods, new Map(marginal.map((r) => [r.values[0], r.patients])), threshold)
     if (id === 'service') {
+      // Unpublished, the 1-way crossing's counts must not order anything: the
+      // order would give them away. The services then rank by code.
       const mask = masks.masks.get('service')
-      mods = publishedRank(mods, oneWay, mask ? (_code, _row, i) => mask.status[i] as CellStatus : primaryRule, catalog.anonymization)
+      mods = publishedRank(mods, mask ? oneWay : undefined, (_code, _row, i) => mask!.status[i] as CellStatus, catalog.anonymization)
     }
     if (id === 'concept') {
-      mods = publishedRank(mods, oneWay, (code, row) => masks.conceptModalities.get(code) ?? primaryRule(code, row), catalog.anonymization)
+      // At category level nothing else publishes a category's patients: with
+      // its 1-way crossing unpublished, the categories rank by code, as services do.
+      const byCategory = (catalog.variables.concept?.level ?? 'concept') !== 'concept'
+      const ranked = byCategory && !masks.masks.has('concept') ? undefined : oneWay
+      mods = publishedRank(mods, ranked, (code, row) => masks.conceptModalities.get(code) ?? primaryRule(code, row), catalog.anonymization)
       if (!reveal && catalog.anonymization.mode === 'suppress') {
         mods = mods.filter((m) => (masks.conceptModalities.get(m) ?? PUBLISHED) === PUBLISHED)
       }

@@ -139,7 +139,7 @@ async def test_ensure_ready_streams_build_lines_to_on_log(monkeypatch, db):
     from app.core.security import hash_password
     from app.models.user import User
 
-    user = User(username="envstream", password_hash=hash_password("pw"))
+    user = User(username="envstream", password_hash=hash_password("pw-for-tests-only"))
     db.add(user)
     await db.commit()
     await db.refresh(user)

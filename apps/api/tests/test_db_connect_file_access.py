@@ -136,13 +136,42 @@ def test_parquet_folder_cannot_overwrite_its_own_files(tmp_path):
     assert _ids(table) == [(1,)]
 
 
+def _disguised_overwrites(target) -> list[str]:
+    """The same write without COPY as the first keyword: EXPLAIN ANALYZE runs the
+    statement it explains, and EXECUTE runs what PREPARE stored."""
+    copy = _in_place_overwrite(target)
+    return [
+        f"EXPLAIN ANALYZE {copy}",
+        f"/* x */ explain (analyze, format json) {copy}",
+        f"PREPARE q AS {copy}; EXECUTE q",
+        f"PREPARE q AS {copy}",
+        "EXECUTE q",
+    ]
+
+
 def test_concept_cache_page_cannot_overwrite_the_cache(tmp_path):
     cache = tmp_path / "cache.parquet"
     duckdb.execute(f"COPY (SELECT 7 AS id) TO '{cache}' (FORMAT PARQUET)")
-    for sql in (_in_place_overwrite(cache), f"SELECT 1; /* x */ {_in_place_overwrite(cache)}"):
+    for sql in (
+        _in_place_overwrite(cache), f"SELECT 1; /* x */ {_in_place_overwrite(cache)}",
+        *_disguised_overwrites(cache),
+    ):
         with pytest.raises(ValueError):
             query_cached_parquet(str(cache), sql)
     assert _ids(cache) == [(7,)]
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT copy_number FROM concepts",
+    "WITH c AS (SELECT id AS copy FROM concepts) SELECT * FROM c;",
+    "-- export\nSELECT 'COPY t TO x', 'PREPARE' AS execute FROM concepts ; ",
+    "EXPLAIN SELECT * FROM concepts",
+    "EXPLAIN ANALYZE SELECT * FROM concepts",
+])
+def test_concept_cache_page_still_runs_plain_reads(tmp_path, sql):
+    cache = tmp_path / "cache.parquet"
+    duckdb.execute(f"COPY (SELECT 7 AS id, 1 AS copy_number) TO '{cache}' (FORMAT PARQUET)")
+    assert query_cached_parquet(str(cache), sql)
 
 
 def test_mapping_file_source_cannot_overwrite_its_blob(tmp_path):
@@ -151,11 +180,11 @@ def test_mapping_file_source_cannot_overwrite_its_blob(tmp_path):
         f"COPY (SELECT 1 AS concept_id, 'A' AS concept_code, 'LOCAL' AS vocabulary_id) "
         f"TO '{blob}' (FORMAT PARQUET)"
     )
-    with pytest.raises(ValueError):
-        query_file_source(
-            str(blob), "concepts.parquet", {}, _SELECT, "vocabulary_id, concept_code",
-            _in_place_overwrite(blob),
-        )
+    for sql in (_in_place_overwrite(blob), *_disguised_overwrites(blob)):
+        with pytest.raises(ValueError):
+            query_file_source(
+                str(blob), "concepts.parquet", {}, _SELECT, "vocabulary_id, concept_code", sql,
+            )
     assert _ids(blob) == [(1, "A", "LOCAL")]
 
 

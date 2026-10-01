@@ -98,3 +98,24 @@ def test_databases_shape(monkeypatch):
         {"alias": "n", "name": "N", "id": "a", "engine": "duckdb",
          "dialect": "duckdb", "kind": "managed", "connectable": True}
     ]
+
+
+def test_parquet_tables_with_a_schema_open_as_schema_views(tmp_path):
+    # The server names a module (or DDL-placed) table `hosp.admissions`; a view
+    # literally called "hosp.admissions" answered neither `hosp.admissions` nor
+    # the bare `admissions`.
+    duckdb = pytest.importorskip("duckdb")
+    seed = duckdb.connect()
+    for name in ("admissions", "patients"):
+        seed.execute(f"COPY (SELECT 1 AS id) TO '{tmp_path / name}.parquet' (FORMAT parquet)")
+    seed.close()
+    con = _databases._open_parquet([
+        {"table": "hosp.admissions", "paths": [str(tmp_path / "admissions.parquet")]},
+        {"table": "patients", "paths": [str(tmp_path / "patients.parquet")]},
+    ])
+    try:
+        assert con.execute("SELECT id FROM hosp.admissions").fetchone() == (1,)
+        assert con.execute("SELECT id FROM admissions").fetchone() == (1,)
+        assert con.execute("SELECT id FROM patients").fetchone() == (1,)
+    finally:
+        con.close()

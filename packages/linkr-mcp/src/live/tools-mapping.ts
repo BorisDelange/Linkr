@@ -392,7 +392,7 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     annotations: READ,
     inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_id: number | string }>({
       type: 'object',
-      properties: { mapping_project_id: { type: 'string' }, concept_id: { type: ['number', 'string'] } },
+      properties: { mapping_project_id: { type: 'string' }, concept_id: { type: 'number' } },
       required: ['mapping_project_id', 'concept_id'],
     }),
   }, guard(async ({ mapping_project_id, concept_id }) => {
@@ -447,8 +447,8 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
             properties: {
               concept_code: { type: 'string', description: 'Source concept code (or vocabulary/code as listed).' },
               vocabulary_id: { type: 'string', description: 'Source vocabulary, when codes repeat across vocabularies.' },
-              concept_id: { type: ['number', 'string'], description: 'Standard OMOP target concept id.' },
-              score: { type: ['number', 'string'], description: 'Your confidence, 0–1.' },
+              concept_id: { type: 'number', description: 'Standard OMOP target concept id.' },
+              score: { type: 'number', description: 'Your confidence, 0–1.' },
               equivalence: { type: 'string', enum: ['skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch'] },
               comment: { type: 'string', description: 'One or two sentences a reviewer can agree with; for an inexact match, say what is lost.' },
               concept_set_id: { type: 'string', description: 'The concept set (data dictionary) the target was taken from, if any.' },
@@ -565,9 +565,9 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       type: 'object',
       properties: {
         mapping_project_id: { type: 'string' },
-        concept_ids: { type: 'array', items: { type: ['number', 'string'] }, description: 'Target concept ids.' },
+        concept_ids: { type: 'array', items: { type: 'number' }, description: 'Target concept ids.' },
         concept_set_id: { type: 'string', description: 'Or a concept set: its resolved concepts are the targets.' },
-        min_score: { type: ['number', 'string'], description: 'Default 0.5.' },
+        min_score: { type: 'number', description: 'Default 0.5.' },
         methods: { type: 'array', items: { type: 'string' }, description: 'e.g. ["semantic/biolord"]. Default: all.' },
       },
       required: ['mapping_project_id'],
@@ -633,10 +633,10 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
             properties: {
               concept_code: { type: 'string' },
               vocabulary_id: { type: 'string' },
-              concept_id: { type: ['number', 'string'], description: 'Standard OMOP target; omit for status "ignored".' },
+              concept_id: { type: 'number', description: 'Standard OMOP target; omit for status "ignored".' },
               equivalence: { type: 'string', enum: ['skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:narrowMatch', 'skos:relatedMatch'] },
               comment: { type: 'string' },
-              match_score: { type: ['number', 'string'], description: 'Confidence 0–1.' },
+              match_score: { type: 'number', description: 'Confidence 0–1.' },
               status: { type: 'string', enum: ['unchecked', 'flagged', 'ignored'], description: 'Default unchecked.' },
             },
             required: ['concept_code', 'comment'],

@@ -85,6 +85,19 @@ def test_cannot_overwrite_its_own_parquet_inputs(target_db, parquet_role, prefix
     assert duckdb.execute(f"SELECT id FROM read_parquet('{table}') ORDER BY id").fetchall() == [(1,), (2,)]
 
 
+@pytest.mark.parametrize("disguise", [
+    "EXPLAIN ANALYZE {copy}",
+    "EXPLAIN (ANALYZE) {copy}",
+    "PREPARE q AS {copy}; EXECUTE q",
+])
+def test_cannot_overwrite_its_inputs_through_explain_or_prepare(target_db, parquet_role, disguise):
+    table, role = parquet_role
+    copy = f"COPY (SELECT 99 AS id) TO '{table}' (FORMAT PARQUET, USE_TMP_FILE FALSE)"
+    with pytest.raises(ValueError):
+        _run(target_db, disguise.format(copy=copy), role)
+    assert duckdb.execute(f"SELECT id FROM read_parquet('{table}') ORDER BY id").fetchall() == [(1,), (2,)]
+
+
 def test_cannot_turn_external_access_back_on(target_db, parquet_role):
     _, role = parquet_role
     with pytest.raises(duckdb.Error):

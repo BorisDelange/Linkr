@@ -19,19 +19,19 @@ API = "/api/v1"
 
 async def _admin_headers(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 async def _create_user(db, client, username: str) -> dict:
-    db.add(User(username=username, password_hash=hash_password("pw"), role="user"))
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
     r = await client.post(
-        f"{API}/auth/login", json={"username": username, "password": "pw"}
+        f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -219,6 +219,30 @@ async def test_retest_uses_stored_credentials(client):
     r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=headers)
     assert r.status_code == 200
     assert r.json()["ok"] is False and r.json()["error"]
+
+
+async def test_retest_and_schema_keep_the_driver_error_in_the_log(client, monkeypatch):
+    leak = "could not connect to server: Connection refused (10.0.0.5:5432)"
+
+    async def failed_test(config):
+        return False, leak, []
+
+    def failed_introspect(config, password):
+        raise RuntimeError(leak)
+
+    monkeypatch.setattr(data_source_service, "test_connection", failed_test)
+    monkeypatch.setattr(data_source_service.db_connect, "introspect_external", failed_introspect)
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
+        "connectionConfig": {"engine": "postgresql", "host": "10.0.0.5", "username": "u", "password": "p"},
+    })).json()
+
+    r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=headers)
+    assert r.json() == {"ok": False, "error": "Connection failed", "tables": []}
+    r = await client.get(f"{API}/data-sources/{ds['id']}/schema", headers=headers)
+    assert r.status_code == 502 and r.json()["detail"] == "Connection failed"
 
 
 async def test_duckdb_file_source_query_and_schema(client):
@@ -426,7 +450,7 @@ async def test_non_member_cannot_access(client, db):
 
 # Opt-in live test: set LINKR_TEST_PG_DSN to a JSON connectionConfig, e.g.
 #   LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":5432,
-#                       "database":"linkr","username":"me","password":"pw"}'
+#                       "database":"linkr","username":"me","password":"pw-for-tests-only"}'
 @pytest.mark.skipif(
     not os.environ.get("LINKR_TEST_PG_DSN"),
     reason="set LINKR_TEST_PG_DSN to run the live Postgres introspection test",

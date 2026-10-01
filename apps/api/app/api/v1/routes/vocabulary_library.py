@@ -225,7 +225,10 @@ async def remove_vocabulary(
     if library is None:
         return
     # An import rewrites the inventory it read before writing its partitions:
-    # a removal in between would be overwritten.
+    # a removal in between would be overwritten. Waiting for it here would hold
+    # the request open for as long as the import runs — minutes.
+    if lib.is_busy(workspace_id):
+        raise HTTPException(status.HTTP_409_CONFLICT, "An import into this library is running; retry when it ends")
     async with lib.workspace_lock(workspace_id):
         await db.refresh(library)
         connection_pool.invalidate(library.id)

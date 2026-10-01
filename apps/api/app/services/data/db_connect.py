@@ -400,13 +400,75 @@ def _copies_to_a_file(stmt: str) -> bool:
     return False
 
 
+def _explained(stmt: str) -> tuple[str, bool] | None:
+    """The statement an EXPLAIN wraps and whether EXPLAIN runs it (`ANALYZE`, bare
+    or among the parenthesised options), or None when its target cannot be read."""
+    tokens = duckdb.tokenize(stmt)
+    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
+    texts = [stmt[pos:ends[i]].strip().upper() for i, (pos, _) in enumerate(tokens)]
+    if not texts or texts[0] != "EXPLAIN":
+        return None
+    i, analyze = 1, False
+    if i < len(texts) and texts[i] == "ANALYZE":
+        i, analyze = i + 1, True
+    if i >= len(tokens):
+        return None
+    try:
+        duckdb.extract_statements(stmt[tokens[i][0]:])
+        return stmt[tokens[i][0]:], analyze
+    except duckdb.Error:
+        pass
+    if texts[i] != "(":
+        return None
+    depth = 0
+    for j in range(i, len(texts)):
+        depth += texts[j].count("(") - texts[j].count(")")
+        if texts[j] == "ANALYZE":
+            analyze = True
+        if depth == 0:
+            return (stmt[tokens[j + 1][0]:], analyze) if j + 1 < len(tokens) else None
+    return None
+
+
+def _classified(stmt: str) -> list[tuple[duckdb.StatementType, str, bool | None]]:
+    """What DuckDB's parser makes of `stmt`: (type, text, explain) per statement,
+    an EXPLAIN reported as the statement it wraps with `explain` saying whether it
+    runs it (None when there is no EXPLAIN). A statement the parser refuses yields
+    nothing: running it fails the same way. An EXPLAIN whose target cannot be read
+    comes back as INVALID."""
+    try:
+        parsed = duckdb.extract_statements(stmt)
+    except duckdb.Error:
+        return []
+    out: list[tuple[duckdb.StatementType, str, bool | None]] = []
+    for s in parsed:
+        if s.type != duckdb.StatementType.EXPLAIN:
+            out.append((s.type, s.query, None))
+            continue
+        target = _explained(_strip_leading_noise(s.query))
+        if target is None:
+            out.append((duckdb.StatementType.INVALID, s.query, True))
+            continue
+        inner, analyze = target
+        out.extend((t, text, analyze) for t, text, _ in _classified(inner) or [(duckdb.StatementType.INVALID, inner, None)])
+    return out
+
+
 def _reject_copy_to_file(sql: str) -> None:
     """An ETL script loads files (`COPY t FROM 'mapping.x'`) but never writes one:
     the only files it can reach are its roles' Parquet inputs and its mapping CSVs,
-    and `allowed_paths` would let a `COPY … TO` overwrite those shared blobs."""
+    and `allowed_paths` would let a `COPY … TO` overwrite those shared blobs.
+
+    The parser is asked as well, since a COPY also runs inside `EXPLAIN ANALYZE`
+    and through `PREPARE … AS COPY` + `EXECUTE`, neither of which starts with COPY."""
     for stmt in _split_statements(sql):
         if _copies_to_a_file(_strip_leading_noise(stmt)):
             raise ValueError("COPY … TO a file is not allowed in a pipeline script")
+        for kind, text, explain in _classified(stmt):
+            if kind in (duckdb.StatementType.PREPARE, duckdb.StatementType.EXECUTE):
+                raise ValueError(f"{kind.name} is not allowed in a pipeline script")
+            if explain and (kind == duckdb.StatementType.INVALID or _copies_to_a_file(_strip_leading_noise(text))):
+                raise ValueError("COPY … TO a file is not allowed in a pipeline script")
 
 
 # On a pooled connection shared by every user of a file/Parquet source, these would
@@ -422,12 +484,25 @@ _FORBIDDEN_IN_SHARED_READ = re.compile(
     re.IGNORECASE,
 )
 
+# The same, as the parser sees it — which also catches them behind `PREPARE … AS`
+# + `EXECUTE` (refused outright) and inside an EXPLAIN (only a SELECT may be explained).
+_FORBIDDEN_TYPES_IN_SHARED_READ = frozenset({
+    duckdb.StatementType.LOAD, duckdb.StatementType.ATTACH, duckdb.StatementType.DETACH,
+    duckdb.StatementType.TRANSACTION, duckdb.StatementType.COPY, duckdb.StatementType.COPY_DATABASE,
+    duckdb.StatementType.EXPORT, duckdb.StatementType.PREPARE, duckdb.StatementType.EXECUTE,
+})
+
 
 def _reject_session_statements(sql: str) -> None:
     for stmt in _split_statements(sql):
         m = _FORBIDDEN_IN_SHARED_READ.match(_strip_leading_noise(stmt))
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a query")
+        for kind, _, explain in _classified(stmt):
+            if explain is not None and kind != duckdb.StatementType.SELECT:
+                raise ValueError("EXPLAIN is only allowed on a SELECT in a query")
+            if kind in _FORBIDDEN_TYPES_IN_SHARED_READ:
+                raise ValueError(f"{kind.name} is not allowed in a query")
 
 
 def _run_isolated(con: duckdb.DuckDBPyConnection, search_path: str, sql: str, arrow: bool):
@@ -704,7 +779,11 @@ def introspect_file(engine: str, path: str) -> list[dict]:
     return [{"name": name, "columns": cols} for name, cols in tables.items()]
 
 
-_SHARD_RE = re.compile(r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+$")
+# Numbered shards, bare numbers/dates, and the vocabulary library's
+# per-vocabulary partitions (`concept/vocab-SNOMED.parquet`).
+_SHARD_RE = re.compile(
+    r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+([-_.]\d+)*$|^vocab-[\w-]+$"
+)
 # A shard named after its table directory (`document/document_1999-01`): only a
 # numeric/date suffix counts, so `ehop/ehop_patient` stays a table of its own.
 _NAMED_SHARD_SUFFIX_RE = re.compile(r"^[-_.]\d+([-_.]\d+)*$")
@@ -717,19 +796,24 @@ def _table_of(file_name: str, known: list[str]) -> str:
     directory carries the table identity."""
     parts = [p for p in file_name.replace("\\", "/").split("/") if p]
     known_set = {k.rsplit(".", 1)[-1].lower() for k in known}
-    if known_set:
-        for seg in reversed(parts):
-            stem = re.sub(r"\.[^.]+$", "", seg).lower()
-            if stem in known_set:
-                return stem
     stem = re.sub(r"\.[^.]+$", "", parts[-1]).lower()
-    if len(parts) >= 2:
-        dir_name = parts[-2].lower()
-        if _SHARD_RE.match(stem) or (
-            stem.startswith(dir_name) and _NAMED_SHARD_SUFFIX_RE.match(stem[len(dir_name):])
-        ):
+    if stem in known_set:
+        return stem
+    # A known directory claims only the files that carry no name of their own, so
+    # an undeclared `document/document_type.parquet` stays a table.
+    for seg in reversed(parts[:-1]):
+        dir_name = re.sub(r"\.[^.]+$", "", seg).lower()
+        if dir_name in known_set and _is_shard_of(stem, dir_name):
             return dir_name
+    if len(parts) >= 2 and _is_shard_of(stem, parts[-2].lower()):
+        return parts[-2].lower()
     return stem
+
+
+def _is_shard_of(stem: str, dir_name: str) -> bool:
+    return bool(_SHARD_RE.match(stem)) or (
+        stem.startswith(dir_name) and bool(_NAMED_SHARD_SUFFIX_RE.match(stem[len(dir_name):]))
+    )
 
 
 def _common_dir(names: list[str]) -> list[str]:
@@ -757,6 +841,15 @@ def _table_ref_of(file_name: str, root: list[str], known: list[str]) -> tuple[st
     A directory *below* the selected root names a schema — MIMIC-IV's `hosp`/`icu`,
     eHOP's Oracle schemas. The root itself never does: it is the download folder,
     and treating it as a schema would put every flat import inside one."""
+    schema, table, _ = _placed_table_ref(file_name, root, known)
+    return schema, table
+
+
+def _placed_table_ref(
+    file_name: str, root: list[str], known: list[str]
+) -> tuple[str | None, str, bool]:
+    """`_table_ref_of` plus whether the schema was borrowed from the known tables
+    rather than read off a module directory."""
     table = _table_of(file_name, known)
     parts = [p for p in file_name.replace("\\", "/").split("/") if p]
     below = (
@@ -770,7 +863,10 @@ def _table_ref_of(file_name: str, root: list[str], known: list[str]) -> tuple[st
     # remaining segment is the schema.
     if dirs and dirs[-1].lower() == table:
         dirs = dirs[:-1]
-    return (dirs[-1].lower() if dirs else _known_schema_of(table, known)), table
+    if dirs:
+        return dirs[-1].lower(), table, False
+    borrowed = _known_schema_of(table, known)
+    return borrowed, table, borrowed is not None
 
 
 def _known_schema_of(table: str, known: list[str]) -> str | None:
@@ -792,21 +888,49 @@ def _group_parquet(
 
     `schema` is None for a flat folder, which is the overwhelmingly common shape
     and the one every source imported before schemas were understood."""
+    return _group_parquet_placed(files, known)[0]
+
+
+def _group_parquet_placed(
+    files: list[tuple[str, str]], known: list[str]
+) -> tuple[dict[tuple[str | None, str], list[str]], set[tuple[str | None, str]]]:
+    """`_group_parquet` plus the groups whose schema was borrowed from the DDL."""
     root = _common_dir([n for n, _ in files if n.lower().endswith((".parquet", ".pq"))])
     groups: dict[tuple[str | None, str], list[str]] = {}
+    borrowed: set[tuple[str | None, str]] = set()
     for file_name, path in files:
         if not file_name.lower().endswith((".parquet", ".pq")):
             continue
-        schema, table = _table_ref_of(file_name, root, known)
+        schema, table, is_borrowed = _placed_table_ref(file_name, root, known)
         # Both are interpolated into quoted identifiers; a name that doesn't yield
         # a plain identifier is skipped rather than risking a broken (or injected)
         # CREATE VIEW.
         if _SAFE_IDENT.fullmatch(table) is None:
             continue
         if schema is not None and _SAFE_IDENT.fullmatch(schema) is None:
-            schema = None
+            schema, is_borrowed = None, False
         groups.setdefault((schema, table), []).append(path)
-    return groups
+        if is_borrowed:
+            borrowed.add((schema, table))
+    return groups, borrowed
+
+
+def _default_schema_aliases(
+    groups: dict[tuple[str | None, str], list[str]],
+    borrowed: set[tuple[str | None, str]],
+) -> dict[str, list[str]]:
+    """Table -> paths for each table a flat import placed in a DDL schema, to be
+    exposed in the default schema as well.
+
+    A role is ATTACHed as a catalog, and DuckDB reads the two-part `role.table`
+    as `role.main.table`: a flat folder whose tables moved into `hosp` would
+    otherwise break every pipeline written against it. A name the default schema
+    already holds is left alone."""
+    return {
+        table: groups[(schema, table)]
+        for schema, table in borrowed
+        if (None, table) not in groups
+    }
 
 
 def group_parquet_tables(
@@ -826,8 +950,8 @@ def group_parquet_tables(
 
 def _reader(paths: list[str]) -> str:
     if len(paths) == 1:
-        return f"read_parquet('{paths[0]}')"
-    lst = ", ".join(f"'{p}'" for p in paths)
+        return f"read_parquet('{_sql_path(paths[0])}')"
+    lst = ", ".join(f"'{_sql_path(p)}'" for p in paths)
     return f"read_parquet([{lst}])"
 
 
@@ -1379,9 +1503,11 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
         # Attach a real (empty, in-memory) database named after the role and put
         # the views in ITS main schema. A schema of the same name in `memory`
         # would not resolve: `role.table` is looked up as schema-of-target first.
-        groups = _group_parquet(spec.get("files") or [], spec.get("known") or [])
+        groups, borrowed = _group_parquet_placed(spec.get("files") or [], spec.get("known") or [])
+        aliases = _default_schema_aliases(groups, borrowed)
         con.execute(f'ATTACH \':memory:\' AS "{role}"')
-        for (schema, table), paths in groups.items():
+        views = {**groups, **{(None, table): paths for table, paths in aliases.items()}}
+        for (schema, table), paths in views.items():
             safe_table = _require_ident(table, "parquet table name")
             # A folder laid out per module keeps its schemas, so `source.hosp.t`
             # works and two modules can hold the same table name. Without one the

@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { getScoresFile } from '@/lib/concept-mapping/scores-storage'
+import { SourceConceptsUnreadableError } from '@/lib/concept-mapping/export-masking'
 import { formatMegabytes, type ScoreMethodStat, type ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -70,7 +71,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   const [zipExporting, setZipExporting] = useState(false)
   // Id of the format currently generating (SSSOM/STCM/Usagi) — drives its button spinner.
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null)
-  const [sourceCsvTooLarge, setSourceCsvTooLarge] = useState(false)
+  const [zipError, setZipError] = useState<string | null>(null)
 
   // Which OHDSI vocabulary format the widget's picker is on.
   const [ohdsiFormat, setOhdsiFormat] = useState<OhdsiFormat>(DEFAULT_OHDSI_FORMAT)
@@ -282,7 +283,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
 
   const handleExportZip = useCallback(async (scores: ScoresSelection) => {
     setZipExporting(true)
-    setSourceCsvTooLarge(false)
+    setZipError(null)
     try {
       // Server mode: let the backend assemble the ZIP (offloads the browser — no
       // data pulled down just to re-zip, the scores included).
@@ -305,7 +306,11 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       await attachEntityOrganization(zip, ENTITY_MANIFEST, project, getStorage())
       const blob = await zip.generateAsync({ type: 'blob' })
       downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
-    } catch {
+    } catch (err) {
+      if (err instanceof SourceConceptsUnreadableError) {
+        setZipError(t('concept_mapping.source_csv_unreadable'))
+        return
+      }
       // ZIP generation failed (likely memory overflow on very large source CSV)
       // Fall back: download ZIP without source CSV + source CSV separately
       try {
@@ -330,25 +335,27 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             // TS lib.dom's BlobPart rejects the generic Uint8Array<ArrayBufferLike>; runtime accepts it
             const csvBlob = new Blob([out as BlobPart], { type: 'text/csv' })
             downloadBlob(csvBlob, `${slugify(localized(project.name, 'en'))}-source-concepts.csv`)
-          } catch {
-            setSourceCsvTooLarge(true)
+          } catch (csvErr) {
+            setZipError(t(csvErr instanceof SourceConceptsUnreadableError
+              ? 'concept_mapping.source_csv_unreadable'
+              : 'concept_mapping.source_csv_too_large'))
           }
         } else {
-          setSourceCsvTooLarge(true)
+          setZipError(t('concept_mapping.source_csv_too_large'))
         }
-      } catch {
-        setSourceCsvTooLarge(true)
+      } catch (fallbackErr) {
+        setZipError(t('concept_mapping.export_zip_failed', { reason: fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr) }))
       }
     } finally {
       setZipExporting(false)
     }
-  }, [project, dataSources, ensureMounted])
+  }, [project, dataSources, ensureMounted, t])
 
   const versionedMethods = useMemo(() => new Set(project.versionedScoreMethods ?? []), [project.versionedScoreMethods])
 
   // Probe the stored scores (per method), then open the export options modal.
   const openZipDialog = useCallback(async () => {
-    setSourceCsvTooLarge(false)
+    setZipError(null)
     setScoreStats(null)
     setScoresFormat('csv')
     setSelectedMethods(new Set(versionedMethods))
@@ -528,11 +535,11 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
                 {zipExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 {t('concept_mapping.export_download')}
               </Button>
-              {sourceCsvTooLarge && (
+              {zipError && (
                 <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-900 dark:bg-amber-950">
                   <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-600" />
-                  <p className="text-[11px] text-amber-700 dark:text-amber-300">
-                    {t('concept_mapping.source_csv_too_large')}
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    {zipError}
                   </p>
                 </div>
               )}

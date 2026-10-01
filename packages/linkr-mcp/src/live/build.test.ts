@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { CATALOG, CORE_TOOLS, TOOLSETS, buildServer, selectedToolsets } from './build'
+import { inputJsonSchema } from './gateway'
 import { FAMILIES } from './tools-gateway'
 
 describe('selectedToolsets', () => {
@@ -18,6 +19,18 @@ describe('catalog', () => {
   it('holds every tool once', () => {
     const names = CATALOG.map((t) => t.name)
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  it('gives every parameter a single type, which grammar-constrained providers require', () => {
+    const unions = (node: unknown, at: string): string[] => {
+      if (Array.isArray(node)) return node.flatMap((n, i) => unions(n, `${at}[${i}]`))
+      if (typeof node !== 'object' || node === null) return []
+      const here = Object.entries(node as Record<string, unknown>)
+        .filter(([key, value]) => key === 'anyOf' || key === 'oneOf' || (key === 'type' && Array.isArray(value)))
+        .map(([key]) => `${at}.${key}`)
+      return [...here, ...Object.entries(node).flatMap(([key, value]) => unions(value, `${at}.${key}`))]
+    }
+    expect(CATALOG.flatMap((t) => unions(inputJsonSchema(t), t.name))).toEqual([])
   })
 
   it('knows every core tool and describes every family', () => {

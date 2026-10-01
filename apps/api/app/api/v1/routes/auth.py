@@ -15,8 +15,9 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
-    hash_password,
     password_policy_error,
+    predates_password_change,
+    set_password,
     verify_password,
 )
 from app.models.role import Role
@@ -116,6 +117,11 @@ async def refresh(request: RefreshRequest, db: AsyncSession = Depends(get_db)):
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
+    if predates_password_change(payload, user):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session ended by a password change",
+        )
     return _issue_tokens(user)
 
 
@@ -174,7 +180,7 @@ async def update_me(
     return await _build_me(user, db)
 
 
-@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+@router.post("/change-password", response_model=TokenResponse)
 async def change_password(
     body: PasswordChange,
     user: User = Depends(get_session_user),
@@ -182,7 +188,10 @@ async def change_password(
 ):
     """Change one's own password: the current one proves it is the user at the
     keyboard, not a stolen session. Session only — an API token cannot take over
-    the account it belongs to."""
+    the account it belongs to.
+
+    Every session issued before the change ends; the caller gets fresh tokens,
+    which the client stores to stay signed in."""
     if settings.auth_provider != "local" or not user.password_hash:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passwords are managed by the identity provider")
     if not verify_password(body.current_password, user.password_hash):
@@ -192,9 +201,10 @@ async def change_password(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The new password is the current one")
     if error := password_policy_error(body.new_password, user.username):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, error)
-    user.password_hash = hash_password(body.new_password)
+    set_password(user, body.new_password)
     await db.commit()
     audit.bind(action="password_change")
+    return _issue_tokens(user)
 
 
 # Personal API tokens. All three require a session JWT (get_session_user): an API

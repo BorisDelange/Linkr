@@ -68,6 +68,26 @@ async def test_an_api_key_cannot_run_in_a_session_the_ide_started(mgr):
     assert await mgr.get("p", 1, "r", "agent", via="web") is agent
 
 
+async def test_an_api_key_cannot_restart_interrupt_or_drop_a_session_the_ide_started(mgr):
+    # Killed, the kernel would respawn on the agent's next run under its token,
+    # and the IDE would go on running the user's code in the agent's process.
+    ide = await mgr.get("p", 1, "r", "default", via="web")
+    with pytest.raises(KernelSessionForeign):
+        await mgr.restart("p", 1, "r", "default", via="api_key")
+    with pytest.raises(KernelSessionForeign):
+        mgr.interrupt("p", 1, "r", "default", via="api_key")
+    with pytest.raises(KernelSessionForeign):
+        await mgr.shutdown_session("p", 1, "default", via="api_key")
+    assert ide.shut is False and ide.interrupted is False
+    assert mgr.interrupt("p", 1, "r", "default", via="web") is True
+    await mgr.restart("p", 1, "r", "default", via="web")
+    assert ide.shut is True
+
+    agent = await mgr.get("p", 1, "r", "agent", via="api_key")
+    await mgr.restart("p", 1, "r", "agent", via="api_key")
+    assert agent.shut is True
+
+
 async def test_idle_kernels_are_evicted(mgr, monkeypatch):
     monkeypatch.setattr(settings, "session_timeout_minutes", 60, raising=False)
     k = await mgr.get("p", 1, "python", "e1")

@@ -208,8 +208,8 @@ export function registerWikiTools(server: Server): void {
       + 'language\'s whole Markdown — read it with get_wiki_page first to edit part of it), icon, owner, review date, verified flag.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
-      page_id: string; title?: string; content?: string; language?: string; icon?: string | null
-      owner?: string | null; review_due_at?: string | null; verified?: boolean
+      page_id: string; title?: string; content?: string; language?: string; icon?: string
+      owner?: string; review_due_at?: string; verified?: boolean
     }>({
       type: 'object',
       properties: {
@@ -217,9 +217,9 @@ export function registerWikiTools(server: Server): void {
         title: { type: 'string' },
         content: { type: 'string', description: 'The full Markdown body for `language`.' },
         language: { type: 'string', description: 'Default "en".' },
-        icon: { type: ['string', 'null'], description: 'A lucide-react icon name; null removes it.' },
-        owner: { type: ['string', 'null'], description: 'Who maintains the page (free text).' },
-        review_due_at: { type: ['string', 'null'], description: 'ISO date the page should be reviewed by.' },
+        icon: { type: 'string', description: 'A lucide-react icon name; "" removes it.' },
+        owner: { type: 'string', description: 'Who maintains the page (free text); "" clears it.' },
+        review_due_at: { type: 'string', description: 'ISO date the page should be reviewed by; "" clears it.' },
         verified: { type: 'boolean', description: 'Mark the page as verified (stamps the date) or not.' },
       },
       required: ['page_id'],
@@ -234,9 +234,9 @@ export function registerWikiTools(server: Server): void {
       changes.slug = wikiSlug(localized(changes.title as LocalizedString, 'en'))
     }
     if (content !== undefined) changes.content = setLocalized(page.content, lang, content)
-    if (icon !== undefined) changes.icon = icon
-    if (owner !== undefined) changes.owner = owner
-    if (review_due_at !== undefined) changes.reviewDueAt = review_due_at
+    if (icon !== undefined) changes.icon = icon.trim() || null
+    if (owner !== undefined) changes.owner = owner.trim() || null
+    if (review_due_at !== undefined) changes.reviewDueAt = review_due_at.trim() || null
     if (verified !== undefined) {
       changes.verified = verified
       changes.verifiedAt = verified ? new Date().toISOString() : null
@@ -250,16 +250,17 @@ export function registerWikiTools(server: Server): void {
     description:
       'Move a wiki page (with its sub-pages) under another parent, or to the top level, at a position among its new siblings.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ page_id: string; parent_id: string | null; position?: number }>({
+    inputSchema: fromJsonSchema<{ page_id: string; parent_id: string; position?: number }>({
       type: 'object',
       properties: {
         page_id: { type: 'string' },
-        parent_id: { type: ['string', 'null'], description: 'New parent page; null for the top level.' },
+        parent_id: { type: 'string', description: 'New parent page; "" for the top level.' },
         position: { type: 'number', description: '0-based position among the new siblings; last when omitted.' },
       },
       required: ['page_id', 'parent_id'],
     }),
-  }, guard(async ({ page_id, parent_id, position }) => {
+  }, guard(async ({ page_id, parent_id: parentArg, position }) => {
+    const parent_id = parentArg.trim() || null
     const page = await wiki.get(page_id).catch(() => null)
     if (!page?.workspaceId) return failure(`No wiki page ${page_id} (list_wiki_pages lists them).`)
     const pages = await wiki.list(page.workspaceId)
@@ -399,6 +400,7 @@ export function registerWikiTools(server: Server): void {
     annotations: WRITE,
     inputSchema: fromJsonSchema<CatalogChanges & {
       catalog_id: string; name?: string; description?: string; language?: string; database_id?: string; version?: string
+      age_preset?: string
     }>({
       type: 'object',
       properties: {
@@ -410,8 +412,8 @@ export function registerWikiTools(server: Server): void {
         version: { type: 'string', description: 'Semantic version, e.g. "0.2.0".' },
         concept_enabled: { type: 'boolean' },
         concept_level: { type: 'string', enum: ['concept', 'category', 'subcategory'], description: 'Count each concept, or its category / subcategory.' },
-        category_column: { type: ['string', 'null'], description: 'get_data_catalog with options lists the columns.' },
-        subcategory_column: { type: ['string', 'null'] },
+        category_column: { type: 'string', description: 'get_data_catalog with options lists the columns; "" clears it.' },
+        subcategory_column: { type: 'string', description: '"" clears it.' },
         concept_scope: { type: 'string', enum: ['all', 'top'], description: 'Every concept, or only the concept_top_n with the most patients.' },
         concept_top_n: { type: 'number' },
         period_enabled: { type: 'boolean' },
@@ -425,9 +427,10 @@ export function registerWikiTools(server: Server): void {
         service_unassigned: { type: 'string', enum: ['other', 'keep'], description: 'manual grouping: a service in no group joins "other" or keeps its name.' },
         age_enabled: { type: 'boolean' },
         age_brackets: {
-          description: `Lower bounds of the age groups (e.g. [18, 65, 80]), or a preset: ${Object.keys(AGE_BRACKET_PRESETS).join(', ')}.`,
-          anyOf: [{ type: 'array', items: { type: 'number' } }, { type: 'string' }],
+          type: 'array', items: { type: 'number' },
+          description: 'Lower bounds of the age groups, e.g. [18, 65, 80]. Or age_preset.',
         },
+        age_preset: { type: 'string', enum: Object.keys(AGE_BRACKET_PRESETS), description: 'A preset set of age groups, instead of age_brackets.' },
         sex_enabled: { type: 'boolean' },
         crossings: {
           type: 'array',
@@ -442,7 +445,11 @@ export function registerWikiTools(server: Server): void {
       },
       required: ['catalog_id'],
     }),
-  }, guard(async ({ catalog_id, name, description, language, database_id, version, ...changes }) => {
+  }, guard(async ({ catalog_id, name, description, language, database_id, version, age_preset, ...changes }) => {
+    if (age_preset !== undefined) {
+      if (changes.age_brackets !== undefined) return failure('Give age_brackets or age_preset, not both.')
+      changes.age_brackets = age_preset
+    }
     const lang = language ?? 'en'
     const c = await catalogs.get(catalog_id).catch(() => null)
     if (!c) return failure(`No data catalog ${catalog_id} (list_data_catalogs lists them).`)

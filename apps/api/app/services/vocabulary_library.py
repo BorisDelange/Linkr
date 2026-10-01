@@ -294,6 +294,14 @@ def workspace_lock(workspace_id: str) -> asyncio.Lock:
     return _workspace_locks.setdefault(workspace_id, asyncio.Lock())
 
 
+def is_busy(workspace_id: str) -> bool:
+    """Whether the library is being written or has an import waiting to."""
+    lock = _workspace_locks.get(workspace_id)
+    return (lock is not None and lock.locked()) or any(
+        state.workspace_id == workspace_id and state.finished_at is None for state in _imports.values()
+    )
+
+
 def _prune_imports(now: float) -> None:
     for import_id, state in list(_imports.items()):
         if state.finished_at is not None and now - state.finished_at > _FINISHED_IMPORT_TTL:

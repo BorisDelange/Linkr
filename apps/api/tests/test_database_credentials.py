@@ -22,7 +22,7 @@ def _no_session_logins():
 
 
 async def _user(db, username: str) -> User:
-    user = User(username=username, password_hash=hash_password("pw"), role="user")
+    user = User(username=username, password_hash=hash_password("pw-for-tests-only"), role="user")
     db.add(user)
     await db.commit()
     await db.refresh(user)
@@ -136,7 +136,7 @@ async def test_login_does_not_follow_a_retarget_even_if_left_in_place(db):
 
 
 def test_with_login_names_linkr_to_postgres():
-    login = creds.Login("me", "pw", "user:1")
+    login = creds.Login("me", "pw-for-tests-only", "user:1")
     config = creds.with_login({"engine": "postgresql", "host": "h"}, login)
     assert config["username"] == "me" and config["application_name"] == "linkr"
     assert "application_name" not in creds.with_login({"engine": "mysql"}, login)
@@ -152,12 +152,12 @@ def test_pool_key_is_per_user():
 # --- Routes ---------------------------------------------------------------------
 
 async def _login_headers(client, username: str) -> dict:
-    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw"})
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"})
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 async def _setup(client, db):
-    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw"})
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
     admin = await _login_headers(client, "admin")
     ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
     ds = (await client.post(f"{API}/data-sources", headers=admin, json={
@@ -237,7 +237,7 @@ async def test_logout_forgets_session_only_logins(client, db, monkeypatch):
 
     monkeypatch.setattr(data_source_service, "test_connection", accept)
     await client.put(f"{API}/data-sources/{source_id}/my-login", headers=admin,
-                     json={"username": "me", "password": "pw", "remember": False})
+                     json={"username": "me", "password": "pw-for-tests-only", "remember": False})
     assert (await client.get(f"{API}/data-sources/{source_id}/my-login", headers=admin)).json()["hasLogin"]
     await client.post(f"{API}/auth/logout", headers=admin)
     assert (await client.get(f"{API}/data-sources/{source_id}/my-login", headers=admin)).json()["hasLogin"] is False

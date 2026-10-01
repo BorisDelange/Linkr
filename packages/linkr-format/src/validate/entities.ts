@@ -5,6 +5,7 @@
  * kind carries. They are what the `linkr-public-content` repos hold (one repo per
  * entity), so validating them is what keeps those repos importable.
  */
+import { VERSION_PATTERN } from '../app-version.js'
 import { checkLocalized, checkString, isObject } from '../check.js'
 import { canonicalSchemaMapping, canonicalSchemaOverrides } from '../schema-mapping.js'
 import { IssueBag, type Issue } from '../issue.js'
@@ -174,7 +175,7 @@ export function checkMinAppVersion(tree: EntityTree, kind: LayoutKind, bag: Issu
   const parsed = readJson(tree, path)
   if (!parsed.ok || !isObject(parsed.value) || !('minAppVersion' in parsed.value)) return
   const min = parsed.value.minAppVersion
-  if (typeof min !== 'string' || !/^\d+\.\d+\.\d+$/.test(min)) {
+  if (typeof min !== 'string' || !VERSION_PATTERN.test(min.trim())) {
     bag.error(path, '/minAppVersion', 'wrong-type',
       '"minAppVersion" must be a version such as "2.4.3".',
       'let the app stamp it on export rather than writing it by hand')

@@ -20,6 +20,7 @@ import { cleanGitUrl } from '@/lib/git-clone'
 import { applyClonedEntity } from '@/lib/entity-io'
 import { getStorage, type Storage } from '@/lib/storage'
 import { assertAppVersionSupported } from '@/lib/app-version-compat'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 /** What the remote holds, read once so the panel can describe the pull before
  *  the user commits to it. */
@@ -59,7 +60,7 @@ export async function prepareDatabasePull(
   const url = source?.gitRemoteConfig?.url
   if (!url) throw new Error('Database is not linked to a git remote')
 
-  const cloned = await gitCloneToZip(cleanGitUrl(url), branch)
+  const cloned = await gitCloneToZip(cleanGitUrl(url), branch, undefined, getActiveWorkspaceId())
   // Not parseImportZip: it decodes every entry as text, which would corrupt the
   // Parquet. The apply reads the same JSZip, so the tree is loaded once.
   const zip = await JSZip.loadAsync(cloned.blob)

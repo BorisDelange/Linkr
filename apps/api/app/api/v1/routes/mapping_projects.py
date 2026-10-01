@@ -34,6 +34,7 @@ from app.services import blob_store, fs_browser, notification_service, scores_ex
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
+from app.services.export_masking import SourceConceptsUnreadable
 from app.services.mapping_project_export_assemble import assemble_mapping_project_zip
 from app.services.data import dataset_parser, db_connect, file_reader
 from app.services.data import global_table_service
@@ -735,6 +736,8 @@ async def get_scores_file(
         data = files.get(scores_export.SCORES_PARQUET_FILE)
         if data is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No scores for these methods")
+    audit.bind(action="download", workspace_id=project.workspace_id,
+               detail=f"mapping project {project.id} scores file ({len(data)} bytes)")
     return Response(
         content=data,
         media_type="application/octet-stream",
@@ -919,9 +922,12 @@ async def export_zip(
     Scores default to what git carries (the versioned methods, as CSV);
     `scoreMethods` + `scoresFormat` pick another selection, `noScores` none."""
     project = await _load_project(db, project_id, user, "concept-mapping:read")
-    zip_bytes = await assemble_mapping_project_zip(
-        db, project, scores_format, [] if no_scores else score_methods
-    )
+    try:
+        zip_bytes = await assemble_mapping_project_zip(
+            db, project, scores_format, [] if no_scores else score_methods
+        )
+    except SourceConceptsUnreadable as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     audit.bind(action="export", workspace_id=project.workspace_id,
                detail=f"mapping project {project.id} export ({len(zip_bytes)} bytes)")
     slug = _localized(project.name, "en") or project.id

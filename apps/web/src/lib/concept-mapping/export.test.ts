@@ -1,8 +1,15 @@
-import { describe, it, expect } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { describe, it, expect, vi } from 'vitest'
 import JSZip from 'jszip'
-import { exportToJson, buildMappingProjectFolder, restoreFileSourceDataFromCsv, isParquetBuffer } from './export'
+import { exportToJson, buildMappingProjectFolder, restoreFileSourceDataFromCsv, isParquetBuffer, maskedSourceConcepts } from './export'
+import { SourceConceptsUnreadableError } from './export-masking'
 import type { Storage } from '@/lib/storage'
 import type { ConceptMapping, MappingProject } from '@/types'
+
+vi.mock('@/lib/duckdb/engine', () => ({
+  getDuckDB: async () => { throw new Error('no DuckDB in unit tests') },
+}))
 
 const project = {
   id: 'proj1',
@@ -169,6 +176,33 @@ describe('buildMappingProjectFolder — portable entity.json', () => {
   })
 })
 
+describe('buildMappingProjectFolder — masking', () => {
+  const csv = 'terminology,concept_code,record_count\nLOCAL,A,4\n'
+  const fileProject = {
+    ...project,
+    sourceType: 'file',
+    fileSourceData: { rawFileBuffer: new TextEncoder().encode(csv), rows: [], columns: [], columnMapping: {} },
+  } as unknown as MappingProject
+  const storage = {
+    conceptMappings: { getByProject: async () => [{ ...makeMapping(), sourceFrequency: 4 }] },
+  } as unknown as Storage
+
+  const build = async (unmasked?: boolean) => {
+    const zip = new JSZip()
+    await buildMappingProjectFolder(zip, '', fileProject, storage, { unmasked })
+    const mappings = JSON.parse(await zip.file('mappings.json')!.async('string')) as ConceptMapping[]
+    return { source: await zip.file('source-concepts.csv')!.async('string'), frequency: mappings[0].sourceFrequency }
+  }
+
+  it('masks what leaves the instance', async () => {
+    expect(await build()).toEqual({ source: 'terminology,concept_code,record_count\nLOCAL,A,<11\n', frequency: null })
+  })
+
+  it('keeps a duplicate made inside the instance whole', async () => {
+    expect(await build(true)).toEqual({ source: csv, frequency: 4 })
+  })
+})
+
 describe('restoreFileSourceDataFromCsv — LFS pointer guard', () => {
   const base = () => ({
     sourceType: 'file',
@@ -233,5 +267,33 @@ describe('isParquetBuffer', () => {
 
   it('is false for a buffer shorter than the magic number', () => {
     expect(isParquetBuffer(new Uint8Array([0x50, 0x41]))).toBe(false)
+  })
+})
+
+describe('maskedSourceConcepts', () => {
+  const fixture = (name: string) => readFileSync(join(__dirname, '__fixtures__', 'export-masking', name))
+  const expected = fixture('expected.csv').toString('utf-8')
+
+  it('masks a UTF-8 file', async () => {
+    expect(await maskedSourceConcepts(new Uint8Array(fixture('input.csv')))).toBe(expected)
+  })
+
+  it('drops a UTF-8 byte order mark', async () => {
+    const bom = new Uint8Array([0xef, 0xbb, 0xbf, ...fixture('input.csv')])
+    expect(await maskedSourceConcepts(bom)).toBe(expected)
+  })
+
+  it('reads a Windows-1252 file instead of shipping it unmasked', async () => {
+    expect(await maskedSourceConcepts(new Uint8Array(fixture('input-cp1252.csv')))).toBe(expected)
+  })
+
+  it('refuses bytes it cannot read rather than export them as they are', async () => {
+    for (const bytes of [
+      new Uint8Array([0x50, 0x41, 0x52, 0x31, 0x00, 0x01]),
+      new Uint8Array([0x61, 0x2c, 0x62, 0x0a, 0x81, 0x0a]),
+      new TextEncoder().encode('a,record_count\nx,\u00003\n'),
+    ]) {
+      await expect(maskedSourceConcepts(bytes)).rejects.toBeInstanceOf(SourceConceptsUnreadableError)
+    }
   })
 })

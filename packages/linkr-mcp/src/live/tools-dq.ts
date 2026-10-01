@@ -188,8 +188,8 @@ const CHECK_FIELDS = {
   description: { type: 'string', description: 'What the check verifies (shown in results).' },
   category: { type: 'string', enum: CATEGORIES, description: 'Kahn category. Default for a new check: plausibility.' },
   subcategory: {
-    type: ['string', 'null'], enum: [...SUBCATEGORIES, null],
-    description: 'conformance: value, relational, computational · completeness: none · plausibility: uniqueness, '
+    type: 'string', enum: [...SUBCATEGORIES, ''],
+    description: 'conformance: value, relational, computational · completeness: none ("") · plausibility: uniqueness, '
       + 'atemporal, temporal. Omitted: kept if it fits the category, else the category\'s first.',
   },
   severity: { type: 'string', enum: SEVERITIES, description: 'Default for a new check: warning.' },
@@ -205,13 +205,13 @@ const CHECK_FIELDS = {
       + 'linkr_visit, linkr_event_<key>…) both work. total_rows = 0 → not applicable.',
   },
   explore_sql: {
-    type: ['string', 'null'],
+    type: 'string',
     description: 'Lists the rows breaking the rule, to investigate a failure: same table and condition as sql, '
-      + 'without COUNT, ending with LIMIT 100. null clears it.',
+      + 'without COUNT, ending with LIMIT 100. "" clears it.',
   },
   group: {
-    type: ['string', 'null'],
-    description: 'The group the check is listed under (usually its table or relation); null = "Other checks".',
+    type: 'string',
+    description: 'The group the check is listed under (usually its table or relation); "" = "Other checks".',
   },
   skip_test: {
     type: 'boolean',
@@ -685,14 +685,14 @@ export function registerDqTools(server: Server): void {
 
   server.registerTool('move_dq_checks', {
     description: 'Move checks of a data-quality rule set to a group (an existing one or a new name), or to "Other '
-      + 'checks" with group null.',
+      + 'checks" with group "".',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ rule_set_id: string; check_ids: string[]; group: string | null }>({
       type: 'object',
       properties: {
         ...RULE_SET_ID,
         check_ids: { type: 'array', items: { type: 'string' }, minItems: 1 },
-        group: { type: ['string', 'null'] },
+        group: { type: 'string', description: '"" = "Other checks".' },
       },
       required: ['rule_set_id', 'check_ids', 'group'],
     }),

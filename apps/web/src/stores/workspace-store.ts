@@ -392,3 +392,8 @@ useOrganizationStore.subscribe((state, prevState) => {
     }
   }
 })
+
+/** The active workspace, read outside React (e.g. the workspace a git clone is
+ *  checked against). */
+export const getActiveWorkspaceId = (): string | undefined =>
+  useWorkspaceStore.getState().activeWorkspaceId ?? undefined

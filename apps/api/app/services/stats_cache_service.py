@@ -1,9 +1,12 @@
+import structlog
 from sqlalchemy import Text, cast, select, update
 from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.stats_cache import StatsCache
+
+logger = structlog.get_logger()
 
 
 async def get(db: AsyncSession, scope: str, cache_key: str) -> StatsCache | None:
@@ -48,7 +51,10 @@ async def save(
         # Another first save of the same key committed between our update and
         # this insert: the row exists now, so this one overwrites it.
         await db.rollback()
-        await _overwrite(db, scope, cache_key, computed_at, payload)
+        if not await _overwrite(db, scope, cache_key, computed_at, payload):
+            # The row that made the insert fail is gone again (deleted meanwhile):
+            # this result is not stored, the next read recomputes it.
+            logger.warning("stats_cache_save_dropped", scope=scope, cache_key=cache_key)
         await db.commit()
 
 

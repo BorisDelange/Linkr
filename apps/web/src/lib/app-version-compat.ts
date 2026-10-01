@@ -33,9 +33,13 @@ export async function requiredAppVersion(zip: JSZip): Promise<string | null> {
   let highest: string | null = null
   for (const [path, entry] of Object.entries(zip.files)) {
     if (entry.dir || !MANIFEST_NAMES.has(path.split('/').pop() ?? '')) continue
+    const text = await entry.async('string')
+    // A record list sharing a manifest's name (a mapping project's mappings.json
+    // can run to megabytes) carries no stamp: not worth parsing.
+    if (text.trimStart().startsWith('[')) continue
     let meta: unknown
     try {
-      meta = JSON.parse(await entry.async('string'))
+      meta = JSON.parse(text)
     } catch {
       continue
     }
@@ -69,6 +73,21 @@ export class WrongEntityTypeError extends Error {
     super(i18n.t('common.import_wrong_type', { found: typeLabel(found), expected: typeLabel(expected) }))
     this.name = 'WrongEntityTypeError'
     this.found = found
+    this.expected = expected
+  }
+}
+
+/**
+ * A ZIP holding no manifest the importer can read for `expected`: not an export
+ * of that kind at all. Thrown rather than returned, so the import dialog shows it
+ * instead of closing as if something had been imported.
+ */
+export class MissingManifestError extends Error {
+  readonly expected: string
+
+  constructor(expected: string) {
+    super(i18n.t('common.import_no_manifest', { expected: typeLabel(expected) }))
+    this.name = 'MissingManifestError'
     this.expected = expected
   }
 }

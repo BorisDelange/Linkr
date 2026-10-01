@@ -17,7 +17,7 @@
 
 import type JSZip from 'jszip'
 import { CONTENT_FILE, ENTITY_MANIFEST, isAppTooOld, MANIFEST } from '@linkr/format'
-import { IncompatibleAppVersionError, requiredAppVersion } from '@/lib/app-version-compat'
+import { assertEntityType, IncompatibleAppVersionError, requiredAppVersion, WrongEntityTypeError } from '@/lib/app-version-compat'
 import { APP_VERSION } from '@/lib/version'
 import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '@/lib/entity-io'
 import type { GitLinkedEntity, ParsedWorkspaceZip } from '@/lib/entity-io'
@@ -34,6 +34,7 @@ import { stampAuthored } from '@/stores/app-store'
 import type { Storage } from '@/lib/storage'
 import type { GitRemoteConfig, LocalizedString } from '@/types'
 import type { CatalogEntry } from './types'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 // A published entity is small (metadata + scripts). This is a guard against a
 // hostile/oversized catalog repo, not a real content limit.
@@ -284,7 +285,7 @@ export async function prepareCatalogInstall(
   const branch = entry.git.branch || 'main'
   try {
     const JSZipMod = (await import('jszip')).default
-    const cloned = await gitCloneToZip(entry.git.url, branch)
+    const cloned = await gitCloneToZip(entry.git.url, branch, undefined, getActiveWorkspaceId())
     // The catalog is untrusted: cap the archive before decompressing so an entry
     // pointing at a huge or zip-bomb repo can't hang or OOM the tab.
     if (cloned.blob.size > MAX_CLONE_BYTES) {
@@ -302,6 +303,15 @@ export async function prepareCatalogInstall(
     const meta = metaEntry
       ? (JSON.parse(await metaEntry.async('string')) as Record<string, unknown>)
       : {}
+    // The entry's declared type is the catalog's word; the repo's own manifest is
+    // what the importer reads. A mismatch would land as an empty entity of the
+    // wrong kind.
+    try {
+      assertEntityType(meta, entry.type)
+    } catch (err) {
+      if (err instanceof WrongEntityTypeError) return { ok: false, failure: 'apply-failed', error: err.message }
+      throw err
+    }
     // No id in the repo (or no metadata file at all): fall back to a fresh id, which
     // can't collide — better than refusing the install outright.
     const repoId = idOf(entry.type, meta) ?? crypto.randomUUID()
@@ -573,7 +583,7 @@ async function cloneWorkspaceChildren(
       if (match) id = match.id
     }
     try {
-      const cloned = await gitCloneToZip(child.url, child.branch)
+      const cloned = await gitCloneToZip(child.url, child.branch, undefined, getActiveWorkspaceId())
       if (cloned.blob.size > MAX_CLONE_BYTES) {
         failed.push({ name: child.name, reason: 'The archive is too large to install.' })
         continue

@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
@@ -54,6 +54,9 @@ export function SettingsPage() {
       {id === 'access-log' ? content : <div className="mx-auto max-w-5xl">{content}</div>}
     </TabsContent>
   )
+
+  // The catalog repos were a settings tab before the Catalog page took them over.
+  if (requestedTab === 'catalog') return <Navigate to="/catalog" replace />
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

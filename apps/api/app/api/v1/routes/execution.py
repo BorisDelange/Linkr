@@ -414,7 +414,12 @@ async def restart_kernel(
     """Kill the caller's persistent kernel for (project, language, session) so the
     next run starts with a clean namespace."""
     await _require_code_execution(db, body.project_uid, user)
-    await kernel.manager.restart(body.project_uid, user.id, body.language, body.session_id)
+    try:
+        await kernel.manager.restart(
+            body.project_uid, user.id, body.language, body.session_id, via=audit.actor().get("via"),
+        )
+    except kernel.KernelSessionForeign as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
 @router.post("/complete", response_model=list[CompletionItem])
@@ -443,7 +448,12 @@ async def interrupt_kernel(
     Stop button. Unlike restart it keeps the namespace; it just interrupts the
     current run (e.g. a long Sys.sleep). A no-op if nothing is running."""
     await _require_code_execution(db, body.project_uid, user)
-    kernel.manager.interrupt(body.project_uid, user.id, body.language, body.session_id)
+    try:
+        kernel.manager.interrupt(
+            body.project_uid, user.id, body.language, body.session_id, via=audit.actor().get("via"),
+        )
+    except kernel.KernelSessionForeign as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
 
 
 @router.get("/sessions", response_model=list[ExecutionSessionResponse])
@@ -485,7 +495,12 @@ async def delete_session(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     if session.user_id != user.id:
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not your session")
-    await kernel.manager.shutdown_session(session.project_uid, user.id, session.id)
+    try:
+        await kernel.manager.shutdown_session(
+            session.project_uid, user.id, session.id, via=audit.actor().get("via"),
+        )
+    except kernel.KernelSessionForeign as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     await execution_session_service.delete(db, session)
 
 

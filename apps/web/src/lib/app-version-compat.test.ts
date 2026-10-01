@@ -1,8 +1,10 @@
 import JSZip from 'jszip'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { APP_VERSION } from '@/lib/version'
 import { readImportedManifest } from '@/lib/entity-io'
-import { assertAppVersionSupported, assertEntityType, IncompatibleAppVersionError, requiredAppVersion, WrongEntityTypeError } from './app-version-compat'
+import { MANIFEST, type LayoutKind } from '@linkr/format'
+import i18n from '@/lib/i18n'
+import { assertAppVersionSupported, assertEntityType, IncompatibleAppVersionError, MissingManifestError, requiredAppVersion, WrongEntityTypeError } from './app-version-compat'
 
 /**
  * The import-side guard of `minAppVersion`: a tree written for a newer Linkr must
@@ -38,6 +40,18 @@ describe('requiredAppVersion', () => {
     })
     expect(await requiredAppVersion(zip)).toBeNull()
   })
+
+  it('does not parse a record list sharing a manifest name', async () => {
+    const list = `  [${'{"sourceCode":"x"},'.repeat(50)}{}]`
+    const zip = zipOf({ 'mappings/mappings.json': list, 'entity.json': { minAppVersion: '2.4.3' } })
+    const parse = vi.spyOn(JSON, 'parse')
+    try {
+      expect(await requiredAppVersion(zip)).toBe('2.4.3')
+      expect(parse.mock.calls.some(([text]) => text === list)).toBe(false)
+    } finally {
+      parse.mockRestore()
+    }
+  })
 })
 
 describe('assertAppVersionSupported', () => {
@@ -61,6 +75,18 @@ describe('assertEntityType', () => {
   it('accepts the expected kind, and a manifest that predates `type`', () => {
     expect(() => assertEntityType({ type: 'project' }, 'project')).not.toThrow()
     expect(() => assertEntityType({ entityId: 'p' }, 'project')).not.toThrow()
+  })
+})
+
+describe('entity type labels', () => {
+  it('has one for every kind, so a refusal never prints a raw type', () => {
+    for (const kind of Object.keys(MANIFEST) as LayoutKind[]) {
+      expect(i18n.exists(`catalog.type_${kind.replace(/-/g, '_')}`), kind).toBe(true)
+    }
+  })
+
+  it('names the expected kind when a ZIP holds no manifest', () => {
+    expect(new MissingManifestError('etl-pipeline').message).toContain(i18n.t('catalog.type_etl_pipeline'))
   })
 })
 

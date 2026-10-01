@@ -177,7 +177,7 @@ export function ImportSourceDialog({
     const cleanUrl = cleanGitUrl(url.trim())
     let cloned: Awaited<ReturnType<typeof gitCloneToZip>>
     try {
-      cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined)
+      cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined, activeWorkspaceId ?? undefined)
     } catch (err) {
       console.error('[import] git clone failed:', err)
       // Keep the backend's typed code alongside the raw text: it is what turns

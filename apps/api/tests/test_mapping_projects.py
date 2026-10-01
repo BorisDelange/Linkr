@@ -7,19 +7,19 @@ API = "/api/v1"
 
 async def _admin_headers(client) -> dict:
     await client.post(
-        f"{API}/setup/initialize", json={"username": "admin", "password": "pw"}
+        f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     r = await client.post(
-        f"{API}/auth/login", json={"username": "admin", "password": "pw"}
+        f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
 
 async def _create_user(db, client, username: str) -> dict:
-    db.add(User(username=username, password_hash=hash_password("pw"), role="user"))
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role="user"))
     await db.commit()
     r = await client.post(
-        f"{API}/auth/login", json={"username": username, "password": "pw"}
+        f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
 
@@ -873,6 +873,37 @@ async def test_export_zip_builds_server_side(client):
     # Source CSV is written verbatim.
     assert zf.read("source-concepts.csv") == csv
     assert zf.read(".gitignore") == b"*.parquet\nreview/\nstate.json\n"
+
+
+async def test_export_zip_refuses_unreadable_source_concepts(client):
+    """Bytes that cannot be read cannot be masked: the export answers 400
+    instead of shipping them raw (or failing as a 500)."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    p = (
+        await client.post(
+            f"{API}/mapping-projects",
+            headers=headers,
+            json={
+                "id": "mpu",
+                "workspaceId": ws,
+                "name": {"en": "Unreadable"},
+                "description": {},
+                "sourceType": "file",
+                "conceptSetIds": [],
+                "fileSourceData": {"fileName": "src.csv", "columns": ["code"], "rows": []},
+            },
+        )
+    ).json()
+    sha, _ = await blob_store.store_bytes(b"code\n\x00\x81\x8d\n")
+    await client.post(
+        f"{API}/mapping-projects/{p['id']}/raw-file",
+        headers=headers,
+        json={"sha": sha, "fileName": "src.csv"},
+    )
+
+    r = await client.get(f"{API}/mapping-projects/{p['id']}/export-zip", headers=headers)
+    assert r.status_code == 400
 
 
 async def test_scores_append_creates_merges_and_notifies(client):

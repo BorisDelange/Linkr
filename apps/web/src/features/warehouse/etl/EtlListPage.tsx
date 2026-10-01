@@ -19,6 +19,7 @@ import { localized, setLocalized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import JSZip from 'jszip'
 import { attachTreeIds, buildEtlPipelineFolder, parseImportZip, readImportedManifest, readImportedTree, reconstructTreeFiles } from '@/lib/entity-io'
+import { MissingManifestError } from '@/lib/app-version-compat'
 import { withEntityDocs } from '@/lib/entity-docs-pull'
 import type { TreeImportNode } from '@/lib/entity-io'
 import { findLineageMatch, resolveByLineage } from '@/lib/import-identity'
@@ -166,7 +167,7 @@ export function EtlListPage() {
     // New git-friendly layout (_pipeline.json + _tree.json + raw files) with a fallback
     // to the legacy layout (pipeline.json + files.json).
     const pipeline = readImportedManifest<EtlPipeline>(parsed, 'etl-pipeline', 'pipeline.json')
-    if (!pipeline) return
+    if (!pipeline) throw new MissingManifestError('etl-pipeline')
     // Imported from a git repo → pre-link the Versioning page to that repo (with
     // the token, if supplied). The export strips gitRemoteConfig, so it's only
     // ever set from the import source.

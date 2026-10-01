@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  ddlTableNames,
   parseDdl, indexTables, resolveTableRef, qualifiedName, matchesTableName, lookupByTableName,
 } from './ddl-parse'
 
@@ -230,5 +231,16 @@ describe('qualifiedName', () => {
 
   it('returns the bare name when there is no schema', () => {
     expect(qualifiedName(undefined, 'patients')).toBe('patients')
+  })
+})
+
+// Same cases as test_ddl_table_names_match_the_frontend (apps/api/tests).
+describe('ddlTableNames', () => {
+  it('names a table from its head alone, body unread or unterminated', () => {
+    expect(ddlTableNames('CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "App"."Doc" (id INTEGER)')).toEqual(['visit', 'App.Doc'])
+  })
+
+  it('reads identifiers as ASCII, as the server does', () => {
+    expect(ddlTableNames('CREATE TABLE café (id INTEGER);')).toEqual([])
   })
 })

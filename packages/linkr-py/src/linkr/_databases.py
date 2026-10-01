@@ -107,14 +107,27 @@ def connect(alias: str, read_only: bool = True) -> "duckdb.DuckDBPyConnection":
 
 
 def _open_parquet(tables: list[dict]) -> "duckdb.DuckDBPyConnection":
+    """One view per table. A `schema.table` entry (a module directory, or the
+    schema the database's DDL gives it) gets a view in that schema, and every
+    schema goes on the search path so the bare name resolves as in the app."""
     con = _duckdb().connect()
     try:
+        schemas: set[str] = set()
         for entry in tables:
+            schema, _, table = str(entry["table"]).rpartition(".")
+            target = _ident(table)
+            if schema:
+                con.execute(f"CREATE SCHEMA IF NOT EXISTS {_ident(schema)}")
+                schemas.add(schema)
+                target = f"{_ident(schema)}.{target}"
             paths = ", ".join(_quote(p) for p in entry["paths"])
             con.execute(
-                f'CREATE OR REPLACE VIEW "{entry["table"]}" AS '
+                f"CREATE OR REPLACE VIEW {target} AS "
                 f"SELECT * FROM read_parquet([{paths}])"
             )
+        if schemas:
+            path = ",".join(["main", *(_ident(s) for s in sorted(schemas))])
+            con.execute(f"SET search_path = {_quote(path)}")
     except Exception:
         con.close()
         raise
@@ -146,6 +159,11 @@ def _use_server_extensions(con: "duckdb.DuckDBPyConnection") -> None:
     ext_dir = os.environ.get("LINKR_DUCKDB_EXTENSIONS", "")
     if ext_dir:
         con.execute(f"SET extension_directory = {_quote(ext_dir)}")
+
+
+def _ident(name: str) -> str:
+    """A double-quoted SQL identifier, doubling any quote the name contains."""
+    return '"' + str(name).replace('"', '""') + '"'
 
 
 def _quote(value: str) -> str:

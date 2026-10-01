@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { cleanLocalized, localized, localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
 import { DEFAULT_CATALOG_BRANCH, DEFAULT_CATALOG_URL, parseCatalogUrl } from '@/lib/catalog/remote'
 import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, type CatalogConfig } from '@/lib/catalog/settings'
+import type { LocalizedString } from '@/types'
 import { useCatalogSourcesStore } from '@/stores/catalog-sources-store'
 import { useAppStore } from '@/stores/app-store'
 
@@ -44,6 +45,28 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
   /** The catalog being edited, `'new'` for the add form, null for the list. */
   const [editing, setEditing] = useState<CatalogConfig | 'new' | null>(null)
   const [deleting, setDeleting] = useState<CatalogConfig | null>(null)
+  const [draft, setDraft] = useState<CatalogDraft>(() => draftOf(null, language))
+
+  const startEditing = (catalog: CatalogConfig | 'new') => {
+    setDraft(draftOf(catalog === 'new' ? null : catalog, language))
+    setEditing(catalog)
+  }
+
+  const takenUrls = editing
+    ? catalogs.filter((c) => editing === 'new' || c.id !== editing.id).map((c) => c.url)
+    : []
+  const { source: draftSource, invalidUrl, duplicate } = validateDraft(draft, takenUrls, language)
+
+  const submit = () => {
+    if (!editing || !draftSource) return
+    save({
+      id: editing === 'new' ? crypto.randomUUID() : editing.id,
+      // The other language may stay blank: `localized` falls back to this one.
+      name: cleanLocalized(draft.name) ?? {},
+      url: draftSource.repoUrl,
+      branch: draftSource.branch,
+    })
+  }
 
   const save = (catalog: CatalogConfig) => {
     const exists = catalogs.some((c) => c.id === catalog.id)
@@ -60,18 +83,23 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
     setDeleting(null)
   }
 
-  const hasDefault = catalogs.some((c) => c.id === DEFAULT_CATALOG_ID)
+  const defaultRepo = parseCatalogUrl(DEFAULT_CATALOG_URL)?.repoUrl
+  // An entry the user added for the community repo counts: restoring would list it twice.
+  const hasDefault = catalogs.some((c) => c.id === DEFAULT_CATALOG_ID || parseCatalogUrl(c.url)?.repoUrl === defaultRepo)
 
   return (
     <>
       <DialogShell
         open={open}
-        onOpenChange={(next) => { if (!next) setEditing(null); onOpenChange(next) }}
+        // In the form, Cancel and Esc step back to the list rather than closing it.
+        onOpenChange={(next) => { if (!next && editing) setEditing(null); else onOpenChange(next) }}
         kind="settings"
         title={editing === 'new' ? t('catalog.sources_add_title') : editing ? t('catalog.sources_edit_title') : t('catalog.sources_title')}
         description={editing ? undefined : t('catalog.sources_description')}
-        hideFooter={!!editing}
-        cancelLabel={t('common.close')}
+        onConfirm={editing ? submit : undefined}
+        confirmLabel={editing === 'new' ? t('common.add') : t('common.save')}
+        confirmDisabled={!draftSource}
+        cancelLabel={editing ? t('common.cancel') : t('common.close')}
         footerExtra={
           !editing && !hasDefault ? (
             <Button
@@ -87,12 +115,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
         }
       >
         {editing ? (
-          <CatalogSourceForm
-            initial={editing === 'new' ? null : editing}
-            takenUrls={catalogs.filter((c) => editing === 'new' || c.id !== editing.id).map((c) => c.url)}
-            onCancel={() => setEditing(null)}
-            onSave={save}
-          />
+          <CatalogSourceForm draft={draft} onChange={setDraft} invalidUrl={invalidUrl} duplicate={duplicate} />
         ) : (
           <div className="space-y-3">
             {catalogs.length === 0 ? (
@@ -114,7 +137,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
                       variant="ghost"
                       size="icon-sm"
                       aria-label={t('common.edit')}
-                      onClick={() => setEditing(catalog)}
+                      onClick={() => startEditing(catalog)}
                     >
                       <Pencil size={14} />
                     </Button>
@@ -131,7 +154,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
                 ))}
               </ul>
             )}
-            <Button size="sm" variant="outline" className="gap-1" onClick={() => setEditing('new')}>
+            <Button size="sm" variant="outline" className="gap-1" onClick={() => startEditing('new')}>
               <Plus size={14} />
               {t('catalog.sources_add')}
             </Button>
@@ -144,7 +167,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
           <AlertDialogHeader>
             <AlertDialogTitle>{t('catalog.sources_delete_title')}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t('catalog.sources_delete_description', { name: localized(deleting?.name, language) })}
+              {t('catalog.sources_delete_description', { name: localized(deleting?.name, language) || deleting?.url })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -162,41 +185,44 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
   )
 }
 
+interface CatalogDraft {
+  name: LocalizedString
+  url: string
+  branch: string
+}
+
+function draftOf(initial: CatalogConfig | null, language: string): CatalogDraft {
+  return {
+    // One field, edited in the active language like every other multilingual name;
+    // seeded once so an untranslated catalog starts from its other-language name.
+    name: seedLocalizedForEditing(initial?.name, language),
+    url: initial?.url ?? '',
+    branch: initial?.branch ?? DEFAULT_CATALOG_BRANCH,
+  }
+}
+
+/** The draft as a catalog to save, or null while it cannot be saved. */
+function validateDraft(draft: CatalogDraft, takenUrls: string[], language: string) {
+  const source = parseCatalogUrl(draft.url, draft.branch)
+  const invalidUrl = draft.url.trim().length > 0 && !source
+  const duplicate = !!source && takenUrls.some((u) => parseCatalogUrl(u)?.repoUrl === source.repoUrl)
+  const canSave = !!source && !duplicate && localizedRaw(draft.name, language).trim() !== ''
+  return { source: canSave ? source : null, invalidUrl, duplicate }
+}
+
 function CatalogSourceForm({
-  initial,
-  takenUrls,
-  onCancel,
-  onSave,
+  draft,
+  onChange,
+  invalidUrl,
+  duplicate,
 }: {
-  initial: CatalogConfig | null
-  /** Repos the other catalogs already point at: a second entry would be the same list twice. */
-  takenUrls: string[]
-  onCancel: () => void
-  onSave: (catalog: CatalogConfig) => void
+  draft: CatalogDraft
+  onChange: (draft: CatalogDraft) => void
+  invalidUrl: boolean
+  duplicate: boolean
 }) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
-  // One field, edited in the active language like every other multilingual name;
-  // seeded once so an untranslated catalog starts from its other-language name.
-  const [name, setName] = useState(() => seedLocalizedForEditing(initial?.name, language))
-  const [url, setUrl] = useState(initial?.url ?? '')
-  const [branch, setBranch] = useState(initial?.branch ?? DEFAULT_CATALOG_BRANCH)
-
-  const source = parseCatalogUrl(url, branch)
-  const invalidUrl = url.trim().length > 0 && !source
-  const duplicate = !!source && takenUrls.some((u) => parseCatalogUrl(u)?.repoUrl === source.repoUrl)
-  const canSave = !!source && !duplicate && localizedRaw(name, language).trim() !== ''
-
-  const submit = () => {
-    if (!canSave || !source) return
-    onSave({
-      id: initial?.id ?? crypto.randomUUID(),
-      // The other language may stay blank: `localized` falls back to this one.
-      name: cleanLocalized(name) ?? {},
-      url: source.repoUrl,
-      branch: source.branch,
-    })
-  }
 
   return (
     <div className="space-y-4">
@@ -204,8 +230,8 @@ function CatalogSourceForm({
         {({ id }) => (
           <Input
             id={id}
-            value={localizedRaw(name, language)}
-            onChange={(e) => setName(setLocalized(name, language, e.target.value))}
+            value={localizedRaw(draft.name, language)}
+            onChange={(e) => onChange({ ...draft, name: setLocalized(draft.name, language, e.target.value) })}
             autoFocus
           />
         )}
@@ -215,8 +241,8 @@ function CatalogSourceForm({
           {({ id }) => (
             <Input
               id={id}
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
+              value={draft.url}
+              onChange={(e) => onChange({ ...draft, url: e.target.value })}
               placeholder={DEFAULT_CATALOG_URL}
               aria-invalid={invalidUrl || duplicate}
             />
@@ -224,18 +250,17 @@ function CatalogSourceForm({
         </FormField>
         <FormField label={t('catalog.settings_branch')} className="self-end">
           {({ id }) => (
-            <Input id={id} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder={DEFAULT_CATALOG_BRANCH} />
+            <Input
+              id={id}
+              value={draft.branch}
+              onChange={(e) => onChange({ ...draft, branch: e.target.value })}
+              placeholder={DEFAULT_CATALOG_BRANCH}
+            />
           )}
         </FormField>
       </div>
       {invalidUrl && <p className="text-xs text-destructive">{t('catalog.settings_invalid_url')}</p>}
       {duplicate && <p className="text-xs text-destructive">{t('catalog.sources_duplicate')}</p>}
-      <div className="flex justify-end gap-2">
-        <Button size="sm" variant="outline" onClick={onCancel}>{t('common.cancel')}</Button>
-        <Button size="sm" onClick={submit} disabled={!canSave}>
-          {initial ? t('common.save') : t('common.add')}
-        </Button>
-      </div>
     </div>
   )
 }

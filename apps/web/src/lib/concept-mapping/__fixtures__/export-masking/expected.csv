@@ -1,6 +1,19 @@
 terminology,concept_code,concept_name,record_count,patient_count,info_json
-LOCAL,HR,"Heart, rate",5000,120,"{""full_name"":""Fréquence cardiaque"",""unit"":""bpm"",""rows_count"":5000,""patients_count"":120,""numeric_data"":{""p5"":55.5,""median"":80,""mean"":81.25,""sd"":0.00001},""histogram"":[{""x"":60,""count"":2400},{""x"":100,""count"":2590}],""categorical_data"":[{""category"":""normal"",""count"":4990,""percentage"":99.8}],""records_per_patient"":{""mean"":41.6,""median"":30},""temporal_distribution"":{""start_date"":""2019-01-01"",""end_date"":""2023-12-31"",""by_year"":[{""year"":2020,""percentage"":99.9}]},""hospital_units"":[{""unit"":""Réa, Nord"",""percentage"":99.9}],""big"":1e+21}"
+LOCAL,HR,"Heart, rate",5000,120,"{""full_name"":""Fréquence cardiaque"",""unit"":""bpm"",""rows_count"":5000,""patients_count"":120,""numeric_data"":{""p5"":55.5,""median"":80,""mean"":81.25,""sd"":0.00001},""histogram"":[{""x"":125,""count"":2590}],""categorical_data"":[],""records_per_patient"":{""mean"":41.6,""median"":30},""temporal_distribution"":{""by_year"":[]},""hospital_units"":[],""big"":1e+21,""big_int"":9007199254740992}"
 LOCAL,NA,Sodium,900,300,"{""full_name"":""Sodium"",""rows_count"":900,""patients_count"":300,""numeric_data"":{""median"":140}}"
 LOCAL,RARE,"Rare ""thing""",40,<11,
 LOCAL,FEW,Few records,<11,,
 LOCAL,ZERO,Never seen,0,0,
+LOCAL,AT_K,At the threshold,11,11,
+LOCAL,BELOW_K,Just under it,<11,<11,
+LOCAL,PADDED,Padded cell,<11,<11,
+LOCAL,FOREIGN,Not plain decimal,0x5,1_0,
+LOCAL,NAN,NaN in the profile,500,50,
+LOCAL,QUOTED,Single-quoted profile,500,50,
+LOCAL,SCALAR,Not an object,500,50,
+LOCAL,WARDS,Ward split,4000,400,"{""rows_count"":4000,""patients_count"":400,""hospital_units"":[{""unit"":""A"",""percentage"":99.3}]}"
+LOCAL,CATS,Dropped mass reaches k,813,80,"{""rows_count"":813,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""w"",""count"":300}]}"
+LOCAL,CATS2,Dropped mass under k,825,80,"{""rows_count"":825,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""w"",""count"":300}]}"
+LOCAL,SMALL_N,Few values,60,30,"{""rows_count"":60,""patients_count"":30,""numeric_data"":{""p25"":3,""median"":5},""histogram"":[{""x"":1,""count"":20},{""x"":3,""count"":25},{""x"":5,""count"":15}]}"
+LOCAL,ONE_BIN,One bin,50,20,"{""rows_count"":50,""patients_count"":20}"
+LOCAL,FINE,Fine grid,400,40,"{""rows_count"":400,""patients_count"":400,""histogram"":[{""x"":0.15,""count"":100},{""x"":0.25,""count"":150},{""x"":0.35,""count"":150}]}"

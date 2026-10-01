@@ -17,7 +17,7 @@ from starlette.websockets import WebSocket
 
 from app.core import audit
 from app.core.database import async_session
-from app.core.security import decode_token
+from app.core.security import decode_token, predates_password_change
 from app.models.user import User
 from app.services import api_token_service
 
@@ -56,7 +56,7 @@ async def authenticate_ws(websocket: WebSocket) -> User | None:
 
     async with async_session() as db:
         user = await db.get(User, user_id)
-    if not user or not user.is_active:
+    if not user or not user.is_active or predates_password_change(payload, user):
         await websocket.close(code=WS_AUTH_FAILED)
         return None
     audit.set_actor(user.id, user.username, "web")

@@ -32,3 +32,16 @@ async def test_a_concurrent_first_save_overwrites_instead_of_failing(db, monkeyp
 
     row = await stats_cache_service.get(db, "database", "k")
     assert (row.computed_at, row.payload) == ("t2", {"n": 2})
+
+
+async def test_a_retry_that_finds_no_row_is_logged_not_silent(db, monkeypatch):
+    await stats_cache_service.save(db, "database", "k", "t1", {"n": 1})
+    warnings = []
+
+    async def no_rows(*args, **kwargs):
+        return False
+
+    monkeypatch.setattr(stats_cache_service, "_overwrite", no_rows)
+    monkeypatch.setattr(stats_cache_service.logger, "warning", lambda event, **kw: warnings.append((event, kw)))
+    await stats_cache_service.save(db, "database", "k", "t2", {"n": 2})
+    assert warnings == [("stats_cache_save_dropped", {"scope": "database", "cache_key": "k"})]

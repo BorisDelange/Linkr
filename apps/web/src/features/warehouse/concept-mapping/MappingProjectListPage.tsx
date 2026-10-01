@@ -316,7 +316,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
 
   const handleDuplicate = useCallback(async (source: MappingProject) => {
     const zip = new JSZip()
-    await buildMappingProjectFolder(zip, '', source, getStorage())
+    await buildMappingProjectFolder(zip, '', source, getStorage(), { unmasked: true })
     const blob = await zip.generateAsync({ type: 'blob' })
     const read = await readProjectZip(new File([blob], 'dup.zip'))
     if (!read) return

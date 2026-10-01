@@ -18,6 +18,7 @@ leave the server.
 import asyncio
 import tempfile
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
@@ -680,6 +681,8 @@ async def mapping_project_pull_file(
             await _token(db, user, mp),
         )
     )
+    audit.bind(action="download", workspace_id=mp.workspace_id,
+               detail=f"mapping project {mp.id} {path} at the remote head ({len(data)} bytes)")
     return Response(content=data, media_type="application/octet-stream")
 
 
@@ -1273,6 +1276,8 @@ async def clone(
         raise _git_http_error(exc) from exc
     if body.token:
         await git_credential_service.set_token_for_url(db, user, body.url, body.token)
+    audit.bind(action="download", workspace_id=body.workspace_id,
+               detail=f"git clone {_without_credentials(body.url)} ({len(data)} bytes)")
     headers = {"Content-Disposition": 'attachment; filename="repo.zip"'}
     # The cloned HEAD, so the import and pull flows can anchor the entity's sync
     # state to it. Exposing it to JS is CORSMiddleware's job (expose_headers in
@@ -1282,6 +1287,13 @@ async def clone(
     if cloned_oid:
         headers["X-Git-Cloned-Oid"] = cloned_oid
     return Response(content=data, media_type="application/zip", headers=headers)
+
+
+def _without_credentials(url: str) -> str:
+    parts = urlsplit(url)
+    if not parts.password and not parts.username:
+        return url
+    return urlunsplit(parts._replace(netloc=parts.hostname + (f":{parts.port}" if parts.port else "")))
 
 
 # --- Per-user host token management ---------------------------------------

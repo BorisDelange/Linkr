@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.core.database import get_db
-from app.core.security import decode_token
+from app.core.security import decode_token, predates_password_change
 from app.models.user import User
 from app.services import api_token_service
 
@@ -35,7 +35,7 @@ async def get_current_user_optional(
     except (JWTError, KeyError, ValueError):
         return None
     user = await db.get(User, user_id)
-    if not user or not user.is_active:
+    if not user or not user.is_active or predates_password_change(payload, user):
         return None
     audit.set_actor(user.id, user.username, "web")
     return user
@@ -91,6 +91,11 @@ async def get_session_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
+        )
+    if predates_password_change(payload, user):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session ended by a password change",
         )
     audit.set_actor(user.id, user.username, "web")
     return user
@@ -155,6 +160,13 @@ async def get_kernel_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
+        )
+    # A kernel token is not checked: it is baked into a live kernel's environment
+    # and cannot be renewed under it, and it expires within kernel_token_expire_minutes.
+    if token_type == "access" and predates_password_change(payload, user):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session ended by a password change",
         )
     audit.set_actor(user.id, user.username, "kernel" if token_type == "kernel" else "web")
     return user
