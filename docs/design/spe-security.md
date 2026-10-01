@@ -67,7 +67,9 @@ identity is parked (see *Not built*).
 `db_connect._dsn`, which checks `LINKR_DB_ALLOWED_HOSTS`
 (`services/data/db_host_guard.py`: names, IPs, CIDRs, libpq host lists and socket paths).
 `POST /data-sources/test-connection` needs `databases:write` in the workspace it names
-and answers "Connection failed", the driver's text going to the server log only. Why an
+and answers "Connection failed", the driver's text going to the server log only; so do
+`/retest` and `/schema` of a stored external source (a managed or uploaded file keeps
+its message, which names only its own file). Why an
 allowlist and not a block of private addresses: in an SPE the datamart *is* on a
 private address; what must be prevented is reaching the rest of the warehouse's
 network. Empty means unrestricted, so the SPE checklist sets it.

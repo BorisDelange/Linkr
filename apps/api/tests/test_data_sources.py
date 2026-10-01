@@ -221,6 +221,30 @@ async def test_retest_uses_stored_credentials(client):
     assert r.json()["ok"] is False and r.json()["error"]
 
 
+async def test_retest_and_schema_keep_the_driver_error_in_the_log(client, monkeypatch):
+    leak = "could not connect to server: Connection refused (10.0.0.5:5432)"
+
+    async def failed_test(config):
+        return False, leak, []
+
+    def failed_introspect(config, password):
+        raise RuntimeError(leak)
+
+    monkeypatch.setattr(data_source_service, "test_connection", failed_test)
+    monkeypatch.setattr(data_source_service.db_connect, "introspect_external", failed_introspect)
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    ds = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "pg", "name": "PG", "sourceType": "database",
+        "connectionConfig": {"engine": "postgresql", "host": "10.0.0.5", "username": "u", "password": "p"},
+    })).json()
+
+    r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=headers)
+    assert r.json() == {"ok": False, "error": "Connection failed", "tables": []}
+    r = await client.get(f"{API}/data-sources/{ds['id']}/schema", headers=headers)
+    assert r.status_code == 502 and r.json()["detail"] == "Connection failed"
+
+
 async def test_duckdb_file_source_query_and_schema(client):
     # A DuckDB file uploaded to the server can be introspected and queried
     # server-side (no browser WASM) via /schema and /query.
