@@ -71,11 +71,8 @@ function isSmall(value: unknown, k: number): boolean {
 
 /** Percentages are rounded to one decimal, so the count is taken at the lowest
  *  the rounding allows — and 0.0% may still hide a few records. */
-function impliedSmall(percentage: unknown, total: unknown, k: number): boolean {
-  const p = toNumber(percentage)
-  const n = toNumber(total)
-  if (!Number.isFinite(p) || !Number.isFinite(n)) return false
-  return (Math.max(0, p - 0.05) / 100) * n < k
+function impliedCount(percentage: unknown, total: unknown): number {
+  return (Math.max(0, toNumber(percentage) - 0.05) / 100) * toNumber(total)
 }
 
 /** A mapping's source frequency as it may leave the instance: a small one is
@@ -85,6 +82,29 @@ export function maskFrequency<T>(value: T, k: number = exportMinCount): T | null
 }
 
 const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/**
+ * `entries` without the small ones. When what was dropped totals under k, the
+ * total minus the kept entries would give it back, so the smallest kept entries
+ * go too until the dropped mass reaches k (secondary suppression).
+ */
+function suppress(entries: unknown[], small: (e: Json) => boolean, mass: (e: Json) => number, k: number): unknown[] {
+  const dropped = (e: unknown) => isObject(e) && small(e)
+  const weight = (e: unknown) => {
+    const m = isObject(e) ? mass(e) : NaN
+    return Number.isFinite(m) ? m : 0
+  }
+  const kept = entries.filter((e) => !dropped(e))
+  if (kept.length === entries.length) return kept
+  let droppedMass = 0
+  for (const e of entries) if (dropped(e)) droppedMass += weight(e)
+  while (droppedMass < k && kept.length > 0) {
+    let smallest = 0
+    for (let i = 1; i < kept.length; i++) if (weight(kept[i]) < weight(kept[smallest])) smallest = i
+    droppedMass += weight(kept.splice(smallest, 1)[0])
+  }
+  return kept
+}
 
 /** The profile as it may leave the instance, or null to withhold it. */
 export function maskProfile(profile: Json, k: number): Json | null {
@@ -98,23 +118,24 @@ export function maskProfile(profile: Json, k: number): Json | null {
     }
   }
   const total = profile.rows_count
+  const counted = (e: Json) => toNumber(e.count)
+  const implied = (e: Json) => impliedCount(e.percentage, total)
   if (Array.isArray(out.histogram)) {
-    out.histogram = out.histogram.filter((b) => !(isObject(b) && isSmall(b.count, k)))
+    out.histogram = suppress(out.histogram, (b) => isSmall(b.count, k), counted, k)
   }
   if (Array.isArray(out.categorical_data)) {
-    out.categorical_data = out.categorical_data.filter((c) => !(isObject(c) && (
-      isSmall(c.count, k) || (!('count' in c) && impliedSmall(c.percentage, total, k))
-    )))
+    const mass = (c: Json) => ('count' in c ? counted(c) : implied(c))
+    out.categorical_data = suppress(out.categorical_data, (c) => ('count' in c ? isSmall(c.count, k) : mass(c) < k), mass, k)
   }
   if (Array.isArray(out.hospital_units)) {
-    out.hospital_units = out.hospital_units.filter((u) => !(isObject(u) && impliedSmall(u.percentage, total, k)))
+    out.hospital_units = suppress(out.hospital_units, (u) => implied(u) < k, implied, k)
   }
   const temporal = out.temporal_distribution
   if (isObject(temporal)) {
     // The first and last dates are one patient's event each.
     const { start_date: _start, end_date: _end, ...rest } = temporal
     out.temporal_distribution = Array.isArray(rest.by_year)
-      ? { ...rest, by_year: rest.by_year.filter((y) => !(isObject(y) && impliedSmall(y.percentage, total, k))) }
+      ? { ...rest, by_year: suppress(rest.by_year, (y) => implied(y) < k, implied, k) }
       : rest
   }
   return out

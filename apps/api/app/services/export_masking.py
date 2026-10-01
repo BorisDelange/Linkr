@@ -20,6 +20,7 @@ import io
 import json
 import math
 import re
+from collections.abc import Callable
 
 from app.config import settings
 
@@ -77,13 +78,38 @@ def mask_frequency(value: object, k: int | None = None) -> object:
     return None if _small(value, settings.export_min_count if k is None else k) else value
 
 
-def _implied_small(percentage: object, total: object, k: int) -> bool:
+def _implied_count(percentage: object, total: object) -> float:
     """Percentages are rounded to one decimal, so the count is taken at the lowest
     the rounding allows — and 0.0% may still hide a few records."""
-    p, n = _number(percentage), _number(total)
-    if not (math.isfinite(p) and math.isfinite(n)):
-        return False
-    return max(0.0, p - 0.05) / 100 * n < k
+    return max(0.0, _number(percentage) - 0.05) / 100 * _number(total)
+
+
+def _suppress(entries: list, small: Callable[[dict], bool], mass: Callable[[dict], float], k: int) -> list:
+    """`entries` without the small ones. When what was dropped totals under k, the
+    total minus the kept entries would give it back, so the smallest kept entries
+    go too until the dropped mass reaches k (secondary suppression)."""
+
+    def dropped(e: object) -> bool:
+        return isinstance(e, dict) and small(e)
+
+    def weight(e: object) -> float:
+        m = mass(e) if isinstance(e, dict) else math.nan
+        return m if math.isfinite(m) else 0.0
+
+    kept = [e for e in entries if not dropped(e)]
+    if len(kept) == len(entries):
+        return kept
+    dropped_mass = 0.0
+    for e in entries:
+        if dropped(e):
+            dropped_mass += weight(e)
+    while dropped_mass < k and kept:
+        smallest = 0
+        for i in range(1, len(kept)):
+            if weight(kept[i]) < weight(kept[smallest]):
+                smallest = i
+        dropped_mass += weight(kept.pop(smallest))
+    return kept
 
 
 def mask_profile(profile: dict, k: int) -> dict | None:
@@ -96,30 +122,34 @@ def mask_profile(profile: dict, k: int) -> dict | None:
         if isinstance(out.get(key), dict):
             out[key] = {k_: v for k_, v in out[key].items() if k_ not in _EXTREMES}
     total = profile.get("rows_count")
+
+    def counted(e: dict) -> float:
+        return _number(e.get("count"))
+
+    def implied(e: dict) -> float:
+        return _implied_count(e.get("percentage"), total)
+
     if isinstance(out.get("histogram"), list):
-        out["histogram"] = [b for b in out["histogram"] if not (isinstance(b, dict) and _small(b.get("count"), k))]
+        out["histogram"] = _suppress(out["histogram"], lambda b: _small(b.get("count"), k), counted, k)
     if isinstance(out.get("categorical_data"), list):
-        out["categorical_data"] = [
-            c for c in out["categorical_data"]
-            if not (isinstance(c, dict) and (
-                _small(c.get("count"), k)
-                or ("count" not in c and _implied_small(c.get("percentage"), total, k))
-            ))
-        ]
+
+        def category_mass(c: dict) -> float:
+            return counted(c) if "count" in c else implied(c)
+
+        out["categorical_data"] = _suppress(
+            out["categorical_data"],
+            lambda c: _small(c.get("count"), k) if "count" in c else category_mass(c) < k,
+            category_mass,
+            k,
+        )
     if isinstance(out.get("hospital_units"), list):
-        out["hospital_units"] = [
-            u for u in out["hospital_units"]
-            if not (isinstance(u, dict) and _implied_small(u.get("percentage"), total, k))
-        ]
+        out["hospital_units"] = _suppress(out["hospital_units"], lambda u: implied(u) < k, implied, k)
     temporal = out.get("temporal_distribution")
     if isinstance(temporal, dict):
         # The first and last dates are one patient's event each.
         rest = {k_: v for k_, v in temporal.items() if k_ not in ("start_date", "end_date")}
         if isinstance(rest.get("by_year"), list):
-            rest["by_year"] = [
-                y for y in rest["by_year"]
-                if not (isinstance(y, dict) and _implied_small(y.get("percentage"), total, k))
-            ]
+            rest["by_year"] = _suppress(rest["by_year"], lambda y: implied(y) < k, implied, k)
         out["temporal_distribution"] = rest
     return out
 

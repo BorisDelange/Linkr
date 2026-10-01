@@ -12,3 +12,5 @@ LOCAL,NAN,NaN in the profile,500,50,"{""rows_count"":500,""patients_count"":50,"
 LOCAL,QUOTED,Single-quoted profile,500,50,{'rows_count': 500}
 LOCAL,SCALAR,Not an object,500,50,42
 LOCAL,WARDS,Ward split,4000,400,"{""rows_count"":4000,""patients_count"":400,""hospital_units"":[{""unit"":""A"",""percentage"":99.3},{""unit"":""B"",""percentage"":0.3},{""unit"":""C"",""percentage"":0},{""unit"":""D"",""percentage"":0.4}]}"
+LOCAL,CATS,Dropped mass reaches k,813,80,"{""rows_count"":813,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""y"",""count"":6},{""category"":""z"",""count"":7},{""category"":""w"",""count"":300}]}"
+LOCAL,CATS2,Dropped mass under k,825,80,"{""rows_count"":825,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""y"",""count"":5},{""category"":""z"",""count"":20},{""category"":""w"",""count"":300}]}"
