@@ -400,13 +400,75 @@ def _copies_to_a_file(stmt: str) -> bool:
     return False
 
 
+def _explained(stmt: str) -> tuple[str, bool] | None:
+    """The statement an EXPLAIN wraps and whether EXPLAIN runs it (`ANALYZE`, bare
+    or among the parenthesised options), or None when its target cannot be read."""
+    tokens = duckdb.tokenize(stmt)
+    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
+    texts = [stmt[pos:ends[i]].strip().upper() for i, (pos, _) in enumerate(tokens)]
+    if not texts or texts[0] != "EXPLAIN":
+        return None
+    i, analyze = 1, False
+    if i < len(texts) and texts[i] == "ANALYZE":
+        i, analyze = i + 1, True
+    if i >= len(tokens):
+        return None
+    try:
+        duckdb.extract_statements(stmt[tokens[i][0]:])
+        return stmt[tokens[i][0]:], analyze
+    except duckdb.Error:
+        pass
+    if texts[i] != "(":
+        return None
+    depth = 0
+    for j in range(i, len(texts)):
+        depth += texts[j].count("(") - texts[j].count(")")
+        if texts[j] == "ANALYZE":
+            analyze = True
+        if depth == 0:
+            return (stmt[tokens[j + 1][0]:], analyze) if j + 1 < len(tokens) else None
+    return None
+
+
+def _classified(stmt: str) -> list[tuple[duckdb.StatementType, str, bool | None]]:
+    """What DuckDB's parser makes of `stmt`: (type, text, explain) per statement,
+    an EXPLAIN reported as the statement it wraps with `explain` saying whether it
+    runs it (None when there is no EXPLAIN). A statement the parser refuses yields
+    nothing: running it fails the same way. An EXPLAIN whose target cannot be read
+    comes back as INVALID."""
+    try:
+        parsed = duckdb.extract_statements(stmt)
+    except duckdb.Error:
+        return []
+    out: list[tuple[duckdb.StatementType, str, bool | None]] = []
+    for s in parsed:
+        if s.type != duckdb.StatementType.EXPLAIN:
+            out.append((s.type, s.query, None))
+            continue
+        target = _explained(_strip_leading_noise(s.query))
+        if target is None:
+            out.append((duckdb.StatementType.INVALID, s.query, True))
+            continue
+        inner, analyze = target
+        out.extend((t, text, analyze) for t, text, _ in _classified(inner) or [(duckdb.StatementType.INVALID, inner, None)])
+    return out
+
+
 def _reject_copy_to_file(sql: str) -> None:
     """An ETL script loads files (`COPY t FROM 'mapping.x'`) but never writes one:
     the only files it can reach are its roles' Parquet inputs and its mapping CSVs,
-    and `allowed_paths` would let a `COPY … TO` overwrite those shared blobs."""
+    and `allowed_paths` would let a `COPY … TO` overwrite those shared blobs.
+
+    The parser is asked as well, since a COPY also runs inside `EXPLAIN ANALYZE`
+    and through `PREPARE … AS COPY` + `EXECUTE`, neither of which starts with COPY."""
     for stmt in _split_statements(sql):
         if _copies_to_a_file(_strip_leading_noise(stmt)):
             raise ValueError("COPY … TO a file is not allowed in a pipeline script")
+        for kind, text, explain in _classified(stmt):
+            if kind in (duckdb.StatementType.PREPARE, duckdb.StatementType.EXECUTE):
+                raise ValueError(f"{kind.name} is not allowed in a pipeline script")
+            if explain and (kind == duckdb.StatementType.INVALID or _copies_to_a_file(_strip_leading_noise(text))):
+                raise ValueError("COPY … TO a file is not allowed in a pipeline script")
 
 
 # On a pooled connection shared by every user of a file/Parquet source, these would
@@ -422,12 +484,25 @@ _FORBIDDEN_IN_SHARED_READ = re.compile(
     re.IGNORECASE,
 )
 
+# The same, as the parser sees it — which also catches them behind `PREPARE … AS`
+# + `EXECUTE` (refused outright) and inside an EXPLAIN (only a SELECT may be explained).
+_FORBIDDEN_TYPES_IN_SHARED_READ = frozenset({
+    duckdb.StatementType.LOAD, duckdb.StatementType.ATTACH, duckdb.StatementType.DETACH,
+    duckdb.StatementType.TRANSACTION, duckdb.StatementType.COPY, duckdb.StatementType.COPY_DATABASE,
+    duckdb.StatementType.EXPORT, duckdb.StatementType.PREPARE, duckdb.StatementType.EXECUTE,
+})
+
 
 def _reject_session_statements(sql: str) -> None:
     for stmt in _split_statements(sql):
         m = _FORBIDDEN_IN_SHARED_READ.match(_strip_leading_noise(stmt))
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a query")
+        for kind, _, explain in _classified(stmt):
+            if explain is not None and kind != duckdb.StatementType.SELECT:
+                raise ValueError("EXPLAIN is only allowed on a SELECT in a query")
+            if kind in _FORBIDDEN_TYPES_IN_SHARED_READ:
+                raise ValueError(f"{kind.name} is not allowed in a query")
 
 
 def _run_isolated(con: duckdb.DuckDBPyConnection, search_path: str, sql: str, arrow: bool):
