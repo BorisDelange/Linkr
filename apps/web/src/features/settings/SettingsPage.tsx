@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { NoAccessNotice } from '@/components/ui/no-access-notice'
@@ -33,6 +33,9 @@ export function SettingsPage() {
   const requestedTab = tab ?? searchParams.get('tab') ?? 'general'
   const activeTab = TABS.includes(requestedTab) ? requestedTab : 'general'
   const fullPage = activeTab === 'access-log'
+
+  // The catalog repos were a settings tab before the Catalog page took them over.
+  if (requestedTab === 'catalog') return <Navigate to="/catalog" replace />
 
   return (
     <div className="h-full overflow-auto">
