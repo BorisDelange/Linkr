@@ -9,7 +9,7 @@ const dir = join(__dirname, '__fixtures__', 'export-masking')
 const read = (name: string) => readFileSync(join(dir, name), 'utf-8')
 
 describe('maskSourceConceptsCsv', () => {
-  it('masks small counts, withholds small profiles, drops extremes and small bins', () => {
+  it('masks small counts, withholds small profiles, drops extremes, event dates and small bins', () => {
     expect(maskSourceConceptsCsv(read('input.csv'), null, 11)).toBe(read('expected.csv'))
   })
 

@@ -110,11 +110,12 @@ export function maskProfile(profile: Json, k: number): Json | null {
     out.hospital_units = out.hospital_units.filter((u) => !(isObject(u) && impliedSmall(u.percentage, total, k)))
   }
   const temporal = out.temporal_distribution
-  if (isObject(temporal) && Array.isArray(temporal.by_year)) {
-    out.temporal_distribution = {
-      ...temporal,
-      by_year: temporal.by_year.filter((y) => !(isObject(y) && impliedSmall(y.percentage, total, k))),
-    }
+  if (isObject(temporal)) {
+    // The first and last dates are one patient's event each.
+    const { start_date: _start, end_date: _end, ...rest } = temporal
+    out.temporal_distribution = Array.isArray(rest.by_year)
+      ? { ...rest, by_year: rest.by_year.filter((y) => !(isObject(y) && impliedSmall(y.percentage, total, k))) }
+      : rest
   }
   return out
 }

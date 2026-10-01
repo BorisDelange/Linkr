@@ -112,14 +112,15 @@ def mask_profile(profile: dict, k: int) -> dict | None:
             if not (isinstance(u, dict) and _implied_small(u.get("percentage"), total, k))
         ]
     temporal = out.get("temporal_distribution")
-    if isinstance(temporal, dict) and isinstance(temporal.get("by_year"), list):
-        out["temporal_distribution"] = {
-            **temporal,
-            "by_year": [
-                y for y in temporal["by_year"]
+    if isinstance(temporal, dict):
+        # The first and last dates are one patient's event each.
+        rest = {k_: v for k_, v in temporal.items() if k_ not in ("start_date", "end_date")}
+        if isinstance(rest.get("by_year"), list):
+            rest["by_year"] = [
+                y for y in rest["by_year"]
                 if not (isinstance(y, dict) and _implied_small(y.get("percentage"), total, k))
-            ],
-        }
+            ]
+        out["temporal_distribution"] = rest
     return out
 
 
