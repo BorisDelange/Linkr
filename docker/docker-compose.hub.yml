@@ -21,14 +21,14 @@
 # https://hub.docker.com/r/interhop/linkr/tags
 services:
   web:
-    image: interhop/linkr:web-2.4.2
+    image: interhop/linkr:web-2.4.3
     ports:
       - "3000:80"
     depends_on:
       - api
 
   api:
-    image: interhop/linkr:api-2.4.2
+    image: interhop/linkr:api-2.4.3
     ports:
       # Loopback only: the web container reaches the API over the compose
       # network; publishing it on every interface would bypass nginx.
@@ -74,7 +74,7 @@ services:
   # client at http://127.0.0.1:3940/mcp. A request without a valid key is refused.
   # Remove this service if you do not use agents.
   mcp:
-    image: interhop/linkr:mcp-2.4.2
+    image: interhop/linkr:mcp-2.4.3
     ports:
       # Loopback only: API keys travel in cleartext over plain HTTP. Put a TLS
       # reverse proxy in front before publishing it to other hosts.
