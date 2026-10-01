@@ -1,3 +1,4 @@
+import fcntl
 from pathlib import Path
 
 import pytest
@@ -28,13 +29,26 @@ pwd_context.update(bcrypt__rounds=4)
 # Point the three provisioned directories at one per-machine cache instead:
 # ensure_* are idempotent-cheap once populated, so only the first R test on a
 # machine ever pays. test_renv_provisioner.py patches these helpers itself, so
-# its isolation is unaffected.
+# its isolation is unaffected. The cache is shared by every worktree and every
+# concurrent run, so each ensure_* holds an exclusive file lock while it
+# provisions: two runs installing into one library would corrupt it.
 _R_TEST_CACHE = Path.home() / ".cache" / "linkr-test-r"
+
+
+def _under_cache_lock(ensure):
+    def locked(*args, **kwargs):
+        _R_TEST_CACHE.mkdir(parents=True, exist_ok=True)
+        with open(_R_TEST_CACHE / ".lock", "w") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            return ensure(*args, **kwargs)
+
+    return locked
 
 
 @pytest.fixture(autouse=True)
 def _shared_r_cache(monkeypatch):
     from app.services import project_fs
+    from app.services.execution import renv_provisioner
 
     for name in ("r_sandbox", "kernel_r_lib", "client_r_lib"):
         sub = _R_TEST_CACHE / name.replace("_", "-")
@@ -44,6 +58,9 @@ def _shared_r_cache(monkeypatch):
             return d
 
         monkeypatch.setattr(project_fs, name, _dir)
+
+    for name in ("ensure_r_sandbox", "ensure_kernel_r_lib", "ensure_client_r_lib"):
+        monkeypatch.setattr(renv_provisioner, name, _under_cache_lock(getattr(renv_provisioner, name)))
 
 
 @pytest.fixture(autouse=True)
