@@ -2,6 +2,17 @@ import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { isServerMode } from '@/lib/api-client'
 
 /**
+ * An id as a Python / R literal: a number stays a number (plugins compare it as
+ * one), anything else becomes a quoted string — spliced bare, an id like
+ * `abc` was a name error, and one carrying code would have run it. A JSON
+ * string literal is a valid string literal in both languages.
+ */
+export function idLiteral(id: string | null, nullLiteral: 'None' | 'NULL'): string {
+  if (id == null) return nullLiteral
+  return /^-?\d{1,15}$/.test(id) ? id : JSON.stringify(id)
+}
+
+/**
  * Build Python preamble injecting patient context variables.
  */
 function buildPythonPreamble(
@@ -9,9 +20,9 @@ function buildPythonPreamble(
   visitOccurrenceId: string | null,
   visitDetailId: string | null,
 ): string {
-  const pid = personId != null ? personId : 'None'
-  const vid = visitOccurrenceId != null ? visitOccurrenceId : 'None'
-  const vdid = visitDetailId != null ? visitDetailId : 'None'
+  const pid = idLiteral(personId, 'None')
+  const vid = idLiteral(visitOccurrenceId, 'None')
+  const vdid = idLiteral(visitDetailId, 'None')
 
   return [
     'import pandas as pd',
@@ -32,9 +43,9 @@ function buildRPreamble(
   visitOccurrenceId: string | null,
   visitDetailId: string | null,
 ): string {
-  const pid = personId != null ? personId : 'NULL'
-  const vid = visitOccurrenceId != null ? visitOccurrenceId : 'NULL'
-  const vdid = visitDetailId != null ? visitDetailId : 'NULL'
+  const pid = idLiteral(personId, 'NULL')
+  const vid = idLiteral(visitOccurrenceId, 'NULL')
+  const vdid = idLiteral(visitDetailId, 'NULL')
 
   return [
     'library(jsonlite)',
