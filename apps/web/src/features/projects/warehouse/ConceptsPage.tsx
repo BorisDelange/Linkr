@@ -68,6 +68,7 @@ import {
 } from './concepts/concept-queries'
 import { packSetNames, unpackSetNames } from './concepts/concept-set-names'
 import { ConceptTable } from './concepts/ConceptTable'
+import { ConceptCountNotice } from './concepts/ConceptCountNotice'
 import { ConceptDetail } from './concepts/ConceptDetail'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useConceptsDatabase } from './concepts/use-concepts-database'
@@ -105,10 +106,7 @@ export function ConceptsPage() {
     conceptStats,
     conceptStatsLoading,
     refresh,
-    lastRefreshed,
-    countsRefreshing,
-    refreshError,
-    needsRefresh,
+    count,
     statsEnabled,
     setStatsEnabled,
     excludeOutliers,
@@ -648,32 +646,32 @@ export function ConceptsPage() {
           </Tooltip>
 
           <div className="ml-auto flex shrink-0 items-center gap-2">
-            {/* Three groups: search + concept list, then refresh… */}
-            <div className="mx-0.5 h-4 w-px bg-border" />
-            <Tooltip>
-              <TooltipTrigger asChild>
+            {/* Three groups: search + concept list, then refresh (front-only: in
+                server mode the counts are run from the database's Concepts tab)… */}
+            {!count.enabled && (
+              <>
+                <div className="mx-0.5 h-4 w-px bg-border" />
                 <Button
                   variant="outline"
                   size="sm"
                   className="h-8 gap-1 text-xs"
                   onClick={refresh}
-                  disabled={countsRefreshing}
                 >
-                  <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
+                  <RefreshCw size={12} />
                   {t('concepts.refresh')}
                 </Button>
-              </TooltipTrigger>
-              {lastRefreshed && (
-                <TooltipContent side="bottom" className="text-xs">
-                  {t('concepts.last_refreshed', {
-                    date: new Date(lastRefreshed).toLocaleString(i18n.language, {
-                      dateStyle: 'medium',
-                      timeStyle: 'short',
-                    }),
-                  })}
-                </TooltipContent>
-              )}
-            </Tooltip>
+              </>
+            )}
+            {count.enabled && count.refreshedAt && (
+              <span className="text-[10px] text-muted-foreground">
+                {t('concepts.last_refreshed', {
+                  date: new Date(count.refreshedAt).toLocaleString(i18n.language, {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  }),
+                })}
+              </span>
+            )}
 
             {/* …then the view options. */}
             <div className="mx-0.5 h-4 w-px bg-border" />
@@ -714,44 +712,7 @@ export function ConceptsPage() {
         </div>
       </TooltipProvider>
 
-      {/* No cache yet (server mode): prompt to build it. */}
-      {needsRefresh && !refreshError && (
-        <div className="flex items-center justify-between gap-3 border-b bg-muted/40 px-4 py-2">
-          <span className="text-xs text-muted-foreground">
-            {countsRefreshing ? t('concepts.building_cache') : t('concepts.cache_empty')}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 gap-1 text-xs"
-            onClick={refresh}
-            disabled={countsRefreshing}
-          >
-            <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
-            {t('concepts.build_cache')}
-          </Button>
-        </div>
-      )}
-
-      {/* A failed build used to be silent (console only) — surface it so the
-          button never looks like it did nothing. */}
-      {refreshError && (
-        <div className="flex items-center justify-between gap-3 border-b border-destructive/30 bg-destructive/10 px-4 py-2">
-          <span className="text-xs text-destructive">
-            {t('concepts.build_cache_failed', { error: refreshError })}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 gap-1 text-xs"
-            onClick={refresh}
-            disabled={countsRefreshing}
-          >
-            <RefreshCw size={12} className={countsRefreshing ? 'animate-spin' : ''} />
-            {t('concepts.retry')}
-          </Button>
-        </div>
-      )}
+      <ConceptCountNotice count={count} dataSourceId={mappedSource?.id} />
 
       <ConceptListModal
         open={listOpen}

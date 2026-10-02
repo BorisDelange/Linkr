@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   Pencil,
   BarChart3,
+  BookOpen,
   BedDouble,
   FileSpreadsheet,
   Database as DatabaseIcon,
@@ -81,6 +82,7 @@ import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuild
 import { useDatabaseActions } from './use-database-actions'
 import { DerivedFromCard } from './DerivedFromCard'
 import { DatabaseSqlTab } from './DatabaseSqlTab'
+import { DatabaseConceptsTab } from './DatabaseConceptsTab'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
@@ -88,13 +90,13 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
 
-const DATABASE_TAB_IDS = ['overview', 'statistics', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
+const DATABASE_TAB_IDS = ['overview', 'statistics', 'concepts', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
 
 /** What a project may open. `resolveTab` falls back to the default for anything
  *  outside this list, so a bookmarked `?tab=readme` lands on the overview rather
  *  than on an empty body. */
-const PROJECT_TAB_IDS = ['overview', 'statistics', 'schema', 'mapping', 'sql'] as const
+const PROJECT_TAB_IDS = ['overview', 'statistics', 'concepts', 'schema', 'mapping', 'sql'] as const
 
 /** Stand-in for a source with no data model: every clinical table is unknown, so
  *  only the table row counts can be computed. */
@@ -154,6 +156,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   // the list page requires to delete it — and never from the project's read-only
   // view of a workspace database.
   const canReinstall = useMyWorkspaceRole().atLeast('owner') && !readOnly
+  // The concept counts are a cache: shared for a file database (an edit), the
+  // user's own for an external one — the server's `_cache_write_permission`.
+  const canCountConcepts = useMyWorkspaceRole().can('databases:write')
+    || ['postgresql', 'mysql'].includes(String((source?.connectionConfig as DatabaseConnectionConfig | undefined)?.engine))
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,
@@ -234,6 +240,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
             <TabsTrigger value="statistics">
               <BarChart3 size={14} />
               {t('databases.detail_statistics')}
+            </TabsTrigger>
+            <TabsTrigger value="concepts">
+              <BookOpen size={14} />
+              {t('databases.detail_concepts')}
             </TabsTrigger>
             <TabsTrigger value="schema">
               <Table2 size={14} />
@@ -334,6 +344,14 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               />
             </div>
           </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="concepts" className="m-0 min-h-0 flex-1 p-0">
+          <DatabaseConceptsTab
+            dataSourceId={source.id}
+            schemaMapping={statsMapping}
+            readOnly={!canCountConcepts}
+          />
         </TabsContent>
 
         {/* The browser fills the page: its three panes are what the sheet could

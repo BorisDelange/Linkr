@@ -45,16 +45,28 @@ export async function queryDataSourceOnServer(
   sql: string,
   { signal, allRows }: { signal?: AbortSignal; allRows?: boolean } = {},
 ): Promise<Record<string, unknown>[]> {
-  if (!signal) {
-    const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
+  const res = await cancellableOnServer(dataSourceId, signal, (queryId) =>
+    apiRequest<{ rows: Record<string, unknown>[] }>(
       `/data-sources/${dataSourceId}/query`,
-      { method: 'POST', body: JSON.stringify({ sql, allRows }) },
-    )
-    return res.rows
-  }
+      { method: 'POST', body: JSON.stringify({ sql, allRows, ...(queryId ? { queryId } : {}) }) },
+    ),
+  )
+  return res.rows
+}
+
+/**
+ * Run a server request that executes a query of the source, stoppable by
+ * `signal`. Aborting the fetch alone would leave the query running on the
+ * server: the request is tagged with a query id, and an abort posts it to the
+ * cancel route, which interrupts the query — the request then fails with a 409.
+ */
+export async function cancellableOnServer<T>(
+  dataSourceId: string,
+  signal: AbortSignal | undefined,
+  request: (queryId: string | undefined) => Promise<T>,
+): Promise<T> {
+  if (!signal) return request(undefined)
   signal.throwIfAborted()
-  // Aborting the fetch alone would leave the query running on the server; the
-  // cancel route interrupts it, and this request then fails with a 409.
   const queryId = crypto.randomUUID()
   const onAbort = () => {
     void apiRequest(`/data-sources/${dataSourceId}/query/cancel`, {
@@ -64,12 +76,9 @@ export async function queryDataSourceOnServer(
   }
   signal.addEventListener('abort', onAbort, { once: true })
   try {
-    const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
-      `/data-sources/${dataSourceId}/query`,
-      { method: 'POST', body: JSON.stringify({ sql, queryId, allRows }) },
-    )
+    const res = await request(queryId)
     signal.throwIfAborted()
-    return res.rows
+    return res
   } catch (err) {
     signal.throwIfAborted()
     throw err

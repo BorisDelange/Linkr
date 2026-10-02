@@ -55,6 +55,7 @@ import {
 } from 'lucide-react'
 import { SortIndicator } from '@/components/ui/table-primitives'
 import { useConcepts, type ConceptRow } from '../../../concepts/use-concepts'
+import { ConceptCountNotice } from '../../../concepts/ConceptCountNotice'
 import type { SchemaMapping } from '@/types'
 
 // ---------------------------------------------------------------------------
@@ -373,6 +374,7 @@ export function CohortConceptPickerDialog({
         <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle>{t('cohorts.concept_pick')}</DialogTitle>
         </DialogHeader>
+        <ConceptCountNotice count={hook.count} dataSourceId={dataSourceId} className="shrink-0" />
 
         <div className="flex min-h-0 flex-1">
           {/* Left: concept table */}

@@ -96,7 +96,7 @@ export interface CatalogUnitInfo {
   slice?: [number, number]
 }
 
-type SerializedRange = { lo?: string | number; hi?: string | number }
+export type SerializedRange = { lo?: string | number; hi?: string | number }
 
 /** Everything a run has counted so far, merged unit by unit. */
 export interface CatalogRunState {
@@ -194,14 +194,19 @@ function serializeBound(v: unknown): string | number {
 
 /**
  * The patient slices a warehouse is counted in: one, the whole warehouse,
- * unless its events run past `SLICE_EVENT_ROWS`.
+ * unless its events run past `sliceRows`.
  */
-export async function planSlices(mapping: SchemaMapping, query: CatalogQuery, signal?: AbortSignal): Promise<SerializedRange[]> {
+export async function planSlices(
+  mapping: SchemaMapping,
+  query: CatalogQuery,
+  signal?: AbortSignal,
+  sliceRows = SLICE_EVENT_ROWS,
+): Promise<SerializedRange[]> {
   const sizeSql = buildSizeQuery(mapping)
   if (!sizeSql) throw new Error(MISSING_MAPPING)
   const size = (await query(sizeSql, signal))[0] ?? {}
   const eventRows = Number(size.event_rows ?? 0)
-  const wanted = Math.min(MAX_SLICES, Math.ceil(eventRows / SLICE_EVENT_ROWS))
+  const wanted = Math.min(MAX_SLICES, Math.ceil(eventRows / sliceRows))
   if (wanted < 2) return [{}]
   const boundsSql = buildPatientBoundsQuery(mapping, wanted)
   const bounds = boundsSql ? (await query(boundsSql, signal)).map((r) => serializeBound(r.b)) : []

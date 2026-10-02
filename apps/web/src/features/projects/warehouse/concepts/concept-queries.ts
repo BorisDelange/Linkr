@@ -282,6 +282,23 @@ function activeDicts(mapping: SchemaMapping, filters: ConceptFilters): ClassRela
 // ---------------------------------------------------------------------------
 
 /**
+ * Where a dictionary's record / patient counts come from:
+ * - `inline`: counted from the event tables in the query itself (front-only
+ *   mode, where the warehouse is small enough);
+ * - `units`: read from the counting units written so far, through the view the
+ *   server's assemble step exposes. A phase not yet complete leaves NULL rather
+ *   than 0 — "not counted yet" is not "never used";
+ * - `none`: no counts (the detail of a single concept).
+ */
+export type CountsSource =
+  | { kind: 'inline' }
+  | { kind: 'units'; recordsComplete: boolean; patientsComplete: boolean }
+  | { kind: 'none' }
+
+/** The view `assemble` exposes the units through (`concept_cache_fs.COUNTS_VIEW`). */
+export const CONCEPT_COUNTS_VIEW = 'memory.main._concept_counts'
+
+/**
  * Build a counts subquery for a dictionary, aggregating record_count and patient_count
  * across all event tables linked to that dictionary.
  * Returns null if no event tables exist for the dictionary.
@@ -290,8 +307,9 @@ function buildCountsSubquery(mapping: SchemaMapping, dict: ClassRelation): strin
   const parts: string[] = []
   for (const event of eventsOf(mapping, dict)) {
     parts.push(`SELECT concept_id AS cid, patient_id AS pid FROM ${event.name}`)
+    // A source column repeating the standard one would count the row twice for that concept.
     if (has(event, 'source_concept_id')) {
-      parts.push(`SELECT source_concept_id AS cid, patient_id AS pid FROM ${event.name}`)
+      parts.push(`SELECT source_concept_id AS cid, patient_id AS pid FROM ${event.name} WHERE source_concept_id IS DISTINCT FROM concept_id`)
     }
   }
   if (parts.length === 0) return null
@@ -303,6 +321,13 @@ function buildCountsSubquery(mapping: SchemaMapping, dict: ClassRelation): strin
   GROUP BY cid)`
 }
 
+function buildUnitCountsSubquery(dict: ClassRelation): string {
+  return `(SELECT concept_id, SUM(record_count)::BIGINT AS record_count, SUM(patient_count)::BIGINT AS patient_count
+  FROM ${CONCEPT_COUNTS_VIEW}
+  WHERE dict_key = '${esc(dict.key ?? '')}'
+  GROUP BY concept_id)`
+}
+
 // ---------------------------------------------------------------------------
 // Main queries: concepts list (supports multi-dict UNION ALL)
 // ---------------------------------------------------------------------------
@@ -312,14 +337,16 @@ function buildSelectForDict(
   allColumns: ColumnDescriptor[],
   filters: ConceptFilters,
   mapping: SchemaMapping,
-  withCounts: boolean,
+  counts: CountsSource,
   extraWhere?: string,
 ): string {
-  // When counts are streamed/cached separately, skip the expensive GROUP-BY join
-  // so the list renders immediately; record/patient counts fall back to 0 and are
-  // filled in client-side from the count cache.
-  const countsSubquery = withCounts ? buildCountsSubquery(mapping, dict) : null
+  const countsSubquery =
+    counts.kind === 'inline' ? buildCountsSubquery(mapping, dict)
+      : counts.kind === 'units' ? buildUnitCountsSubquery(dict)
+        : null
   const hasCounts = countsSubquery !== null
+  const countCol = (col: 'record_count' | 'patient_count', complete: boolean) =>
+    complete ? `COALESCE(_counts.${col}, 0) AS ${col}` : `_counts.${col} AS ${col}`
   const filterWhere = buildWhereClause(dict, filters, allColumns, 'c')
   const where = extraWhere ? (filterWhere ? `${filterWhere} AND ${extraWhere}` : `WHERE ${extraWhere}`) : filterWhere
 
@@ -335,11 +362,11 @@ function buildSelectForDict(
       continue
     }
     if (col.id === 'record_count') {
-      cols.push(hasCounts ? 'COALESCE(_counts.record_count, 0) AS record_count' : '0 AS record_count')
+      cols.push(hasCounts ? countCol('record_count', counts.kind !== 'units' || counts.recordsComplete) : '0 AS record_count')
       continue
     }
     if (col.id === 'patient_count') {
-      cols.push(hasCounts ? 'COALESCE(_counts.patient_count, 0) AS patient_count' : '0 AS patient_count')
+      cols.push(hasCounts ? countCol('patient_count', counts.kind !== 'units' || counts.patientsComplete) : '0 AS patient_count')
       continue
     }
 
@@ -359,12 +386,11 @@ export function buildConceptsQuery(
   page: number,
   pageSize: number,
   sorting?: ConceptSorting | null,
-  withCounts = true,
 ): string | null {
   const dicts = activeDicts(mapping, filters)
   if (dicts.length === 0) return null
   const offset = page * pageSize
-  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, withCounts))
+  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, { kind: 'inline' }))
 
   // ORDER BY — all columns including record_count and patient_count. An explicit
   // sort wins; otherwise a fuzzy search orders by relevance (best tier first).
@@ -385,14 +411,17 @@ export function buildConceptsQuery(
 ) _union ORDER BY ${orderBy} LIMIT ${pageSize} OFFSET ${offset}`
 }
 
-/** The full (unpaginated, unfiltered) enriched list with counts — the SELECT
- * materialized to the server-side Parquet cache. Its output columns are the
- * stable aliases the cache page queries then read. */
-export function buildConceptsMaterializeQuery(
+/** The full (unpaginated, unfiltered) enriched list, its counts read from the
+ * counting units done so far — the SELECT the server's assemble step writes to
+ * the Parquet cache. Its output columns are the stable aliases the cache page
+ * queries then read. */
+export function buildConceptsAssembleQuery(
   mapping: SchemaMapping,
   allColumns: ColumnDescriptor[],
+  progress: { recordsComplete: boolean; patientsComplete: boolean },
 ): string | null {
-  const subQueries = conceptRelations(mapping).map((d) => buildSelectForDict(d, allColumns, EMPTY_FILTERS, mapping, true))
+  const counts: CountsSource = { kind: 'units', ...progress }
+  const subQueries = conceptRelations(mapping).map((d) => buildSelectForDict(d, allColumns, EMPTY_FILTERS, mapping, counts))
   if (subQueries.length === 0) return null
   return subQueries.join('\n  UNION ALL\n  ')
 }
@@ -437,8 +466,7 @@ export function buildFilterOptionsQuery(
 // The cache is one row per concept with the stable alias columns
 // (concept_id, concept_name, record_count, …), exposed server-side as the view
 // `concepts`. Filters/sort/search are therefore plain single-table predicates on
-// those aliases — much simpler than the source multi-table SQL. `withCounts` is
-// irrelevant here (counts are already materialized as columns).
+// those aliases — much simpler than the source multi-table SQL.
 // ---------------------------------------------------------------------------
 
 /** WHERE clause over the flat cache columns (mirrors buildWhereClause's filters
@@ -538,7 +566,7 @@ export function buildConceptFullQuery(
   if (dicts.length === 0) return null
   const columns = computeAvailableColumns(conceptRelations(mapping))
   const match = `c.concept_id = ${Number(conceptId)}`
-  const parts = dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, false, match))
+  const parts = dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, { kind: 'none' }, match))
   return `${parts.join(' UNION ALL ')} LIMIT 1`
 }
 

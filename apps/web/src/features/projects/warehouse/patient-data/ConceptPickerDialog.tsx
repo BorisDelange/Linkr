@@ -37,6 +37,7 @@ import { mergeSelection, appendListConcepts } from './concept-selection'
 import { usePatientChartContext } from './PatientChartContext'
 import { ConceptStatsPopover } from './ConceptStatsPopover'
 import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
+import { ConceptCountNotice } from '../concepts/ConceptCountNotice'
 import { ConceptTable } from '../concepts/ConceptTable'
 import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
@@ -281,6 +282,7 @@ export function ConceptPickerDialog({
         <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle>{t('patient_data.select_concepts')}</DialogTitle>
         </DialogHeader>
+        <ConceptCountNotice count={hook.count} dataSourceId={dataSourceId} className="shrink-0" />
 
         {/* Tab switcher, only when there is something to switch BETWEEN.
             A caller that pins the dialog to concepts keeps its settings in its own
