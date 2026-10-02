@@ -2,7 +2,7 @@
 
 Manual, not run in CI. They need disk (≈15 GB per billion rows) and minutes.
 
-## Concept counts and patient lookups — `bench_concepts.py`
+## Concept counts, patient lookups, Data overview — `bench_concepts.py`
 
 Generates a synthetic OMOP Parquet folder (person, concept, measurement,
 condition_occurrence, drug_exposure; one patient holding ~2 % of the rows),
@@ -21,7 +21,9 @@ cd apps/api && PYTHONPATH=. .venv/bin/python ../../scripts/bench/bench_concepts.
 
 `--variant sorted` writes the files ordered by patient then date; `--old` also
 times the former single-query count; `--no-check` skips the brute-force check
-(slow at a billion rows). The slice count is the power of two nearest to what
+(slow at a billion rows); `--overview-only` skips the counts and times the Data
+overview's queries for the heavy patient (inventory, density at three zooms,
+one day of events). The slice count is the power of two nearest to what
 `planSlices` would choose for `--slice-rows`.
 
 Reference (2026-10-02, Mac 8 cores / 16 GB / SSD):
@@ -33,3 +35,14 @@ Reference (2026-10-02, Mac 8 cores / 16 GB / SSD):
 | 1 B rows, a 100 M-row patient slice | 16–33 s | — |
 | 300 M rows, every unit | 31 s | 12 s |
 | 300 M rows, one patient's measurements | 0.40 s | 0.03 s |
+
+Data overview, heavy patient (2 % of the rows), one density query per view:
+
+| | 300 M sorted | 1 B unsorted |
+|---|---|---|
+| Inventory | 0.11 s | 6.3 s |
+| Density, whole record / a week / a day | 0.03–0.06 s | ~5 s each |
+| One day of events | 0.03 s | 4.5 s |
+
+Unsorted, every read is a full scan of the event tables: the layout, not the
+query, is what decides whether the overview follows a pan.

@@ -65,6 +65,7 @@ def main() -> None:
     ap.add_argument("--slice-rows", type=int, default=100_000_000)
     ap.add_argument("--old", action="store_true", help="also time the former single COPY")
     ap.add_argument("--no-check", action="store_true")
+    ap.add_argument("--overview-only", action="store_true", help="skip the concept counts")
     ap.add_argument("--work", required=True, help="folder for the generated data (tens of GB at 1 B rows)")
     args = ap.parse_args()
 
@@ -86,55 +87,56 @@ def main() -> None:
     def q(sql):
         return db_connect.query_parquet_folder(files, known, sql)
 
-    size = q(SQL["size"])[0]
-    wanted = min(64, math.ceil(int(size["event_rows"]) / args.slice_rows))
-    n = 1 if wanted < 2 else wanted
-    if str(n) not in SQL["plans"]:
-        n = min((int(k) for k in SQL["plans"]), key=lambda k: abs(k - n))
-    bounds = [r["b"] for r in q(SQL["bounds"][str(n)])] if n > 1 else []
-    print(f"event rows {size['event_rows']:,}, patients {size['patients']:,} -> {n} slice(s) {bounds}")
+    if not args.overview_only:
+        size = q(SQL["size"])[0]
+        wanted = min(64, math.ceil(int(size["event_rows"]) / args.slice_rows))
+        n = 1 if wanted < 2 else wanted
+        if str(n) not in SQL["plans"]:
+            n = min((int(k) for k in SQL["plans"]), key=lambda k: abs(k - n))
+        bounds = [r["b"] for r in q(SQL["bounds"][str(n)])] if n > 1 else []
+        print(f"event rows {size['event_rows']:,}, patients {size['patients']:,} -> {n} slice(s) {bounds}")
 
-    units = SQL["plans"][str(n)]
-    concept_cache_fs.write_manifest("bench", "", {"bench": True}, reset=True)
-    timings = []
-    for u in units:
-        sql = u["sql"]
-        for i, b in enumerate(bounds, start=1):
-            sql = sql.replace(f"'__B{i}'", str(b))
-        t = time.monotonic()
-        concept_cache_fs.write_unit(config, None, files, known, sql, "bench", "", u["key"])
-        timings.append((u["key"], time.monotonic() - t))
-        print(f"  {u['key']:<24} {timings[-1][1]:7.2f}s", flush=True)
-        if u["key"] == [x for x in units if x["step"] == "records"][-1]["key"]:
+        units = SQL["plans"][str(n)]
+        concept_cache_fs.write_manifest("bench", "", {"bench": True}, reset=True)
+        timings = []
+        for u in units:
+            sql = u["sql"]
+            for i, b in enumerate(bounds, start=1):
+                sql = sql.replace(f"'__B{i}'", str(b))
             t = time.monotonic()
-            concept_cache_fs.assemble(config, None, files, known, SQL["assemble"]["partial"], "bench", "")
-            print(f"  {'assemble (records done)':<24} {time.monotonic() - t:7.2f}s")
-    t = time.monotonic()
-    concept_cache_fs.assemble(config, None, files, known, SQL["assemble"]["complete"], "bench", "")
-    print(f"  {'assemble (complete)':<24} {time.monotonic() - t:7.2f}s")
-    total = sum(s for _, s in timings)
-    print(f"units total {total:.1f}s, slowest {max(timings, key=lambda x: x[1])}")
+            concept_cache_fs.write_unit(config, None, files, known, sql, "bench", "", u["key"])
+            timings.append((u["key"], time.monotonic() - t))
+            print(f"  {u['key']:<24} {timings[-1][1]:7.2f}s", flush=True)
+            if u["key"] == [x for x in units if x["step"] == "records"][-1]["key"]:
+                t = time.monotonic()
+                concept_cache_fs.assemble(config, None, files, known, SQL["assemble"]["partial"], "bench", "")
+                print(f"  {'assemble (records done)':<24} {time.monotonic() - t:7.2f}s")
+        t = time.monotonic()
+        concept_cache_fs.assemble(config, None, files, known, SQL["assemble"]["complete"], "bench", "")
+        print(f"  {'assemble (complete)':<24} {time.monotonic() - t:7.2f}s")
+        total = sum(s for _, s in timings)
+        print(f"units total {total:.1f}s, slowest {max(timings, key=lambda x: x[1])}")
 
-    if not args.no_check:
-        got = {
-            r["concept_id"]: (r["record_count"], r["patient_count"])
-            for r in concept_cache_fs.query_page("bench", "", "SELECT concept_id, record_count, patient_count FROM concepts")
-        }
-        parts = []
-        for table, (_, ccol, scol, _) in TABLES.items():
-            parts.append(f"SELECT {ccol} AS cid, person_id AS pid FROM {table}")
-            if scol:
-                parts.append(f"SELECT {scol}, person_id FROM {table} WHERE {scol} IS DISTINCT FROM {ccol}")
-        expected = {
-            r["cid"]: (r["n"], r["p"])
-            for r in q(f"SELECT cid, COUNT(*)::BIGINT AS n, COUNT(DISTINCT pid)::BIGINT AS p FROM ({' UNION ALL '.join(parts)}) GROUP BY cid")
-        }
-        bad = [(c, got.get(c), e) for c, e in expected.items() if got.get(c) != e]
-        zero = [c for c, v in got.items() if c not in expected and v != (0, 0)]
-        print(f"check: {len(expected)} concepts with events, {len(bad)} mismatches, {len(zero)} non-zero without events")
-        if bad or zero:
-            print(bad[:5], zero[:5])
-            sys.exit(1)
+        if not args.no_check:
+            got = {
+                r["concept_id"]: (r["record_count"], r["patient_count"])
+                for r in concept_cache_fs.query_page("bench", "", "SELECT concept_id, record_count, patient_count FROM concepts")
+            }
+            parts = []
+            for table, (_, ccol, scol, _) in TABLES.items():
+                parts.append(f"SELECT {ccol} AS cid, person_id AS pid FROM {table}")
+                if scol:
+                    parts.append(f"SELECT {scol}, person_id FROM {table} WHERE {scol} IS DISTINCT FROM {ccol}")
+            expected = {
+                r["cid"]: (r["n"], r["p"])
+                for r in q(f"SELECT cid, COUNT(*)::BIGINT AS n, COUNT(DISTINCT pid)::BIGINT AS p FROM ({' UNION ALL '.join(parts)}) GROUP BY cid")
+            }
+            bad = [(c, got.get(c), e) for c, e in expected.items() if got.get(c) != e]
+            zero = [c for c, v in got.items() if c not in expected and v != (0, 0)]
+            print(f"check: {len(expected)} concepts with events, {len(bad)} mismatches, {len(zero)} non-zero without events")
+            if bad or zero:
+                print(bad[:5], zero[:5])
+                sys.exit(1)
 
     t = time.monotonic()
     rows = q("SELECT COUNT(*) AS n FROM measurement WHERE person_id = 1")[0]["n"]
@@ -142,6 +144,20 @@ def main() -> None:
     t = time.monotonic()
     q("SELECT COUNT(*) AS n FROM measurement WHERE person_id = 4242")
     print(f"a small patient's measurements: {time.monotonic() - t:.2f}s")
+
+    if "overview" in SQL:
+        ov = SQL["overview"]
+        t = time.monotonic()
+        inv = q(ov["inventory"])
+        print(f"overview inventory ({len(inv)} concepts): {time.monotonic() - t:.2f}s")
+        for name, tiles in ov["density"].items():
+            t = time.monotonic()
+            for sql in tiles:
+                q(sql)
+            print(f"overview density, {name} view: {time.monotonic() - t:.2f}s")
+        t = time.monotonic()
+        n = len(q(ov["events"]))
+        print(f"overview events, one day ({n} rows): {time.monotonic() - t:.2f}s")
 
     if args.old:
         parts = []

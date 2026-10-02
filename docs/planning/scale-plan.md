@@ -210,6 +210,14 @@ assez peu denses (`LIMIT 4000`), rendu Canvas 2D. Les trous :
 - chaque pan/zoom change la clé du cache (`view.lo|view.hi`) et relance toutes
   les lignes, en série (`:546`), sans debounce ni annulation.
 
+> Construit le 2026-10-02 (`widgets/overview-tiles.ts`, `buildOverviewTileDensityQuery`) :
+> densité SQL sur cases absolues (puissance de deux ms ≈ 1 px) par tuiles de 256,
+> toutes les tuiles manquantes d'une vue en une requête ; événements sur une
+> fenêtre élargie et alignée, réutilisée au zoom ; une fenêtre tronquée à 4000
+> bascule la ligne en densité ; debounce 150 ms, annulation, 4 requêtes en
+> parallèle. M4 (min/max par case) reporté. Corrigé au passage : `cancellableQuery`
+> (WASM) lisait un schéma encore vide. Mesures dans `scripts/bench/README.md`.
+
 ### 4.2 Cible
 
 1. **Densité SQL pour les lignes denses** : une case par pixel ; nombre

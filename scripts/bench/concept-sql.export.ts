@@ -7,6 +7,9 @@ import { conceptRelations } from '@/lib/schema-classes/relations'
 import { buildSizeQuery, buildPatientBoundsQuery } from '@/lib/duckdb/catalog-queries'
 import { planConceptCountUnits } from '@/features/projects/warehouse/concepts/concept-count-plan'
 import { buildConceptsAssembleQuery, computeAvailableColumns } from '@/features/projects/warehouse/concepts/concept-queries'
+import { buildOverviewEventsQuery, buildOverviewInventoryQuery, buildOverviewTileDensityQuery } from '@/lib/duckdb/patient-overview-queries'
+import { NO_SCOPE } from '@/lib/duckdb/patient-scope'
+import { bucketMsFor, tileBounds, tilesCovering } from '@/features/projects/warehouse/patient-data/widgets/overview-tiles'
 
 // The synthetic OMOP `bench_concepts.py` generates.
 const v1 = {
@@ -32,5 +35,32 @@ it('exports the concept-count SQL', () => {
     bounds: Object.fromEntries(sizes.filter((n) => n > 1).map((n) => [n, withClassRelations(buildPatientBoundsQuery(mapping, n)!, mapping)])),
     plans: Object.fromEntries(sizes.map((n) => [n, plan(n)])),
     assemble: { partial: assemble(true, false), complete: assemble(true, true) },
+    overview: overview(mapping),
   }, null, 2))
 })
+
+/**
+ * The Data overview's queries for patient 1 (the heavy one), at three zoom
+ * levels over the generated dates, on a 1000-pixel plot: whole record, a week,
+ * a day. Density covers every table; events one day of one table.
+ */
+function overview(mapping: ReturnType<typeof mappingV1ToV2>) {
+  const rows = ['Measurement', 'Condition', 'Drug'].map((table) => ({ key: table, table, conceptIds: [] as string[] }))
+  const lo = Date.UTC(2010, 0, 1)
+  const views = { record: [lo, lo + 400_000_000_000], week: [lo + 2e11, lo + 2e11 + 7 * 864e5], day: [lo + 2e11, lo + 2e11 + 864e5] }
+  const iso = (ms: number) => new Date(ms).toISOString()
+  const density = Object.fromEntries(Object.entries(views).map(([name, [a, b]]) => {
+    const bw = bucketMsFor(b - a, 1000)
+    // One query for every tile of the view, as the widget reads them.
+    const tiles = tilesCovering(a, b, bw)
+    const from = tileBounds(tiles[0], bw)[0]
+    const to = tileBounds(tiles[tiles.length - 1], bw)[1]
+    return [name, [withClassRelations(buildOverviewTileDensityQuery(mapping, '1', NO_SCOPE, rows, bw, iso(from), iso(to))!, mapping)]]
+  }))
+  const ids = Array.from({ length: 50 }, (_, i) => String(i + 1))
+  return {
+    inventory: withClassRelations(buildOverviewInventoryQuery(mapping, '1', NO_SCOPE)!, mapping),
+    density,
+    events: withClassRelations(buildOverviewEventsQuery(mapping, '1', NO_SCOPE, 'Measurement', ids, iso(views.day[0]), iso(views.day[1]), 4000)!, mapping),
+  }
+}
