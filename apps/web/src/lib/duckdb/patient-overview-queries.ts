@@ -168,6 +168,43 @@ GROUP BY 1, 2`)
   return `${parts.join('\nUNION ALL\n')}\nORDER BY row_key, bucket`
 }
 
+/**
+ * Density on ABSOLUTE buckets of `bucketMs` milliseconds, over [from, to): the
+ * bucket of an event is `floor(epoch_ms(start) / bucketMs)` whatever the view,
+ * so a tile read for one view serves every later view at the same zoom level
+ * (see `overview-tiles.ts`). One row per (row, bucket) holding events.
+ *
+ * An event counts in the bucket it starts in, spans included: spreading an
+ * infusion over every bucket it covers would multiply the rows grouped. Zoomed
+ * in far enough to draw it, the row reads its events and shows the full span.
+ */
+export function buildOverviewTileDensityQuery(
+  mapping: SchemaMapping,
+  patientId: string,
+  scope: PatientScope,
+  rows: OverviewDensityRow[],
+  bucketMs: number,
+  from: string,
+  to: string,
+): string | null {
+  const width = Math.max(1, Math.floor(bucketMs))
+  const parts: string[] = []
+  for (const row of rows) {
+    const event = eventRelation(mapping, row.table)
+    if (!has(event, 'start_datetime') || !has(event, 'patient_id')) continue
+    parts.push(`SELECT '${escSql(row.key)}' AS row_key,
+  CAST(FLOOR(EPOCH_MS(CAST(e.start_datetime AS TIMESTAMP)) / ${width}) AS BIGINT) AS bucket,
+  COUNT(*) AS n
+FROM ${event!.name} e
+WHERE e.patient_id = '${escSql(patientId)}'
+  AND e.start_datetime >= TIMESTAMP '${escSql(from)}'
+  AND e.start_datetime < TIMESTAMP '${escSql(to)}'${eventScopeCondition(mapping, event!, scope)}${buildConceptFilter(row.conceptIds)}
+GROUP BY 1, 2`)
+  }
+  if (parts.length === 0) return null
+  return parts.join('\nUNION ALL\n')
+}
+
 /** One band the renderer wants density for: a row key and the concepts behind it. */
 export interface OverviewDensityRow {
   /** Opaque key the caller uses to match results back to its row. */

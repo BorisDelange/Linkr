@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
-import { buildOverviewEventsQuery, buildOverviewInventoryQuery } from './patient-overview-queries'
+import { buildOverviewEventsQuery, buildOverviewInventoryQuery, buildOverviewTileDensityQuery } from './patient-overview-queries'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { NO_SCOPE, type PatientScope } from './patient-scope'
 
@@ -116,5 +116,24 @@ describe('an event table can declare it has no dictionary', () => {
       inline, 'p1', NO_SCOPE, 'Prescriptions', ['Vancomycin'], '2174-01-01', '2174-12-31', 10,
     )!
     expect(events).toContain('CAST(e.route AS VARCHAR) AS route')
+  })
+})
+
+describe('buildOverviewTileDensityQuery', () => {
+  it('buckets on absolute time, over a half-open tile', () => {
+    const sql = buildOverviewTileDensityQuery(mapping, 'p1', NO_SCOPE, [{ key: 'k', table: 'Measurement', conceptIds: [] }], 4096, '2128-01-01T00:00:00.000Z', '2128-01-02T00:00:00.000Z')!
+    expect(sql).toContain('FLOOR(EPOCH_MS(CAST(e.start_datetime AS TIMESTAMP)) / 4096)')
+    expect(sql).toContain("e.start_datetime >= TIMESTAMP '2128-01-01T00:00:00.000Z'")
+    expect(sql).toContain("e.start_datetime < TIMESTAMP '2128-01-02T00:00:00.000Z'")
+    expect(sql).not.toContain('concept_id AS VARCHAR) IN')
+  })
+
+  it('one branch per row, each with its concepts', () => {
+    const sql = buildOverviewTileDensityQuery(mapping, 'p1', NO_SCOPE, [
+      { key: 'a', table: 'Measurement', conceptIds: ['1'] },
+      { key: 'b', table: 'Measurement', conceptIds: ['2', '3'] },
+    ], 4096, '2128-01-01', '2128-01-02')!
+    expect(sql.split('UNION ALL')).toHaveLength(2)
+    expect(sql).toContain("IN ('2', '3')")
   })
 })

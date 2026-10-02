@@ -20,10 +20,20 @@ import {
   buildOverviewDeathQuery,
   buildOverviewEventsQuery,
   buildOverviewDensityQuery,
+  buildOverviewTileDensityQuery,
   overviewSupportsClasses,
   overviewUnitTableLabel,
 } from '@/lib/duckdb/patient-overview-queries'
 import { usePatientScope } from '../use-patient-scope'
+import {
+  bucketMsFor,
+  eventWindowFor,
+  OverviewDataCache,
+  runLimited,
+  tileBounds,
+  tilesCovering,
+  TILE_BUCKETS,
+} from './overview-tiles'
 import {
   buildOverviewRows,
   medianGapPx,
@@ -222,7 +232,11 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const layoutRef = useRef<LayoutRow[]>([])
   const barsRef = useRef<BarHit[]>([])
   const rangeRef = useRef<RangeGeom | null>(null)
-  const eventsRef = useRef(new Map<string, OverviewEvent[]>())
+  const dataRef = useRef(new OverviewDataCache())
+  // The plot width the last paint used: the fetch must ask for the bucket width
+  // the painter will look up, and only the painter knows the gutter (it follows
+  // the row labels). Set from the paint, which re-runs the fetch when it changes.
+  const [paintedPlotW, setPaintedPlotW] = useState(0)
   const dragRef = useRef<DragState | null>(null)
   /** Latches after the first paint failure, so the error is reported once. */
   const paintFailedRef = useRef(false)
@@ -259,7 +273,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     setLoading(true)
     setError(null)
     paintFailedRef.current = false
-    eventsRef.current.clear()
+    dataRef.current.clear()
 
     /**
      * The range selector's background: the whole record in one histogram,
@@ -480,79 +494,106 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     return map
   }, [concepts])
 
-  // --- Fetch events for rows that are drawn individually --------------------
+  // --- Fetch what the view needs ---------------------------------------------
+  //
+  // Rows sparse enough to draw one by one get their events, over a window wider
+  // than the view; the others get density tiles at about a pixel per bucket
+  // (overview-tiles.ts). Both are cached, so a pan or a zoom only reads what came
+  // into view. Debounced, so a drag or a wheel spin reads once it settles, and
+  // aborted when the view moves on — the server stops the query in flight.
 
   useEffect(() => {
     if (!visible || !view || !bounds || !dataSourceId || !schemaMapping || !selectedPatientId) return
-    const plotW = Math.max(120, size.w - 160)
-    let cancelled = false
+    if (!paintedPlotW) return
+    const plotW = paintedPlotW
+    const cache = dataRef.current
+    const span = Math.max(1, view.hi - view.lo)
+    const bucketMs = bucketMsFor(span, plotW)
 
-    const wanted = layout.rows.filter((row) => {
-      if (row.kind === 'units' || row.conceptIds.length === 0) return false
-      if (hiddenRef.current.has(row.table) || hiddenRef.current.has(row.key)) return false
-      // Scale the whole-record count down to the visible slice: eventCount spans
-      // the entire stay and never changes with zoom, so testing it directly locks
-      // every busy row — a vital sign sampled hourly — into a density band at
-      // EVERY zoom level. LIMIT caps the cost of being wrong here.
-      const recordSpan = Math.max(1, bounds.hi - bounds.lo)
-      const inView = row.eventCount * ((view.hi - view.lo) / recordSpan)
-      const ok = inView / plotW < 1.5
-      return ok
-    })
+    const rows = layout.rows.filter((row) =>
+      row.kind !== 'units' && !hiddenRef.current.has(row.table) && !hiddenRef.current.has(row.key))
 
-    // A non-finite bound would make toISOString throw, which blanks the whole
-    // board rather than just this widget.
-    const fromIso = isoOrNull(view.lo)
-    const toIso = isoOrNull(view.hi)
-    if (!fromIso || !toIso) return
+    const tasks: (() => Promise<void>)[] = []
+    const dense: OverviewRow[] = []
+    for (const row of rows) {
+      const key = rowCacheKey(row)
+      if (row.conceptIds.length > 0 && wantsEvents(row, view, bounds, plotW)) {
+        if (cache.needsEvents(key, view.lo, view.hi)) tasks.push(() => fetchEvents(row, key))
+        const w = cache.eventsFor(key, view.lo, view.hi)
+        if (!w?.truncated) continue
+      }
+      dense.push(row)
+    }
+    // Every missing tile of every dense row in ONE query: on files not sorted by
+    // patient each read is a full scan, so one per tile cost as many scans.
+    const tiles = tilesCovering(view.lo, view.hi, bucketMs)
+    const missing = dense.filter((row) => tiles.some((t) => !cache.hasTile(rowCacheKey(row), bucketMs, t)))
+    if (missing.length) {
+      const needed = tiles.filter((t) => missing.some((row) => !cache.hasTile(rowCacheKey(row), bucketMs, t)))
+      tasks.push(() => fetchTiles(missing, needed[0], needed[needed.length - 1]))
+    }
+    if (tasks.length === 0) return
 
-    const run = async () => {
-      for (const row of wanted) {
-        const key = eventKey(row, view)
-        if (eventsRef.current.has(key)) continue
-        const sql = buildOverviewEventsQuery(
-          schemaMapping,
-          selectedPatientId,
-          scope,
-          row.table,
-          row.conceptIds,
-          fromIso,
-          toIso,
-          EVENT_FETCH_LIMIT,
-        )
-        if (!sql) continue
-        try {
-          const raw = await queryDataSource(dataSourceId, sql)
-          if (cancelled) return
-          eventsRef.current.set(
-            key,
-            raw.map((r) => ({
-              start: toMs(r.event_start) ?? 0,
-              end: toMs(r.event_end),
-              value: r.value_number == null ? null : Number(r.value_number),
-              text: r.value_string == null ? null : String(r.value_string),
-              conceptId: r.concept_id == null ? null : String(r.concept_id),
-              route: r.route == null ? null : String(r.route),
-              rate: r.rate_value == null ? null : Number(r.rate_value),
-              rateUnit: r.rate_unit == null ? null : String(r.rate_unit),
-            })),
-          )
-          repaint()
-        } catch (err) {
-          // A row that fails to load falls back to a density band — which looks
-          // exactly like a row that was aggregated on purpose. Staying silent
-          // here hid a broken column behind a plausible-looking figure, so the
-          // failure is always reported even though it is not fatal.
-          console.warn('[patient-overview] events query failed for', row.label, err)
-          eventsRef.current.set(key, [])
-        }
+    const controller = new AbortController()
+    const signal = controller.signal
+
+    async function fetchEvents(row: OverviewRow, key: string) {
+      const win = eventWindowFor(view!.lo, view!.hi)
+      const from = isoOrNull(win.lo)
+      const to = isoOrNull(win.hi)
+      const sql = from && to
+        ? buildOverviewEventsQuery(schemaMapping!, selectedPatientId!, scope, row.table, row.conceptIds, from, to, EVENT_FETCH_LIMIT)
+        : null
+      if (!sql) return
+      try {
+        const raw = await queryDataSource(dataSourceId!, sql, { signal })
+        cache.putEvents(key, { ...win, events: raw.map(toOverviewEvent), truncated: raw.length >= EVENT_FETCH_LIMIT })
+        repaint()
+      } catch (err) {
+        if (signal.aborted) return
+        // A row that fails to load falls back to a density band — which looks
+        // exactly like a row aggregated on purpose. Staying silent here hid a
+        // broken column behind a plausible figure, so the failure is reported.
+        console.warn('[patient-overview] events query failed for', row.label, err)
+        cache.putEvents(key, { ...win, events: [], truncated: false })
       }
     }
-    void run()
-    return () => {
-      cancelled = true
+
+    async function fetchTiles(missing: OverviewRow[], firstTile: number, lastTile: number) {
+      const from = isoOrNull(tileBounds(firstTile, bucketMs)[0])
+      const to = isoOrNull(tileBounds(lastTile, bucketMs)[1])
+      const sql = from && to
+        ? buildOverviewTileDensityQuery(schemaMapping!, selectedPatientId!, scope,
+          missing.map((row) => ({ key: rowCacheKey(row), table: row.table, conceptIds: row.conceptIds })), bucketMs, from, to)
+        : null
+      if (!sql) return
+      try {
+        const raw = await queryDataSource(dataSourceId!, sql, { signal })
+        const counts = new Map(missing.map((row) => [rowCacheKey(row), new Float64Array((lastTile - firstTile + 1) * TILE_BUCKETS)]))
+        const first = firstTile * TILE_BUCKETS
+        for (const r of raw) {
+          const i = Number(r.bucket) - first
+          const arr = counts.get(String(r.row_key))
+          if (arr && i >= 0 && i < arr.length) arr[i] += Number(r.n ?? 0)
+        }
+        for (const [key, arr] of counts) {
+          for (let t = firstTile; t <= lastTile; t++) {
+            const at = (t - firstTile) * TILE_BUCKETS
+            cache.putTile(key, bucketMs, t, arr.slice(at, at + TILE_BUCKETS))
+          }
+        }
+        repaint()
+      } catch (err) {
+        if (!signal.aborted) console.warn('[patient-overview] density query failed', err)
+      }
     }
-  }, [visible, view, bounds, layout, dataSourceId, schemaMapping, selectedPatientId, scope, size.w, repaint])
+
+    const timer = setTimeout(() => void runLimited(tasks, 4, signal), 150)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [visible, view, bounds, layout, dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint])
 
   // --- Paint ----------------------------------------------------------------
 
@@ -636,6 +677,8 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     const span = view.hi - view.lo || 1
     const x = (ms: number) => plotL + ((ms - lo) / span) * plotW
     const nb = Math.max(40, Math.floor(plotW))
+    setPaintedPlotW((prev) => (prev === plotW ? prev : plotW))
+    const bucketMs = bucketMsFor(span, plotW)
 
     const nested = rows.some((r) => r.kind === 'class')
     const newLayout: LayoutRow[] = []
@@ -722,11 +765,14 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         marks = drawUnits(ctx, units, y, rowH, plotL, plotW, x, muted)
         level = 'events'
       } else if (!muted) {
-        const key = eventKey(row, view)
-        const evts = eventsRef.current.get(key)
+        const key = rowCacheKey(row)
+        const win = row.conceptIds.length > 0 && wantsEvents(row, view, bounds, plotW)
+          ? dataRef.current.eventsFor(key, lo, view.hi)
+          : null
+        const evts = win && !win.truncated ? win.events : null
         const inView = evts?.filter((e) => (e.end ?? e.start) >= lo && e.start <= view.hi) ?? null
 
-        if (inView && inView.length < EVENT_FETCH_LIMIT && fitsIndividually(inView, plotW, span)) {
+        if (inView && fitsIndividually(inView, plotW, span)) {
           marks = drawEventRow({
             ctx,
             events: inView,
@@ -740,7 +786,12 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           })
           level = 'events'
         } else {
-          counts = drawDensity(ctx, evts, y, rowH, plotL, nb, plotW / nb, lo, span, colour)
+          // Every event in view is at hand: bin them here. Otherwise the tiles
+          // the fetch read for this zoom level, or a coarser one meanwhile.
+          counts = inView
+            ? binEvents(inView, nb, lo, span)
+            : dataRef.current.pixelCounts(key, lo, view.hi, nb, bucketMs) ?? new Float64Array(nb)
+          drawDensity(ctx, counts, y, rowH, plotL, plotW / nb, colour)
         }
       }
       ctx.restore()
@@ -1322,44 +1373,36 @@ function fitsIndividually(events: OverviewEvent[], plotW: number, span: number):
   return medianGapPx(events.map((e) => e.start), plotW, span) >= MIN_GAP_PX
 }
 
+/** Events per pixel column; a span counts in every column it covers. */
+function binEvents(events: OverviewEvent[], nb: number, lo: number, span: number): Float64Array {
+  const counts = new Float64Array(nb)
+  for (const e of events) {
+    const b0 = clamp(Math.floor(((e.start - lo) / span) * nb), 0, nb - 1)
+    const b1 = clamp(Math.floor((((e.end ?? e.start) - lo) / span) * nb), 0, nb - 1)
+    for (let k = b0; k <= b1; k++) counts[k]++
+  }
+  return counts
+}
+
 function drawDensity(
   ctx: CanvasRenderingContext2D,
-  events: OverviewEvent[] | undefined,
+  counts: Float64Array,
   y: number,
   rowH: number,
   plotL: number,
-  nb: number,
   bw: number,
-  lo: number,
-  span: number,
   colour: string,
-): Float64Array {
-  const counts = new Float64Array(nb)
+): void {
   let maxC = 0
-  for (const e of events ?? []) {
-    const a = e.start
-    const b = e.end ?? e.start
-    const b0 = clamp(Math.floor(((a - lo) / span) * nb), 0, nb - 1)
-    const b1 = clamp(Math.floor(((b - lo) / span) * nb), 0, nb - 1)
-    for (let k = b0; k <= b1; k++) {
-      counts[k]++
-      if (counts[k] > maxC) maxC = counts[k]
-    }
-  }
+  for (const c of counts) if (c > maxC) maxC = c
+  if (maxC === 0) return
   const barH = Math.max(3, Math.min(rowH - 8, 10))
   const barY = y + (rowH - barH) / 2
-  if (maxC === 0) {
-    // No fetched events: show the row exists but carries no drawn data yet.
-    ctx.fillStyle = shade(colour, 0.18)
-    ctx.fillRect(plotL, barY + barH / 2 - 0.5, 0, 1)
-    return counts
-  }
-  for (let b = 0; b < nb; b++) {
+  for (let b = 0; b < counts.length; b++) {
     if (!counts[b]) continue
     ctx.fillStyle = shade(colour, 0.2 + 0.8 * Math.sqrt(counts[b] / maxC))
     ctx.fillRect(plotL + b * bw, barY, Math.max(1.2, bw), barH)
   }
-  return counts
 }
 
 function drawUnits(
@@ -1500,9 +1543,34 @@ function conceptRef(id?: string | null, code?: string | null): string | null {
   return [id, code].filter(Boolean).join(' · ') || null
 }
 
-/** Cache key: a row's events depend on the row and the window they were fetched for. */
-function eventKey(row: OverviewRow, view: { lo: number; hi: number }): string {
-  return `${row.key}|${row.kind}|${row.conceptIds.join(',')}|${Math.round(view.lo)}|${Math.round(view.hi)}`
+/** A row's cache key: what it shows depends on its concepts, not its position. */
+function rowCacheKey(row: OverviewRow): string {
+  return `${row.kind}|${row.key}|${row.conceptIds.join(',')}`
+}
+
+/**
+ * Whether a row is worth reading event by event at this zoom: its whole-record
+ * count scaled to the visible slice stays under ~1.5 events a pixel. Testing the
+ * whole-record count directly would lock every busy row into density at every
+ * zoom level; the row limit caps the cost of guessing wrong.
+ */
+function wantsEvents(row: OverviewRow, view: { lo: number; hi: number }, bounds: { lo: number; hi: number }, plotW: number): boolean {
+  const recordSpan = Math.max(1, bounds.hi - bounds.lo)
+  const inView = row.eventCount * ((view.hi - view.lo) / recordSpan)
+  return inView / Math.max(1, plotW) < 1.5
+}
+
+function toOverviewEvent(r: Record<string, unknown>): OverviewEvent {
+  return {
+    start: toMs(r.event_start) ?? 0,
+    end: toMs(r.event_end),
+    value: r.value_number == null ? null : Number(r.value_number),
+    text: r.value_string == null ? null : String(r.value_string),
+    conceptId: r.concept_id == null ? null : String(r.concept_id),
+    route: r.route == null ? null : String(r.route),
+    rate: r.rate_value == null ? null : Number(r.rate_value),
+    rateUnit: r.rate_unit == null ? null : String(r.rate_unit),
+  }
 }
 
 function setOffsetFromBar(bar: BarHit, thumbTop: number, offsets: Map<string, number>): void {
