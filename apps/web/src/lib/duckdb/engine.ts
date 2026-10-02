@@ -671,11 +671,14 @@ async function cancellableQuery(
   try {
     const reader = await conn.send(stmt, true)
     const rows: unknown[] = []
+    // The reader's own schema can still be unset here; every batch carries it.
+    let schema = reader.schema as { fields: unknown[] } | undefined
     for await (const batch of reader) {
       signal.throwIfAborted()
+      schema ??= batch.schema
       for (const row of batch.toArray()) rows.push(row)
     }
-    return { schema: reader.schema, toArray: () => rows } as Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'>
+    return { schema: schema ?? { fields: [] }, toArray: () => rows } as Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'>
   } catch (err) {
     signal.throwIfAborted()
     throw err
