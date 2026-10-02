@@ -28,6 +28,8 @@ from app.schemas.concept_cache import (
 )
 from app.schemas.data_source import (
     CompactStatus,
+    ParquetLayoutEntry,
+    ParquetLayoutRequest,
     DatabaseConnectionInfo,
     CreateFromDdlRequest,
     MoveFileRequest,
@@ -792,6 +794,21 @@ async def compact_database_status(
     if state is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no compaction for this database")
     return _compact_status(state)
+
+
+@router.post("/{source_id}/parquet-layout", response_model=list[ParquetLayoutEntry])
+async def parquet_layout(
+    source_id: str,
+    body: ParquetLayoutRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """How a lookup by each asked column reads its table's Parquet files — the
+    row-group statistics only, no row is read. Empty unless the source is a
+    Parquet folder."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    checks = [c.model_dump(by_alias=True) for c in body.checks]
+    return await data_source_service.parquet_layout(db, source, checks)
 
 
 @router.get("/{source_id}/concept-cache", response_model=ConceptCacheStatus)

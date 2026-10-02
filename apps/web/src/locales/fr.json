@@ -890,7 +890,10 @@
     "no_schema_title": "Aucun schéma n'est attribué à cette base de données",
     "no_schema_description": "Linkr ne sait pas quelles tables contiennent les patients, les séjours et les événements : les statistiques, les données patients, les cohortes et l'extraction des concepts sources des mapping projects ne fonctionnent pas. Attribuez un schéma pour les activer.",
     "no_schema_assign": "Attribuer un schéma",
-    "detail_concepts": "Concepts"
+    "detail_concepts": "Concepts",
+    "layout_unsorted_title_one": "1 table n'est pas rangée par patient",
+    "layout_unsorted_title_other": "{{count}} tables ne sont pas rangées par patient",
+    "layout_unsorted_description": "Lire un patient y parcourt l'essentiel de la table : {{tables}}. Écrire les fichiers Parquet triés par patient (puis par date) permet à toutes les vues patient, et au décompte des concepts, de sauter le reste."
   },
   "reports": {
     "title": "Rapports",

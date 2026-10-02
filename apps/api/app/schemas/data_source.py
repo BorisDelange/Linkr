@@ -1,7 +1,7 @@
 import re
 from datetime import datetime
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from app.schemas.base import CamelModel
 
@@ -454,3 +454,22 @@ class DatabaseLoginEntry(CamelModel):
     remembered: bool
     last_used_at: datetime | None = None
     session_only: bool = False
+
+
+class ParquetLayoutCheck(CamelModel):
+    schema_name: str | None = Field(default=None, alias="schema")
+    table: str
+    column: str
+
+
+class ParquetLayoutRequest(CamelModel):
+    checks: list[ParquetLayoutCheck] = Field(max_length=200)
+
+
+class ParquetLayoutEntry(CamelModel):
+    schema_name: str | None = Field(default=None, alias="schema")
+    table: str
+    column: str
+    row_groups: int
+    # Share of row groups a lookup of one value reads: ~1/n sorted, ~1 unsorted.
+    scan_fraction: float | None = None

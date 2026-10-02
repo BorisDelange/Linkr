@@ -36,6 +36,7 @@ from app.services.data import (
     db_connect,
     managed_db,
 )
+from app.services.data import parquet_layout as parquet_layout_fs
 from app.services.data.db_host_guard import DbHostNotAllowed
 
 # External network databases reached via DuckDB's ATTACH extensions.
@@ -1108,6 +1109,26 @@ async def assemble_concept_cache(
         concept_cache_fs.assemble, config, password, files, known, select_sql, source.id,
         login.principal if login else "",
     )
+
+
+async def parquet_layout(db: AsyncSession, source: DataSource, checks: list[dict]) -> list[dict]:
+    """For each (schema, table, column) asked, how a lookup by that column reads
+    the table's Parquet files (`parquet_layout.column_layout`). Empty for a
+    source that is not a Parquet folder, or a table it does not hold."""
+    files = await _source_files(db, source)
+    if not _is_parquet_folder(dict(source.connection_config or {}), files):
+        return []
+    tables = {name.lower(): paths for name, paths in parquet_table_paths(source, files).items()}
+    out: list[dict] = []
+    for check in checks:
+        table = str(check.get("table") or "")
+        schema = check.get("schema")
+        paths = tables.get(f"{schema}.{table}".lower() if schema else table.lower()) or tables.get(table.lower())
+        if not paths:
+            continue
+        layout = await asyncio.to_thread(parquet_layout_fs.column_layout, paths, str(check.get("column") or ""))
+        out.append({"schema": schema, "table": table, "column": check.get("column"), **layout})
+    return out
 
 
 async def query_concept_cache(source_id: str, principal: str, sql: str) -> list[dict]:

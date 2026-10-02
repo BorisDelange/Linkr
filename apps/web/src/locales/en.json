@@ -890,7 +890,10 @@
     "no_schema_title": "No schema assigned to this database",
     "no_schema_description": "Linkr does not know which tables hold the patients, stays and events, so statistics, patient data, cohorts and the source-concept extraction of mapping projects do not work. Assign a schema to enable them.",
     "no_schema_assign": "Assign a schema",
-    "detail_concepts": "Concepts"
+    "detail_concepts": "Concepts",
+    "layout_unsorted_title_one": "1 table is not stored in patient order",
+    "layout_unsorted_title_other": "{{count}} tables are not stored in patient order",
+    "layout_unsorted_description": "Reading one patient goes through most of the table: {{tables}}. Writing the Parquet files sorted by patient (then date) lets every patient view, and the concept counts, skip the rest."
   },
   "reports": {
     "title": "Reports",

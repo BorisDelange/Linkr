@@ -3,6 +3,7 @@ import { uploadFileInChunks } from '@/lib/api/upload'
 import { notifyJobsChanged, type Job } from '@/lib/api/environments'
 import type { DataSourceStorage, FileStorage } from '@/lib/storage'
 import type { CohortLevel, ConnectionConfig, DataSource, DerivedFrom, StoredFile } from '@/types'
+import type { LayoutCheck, LayoutEntry } from '@/lib/duckdb/parquet-layout'
 
 /** Server-side schema introspection result — mirrors engine.IntrospectedTable[]. */
 export interface IntrospectedColumn {
@@ -452,4 +453,15 @@ export const apiFileStorage: FileStorage = {
 
   // Dedup is server-side by sha256, so there is no canonical-row lookup to do.
   findByHash: async () => undefined,
+}
+
+/**
+ * How a patient lookup reads each asked table's Parquet files, from their
+ * row-group statistics alone. Empty unless the source is a Parquet folder.
+ */
+export function getParquetLayout(dataSourceId: string, checks: LayoutCheck[]): Promise<LayoutEntry[]> {
+  return apiRequest<LayoutEntry[]>(`/data-sources/${encodeURIComponent(dataSourceId)}/parquet-layout`, {
+    method: 'POST',
+    body: JSON.stringify({ checks }),
+  })
 }

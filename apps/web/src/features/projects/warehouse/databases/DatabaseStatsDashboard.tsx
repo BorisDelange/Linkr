@@ -10,6 +10,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
+import { ParquetLayoutNotice } from './ParquetLayoutNotice'
 import { computeDatabaseStats, streamTableCounts } from '@/lib/duckdb/database-stats'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import type {
@@ -217,6 +218,9 @@ export function DatabaseStatsDashboard({
       {neverLoaded && <LoadStatisticsPrompt onLoad={refresh} />}
 
       {!hasMappedSchema && <NoDataModelNotice />}
+      {hasMappedSchema && isServerMode() && schemaMapping && (
+        <ParquetLayoutNotice dataSourceId={dataSourceId} schemaMapping={schemaMapping} />
+      )}
 
       {/* ── Section 1: Patients ── */}
       {hasMappedSchema && !neverLoaded && (
