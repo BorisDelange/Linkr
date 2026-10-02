@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Pencil, Plus, Power, PowerOff, Trash2 } from 'lucide-react'
 import { getStorage } from '@/lib/storage'
-import { isServerMode } from '@/lib/api-client'
+import { formatApiError, isServerMode } from '@/lib/api-client'
+import { passwordErrorFromApi, type PasswordRuleError } from '@/lib/password-policy'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { useAuthStore } from '@/stores/auth-store'
 import { isValidOrcid, normalizeOrcid } from '@/lib/user-identity'
@@ -12,7 +13,7 @@ import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
-import { PasswordInput } from '@/components/ui/password-input'
+import { NewPasswordFields, newPasswordReady } from '@/components/ui/new-password-fields'
 import { Label } from '@/components/ui/label'
 import { RequiredMark } from '@/components/ui/required-mark'
 import {
@@ -93,6 +94,7 @@ export function UsersTab() {
   const [editing, setEditing] = useState<User | null>(null)
   const [draft, setDraft] = useState<UserDraft>(emptyDraft)
   const [error, setError] = useState<string | null>(null)
+  const [policyError, setPolicyError] = useState<PasswordRuleError | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
 
   const load = useCallback(async () => {
@@ -123,6 +125,7 @@ export function UsersTab() {
     setEditing(null)
     setDraft(emptyDraft)
     setError(null)
+    setPolicyError(null)
     setDialogOpen(true)
   }
 
@@ -130,6 +133,7 @@ export function UsersTab() {
     setEditing(u)
     setDraft(draftFromUser(u, i18n.language))
     setError(null)
+    setPolicyError(null)
     setDialogOpen(true)
   }
 
@@ -153,6 +157,11 @@ export function UsersTab() {
     return () => window.removeEventListener('keydown', handler)
   }, [dialogOpen])
 
+  // Editing keeps the current password when both fields are left blank.
+  const passwordOk = editing && !draft.password && !draft.passwordConfirm
+    ? true
+    : newPasswordReady(draft.password, draft.passwordConfirm, { username: draft.username }) && !policyError
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!draft.username.trim()) return
@@ -161,11 +170,7 @@ export function UsersTab() {
       setError(t('settings.invalid_orcid'))
       return
     }
-    if (draft.password && draft.password !== draft.passwordConfirm) {
-      setError(t('settings.password_mismatch'))
-      return
-    }
-    if (!draft.username.trim()) return
+    if (!passwordOk) return
     const fields = {
       role: draft.role,
       firstName: draft.firstName.trim() || undefined,
@@ -192,7 +197,10 @@ export function UsersTab() {
       setDialogOpen(false)
       await load()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      const policy = passwordErrorFromApi(err)
+      if (policy) { setPolicyError(policy); return }
+      const formatted = formatApiError(err)
+      setError(formatted.summary ?? t(formatted.summaryKey ?? '', { count: formatted.summaryCount }))
     }
   }
 
@@ -347,7 +355,7 @@ export function UsersTab() {
         description={t('settings.add_user_description')}
         onConfirm={() => formRef.current?.requestSubmit()}
         confirmLabel={editing ? t('common.save') : t('common.create')}
-        confirmDisabled={!draft.username.trim()}
+        confirmDisabled={!draft.username.trim() || !passwordOk}
       >
           <form ref={formRef} onSubmit={handleSubmit}>
             <div className="space-y-4">
@@ -361,32 +369,19 @@ export function UsersTab() {
                   autoComplete="off"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="user-password">
-                    {editing ? t('settings.new_password_optional') : <>{t('settings.temporary_password')}<RequiredMark /></>}
-                  </Label>
-                  <PasswordInput
-                    id="user-password"
-                    value={draft.password}
-                    autoComplete="new-password"
-                    placeholder={editing ? t('settings.leave_blank_keep') : undefined}
-                    onChange={(e) => setField('password', e.target.value)}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="user-password-confirm">
-                    {t('settings.confirm_password')}{!editing && <RequiredMark />}
-                  </Label>
-                  <PasswordInput
-                    id="user-password-confirm"
-                    value={draft.passwordConfirm}
-                    autoComplete="new-password"
-                    placeholder={editing ? t('settings.leave_blank_keep') : undefined}
-                    onChange={(e) => setField('passwordConfirm', e.target.value)}
-                  />
-                </div>
-              </div>
+              <NewPasswordFields
+                columns
+                password={draft.password}
+                confirm={draft.passwordConfirm}
+                onPasswordChange={(v) => { setField('password', v); setPolicyError(null) }}
+                onConfirmChange={(v) => setField('passwordConfirm', v)}
+                username={draft.username}
+                serverError={policyError}
+                passwordLabel={editing ? t('settings.new_password_optional') : t('settings.temporary_password')}
+                confirmLabel={t('settings.confirm_password')}
+                required={!editing}
+                placeholder={editing ? t('settings.leave_blank_keep') : undefined}
+              />
               <div className="space-y-2">
                 <Label>{t('settings.user_role')}</Label>
                 <Select value={draft.role} onValueChange={(v) => setField('role', v)}>

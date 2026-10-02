@@ -629,6 +629,7 @@ Check this table before writing any form field.
 | Component | Use for |
 |---|---|
 | `FormField` | **Any labelled field** — label, optional hint, control. Owns the label/control gap, which had drifted into two spacings across 22 files, and wires `htmlFor` to the control so clicking the label focuses it. Every form field in the app goes through it; a hand-written `<div className="space-y-1"><Label>…` is the pattern it replaced. |
+| `NewPasswordFields` | **Any "set a password" form** (setup, user admin, own change): new password + confirmation, the policy stated as a hint, and under each field why it would be refused — rules from `lib/password-policy.ts`, plus the server-only ones (common passwords) passed back as `serverError`. `newPasswordReady()` gates the submit button. A disabled button with no reason shown is the bug it replaced. |
 | `EntityIdField` | The id field on every entity create/edit dialog (slug rules, uniqueness, locked-after-create). |
 | `VersionField` | The version input on those same dialogs. |
 | `AuthoringFields` | Author + organization on an entity dialog. Both start locked showing the originals; unlocking re-attributes and writes a frozen snapshot. Don't roll your own attribution UI. |

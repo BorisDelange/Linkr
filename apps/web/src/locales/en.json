@@ -2869,7 +2869,6 @@
     "leave_blank_keep": "Leave blank to keep current",
     "password_required": "A password is required.",
     "confirm_password": "Confirm password",
-    "password_mismatch": "Passwords do not match.",
     "invalid_orcid": "Invalid ORCID iD (expected 0000-0000-0000-0000).",
     "user_enable": "Enable account",
     "user_disable": "Disable account",
@@ -3254,9 +3253,6 @@
     "current_password": "Current password",
     "new_password": "New password",
     "confirm_password": "Confirm password",
-    "password_mismatch": "The passwords do not match.",
-    "password_too_short": "The new password must be at least {{count}} characters.",
-    "password_policy_rejected": "This password is not allowed: at least {{count}} characters, and different from your username and from the current password.",
     "password_current_wrong": "The current password is incorrect.",
     "password_change_error": "Could not change the password. Please try again.",
     "appearance": "Appearance",
@@ -5792,7 +5788,6 @@
     "admin_username": "Username",
     "admin_password": "Password",
     "admin_password_confirm": "Confirm password",
-    "admin_password_mismatch": "Passwords do not match",
     "error_missing_fields": "Username and password are required.",
     "create_account": "Create Account",
     "creating": "Creating account…",
@@ -6409,5 +6404,14 @@
     "resolve_needs_vocabularies": "Import vocabularies in the Vocabularies tab to resolve the concept sets",
     "resolving": "resolving {{done}} / {{total}}",
     "resolved_count": "{{resolved}} / {{total}} resolved"
+  },
+  "password_policy": {
+    "hint": "At least {{count}} characters, different from the username. Long passphrases are welcome.",
+    "mismatch": "The passwords do not match.",
+    "password_too_short": "At least {{count}} characters are required.",
+    "password_too_long": "At most {{count}} bytes (an accented letter counts as two).",
+    "password_is_username": "The password must not be the username.",
+    "password_same_as_current": "The new password must differ from the current one.",
+    "password_common": "This password is among the most commonly used ones — choose another."
   }
 }

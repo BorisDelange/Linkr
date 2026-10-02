@@ -1,4 +1,7 @@
+import gzip
 from datetime import datetime, timedelta, timezone
+from functools import cache
+from pathlib import Path
 
 from jose import jwt
 from passlib.context import CryptContext
@@ -12,15 +15,33 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 
-PASSWORD_MIN_LENGTH = 12
+# bcrypt hashes only the first 72 bytes: anything past them would be accepted
+# and silently ignored.
+PASSWORD_MAX_BYTES = 72
+_COMMON_PASSWORDS = Path(__file__).parent / "data" / "common-passwords.txt.gz"
 
 
-def password_policy_error(password: str, username: str) -> str | None:
-    """Why `password` may not be set for `username`, or None when it may."""
-    if len(password) < PASSWORD_MIN_LENGTH:
-        return f"The password must be at least {PASSWORD_MIN_LENGTH} characters."
+@cache
+def _common_passwords() -> frozenset[str]:
+    with gzip.open(_COMMON_PASSWORDS, "rt", encoding="utf-8") as f:
+        return frozenset(line.rstrip("\n") for line in f)
+
+
+def password_policy_error(password: str, username: str) -> dict | None:
+    """Why `password` may not be set for `username` — `{code, message}`, the
+    detail of the 422 the caller raises, which the front translates by `code` —
+    or None when it may."""
+    min_length = settings.password_min_length
+    if len(password) < min_length:
+        return {"code": "password_too_short", "minLength": min_length,
+                "message": f"The password must be at least {min_length} characters."}
+    if len(password.encode()) > PASSWORD_MAX_BYTES:
+        return {"code": "password_too_long", "maxBytes": PASSWORD_MAX_BYTES,
+                "message": f"The password must be at most {PASSWORD_MAX_BYTES} bytes."}
     if password.strip().lower() == username.strip().lower():
-        return "The password must not be the username."
+        return {"code": "password_is_username", "message": "The password must not be the username."}
+    if password.lower() in _common_passwords():
+        return {"code": "password_common", "message": "This password is among the most commonly used ones."}
     return None
 
 

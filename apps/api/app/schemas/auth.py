@@ -61,6 +61,8 @@ class SetupStatusResponse(BaseModel):
     # Small-count threshold of mapping exports, so the ones the browser builds
     # mask like the server's (LINKR_EXPORT_MIN_COUNT).
     export_min_count: int = 11
+    # LINKR_PASSWORD_MIN_LENGTH, so the forms state the rule before the round trip.
+    password_min_length: int = 12
 
 
 class DbInfoResponse(BaseModel):

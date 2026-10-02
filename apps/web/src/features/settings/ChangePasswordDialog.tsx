@@ -2,15 +2,15 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Info, Lock } from 'lucide-react'
 import { PasswordInput } from '@/components/ui/password-input'
-import { Label } from '@/components/ui/label'
+import { FormField } from '@/components/ui/form-field'
+import { FieldError } from '@/components/ui/field-error'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import { NewPasswordFields, newPasswordReady } from '@/components/ui/new-password-fields'
 import { apiFetch } from '@/lib/api-client'
+import { passwordErrorFromApi, type PasswordRuleError } from '@/lib/password-policy'
 import { useAuthStore } from '@/stores/auth-store'
 
 const isServerMode = !!import.meta.env.VITE_API_URL
-// Mirrors the server's policy (core/security.py PASSWORD_MIN_LENGTH), which is
-// what actually enforces it.
-const MIN_LENGTH = 12
 
 interface ChangePasswordDialogProps {
   open: boolean
@@ -22,11 +22,15 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
   const [current, setCurrent] = useState('')
   const [next, setNext] = useState('')
   const [confirm, setConfirm] = useState('')
+  const [currentWrong, setCurrentWrong] = useState(false)
+  const [policyError, setPolicyError] = useState<PasswordRuleError | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const username = useAuthStore((s) => s.user?.username ?? '')
 
   const reset = () => {
-    setCurrent(''); setNext(''); setConfirm(''); setError(null); setSubmitting(false)
+    setCurrent(''); setNext(''); setConfirm('')
+    setCurrentWrong(false); setPolicyError(null); setError(null); setSubmitting(false)
   }
 
   const handleOpenChange = (o: boolean) => {
@@ -34,12 +38,12 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
     onOpenChange(o)
   }
 
-  const canSubmit = current.length > 0 && next.length >= MIN_LENGTH && next === confirm && !submitting
+  const canSubmit = current.length > 0 && !policyError && !submitting
+    && newPasswordReady(next, confirm, { username, current })
 
   const handleSubmit = async () => {
     setError(null)
-    if (next !== confirm) { setError(t('profile.password_mismatch')); return }
-    if (next.length < MIN_LENGTH) { setError(t('profile.password_too_short', { count: MIN_LENGTH })); return }
+    setCurrentWrong(false)
     setSubmitting(true)
     try {
       const res = await apiFetch('/api/v1/auth/change-password', {
@@ -47,12 +51,10 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
         body: JSON.stringify({ currentPassword: current, newPassword: next }),
       })
       if (!res.ok) {
-        const msg = res.status === 403
-          ? t('profile.password_current_wrong')
-          : res.status === 422
-            ? t('profile.password_policy_rejected', { count: MIN_LENGTH })
-            : t('profile.password_change_error')
-        setError(msg)
+        const policy = res.status === 422 ? passwordErrorFromApi(await res.json().catch(() => null)) : null
+        if (res.status === 403) setCurrentWrong(true)
+        else if (policy) setPolicyError(policy)
+        else setError(t('profile.password_change_error'))
         setSubmitting(false)
         return
       }
@@ -80,24 +82,38 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
       onConfirm={handleSubmit}
       confirmLabel={t('common.save')}
       confirmDisabled={!canSubmit}
+      busy={submitting}
       hideFooter={!isServerMode}
       contentClassName={isServerMode ? undefined : 'space-y-0'}
     >
       {isServerMode ? (
         <>
-          <div className="space-y-2">
-            <Label>{t('profile.current_password')}</Label>
-            <PasswordInput value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
-          </div>
-          <div className="space-y-2">
-            <Label>{t('profile.new_password')}</Label>
-            <PasswordInput value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
-          </div>
-          <div className="space-y-2">
-            <Label>{t('profile.confirm_password')}</Label>
-            <PasswordInput value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
-          </div>
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          <FormField label={t('profile.current_password')}>
+            {({ id }) => (
+              <>
+                <PasswordInput
+                  id={id}
+                  value={current}
+                  onChange={(e) => { setCurrent(e.target.value); setCurrentWrong(false) }}
+                  autoComplete="current-password"
+                  aria-invalid={currentWrong || undefined}
+                />
+                <FieldError message={currentWrong ? t('profile.password_current_wrong') : null} />
+              </>
+            )}
+          </FormField>
+          <NewPasswordFields
+            password={next}
+            confirm={confirm}
+            onPasswordChange={(v) => { setNext(v); setPolicyError(null) }}
+            onConfirmChange={setConfirm}
+            username={username}
+            current={current}
+            serverError={policyError}
+            passwordLabel={t('profile.new_password')}
+            confirmLabel={t('profile.confirm_password')}
+          />
+          <FieldError message={error} />
         </>
       ) : (
         <div className="flex flex-col items-center py-6">

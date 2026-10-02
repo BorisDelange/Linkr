@@ -30,6 +30,7 @@ async def setup_status(db: AsyncSession = Depends(get_db)):
         needs_setup=count == 0,
         trusted_header_login=trusted_header.enabled(),
         export_min_count=settings.export_min_count,
+        password_min_length=settings.password_min_length,
     )
 
 

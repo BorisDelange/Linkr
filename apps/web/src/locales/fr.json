@@ -2869,7 +2869,6 @@
     "leave_blank_keep": "Laisser vide pour conserver l'actuel",
     "password_required": "Un mot de passe est requis.",
     "confirm_password": "Confirmer le mot de passe",
-    "password_mismatch": "Les mots de passe ne correspondent pas.",
     "invalid_orcid": "ORCID invalide (format attendu 0000-0000-0000-0000).",
     "user_enable": "Activer le compte",
     "user_disable": "Désactiver le compte",
@@ -3254,9 +3253,6 @@
     "current_password": "Mot de passe actuel",
     "new_password": "Nouveau mot de passe",
     "confirm_password": "Confirmer le mot de passe",
-    "password_mismatch": "Les mots de passe ne correspondent pas.",
-    "password_too_short": "Le nouveau mot de passe doit contenir au moins {{count}} caractères.",
-    "password_policy_rejected": "Ce mot de passe n'est pas accepté : au moins {{count}} caractères, différent de votre identifiant et du mot de passe actuel.",
     "password_current_wrong": "Le mot de passe actuel est incorrect.",
     "password_change_error": "Impossible de changer le mot de passe. Veuillez réessayer.",
     "appearance": "Apparence",
@@ -5792,7 +5788,6 @@
     "admin_username": "Nom d'utilisateur",
     "admin_password": "Mot de passe",
     "admin_password_confirm": "Confirmer le mot de passe",
-    "admin_password_mismatch": "Les mots de passe ne correspondent pas",
     "error_missing_fields": "Le nom d'utilisateur et le mot de passe sont requis.",
     "create_account": "Créer le compte",
     "creating": "Création en cours…",
@@ -6409,5 +6404,14 @@
     "resolve_needs_vocabularies": "Importez des vocabulaires dans l'onglet Vocabulaires pour résoudre les concept sets",
     "resolving": "résolution {{done}} / {{total}}",
     "resolved_count": "{{resolved}} / {{total}} résolus"
+  },
+  "password_policy": {
+    "hint": "Au moins {{count}} caractères, différent de l'identifiant. Les phrases de passe longues sont bienvenues.",
+    "mismatch": "Les mots de passe ne correspondent pas.",
+    "password_too_short": "Au moins {{count}} caractères sont requis.",
+    "password_too_long": "{{count}} octets au maximum (une lettre accentuée en compte deux).",
+    "password_is_username": "Le mot de passe ne doit pas être l'identifiant.",
+    "password_same_as_current": "Le nouveau mot de passe doit être différent de l'actuel.",
+    "password_common": "Ce mot de passe fait partie des plus utilisés — choisissez-en un autre."
   }
 }

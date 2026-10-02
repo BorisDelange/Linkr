@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     encryption_key: str | None = None
     encryption_old_keys: str = ""
     auth_provider: str = "local"  # local, ldap, oidc, saml (only local implemented)
+    # Shortest password a local account may set (setup, user admin, own change).
+    # At least 8, the floor NIST SP 800-63B sets even behind a second factor.
+    password_min_length: int = Field(12, ge=8)
     # Sign-in by a header the front proxy sets (e.g. the SPE's two-factor gateway):
     # the header NAMES an existing Linkr user, and is believed only on a request
     # whose peer address is one of trusted_proxies (IPs or CIDRs) AND which

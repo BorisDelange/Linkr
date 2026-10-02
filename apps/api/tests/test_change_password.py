@@ -28,6 +28,8 @@ async def test_change_password_end_to_end(client):
     assert (await change("wrong", "a-long-enough-one")).status_code == 403
     assert (await change("pw-for-tests-only", "short")).status_code == 422
     assert (await change("pw-for-tests-only", "admin")).status_code == 422
+    same = await change("pw-for-tests-only", "pw-for-tests-only")
+    assert same.json()["detail"]["code"] == "password_same_as_current"
     assert (await change("pw-for-tests-only", "a-long-enough-one")).status_code == 200
 
     assert await _login(client, "pw-for-tests-only") == {}
@@ -45,11 +47,28 @@ async def test_an_api_token_cannot_change_the_password(client):
     assert r.status_code == 401
 
 
-@pytest.mark.parametrize("password, ok", [
-    ("x" * 11, False), ("x" * 12, True), ("Alice.Martin", False), (" alice.martin ", False), ("alice.martin!", True),
+@pytest.mark.parametrize("password, code", [
+    ("k7#mQ2!vR9p", "password_too_short"), ("k7#mQ2!vR9pL", None),
+    ("x" * 72, None), ("x" * 73, "password_too_long"), ("é" * 37, "password_too_long"),
+    ("Alice.Martin", "password_is_username"), (" alice.martin ", "password_is_username"), ("alice.martin!", None),
+    ("Password1234", "password_common"), ("qwertyuiop123", "password_common"),
 ])
-def test_policy(password, ok):
-    assert (password_policy_error(password, "alice.martin") is None) is ok
+def test_policy(password, code):
+    error = password_policy_error(password, "alice.martin")
+    assert (error and error["code"]) == code
+
+
+def test_the_minimum_length_is_configurable(monkeypatch):
+    monkeypatch.setattr(settings, "password_min_length", 16)
+    assert password_policy_error("x" * 15, "bob") == {
+        "code": "password_too_short", "minLength": 16, "message": "The password must be at least 16 characters.",
+    }
+    assert password_policy_error("x" * 16, "bob") is None
+
+
+async def test_the_status_states_the_minimum_length(client, monkeypatch):
+    monkeypatch.setattr(settings, "password_min_length", 14)
+    assert (await client.get(f"{API}/setup/status")).json()["password_min_length"] == 14
 
 
 def _earlier_token(user_id: int, kind: str) -> str:

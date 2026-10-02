@@ -198,9 +198,11 @@ async def change_password(
         audit.bind(action="password_change_failed")
         raise HTTPException(status.HTTP_403_FORBIDDEN, "The current password is incorrect")
     if body.new_password == body.current_password:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "The new password is the current one")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, {
+            "code": "password_same_as_current", "message": "The new password is the current one.",
+        })
     if error := password_policy_error(body.new_password, user.username):
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, error)
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, error)
     set_password(user, body.new_password)
     await db.commit()
     audit.bind(action="password_change")

@@ -9,7 +9,8 @@ import {
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
-import { PasswordInput } from '@/components/ui/password-input'
+import { NewPasswordFields, newPasswordReady } from '@/components/ui/new-password-fields'
+import { passwordErrorFromApi, type PasswordRuleError } from '@/lib/password-policy'
 import { Label } from '@/components/ui/label'
 import { LinkrLogo } from '@/components/ui/linkr-logo'
 import { getApiBaseUrl } from '@/lib/api-client'
@@ -42,13 +43,17 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
   }, [])
 
   // Step 2: Admin account
-  // In dev, prefill admin/admin so first-run setup is one click. Empty in prod builds.
-  const devDefault = import.meta.env.DEV ? 'admin' : ''
-  const [username, setUsername] = useState(devDefault)
-  const [password, setPassword] = useState(devDefault)
-  const [confirmPassword, setConfirmPassword] = useState(devDefault)
+  // In dev, prefill the account so first-run setup is one click. Empty in prod builds.
+  const devUsername = import.meta.env.DEV ? 'admin' : ''
+  const devPassword = import.meta.env.DEV ? 'linkr-dev-admin' : ''
+  const [username, setUsername] = useState(devUsername)
+  const [password, setPassword] = useState(devPassword)
+  const [confirmPassword, setConfirmPassword] = useState(devPassword)
+  const [policyError, setPolicyError] = useState<PasswordRuleError | null>(null)
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
+
+  const passwordReady = newPasswordReady(password, confirmPassword, { username }) && !policyError
 
   const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -57,9 +62,8 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
       setCreateError(t('setup.error_missing_fields'))
       return
     }
-    // Shown as the hint under the Confirm field (passwordMismatch below) — no
-    // duplicate banner here.
-    if (password !== confirmPassword) return
+    // Each reason is shown under its field — no duplicate banner here.
+    if (!passwordReady) return
 
     setCreating(true)
     try {
@@ -87,7 +91,9 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
         }
       } else {
         const data = await res.json().catch(() => ({}))
-        setCreateError(data.detail || t('setup.error_generic'))
+        const policy = passwordErrorFromApi(data)
+        if (policy) setPolicyError(policy)
+        else setCreateError(typeof data.detail === 'string' ? data.detail : t('setup.error_generic'))
       }
     } catch {
       setCreateError(t('setup.error_generic'))
@@ -96,9 +102,6 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
     }
   }
 
-  // Live hint under the field: only once both fields have content, so it
-  // doesn't flash red while the user is still typing the first one.
-  const passwordMismatch = confirmPassword.length > 0 && password.length > 0 && password !== confirmPassword
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background">
@@ -180,26 +183,16 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="admin-password">{t('setup.admin_password')}</Label>
-                  <PasswordInput
-                    id="admin-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="admin-confirm">{t('setup.admin_password_confirm')}</Label>
-                  <PasswordInput
-                    id="admin-confirm"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                  />
-                  {passwordMismatch && (
-                    <p className="text-[11px] text-destructive">{t('setup.admin_password_mismatch')}</p>
-                  )}
-                </div>
+                <NewPasswordFields
+                  password={password}
+                  confirm={confirmPassword}
+                  onPasswordChange={(v) => { setPassword(v); setPolicyError(null) }}
+                  onConfirmChange={setConfirmPassword}
+                  username={username}
+                  serverError={policyError}
+                  passwordLabel={t('setup.admin_password')}
+                  confirmLabel={t('setup.admin_password_confirm')}
+                />
 
                 {createError && (
                   <p className="text-sm text-destructive">{createError}</p>
@@ -215,7 +208,7 @@ export function SetupWizard({ onComplete }: SetupWizardProps) {
                     type="submit"
                     size="sm"
                     className="ml-auto"
-                    disabled={creating || !username || !password || !confirmPassword || passwordMismatch}
+                    disabled={creating || !username || !passwordReady}
                   >
                     {creating && <Loader2 size={14} className="animate-spin" />}
                     {creating ? t('setup.creating') : t('setup.create_account')}

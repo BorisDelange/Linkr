@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getApiBaseUrl, isServerMode } from '@/lib/api-client'
 import { setExportMinCount } from '@/lib/concept-mapping/export-masking'
+import { setPasswordMinLength } from '@/lib/password-policy'
 
 export interface AuthUser {
   id: number
@@ -103,6 +104,7 @@ export const useAuthStore = create<AuthState>()((set, get) => {
           // The front proxy already authenticated this person (e.g. an SPE's
           // two-factor gateway): sign in as the user it names, no form.
           if (typeof data.export_min_count === 'number') setExportMinCount(data.export_min_count)
+          if (typeof data.password_min_length === 'number') setPasswordMinLength(data.password_min_length)
           if (data.trusted_header_login && !get().token) await get().trustedLogin()
           set({ needsSetup: data.needs_setup, isCheckingAuth: false, serverUnreachable: false })
         } else if (res.status === 502 || res.status === 503 || res.status === 504) {
