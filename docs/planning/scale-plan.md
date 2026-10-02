@@ -173,7 +173,7 @@ Parquet (la compaction, `managed_db.compact`, ne concerne que les DuckDB gérés
 
 - documenter la recommandation (tri `person_id`, date ; row groups de taille
   raisonnable) dans la doc utilisateur / admin ;
-- 🤔 diagnostic dans l'onglet Statistiques : via `parquet_metadata()`, signaler
+- diagnostic (arbitré le 2026-10-02) dans l'onglet Statistiques : via `parquet_metadata()`, signaler
   une table dont les plages `person_id` des row groups se recouvrent.
 
 ---

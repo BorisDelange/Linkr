@@ -17,8 +17,10 @@ from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.schemas.concept_cache import (
-    ConceptCacheRefreshRequest,
+    ConceptCacheAssembleRequest,
     ConceptCacheStatus,
+    ConceptRunStart,
+    ConceptUnitRequest,
     ConceptPageRequest,
     ConceptPageResult,
     ConceptStatsResponse,
@@ -799,35 +801,85 @@ async def concept_cache_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Whether the caller's view of the source has a materialized concept-list
-    cache, and its "last refreshed" time (the Parquet file's mtime)."""
+    cache, its "last refreshed" time (the Parquet file's mtime), and where the
+    counting run that writes it stands."""
     source = await _load_source(db, source_id, user, "databases:read")
     principal = _principal(source, user)
     return ConceptCacheStatus(
         exists=concept_cache_fs.exists(source_id, principal),
         refreshed_at=concept_cache_fs.refreshed_at(source_id, principal),
+        run=concept_cache_fs.run_status(source_id, principal),
     )
 
 
-@router.post("/{source_id}/concept-cache/refresh", response_model=ConceptCacheStatus)
-async def refresh_concept_cache(
+@router.put("/{source_id}/concept-cache/run", status_code=status.HTTP_204_NO_CONTENT)
+async def start_concept_run(
     source_id: str,
-    body: ConceptCacheRefreshRequest,
+    body: ConceptRunStart,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Materialize the concept list to Parquet. For a file database the cache is
-    shared, so it takes the editor role; for an external one it is the caller's
-    own. Atomic: readers keep seeing the old cache until the new one is in place."""
+    """Store the counting run's manifest — `reset` drops the units already done.
+    For a file database the cache is shared, so it takes the editor role; for an
+    external one it is the caller's own."""
     source = await _load_source(db, source_id, user, "databases:read")
     await _require_source_access(db, source, user, _cache_write_permission(source))
     login = await _login(db, source, user)
     try:
-        mtime = await data_source_service.refresh_concept_cache(db, source, login, body.select_sql)
+        await data_source_service.start_concept_run(source, login, body.manifest, body.reset)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+
+
+@router.post("/{source_id}/concept-cache/units/{key}", status_code=status.HTTP_204_NO_CONTENT)
+async def write_concept_unit(
+    source_id: str,
+    key: str,
+    body: ConceptUnitRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run one counting unit and keep its rows. Cancellable like a query: tagged
+    with `queryId`, `/query/cancel` interrupts it (409)."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, _cache_write_permission(source))
+    login = await _login(db, source, user)
+    tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
+    try:
+        await data_source_service.write_concept_unit(db, source, login, key, body.sql)
+    except (query_cancel.QueryCancelled, duckdb.InterruptException):
+        raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return ConceptCacheStatus(exists=True, refreshed_at=mtime)
+    finally:
+        if tag is not None:
+            query_cancel.current_query.reset(tag)
+
+
+@router.post("/{source_id}/concept-cache/assemble", response_model=ConceptCacheStatus)
+async def assemble_concept_cache(
+    source_id: str,
+    body: ConceptCacheAssembleRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Write the concept list from the units done so far. Atomic: readers keep
+    seeing the previous list until the new one is in place."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, _cache_write_permission(source))
+    login = await _login(db, source, user)
+    try:
+        mtime = await data_source_service.assemble_concept_cache(db, source, login, body.select_sql)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+    principal = _principal(source, user)
+    return ConceptCacheStatus(
+        exists=True, refreshed_at=mtime, run=concept_cache_fs.run_status(source_id, principal),
+    )
 
 
 @router.post("/{source_id}/concept-cache/query", response_model=ConceptPageResult)

@@ -23,7 +23,7 @@ run like the catalog (browser-driven units, pause/resume), order below.
 | 🔜 | 2. *Concepts* tab on every database (run / pause / resume); project Concepts page + cohort picker only read the cache, banner + link | M |
 | 🔜 | 3. Timeline + Notes honour the selected stay; script-plugin ids quoted; scale bench (sorted vs unsorted Parquet) | M |
 | 🔜 | 4. Data overview by zoom level: SQL density (M4) for dense rows, tiles, debounce + cancel, visible rows only | L |
-| 🤔 | Statistics tab: warn when a Parquet table is not sorted by `person_id` | S |
+| 🔜 | Statistics tab: warn when a Parquet table is not sorted by `person_id` (row-group ranges overlap) | S |
 
 ## To test manually in the app
 

@@ -83,3 +83,48 @@ async def test_cache_status_empty(client):
     r = await client.get(f"{API}/data-sources/{src}/concept-cache", headers=headers)
     assert r.status_code == 200
     assert r.json()["exists"] is False
+
+
+async def test_counting_run_routes(client, monkeypatch, tmp_path):
+    """Start a run, write a unit, assemble: the status reports the unit, and the
+    page query reads the assembled list."""
+    import duckdb
+
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "fs_browse_roots", str(tmp_path))
+    db = tmp_path / "src.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute("CREATE TABLE concept AS SELECT * FROM (VALUES (1, 'Sodium'), (2, 'Urea')) t(concept_id, concept_name)")
+    con.execute("CREATE TABLE measurement AS SELECT * FROM (VALUES (1, 1), (2, 1)) t(person_id, concept_id)")
+    con.close()
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    src = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "db", "name": {"en": "DB"}, "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "serverPath": str(db)},
+    })).json()["id"]
+    base = f"{API}/data-sources/{src}/concept-cache"
+
+    unit = {"sql": "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, "
+                   "COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM measurement GROUP BY concept_id"}
+    assert (await client.post(f"{base}/units/records-0", headers=headers, json=unit)).status_code == 400
+
+    r = await client.put(f"{base}/run", headers=headers, json={"manifest": {"signature": "s"}, "reset": True})
+    assert r.status_code == 204
+    r = await client.post(f"{base}/units/records-0", headers=headers, json=unit)
+    assert r.status_code == 204, r.text
+
+    assemble = {"selectSql": "SELECT c.concept_id, c.concept_name, n.record_count, n.patient_count FROM concept c "
+                             "LEFT JOIN memory.main._concept_counts n ON n.concept_id = c.concept_id"}
+    r = await client.post(f"{base}/assemble", headers=headers, json=assemble)
+    assert r.status_code == 200, r.text
+    assert r.json()["exists"] is True
+
+    status = (await client.get(base, headers=headers)).json()
+    assert status["run"]["manifest"] == {"signature": "s"}
+    assert status["run"]["doneUnits"] == ["records-0"]
+
+    rows = (await client.post(f"{base}/query", headers=headers, json={"sql": "SELECT * FROM concepts ORDER BY concept_id"})).json()["rows"]
+    assert [(r["concept_id"], r["record_count"], r["patient_count"]) for r in rows] == [(1, 2, 2), (2, None, None)]

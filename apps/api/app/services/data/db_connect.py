@@ -1095,9 +1095,14 @@ def materialize_parquet(
     known: list[str] | None,
     select_sql: str,
     dest_path: str,
+    views: dict[str, tuple[str, list[str]]] | None = None,
 ) -> None:
     """Run `select_sql` against the source and write the full result to a Parquet
     file at `dest_path`, via a one-shot (non-pooled) connection.
+
+    `views` maps a view name to (its SELECT, the files it reads): created before
+    the connection is cut off the filesystem, those files staying readable. The
+    COPY is cancellable like a read query (`query_cancel`).
 
     Non-pooled on purpose: this can be a long full scan, and using the source's
     pooled connection (keyed by source id) would serialise — and thus block — every
@@ -1115,12 +1120,17 @@ def materialize_parquet(
     tmp = dest.with_suffix(dest.suffix + f".tmp-{os.getpid()}-{uuid.uuid4().hex}")
     con = setup()
     try:
-        _forbid_file_access(con, [*readable, tmp.as_posix()])
+        view_files: list[str] = []
+        for name, (view_sql, files_read) in (views or {}).items():
+            con.execute(f'CREATE VIEW memory.main."{name}" AS {view_sql}')
+            view_files.extend(files_read)
+        _forbid_file_access(con, [*readable, *view_files, tmp.as_posix()])
         _lock_down_user_sql(con)
         con.execute(f"SET search_path='{search_path}'")
-        con.execute(
-            f"COPY (\n{select_sql}\n) TO '{_sql_path(tmp.as_posix())}' (FORMAT PARQUET)"
-        )
+        with query_cancel.tracking(con):
+            con.execute(
+                f"COPY (\n{select_sql}\n) TO '{_sql_path(tmp.as_posix())}' (FORMAT PARQUET)"
+            )
         tmp.replace(dest)
     finally:
         con.close()

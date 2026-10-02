@@ -1051,13 +1051,11 @@ async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql:
     raise ValueError(f"queries not supported for engine: {engine}")
 
 
-async def refresh_concept_cache(
-    db: AsyncSession, source: DataSource, login: Login | None, select_sql: str
-) -> float:
-    """Materialize the concept list (`select_sql`) to the Parquet cache of the
-    source as `login` sees it, and return the new mtime. Gathers the same
-    connection inputs as `query`."""
-    _audit(source, "concept_cache_refresh", select_sql)
+async def _materialize_inputs(
+    db: AsyncSession, source: DataSource, login: Login | None
+) -> tuple[dict, str | None, list[tuple[str, str]] | None, list[str] | None]:
+    """(config, password, files, known) to materialize a query of the source as
+    `login` sees it — the same connection inputs as `query`."""
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     password = None
@@ -1079,8 +1077,35 @@ async def refresh_concept_cache(
         if not files:
             raise ValueError("no database file uploaded for this source")
         known = _known_tables(source)
+    return config, password, files, known
+
+
+async def start_concept_run(source: DataSource, login: Login | None, manifest: dict, reset: bool) -> None:
+    """Store the counting run's manifest; `reset` starts it over."""
+    principal = login.principal if login else ""
+    await asyncio.to_thread(concept_cache_fs.write_manifest, source.id, principal, manifest, reset)
+
+
+async def write_concept_unit(
+    db: AsyncSession, source: DataSource, login: Login | None, key: str, select_sql: str
+) -> None:
+    """Run one unit of the concept counts and keep its rows."""
+    _audit(source, "concept_cache_unit", select_sql)
+    config, password, files, known = await _materialize_inputs(db, source, login)
+    await asyncio.to_thread(
+        concept_cache_fs.write_unit, config, password, files, known, select_sql, source.id,
+        login.principal if login else "", key,
+    )
+
+
+async def assemble_concept_cache(
+    db: AsyncSession, source: DataSource, login: Login | None, select_sql: str
+) -> float:
+    """Write the concept list from the units done so far; returns the new mtime."""
+    _audit(source, "concept_cache_refresh", select_sql)
+    config, password, files, known = await _materialize_inputs(db, source, login)
     return await asyncio.to_thread(
-        concept_cache_fs.refresh, config, password, files, known, select_sql, source.id,
+        concept_cache_fs.assemble, config, password, files, known, select_sql, source.id,
         login.principal if login else "",
     )
 
