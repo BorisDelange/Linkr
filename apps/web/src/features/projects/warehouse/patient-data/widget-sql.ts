@@ -10,6 +10,7 @@ import {
   TIMELINE_PLUGIN_ID,
   NOTES_PLUGIN_ID,
 } from '@/lib/plugins/builtin-widget-plugins'
+import type { PatientScope } from '@/lib/duckdb/patient-scope'
 
 /**
  * One query a widget runs to fetch its data.
@@ -37,7 +38,8 @@ interface BuildArgs {
   config: Record<string, unknown>
   mapping: SchemaMapping | undefined
   patientId: string | null
-  visitId: string | null
+  /** The hospitalisation / stay the board is on (`usePatientScope`). */
+  scope: PatientScope | null
 }
 
 /**
@@ -49,7 +51,7 @@ export function buildWidgetQueries({
   config,
   mapping,
   patientId,
-  visitId,
+  scope,
 }: BuildArgs): WidgetQuery[] {
   if (!mapping) {
     return [
@@ -67,7 +69,7 @@ export function buildWidgetQueries({
   switch (pluginId) {
     case TIMELINE_PLUGIN_ID: {
       const conceptIds = (config.conceptIds as number[] | undefined) ?? []
-      const sql = buildTimelineQuery(mapping, conceptIds, pid, visitId)
+      const sql = buildTimelineQuery(mapping, conceptIds, pid, scope)
       return [
         {
           id: 'timeline',
@@ -85,7 +87,7 @@ export function buildWidgetQueries({
     }
 
     case NOTES_PLUGIN_ID: {
-      const sql = buildNotesQuery(mapping, pid, visitId)
+      const sql = buildNotesQuery(mapping, pid, scope)
       return [
         {
           id: 'notes',

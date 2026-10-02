@@ -14,6 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { usePatientChartContext } from '../PatientChartContext'
+import { usePatientScope } from '../use-patient-scope'
 import { useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore, type NotesConfig } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
@@ -267,12 +268,9 @@ export function NotesWidget({
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   const visible = useTabVisible()
   // Narrow selectors: see PatientSummaryWidget.
-  const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
-  const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId)
   const widgets = usePatientChartStore((s) => s.widgets)
   const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
-  const patientId = selectedPatientId[projectUid] ?? null
-  const visitId = selectedVisitId[projectUid] ?? null
+  const { patientId, scope, ready: scopeReady } = usePatientScope(projectUid, dataSourceId, schemaMapping)
 
   const widget = widgets.find((w) => w.id === widgetId)
   const config = (configProp ?? widget?.config ?? {}) as NotesConfig
@@ -303,6 +301,8 @@ export function NotesWidget({
     // Skip while the tab is hidden (keep-alive leaves it mounted); keep the data
     // we already have so revealing the tab doesn't force a refetch.
     if (!visible) return
+    // A selected hospitalisation or stay whose dates are still being read.
+    if (!scopeReady) return
     if (!dataSourceId || !schemaMapping || !patientId) {
       setNotes([])
       return
@@ -311,7 +311,7 @@ export function NotesWidget({
     let cancelled = false
     setLoading(true)
 
-    const sql = buildNotesQuery(schemaMapping, patientId, visitId)
+    const sql = buildNotesQuery(schemaMapping, patientId, scope)
     if (!sql) {
       setNotes([])
       setLoading(false)
@@ -338,7 +338,7 @@ export function NotesWidget({
     return () => {
       cancelled = true
     }
-  }, [visible, dataSourceId, schemaMapping, patientId, visitId])
+  }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, scope])
 
   // Reset selection when notes change
   useEffect(() => {

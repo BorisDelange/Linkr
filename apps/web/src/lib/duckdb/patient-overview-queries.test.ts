@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { buildOverviewEventsQuery, buildOverviewInventoryQuery } from './patient-overview-queries'
 import { withClassRelations } from '@/lib/schema-classes/inject'
+import { NO_SCOPE, type PatientScope } from './patient-scope'
 
 /**
  * The failure this guards is silent, which is what made it expensive: a mapping
@@ -28,8 +29,8 @@ const mapping_V1: SchemaMappingV1 = {
 }
 const mapping = mappingV1ToV2(mapping_V1)
 
-const args: [string, null, string, string[], string, string, number, null] = [
-  'p1', null, 'Measurement', ['3027018'], '2128-01-01', '2128-12-31', 500, null,
+const args: [string, PatientScope, string, string[], string, string, number] = [
+  'p1', NO_SCOPE, 'Measurement', ['3027018'], '2128-01-01', '2128-12-31', 500,
 ]
 
 describe('buildOverviewEventsQuery — a stale value column cannot kill the row', () => {
@@ -64,13 +65,13 @@ describe('buildOverviewInventoryQuery — values carry their unit', () => {
         },
       },
     } as never)
-    const sql = withClassRelations(buildOverviewInventoryQuery(withUnit, 'p1', null)!, withUnit)
+    const sql = withClassRelations(buildOverviewInventoryQuery(withUnit, 'p1', NO_SCOPE)!, withUnit)
     expect(sql).toContain('e."unit_source_value" AS unit')
     expect(sql).toContain('MAX(e.unit) AS unit')
   })
 
   it('still builds when no unit column is mapped', () => {
-    const sql = buildOverviewInventoryQuery(mapping, 'p1', null)!
+    const sql = buildOverviewInventoryQuery(mapping, 'p1', NO_SCOPE)!
     expect(sql).toContain('NULL AS unit')
   })
 })
@@ -103,16 +104,16 @@ describe('an event table can declare it has no dictionary', () => {
   } as never)
 
   it('joins no dictionary, so a text concept column cannot break the query', () => {
-    const sql = withClassRelations(buildOverviewInventoryQuery(inline, 'p1', null)!, inline)
+    const sql = withClassRelations(buildOverviewInventoryQuery(inline, 'p1', NO_SCOPE)!, inline)
     expect(sql).not.toContain('d_items')
     expect(sql).toContain('prescriptions')
   })
 
   it('still reports the unit and the route, which do not need a dictionary', () => {
-    const sql = withClassRelations(buildOverviewInventoryQuery(inline, 'p1', null)!, inline)
+    const sql = withClassRelations(buildOverviewInventoryQuery(inline, 'p1', NO_SCOPE)!, inline)
     expect(sql).toContain('e."dose_unit_rx" AS unit')
     const events = buildOverviewEventsQuery(
-      inline, 'p1', null, 'Prescriptions', ['Vancomycin'], '2174-01-01', '2174-12-31', 10,
+      inline, 'p1', NO_SCOPE, 'Prescriptions', ['Vancomycin'], '2174-01-01', '2174-12-31', 10,
     )!
     expect(events).toContain('CAST(e.route AS VARCHAR) AS route')
   })

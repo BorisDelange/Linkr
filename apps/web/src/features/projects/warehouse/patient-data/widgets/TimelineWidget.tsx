@@ -5,6 +5,7 @@ import 'dygraphs/dist/dygraph.css'
 import { Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePatientChartContext } from '../PatientChartContext'
+import { usePatientScope } from '../use-patient-scope'
 import { useTabVisible } from '../TabVisibilityContext'
 import {
   usePatientChartStore,
@@ -198,6 +199,7 @@ export function TimelineWidget({
   const patientId = selectedPatientId[projectUid] ?? null
   const visitId = selectedVisitId[projectUid] ?? null
   const visitDetailId = selectedVisitDetailId[projectUid] ?? null
+  const { scope, ready: scopeReady } = usePatientScope(projectUid, dataSourceId, schemaMapping)
 
   const wrapperRef = useRef<HTMLDivElement>(null)
   const chartContainerRef = useRef<HTMLDivElement>(null)
@@ -253,6 +255,8 @@ export function TimelineWidget({
     // rather than clearing it — clearing would defeat keep-alive by forcing a
     // refetch on every reveal. `visible` is a dep, so the fetch runs on reveal.
     if (!visible) return
+    // A selected hospitalisation or stay whose dates are still being read.
+    if (!scopeReady) return
     if (
       !dataSourceId ||
       !schemaMapping ||
@@ -267,17 +271,15 @@ export function TimelineWidget({
     let cancelled = false
     setLoading(true)
 
-    // Debounce the fetch: switching patients resets visitId to null and the
-    // sidebar then auto-selects the first visit, flipping visitId back to a
-    // real value a moment later. Without this delay the timeline would fetch
-    // twice (once for the transient null) — causing a visible reload / "No
-    // data" flash. A short debounce collapses the cascade into one fetch.
+    // Debounce the fetch: picking a patient, then a hospitalisation, then a
+    // stay changes the scope three times in quick succession; one fetch for the
+    // last of them avoids a visible reload / "No data" flash.
     const timer = setTimeout(() => {
       const sql = buildTimelineQuery(
         schemaMapping,
         conceptIds,
         patientId,
-        visitId,
+        scope,
       )
 
       if (!sql) {
@@ -304,7 +306,7 @@ export function TimelineWidget({
       clearTimeout(timer)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, dataSourceId, schemaMapping, patientId, visitId, conceptIdsKey])
+  }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, scope, conceptIdsKey])
 
   // Reshape data for dygraphs: Array<[Date, number|null, ...]>
   const { chartData, conceptNames, conceptIdByName } = useMemo(() => {

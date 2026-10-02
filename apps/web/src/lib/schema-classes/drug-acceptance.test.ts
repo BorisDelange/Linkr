@@ -4,6 +4,7 @@ import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
 import { eavMapping, omopMapping, siteOverrides } from './__fixtures__/drug-acceptance'
 import { effectiveMapping } from './overrides'
 import { dictionaryOf, drugRelation, eventRelation } from './relations'
+import { NO_SCOPE } from '@/lib/duckdb/patient-scope'
 
 // Plan step 10. The rows these relations return were also checked end to end on
 // DuckDB against synthetic tables, EAV and OMOP giving the same contract rows.
@@ -44,7 +45,7 @@ describe('drug administrations from an EAV warehouse and from OMOP', () => {
       const rel = eventRelation(mapping, label)!
       expect(rel.cls).toBe('drug')
       expect(dictionaryOf(mapping, rel)?.cls).toBe('concept')
-      expect(buildOverviewInventoryQuery(mapping, '1', null)).toContain('TRUE AS is_drug')
+      expect(buildOverviewInventoryQuery(mapping, '1', NO_SCOPE)).toContain('TRUE AS is_drug')
       expect(buildTimelineQuery(mapping, [1], '1', null)).toContain(`FROM ${rel.name} e`)
     }
   })

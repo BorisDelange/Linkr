@@ -27,6 +27,7 @@ import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import type { PatientDashboardWidget } from '@/types'
 import { usePatientChartContext } from './PatientChartContext'
+import { usePatientScope } from './use-patient-scope'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/patient-data-queries'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
@@ -110,6 +111,7 @@ function EditorContent({
   // Patient context
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
+  const { scope } = usePatientScope(projectUid, dataSourceId, schemaMapping)
   const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
 
   // Execution state
@@ -137,7 +139,7 @@ function EditorContent({
     if (!plugin?.manifest.needsConceptPicker || !schemaMapping || !selectedPatientId) return undefined
     const ids = pluginConfig.conceptIds as number[] | undefined
     const timelineSql = ids?.length
-      ? buildTimelineQuery(schemaMapping, ids, selectedPatientId, selectedVisitId)
+      ? buildTimelineQuery(schemaMapping, ids, selectedPatientId, scope)
       : null
     const visitSummarySql = buildPatientVisitSummaryQuery(schemaMapping, selectedPatientId)
 
@@ -153,7 +155,7 @@ function EditorContent({
       `visit_summary_sql <- ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'NULL'}`,
       '',
     ].join('\n')
-  }, [plugin, schemaMapping, selectedPatientId, selectedVisitId, pluginConfig, language])
+  }, [plugin, schemaMapping, selectedPatientId, scope, pluginConfig, language])
 
   // Persist changes to store
   const persistConfig = useCallback((newPluginConfig: Record<string, unknown>) => {

@@ -20,11 +20,10 @@ import {
   buildOverviewDeathQuery,
   buildOverviewEventsQuery,
   buildOverviewDensityQuery,
-  buildOverviewStayWindowQuery,
   overviewSupportsClasses,
   overviewUnitTableLabel,
-  type OverviewStayWindow,
 } from '@/lib/duckdb/patient-overview-queries'
+import { usePatientScope } from '../use-patient-scope'
 import {
   buildOverviewRows,
   medianGapPx,
@@ -112,10 +111,8 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const selectedPatientIds = usePatientChartStore((s) => s.selectedPatientId)
   const selectedVisitIds = usePatientChartStore((s) => s.selectedVisitId)
   const widgets = usePatientChartStore((s) => s.widgets)
-  const selectedVisitDetailIds = usePatientChartStore((s) => s.selectedVisitDetailId)
   const selectedPatientId = selectedPatientIds[projectUid] ?? null
   const selectedVisitId = selectedVisitIds[projectUid] ?? null
-  const selectedVisitDetailId = selectedVisitDetailIds[projectUid] ?? null
 
   const widget = widgets.find((w) => w.id === widgetId)
   const cfg = (config ?? widget?.config ?? {}) as Record<string, unknown>
@@ -240,50 +237,16 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const byClass = byClassSetting && supportsClasses
   const unitsTable = schemaMapping ? overviewUnitTableLabel(schemaMapping) : null
 
-  /**
-   * Selecting a unit stay scopes the figure to that stay's time window.
-   *
-   * By time rather than by foreign key: OMOP's `visit_detail_id` is NULL on
-   * every event row of the sample warehouse, and MIMIC's `labevents` has no
-   * stay column at all — an FK filter would empty the widget on both. The
-   * window is fetched by id so the scope survives a reload.
-   */
-  const [stayWindow, setStayWindow] = useState<OverviewStayWindow | null>(null)
-  useEffect(() => {
-    if (!selectedVisitDetailId || !dataSourceId || !schemaMapping) {
-      setStayWindow(null)
-      return
-    }
-    let cancelled = false
-    const sql = buildOverviewStayWindowQuery(schemaMapping, selectedVisitDetailId)
-    if (!sql) {
-      setStayWindow(null)
-      return
-    }
-    void queryDataSource(dataSourceId, sql)
-      .then((rows) => {
-        if (cancelled) return
-        const r = rows[0]
-        const start = r ? toMs(r.stay_start) : null
-        if (start == null) {
-          setStayWindow(null)
-          return
-        }
-        const end = r ? toMs(r.stay_end) : null
-        setStayWindow({ start: new Date(start).toISOString(), end: end == null ? null : new Date(end).toISOString() })
-      })
-      .catch(() => {
-        if (!cancelled) setStayWindow(null)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedVisitDetailId, dataSourceId, schemaMapping])
+  // Selecting a hospitalisation, then a unit stay, scopes the figure to it
+  // (see lib/duckdb/patient-scope.ts for why a stay is matched by time).
+  const { scope, ready: scopeReady } = usePatientScope(projectUid, dataSourceId, schemaMapping)
 
   // --- Load the record ------------------------------------------------------
 
   useEffect(() => {
     if (!visible) return
+    // A selected hospitalisation or stay whose dates are still being read.
+    if (!scopeReady) return
     if (!dataSourceId || !schemaMapping || !selectedPatientId) {
       setConcepts([])
       setUnits([])
@@ -318,7 +281,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
       const to = isoOrNull(b.hi)
       if (!from || !to || bands.length === 0) return
       const sql = buildOverviewDensityQuery(
-        schemaMapping, selectedPatientId, selectedVisitId, from, to, RANGE_BUCKETS, bands, stayWindow,
+        schemaMapping, selectedPatientId, scope, from, to, RANGE_BUCKETS, bands,
       )
       if (!sql) return
       try {
@@ -342,7 +305,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     const run = async () => {
       try {
         const invSql = buildOverviewInventoryQuery(
-          schemaMapping, selectedPatientId, selectedVisitId, stayWindow,
+          schemaMapping, selectedPatientId, scope,
         )
         const inv = invSql ? await queryDataSource(dataSourceId, invSql) : []
         if (cancelled) return
@@ -442,7 +405,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     return () => {
       cancelled = true
     }
-  }, [visible, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, stayWindow, showUnitStays, showDeath])
+  }, [visible, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope, showUnitStays, showDeath])
 
   // --- Rows -----------------------------------------------------------------
 
@@ -550,13 +513,12 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         const sql = buildOverviewEventsQuery(
           schemaMapping,
           selectedPatientId,
-          selectedVisitId,
+          scope,
           row.table,
           row.conceptIds,
           fromIso,
           toIso,
           EVENT_FETCH_LIMIT,
-          stayWindow,
         )
         if (!sql) continue
         try {
@@ -590,7 +552,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
     return () => {
       cancelled = true
     }
-  }, [visible, view, bounds, layout, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, stayWindow, size.w, repaint])
+  }, [visible, view, bounds, layout, dataSourceId, schemaMapping, selectedPatientId, scope, size.w, repaint])
 
   // --- Paint ----------------------------------------------------------------
 

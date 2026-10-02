@@ -22,6 +22,7 @@ import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/Ge
 import { getPlugin } from '@/lib/plugins/registry'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
+import { usePatientScope } from './use-patient-scope'
 import { ConceptPickerDialog } from './ConceptPickerDialog'
 import { ConceptSelectField } from './ConceptSelectField'
 import { DatasetsSelectField } from './DatasetsSelectField'
@@ -83,7 +84,7 @@ function EditorContent({
 }) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
-  const { schemaMapping, projectUid } = usePatientChartContext()
+  const { schemaMapping, projectUid, dataSourceId } = usePatientChartContext()
 
   // Board settings drive the preview geometry, so the preview matches the size the
   // widget actually occupies on this board rather than a generic default.
@@ -94,7 +95,7 @@ function EditorContent({
   const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
   const updateWidgetCustomSql = usePatientChartStore((s) => s.updateWidgetCustomSql)
   const patientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
-  const visitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
+  const { scope } = usePatientScope(projectUid, dataSourceId, schemaMapping)
 
   const plugin = getPlugin(widget.pluginId)
   const configSchema = (plugin?.manifest.configSchema ?? {}) as Record<string, PluginConfigField>
@@ -134,11 +135,11 @@ function EditorContent({
         config,
         mapping: schemaMapping,
         patientId,
-        visitId,
+        scope,
       })
         .map((q) => q.sql ?? '')
         .join('\n'),
-    [widget.pluginId, schemaMapping, patientId, visitId],
+    [widget.pluginId, schemaMapping, patientId, scope],
   )
 
   const applyConfigChanges = useCallback(
@@ -196,9 +197,9 @@ function EditorContent({
         config: draftConfig,
         mapping: schemaMapping,
         patientId,
-        visitId,
+        scope,
       }),
-    [widget.pluginId, draftConfig, schemaMapping, patientId, visitId],
+    [widget.pluginId, draftConfig, schemaMapping, patientId, scope],
   )
   const editable = supportsCustomSql(widget.pluginId)
   const generatedSql = queries[0]?.sql ?? ''

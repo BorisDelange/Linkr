@@ -2,6 +2,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { classRelation, conceptJoinOn, conceptRelations, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { specTables } from '@/lib/schema-classes/spec'
 import { escSql } from '@/lib/format-helpers'
+import { eventScopeCondition, type PatientScope } from './patient-scope'
 
 /**
  * Queries for the Patient overview widget: every event a patient has, grouped by
@@ -51,11 +52,10 @@ export interface OverviewUnitStay {
 export function buildOverviewInventoryQuery(
   mapping: SchemaMapping,
   patientId: string,
-  visitId: string | null,
-  stay: OverviewStayWindow | null = null,
+  scope: PatientScope,
 ): string | null {
   const parts = eventRelations(mapping)
-    .map((event) => buildInventoryPart(mapping, event, patientId, visitId, stay))
+    .map((event) => buildInventoryPart(mapping, event, patientId, scope))
     .filter((part): part is string => !!part)
 
   if (parts.length === 0) return null
@@ -66,13 +66,12 @@ function buildInventoryPart(
   mapping: SchemaMapping,
   event: ClassRelation,
   patientId: string,
-  visitId: string | null,
-  stay: OverviewStayWindow | null,
+  scope: PatientScope,
 ): string | null {
   if (!has(event, 'start_datetime') || !has(event, 'patient_id')) return null
 
   const dict = dictionaryOf(mapping, event)
-  const visitFilter = buildVisitFilter(mapping, visitId) + buildStayFilter(event, stay)
+  const visitFilter = eventScopeCondition(mapping, event, scope)
   const durational = has(event, 'end_datetime')
   // Unit of measure: the standardised concept when the schema maps one, with the
   // source text as fallback AND as the preferred label — "mmHg" reads better
@@ -134,12 +133,11 @@ GROUP BY e.concept_id`
 export function buildOverviewDensityQuery(
   mapping: SchemaMapping,
   patientId: string,
-  visitId: string | null,
+  scope: PatientScope,
   from: string,
   to: string,
   buckets: number,
   rows: OverviewDensityRow[],
-  stay: OverviewStayWindow | null = null,
 ): string | null {
   const n = Math.max(1, Math.min(2000, Math.floor(buckets)))
   const parts: string[] = []
@@ -148,7 +146,7 @@ export function buildOverviewDensityQuery(
     const event = eventRelation(mapping, row.table)
     if (!has(event, 'start_datetime') || !has(event, 'patient_id')) continue
 
-    const visitFilter = buildVisitFilter(mapping, visitId) + buildStayFilter(event!, stay)
+    const visitFilter = eventScopeCondition(mapping, event!, scope)
     const conceptFilter = buildConceptFilter(row.conceptIds)
     const bucket = bucketExpr('e.start_datetime', from, to, n)
 
@@ -189,18 +187,17 @@ export interface OverviewDensityRow {
 export function buildOverviewEventsQuery(
   mapping: SchemaMapping,
   patientId: string,
-  visitId: string | null,
+  scope: PatientScope,
   tableLabel: string,
   conceptIds: string[],
   from: string,
   to: string,
   limit: number,
-  stay: OverviewStayWindow | null = null,
 ): string | null {
   const event = eventRelation(mapping, tableLabel)
   if (!event || !has(event, 'start_datetime') || !has(event, 'patient_id') || conceptIds.length === 0) return null
 
-  const visitFilter = buildVisitFilter(mapping, visitId) + buildStayFilter(event, stay)
+  const visitFilter = eventScopeCondition(mapping, event, scope)
   const conceptFilter = buildConceptFilter(conceptIds)
   // The route is a concept like any other, so it resolves through the same
   // dictionary — "Intravenous", not a local code. Joined separately from the
@@ -264,26 +261,6 @@ WHERE patient_id = '${escSql(patientId)}'
 ORDER BY start_datetime`
 }
 
-/**
- * The time window of one unit stay, by its id.
- *
- * Fetched rather than passed down from the sidebar so the scope survives a
- * reload, and so the widget does not depend on which component happens to hold
- * the stay list.
- */
-export function buildOverviewStayWindowQuery(
-  mapping: SchemaMapping,
-  visitDetailId: string,
-): string | null {
-  const vd = classRelation(mapping, 'visit_detail')
-  if (!vd) return null
-  return `SELECT start_datetime AS stay_start,
-  end_datetime AS stay_end
-FROM ${vd.name}
-WHERE visit_detail_id = '${escSql(visitDetailId)}'
-LIMIT 1`
-}
-
 /** The patient's death timestamp, wherever this model keeps it. */
 export function buildOverviewDeathQuery(
   mapping: SchemaMapping,
@@ -341,33 +318,3 @@ function buildConceptFilter(conceptIds?: string[]): string {
   return `\n  AND CAST(e.concept_id AS VARCHAR) IN (${list})`
 }
 
-/** Restrict to one visit, through the event's visit id. */
-function buildVisitFilter(mapping: SchemaMapping, visitId: string | null): string {
-  if (!visitId || !classRelation(mapping, 'visit')) return ''
-  return `\n  AND e.visit_id = '${escSql(visitId)}'`
-}
-
-/**
- * Restrict to one unit stay, by TIME rather than by foreign key.
- *
- * The FK route does not survive contact with real data: OMOP's
- * `visit_detail_id` is present on the event tables but NULL for every row on
- * the sample warehouse, and in MIMIC-IV `chartevents` has `stay_id` while
- * `labevents` has no such column at all. Filtering on it would silently empty
- * the widget on both. The stay's time window is what "during this stay" means
- * clinically anyway, and every event table has a date.
- */
-function buildStayFilter(event: ClassRelation, stay: OverviewStayWindow | null): string {
-  if (!stay || !has(event, 'start_datetime')) return ''
-  // A block overlapping the stay counts: an infusion started before admission
-  // to the unit is still running during it.
-  const end = has(event, 'end_datetime') ? 'COALESCE(e.end_datetime, e.start_datetime)' : 'e.start_datetime'
-  const upper = stay.end ? `\n  AND e.start_datetime <= TIMESTAMP '${escSql(stay.end)}'` : ''
-  return `\n  AND ${end} >= TIMESTAMP '${escSql(stay.start)}'${upper}`
-}
-
-/** The time window of the selected unit stay, when one is selected. */
-export interface OverviewStayWindow {
-  start: string
-  end: string | null
-}

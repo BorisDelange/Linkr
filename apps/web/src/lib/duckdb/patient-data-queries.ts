@@ -3,6 +3,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './cohort-query'
 import { classRelation, conceptJoinOn, dictionaryOf, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
+import { eventScopeCondition, scopeCondition, type PatientScope } from './patient-scope'
 
 // ---------------------------------------------------------------------------
 // Patient filters
@@ -263,7 +264,7 @@ export function buildTimelineQuery(
   mapping: SchemaMapping,
   conceptIds: number[],
   patientId: string,
-  visitId: string | null,
+  scope: PatientScope | null,
 ): string | null {
   if (conceptIds.length === 0) return null
   if (!validateIntegerIds(conceptIds)) return null
@@ -285,7 +286,7 @@ export function buildTimelineQuery(
     const conceptMatch = has(event, 'source_concept_id')
       ? `e.concept_id IN (${idList}) OR e.source_concept_id IN (${idList})`
       : `e.concept_id IN (${idList})`
-    const visitFilter = visitId && classRelation(mapping, 'visit') ? `\n  AND e.visit_id = '${escSql(visitId)}'` : ''
+    const visitFilter = scope ? eventScopeCondition(mapping, event, scope) : ''
 
     // Unit and route, resolved the way the overview does it — a bare figure says
     // nothing without its unit, and the route is what tells a drip from a bolus
@@ -349,23 +350,23 @@ function labelled(source: string | null, standard: string | null): string {
 export function buildNotesQuery(
   mapping: SchemaMapping,
   patientId: string,
-  visitId: string | null,
+  scope: PatientScope | null,
 ): string | null {
   const note = classRelation(mapping, 'note')
   if (!note) return null
 
-  const visitFilter = visitId && has(note, 'visit_id') ? `\n  AND visit_id = '${escSql(visitId)}'` : ''
-  const orEmpty = (c: string) => (has(note, c) ? c : "''")
+  const visitFilter = scope ? scopeCondition(mapping, note, scope, has(note, 'note_datetime') ? 'note_datetime' : null, null, 'n') : ''
+  const orEmpty = (c: string) => (has(note, c) ? `n.${c}` : "''")
 
-  return `SELECT note_id,
-  note_datetime AS note_date,
+  return `SELECT n.note_id,
+  n.note_datetime AS note_date,
   ${orEmpty('title')} AS note_title,
-  text AS note_text,
+  n.text AS note_text,
   ${orEmpty('note_type')} AS note_type,
-  visit_id
-FROM ${note.name}
-WHERE patient_id = '${escSql(patientId)}'${visitFilter}
-ORDER BY note_datetime DESC`
+  n.visit_id
+FROM ${note.name} n
+WHERE n.patient_id = '${escSql(patientId)}'${visitFilter}
+ORDER BY n.note_datetime DESC`
 }
 
 // ---------------------------------------------------------------------------

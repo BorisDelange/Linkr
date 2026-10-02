@@ -4,6 +4,7 @@ import { AlertTriangle } from 'lucide-react'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from './PatientChartContext'
+import { usePatientScope } from './use-patient-scope'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { buildTimelineQuery, buildPatientVisitSummaryQuery } from '@/lib/duckdb/patient-data-queries'
@@ -20,6 +21,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
   const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
   const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
+  const { scope } = usePatientScope(projectUid, dataSourceId, schemaMapping)
   const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
   const projectRole = useMyProjectRole(projectUid)
   const canExecute = codeWidgets && (can ?? projectRole.can)('patient-data:execute')
@@ -39,7 +41,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
     if (!plugin?.manifest.needsConceptPicker || !schemaMapping || !selectedPatientId) return undefined
     const conceptIds = (pluginConfig as Record<string, unknown> | undefined)?.conceptIds as number[] | undefined
     const timelineSql = conceptIds?.length
-      ? buildTimelineQuery(schemaMapping, conceptIds, selectedPatientId, selectedVisitId)
+      ? buildTimelineQuery(schemaMapping, conceptIds, selectedPatientId, scope)
       : null
     const visitSummarySql = buildPatientVisitSummaryQuery(schemaMapping, selectedPatientId)
 
@@ -56,7 +58,7 @@ export function WarehousePluginWidgetRenderer({ widgetId }: WarehousePluginWidge
       `visit_summary_sql <- ${visitSummarySql ? JSON.stringify(visitSummarySql) : 'NULL'}`,
       '',
     ].join('\n')
-  }, [plugin, schemaMapping, selectedPatientId, selectedVisitId, pluginConfig, language])
+  }, [plugin, schemaMapping, selectedPatientId, scope, pluginConfig, language])
 
   const execute = useCallback(async () => {
     if (!plugin || !plugin.templates || !language || !dataSourceId) return

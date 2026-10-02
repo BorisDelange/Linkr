@@ -48,7 +48,7 @@ describe('buildWidgetQueries', () => {
       config: { conceptIds: [3027018] },
       mapping: fullMapping,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
     expect(q.sql).toBeTruthy()
     expect(q.sql).toContain('measurement')
@@ -61,7 +61,7 @@ describe('buildWidgetQueries', () => {
       config: { conceptIds: [] },
       mapping: fullMapping,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
     expect(q.sql).toBeNull()
     expect(q.missing).toBe('conceptIds')
@@ -74,7 +74,7 @@ describe('buildWidgetQueries', () => {
       config: { conceptIds: [3027018] },
       mapping: noEvents,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
     expect(q.sql).toBeNull()
     expect(q.missing).toBe('schemaMapping.events')
@@ -87,7 +87,7 @@ describe('buildWidgetQueries', () => {
       config: {},
       mapping: noNotes,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
     expect(q.sql).toBeNull()
     expect(q.missing).toBe('schemaMapping.note')
@@ -99,7 +99,7 @@ describe('buildWidgetQueries', () => {
       config: {},
       mapping: fullMapping,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
     expect(qs.map((q) => q.id)).toEqual(['demographics', 'visits'])
     for (const q of qs) expect(q.sql).toBeTruthy()
@@ -112,7 +112,7 @@ describe('buildWidgetQueries', () => {
       config: {},
       mapping: noVisits,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
     // Demographics still works; only the visit query is blocked.
     expect(qs[0].sql).toBeTruthy()
@@ -126,7 +126,7 @@ describe('buildWidgetQueries', () => {
       config: { conceptIds: [3027018] },
       mapping: undefined,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
     expect(q.missing).toBe('schemaMapping')
   })
@@ -137,7 +137,7 @@ describe('buildWidgetQueries', () => {
       config: {},
       mapping: fullMapping,
       patientId: null,
-      visitId: null,
+      scope: null,
     })
     // A placeholder id keeps the SQL readable instead of returning nothing.
     expect(q.sql).toContain('<patient_id>')
@@ -150,7 +150,7 @@ describe('buildWidgetQueries', () => {
         config: {},
         mapping: fullMapping,
         patientId: '123',
-        visitId: null,
+        scope: null,
       }),
     ).toEqual([])
   })
@@ -178,7 +178,7 @@ describe('which config changes regenerate the SQL', () => {
       config,
       mapping: fullMapping,
       patientId: '123',
-      visitId: null,
+      scope: null,
     })
       .map((q) => q.sql ?? '')
       .join('\n')
