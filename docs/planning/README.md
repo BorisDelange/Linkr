@@ -21,9 +21,10 @@ run like the catalog (browser-driven units, pause/resume), order below.
 |----|------|--------|
 | 🔜 | 1–2. **[TO TEST]** Concept counts in resumable units + *Concepts* tab on every database (built on `feature/scale-concepts`, manual list in plan §5) | S |
 | 💤 | Move the catalog and audit runners onto `lib/run-registry.ts` (the concept count already uses it) | S |
-| 🔜 | 3. Timeline + Notes honour the selected stay; script-plugin ids quoted; scale bench (sorted vs unsorted Parquet) | M |
+| 🔜 | 3. **[TO TEST]** Timeline + Notes honour the selected stay (shared `patient-scope.ts`); script-plugin ids quoted; bench in `scripts/bench/` | S |
 | 🔜 | 4. Data overview by zoom level: SQL density (M4) for dense rows, tiles, debounce + cancel, visible rows only | L |
-| 🔜 | Statistics tab: warn when a Parquet table is not sorted by `person_id` (row-group ranges overlap) | S |
+| 🔜 | **[TO TEST]** Statistics tab warns when Parquet tables are not in patient order (server, Parquet folders) | S |
+| 🔜 | User docs (linkr-website): Database › Concepts tab, the unsorted-Parquet warning and how to sort | S |
 
 ## To test manually in the app
 

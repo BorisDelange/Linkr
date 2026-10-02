@@ -137,6 +137,14 @@ décompte complet 12 s au lieu de 31 s, lignes d'un patient 0,03 s au lieu de 0,
 
 ## 3. Patient data : filtre séjour + banc d'essai à grande échelle
 
+> Construit le 2026-10-02 : `lib/duckdb/patient-scope.ts` (une portée pour tous
+> les widgets — hospitalisation par `visit_id`, sinon par ses dates ; séjour par
+> ses dates), `use-patient-scope.ts` (fenêtres lues une fois, en cache),
+> `idLiteral` pour les plugins script, banc dans `scripts/bench/`, avertissement
+> « non trié » (`parquet_layout.py` + `ParquetLayoutNotice`). Vérifié dans le
+> navigateur (MIMIC demo, client seul) : Notes 32 → 9 sur un séjour, Timelines
+> bornées au séjour.
+
 ### 3.1 Filtre séjour
 
 | Widget | Hospitalisation | Séjour |
