@@ -282,7 +282,7 @@ export function ConceptPickerDialog({
         <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle>{t('patient_data.select_concepts')}</DialogTitle>
         </DialogHeader>
-        <ConceptCountNotice count={hook.count} dataSourceId={dataSourceId} className="shrink-0" />
+        <ConceptCountNotice count={hook.count} dataSourceId={dataSourceId} className="mx-4 mt-3" />
 
         {/* Tab switcher, only when there is something to switch BETWEEN.
             A caller that pins the dialog to concepts keeps its settings in its own

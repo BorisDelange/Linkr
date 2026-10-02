@@ -374,7 +374,7 @@ export function CohortConceptPickerDialog({
         <DialogHeader className="shrink-0 border-b px-6 py-4">
           <DialogTitle>{t('cohorts.concept_pick')}</DialogTitle>
         </DialogHeader>
-        <ConceptCountNotice count={hook.count} dataSourceId={dataSourceId} className="shrink-0" />
+        <ConceptCountNotice count={hook.count} dataSourceId={dataSourceId} className="mx-4 mt-3" />
 
         <div className="flex min-h-0 flex-1">
           {/* Left: concept table */}

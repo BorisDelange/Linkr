@@ -712,7 +712,7 @@ export function ConceptsPage() {
         </div>
       </TooltipProvider>
 
-      <ConceptCountNotice count={count} dataSourceId={mappedSource?.id} />
+      <ConceptCountNotice count={count} dataSourceId={mappedSource?.id} className="mx-4 mt-2" />
 
       <ConceptListModal
         open={listOpen}

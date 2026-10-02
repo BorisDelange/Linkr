@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router'
-import { ArrowRight, Loader2 } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { cn } from '@/lib/utils'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import { paths } from '@/lib/paths'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import type { ConceptCountView } from './use-concept-count'
@@ -42,44 +42,41 @@ export function ConceptCountNotice({
     patientsTotal: patients.total,
   })
 
-  let message: string
-  let tone: 'muted' | 'error' = 'muted'
+  let title: string
+  let description: string | undefined
+  let tone: 'warning' | 'danger' = 'warning'
   if (live.error) {
-    message = t('concepts.count_failed', { error: live.error })
-    tone = 'error'
+    title = t('concepts.count_failed', { error: live.error })
+    tone = 'danger'
   } else if (live.running) {
-    message = `${t('concepts.count_running')} — ${steps}`
+    title = t('concepts.count_running')
+    description = steps
   } else if (!count.exists) {
-    message = t('concepts.count_none')
+    title = t('concepts.count_none')
   } else if (progress.state !== 'complete') {
-    message = `${t('concepts.count_partial')} — ${steps}`
+    title = t('concepts.count_partial')
+    description = steps
   } else {
     return null
   }
 
   return (
-    <div
-      className={cn(
-        'flex items-center justify-between gap-3 border-b px-4 py-2',
-        tone === 'error' ? 'border-destructive/30 bg-destructive/10' : 'bg-muted/40',
-        className,
-      )}
-    >
-      <span className={cn('flex items-center gap-1.5 text-xs', tone === 'error' ? 'text-destructive' : 'text-muted-foreground')}>
-        {live.running && <Loader2 size={12} className="shrink-0 animate-spin" />}
-        {message}
-      </span>
-      {wsUid && (
+    <NoticeBanner
+      tone={tone}
+      title={title}
+      description={description}
+      className={className}
+      action={wsUid && (
         <Button
           variant="outline"
           size="sm"
-          className="h-6 shrink-0 gap-1 text-xs"
+          className="h-6 gap-1 text-xs"
           onClick={() => navigate(conceptsTabHref(wsUid, projectUid, dataSourceId))}
         >
           {t('concepts.count_open_tab')}
           <ArrowRight size={12} />
         </Button>
       )}
-    </div>
+    />
   )
 }
