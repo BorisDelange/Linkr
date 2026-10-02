@@ -11,7 +11,19 @@ of finished efforts that the code still cites lives in `docs/design/`.
 
 ## Priority
 
-Nothing flagged right now.
+### Scale — billion-row databases — [scale-plan.md](scale-plan.md)
+
+Concept list times out (504) and cannot be stopped on a ~1B-row Parquet database;
+Data overview is slow on a 50M-row patient. Arbitrated 2026-10-02: concept counts
+run like the catalog (browser-driven units, pause/resume), order below.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | 1. Concept counts in resumable units (`records` per table, then `patients` per slice), shared run loop extracted from `catalog-run.ts` | L |
+| 🔜 | 2. *Concepts* tab on every database (run / pause / resume); project Concepts page + cohort picker only read the cache, banner + link | M |
+| 🔜 | 3. Timeline + Notes honour the selected stay; script-plugin ids quoted; scale bench (sorted vs unsorted Parquet) | M |
+| 🔜 | 4. Data overview by zoom level: SQL density (M4) for dense rows, tiles, debounce + cancel, visible rows only | L |
+| 🤔 | Statistics tab: warn when a Parquet table is not sorted by `person_id` | S |
 
 ## To test manually in the app
 
