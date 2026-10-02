@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Create a git worktree ready to run: its own branch, its own free port pair,
 // and the gitignored files a fresh checkout lacks (node_modules, .env.local,
-// the baked seed).
+// the baked seed, the DuckDB-WASM assets client-only mode loads).
 //
 //   npm run worktree:new -- agent-a
 //   npm run worktree:new -- agent-a --branch feature/some-work
@@ -106,6 +106,7 @@ copyIfPresent('node_modules', 'node_modules')
 copyIfPresent('apps/web/node_modules', 'apps/web/node_modules')
 copyIfPresent('apps/api/.venv', 'apps/api/.venv')
 copyIfPresent('apps/web/public/data/seed', 'seed data')
+copyIfPresent('apps/web/public/duckdb', 'DuckDB-WASM assets')
 copyIfPresent('config.local.json', 'config.local.json')
 
 // The API .env carries two values that must NOT be shared between worktrees:

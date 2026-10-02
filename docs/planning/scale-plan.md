@@ -74,26 +74,34 @@ via `/query/cancel`, comme le catalog) :
   `concept_id = source_concept_id` ; décider du comportement voulu et le
   garder dans les nouvelles requêtes.
 
-### 1.3 Réutilisation plutôt que copie
+### 1.3 Construit (2026-10-02, `feature/scale-concepts`)
 
-- Extraire de `catalog-run.ts` la boucle générique (offset d'unités, sauvegarde
-  toutes les 5 s, pause = sauvegarde puis `'paused'`, reprise à l'offset) dans
-  un module partagé ; le catalog et les concepts l'utilisent tous les deux.
-- Registre de runs à la `catalog-runner.ts` (survit au changement d'onglet, un
-  run par database, progression throttlée), clé = `dataSourceId`.
+Écart au plan initial : l'état de reprise n'est pas un blob `stats_cache` mais
+**un Parquet par unité côté serveur** (`concept_cache_fs.write_unit`, dossier
+`<source>.run/units/`) plus un manifeste JSON possédé par le client. Rien de
+volumineux ne transite par le navigateur ; une unité est faite ou absente
+(écriture atomique) ; la reprise saute les fichiers présents ; `assemble`
+joint les dictionnaires aux unités faites (vue `memory.main._concept_counts`).
 
-### 1.4 Persistance
+- Front : `concepts/concept-count-plan.ts` (unités, signature, progression),
+  `concept-count-runner.ts` (sur `lib/run-registry.ts`, nouveau registre
+  générique — la boucle du catalog, elle, sauvegarde un état en mémoire et ne
+  s'est pas prêtée à l'extraction), `use-concept-count.ts`, `ConceptCountNotice`,
+  `databases/DatabaseConceptsTab.tsx`.
+- Serveur : routes `PUT …/concept-cache/run`, `POST …/units/{key}` (annulable par
+  `/query/cancel`), `POST …/assemble` ; l'ancienne route `refresh` a disparu.
+- Mode client seul : inchangé (comptes en ligne).
 
-- État de reprise (phase, offset, tranches, comptes cumulés) : blob JSON dans
-  `stats_cache`, nouveau scope `concept-counts`, comme le catalog (`data_catalogs.py:92`).
-- Résultat lisible : à chaque sauvegarde, nouvelle route qui reçoit les comptes
-  (`concept_id, record_count, patient_count`) et réécrit le Parquet du cache
-  (`SELECT dict… LEFT JOIN comptes`, temp + rename). `query_page` et la page de
-  lecture ne changent pas.
-- Statut exposé par `concept-cache/status` : `none | partial(records) |
-  partial(patients, n/N) | complete`, `computedAt`, durée.
-- L'ancienne route `refresh` (COPY monolithique) disparaît en mode serveur.
-- Mode client seul (WASM) : inchangé pour l'instant (bases petites, comptes en ligne).
+### 1.4 Mesures (banc `scratchpad`, Mac 8 cœurs / 16 Go / SSD)
+
+| 1 Md de lignes, non trié | Durée |
+|---|---|
+| Ancien `COPY` unique | 320 s (→ 504 derrière un proxy à 60 s) |
+| Étape `records` (5 unités) | 10 s — liste utilisable |
+| Étape `patients`, tranches de 100 M | 16–33 s par tranche, 180 s au total |
+
+D'où `CONCEPT_SLICE_ROWS = 50 M`. Sur 300 M lignes, Parquet **trié** par patient :
+décompte complet 12 s au lieu de 31 s, lignes d'un patient 0,03 s au lieu de 0,40 s.
 
 ### 1.5 Tests
 
