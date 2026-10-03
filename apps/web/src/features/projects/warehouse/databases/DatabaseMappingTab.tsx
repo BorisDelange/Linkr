@@ -17,7 +17,7 @@ import type { DataSource } from '@/types'
 import type { SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
 import { findSourcePreset } from '@/lib/find-source-preset'
 import { NoticeBanner } from '@/components/ui/notice-banner'
-import { sourceTables } from '@/lib/duckdb/engine'
+import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { absentRelations } from '@/lib/schema-classes/presence'
 
 /**
@@ -48,16 +48,22 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const [draft, setDraft] = useState<{ mapping: SchemaMapping } | null>(null)
   const [updateOpen, setUpdateOpen] = useState(false)
 
-  const [tables, setTables] = useState<string[] | null>(null)
+  // What the database actually holds: the editor suggests its tables and
+  // columns, and the relations reading a table it lacks are flagged.
+  const [schema, setSchema] = useState<{ id: string; tables: IntrospectedTable[] } | null>(null)
   useEffect(() => {
     if (source.status !== 'connected') return
     let live = true
-    void sourceTables(source.id).then((found) => { if (live) setTables(found) })
+    discoverFullSchema(source.id).then(
+      (tables) => { if (live) setSchema({ id: source.id, tables }) },
+      () => { /* unreachable: the DDL's suggestions stand in */ },
+    )
     return () => { live = false }
   }, [source.id, source.status])
+  const sourceSchema = schema?.id === source.id && schema.tables.length ? schema.tables : null
   const absent = useMemo(
-    () => (tables && source.schemaMapping ? absentRelations(source.schemaMapping, tables) : []),
-    [tables, source.schemaMapping],
+    () => (sourceSchema && source.schemaMapping ? absentRelations(source.schemaMapping, sourceSchema.map((t) => t.name)) : []),
+    [sourceSchema, source.schemaMapping],
   )
 
   if (!base) {
@@ -243,6 +249,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         mapping={shown}
         readOnly={!editing}
         onChange={(m) => draft && setDraft({ ...draft, mapping: m })}
+        sourceSchema={sourceSchema}
         previewSources={[{ id: source.id, label: localized(source.name, i18n.language) }]}
         relationExtra={relationExtra}
         persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}

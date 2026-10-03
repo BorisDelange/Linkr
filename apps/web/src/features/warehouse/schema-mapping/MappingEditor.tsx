@@ -24,6 +24,7 @@ import { RelationEditor } from './RelationEditor'
 import { DraftInput } from './draft-input'
 import { CLASS_TONES } from './class-tones'
 import { RelationSqlDialog, type PreviewSource } from './RelationSqlDialog'
+import { indexSourceSchema, type SourceSchemaTable } from './source-schema'
 
 type TabId = 'all' | 'patient' | 'stays' | 'notes' | 'concepts' | 'events' | 'drugs'
 
@@ -33,6 +34,10 @@ export interface MappingEditorProps {
   readOnly?: boolean
   /** Columns of a source table; defaults to the mapping's DDL. */
   columnsOf?: (table: RelationTable) => string[] | undefined
+  /** The tables a database actually has, when the mapping is a database's: they
+   *  replace the DDL's in the suggestions, which then fill only the columns of
+   *  a table the database lacks. Null or absent: the DDL alone. */
+  sourceSchema?: readonly SourceSchemaTable[] | null
   previewSources?: PreviewSource[]
   /** Per relation (by spec key): a badge or actions in its header — the
    *  database override layer uses it for "Overridden" / "Revert". */
@@ -57,7 +62,7 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  * grouped by clinical subject, plus the parameters relations read. Used by the
  * schema preset page and, in override mode, by a database's Mapping tab.
  */
-export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewSources = [], relationExtra, persist }: MappingEditorProps) {
+export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSchema, previewSources = [], relationExtra, persist }: MappingEditorProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<TabId>('all')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
@@ -67,10 +72,14 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
     return (ref: RelationTable) =>
       index ? resolveTableRef(index.byQualified, index.byBare, ref)?.columns.map((c) => c.name) : undefined
   }, [mapping.ddl])
-  const colsOf = columnsOf ?? ddlColumns
+  const live = useMemo(() => (sourceSchema?.length ? indexSourceSchema(sourceSchema) : null), [sourceSchema])
+  const colsOf = useMemo(
+    () => columnsOf ?? (live ? (ref: RelationTable) => live.columnsOf(ref) ?? ddlColumns(ref) : ddlColumns),
+    [columnsOf, live, ddlColumns],
+  )
   // The source's tables with their schema, from the DDL and the tables the
   // preset lists — what the table and schema fields suggest.
-  const sourceTables = useMemo(() => {
+  const ddlTables = useMemo(() => {
     const out = new Map<string, RelationTable>()
     const add = (schema: string | undefined, table: string) => out.set(`${schema ?? ''}.${table}`.toLowerCase(), { schema, table, alias: '' })
     if (mapping.ddl) for (const t of parseDdl(mapping.ddl)) add(t.schema, t.bareName)
@@ -80,6 +89,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, previewS
     }
     return [...out.values()]
   }, [mapping.ddl, mapping.knownTables])
+  const sourceTables = live?.tables ?? ddlTables
   const relationNames = useMemo(() => new Map(classRelations(mapping).map((r) => [r.specKey, r.name])), [mapping])
 
   const setSpec = (specKey: string, spec: RelationSpec | undefined) => onChange?.(withSpec(mapping, specKey, spec))
