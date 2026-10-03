@@ -4001,7 +4001,6 @@
     "link_database_description": "Choisissez une base de données à lier à ce projet.",
     "no_available_databases": "Aucune base disponible à lier",
     "no_available_databases_description": "Créez d'abord une base de données depuis la page Entrepôt de données.",
-    "create_and_link": "Nouvelle base de données",
     "delete_confirm_title": "Supprimer la base de données",
     "delete_confirm_description": "Voulez-vous vraiment supprimer cette base ? Les fichiers associés et les statistiques en cache seront supprimés. Les projets utilisant cette base seront déliés.",
     "unlink_confirm_title": "Délier la base de données",

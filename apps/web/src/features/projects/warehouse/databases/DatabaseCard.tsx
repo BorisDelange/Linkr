@@ -24,12 +24,16 @@ import { useDatabaseActions } from './use-database-actions'
 interface DatabaseCardProps {
   source: DataSource
   onClick?: () => void
-  onTestConnection: () => void
+  /** Required with the actions menu; a picker (`hideActions`) has none. */
+  onTestConnection?: () => void
   onDisconnect?: () => void
   onReconnect?: () => void
   /** The destructive action, run AFTER the menu's own confirmation — the card
    *  must not raise a second dialog of its own. */
-  onRemove: (deleteData?: boolean) => void
+  onRemove?: (deleteData?: boolean) => void
+  /** A card to pick (the Link a database dialog): no actions menu, the click is
+   *  the action. */
+  hideActions?: boolean
   /** A real delete (the workspace's card, not a project's unlink): the
    *  confirmation then offers to remove what Linkr created for the database. */
   offerDataRemoval?: boolean
@@ -101,6 +105,7 @@ export const DatabaseCard = memo(function DatabaseCard({
   belowStats,
   selected = false,
   onSelectClick,
+  hideActions = false,
 }: DatabaseCardProps) {
   const { t, i18n } = useTranslation()
   const actions = useDatabaseActions()
@@ -181,14 +186,14 @@ export const DatabaseCard = memo(function DatabaseCard({
         {/* Same menu the header badge shows, so the two cannot drift: edit,
             export, versioning, readme, licence, delete — plus the connection
             actions, which are the only database-specific ones. */}
-        <EntityActionsMenu
+        {!hideActions && <EntityActionsMenu
           item={source}
           {...actions}
           syncScope="databases"
           deleteOnly={deleteOnly}
           canEdit={canEdit}
           canDelete={canEdit}
-          onDelete={async (_id, deleteData) => onRemove(deleteData)}
+          onDelete={async (_id, deleteData) => onRemove?.(deleteData)}
           deleteOption={offerDataRemoval ? actions.deleteOption : undefined}
           deleteLabelKey={removeLabelKey}
           deleteConfirmTitleKey={removeConfirmTitleKey ?? actions.deleteConfirmTitleKey}
@@ -210,7 +215,7 @@ export const DatabaseCard = memo(function DatabaseCard({
                     {t('databases.reconnect')}
                   </DropdownMenuItem>
                 ) : (
-                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onTestConnection() }}>
+                  <DropdownMenuItem onClick={(e) => { e.stopPropagation(); onTestConnection?.() }}>
                     <Plug size={14} />
                     {t('databases.connect')}
                   </DropdownMenuItem>
@@ -218,7 +223,7 @@ export const DatabaseCard = memo(function DatabaseCard({
               )}
             </>
           }
-        />
+        />}
         </div>
         <CardMetaFooter
           className="mt-auto"
