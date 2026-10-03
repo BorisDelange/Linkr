@@ -45,6 +45,8 @@ export interface MappingEditorProps {
   /** Saves a relation's SQL at once, outside edit mode: the SQL dialog stays
    *  editable whenever the user may write, rather than showing a locked editor. */
   persist?: (mapping: SchemaMapping) => void
+  /** Actions on the right of the section tabs (a database's Edit / Save). */
+  toolbar?: ReactNode
 }
 
 /** Blocks two by two from xl up; side by side they share a height. */
@@ -62,7 +64,7 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  * grouped by clinical subject, plus the parameters relations read. Used by the
  * schema preset page and, in override mode, by a database's Mapping tab.
  */
-export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSchema, previewSources = [], relationExtra, persist }: MappingEditorProps) {
+export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSchema, previewSources = [], relationExtra, persist, toolbar }: MappingEditorProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<TabId>('all')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
@@ -341,7 +343,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSc
               </TabsTrigger>
             ))}
           </TabsList>
-          <div className="flex-1" />
+          <div className="flex flex-1 items-center justify-end gap-2">{toolbar}</div>
         </div>
 
         <TabsContent value="all" className="mt-4 space-y-6">

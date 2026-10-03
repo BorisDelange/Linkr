@@ -159,49 +159,44 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const presetChanged = !!preset && JSON.stringify(sanitizeSchemaMapping(preset.mapping)) !== JSON.stringify(base)
   const staleAfterUpdate = preset ? staleOverrides(sanitizeSchemaMapping(preset.mapping), overrides) : []
 
+  const toolbar = (
+    <>
+      {canWrite && !editing && presetChanged && (
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setUpdateOpen(true)}>
+          <RefreshCw size={12} />
+          {t('schema_mapping.update_from_preset')}
+        </Button>
+      )}
+      {canWrite && !editing && (
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={startEdit}>
+          <Pencil size={12} />
+          {t('common.edit')}
+        </Button>
+      )}
+      {editing && (
+        <>
+          <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setDraft(null)}>
+            <X size={12} />
+            {t('common.cancel')}
+          </Button>
+          <Button
+            size="sm"
+            className="h-7 gap-1 text-xs"
+            onClick={async () => {
+              await save(pendingOverrides)
+              setDraft(null)
+            }}
+          >
+            <Check size={12} />
+            {t('common.save')}
+          </Button>
+        </>
+      )}
+    </>
+  )
+
   return (
     <div className="space-y-4 px-6 py-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="min-w-0 flex-1 text-xs text-muted-foreground">
-          {t('schema_mapping.db_from_preset', {
-            name: localized(source.schemaSource?.label ?? base.presetLabel, i18n.language),
-            version: source.schemaSource?.version ?? '—',
-          })}
-          {overridden.size > 0 && ` · ${t('schema_mapping.db_overridden_count', { count: overridden.size })}`}
-        </div>
-        {canWrite && !editing && presetChanged && (
-          <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setUpdateOpen(true)}>
-            <RefreshCw size={12} />
-            {t('schema_mapping.update_from_preset')}
-          </Button>
-        )}
-        {canWrite && !editing && (
-          <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={startEdit}>
-            <Pencil size={12} />
-            {t('common.edit')}
-          </Button>
-        )}
-        {editing && (
-          <>
-            <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs" onClick={() => setDraft(null)}>
-              <X size={12} />
-              {t('common.cancel')}
-            </Button>
-            <Button
-              size="sm"
-              className="h-7 gap-1 text-xs"
-              onClick={async () => {
-                await save(pendingOverrides)
-                setDraft(null)
-              }}
-            >
-              <Check size={12} />
-              {t('common.save')}
-            </Button>
-          </>
-        )}
-      </div>
-
       {absent.length > 0 && !editing && (
         <NoticeBanner
           tone="warning"
@@ -250,6 +245,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         readOnly={!editing}
         onChange={(m) => draft && setDraft({ ...draft, mapping: m })}
         sourceSchema={sourceSchema}
+        toolbar={toolbar}
         previewSources={[{ id: source.id, label: localized(source.name, i18n.language) }]}
         relationExtra={relationExtra}
         persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}
