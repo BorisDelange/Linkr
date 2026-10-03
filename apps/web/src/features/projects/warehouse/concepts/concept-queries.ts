@@ -288,7 +288,10 @@ function activeDicts(mapping: SchemaMapping, filters: ConceptFilters): ClassRela
  * - `units`: read from the counting units written so far, through the view the
  *   server's assemble step exposes. A phase not yet complete leaves NULL rather
  *   than 0 — "not counted yet" is not "never used";
- * - `none`: no counts (the detail of a single concept).
+ * - `none`: not counted (yet): NULL.
+ *
+ * A dictionary mapping `record_count` / `patient_count` holds that count
+ * already: it is read from the dictionary whatever the source.
  */
 export type CountsSource =
   | { kind: 'inline' }
@@ -340,13 +343,17 @@ function buildSelectForDict(
   counts: CountsSource,
   extraWhere?: string,
 ): string {
-  const countsSubquery =
-    counts.kind === 'inline' ? buildCountsSubquery(mapping, dict)
+  const held = (col: 'record_count' | 'patient_count') => has(dict, col)
+  const needsCounts = !held('record_count') || !held('patient_count')
+  const countsSubquery = !needsCounts ? null
+    : counts.kind === 'inline' ? buildCountsSubquery(mapping, dict)
       : counts.kind === 'units' ? buildUnitCountsSubquery(dict)
         : null
   const hasCounts = countsSubquery !== null
   const countCol = (col: 'record_count' | 'patient_count', complete: boolean) =>
-    complete ? `COALESCE(_counts.${col}, 0) AS ${col}` : `_counts.${col} AS ${col}`
+    held(col) ? `c.${col}::BIGINT AS ${col}`
+      : !hasCounts ? (counts.kind === 'inline' ? `0::BIGINT AS ${col}` : `NULL::BIGINT AS ${col}`)
+        : complete ? `COALESCE(_counts.${col}, 0) AS ${col}` : `_counts.${col} AS ${col}`
   const filterWhere = buildWhereClause(dict, filters, allColumns, 'c')
   const where = extraWhere ? (filterWhere ? `${filterWhere} AND ${extraWhere}` : `WHERE ${extraWhere}`) : filterWhere
 
@@ -362,11 +369,11 @@ function buildSelectForDict(
       continue
     }
     if (col.id === 'record_count') {
-      cols.push(hasCounts ? countCol('record_count', counts.kind !== 'units' || counts.recordsComplete) : '0 AS record_count')
+      cols.push(countCol('record_count', counts.kind !== 'units' || counts.recordsComplete))
       continue
     }
     if (col.id === 'patient_count') {
-      cols.push(hasCounts ? countCol('patient_count', counts.kind !== 'units' || counts.patientsComplete) : '0 AS patient_count')
+      cols.push(countCol('patient_count', counts.kind !== 'units' || counts.patientsComplete))
       continue
     }
 
@@ -386,11 +393,12 @@ export function buildConceptsQuery(
   page: number,
   pageSize: number,
   sorting?: ConceptSorting | null,
+  counts: CountsSource = { kind: 'inline' },
 ): string | null {
   const dicts = activeDicts(mapping, filters)
   if (dicts.length === 0) return null
   const offset = page * pageSize
-  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, { kind: 'inline' }))
+  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, counts))
 
   // ORDER BY — all columns including record_count and patient_count. An explicit
   // sort wins; otherwise a fuzzy search orders by relevance (best tier first).

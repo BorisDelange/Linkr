@@ -296,9 +296,10 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
-    const server = isServerMode()
-    // Server mode: options come from the cache Parquet (needs it built first).
-    if (server && !cacheReady) return
+    // Server mode: options come from the cache Parquet once counted, else from
+    // the dictionaries themselves.
+    const server = isServerMode() && cacheReady
+    if (isServerMode() && !cacheChecked) return
 
     const loadOptions = async () => {
       try {
@@ -337,7 +338,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       }
     }
     loadOptions()
-  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, listVersion, availableColumns, dicts])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, cacheChecked, listVersion, availableColumns, dicts])
 
   // ---------------------------------------------------------------------------
   // Load concepts when filters or page change
@@ -352,25 +353,23 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       return
     }
 
-    const server = isServerMode()
-
     // Server mode: read the page from the materialized Parquet cache (flat table
-    // `concepts`, counts already columns). If no cache exists yet, show nothing —
-    // the user builds it with Refresh. Front-only: query the source directly, with
-    // counts computed inline (fast in-browser DuckDB-WASM).
-    if (server && !cacheReady) {
-      setConcepts([])
-      setTotalCount(0)
-      // Still checking for a cache: the table keeps its skeleton. Reporting
-      // "not loading" here would render "No concepts found" over a source that
-      // simply has not been read yet.
-      setIsLoading(!cacheChecked)
+    // `concepts`, counts already columns). Not counted yet: the dictionaries
+    // themselves, counts left empty — counting is the user's choice, from the
+    // database's Concepts tab. Front-only: the source, counted inline (fast
+    // in-browser DuckDB-WASM).
+    if (isServerMode() && !cacheChecked) {
+      // The table keeps its skeleton: reporting "not loading" would render
+      // "No concepts found" over a source that simply has not been read yet.
+      setIsLoading(true)
       return
     }
+    const server = isServerMode() && cacheReady
 
     const conceptsSql = server
       ? buildCachePageQuery(effectiveFilters, availableColumns, page, pageSize, sorting)
-      : buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting)
+      : buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting,
+        isServerMode() ? { kind: 'none' } : { kind: 'inline' })
     const countSql = server
       ? buildCacheCountQuery(effectiveFilters, availableColumns)
       : buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
@@ -439,7 +438,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       try {
         // Server mode: the concept row is already in the cache Parquet, so the
         // detail reads from it (no source round-trip). Front-only queries source.
-        if (isServerMode()) {
+        if (isServerMode() && cacheReady) {
           const rows = await queryConceptCache(dataSourceId, buildCacheDetailQuery(selectedConceptId))
           if (rows.length > 0) setSelectedConcept(rows[0] as Record<string, unknown>)
           return
@@ -455,7 +454,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       }
     }
     load()
-  }, [dataSourceId, schemaMapping, selectedConceptId, concepts, dicts])
+  }, [dataSourceId, schemaMapping, selectedConceptId, concepts, dicts, cacheReady])
 
   // ---------------------------------------------------------------------------
   // Load concept stats (with cache)

@@ -121,3 +121,48 @@ describe('buildConceptsQuery (front-only, counts inline)', () => {
     expect(sql).toContain('WHERE source_concept_id IS DISTINCT FROM concept_id')
   })
 })
+
+describe('counts the concept table already holds', () => {
+  const dict = mapping.concepts![0]
+  const alias = dict.from!.alias
+  const holding = (fields: Record<string, string>) => ({
+    ...mapping,
+    concepts: [{ ...dict, fields: { ...dict.fields, ...fields } }],
+  })
+  const both = holding({ record_count: `${alias}.n_rows`, patient_count: `${alias}.n_patients` })
+  const rowsOnly = holding({ record_count: `${alias}.n_rows` })
+
+  it('plans no unit for a count the dictionary holds', () => {
+    expect(planConceptCountUnits(both, [{}])).toEqual([])
+    expect(planConceptCountUnits(rowsOnly, [{}]).map((u) => u.step)).toEqual(['patients'])
+  })
+
+  it('reads a held count from the dictionary, whatever the source', () => {
+    const cols = computeAvailableColumns(conceptRelations(both))
+    for (const sql of [
+      buildConceptsQuery(both, {}, cols, 0, 50, null)!,
+      buildConceptsQuery(both, {}, cols, 0, 50, null, { kind: 'none' })!,
+      buildConceptsAssembleQuery(both, cols, { recordsComplete: false, patientsComplete: false })!,
+    ]) {
+      expect(sql).toContain('c.record_count::BIGINT AS record_count')
+      expect(sql).toContain('c.patient_count::BIGINT AS patient_count')
+      expect(sql).not.toContain('_counts')
+    }
+  })
+
+  it('still counts the other one', () => {
+    const cols = computeAvailableColumns(conceptRelations(rowsOnly))
+    const sql = buildConceptsAssembleQuery(rowsOnly, cols, { recordsComplete: true, patientsComplete: true })!
+    expect(sql).toContain('c.record_count::BIGINT AS record_count')
+    expect(sql).toContain('COALESCE(_counts.patient_count, 0) AS patient_count')
+  })
+})
+
+describe('buildConceptsQuery, not counted yet', () => {
+  it('reads the dictionary alone and leaves the counts empty', () => {
+    const sql = buildConceptsQuery(mapping, {}, columns, 0, 50, null, { kind: 'none' })!
+    expect(sql).not.toContain('measurement')
+    expect(sql).toContain('NULL::BIGINT AS record_count')
+    expect(sql).toContain('NULL::BIGINT AS patient_count')
+  })
+})

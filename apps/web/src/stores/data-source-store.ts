@@ -724,6 +724,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 
   retestDataSource: async (id, opts) => {
     if (!isServerMode()) return
+    engine.forgetSourceTables(id)
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds) return
     set((s) => ({
@@ -1013,6 +1014,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
   },
 
   invalidateMount: async (id) => {
+    engine.forgetSourceTables(id)
     if (isServerMode() || !mountedSources.has(id)) return
     try {
       await engine.unmountDataSource(id)

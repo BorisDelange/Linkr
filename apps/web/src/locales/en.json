@@ -632,7 +632,7 @@
     "count_steps": "Rows {{records}}/{{recordsTotal}} · patients {{patients}}/{{patientsTotal}}",
     "count_failed": "Counting the concepts failed: {{error}}",
     "count_running": "Counting the concepts…",
-    "count_none": "The concepts of this database have not been counted yet.",
+    "count_none": "Concepts not counted: the Records and Patients columns stay empty.",
     "count_partial": "The counts are incomplete",
     "count_paused": "Paused — the counts shown are partial.",
     "count_complete": "Counted on {{date}}",
@@ -644,11 +644,15 @@
     "count_pause": "Pause",
     "count_resume": "Resume",
     "count_again": "Count again",
-    "count_start": "Count the concepts",
+    "count_start": "Count",
     "count_restart": "Start over",
-    "count_hint": "Shared by every project using this database. Pausing keeps what was counted; leaving the tab does not stop the run, closing the browser pauses it.",
     "count_restart_title": "Count from scratch?",
-    "count_restart_description": "What was counted so far is dropped and counted again. The current list stays as it is until the rows of every table are counted again."
+    "count_restart_description": "What was counted so far is dropped and counted again. The current list stays as it is until the rows of every table are counted again.",
+    "count_start_patients": "Count patients",
+    "count_records_done": "Rows counted — patients not yet.",
+    "count_held": "Row and patient counts come from the concept table: nothing to count.",
+    "count_scope_records": "Rows",
+    "count_scope_all": "Rows and patients"
   },
   "databases": {
     "error_file_missing": "The database « {{name}} » cannot be read: its file is no longer where it was (moved or deleted). Check its connection on the Databases page.",
@@ -6325,7 +6329,13 @@
     "update_confirm": "Update",
     "update_no_overrides": "This database overrides nothing: it will read exactly what the preset now says.",
     "update_overrides_kept": "The overridden relations are unchanged in the preset: the overrides still apply as they are.",
-    "update_stale": "The preset changed these overridden relations; they will be flagged so you can check them:"
+    "update_stale": "The preset changed these overridden relations; they will be flagged so you can check them:",
+    "absent_tables_title_one": "{{count}} relation reads a table this database does not have",
+    "absent_tables_title_other": "{{count}} relations read tables this database does not have",
+    "absent_tables_description": "Queries still run: what cannot be read is treated as empty. Add the table to the database, or change the relation if it lives elsewhere.",
+    "absent_tables_empty": "empty, missing {{tables}}",
+    "absent_tables_join": "read without its join on {{tables}}",
+    "hint_counts_held": "Only if the table already holds this count: it is then read as is, and the database's Concepts tab no longer counts it."
   },
   "vocabulary_library": {
     "title": "Vocabularies",

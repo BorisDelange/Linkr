@@ -14,6 +14,9 @@
  *
  * Each unit's rows are kept server-side as one file
  * (`concept_cache_fs.write_unit`); a resume skips the units already there.
+ *
+ * A dictionary mapping `record_count` / `patient_count` holds its counts
+ * already: its events get no unit for that count.
  */
 
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -54,13 +57,14 @@ export interface ConceptCountManifest {
 
 const dictKeyLit = (dict: ClassRelation) => `'${esc(dict.key ?? '')}'`
 
-/** The event relations with a dictionary, paired with it, in mapping order. */
-function countedEvents(mapping: SchemaMapping): { event: ClassRelation; dict: ClassRelation }[] {
+/** The event relations with a dictionary, paired with it, in mapping order —
+ *  those whose dictionary does not already hold `count`. */
+function countedEvents(mapping: SchemaMapping, count: 'record_count' | 'patient_count'): { event: ClassRelation; dict: ClassRelation }[] {
   const dicts = conceptRelations(mapping)
   const out: { event: ClassRelation; dict: ClassRelation }[] = []
   for (const event of eventRelations(mapping)) {
     const dict = dicts.find((d) => d.name === event.dictionary)
-    if (dict) out.push({ event, dict })
+    if (dict && !has(dict, count)) out.push({ event, dict })
   }
   return out
 }
@@ -80,7 +84,7 @@ export function buildPatientUnitSql(mapping: SchemaMapping, range: SerializedRan
   const inRange = rangeCondition('e.patient_id', range.lo == null && range.hi == null ? null : range)
   const and = inRange ? ` AND ${inRange}` : ''
   const parts: string[] = []
-  for (const { event, dict } of countedEvents(mapping)) {
+  for (const { event, dict } of countedEvents(mapping, 'patient_count')) {
     parts.push(`SELECT ${dictKeyLit(dict)} AS dict_key, e.concept_id AS cid, e.patient_id AS pid FROM ${event.name} e WHERE e.concept_id IS NOT NULL${and}`)
     if (has(event, 'source_concept_id')) {
       parts.push(`SELECT ${dictKeyLit(dict)} AS dict_key, e.source_concept_id AS cid, e.patient_id AS pid FROM ${event.name} e WHERE e.source_concept_id IS NOT NULL AND e.source_concept_id IS DISTINCT FROM e.concept_id${and}`)
@@ -97,7 +101,7 @@ GROUP BY dict_key, cid`
 /** Every unit of a run over these patient slices, records first. */
 export function planConceptCountUnits(mapping: SchemaMapping, slices: readonly SerializedRange[]): ConceptCountUnit[] {
   const units: ConceptCountUnit[] = []
-  countedEvents(mapping).forEach(({ event, dict }, i) => {
+  countedEvents(mapping, 'record_count').forEach(({ event, dict }, i) => {
     units.push({ key: `records-${i}-std`, step: 'records', sql: buildRecordUnitSql(event, dict, 'concept_id') })
     if (has(event, 'source_concept_id')) {
       units.push({ key: `records-${i}-src`, step: 'records', sql: buildRecordUnitSql(event, dict, 'source_concept_id') })

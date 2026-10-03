@@ -66,6 +66,9 @@ export const CLASS_CONTRACTS: Record<ClassName, readonly ContractColumn[]> = {
     col('terminology_name', 'text'),
     col('category', 'text'),
     col('subcategory', 'text'),
+    // Counts the dictionary already holds: read as they are, never recounted.
+    col('record_count', 'number'),
+    col('patient_count', 'number'),
   ],
   event: [
     col('patient_id', 'id', true),

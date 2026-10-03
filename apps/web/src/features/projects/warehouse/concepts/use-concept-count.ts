@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { isServerMode } from '@/lib/api-client'
+import { conceptRelations, has } from '@/lib/schema-classes/relations'
 import { getConceptCacheStatus } from '@/lib/api/concept-cache'
 import { conceptCountProgress, type ConceptCountProgress } from './concept-count-plan'
 import {
@@ -21,6 +22,9 @@ interface StoredStatus {
 export interface ConceptCountView {
   /** Server mode: the counted list can only come from the cache this computes. */
   enabled: boolean
+  /** Every dictionary holds its own counts (`record_count`, `patient_count`):
+   *  nothing to count. */
+  held: boolean
   /** The cache status has come back. */
   checked: boolean
   /** A list has been assembled (possibly partial). */
@@ -32,7 +36,9 @@ export interface ConceptCountView {
   live: ConceptCountSnapshot
   /** Bumped whenever the assembled list may have changed: reload it. */
   version: number
-  start: (restart: boolean) => void
+  /** `recordsOnly`: stop once the rows are counted; a later start goes on with
+   *  the patients. */
+  start: (restart: boolean, recordsOnly?: boolean) => void
   pause: () => void
 }
 
@@ -42,7 +48,8 @@ export interface ConceptCountView {
  * Concepts tab, the project's Concepts page, the concept pickers — reads it.
  */
 export function useConceptCount(dataSourceId: string | undefined, mapping: SchemaMapping | undefined): ConceptCountView {
-  const enabled = isServerMode() && !!dataSourceId
+  const held = countsHeld(mapping)
+  const enabled = isServerMode() && !!dataSourceId && !held
   const key = dataSourceId ?? ''
   const live = useSyncExternalStore(
     useCallback((notify: () => void) => watchConceptCountRun(key, notify), [key]),
@@ -70,9 +77,9 @@ export function useConceptCount(dataSourceId: string | undefined, mapping: Schem
     return () => { cancelled = true }
   }, [enabled, dataSourceId, live.running, live.assembled])
 
-  const start = useCallback((restart: boolean) => {
+  const start = useCallback((restart: boolean, recordsOnly = false) => {
     if (!dataSourceId || !mapping) return
-    startConceptCount({ dataSourceId, mapping, restart })
+    startConceptCount({ dataSourceId, mapping, restart, recordsOnly })
   }, [dataSourceId, mapping])
 
   const pause = useCallback(() => {
@@ -81,6 +88,7 @@ export function useConceptCount(dataSourceId: string | undefined, mapping: Schem
 
   return {
     enabled,
+    held,
     checked: !enabled || status !== null,
     exists: status?.exists ?? false,
     refreshedAt: status?.refreshedAt ?? null,
@@ -90,4 +98,9 @@ export function useConceptCount(dataSourceId: string | undefined, mapping: Schem
     start,
     pause,
   }
+}
+
+function countsHeld(mapping: SchemaMapping | undefined): boolean {
+  const dicts = mapping ? conceptRelations(mapping) : []
+  return dicts.length > 0 && dicts.every((d) => has(d, 'record_count') && has(d, 'patient_count'))
 }

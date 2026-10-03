@@ -632,7 +632,7 @@
     "count_steps": "Lignes {{records}}/{{recordsTotal}} · patients {{patients}}/{{patientsTotal}}",
     "count_failed": "Le décompte des concepts a échoué : {{error}}",
     "count_running": "Décompte des concepts en cours…",
-    "count_none": "Les concepts de cette base n'ont pas encore été décomptés.",
+    "count_none": "Concepts non décomptés : les colonnes Enregistrements et Patients restent vides.",
     "count_partial": "Décomptes incomplets",
     "count_paused": "En pause — les décomptes affichés sont partiels.",
     "count_complete": "Décomptés le {{date}}",
@@ -644,11 +644,15 @@
     "count_pause": "Pause",
     "count_resume": "Reprendre",
     "count_again": "Recalculer",
-    "count_start": "Décompter les concepts",
+    "count_start": "Décompter",
     "count_restart": "Recommencer",
-    "count_hint": "Partagé par tous les projets qui utilisent cette base. La pause conserve ce qui a été décompté ; quitter l'onglet n'arrête pas le calcul, fermer le navigateur le met en pause.",
     "count_restart_title": "Tout recalculer ?",
-    "count_restart_description": "Ce qui a été décompté est abandonné puis recalculé. La liste actuelle reste affichée jusqu'à ce que les lignes de toutes les tables soient de nouveau décomptées."
+    "count_restart_description": "Ce qui a été décompté est abandonné puis recalculé. La liste actuelle reste affichée jusqu'à ce que les lignes de toutes les tables soient de nouveau décomptées.",
+    "count_start_patients": "Décompter les patients",
+    "count_records_done": "Lignes décomptées — les patients ne le sont pas encore.",
+    "count_held": "Les nombres de lignes et de patients viennent de la table des concepts : rien à décompter.",
+    "count_scope_records": "Lignes",
+    "count_scope_all": "Lignes et patients"
   },
   "databases": {
     "error_file_missing": "La base « {{name}} » ne peut pas être lue : son fichier n'est plus à l'emplacement indiqué (déplacé ou supprimé). Vérifiez sa connexion dans la page Bases de données.",
@@ -6325,7 +6329,13 @@
     "update_confirm": "Mettre à jour",
     "update_no_overrides": "Cette base ne surcharge rien : elle lira exactement ce que dit désormais le preset.",
     "update_overrides_kept": "Les relations surchargées n'ont pas changé dans le preset : les surcharges s'appliquent telles quelles.",
-    "update_stale": "Le preset a modifié ces relations surchargées ; elles seront signalées pour que vous les vérifiiez :"
+    "update_stale": "Le preset a modifié ces relations surchargées ; elles seront signalées pour que vous les vérifiiez :",
+    "absent_tables_title_one": "{{count}} relation lit une table absente de cette base",
+    "absent_tables_title_other": "{{count}} relations lisent des tables absentes de cette base",
+    "absent_tables_description": "Les requêtes fonctionnent quand même : ce qui ne peut pas être lu est traité comme vide. Ajoutez la table à la base, ou modifiez la relation si les données sont ailleurs.",
+    "absent_tables_empty": "vide, il manque {{tables}}",
+    "absent_tables_join": "lue sans sa jointure sur {{tables}}",
+    "hint_counts_held": "Seulement si la table contient déjà ce compte : il est alors lu tel quel, et l'onglet Concepts de la base ne le décompte plus."
   },
   "vocabulary_library": {
     "title": "Vocabulaires",

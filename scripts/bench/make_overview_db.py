@@ -92,6 +92,8 @@ def main() -> None:
     ap.add_argument("--patients", type=int, default=20, help="patient 1 is the heavy one, the others are light")
     ap.add_argument("--hz", type=float, default=1.0, help="heavy patient's ICU monitoring rate (1 Hz ≈ 51 M rows)")
     ap.add_argument("--unsorted", action="store_true", help="shuffle rows (not in patient order: triggers the layout warning)")
+    ap.add_argument("--concept-counts", action="store_true",
+                    help="add record_count and patient_count columns to the concept table (counts the database already holds)")
     args = ap.parse_args()
 
     out = args.out.expanduser().resolve()
@@ -110,7 +112,8 @@ def main() -> None:
         con.execute(f"""COPY (SELECT {', '.join(exprs)} FROM (SELECT *, row_number() OVER () AS rowid_ FROM ({select})) ORDER BY {sort})
             TO '{out}/{table}/data_0.parquet' (FORMAT PARQUET, ROW_GROUP_SIZE 122880, COMPRESSION ZSTD)""")
         n = con.execute(f"SELECT COUNT(*) FROM '{out}/{table}/data_0.parquet'").fetchone()[0]
-        print(f"  {table}: {n:,} rows ({time.monotonic() - t0:.0f}s)")
+        if n:
+            print(f"  {table}: {n:,} rows ({time.monotonic() - t0:.0f}s)")
 
     # ── Stays: patient 1 as above, the others one short hospitalisation each ──
     visits, stays = [], []
@@ -221,7 +224,26 @@ def main() -> None:
         "concept_id")
     write("vocabulary", """SELECT 'Linkr synthetic' AS vocabulary_id, 'Synthetic concepts for the Linkr overview test database' AS vocabulary_name,
         'Generated' AS vocabulary_version, 0 AS vocabulary_concept_id""", "vocabulary_id")
-    write("death", "SELECT 1 AS person_id WHERE FALSE", "person_id")
+    # Every other table of the model, empty — a real export has them all.
+    for table in cols:
+        if not (out / table).exists():
+            write(table, f"SELECT {cols[table][0][0]} FROM {table}", "1")
+
+    if args.concept_counts:
+        # Not OMOP columns: what a warehouse that precomputes its counts adds.
+        events = [("measurement", "measurement_concept_id"), ("drug_exposure", "drug_concept_id"),
+                  ("condition_occurrence", "condition_concept_id"), ("procedure_occurrence", "procedure_concept_id")]
+        union = " UNION ALL ".join(f"SELECT {c} AS cid, person_id FROM '{out}/{t}/data_0.parquet'" for t, c in events)
+        concept = out / "concept" / "data_0.parquet"
+        counted = out / "concept" / "counted.parquet"
+        con.execute(f"""COPY (
+            SELECT c.*, COALESCE(n.r, 0)::BIGINT AS record_count, COALESCE(n.p, 0)::BIGINT AS patient_count
+            FROM '{concept}' c LEFT JOIN (
+              SELECT cid, COUNT(*) AS r, COUNT(DISTINCT person_id) AS p FROM ({union}) GROUP BY cid
+            ) n ON n.cid = c.concept_id ORDER BY c.concept_id
+          ) TO '{counted}' (FORMAT PARQUET)""")
+        counted.replace(concept)
+        print("  concept: record_count and patient_count added")
 
     con.close()
     (out / "_build.duckdb").unlink()

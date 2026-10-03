@@ -16,6 +16,9 @@ import { MappingEditor } from '@/features/warehouse/schema-mapping/MappingEditor
 import type { DataSource } from '@/types'
 import type { SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
 import { findSourcePreset } from '@/lib/find-source-preset'
+import { NoticeBanner } from '@/components/ui/notice-banner'
+import { sourceTables } from '@/lib/duckdb/engine'
+import { absentRelations } from '@/lib/schema-classes/presence'
 
 /**
  * A database's mapping: its preset's copy (the base) with what this site changes
@@ -44,6 +47,18 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
 
   const [draft, setDraft] = useState<{ mapping: SchemaMapping } | null>(null)
   const [updateOpen, setUpdateOpen] = useState(false)
+
+  const [tables, setTables] = useState<string[] | null>(null)
+  useEffect(() => {
+    if (source.status !== 'connected') return
+    let live = true
+    void sourceTables(source.id).then((found) => { if (live) setTables(found) })
+    return () => { live = false }
+  }, [source.id, source.status])
+  const absent = useMemo(
+    () => (tables && source.schemaMapping ? absentRelations(source.schemaMapping, tables) : []),
+    [tables, source.schemaMapping],
+  )
 
   if (!base) {
     return <p className="px-6 py-10 text-center text-sm text-muted-foreground">{t('schema_mapping.db_no_mapping')}</p>
@@ -180,6 +195,27 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
           </>
         )}
       </div>
+
+      {absent.length > 0 && !editing && (
+        <NoticeBanner
+          tone="warning"
+          title={t('schema_mapping.absent_tables_title', { count: absent.length })}
+          description={
+            <>
+              <p>{t('schema_mapping.absent_tables_description')}</p>
+              <ul className="mt-1 space-y-0.5">
+                {absent.map((a) => (
+                  <li key={a.specKey}>
+                    <span className="font-mono">{a.specKey}</span>
+                    {' — '}
+                    {t(a.empty ? 'schema_mapping.absent_tables_empty' : 'schema_mapping.absent_tables_join', { tables: a.tables.join(', ') })}
+                  </li>
+                ))}
+              </ul>
+            </>
+          }
+        />
+      )}
 
       {removedKeys.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

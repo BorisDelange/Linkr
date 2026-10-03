@@ -35,6 +35,8 @@ const DERIVED_HINTS: Record<string, string> = {
   gender: 'schema_mapping.hint_gender',
   concept_name: 'schema_mapping.hint_concept_name',
   drug_kind: 'schema_mapping.hint_drug_kind',
+  record_count: 'schema_mapping.hint_counts_held',
+  patient_count: 'schema_mapping.hint_counts_held',
 }
 
 export interface RelationEditorProps {

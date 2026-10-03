@@ -62,5 +62,7 @@ cd apps/api && .venv/bin/python ../../scripts/bench/make_overview_db.py --out ~/
 
 About 20 s and 420 MB. `--unsorted` shuffles the rows, to see the layout
 warning and the cost of an unsorted table; `--hz` changes the monitoring rate;
-`--patients` the number of patients. Add it as a Parquet folder database with
-the OMOP CDM 5.4 schema.
+`--patients` the number of patients; `--concept-counts` adds `record_count` and
+`patient_count` columns to the concept table, to try counts a database already
+holds (map them on the concept dictionary). Add it as a Parquet folder database
+with the OMOP CDM 5.4 schema.

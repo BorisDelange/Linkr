@@ -1109,7 +1109,7 @@ _RELATION_COLUMN_ORDER = {
     "visit": ["visit_id", "patient_id", "start_datetime", "end_datetime", "visit_type", "care_site_id", "care_site_name"],
     "visitDetail": ["visit_detail_id", "visit_id", "patient_id", "start_datetime", "end_datetime", "unit_id", "unit_name", "unit_category"],
     "note": ["note_id", "patient_id", "visit_id", "note_datetime", "title", "text", "note_type"],
-    "concepts": ["concept_id", "concept_terminology", "concept_name", "concept_code", "terminology_id", "terminology_name", "category", "subcategory"],
+    "concepts": ["concept_id", "concept_terminology", "concept_name", "concept_code", "terminology_id", "terminology_name", "category", "subcategory", "record_count", "patient_count"],
     "events": [
         "patient_id", "concept_id", "start_datetime", "visit_id", "visit_detail_id", "concept_terminology", "concept_code",
         "source_concept_id", "concept_name", "end_datetime", "value_number", "value_string", "unit", "unit_concept_id",

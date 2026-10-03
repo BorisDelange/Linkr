@@ -2,6 +2,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { isProtected, protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import { RELATION_PREFIX } from './contracts'
 import { classRelations, type ClassRelation } from './relations'
+import { relationsPresentIn } from './presence'
 
 // Matches a relation name used as an identifier: `linkr_visit`, `linkr_event_lab_events`.
 const RELATION_REF = new RegExp(`(?<![\\w.])${RELATION_PREFIX}[a-z0-9_]+(?!\\w)`, 'gi')
@@ -86,13 +87,17 @@ function relationsInDependencyOrder(all: ClassRelation[], wanted: Set<string>, d
  * Only a query statement (SELECT / WITH / VALUES / parenthesised) is rewritten;
  * anything else is returned untouched and fails on the unknown name. Idempotent:
  * a relation the statement already defines is not added twice.
+ *
+ * `tables`: the tables the database has, when known — a relation reading one it
+ * lacks is injected empty or without that join (`presence.ts`).
  */
-export function withClassRelations(sql: string, mapping: SchemaMapping | undefined | null): string {
+export function withClassRelations(sql: string, mapping: SchemaMapping | undefined | null, tables?: readonly string[] | null): string {
   if (!mapping || !sql.toLowerCase().includes(RELATION_PREFIX)) return sql
   const wanted = referencedRelations(sql)
   for (const name of definedRelations(sql)) wanted.delete(name)
   if (wanted.size === 0) return sql
-  const ctes = relationsInDependencyOrder(classRelations(mapping), wanted, definedRelations(sql))
+  const relations = tables ? relationsPresentIn(mapping, tables) : classRelations(mapping)
+  const ctes = relationsInDependencyOrder(relations, wanted, definedRelations(sql))
     .map((r) => `${r.name} AS NOT MATERIALIZED (\n${r.sql}\n)`)
   if (ctes.length === 0) return sql
 
@@ -108,10 +113,10 @@ export function withClassRelations(sql: string, mapping: SchemaMapping | undefin
 }
 
 /** Same, for a script of several statements. */
-export function injectClassRelations(script: string, mapping: SchemaMapping | undefined | null): string {
+export function injectClassRelations(script: string, mapping: SchemaMapping | undefined | null, tables?: readonly string[] | null): string {
   if (!mapping || !script.toLowerCase().includes(RELATION_PREFIX)) return script
   const statements = splitSqlStatements(script)
-  if (statements.length <= 1) return withClassRelations(script, mapping)
-  const rewritten = statements.map((s) => withClassRelations(s, mapping))
+  if (statements.length <= 1) return withClassRelations(script, mapping, tables)
+  const rewritten = statements.map((s) => withClassRelations(s, mapping, tables))
   return rewritten.every((s, i) => s === statements[i]) ? script : rewritten.join(';\n')
 }

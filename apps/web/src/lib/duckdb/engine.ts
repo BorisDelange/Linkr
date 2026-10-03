@@ -7,6 +7,7 @@ import { isServerMode } from '@/lib/api-client'
 import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
+import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import { grainTable } from '@/lib/schema-classes/spec'
 import { quoteIdent } from '@/lib/format-helpers'
 import { ddlTableNames } from '@/lib/ddl-parse'
@@ -196,6 +197,30 @@ export function setMappingResolver(resolve: (dataSourceId: string) => SchemaMapp
   mappingResolver = resolve
 }
 
+/**
+ * The tables a source has, for injecting its class relations: a relation reading
+ * a table the database lacks is injected empty rather than failing every query
+ * that names it (`lib/schema-classes/presence.ts`). Kept briefly, so a table an
+ * ETL run just created is seen without a remount; forgotten on (re)mount.
+ */
+const SOURCE_TABLES_TTL_MS = 30_000
+const sourceTablesCache = new Map<string, { at: number; tables: Promise<string[] | null> }>()
+
+export function sourceTables(dataSourceId: string): Promise<string[] | null> {
+  const hit = sourceTablesCache.get(dataSourceId)
+  if (hit && Date.now() - hit.at < SOURCE_TABLES_TTL_MS) return hit.tables
+  // No table at all means the source is not readable yet, not that it is empty:
+  // treated as unknown, so every relation keeps its own SQL.
+  const tables = discoverTables(dataSourceId).then((t) => (t.length ? t : null), () => null)
+  sourceTablesCache.set(dataSourceId, { at: Date.now(), tables })
+  void tables.then((t) => { if (!t) sourceTablesCache.delete(dataSourceId) })
+  return tables
+}
+
+export function forgetSourceTables(dataSourceId: string): void {
+  sourceTablesCache.delete(dataSourceId)
+}
+
 // --- Mount / unmount ---
 
 /**
@@ -207,6 +232,7 @@ export async function mountDataSource(
   files: StoredFile[],
 ): Promise<void> {
   if (dataSource.alias) registerAlias(dataSource.id, dataSource.alias)
+  forgetSourceTables(dataSource.id)
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSource.id)
@@ -280,6 +306,7 @@ export async function mountVocabularyLibrary(
 
 /** Unmount a data source (drop schema or DETACH). */
 export async function unmountDataSource(dataSourceId: string): Promise<void> {
+  forgetSourceTables(dataSourceId)
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
@@ -308,6 +335,7 @@ export async function mountEmptyFromDDL(
   alias?: string,
 ): Promise<void> {
   if (alias) registerAlias(dataSourceId, alias)
+  forgetSourceTables(dataSourceId)
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
@@ -586,7 +614,10 @@ export async function queryDataSource(
 ): Promise<Record<string, unknown>[]> {
   const { signal, allRows } = options
   signal?.throwIfAborted()
-  sql = injectClassRelations(sql, mappingResolver?.(dataSourceId))
+  const mapping = mappingResolver?.(dataSourceId)
+  if (mapping && sql.toLowerCase().includes(RELATION_PREFIX)) {
+    sql = injectClassRelations(sql, mapping, await sourceTables(dataSourceId))
+  }
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.
@@ -1185,6 +1216,7 @@ export async function mountDataSourceFromHandles(
   handles: StoredFileHandle[],
 ): Promise<void> {
   if (dataSource.alias) registerAlias(dataSource.id, dataSource.alias)
+  forgetSourceTables(dataSource.id)
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSource.id)

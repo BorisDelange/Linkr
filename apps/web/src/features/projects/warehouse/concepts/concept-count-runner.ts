@@ -10,7 +10,7 @@
  */
 
 import type { SchemaMapping } from '@/types/schema-mapping'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, sourceTables } from '@/lib/duckdb/engine'
 import { planSlices, type SerializedRange } from '@/lib/duckdb/catalog-compute'
 import { classRelation, conceptRelations } from '@/lib/schema-classes/relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
@@ -50,6 +50,9 @@ export interface ConceptCountInput {
   mapping: SchemaMapping
   /** Drop the units already counted instead of resuming. */
   restart: boolean
+  /** Stop once the rows are counted, as a pause would: the patients are left
+   *  for a later start, which resumes there. */
+  recordsOnly?: boolean
 }
 
 const IDLE: ConceptCountSnapshot = {
@@ -80,7 +83,7 @@ async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortS
 }
 
 async function execute(
-  { dataSourceId, mapping, restart }: ConceptCountInput,
+  { dataSourceId, mapping, restart, recordsOnly }: ConceptCountInput,
   signal: AbortSignal,
   emit: (patch: Partial<ConceptCountSnapshot>, immediate?: boolean) => void,
 ): Promise<void> {
@@ -119,19 +122,29 @@ async function execute(
       patientsComplete: patients.done === patients.total,
     })
     if (!sql) throw new Error('no_concept_table')
-    await assembleConceptCache(dataSourceId, withClassRelations(sql, mapping))
+    await assembleConceptCache(dataSourceId, withClassRelations(sql, mapping, tables))
     emit({ assembled: ++assembled }, true)
   }
 
+  // Units run on the server as sent, outside queryDataSource: the relations go
+  // with them, emptied where the database lacks their table.
+  const tables = await sourceTables(dataSourceId)
   emit({ records: count('records'), patients: count('patients') }, true)
   let assembledAt = Date.now()
   let unassembled = false
   try {
     for (const unit of units) {
       if (done.has(unit.key)) continue
+      if (recordsOnly && unit.step === 'patients') {
+        if (unassembled) {
+          emit({ phase: 'assembling' }, true)
+          await assemble()
+        }
+        return
+      }
       signal.throwIfAborted()
       emit({ phase: unit.step }, true)
-      await writeConceptUnit(dataSourceId, unit.key, withClassRelations(unit.sql, mapping), signal)
+      await writeConceptUnit(dataSourceId, unit.key, withClassRelations(unit.sql, mapping, tables), signal)
       done.add(unit.key)
       unassembled = true
       emit({ records: count('records'), patients: count('patients') })
