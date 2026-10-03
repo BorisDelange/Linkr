@@ -437,7 +437,9 @@ pieces — never re-implement the maths or the confirm dialog:
   destructive `Delete (N)` button plus its confirm dialog listing the names.
 
 A plain click stays **navigation**: selection only ever starts with a modifier.
-Wire it in three places:
+Shift with nothing picked yet ranges from the first card, as if it were
+selected; the hook clears the text selection a Shift-click would otherwise
+spread over the cards in between. Wire it in three places:
 
 ```tsx
 const selection = useCardSelection(useMemo(() => rows.map((r) => r.id), [rows]))

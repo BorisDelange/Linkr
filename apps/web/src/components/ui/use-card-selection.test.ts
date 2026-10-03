@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isSelectionClick, retainPresent } from './use-card-selection'
+import { isSelectionClick, rangeAnchor, retainPresent } from './use-card-selection'
 import type { RowKey } from './data-table'
 
 const mods = (over: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) => ({
@@ -11,23 +11,33 @@ const mods = (over: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: bool
 
 describe('isSelectionClick', () => {
   it('leaves a plain click to navigation', () => {
-    expect(isSelectionClick(mods(), null)).toBe(false)
-    expect(isSelectionClick(mods(), 'a')).toBe(false)
+    expect(isSelectionClick(mods())).toBe(false)
   })
 
-  it('treats Cmd and Ctrl alike, with or without an anchor', () => {
-    expect(isSelectionClick(mods({ metaKey: true }), null)).toBe(true)
-    expect(isSelectionClick(mods({ ctrlKey: true }), null)).toBe(true)
-    expect(isSelectionClick(mods({ metaKey: true }), 'a')).toBe(true)
+  it('treats Cmd, Ctrl and Shift as selection gestures', () => {
+    expect(isSelectionClick(mods({ metaKey: true }))).toBe(true)
+    expect(isSelectionClick(mods({ ctrlKey: true }))).toBe(true)
+    expect(isSelectionClick(mods({ shiftKey: true }))).toBe(true)
+  })
+})
+
+describe('rangeAnchor', () => {
+  const keys: RowKey[] = ['a', 'b', 'c']
+
+  it('extends from the last card picked', () => {
+    expect(rangeAnchor('b', keys)).toBe('b')
   })
 
-  it('ignores Shift until an anchor exists', () => {
-    expect(isSelectionClick(mods({ shiftKey: true }), null)).toBe(false)
-    expect(isSelectionClick(mods({ shiftKey: true }), 'a')).toBe(true)
+  it('starts from the first card when none was picked', () => {
+    expect(rangeAnchor(null, keys)).toBe('a')
   })
 
-  it('still selects on Cmd+Shift with no anchor', () => {
-    expect(isSelectionClick(mods({ metaKey: true, shiftKey: true }), null)).toBe(true)
+  it('starts from the first card when the last one picked is no longer shown', () => {
+    expect(rangeAnchor('z', keys)).toBe('a')
+  })
+
+  it('has no anchor on an empty grid', () => {
+    expect(rangeAnchor(null, [])).toBeNull()
   })
 })
 

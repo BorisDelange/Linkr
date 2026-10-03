@@ -24,7 +24,8 @@ export interface CardSelection {
 /**
  * Cmd/Ctrl-click multi-selection for a card grid, sharing the file-explorer
  * maths (`nextSelection`) with the shared data table so both read the same way:
- * Cmd/Ctrl toggles one card, Shift extends from the anchor.
+ * Cmd/Ctrl toggles one card, Shift extends from the anchor — or, before any
+ * card was picked, from the first card, as if it were selected.
  *
  * A plain click is deliberately NOT a selection gesture here — on a card grid it
  * stays navigation. Selection therefore only ever starts with a modifier, and a
@@ -35,14 +36,14 @@ export interface CardSelection {
 /** Modifier state of a card click, as read from the mouse event. */
 export interface ClickMods { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }
 
-/**
- * Whether a card click is a selection gesture rather than navigation. Shift
- * without an anchor is NOT one: it would "extend" from nothing and select a
- * single card, which reads as an accidental selection.
- */
-export function isSelectionClick(e: ClickMods, anchor: RowKey | null): boolean {
-  if (e.metaKey || e.ctrlKey) return true
-  return e.shiftKey && anchor != null
+/** Whether a card click is a selection gesture rather than navigation. */
+export function isSelectionClick(e: ClickMods): boolean {
+  return e.metaKey || e.ctrlKey || e.shiftKey
+}
+
+/** Where a Shift range starts: the last card picked, else the first card shown. */
+export function rangeAnchor(anchor: RowKey | null, keys: readonly RowKey[]): RowKey | null {
+  return anchor != null && keys.includes(anchor) ? anchor : keys[0] ?? null
 }
 
 /** Drops selected keys the grid no longer shows, preserving identity when nothing changed. */
@@ -71,12 +72,16 @@ export function useCardSelection(keys: RowKey[]): CardSelection {
 
   const onCardClick = useCallback(
     (e: ClickMods, key: RowKey) => {
-      if (!isSelectionClick(e, anchorRef.current)) return false
+      if (!isSelectionClick(e)) return false
       const toggle = e.metaKey || e.ctrlKey
       const range = e.shiftKey
-      const r = nextSelection(selected, key, keyList, { toggle, range }, anchorRef.current)
+      const anchor = range ? rangeAnchor(anchorRef.current, keyList) : anchorRef.current
+      const r = nextSelection(selected, key, keyList, { toggle, range }, anchor)
       anchorRef.current = r.anchor
       setSelected(r.selection)
+      // A Shift press extends the page's text selection from the last click to
+      // this one, highlighting every card in between.
+      window.getSelection()?.removeAllRanges()
       return true
     },
     [keyList, selected],
