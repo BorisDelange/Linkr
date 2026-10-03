@@ -7,6 +7,8 @@ import { patientLayoutChecks, unsortedTables, type LayoutEntry } from '@/lib/duc
 
 /** Read once per database and session: the files do not change under a page. */
 const layouts = new Map<string, Promise<LayoutEntry[]>>()
+/** Databases whose notice was closed: hidden until the page reloads. */
+const dismissed = new Set<string>()
 
 /**
  * Warns when the database's Parquet tables are not stored in patient order:
@@ -16,6 +18,7 @@ const layouts = new Map<string, Promise<LayoutEntry[]>>()
 export function ParquetLayoutNotice({ dataSourceId, schemaMapping }: { dataSourceId: string; schemaMapping: SchemaMapping }) {
   const { t } = useTranslation()
   const [entries, setEntries] = useState<{ id: string; tables: LayoutEntry[] } | null>(null)
+  const [, setDismissals] = useState(0)
 
   useEffect(() => {
     const checks = patientLayoutChecks(schemaMapping)
@@ -35,7 +38,7 @@ export function ParquetLayoutNotice({ dataSourceId, schemaMapping }: { dataSourc
   }, [dataSourceId, schemaMapping])
 
   const tables = entries?.id === dataSourceId ? entries.tables : []
-  if (tables.length === 0) return null
+  if (tables.length === 0 || dismissed.has(dataSourceId)) return null
   const list = tables
     .map((e) => `${e.table} (${Math.round((e.scanFraction ?? 0) * 100)} %)`)
     .join(', ')
@@ -44,6 +47,10 @@ export function ParquetLayoutNotice({ dataSourceId, schemaMapping }: { dataSourc
       tone="warning"
       title={t('databases.layout_unsorted_title', { count: tables.length })}
       description={t('databases.layout_unsorted_description', { tables: list })}
+      onDismiss={() => {
+        dismissed.add(dataSourceId)
+        setDismissals((n) => n + 1)
+      }}
     />
   )
 }
