@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { nextSelection, type RowKey } from '@/components/ui/data-table'
 
 export interface CardSelection {
@@ -54,9 +54,25 @@ export function retainPresent(selected: Set<RowKey>, keys: RowKey[]): Set<RowKey
   return next.size === selected.size ? selected : next
 }
 
+/** A press that should keep the browser's text selection: in a field. */
+function inEditable(target: EventTarget | null): boolean {
+  return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')
+}
+
 export function useCardSelection(keys: RowKey[]): CardSelection {
   const [raw, setSelected] = useState<Set<RowKey>>(new Set())
   const anchorRef = useRef<RowKey | null>(null)
+
+  // Shift-press extends the page's text selection from the last click, which
+  // highlights every card in between as soon as the button goes down: stopped
+  // at the press, while this grid is on screen.
+  useEffect(() => {
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.shiftKey && e.button === 0 && !inEditable(e.target)) e.preventDefault()
+    }
+    document.addEventListener('mousedown', onMouseDown)
+    return () => document.removeEventListener('mousedown', onMouseDown)
+  }, [])
 
   const keyList = keys
 
@@ -79,8 +95,6 @@ export function useCardSelection(keys: RowKey[]): CardSelection {
       const r = nextSelection(selected, key, keyList, { toggle, range }, anchor)
       anchorRef.current = r.anchor
       setSelected(r.selection)
-      // A Shift press extends the page's text selection from the last click to
-      // this one, highlighting every card in between.
       window.getSelection()?.removeAllRanges()
       return true
     },
