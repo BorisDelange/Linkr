@@ -1,18 +1,13 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import type { DatabaseConnectionConfig } from '@/types'
-import { Database, Link, Plus } from 'lucide-react'
+import { Database, Link, Plus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Card } from '@/components/ui/card'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
+import { DialogShell } from '@/components/ui/dialog-shell'
+import { EmptyState } from '@/components/ui/empty-state'
+import { SearchInput } from '@/components/ui/search-input'
 import { AddDatabaseDialog } from './AddDatabaseDialog'
 import { localized } from '@/lib/localized'
 
@@ -33,9 +28,18 @@ export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatab
   const linkDataSource = useAppStore((s) => s.linkDataSource)
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [search, setSearch] = useState('')
   const projectWsId = useAppStore((s) => s._projectsRaw.find((p) => p.uid === projectUid)?.workspaceId)
 
   const availableSources = dataSources.filter((ds) => !linkedIds.includes(ds.id) && !ds.isVocabularyReference && (!ds.workspaceId || ds.workspaceId === projectWsId))
+  const shownSources = useMemo(() => {
+    const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+    if (!words.length) return availableSources
+    return availableSources.filter((ds) => {
+      const haystack = `${localized(ds.name, i18n.language)} ${localized(ds.description, i18n.language)} ${ds.alias}`.toLowerCase()
+      return words.every((w) => haystack.includes(w))
+    })
+  }, [availableSources, search, i18n.language])
 
   const handleLink = (dataSourceId: string) => {
     linkDataSource(projectUid, dataSourceId)
@@ -44,68 +48,81 @@ export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatab
 
   return (
     <>
-      <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('app_warehouse.link_database_title')}</DialogTitle>
-            <DialogDescription>{t('app_warehouse.link_database_description')}</DialogDescription>
-          </DialogHeader>
-
-          {availableSources.length === 0 ? (
-            <Card className="mt-2">
-              <div className="flex flex-col items-center py-8">
-                <Database size={32} className="text-muted-foreground" />
-                <p className="mt-3 text-sm font-medium text-foreground">
-                  {t('app_warehouse.no_available_databases')}
-                </p>
-                <p className="mt-1 max-w-xs text-center text-xs text-muted-foreground">
-                  {t('app_warehouse.no_available_databases_description')}
-                </p>
+      <DialogShell
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) setSearch('')
+          onOpenChange(next)
+        }}
+        kind="workbench"
+        title={t('app_warehouse.link_database_title')}
+        description={t('app_warehouse.link_database_description')}
+        footerExtra={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              onOpenChange(false)
+              setCreateDialogOpen(true)
+            }}
+            className="gap-1.5"
+          >
+            <Plus size={14} />
+            {t('app_warehouse.create_and_link')}
+          </Button>
+        }
+      >
+        {availableSources.length === 0 ? (
+          <EmptyState
+            icon={Database}
+            title={t('app_warehouse.no_available_databases')}
+            description={t('app_warehouse.no_available_databases_description')}
+          />
+        ) : (
+          <div className="flex h-full flex-col gap-3">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('databases.search_placeholder')}
+              className="shrink-0"
+              autoFocus
+            />
+            {shownSources.length === 0 ? (
+              <EmptyState icon={Search} title={t('app_warehouse.no_matching_databases')} variant="filtered" />
+            ) : (
+              <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-1 gap-3 overflow-auto pb-1 sm:grid-cols-2 lg:grid-cols-3">
+                {shownSources.map((ds) => {
+                  const config = ds.connectionConfig as DatabaseConnectionConfig
+                  const engine = config.engine
+                    ? config.engine.charAt(0).toUpperCase() + config.engine.slice(1)
+                    : ds.sourceType
+                  const description = localized(ds.description, i18n.language)
+                  return (
+                    <button
+                      key={ds.id}
+                      type="button"
+                      onClick={() => handleLink(ds.id)}
+                      className="flex min-h-24 flex-col gap-2 rounded-lg border bg-card p-3 text-left transition-colors hover:bg-accent"
+                    >
+                      <div className="flex w-full items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
+                          <Database size={16} />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{localized(ds.name, i18n.language)}</p>
+                          <p className="text-xs text-muted-foreground">{engine}</p>
+                        </div>
+                        <Link size={14} className="shrink-0 text-muted-foreground" />
+                      </div>
+                      {description && <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>}
+                    </button>
+                  )
+                })}
               </div>
-            </Card>
-          ) : (
-            <div className="mt-2 max-h-64 space-y-2 overflow-auto">
-              {availableSources.map((ds) => {
-                const config = ds.connectionConfig as DatabaseConnectionConfig
-                const engine = config.engine
-                  ? config.engine.charAt(0).toUpperCase() + config.engine.slice(1)
-                  : ds.sourceType
-                return (
-                  <button
-                    key={ds.id}
-                    onClick={() => handleLink(ds.id)}
-                    className="flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-accent"
-                  >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-blue-600">
-                      <Database size={16} />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{localized(ds.name, i18n.language)}</p>
-                      <p className="text-xs text-muted-foreground">{engine}</p>
-                    </div>
-                    <Link size={14} className="shrink-0 text-muted-foreground" />
-                  </button>
-                )
-              })}
-            </div>
-          )}
-
-          <div className="mt-2 flex justify-end">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                onOpenChange(false)
-                setCreateDialogOpen(true)
-              }}
-              className="gap-1.5"
-            >
-              <Plus size={14} />
-              {t('app_warehouse.create_and_link')}
-            </Button>
+            )}
           </div>
-        </DialogContent>
-      </Dialog>
+        )}
+      </DialogShell>
 
       <AddDatabaseDialog
         open={createDialogOpen}

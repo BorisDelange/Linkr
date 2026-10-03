@@ -4005,7 +4005,8 @@
     "delete_confirm_title": "Supprimer la base de données",
     "delete_confirm_description": "Voulez-vous vraiment supprimer cette base ? Les fichiers associés et les statistiques en cache seront supprimés. Les projets utilisant cette base seront déliés.",
     "unlink_confirm_title": "Délier la base de données",
-    "unlink_confirm_description": "Délier cette base de données du projet ? La base restera disponible dans l'Entrepôt de données."
+    "unlink_confirm_description": "Délier cette base de données du projet ? La base restera disponible dans l'Entrepôt de données.",
+    "no_matching_databases": "Aucune base ne correspond à cette recherche"
   },
   "etl": {
     "gen_warn_table_not_in_ddl": "{{table}} n'est pas dans la DDL de la cible : seules les colonnes que son mapping nomme sont écrites.",

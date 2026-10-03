@@ -4005,7 +4005,8 @@
     "delete_confirm_title": "Delete database",
     "delete_confirm_description": "Are you sure you want to delete this database? This will remove all associated files and cached statistics. Projects using this database will be unlinked.",
     "unlink_confirm_title": "Unlink database",
-    "unlink_confirm_description": "Unlink this database from the project? The database will remain available in the Data Warehouse."
+    "unlink_confirm_description": "Unlink this database from the project? The database will remain available in the Data Warehouse.",
+    "no_matching_databases": "No database matches this search"
   },
   "etl": {
     "gen_warn_table_not_in_ddl": "{{table}} is not in the target's DDL: only the columns its mapping names are written.",
