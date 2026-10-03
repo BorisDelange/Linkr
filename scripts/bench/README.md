@@ -46,3 +46,21 @@ Data overview, heavy patient (2 % of the rows), one density query per view:
 
 Unsorted, every read is a full scan of the event tables: the layout, not the
 query, is what decides whether the overview follows a pan.
+
+## A database to try the patient views by hand — `make_overview_db.py`
+
+Writes a full OMOP CDM 5.4 Parquet folder (every column of the DDL, one folder
+per table) with few patients and one very heavy one: patient 1 has three
+hospitalisations, two ICU stays monitored at 1 Hz (12 vitals) and one more in
+the last hospitalisation — about 51 M measurement rows — plus labs, drugs,
+conditions, procedures and daily notes. Patients 2–20 have one short
+hospitalisation each. Concepts are local (vocabulary "Linkr synthetic").
+
+```bash
+cd apps/api && .venv/bin/python ../../scripts/bench/make_overview_db.py --out ~/linkr-test-data/omop-heavy-patient
+```
+
+About 20 s and 420 MB. `--unsorted` shuffles the rows, to see the layout
+warning and the cost of an unsorted table; `--hz` changes the monitoring rate;
+`--patients` the number of patients. Add it as a Parquet folder database with
+the OMOP CDM 5.4 schema.
