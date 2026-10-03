@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isSelectionClick, rangeAnchor, retainPresent } from './use-card-selection'
+import { clearsSelection, isSelectionClick, rangeAnchor, retainPresent } from './use-card-selection'
 import type { RowKey } from './data-table'
 
 const mods = (over: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) => ({
@@ -60,5 +60,30 @@ describe('retainPresent', () => {
 
   it('empties the selection when the grid shows nothing', () => {
     expect(retainPresent(new Set(['a']), []).size).toBe(0)
+  })
+})
+
+describe('clearsSelection', () => {
+  // A stand-in for an element: `closest` matches when its ancestors include one
+  // of the given selectors.
+  const inside = (...ancestors: string[]) => ({
+    closest: (selector: string) => (ancestors.some((a) => selector.split(', ').includes(a)) ? {} : null),
+  }) as unknown as EventTarget
+
+  it('drops the selection on a plain click on the page', () => {
+    expect(clearsSelection(mods(), inside('div'))).toBe(true)
+    expect(clearsSelection(mods(), null)).toBe(true)
+  })
+
+  it('keeps it on a modified click', () => {
+    expect(clearsSelection(mods({ shiftKey: true }), null)).toBe(false)
+    expect(clearsSelection(mods({ metaKey: true }), null)).toBe(false)
+    expect(clearsSelection(mods({ ctrlKey: true }), null)).toBe(false)
+  })
+
+  it('keeps it on a control, a field, or inside a dialog', () => {
+    expect(clearsSelection(mods(), inside('button'))).toBe(false)
+    expect(clearsSelection(mods(), inside('input'))).toBe(false)
+    expect(clearsSelection(mods(), inside('[role="alertdialog"]'))).toBe(false)
   })
 })

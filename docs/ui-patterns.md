@@ -439,7 +439,9 @@ pieces — never re-implement the maths or the confirm dialog:
 A plain click stays **navigation**: selection only ever starts with a modifier.
 Shift with nothing picked yet ranges from the first card, as if it were
 selected; the hook clears the text selection a Shift-click would otherwise
-spread over the cards in between. Wire it in three places:
+spread over the cards in between. A plain click anywhere else drops the
+selection, except on a control (the bulk action), a field, or inside a dialog
+or menu. Wire it in three places:
 
 ```tsx
 const selection = useCardSelection(useMemo(() => rows.map((r) => r.id), [rows]))

@@ -54,6 +54,20 @@ export function retainPresent(selected: Set<RowKey>, keys: RowKey[]): Set<RowKey
   return next.size === selected.size ? selected : next
 }
 
+/**
+ * Where a plain click does not drop the selection: a control (the bulk action
+ * acting on it, a toolbar), a field, or anything inside a dialog or menu — a
+ * confirm dialog opened from the selection is portalled outside the grid.
+ */
+const KEEPS_SELECTION = 'button, a, input, textarea, select, label, [role="button"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="option"], [data-radix-popper-content-wrapper]'
+
+/** Whether a click drops the selection: plain, and on nothing that acts on it. */
+export function clearsSelection(e: ClickMods, target: EventTarget | null): boolean {
+  if (e.metaKey || e.ctrlKey || e.shiftKey) return false
+  const el = target as { closest?: (selector: string) => unknown } | null
+  return !el?.closest?.(KEEPS_SELECTION)
+}
+
 /** A press that should keep the browser's text selection: in a field. */
 function inEditable(target: EventTarget | null): boolean {
   return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')
@@ -85,6 +99,18 @@ export function useCardSelection(keys: RowKey[]): CardSelection {
     setSelected(new Set())
     anchorRef.current = null
   }, [])
+
+  // A plain click elsewhere on the page drops the selection, as in a file
+  // explorer. A plain click on a card opens it, which leaves the grid anyway.
+  const hasSelection = raw.size > 0
+  useEffect(() => {
+    if (!hasSelection) return
+    const onClick = (e: MouseEvent) => {
+      if (e.button === 0 && clearsSelection(e, e.target)) clear()
+    }
+    document.addEventListener('click', onClick)
+    return () => document.removeEventListener('click', onClick)
+  }, [hasSelection, clear])
 
   const onCardClick = useCallback(
     (e: ClickMods, key: RowKey) => {
