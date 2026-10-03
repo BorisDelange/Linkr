@@ -20,6 +20,9 @@ import { NoticeBanner } from '@/components/ui/notice-banner'
 import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
 import { absentRelations } from '@/lib/schema-classes/presence'
 
+/** Databases whose missing-table notice was closed: hidden until the page reloads. */
+const dismissedAbsent = new Set<string>()
+
 /**
  * A database's mapping: its preset's copy (the base) with what this site changes
  * on top (plan §7): whole relations, replaced, added or removed. The base is replaced only by an explicit "Update from preset",
@@ -46,6 +49,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const preset = useMemo(() => findSourcePreset(source, presets), [source, presets])
 
   const [draft, setDraft] = useState<{ mapping: SchemaMapping } | null>(null)
+  const [, setDismissals] = useState(0)
   const [updateOpen, setUpdateOpen] = useState(false)
 
   // What the database actually holds: the editor suggests its tables and
@@ -159,6 +163,31 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const presetChanged = !!preset && JSON.stringify(sanitizeSchemaMapping(preset.mapping)) !== JSON.stringify(base)
   const staleAfterUpdate = preset ? staleOverrides(sanitizeSchemaMapping(preset.mapping), overrides) : []
 
+  const notice = absent.length > 0 && !editing && !dismissedAbsent.has(source.id) ? (
+    <NoticeBanner
+      tone="warning"
+      onDismiss={() => {
+        dismissedAbsent.add(source.id)
+        setDismissals((n) => n + 1)
+      }}
+      title={t('schema_mapping.absent_tables_title', { count: absent.length })}
+      description={
+        <>
+          <p>{t('schema_mapping.absent_tables_description')}</p>
+          <ul className="mt-1 space-y-0.5">
+            {absent.map((a) => (
+              <li key={a.specKey}>
+                <span className="font-mono">{a.specKey}</span>
+                {' — '}
+                {t(a.empty ? 'schema_mapping.absent_tables_empty' : 'schema_mapping.absent_tables_join', { tables: a.tables.join(', ') })}
+              </li>
+            ))}
+          </ul>
+        </>
+      }
+    />
+  ) : null
+
   const toolbar = (
     <>
       {canWrite && !editing && presetChanged && (
@@ -197,26 +226,6 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
 
   return (
     <div className="space-y-4 px-6 py-4">
-      {absent.length > 0 && !editing && (
-        <NoticeBanner
-          tone="warning"
-          title={t('schema_mapping.absent_tables_title', { count: absent.length })}
-          description={
-            <>
-              <p>{t('schema_mapping.absent_tables_description')}</p>
-              <ul className="mt-1 space-y-0.5">
-                {absent.map((a) => (
-                  <li key={a.specKey}>
-                    <span className="font-mono">{a.specKey}</span>
-                    {' — '}
-                    {t(a.empty ? 'schema_mapping.absent_tables_empty' : 'schema_mapping.absent_tables_join', { tables: a.tables.join(', ') })}
-                  </li>
-                ))}
-              </ul>
-            </>
-          }
-        />
-      )}
 
       {removedKeys.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
@@ -246,6 +255,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
         onChange={(m) => draft && setDraft({ ...draft, mapping: m })}
         sourceSchema={sourceSchema}
         toolbar={toolbar}
+        notice={notice}
         previewSources={[{ id: source.id, label: localized(source.name, i18n.language) }]}
         relationExtra={relationExtra}
         persist={canWrite && !editing ? (m) => void save(diffOverrides(base, m, overrides)) : undefined}

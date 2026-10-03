@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
+import { AlertTriangle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 interface NoticeBannerProps {
@@ -10,6 +11,8 @@ interface NoticeBannerProps {
   description?: ReactNode
   /** A button or link that fixes it, on the right. */
   action?: ReactNode
+  /** Shows a ✕ that hides the band; the caller decides for how long. */
+  onDismiss?: () => void
   className?: string
 }
 
@@ -17,7 +20,8 @@ interface NoticeBannerProps {
  * A full-width band that says what is wrong with the entity on screen and how
  * to fix it. Placed under a page's tab bar when it holds for every tab.
  */
-export function NoticeBanner({ tone, title, description, action, className }: NoticeBannerProps) {
+export function NoticeBanner({ tone, title, description, action, onDismiss, className }: NoticeBannerProps) {
+  const { t } = useTranslation()
   const danger = tone === 'danger'
   return (
     <div
@@ -34,6 +38,17 @@ export function NoticeBanner({ tone, title, description, action, className }: No
         {description && <div className="text-muted-foreground">{description}</div>}
       </div>
       {action && <div className="shrink-0">{action}</div>}
+      {onDismiss && (
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label={t('common.close')}
+          title={t('common.close')}
+          className="flex size-6 shrink-0 items-center justify-center self-start rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X size={14} />
+        </button>
+      )}
     </div>
   )
 }

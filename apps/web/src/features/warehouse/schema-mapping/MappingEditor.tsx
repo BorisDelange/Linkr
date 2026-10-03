@@ -47,6 +47,8 @@ export interface MappingEditorProps {
   persist?: (mapping: SchemaMapping) => void
   /** Actions on the right of the section tabs (a database's Edit / Save). */
   toolbar?: ReactNode
+  /** Under the section tabs, above the relations (a database's notices). */
+  notice?: ReactNode
 }
 
 /** Blocks two by two from xl up; side by side they share a height. */
@@ -64,7 +66,7 @@ const SINGLETONS: Record<'patient' | 'visit' | 'visitDetail' | 'note', ClassName
  * grouped by clinical subject, plus the parameters relations read. Used by the
  * schema preset page and, in override mode, by a database's Mapping tab.
  */
-export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSchema, previewSources = [], relationExtra, persist, toolbar }: MappingEditorProps) {
+export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSchema, previewSources = [], relationExtra, persist, toolbar, notice }: MappingEditorProps) {
   const { t } = useTranslation()
   const [tab, setTab] = useState<TabId>('all')
   const [sqlFor, setSqlFor] = useState<string | null>(null)
@@ -345,6 +347,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSc
           </TabsList>
           <div className="flex flex-1 items-center justify-end gap-2">{toolbar}</div>
         </div>
+        {notice && <div className="mt-4">{notice}</div>}
 
         <TabsContent value="all" className="mt-4 space-y-6">
           {SECTIONS.map((sec) => (
