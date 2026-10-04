@@ -12,6 +12,13 @@ describe('idLiteral', () => {
     expect(idLiteral('a\nb', 'NULL')).toBe('"a\\nb"')
   })
 
+  it('quotes an id with a leading zero, which is no number in Python or R', () => {
+    expect(idLiteral('007', 'None')).toBe('"007"')
+    expect(idLiteral('-01', 'NULL')).toBe('"-01"')
+    expect(idLiteral('0', 'None')).toBe('0')
+    expect(idLiteral('-5', 'None')).toBe('-5')
+  })
+
   it('quotes a number too long to stay exact', () => {
     expect(idLiteral('12345678901234567890', 'NULL')).toBe('"12345678901234567890"')
   })

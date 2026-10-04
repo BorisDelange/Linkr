@@ -5,11 +5,12 @@ import { isServerMode } from '@/lib/api-client'
  * An id as a Python / R literal: a number stays a number (plugins compare it as
  * one), anything else becomes a quoted string — spliced bare, an id like
  * `abc` was a name error, and one carrying code would have run it. A JSON
- * string literal is a valid string literal in both languages.
+ * string literal is a valid string literal in both languages. A leading zero
+ * keeps it a string: `007` is a syntax error in Python and loses its zeros in R.
  */
 export function idLiteral(id: string | null, nullLiteral: 'None' | 'NULL'): string {
   if (id == null) return nullLiteral
-  return /^-?\d{1,15}$/.test(id) ? id : JSON.stringify(id)
+  return /^-?(0|[1-9]\d{0,14})$/.test(id) ? id : JSON.stringify(id)
 }
 
 /**
