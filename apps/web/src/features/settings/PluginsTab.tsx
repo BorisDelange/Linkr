@@ -449,7 +449,7 @@ export function PluginsTab() {
 
   const renderPluginGrid = (plugins: PluginListItem[]) => (
     <>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div data-card-grid="" className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {plugins.map((plugin) => (
           <PluginCard
             key={plugin.id}
