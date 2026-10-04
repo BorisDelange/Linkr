@@ -9,6 +9,11 @@ before the cursor the insertion replaces)."""
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
+import sysconfig
+import threading
+from functools import cache
 
 from app.services.execution.kernel import Kernel
 
@@ -53,17 +58,47 @@ def _r_items(raw: object) -> list[dict]:
     return items
 
 
-def _python_static(code: str, cursor: int) -> list[dict]:
+@cache
+def _static_jedi():
+    """jedi in a subprocess of the base interpreter, seeing only the standard
+    library: the API's own process and environment (its packages, the `app`
+    package, any compiled module installed there) stay out of the user's reach.
+    None outside a venv, where the base interpreter is the API's own."""
+    if sys.prefix == sys.base_prefix:
+        return None
     try:
         import jedi
-    except ImportError:
+
+        env = jedi.create_environment(
+            sys._base_executable, safe=False,
+            env_vars={"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "PYTHONNOUSERSITE": "1"},
+        )
+    except Exception:  # noqa: BLE001 — jedi missing or the base interpreter unusable: no static pass
+        return None
+    stdlib = sysconfig.get_paths(vars={"base": sys.base_prefix, "platbase": sys.base_prefix,
+                                       "installed_base": sys.base_prefix,
+                                       "installed_platbase": sys.base_prefix})
+    sys_path = sorted({stdlib["stdlib"], stdlib["platstdlib"], os.path.join(stdlib["platstdlib"], "lib-dynload")})
+    return env, jedi.Project(stdlib["stdlib"], sys_path=sys_path, smart_sys_path=False)
+
+
+# One jedi subprocess serves every request, and its pipe is not thread-safe.
+_static_lock = threading.Lock()
+
+
+def _python_static(code: str, cursor: int) -> list[dict]:
+    setup = _static_jedi()
+    if setup is None:
         return []
+    import jedi
+
+    env, project = setup
     before = code[:cursor]
     line = before.count("\n") + 1
     col = len(before) - (before.rfind("\n") + 1)
     try:
-        # In-process: the default environment would spawn a subprocess per call.
-        found = jedi.Script(code, environment=jedi.InterpreterEnvironment()).complete(line, col)[:_MAX_ITEMS]
+        with _static_lock:
+            found = jedi.Script(code, environment=env, project=project).complete(line, col)[:_MAX_ITEMS]
     except Exception:  # noqa: BLE001 — jedi raises on odd input; no completion then
         return []
     return [

@@ -45,6 +45,22 @@ async def test_python_static_completion_without_a_kernel(client):
     assert path["typed"] == 2 and path["insert"] == "path"
 
 
+async def test_static_completion_does_not_see_the_apis_own_environment(client):
+    headers, uid = await _setup(client)
+    assert await _complete(client, headers, uid, "import app.") == []
+    assert await _complete(client, headers, uid, "from app.services import ") == []
+    assert await _complete(client, headers, uid, "import fasta") == []
+    assert "json" in [i["label"] for i in await _complete(client, headers, uid, "import jso")]
+
+
+async def test_completion_bounds_its_input(client):
+    headers, uid = await _setup(client)
+    for body in ({"code": "x" * 200_001, "cursor": 0}, {"code": "x", "cursor": -1}):
+        r = await client.post(f"{API}/execute/complete", headers=headers,
+                              json={"language": "python", "projectUid": uid, **body})
+        assert r.status_code == 422
+
+
 async def test_python_completion_sees_the_session_variables(client):
     headers, uid = await _setup(client)
     await _run(client, headers, uid, "class Box:\n    def __init__(self):\n        self.weight_kg = 1\nbox = Box()")

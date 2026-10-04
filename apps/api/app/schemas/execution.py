@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from app.schemas.base import CamelModel
 from app.services.execution.package_spec import (
@@ -81,9 +81,9 @@ class CompleteRequest(CamelModel):
     language: str
     project_uid: str
     session_id: str = "default"
-    code: str
+    code: str = Field(max_length=200_000)
     # Offset in `code`, in characters.
-    cursor: int
+    cursor: int = Field(ge=0)
 
 
 class CompletionItem(CamelModel):
