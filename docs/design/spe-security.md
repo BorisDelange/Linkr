@@ -174,25 +174,48 @@ pass, `services/export_masking.py` and its byte-identical twin
 
 - a count cell in 1..k-1 becomes `<k`;
 - a concept's profile under k patients or records is withheld, and so is a profile
-  cell that is not a JSON object (`NaN`, single quotes);
+  cell that is not a JSON object (`NaN`, single quotes) or that nests deeper than
+  20 levels (`MAX_PROFILE_DEPTH`: Python's parser gives up near a thousand levels
+  where `JSON.parse` does not, so both sides stop at the same depth);
 - other profiles lose their extremes (`min`, `max`, `range`, per-patient min/max,
-  `temporal_distribution.start_date`/`end_date`), `p1`/`p5`/`p95`/`p99` under 100
-  values, and every histogram bin, category, ward or year under k records, directly
-  or implied by its percentage of the total (taken at the lowest count the
-  one-decimal rounding allows, so 0.0% counts as small);
-- secondary suppression: when what a list dropped totals under k, the smallest kept
-  entries go too, or the total minus the rest would give the small count back;
+  `temporal_distribution.start_date`/`end_date`) and `p1`/`p5`/`p95`/`p99` under
+  100 values;
+- a histogram bin, category, ward or year stays only with a readable `count`
+  (records) of at least k and, when it carries one, a `patients_count` of at
+  least k. A percentage alone is not enough: wards are shares of the records that
+  have a ward, years of those that have a date, categories of the kept
+  categories — not of `rows_count` — so the count it implies is unknown, and such
+  an entry is dropped;
+- secondary suppression: when the records a list dropped total under k, the
+  smallest kept entries go too, or the section's total minus the rest would give
+  them back (an entry dropped without a count weighs 0, so the next one goes);
 - histograms are moved onto a round grid (width m × 10^e, edges its multiples):
   profiles built before the profiler used that grid anchored their bins on the
-  minimum, so the first and last centres gave the extremes back;
+  minimum, so the first and last centres gave the extremes back. The first and
+  last bins of the grid then go, since each still holds an extreme within one
+  bin width;
+- a cell's `patients_count` only decides whether it stays: the exported cell
+  keeps `count` and drops it;
 - a mapping's `sourceFrequency` under k becomes null (the field is a number).
+
+Profiles the app computes (`concept-profile.ts`) give every histogram bin,
+category, year and ward its `count` and `patients_count`. Profiles shipped in a
+file source, or computed before these fields existed, have percentages only on
+wards and years — those sections then leave empty — and no per-cell patients:
+their bins and categories are judged on records alone, so a cell of k records or
+more held by fewer than k patients can still leave. Recomputing the profiles in
+the app removes that gap. Distinct patients do not add up across cells, so
+secondary suppression weighs records only: the total minus the kept cells gives
+the records of the dropped ones (at least k), not how many patients hold them.
 
 Quartiles (p5/p95 too from 100 values), mean, median and the shape of the distribution stay:
 enough to compare two sites, not enough to find a patient. The source file inside
 the instance is untouched, and duplicating a mapping project inside the instance
 copies it unmasked. A source file that is neither UTF-8 nor Windows-1252 text (a
-leading BOM is dropped) nor readable Parquet stops the export: it is never shipped
-as it is. k is `LINKR_EXPORT_MIN_COUNT` (default 11, ≤ 1 masks nothing); the front
+leading BOM is dropped) nor readable Parquet, or that the CSV reader refuses,
+stops the export: it is never shipped as it is (the server raises the csv
+module's 128 KiB field limit, process-wide, so a large profile cell is read and
+masked). k is `LINKR_EXPORT_MIN_COUNT` (default 11, ≤ 1 masks nothing); the front
 reads it from `/setup/status`, so exports built in the browser mask like the
 server's, and client-only mode uses 11. Both sides write the same bytes because a
 client-only and a server user pushing the same repo must not fight over the file —
