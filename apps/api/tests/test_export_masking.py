@@ -87,3 +87,30 @@ def test_a_threshold_of_0_masks_nothing_as_in_the_browser():
     text = "concept,patient_count\na,5\n"
     assert mask_frequency(5, 0) == 5
     assert mask_source_concepts_csv(text, None, 0) == text
+
+
+def _large_cells() -> str:
+    """Twin of largeCells() in export-masking.test.ts: a profile cell over the csv
+    module's default 128 KiB field limit, and one nested far past the depth cap."""
+    big = '"{""rows_count"":500,""patients_count"":50,""range"":[' + "0," * 100_000 + '0]}"'
+    deep = '"{""rows_count"":500,""patients_count"":50,""x"":' + "[" * 5_000 + "]" * 5_000 + '}"'
+    return f"concept_code,record_count,patient_count,info_json\nBIG,500,50,{big}\nDEEP,500,50,{deep}\n"
+
+
+def test_a_cell_over_the_csv_field_limit_is_masked_not_shipped_as_it_is():
+    text = _large_cells()
+    assert len(text) > 200 * 1024
+    assert mask_source_concepts_csv(text, None, 11) == _read("expected-large-cell.csv")
+
+
+def test_a_file_the_csv_reader_refuses_is_not_exported(monkeypatch):
+    import csv
+
+    from app.services import export_masking
+
+    def refuse(*_args, **_kwargs):
+        raise csv.Error("field larger than field limit")
+
+    monkeypatch.setattr(export_masking.csv, "reader", refuse)
+    with pytest.raises(SourceConceptsUnreadable):
+        _masked_csv_bytes(_read("input.csv").encode(), None)

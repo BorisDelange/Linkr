@@ -13,13 +13,18 @@ The rule, with k the threshold:
   so is a cell that is not a JSON object;
 - otherwise the profile loses its extremes (min/max, per-patient min/max,
   range, first and last event dates), p1/p5/p95/p99 under 100 values, and
-  every histogram bin, category, hospital unit or year that holds fewer than k
-  records — directly, or implied by its percentage of the total at the lowest
-  count the rounding allows — then the smallest kept ones while what was
-  dropped totals under k;
-- the histogram is first moved onto a round grid not anchored on the minimum.
-Bytes that cannot be read as text raise SourceConceptsUnreadable: never
-exported unmasked.
+  every histogram bin, category, hospital unit or year whose `count` (records)
+  or `patients_count` is under k, or that has no readable `count` — a
+  percentage alone does not say over how many records it was taken — then the
+  smallest kept ones while the records dropped total under k;
+- the histogram is first moved onto a round grid not anchored on the minimum,
+  and its first and last bins go: each holds an extreme within one bin width;
+- a cell keeps its records `count` but loses its `patients_count`, which only
+  decided whether it could stay;
+- a profile nested deeper than MAX_PROFILE_DEPTH is withheld, as Python's
+  parser gives up on deep nesting where JSON.parse does not.
+Bytes that cannot be read as text, or as CSV, raise SourceConceptsUnreadable:
+never exported unmasked.
 """
 
 import csv
@@ -30,6 +35,10 @@ import re
 from collections.abc import Callable
 
 from app.config import settings
+
+# The csv module refuses a field over 128 KiB, and one profile cell can be larger:
+# the limit is process-wide, raised once (2^31 - 1 fits a C long everywhere).
+csv.field_size_limit(2**31 - 1)
 
 _JSON_HEADERS = ("info_json", "metadata_json", "json_metadata")
 
@@ -88,12 +97,6 @@ def mask_frequency(value: object, k: int | None = None) -> object:
     return None if _small(value, settings.export_min_count if k is None else k) else value
 
 
-def _implied_count(percentage: object, total: object) -> float:
-    """Percentages are rounded to one decimal, so the count is taken at the lowest
-    the rounding allows — and 0.0% may still hide a few records."""
-    return max(0.0, _number(percentage) - 0.05) / 100 * _number(total)
-
-
 def nice_step(width: float) -> tuple[int, int]:
     """A bin width of m × 10^e, m in {1, 2, 5}: the smallest one not under `width`."""
     e = math.floor(math.log10(width)) - 1
@@ -126,8 +129,11 @@ def _regrid(histogram: list) -> list[dict] | None:
     {x, count}). A profile built before such grids anchored its bins on the
     minimum — centre = min + (i + ½)·(max − min)/bins — so its first and last
     centres gave the minimum and the maximum back. Each old bin joins the round
-    bin its centre falls in; a histogram already on the grid comes out unchanged."""
-    bins = [(_number(b.get("x")), _number(b.get("count"))) if isinstance(b, dict) else None for b in histogram]
+    bin its centre falls in; a histogram already on the grid keeps its bins."""
+    bins = [
+        (_number(b.get("x")), _number(b.get("count")), _number(b.get("patients_count"))) if isinstance(b, dict) else None
+        for b in histogram
+    ]
     if len(bins) < 2 or any(b is None or not (math.isfinite(b[0]) and math.isfinite(b[1])) for b in bins):
         return None
     xs = sorted(b[0] for b in bins)  # type: ignore[index]
@@ -139,19 +145,27 @@ def _regrid(histogram: list) -> list[dict] | None:
         return None
     m, e = nice_step(width)
     counts: dict[int, float] = {}
-    for x, count in bins:  # type: ignore[misc]
+    # Distinct patients do not add up across merged bins: the largest is a floor.
+    patients: dict[int, float] = {}
+    for x, count, pts in bins:  # type: ignore[misc]
         i = bin_index(x, m, e)
         counts[i] = counts.get(i, 0.0) + count
-    return [{"x": bin_centre(i, m, e), "count": counts[i]} for i in sorted(counts)]
+        if math.isfinite(pts):
+            patients[i] = max(patients.get(i, pts), pts)
+    return [
+        {"x": bin_centre(i, m, e), "count": counts[i], **({"patients_count": patients[i]} if i in patients else {})}
+        for i in sorted(counts)
+    ]
 
 
 def _suppress(entries: list, small: Callable[[dict], bool], mass: Callable[[dict], float], k: int) -> list:
-    """`entries` without the small ones. When what was dropped totals under k, the
-    total minus the kept entries would give it back, so the smallest kept entries
-    go too until the dropped mass reaches k (secondary suppression)."""
+    """`entries` without the small ones (and without what is not an object). When
+    what was dropped totals under k, the total minus the kept entries would give
+    it back, so the smallest kept entries go too until the dropped mass reaches k
+    (secondary suppression)."""
 
     def dropped(e: object) -> bool:
-        return isinstance(e, dict) and small(e)
+        return not isinstance(e, dict) or small(e)
 
     def weight(e: object) -> float:
         m = mass(e) if isinstance(e, dict) else math.nan
@@ -184,11 +198,16 @@ def mask_profile(profile: dict, k: int) -> dict | None:
             out[key] = {k_: v for k_, v in out[key].items() if k_ not in _EXTREMES}
     total = profile.get("rows_count")
 
-    def counted(e: dict) -> float:
-        return _number(e.get("count"))
+    def records(e: dict) -> float:
+        return _number(e.get("count")) if "count" in e else math.nan
 
-    def implied(e: dict) -> float:
-        return _implied_count(e.get("percentage"), total)
+    def small_cell(e: dict) -> bool:
+        n = records(e)
+        return not math.isfinite(n) or _small(n, k) or _small(e.get("patients_count"), k)
+
+    def cells(entries: list, small: Callable[[dict], bool] = small_cell) -> list:
+        kept = _suppress(entries, small, records, k)
+        return [{k_: v for k_, v in e.items() if k_ != "patients_count"} for e in kept]
 
     numeric = out.get("numeric_data")
     if isinstance(numeric, dict):
@@ -206,26 +225,17 @@ def mask_profile(profile: dict, k: int) -> dict | None:
         if grid is None:
             del out["histogram"]
         else:
-            out["histogram"] = _suppress(grid, lambda b: _small(b.get("count"), k), counted, k)
-    if isinstance(out.get("categorical_data"), list):
-
-        def category_mass(c: dict) -> float:
-            return counted(c) if "count" in c else implied(c)
-
-        out["categorical_data"] = _suppress(
-            out["categorical_data"],
-            lambda c: _small(c.get("count"), k) if "count" in c else category_mass(c) < k,
-            category_mass,
-            k,
-        )
-    if isinstance(out.get("hospital_units"), list):
-        out["hospital_units"] = _suppress(out["hospital_units"], lambda u: implied(u) < k, implied, k)
+            first, last = grid[0], grid[-1]
+            out["histogram"] = cells(grid, lambda b: b is first or b is last or small_cell(b))
+    for key in ("categorical_data", "hospital_units"):
+        if isinstance(out.get(key), list):
+            out[key] = cells(out[key])
     temporal = out.get("temporal_distribution")
     if isinstance(temporal, dict):
         # The first and last dates are one patient's event each.
         rest = {k_: v for k_, v in temporal.items() if k_ not in ("start_date", "end_date")}
         if isinstance(rest.get("by_year"), list):
-            rest["by_year"] = _suppress(rest["by_year"], lambda y: implied(y) < k, implied, k)
+            rest["by_year"] = cells(rest["by_year"])
         out["temporal_distribution"] = rest
     return out
 
@@ -274,13 +284,33 @@ def _reject(constant: str) -> None:
     raise ValueError(constant)
 
 
+# A profile is three levels deep. Python's parser fails around a thousand levels
+# where JSON.parse goes much further, so both sides withhold past this one.
+MAX_PROFILE_DEPTH = 20
+
+
+def _too_deep(value: object) -> bool:
+    stack = [(value, 1)]
+    while stack:
+        node, depth = stack.pop()
+        children = node.values() if isinstance(node, dict) else node if isinstance(node, list) else None
+        if children is None:
+            continue
+        if depth > MAX_PROFILE_DEPTH:
+            return True
+        stack.extend((c, depth + 1) for c in children)
+    return False
+
+
 def _parse_profile(text: str) -> object:
-    """The cell as JSON.parse reads it, or None where JSON.parse would throw:
-    NaN and Infinity are refused, and every integer becomes a double."""
+    """The cell as JSON.parse reads it, or None where JSON.parse would throw or
+    the nesting passes MAX_PROFILE_DEPTH: NaN and Infinity are refused, and
+    every integer becomes a double."""
     try:
-        return json.loads(text, parse_constant=_reject, parse_int=float)
+        value = json.loads(text, parse_constant=_reject, parse_int=float)
     except (ValueError, RecursionError):
         return None
+    return None if _too_deep(value) else value
 
 
 def _cell(value: str, delimiter: str) -> str:
@@ -309,8 +339,8 @@ def mask_source_concepts_csv(text: str, column_mapping: dict | None = None, k: i
     delimiter = max((",", ";", "\t"), key=first_line.count)
     try:
         rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
-    except csv.Error:
-        return text
+    except csv.Error as exc:
+        raise SourceConceptsUnreadable() from exc
     if not rows:
         return text
     mapping = column_mapping or {}

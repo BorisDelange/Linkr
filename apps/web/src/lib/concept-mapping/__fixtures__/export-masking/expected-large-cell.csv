@@ -1,0 +1,3 @@
+concept_code,record_count,patient_count,info_json
+BIG,500,50,"{""rows_count"":500,""patients_count"":50}"
+DEEP,500,50,

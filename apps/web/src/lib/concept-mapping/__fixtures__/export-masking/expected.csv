@@ -11,9 +11,14 @@ LOCAL,FOREIGN,Not plain decimal,0x5,1_0,
 LOCAL,NAN,NaN in the profile,500,50,
 LOCAL,QUOTED,Single-quoted profile,500,50,
 LOCAL,SCALAR,Not an object,500,50,
-LOCAL,WARDS,Ward split,4000,400,"{""rows_count"":4000,""patients_count"":400,""hospital_units"":[{""unit"":""A"",""percentage"":99.3}]}"
+LOCAL,WARDS,Ward split,4000,400,"{""rows_count"":4000,""patients_count"":400,""hospital_units"":[]}"
 LOCAL,CATS,Dropped mass reaches k,813,80,"{""rows_count"":813,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""w"",""count"":300}]}"
 LOCAL,CATS2,Dropped mass under k,825,80,"{""rows_count"":825,""patients_count"":80,""categorical_data"":[{""category"":""x"",""count"":500},{""category"":""w"",""count"":300}]}"
-LOCAL,SMALL_N,Few values,60,30,"{""rows_count"":60,""patients_count"":30,""numeric_data"":{""p25"":3,""median"":5},""histogram"":[{""x"":1,""count"":20},{""x"":3,""count"":25},{""x"":5,""count"":15}]}"
+LOCAL,SMALL_N,Few values,60,30,"{""rows_count"":60,""patients_count"":30,""numeric_data"":{""p25"":3,""median"":5},""histogram"":[{""x"":3,""count"":25}]}"
 LOCAL,ONE_BIN,One bin,50,20,"{""rows_count"":50,""patients_count"":20}"
-LOCAL,FINE,Fine grid,400,40,"{""rows_count"":400,""patients_count"":400,""histogram"":[{""x"":0.15,""count"":100},{""x"":0.25,""count"":150},{""x"":0.35,""count"":150}]}"
+LOCAL,FINE,Fine grid,400,40,"{""rows_count"":400,""patients_count"":400,""histogram"":[{""x"":0.25,""count"":150}]}"
+LOCAL,UNITS,Ward share of a few records,10000,300,"{""rows_count"":10000,""patients_count"":300,""hospital_units"":[{""unit"":""A"",""percentage"":80,""count"":80}]}"
+LOCAL,YEARS,One patient in a year,730,61,"{""rows_count"":730,""patients_count"":61,""temporal_distribution"":{""by_year"":[{""year"":2020,""count"":500,""percentage"":68.5},{""year"":2022,""count"":200,""percentage"":27.4}]}}"
+LOCAL,HIST_PATIENTS,Histogram with patients,850,90,"{""rows_count"":850,""patients_count"":90,""histogram"":[{""x"":15,""count"":300},{""x"":35,""count"":400}]}"
+LOCAL,PCT_ONLY,Shares without counts,1000,100,"{""rows_count"":1000,""patients_count"":100,""categorical_data"":[]}"
+LOCAL,DEEP,Nested past the cap,500,50,

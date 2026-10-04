@@ -74,12 +74,6 @@ function isSmall(value: unknown, k: number): boolean {
   return Number.isFinite(n) && n > 0 && n < k
 }
 
-/** Percentages are rounded to one decimal, so the count is taken at the lowest
- *  the rounding allows — and 0.0% may still hide a few records. */
-function impliedCount(percentage: unknown, total: unknown): number {
-  return (Math.max(0, toNumber(percentage) - 0.05) / 100) * toNumber(total)
-}
-
 /** A mapping's source frequency as it may leave the instance: a small one is
  *  unknown (null) — the field is a number, so it cannot read "<k". */
 export function maskFrequency<T>(value: T, k: number = exportMinCount): T | null {
@@ -115,10 +109,12 @@ export function binCentre(i: number, m: number, e: number): number {
  * {x, count}). A profile built before such grids anchored its bins on the
  * minimum — centre = min + (i + ½)·(max − min)/bins — so its first and last
  * centres gave the minimum and the maximum back. Each old bin joins the round
- * bin its centre falls in; a histogram already on the grid comes out unchanged.
+ * bin its centre falls in; a histogram already on the grid keeps its bins.
  */
 function regrid(histogram: unknown[]): Json[] | null {
-  const bins = histogram.map((b) => (isObject(b) ? { x: toNumber(b.x), count: toNumber(b.count) } : null))
+  const bins = histogram.map((b) => (isObject(b)
+    ? { x: toNumber(b.x), count: toNumber(b.count), patients: toNumber(b.patients_count) }
+    : null))
   if (bins.length < 2 || bins.some((b) => b === null || !Number.isFinite(b.x) || !Number.isFinite(b.count))) return null
   const xs = bins.map((b) => b!.x).sort((a, b) => a - b)
   let width = Infinity
@@ -126,25 +122,33 @@ function regrid(histogram: unknown[]): Json[] | null {
   if (!Number.isFinite(width)) return null
   const [m, e] = niceStep(width)
   const counts = new Map<number, number>()
+  // Distinct patients do not add up across merged bins: the largest is a floor.
+  const patients = new Map<number, number>()
   for (const b of bins) {
     const i = binIndex(b!.x, m, e)
     counts.set(i, (counts.get(i) ?? 0) + b!.count)
+    if (Number.isFinite(b!.patients)) patients.set(i, Math.max(patients.get(i) ?? b!.patients, b!.patients))
   }
-  return [...counts.keys()].sort((a, b) => a - b).map((i) => ({ x: binCentre(i, m, e), count: counts.get(i)! }))
+  return [...counts.keys()].sort((a, b) => a - b).map((i) => ({
+    x: binCentre(i, m, e),
+    count: counts.get(i)!,
+    ...(patients.has(i) ? { patients_count: patients.get(i)! } : {}),
+  }))
 }
 
 /**
- * `entries` without the small ones. When what was dropped totals under k, the
- * total minus the kept entries would give it back, so the smallest kept entries
- * go too until the dropped mass reaches k (secondary suppression).
+ * `entries` without the small ones (and without what is not an object). When
+ * what was dropped totals under k, the total minus the kept entries would give
+ * it back, so the smallest kept entries go too until the dropped mass reaches k
+ * (secondary suppression).
  */
-function suppress(entries: unknown[], small: (e: Json) => boolean, mass: (e: Json) => number, k: number): unknown[] {
-  const dropped = (e: unknown) => isObject(e) && small(e)
+function suppress(entries: unknown[], small: (e: Json) => boolean, mass: (e: Json) => number, k: number): Json[] {
+  const dropped = (e: unknown) => !isObject(e) || small(e)
   const weight = (e: unknown) => {
     const m = isObject(e) ? mass(e) : NaN
     return Number.isFinite(m) ? m : 0
   }
-  const kept = entries.filter((e) => !dropped(e))
+  const kept = entries.filter((e): e is Json => !dropped(e))
   if (kept.length === entries.length) return kept
   let droppedMass = 0
   for (const e of entries) if (dropped(e)) droppedMass += weight(e)
@@ -168,8 +172,13 @@ export function maskProfile(profile: Json, k: number): Json | null {
     }
   }
   const total = profile.rows_count
-  const counted = (e: Json) => toNumber(e.count)
-  const implied = (e: Json) => impliedCount(e.percentage, total)
+  const records = (e: Json) => ('count' in e ? toNumber(e.count) : NaN)
+  const smallCell = (e: Json) => {
+    const n = records(e)
+    return !Number.isFinite(n) || isSmall(n, k) || isSmall(e.patients_count, k)
+  }
+  const cells = (entries: unknown[], small: (e: Json) => boolean = smallCell) =>
+    suppress(entries, small, records, k).map(({ patients_count: _patients, ...rest }) => rest)
   const numeric = out.numeric_data
   if (isObject(numeric)) {
     const sizes = [toNumber(numeric.numeric_count), toNumber(total)]
@@ -186,24 +195,39 @@ export function maskProfile(profile: Json, k: number): Json | null {
   if (Array.isArray(out.histogram)) {
     const grid = regrid(out.histogram)
     if (grid === null) delete out.histogram
-    else out.histogram = suppress(grid, (b) => isSmall(b.count, k), counted, k)
+    else {
+      const [first, last] = [grid[0], grid[grid.length - 1]]
+      out.histogram = cells(grid, (b) => b === first || b === last || smallCell(b))
+    }
   }
-  if (Array.isArray(out.categorical_data)) {
-    const mass = (c: Json) => ('count' in c ? counted(c) : implied(c))
-    out.categorical_data = suppress(out.categorical_data, (c) => ('count' in c ? isSmall(c.count, k) : mass(c) < k), mass, k)
-  }
-  if (Array.isArray(out.hospital_units)) {
-    out.hospital_units = suppress(out.hospital_units, (u) => implied(u) < k, implied, k)
+  for (const key of ['categorical_data', 'hospital_units']) {
+    const list = out[key]
+    if (Array.isArray(list)) out[key] = cells(list)
   }
   const temporal = out.temporal_distribution
   if (isObject(temporal)) {
     // The first and last dates are one patient's event each.
     const { start_date: _start, end_date: _end, ...rest } = temporal
     out.temporal_distribution = Array.isArray(rest.by_year)
-      ? { ...rest, by_year: suppress(rest.by_year, (y) => implied(y) < k, implied, k) }
+      ? { ...rest, by_year: cells(rest.by_year) }
       : rest
   }
   return out
+}
+
+/** A profile is three levels deep. Python's parser fails around a thousand
+ *  levels where JSON.parse goes much further, so both sides withhold past this. */
+export const MAX_PROFILE_DEPTH = 20
+
+function tooDeep(value: unknown): boolean {
+  const stack: [unknown, number][] = [[value, 1]]
+  while (stack.length > 0) {
+    const [node, depth] = stack.pop()!
+    if (typeof node !== 'object' || node === null) continue
+    if (depth > MAX_PROFILE_DEPTH) return true
+    for (const child of Object.values(node)) stack.push([child, depth + 1])
+  }
+  return false
 }
 
 function cell(value: string, delimiter: string): string {
@@ -261,7 +285,7 @@ export function maskSourceConceptsCsv(
       } catch {
         // Unreadable here may be readable elsewhere (Python takes NaN): withheld.
       }
-      const masked = withheld || !isObject(profile) ? null : maskProfile(profile, k)
+      const masked = withheld || !isObject(profile) || tooDeep(profile) ? null : maskProfile(profile, k)
       const next = masked === null ? '' : JSON.stringify(masked)
       if (masked === null || next !== JSON.stringify(profile)) {
         cells[jsonIdx] = next

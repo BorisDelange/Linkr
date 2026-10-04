@@ -23,6 +23,15 @@ describe('maskSourceConceptsCsv', () => {
     expect(maskSourceConceptsCsv('\uFEFFa,b\n1,2\n', null, 11)).toBe('a,b\n1,2\n')
   })
 
+  it('masks a profile cell over 128 KiB, and withholds one nested past the depth cap, as the server does', () => {
+    // Twin of _large_cells() in test_export_masking.py.
+    const big = `"{""rows_count"":500,""patients_count"":50,""range"":[${'0,'.repeat(100_000)}0]}"`
+    const deep = `"{""rows_count"":500,""patients_count"":50,""x"":${'['.repeat(5_000)}${']'.repeat(5_000)}}"`
+    const text = `concept_code,record_count,patient_count,info_json\nBIG,500,50,${big}\nDEEP,500,50,${deep}\n`
+    expect(text.length).toBeGreaterThan(200 * 1024)
+    expect(maskSourceConceptsCsv(text, null, 11)).toBe(read('expected-large-cell.csv'))
+  })
+
   it('leaves a file with nothing to mask byte for byte', () => {
     const text = 'terminology,concept_code,record_count\r\nX,1,500\r\n'
     expect(maskSourceConceptsCsv(text, null, 11)).toBe(text)
