@@ -74,6 +74,45 @@ describe('the grand total of records over every concept', () => {
   })
 })
 
+describe('the concepts with no category, at category level', () => {
+  // Categories A and B hold 500 + 300 records; u1, with no category, 90 of them.
+  // Out of 894 in all, the masked u2 holds at most 4.
+  const input = (u1: number | null, everyConcept = true): AuditInput => ({
+    published: {
+      threshold: 10,
+      variables: { concept: { ...variable('concept', ['A', 'B']), level: 'category' } },
+      crossings: [
+        { id: 'concept', vars: ['concept'], measures: ['records'], masked: { primary: 0, secondary: 0 }, cells: [[0, 200, 500, 0], [1, 100, 300, 0]] },
+      ],
+    },
+    concepts: [
+      { key: 'a', name: 'a', group: 'A', patients: 200, records: 500 },
+      { key: 'b', name: 'b', group: 'B', patients: 100, records: 300 },
+      { key: 'u1', name: 'U1', group: null, patients: u1 == null ? null : 40, records: u1 },
+      { key: 'u2', name: 'U2', group: null, patients: null, records: null },
+    ],
+    everyConcept,
+    totals: { patients: 400, records: 894 },
+    threshold: 10,
+    noise: 0,
+  })
+
+  it('caps a masked one by the grand total minus the categories and the published others', async () => {
+    const { findings } = await auditPublished(input(90))
+    expect(findings.find((f) => f.measure === 'patients')).toMatchObject({
+      crossing: 'concept-list', kind: 'small', examples: [{ cell: ['—', 'U2'], lo: 1, hi: 4 }],
+    })
+  })
+
+  it('finds nothing once the group is protected as a whole', async () => {
+    expect((await auditPublished(input(null))).findings).toEqual([])
+  })
+
+  it('finds nothing when the catalog does not count every concept', async () => {
+    expect((await auditPublished(input(90, false))).findings).toEqual([])
+  })
+})
+
 describe('auditCatalog', () => {
   it('finds nothing in what the masking now publishes for the Atrovent case', async () => {
     // Two small cells masked — 2100, trimmed off the page, and 2210 — which
