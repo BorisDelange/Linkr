@@ -297,27 +297,39 @@ export function formatDuration(ms: number): string {
   return `${hours}h${String(min).padStart(2, '0')}min`
 }
 
-// ISO date-time as the server (`2180-05-06T22:23:00`) and DuckDB-WASM
-// (`2180-05-06T22:23:00.000Z`, Z although a TIMESTAMP has no zone) send it.
+// ISO date-time as the server (`2180-05-06T22:23:00`, fraction in µs) and
+// DuckDB-WASM (`2180-05-06T22:23:00.000Z`, a JS Date: ms, and Z for a TIMESTAMP
+// as well as a TIMESTAMPTZ) send it. The precision is printed as received.
 const ISO_DATETIME = /^(\d{4,}-\d{2}-\d{2})T(\d{2}:\d{2}(?::\d{2})?)(\.\d+)?(Z|[+-]\d{2}(?::?\d{2})?)?$/
+
+const BIGINT_MARK = '__linkr_bigint__'
 
 /**
  * One cell of a SQL result, written the way SQL tools print it: a timestamp as
  * `2180-05-06 22:23:00` (not ISO with its `T`, nor a locale format that would be
  * ambiguous and not pasteable back into a query), a list or struct as JSON.
+ *
+ * `type` is the column's DuckDB type when the caller has it: a VARCHAR is then
+ * printed as is even when it looks like a date, and a TIMESTAMPTZ keeps its UTC
+ * zone (`+00`). Without it, any ISO date-time string is treated as a timestamp.
  */
-export function formatSqlCell(value: unknown): string {
+export function formatSqlCell(value: unknown, type?: string): string {
   if (value == null) return ''
   if (typeof value === 'string') {
+    const kind = type?.toUpperCase()
+    if (kind && !kind.startsWith('TIMESTAMP') && !kind.startsWith('DATE')) return value
     const m = ISO_DATETIME.exec(value)
     if (!m) return value
     const fraction = m[3]?.replace(/0+$/, '')
-    const zone = m[4] && m[4] !== 'Z' ? m[4] : ''
+    const withZone = kind === 'TIMESTAMPTZ' || kind === 'TIMESTAMP WITH TIME ZONE'
+    const zone = m[4] === 'Z' ? (withZone ? '+00' : '') : (m[4] ?? '')
     return `${m[1]} ${m[2]}${fraction && fraction !== '.' ? fraction : ''}${zone}`
   }
   if (typeof value === 'object') {
     try {
-      return JSON.stringify(value, (_k, v: unknown) => (typeof v === 'bigint' ? Number(v) : v))
+      // A bigint as its digits, unquoted: Number() would round past 2^53.
+      return JSON.stringify(value, (_k, v: unknown) => (typeof v === 'bigint' ? `${BIGINT_MARK}${v}` : v))
+        .replace(new RegExp(`"${BIGINT_MARK}(-?\\d+)"`, 'g'), '$1')
     } catch {
       return String(value)
     }

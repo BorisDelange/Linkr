@@ -341,3 +341,27 @@ describe('formatSqlCell', () => {
     expect(formatSqlCell({ a: 1n })).toBe('{"a":1}')
   })
 })
+
+describe('formatSqlCell with the column type', () => {
+  it('keeps the UTC zone of a TIMESTAMPTZ, which DuckDB-WASM sends as Z', () => {
+    expect(formatSqlCell('2180-05-06T22:23:00.000Z', 'TIMESTAMP WITH TIME ZONE')).toBe('2180-05-06 22:23:00+00')
+    expect(formatSqlCell('2180-05-06T22:23:00.000Z', 'TIMESTAMPTZ')).toBe('2180-05-06 22:23:00+00')
+    expect(formatSqlCell('2180-05-06T22:23:00.000Z', 'TIMESTAMP')).toBe('2180-05-06 22:23:00')
+  })
+
+  it('prints a VARCHAR as is, even when it looks like a date', () => {
+    expect(formatSqlCell('2180-05-06T22:23:00', 'VARCHAR')).toBe('2180-05-06T22:23:00')
+  })
+
+  it('prints the server\'s microseconds as received', () => {
+    expect(formatSqlCell('2180-05-06T22:23:00.123456')).toBe('2180-05-06 22:23:00.123456')
+  })
+})
+
+describe('formatSqlCell bigint', () => {
+  it('keeps every digit of a bigint inside a list or struct', () => {
+    expect(formatSqlCell({ a: 9007199254740993n })).toBe('{"a":9007199254740993}')
+    expect(formatSqlCell([-9007199254740993n, 'x'])).toBe('[-9007199254740993,"x"]')
+    expect(formatSqlCell(9007199254740993n)).toBe('9007199254740993')
+  })
+})
