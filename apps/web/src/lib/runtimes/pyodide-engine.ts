@@ -419,33 +419,42 @@ del _d
   return { stdout: stdout.trimEnd(), stderr: stderr.trimEnd(), figures, table, html: null, failed }
 }
 
-let _jedi: Promise<void> | null = null
+type JediComplete = (code: string, cursor: number, namespace: unknown) => string
+let _jedi: Promise<JediComplete> | null = null
 
 /**
  * Completions from the live Python namespace (jedi). Only once Pyodide is loaded
- * and idle: completion never triggers the runtime download, nor runs beside code.
+ * and idle: completion never triggers the runtime download, nor runs beside
+ * code. The first completion fetches the jedi package, once per session.
+ *
+ * The helper lives in its own namespace, so it never shows in the user's
+ * `dir()` or variable list. Twins: `_complete` in apps/api/app/services/execution/kernel.py
+ * (kernel) and the static pass in apps/api/app/services/execution/completion.py.
  */
 export async function completePython(code: string, cursor: number): Promise<CodeCompletionItem[]> {
   const pyodide = _pyodide
   if (!pyodide || _status !== 'ready') return []
   if (!_jedi) {
-    _jedi = pyodide.loadPackage(['jedi']).then(() => pyodide.runPythonAsync(`
-def __linkr_complete(code, cursor):
+    _jedi = pyodide.loadPackage(['jedi']).then(() => {
+      const scope = pyodide.toPy({})
+      pyodide.runPython(`
+def complete(code, cursor, ns):
     import jedi, json
     before = code[:cursor]
     line = before.count("\\n") + 1
     col = len(before) - (before.rfind("\\n") + 1)
     return json.dumps([{"label": c.name, "insert": c.name, "kind": c.type,
                         "typed": len(c.name) - len(c.complete)}
-                       for c in jedi.Interpreter(code, [globals()]).complete(line, col)[:300]])
-`)).then(() => undefined)
+                       for c in jedi.Interpreter(code, [ns]).complete(line, col)[:300]])
+`, { globals: scope })
+      return scope.get('complete') as JediComplete
+    })
     _jedi.catch(() => { _jedi = null })
   }
   try {
-    await _jedi
+    const complete = await _jedi
     if (_status !== 'ready') return []
-    const fn = pyodide.globals.get('__linkr_complete') as (code: string, cursor: number) => string
-    return JSON.parse(fn(code, cursor)) as CodeCompletionItem[]
+    return JSON.parse(complete(code, cursor, pyodide.globals)) as CodeCompletionItem[]
   } catch {
     return []
   }
