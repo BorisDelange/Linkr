@@ -165,8 +165,8 @@ export function schemaName(dataSourceId: string): string {
 const attachedSources = new Set<string>()
 
 /**
- * Per catalog, the `main` views that only alias a table placed in a DDL schema
- * (see `defaultSchemaAliases`) — kept out of table discovery, which would
+ * Per catalog, the `main` views that only alias a table placed in another
+ * schema (see `defaultSchemaAliases`) — kept out of table discovery, which would
  * otherwise list the table twice.
  */
 const defaultAliasViews = new Map<string, Set<string>>()
@@ -994,16 +994,6 @@ export function extractTableRef(
   root: string,
   knownTables?: string[],
 ): { schema: string | undefined; table: string } {
-  const { schema, table } = placeTableRef(filePath, root, knownTables)
-  return { schema, table }
-}
-
-/** `extractTableRef` plus whether the schema was borrowed from the known tables. */
-function placeTableRef(
-  filePath: string,
-  root: string,
-  knownTables?: string[],
-): { schema: string | undefined; table: string; borrowed: boolean } {
   const table = extractTableName(filePath, knownTables)
   const parts = pathParts(filePath)
   const rootParts = root.replace(/\\/g, '/').split('/').filter((p) => p && !isHiveSegment(p))
@@ -1020,31 +1010,38 @@ function placeTableRef(
   const remaining = dirs.length > 0 && dirs[dirs.length - 1].toLowerCase() === table
     ? dirs.slice(0, -1)
     : dirs
-  if (remaining.length > 0) return { schema: remaining[remaining.length - 1].toLowerCase(), table, borrowed: false }
-  const borrowed = knownSchemaOf(table, knownTables)
-  return { schema: borrowed, table, borrowed: borrowed !== undefined }
+  const schema = remaining.length > 0
+    ? remaining[remaining.length - 1].toLowerCase()
+    : knownSchemaOf(table, knownTables)
+  return { schema, table }
 }
 
 /**
- * Table -> grouping key for each table a flat import placed in a DDL schema, to
- * be exposed in the catalog's `main` as well.
+ * Table -> grouping key for each table placed in a schema other than `main` —
+ * by a module directory or borrowed from the DDL — to be exposed in the
+ * catalog's `main` as well.
  *
  * A source is a catalog, and DuckDB reads the two-part `ds_x.admissions` as
- * `ds_x.main.admissions`: a flat folder whose tables moved into `hosp` would
- * otherwise break every query written against it. A name `main` already holds is
- * left alone. Twin of the server's `_default_schema_aliases`.
+ * `ds_x.main.admissions`: without the alias, `source.admissions` in an ETL
+ * script finds nothing once the table lives in `hosp`. A name `main` already
+ * holds, or that two schemas hold, gets no alias: the script then has to name
+ * the schema rather than read whichever module came first. The server reaches
+ * the same rule through its search path (`_role_schema_path`).
  */
 export function defaultSchemaAliases(fileNames: string[], knownTables?: string[]): Map<string, string> {
   const root = commonDirPrefix(fileNames)
-  const keys = new Set<string>()
-  const borrowed = new Map<string, string>()
+  const inMain = new Set<string>()
+  const placed = new Map<string, Set<string>>()
   for (const fileName of fileNames) {
-    const ref = placeTableRef(fileName, root, knownTables)
-    keys.add(tableKey(ref))
-    if (ref.borrowed) borrowed.set(ref.table, tableKey(ref))
+    const ref = extractTableRef(fileName, root, knownTables)
+    if (!ref.schema) inMain.add(ref.table)
+    else placed.set(ref.table, (placed.get(ref.table) ?? new Set()).add(tableKey(ref)))
   }
-  for (const table of borrowed.keys()) if (keys.has(table)) borrowed.delete(table)
-  return borrowed
+  const aliases = new Map<string, string>()
+  for (const [table, keys] of placed) {
+    if (!inMain.has(table) && keys.size === 1) aliases.set(table, [...keys][0])
+  }
+  return aliases
 }
 
 /**

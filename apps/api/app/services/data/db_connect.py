@@ -887,15 +887,6 @@ def _table_ref_of(file_name: str, root: list[str], known: list[str]) -> tuple[st
     A directory *below* the selected root names a schema — MIMIC-IV's `hosp`/`icu`,
     eHOP's Oracle schemas. The root itself never does: it is the download folder,
     and treating it as a schema would put every flat import inside one."""
-    schema, table, _ = _placed_table_ref(file_name, root, known)
-    return schema, table
-
-
-def _placed_table_ref(
-    file_name: str, root: list[str], known: list[str]
-) -> tuple[str | None, str, bool]:
-    """`_table_ref_of` plus whether the schema was borrowed from the known tables
-    rather than read off a module directory."""
     table = _table_of(file_name, known)
     parts = _path_parts(file_name)
     root = [r for r in root if not _HIVE_SEGMENT_RE.fullmatch(r)]
@@ -910,10 +901,7 @@ def _placed_table_ref(
     # remaining segment is the schema.
     if dirs and dirs[-1].lower() == table:
         dirs = dirs[:-1]
-    if dirs:
-        return dirs[-1].lower(), table, False
-    borrowed = _known_schema_of(table, known)
-    return borrowed, table, borrowed is not None
+    return (dirs[-1].lower() if dirs else _known_schema_of(table, known)), table
 
 
 def _known_schema_of(table: str, known: list[str]) -> str | None:
@@ -935,51 +923,23 @@ def _group_parquet(
 
     `schema` is None for a flat folder, which is the overwhelmingly common shape
     and the one every source imported before schemas were understood."""
-    return _group_parquet_placed(files, known)[0]
-
-
-def _group_parquet_placed(
-    files: list[tuple[str, str]], known: list[str]
-) -> tuple[dict[tuple[str | None, str], list[str]], set[tuple[str | None, str]]]:
-    """`_group_parquet` plus the groups whose schema was borrowed from the DDL."""
     root = _common_dir([n for n, _ in files if n.lower().endswith((".parquet", ".pq"))])
     groups: dict[tuple[str | None, str], list[str]] = {}
-    borrowed: set[tuple[str | None, str]] = set()
     for file_name, path in files:
         if not file_name.lower().endswith((".parquet", ".pq")):
             continue
         if has_glob_chars(path):
             continue
-        schema, table, is_borrowed = _placed_table_ref(file_name, root, known)
+        schema, table = _table_ref_of(file_name, root, known)
         # Both are interpolated into quoted identifiers; a name that doesn't yield
         # a plain identifier is skipped rather than risking a broken (or injected)
         # CREATE VIEW.
         if _SAFE_IDENT.fullmatch(table) is None:
             continue
         if schema is not None and _SAFE_IDENT.fullmatch(schema) is None:
-            schema, is_borrowed = None, False
+            schema = None
         groups.setdefault((schema, table), []).append(path)
-        if is_borrowed:
-            borrowed.add((schema, table))
-    return groups, borrowed
-
-
-def _default_schema_aliases(
-    groups: dict[tuple[str | None, str], list[str]],
-    borrowed: set[tuple[str | None, str]],
-) -> dict[str, list[str]]:
-    """Table -> paths for each table a flat import placed in a DDL schema, to be
-    exposed in the default schema as well.
-
-    A role is ATTACHed as a catalog, and DuckDB reads the two-part `role.table`
-    as `role.main.table`: a flat folder whose tables moved into `hosp` would
-    otherwise break every pipeline written against it. A name the default schema
-    already holds is left alone."""
-    return {
-        table: groups[(schema, table)]
-        for schema, table in borrowed
-        if (None, table) not in groups
-    }
+    return groups
 
 
 def group_parquet_tables(
@@ -1414,6 +1374,7 @@ def run_etl_sql(
             # so `source.patients` resolves without `patients` alone ever reaching
             # a read-only role.
             search_path = ",".join(["target", "memory", *_role_schema_path(con)])
+            _reject_ambiguous_role_refs(sql, _ambiguous_role_tables(con))
             return _run_statements(con, search_path, sql, on_statement=on_statement)
         except duckdb.InterruptException as e:
             # Only a cancel raises this — report it as such rather than as a SQL
@@ -1476,7 +1437,8 @@ def _already_attached_as(spec: dict, attached: dict[str, str]) -> str | None:
 
 
 def _role_schema_path(con: duckdb.DuckDBPyConnection) -> list[str]:
-    """`catalog.schema` for every non-main schema of the attached role databases.
+    """`catalog.schema` for every schema of the role databases that have more than
+    `main`, `main` first.
 
     A source published as several schemas (MIMIC-IV's `hosp`/`icu`, eHOP's eleven
     Oracle schemas) would otherwise be unreachable through the two-part
@@ -1485,21 +1447,75 @@ def _role_schema_path(con: duckdb.DuckDBPyConnection) -> list[str]:
     it. Qualifying only reaches `role.schema.table`, so without this a
     multi-schema source breaks ~24 references per pipeline.
 
-    `main` is deliberately absent: `role.table` already resolves there, and adding
-    it would put a read-only role's tables in reach of an unqualified name.
-    Ordered by catalog then schema so a run is reproducible — with two schemas
-    holding the same table name, the winner must not depend on attach order."""
+    Once one schema of a catalog is on the path, DuckDB looks `role.table` up in
+    that catalog's listed schemas ONLY, no longer in its `main`: `main` has to be
+    listed too, or a table it holds stops resolving (`vocab.concept` failed as
+    soon as the library carried a stray schema). A role with `main` alone stays
+    off the path, where `role.table` already reads `main`. A name held by two
+    schemas is refused before the run (`_reject_ambiguous_role_refs`), so the
+    order never picks a table silently; it is fixed only to keep runs
+    reproducible."""
     rows = con.execute(
         "SELECT DISTINCT catalog_name, schema_name FROM information_schema.schemata "
         "WHERE catalog_name NOT IN ('system', 'temp', 'memory', 'target') "
-        "AND schema_name NOT IN ('main', 'information_schema', 'pg_catalog') "
-        "ORDER BY catalog_name, schema_name"
+        "AND schema_name NOT IN ('information_schema', 'pg_catalog') "
+        "ORDER BY catalog_name, schema_name <> 'main', schema_name"
     ).fetchall()
+    schemas: dict[str, list[str]] = {}
+    for cat, schema in rows:
+        schemas.setdefault(str(cat), []).append(str(schema))
     return [
-        f'"{_require_ident(str(cat), "catalog name")}".'
-        f'"{_require_ident(str(schema), "schema name")}"'
-        for cat, schema in rows
+        f'"{_require_ident(cat, "catalog name")}"."{_require_ident(schema, "schema name")}"'
+        for cat, names in schemas.items()
+        if names != ["main"]
+        for schema in names
     ]
+
+
+def _ambiguous_role_tables(con: duckdb.DuckDBPyConnection) -> dict[str, dict[str, list[str]]]:
+    """Role -> table name -> its schemas, for each name two schemas of one role
+    database hold. Lower-cased, as DuckDB matches names."""
+    rows = con.execute(
+        "SELECT lower(table_catalog), lower(table_name), "
+        "list(DISTINCT table_schema ORDER BY table_schema) "
+        "FROM information_schema.tables "
+        "WHERE table_catalog NOT IN ('system', 'temp', 'memory', 'target') "
+        "GROUP BY ALL HAVING count(DISTINCT table_schema) > 1"
+    ).fetchall()
+    out: dict[str, dict[str, list[str]]] = {}
+    for cat, table, schemas in rows:
+        out.setdefault(cat, {})[table] = list(schemas)
+    return out
+
+
+def _reject_ambiguous_role_refs(sql: str, ambiguous: dict[str, dict[str, list[str]]]) -> None:
+    """Refuse a two-part `role.table` whose table two schemas of that role hold.
+
+    The search path would resolve it to whichever schema comes first, reading one
+    module's table where the author may have meant the other's. The script has to
+    name the schema instead. Tokenized, so a literal or a comment never matches."""
+    if not ambiguous:
+        return
+    names = (duckdb.token_type.identifier, duckdb.token_type.keyword)
+    for stmt in _split_statements(sql):
+        tokens = _token_texts(stmt)
+        texts = [text for text, _ in tokens]
+        for i in range(len(tokens) - 2):
+            if tokens[i][1] not in names or tokens[i + 2][1] not in names:
+                continue
+            if texts[i + 1] != "." or (i > 0 and texts[i - 1] == "."):
+                continue
+            if i + 3 < len(tokens) and texts[i + 3] == ".":
+                continue
+            role = texts[i].strip('"').lower()
+            table = texts[i + 2].strip('"').lower()
+            schemas = ambiguous.get(role, {}).get(table)
+            if schemas:
+                options = " or ".join(f"{role}.{schema}.{table}" for schema in schemas)
+                raise ValueError(
+                    f"{role}.{table} is ambiguous: {', '.join(schemas)} each hold a "
+                    f"table {table}. Name the schema: {options}."
+                )
 
 
 def _alias_role(con: duckdb.DuckDBPyConnection, role: str, target_db: str) -> None:
@@ -1562,11 +1578,9 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
         # Attach a real (empty, in-memory) database named after the role and put
         # the views in ITS main schema. A schema of the same name in `memory`
         # would not resolve: `role.table` is looked up as schema-of-target first.
-        groups, borrowed = _group_parquet_placed(spec.get("files") or [], spec.get("known") or [])
-        aliases = _default_schema_aliases(groups, borrowed)
+        groups = _group_parquet(spec.get("files") or [], spec.get("known") or [])
         con.execute(f'ATTACH \':memory:\' AS "{role}"')
-        views = {**groups, **{(None, table): paths for table, paths in aliases.items()}}
-        for (schema, table), paths in views.items():
+        for (schema, table), paths in groups.items():
             safe_table = _require_ident(table, "parquet table name")
             # A folder laid out per module keeps its schemas, so `source.hosp.t`
             # works and two modules can hold the same table name. Without one the

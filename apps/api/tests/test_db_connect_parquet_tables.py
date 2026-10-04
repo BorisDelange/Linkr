@@ -215,7 +215,7 @@ def test_role_reaches_a_ddl_placed_table_by_its_two_part_name(tmp_path):
     # flat folder whose tables the DDL moved into `hosp` broke every pipeline.
     import duckdb
 
-    from app.services.data.db_connect import _attach_role
+    from app.services.data.db_connect import _attach_role, _role_schema_path
 
     seed = duckdb.connect()
     for name in ("admissions", "other"):
@@ -232,6 +232,7 @@ def test_role_reaches_a_ddl_placed_table_by_its_two_part_name(tmp_path):
     con = duckdb.connect()
     try:
         _attach_role(con, "source", spec)
+        con.execute(f"SET search_path = '{','.join(['memory', *_role_schema_path(con)])}'")
         assert con.execute("SELECT id FROM source.hosp.admissions").fetchone() == (1,)
         assert con.execute("SELECT id FROM source.admissions").fetchone() == (1,)
         assert con.execute("SELECT id FROM source.other").fetchone() == (1,)

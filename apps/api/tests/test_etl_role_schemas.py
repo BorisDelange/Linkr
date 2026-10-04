@@ -42,6 +42,12 @@ def multi_schema_source(tmp_path):
     con.execute("INSERT INTO hosp.patients VALUES (1), (2), (3)")
     con.execute("CREATE TABLE icu.icustays(stay_id BIGINT)")
     con.execute("INSERT INTO icu.icustays VALUES (10), (20)")
+    con.execute("CREATE TABLE hosp.transfers(n BIGINT)")
+    con.execute("INSERT INTO hosp.transfers VALUES (1)")
+    con.execute("CREATE TABLE icu.transfers(n BIGINT)")
+    con.execute("INSERT INTO icu.transfers VALUES (1), (2)")
+    con.execute("CREATE TABLE main.notes(n BIGINT)")
+    con.execute("INSERT INTO main.notes VALUES (1), (2), (3), (4), (5)")
     con.close()
     return str(path)
 
@@ -117,3 +123,34 @@ def test_single_schema_role_is_unaffected(target_db, tmp_path):
     con = duckdb.connect(target_db, read_only=True)
     assert con.execute("SELECT * FROM out_rows").fetchone()[0] == 4
     con.close()
+
+
+def _count(target_db):
+    con = duckdb.connect(target_db, read_only=True)
+    try:
+        return con.execute("SELECT * FROM out_rows").fetchone()[0]
+    finally:
+        con.close()
+
+
+def test_two_part_name_reaches_main_beside_other_schemas(target_db, multi_schema_source):
+    """Once a role's schemas are on the path DuckDB stops looking in its `main`
+    unless `main` is listed too — `vocab.concept` broke that way."""
+    _run(target_db, multi_schema_source,
+         "CREATE OR REPLACE TABLE target.out_rows AS SELECT count(*) FROM source.notes;")
+    assert _count(target_db) == 5
+
+
+def test_a_name_two_schemas_hold_is_refused(target_db, multi_schema_source):
+    """`source.transfers` could be hosp's or icu's: refused, naming both."""
+    with pytest.raises(ValueError, match=r"source\.transfers is ambiguous.*source\.hosp\.transfers or source\.icu\.transfers"):
+        _run(target_db, multi_schema_source,
+             "CREATE OR REPLACE TABLE target.out_rows AS SELECT count(*) FROM \"source\".transfers;")
+
+
+def test_an_ambiguous_name_with_its_schema_runs(target_db, multi_schema_source):
+    _run(target_db, multi_schema_source,
+         "-- source.transfers\n"
+         "CREATE OR REPLACE TABLE target.out_rows AS "
+         "SELECT count(*) FROM source.icu.transfers WHERE 'source.transfers' <> '';")
+    assert _count(target_db) == 2

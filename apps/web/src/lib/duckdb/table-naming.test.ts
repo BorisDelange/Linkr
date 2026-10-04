@@ -270,8 +270,16 @@ describe('defaultSchemaAliases', () => {
     ])
   })
 
-  it('leaves a module directory alone — its schema is real, not borrowed', () => {
-    expect(defaultSchemaAliases(['mimic/hosp/admissions.parquet', 'mimic/icu/icustays.parquet'], ['hosp.admissions']).size).toBe(0)
+  it('aliases a module directory\'s tables too, so source.admissions finds hosp.admissions', () => {
+    expect([...defaultSchemaAliases(['mimic/hosp/admissions.parquet', 'mimic/icu/icustays.parquet'])]).toEqual([
+      ['admissions', 'hosp.admissions'],
+      ['icustays', 'icu.icustays'],
+    ])
+  })
+
+  it('gives no alias to a name two schemas hold, nor to one main already holds', () => {
+    const files = ['db/hosp/transfers.parquet', 'db/icu/transfers.parquet', 'db/hosp/notes.parquet', 'db/notes.parquet']
+    expect(defaultSchemaAliases(files).size).toBe(0)
   })
 })
 
