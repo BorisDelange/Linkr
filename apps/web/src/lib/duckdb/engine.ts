@@ -886,9 +886,22 @@ function isShardFileName(baseName: string): boolean {
   // that merely starts with one of these words (`data_quality`, `file_registry`).
   // A bare number or date (`0001`, `1999-01`) names no table either, nor the
   // vocabulary library's per-vocabulary partitions (`concept/vocab-SNOMED`).
+  // pyarrow's `write_to_dataset` names its files `<uuid hex>-0`.
   return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName)
     || /^\d+([-_.]\d+)*$/.test(baseName)
     || /^vocab-[\w-]+$/.test(baseName)
+    || /^[0-9a-f]{32}(-\d+)?$/.test(baseName)
+}
+
+/** A hive partition directory (`measurement/year=2020/…`): neither a table nor a schema. */
+function isHiveSegment(segment: string): boolean {
+  return /^[^=]+=[^=]*$/.test(segment)
+}
+
+/** Path segments of a Parquet file, hive partition directories left out. */
+function pathParts(filePath: string): string[] {
+  const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  return [...parts.slice(0, -1).filter((p) => !isHiveSegment(p)), ...parts.slice(-1)]
 }
 
 /**
@@ -938,7 +951,7 @@ function knownSchemaOf(table: string, knownTables: string[] | undefined): string
  * Otherwise uses file/directory name heuristic.
  */
 export function extractTableName(filePath: string, knownTables?: string[]): string {
-  const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
+  const parts = pathParts(filePath)
   const knownSet = knownTables ? new Set(knownTables.map((t) => bareTableName(t).toLowerCase())) : null
   const baseName = parts[parts.length - 1].replace(/\.[^.]+$/, '').toLowerCase()
 
@@ -990,8 +1003,8 @@ function placeTableRef(
   knownTables?: string[],
 ): { schema: string | undefined; table: string; borrowed: boolean } {
   const table = extractTableName(filePath, knownTables)
-  const parts = filePath.replace(/\\/g, '/').split('/').filter(Boolean)
-  const rootParts = root.replace(/\\/g, '/').split('/').filter(Boolean)
+  const parts = pathParts(filePath)
+  const rootParts = root.replace(/\\/g, '/').split('/').filter((p) => p && !isHiveSegment(p))
   // Only strip the root when it really is this path's prefix: a caller may pass
   // the prefix of a different selection, and half-matching it would read a
   // table directory as a schema.

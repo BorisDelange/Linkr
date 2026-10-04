@@ -803,14 +803,24 @@ def introspect_file(engine: str, path: str) -> list[dict]:
     return [{"name": name, "columns": cols} for name, cols in tables.items()]
 
 
-# Numbered shards, bare numbers/dates, and the vocabulary library's
-# per-vocabulary partitions (`concept/vocab-SNOMED.parquet`).
+# Numbered shards, bare numbers/dates, the vocabulary library's per-vocabulary
+# partitions (`concept/vocab-SNOMED.parquet`) and pyarrow's `<uuid hex>-0` files.
+# ASCII like the frontend's `isShardFileName`, whose `\w`/`\d` are ASCII.
 _SHARD_RE = re.compile(
-    r"^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$|^\d+([-_.]\d+)*$|^vocab-[\w-]+$"
+    r"(part|chunk|data|file)[-_.]\d+([-_.]\w+)*|\d+([-_.]\d+)*|vocab-[\w-]+|[0-9a-f]{32}(-\d+)?",
+    re.ASCII,
 )
 # A shard named after its table directory (`document/document_1999-01`): only a
 # numeric/date suffix counts, so `ehop/ehop_patient` stays a table of its own.
-_NAMED_SHARD_SUFFIX_RE = re.compile(r"^[-_.]\d+([-_.]\d+)*$")
+_NAMED_SHARD_SUFFIX_RE = re.compile(r"[-_.]\d+([-_.]\d+)*", re.ASCII)
+# A hive partition directory (`measurement/year=2020/…`): neither a table nor a schema.
+_HIVE_SEGMENT_RE = re.compile(r"[^=]+=[^=]*")
+
+
+def _path_parts(file_name: str) -> list[str]:
+    """Path segments of a Parquet file, hive partition directories left out."""
+    parts = [p for p in file_name.replace("\\", "/").split("/") if p]
+    return [p for p in parts[:-1] if not _HIVE_SEGMENT_RE.fullmatch(p)] + parts[-1:]
 
 
 def _table_of(file_name: str, known: list[str]) -> str:
@@ -818,7 +828,7 @@ def _table_of(file_name: str, known: list[str]) -> str:
     prefer a known-table segment, else the file stem — falling back to the parent
     dir only for numbered shards (`admissions/part-00000.parquet`), where the
     directory carries the table identity."""
-    parts = [p for p in file_name.replace("\\", "/").split("/") if p]
+    parts = _path_parts(file_name)
     known_set = {k.rsplit(".", 1)[-1].lower() for k in known}
     stem = re.sub(r"\.[^.]+$", "", parts[-1]).lower()
     if stem in known_set:
@@ -835,8 +845,8 @@ def _table_of(file_name: str, known: list[str]) -> str:
 
 
 def _is_shard_of(stem: str, dir_name: str) -> bool:
-    return bool(_SHARD_RE.match(stem)) or (
-        stem.startswith(dir_name) and bool(_NAMED_SHARD_SUFFIX_RE.match(stem[len(dir_name):]))
+    return bool(_SHARD_RE.fullmatch(stem)) or (
+        stem.startswith(dir_name) and bool(_NAMED_SHARD_SUFFIX_RE.fullmatch(stem[len(dir_name):]))
     )
 
 
@@ -875,7 +885,8 @@ def _placed_table_ref(
     """`_table_ref_of` plus whether the schema was borrowed from the known tables
     rather than read off a module directory."""
     table = _table_of(file_name, known)
-    parts = [p for p in file_name.replace("\\", "/").split("/") if p]
+    parts = _path_parts(file_name)
+    root = [r for r in root if not _HIVE_SEGMENT_RE.fullmatch(r)]
     below = (
         parts[len(root):]
         if len(parts) > len(root)

@@ -274,6 +274,36 @@ describe('defaultSchemaAliases', () => {
   })
 })
 
+// Same cases as test_pyarrow_dataset_* (apps/api/tests/test_db_connect_parquet_tables.py).
+describe('pyarrow datasets', () => {
+  const file = (fileName: string) => ({ fileName, data: new ArrayBuffer(0) } as never)
+  const hex = '0123456789abcdef0123456789abcdef'
+
+  it('reads a `<uuid hex>-0` file as a shard of its directory', () => {
+    expect(extractTableName(`wh/measurement/${hex}-0.parquet`)).toBe('measurement')
+    expect(extractTableName(`wh/measurement/${hex}.parquet`, ['measurement'])).toBe('measurement')
+  })
+
+  it('skips hive partition directories on the way up to the table', () => {
+    expect(extractTableName(`wh/measurement/y=1/${hex}-0.parquet`, ['measurement'])).toBe('measurement')
+    expect(extractTableName(`wh/measurement/y=1/m=2/${hex}-0.parquet`)).toBe('measurement')
+  })
+
+  it('groups a partitioned table under its name, with no schema', () => {
+    const g = groupFilesByTable([
+      file(`wh/measurement/y=1/${hex}-0.parquet`),
+      file(`wh/measurement/y=2/${hex}-0.parquet`),
+      file('wh/person.parquet'),
+    ], ['measurement', 'person'])
+    expect([...g.keys()].sort()).toEqual(['measurement', 'person'])
+    expect(g.get('measurement')).toHaveLength(2)
+  })
+
+  it('keeps a name that is not a 32-hex uuid a table', () => {
+    expect(extractTableName('wh/measurement/0123456789abcdef-0.parquet')).toBe('0123456789abcdef-0')
+  })
+})
+
 describe('buildReaderExpr', () => {
   it('escapes a quote in a file name', () => {
     expect(buildReaderExpr(["db/O'Brien.parquet"])).toBe("read_parquet('db/O''Brien.parquet')")

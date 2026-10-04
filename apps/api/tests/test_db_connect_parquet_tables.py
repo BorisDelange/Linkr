@@ -255,3 +255,36 @@ def test_ddl_table_names_match_the_frontend():
     ddl = 'CREATE TABLE visit (\n  id INTEGER\n);\nCREATE TABLE IF NOT EXISTS "App"."Doc" (id INTEGER)'
     assert names(ddl) == ["visit", "App.Doc"]
     assert names("CREATE TABLE café (id INTEGER);") == []
+
+
+# Same cases as the 'pyarrow datasets' block of apps/web/src/lib/duckdb/table-naming.test.ts.
+HEX = "0123456789abcdef0123456789abcdef"
+
+
+def test_pyarrow_dataset_uuid_file_is_a_shard():
+    assert _table_of(f"wh/measurement/{HEX}-0.parquet", []) == "measurement"
+    assert _table_of(f"wh/measurement/{HEX}.parquet", ["measurement"]) == "measurement"
+
+
+def test_pyarrow_dataset_skips_hive_partition_directories():
+    assert _table_of(f"wh/measurement/y=1/{HEX}-0.parquet", ["measurement"]) == "measurement"
+    assert _table_of(f"wh/measurement/y=1/m=2/{HEX}-0.parquet", []) == "measurement"
+
+
+def test_pyarrow_dataset_groups_a_partitioned_table_without_a_schema():
+    files = [
+        (f"wh/measurement/y=1/{HEX}-0.parquet", "/tmp/m1.parquet"),
+        (f"wh/measurement/y=2/{HEX}-0.parquet", "/tmp/m2.parquet"),
+        ("wh/person.parquet", "/tmp/p.parquet"),
+    ]
+    groups = _group_parquet(files, ["measurement", "person"])
+    assert set(groups) == {(None, "measurement"), (None, "person")}
+    assert len(groups[(None, "measurement")]) == 2
+
+
+def test_pyarrow_dataset_keeps_a_name_that_is_not_a_uuid():
+    assert _table_of("wh/measurement/0123456789abcdef-0.parquet", []) == "0123456789abcdef-0"
+
+
+def test_shard_names_are_ascii_like_the_frontend():
+    assert _table_of("wh/labevents/part-\u0663.parquet", []) == "part-\u0663"
