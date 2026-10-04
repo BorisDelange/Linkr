@@ -86,6 +86,8 @@ def _static_jedi():
 _static_lock = threading.Lock()
 
 
+# Twins: `_complete` in kernel.py (live kernel) and completePython in
+# apps/web/src/lib/runtimes/pyodide-engine.ts.
 def _python_static(code: str, cursor: int) -> list[dict]:
     setup = _static_jedi()
     if setup is None:
