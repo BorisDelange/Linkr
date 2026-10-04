@@ -114,6 +114,7 @@ export function useCatalogInstall(
           ...(result.skippedOrgName
             ? [t('workspaces.import_org_skipped_body', { name: result.skippedOrgName })]
             : []),
+          ...(result.aliasRenames ?? []).map((renamed) => t('databases.import_alias_renamed', renamed)),
           ...(result.warning ? [result.warning] : []),
         ]
         if (notices.length) {

@@ -6,7 +6,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
-import { formatApiError, isServerMode } from '@/lib/api-client'
+import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-client'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -50,6 +50,7 @@ import { generateAlias } from '@/lib/duckdb/engine'
 import { getStorage } from '@/lib/storage'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
+import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { parseDatabaseZip, importParsedDatabase, type ParsedDatabaseZip } from '@/lib/entity-io'
 import { findLineageMatch } from '@/lib/import-identity'
 import { DatabaseCard } from '@/features/projects/warehouse/databases/DatabaseCard'
@@ -289,6 +290,7 @@ export function AppDatabasesPage() {
   const [presetDialogOpen, setPresetDialogOpen] = useState(false)
   const [importOpen, setImportOpen] = useState(false)
   const [conflict, setConflict] = useState<{ name: string; pending: ParsedDatabaseZip; gitRemote?: ImportGitRemote } | null>(null)
+  const [importWarning, setImportWarning] = useState<FormattedError | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<string[]>([])
   const [projectFilter, setProjectFilter] = useState<string[]>([])
@@ -366,18 +368,21 @@ export function AppDatabasesPage() {
     duplicate: boolean,
     gitRemote?: ImportGitRemote,
   ) => {
-    await importParsedDatabase(
+    const imported = await importParsedDatabase(
       parsed,
       getStorage(),
       duplicate,
       wsUid,
       gitRemote ? { url: gitRemote.url, branch: gitRemote.branch } : undefined,
     )
+    if (imported?.aliasRenamed) {
+      setImportWarning({ summary: t('databases.import_alias_renamed', imported.aliasRenamed), detail: null })
+    }
     await loadDataSources()
     // The tree may carry the database's own cohorts and patient board.
     await useCohortStore.getState().loadCohorts()
     usePatientChartStore.setState({ loaded: false })
-  }, [wsUid, loadDataSources])
+  }, [wsUid, loadDataSources, t])
 
   /** A database repo carries its Parquet, so the ZIP is read as bytes rather than
    *  through parseImportZip (which decodes every entry as text). */
@@ -574,6 +579,13 @@ export function AppDatabasesPage() {
         existingName={conflict?.name ?? ''}
         onDuplicate={() => { if (conflict) void doImport(conflict.pending, true, conflict.gitRemote); setConflict(null) }}
         onOverwrite={() => { if (conflict) void doImport(conflict.pending, false, conflict.gitRemote); setConflict(null) }}
+      />
+
+      <ImportErrorDialog
+        error={importWarning}
+        onClose={() => setImportWarning(null)}
+        title={t('databases.import_alias_renamed_title')}
+        variant="warning"
       />
 
 

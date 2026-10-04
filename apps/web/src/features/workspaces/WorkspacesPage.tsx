@@ -142,9 +142,10 @@ export function WorkspacesPage() {
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
   const [importError, setImportError] = useState<FormattedError | null>(null)
   /** Non-fatal: the workspace imported, this only says what is missing from it. */
-  const [importWarning, setImportWarning] = useState<FormattedError | null>(null)
+  /** Shown one after the other: each carries its own title. */
+  const [importWarnings, setImportWarnings] = useState<{ title: string; notice: FormattedError }[]>([])
   /** Held back while the git-linked summary is up, so the two dialogs don't stack. */
-  const [pendingOrgWarning, setPendingOrgWarning] = useState<FormattedError | null>(null)
+  const [pendingWarnings, setPendingWarnings] = useState<{ title: string; notice: FormattedError }[]>([])
   /** Git-linked entities found in the last import (metadata only — content stays in their repos). */
   const [gitLinkedSummary, setGitLinkedSummary] = useState<GitLinkedEntity[] | null>(null)
   // Target workspace for a manual clone-retry from the summary dialog — without it
@@ -333,7 +334,7 @@ export function WorkspacesPage() {
   const runImport = useCallback(async (parsed: ParsedWorkspaceZip, duplicate: boolean) => {
     setImportProgress({ phaseKey: 'workspaces.import_phase_workspace' })
     try {
-      const { targetWsId, idMap, skippedOrgName } = await doImport(parsed, duplicate)
+      const { targetWsId, idMap, skippedOrgName, aliasRenames } = await doImport(parsed, duplicate)
       let gitLinkedShown = false
       // Git-linked entities carry only metadata in the workspace ZIP — their full
       // content lives in their repos. Auto-clone each and load it now (server mode),
@@ -403,12 +404,18 @@ export function WorkspacesPage() {
         gitLinkedShown = anyFailed
       }
       // Both are AlertDialogs and would stack, so the git-linked summary — which the
-      // user must act on — wins; the org notice waits for it to close.
-      if (skippedOrgName) {
-        const notice = { summary: t('workspaces.import_org_skipped_body', { name: skippedOrgName }), detail: null }
-        if (gitLinkedShown) setPendingOrgWarning(notice)
-        else setImportWarning(notice)
-      }
+      // user must act on — wins; the notices wait for it to close.
+      const warnings = [
+        ...(skippedOrgName
+          ? [{ title: t('workspaces.import_org_skipped_title'), notice: { summary: t('workspaces.import_org_skipped_body', { name: skippedOrgName }), detail: null } }]
+          : []),
+        ...aliasRenames.map((renamed) => ({
+          title: t('databases.import_alias_renamed_title'),
+          notice: { summary: t('databases.import_alias_renamed', renamed), detail: null },
+        })),
+      ]
+      if (gitLinkedShown) setPendingWarnings(warnings)
+      else setImportWarnings(warnings)
     } catch (err) {
       setImportError(formatApiError(err))
     } finally {
@@ -716,9 +723,9 @@ export function WorkspacesPage() {
       {/* Import error dialog */}
       <ImportErrorDialog error={importError} onClose={() => setImportError(null)} />
       <ImportErrorDialog
-        error={importWarning}
-        onClose={() => setImportWarning(null)}
-        title={t('workspaces.import_org_skipped_title')}
+        error={importWarnings[0]?.notice ?? null}
+        onClose={() => setImportWarnings((queue) => queue.slice(1))}
+        title={importWarnings[0]?.title}
         variant="warning"
       />
 
@@ -729,7 +736,7 @@ export function WorkspacesPage() {
           if (open) return
           setGitLinkedSummary(null)
           setGitLinkedWsId(null)
-          if (pendingOrgWarning) { setImportWarning(pendingOrgWarning); setPendingOrgWarning(null) }
+          if (pendingWarnings.length) { setImportWarnings(pendingWarnings); setPendingWarnings([]) }
         }}
       >
         <AlertDialogContent>

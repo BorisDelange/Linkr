@@ -1707,10 +1707,10 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         const parsed = (await parseDatabaseZip(await repoZip()))!
 
         const over = makeStore()
-        expect(await importParsedDatabase(parsed, over.store, false)).toBe('mimic-iv-demo')
+        expect((await importParsedDatabase(parsed, over.store, false))?.id).toBe('mimic-iv-demo')
 
         const dup = makeStore()
-        const dupId = await importParsedDatabase(parsed, dup.store, true)
+        const dupId = (await importParsedDatabase(parsed, dup.store, true))?.id
         expect(dupId).not.toBe('mimic-iv-demo')
         expect(dupId).toBeTruthy()
       })
@@ -1743,8 +1743,9 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
           },
         }) as unknown as Storage
 
-        await importParsedDatabase(parsed, store, true)
+        const result = await importParsedDatabase(parsed, store, true)
         expect(stored!.alias).toBe('mimic_iv_demo_2')
+        expect(result?.aliasRenamed).toEqual({ from: 'mimic_iv_demo', to: 'mimic_iv_demo_2' })
       })
 
       it('creates the data source before registering its files', async () => {
@@ -1908,7 +1909,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         const { store } = makeStore([
           { id: 'row-written-last-time', lineageId: 'lin-db', workspaceId: 'ws1' },
         ])
-        expect(await importParsedDatabase(parsed, store, false, 'ws1')).toBe('row-written-last-time')
+        expect((await importParsedDatabase(parsed, store, false, 'ws1'))?.id).toBe('row-written-last-time')
       })
 
       // applyClonedDatabase clears the previous Parquet before writing, so landing
@@ -1918,7 +1919,7 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
         const { store } = makeStore([
           { id: 'mimic-iv-demo', workspaceId: 'other-ws' },
         ])
-        const id = await importParsedDatabase(parsed, store, false, 'ws1')
+        const id = (await importParsedDatabase(parsed, store, false, 'ws1'))?.id
         expect(id).not.toBe('mimic-iv-demo')
         expect(id).toBeTruthy()
       })

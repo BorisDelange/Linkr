@@ -3811,7 +3811,7 @@ export async function importParsedDatabase(
   duplicate: boolean,
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
-): Promise<string | null> {
+): Promise<{ id: string; aliasRenamed?: { from: string; to: string } } | null> {
   const rows = await storage.dataSources.getAll().catch(() => [])
   const wsId = workspaceId ?? ''
   const byLineage = findLineageMatch(rows, parsed, wsId)
@@ -3819,9 +3819,9 @@ export async function importParsedDatabase(
     ? crypto.randomUUID()
     : byLineage?.id
       ?? resolveSlugLanding(parsed.id, rows.find((ds) => ds.id === parsed.id), wsId)
-  const ok = await applyClonedDatabase(parsed.zip, targetId, storage, workspaceId, gitRemoteConfig)
-  if (!ok) return null
-  return targetId
+  const applied = await applyClonedDatabase(parsed.zip, targetId, storage, workspaceId, gitRemoteConfig)
+  if (!applied.ok) return null
+  return { id: targetId, ...(applied.aliasRenamed ? { aliasRenamed: applied.aliasRenamed } : {}) }
 }
 
 /**

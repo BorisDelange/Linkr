@@ -26,6 +26,8 @@ import type { ParsedWorkspaceZip } from '@/lib/entity-io'
 import { rederiveTreeIds } from '@/lib/entity-tree'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { getStorage } from '@/lib/storage'
+import { isServerMode } from '@/lib/api-client'
+import { aliasesInScope, ensureUniqueAlias } from '@/lib/alias'
 import { restoreImportedScores } from '@/lib/concept-mapping/scores-restore'
 import { resolveConceptSetRefs, type ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 import type { DataSource, DataSourceRef, MappingProject, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
@@ -112,6 +114,9 @@ export interface WorkspaceImportResult {
   targetWsId: string
   idMap: Map<string, string>
   skippedOrgName: string | null
+  /** Databases created under another alias than their manifest's, because that
+   *  one was taken in their scope: what came with them still queries `ds_<from>`. */
+  aliasRenames: { from: string; to: string }[]
 }
 
 export async function importWorkspaceTree(
@@ -124,6 +129,7 @@ export async function importWorkspaceTree(
   const { appVersion: _av, ...wsMeta } = parsed.workspace
   /** Set when the linked organization could not be created (see the org block below). */
   let skippedOrgName: string | null = null
+  const aliasRenames: { from: string; to: string }[] = []
   // `organizationId` is stripped as an instance field, so the manifest carries
   // the org only as an inline snapshot — whose `id` IS the cross-instance UUID
   // (an org's UUID is stable; it is what the catalog indexes). Without putting
@@ -458,24 +464,31 @@ export async function importWorkspaceTree(
         continue
       }
     }
+    // A git-linked database is a POINTER: its manifest carries identity and the
+    // remote, and nothing else — the payload lives in the repo and arrives with
+    // the clone a moment later. `alias` is the one field the server requires
+    // with no default, so without it a workspace holding a linked database
+    // fails its whole install on a 422 before any clone runs.
+    //
+    // It names the DuckDB schema (`ds_<alias>`); the entity id (else the row id)
+    // is a unique stand-in — the same fallback applyClonedDatabase uses. And the
+    // same uniqueness rule: two rows on one alias would both mount as
+    // `ds_<alias>`. The clone that follows keeps this row's alias.
+    const wantedAlias = ds.alias ?? ds.entityId ?? id
+    const alias = ensureUniqueAlias(
+      wantedAlias,
+      aliasesInScope(await storage.dataSources.getAll().catch(() => []), targetWsId, { instanceWide: !isServerMode(), exceptId: id }),
+    )
+    if (alias !== wantedAlias && ds.alias) aliasRenames.push({ from: ds.alias, to: alias })
     await storage.dataSources.create({
-      // A git-linked database is a POINTER: its manifest carries identity and the
-      // remote, and nothing else — the payload lives in the repo and arrives with
-      // the clone a moment later. `alias` is the one field the server requires
-      // with no default, so without this a workspace holding a linked database
-      // fails its whole install on a 422 before any clone runs.
-      //
-      // It names the DuckDB schema (`ds_<alias>`); the entity id (else the row id)
-      // is a unique stand-in until the clone writes the repo's own — the same
-      // fallback applyClonedDatabase uses, so the two paths agree.
-      alias: ds.alias ?? ds.entityId ?? id,
-      // Same reasoning for the connection: an export writes none (a database's
+      // Same reasoning as the alias for the connection: an export writes none (a database's
       // rows never leave), yet every reader of a data source dereferences
       // `connectionConfig.engine` — so a pointer landed a row that threw on the
       // Databases page instead of reading as "no data yet". An empty file source
       // is what it truthfully is until the clone mounts its Parquet.
       connectionConfig: { engine: 'duckdb', fileIds: [], fileNames: [] },
       ...ds,
+      alias,
       id,
       ...importedDatabaseLineage(ds, duplicate),
       workspaceId: targetWsId,
@@ -947,5 +960,5 @@ export async function importWorkspaceTree(
   // whole app with a full-screen loader. Reload it now (flips the flag back to true)
   // instead of waiting for some later loadCatalogs() to un-block the shell.
   await useCatalogStore.getState().loadCatalogs()
-  return { targetWsId, idMap, skippedOrgName }
+  return { targetWsId, idMap, skippedOrgName, aliasRenames }
 }

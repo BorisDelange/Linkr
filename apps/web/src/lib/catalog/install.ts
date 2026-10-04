@@ -63,6 +63,8 @@ export interface InstallResult {
    * rather than folded into `warning`, which is pre-rendered text.
    */
   skippedOrgName?: string
+  /** Databases installed under another alias than their repo's, raw for the same reason. */
+  aliasRenames?: { from: string; to: string }[]
 }
 
 /**
@@ -521,7 +523,7 @@ async function installWorkspaceEntry(
   parsed.workspace.gitRemoteConfig = git
 
   try {
-    const { targetWsId, idMap, skippedOrgName } = await importWorkspaceTree(parsed, {
+    const { targetWsId, idMap, skippedOrgName, aliasRenames } = await importWorkspaceTree(parsed, {
       // Only a real lineage match makes "keep both" meaningful — see the note above.
       duplicate: duplicate && (await workspaceLineageExists(parsed.workspace.lineageId)),
       language,
@@ -547,6 +549,7 @@ async function installWorkspaceEntry(
         ? { warning: failed.map((f) => `${f.name}: ${f.reason}`).join('\n') }
         : {}),
       ...(skippedOrgName ? { skippedOrgName } : {}),
+      ...(aliasRenames.length ? { aliasRenames } : {}),
     }
   } catch (err) {
     return { ok: false, failure: 'apply-failed', error: err instanceof Error ? err.message : String(err) }
@@ -680,9 +683,11 @@ export async function commitCatalogInstall(
 
   let ok = false
   let applyError: string | undefined
+  let aliasRenamed: { from: string; to: string } | undefined
   try {
     const applied = await applyClonedEntity(zip, entry.type, id, storage, workspaceId, git)
     ok = applied.ok
+    aliasRenamed = applied.aliasRenamed
     // The reader names the file it wanted; describeUnreadableTree adds what the
     // archive actually holds, which is the half that identifies a wrong repo.
     if (!ok && applied.context) applyError = `Missing ${applied.context}. ${describeUnreadableTree(zip, entry.type)}`
@@ -713,5 +718,5 @@ export async function commitCatalogInstall(
   // later — same as the workspace-import clone loop.
   await anchorClonedEntity(entry.type, id, branch, oid)
 
-  return { ok: true, id }
+  return { ok: true, id, ...(aliasRenamed ? { aliasRenames: [aliasRenamed] } : {}) }
 }
