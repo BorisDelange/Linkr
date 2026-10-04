@@ -552,7 +552,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   }, [files, filesLoaded, activePipelineId, pipelineId])
 
   const activeWorkspaceId = useWorkspaceStore((st) => st.activeWorkspaceId)
-  // Resolve vocabulary data source schema for the selected mapping project
   const vocabSchema = useMemo(() => {
     const project = mappingProjects.find((p) => p.id === selectedProjectId)
     const vocabDsId = vocabularyDataSourceIdFor(project ?? { workspaceId: activeWorkspaceId ?? undefined }, dataSources)
@@ -691,8 +690,8 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       setResult({
         success: false,
         count: 0,
-        error: t('etl.vocab_no_vocab_ds'),
-        errorHint: t('etl.vocab_no_vocab_ds_hint'),
+        error: t('etl.vocab_no_workspace_vocab'),
+        errorHint: t('etl.vocab_no_workspace_vocab_hint'),
       })
       return
     }
@@ -766,9 +765,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
             count: readiness.emptyExports.length,
           }),
     },
-    selectedProjectId && !vocabSchema && {
-      text: t('etl.vocab_no_vocab_ds'),
-      hint: t('etl.vocab_no_vocab_ds_hint'),
+    !vocabSchema && {
+      text: t('etl.vocab_no_workspace_vocab'),
+      hint: t('etl.vocab_no_workspace_vocab_hint'),
     },
   ].filter(Boolean) as { text: string; hint?: string }[]
 
