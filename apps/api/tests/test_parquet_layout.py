@@ -64,3 +64,40 @@ async def test_route_reports_each_table_of_a_parquet_folder(client, monkeypatch,
     assert set(by_table) == {"measurement", "person"}
     assert by_table["measurement"]["scanFraction"] > 0.9
     assert by_table["person"]["scanFraction"] < 0.2
+
+
+def test_a_path_read_parquet_would_glob_is_left_out(tmp_path):
+    # `a?.parquet` would also read `ab.parquet`.
+    _write(tmp_path / "a?.parquet", "person_id")
+    _write(tmp_path / "ab.parquet", "v")
+    assert column_layout([str(tmp_path / "a?.parquet")], "person_id") == {"row_groups": 0, "scan_fraction": None}
+
+
+async def test_route_dedupes_checks_and_never_borrows_another_schemas_table(client, monkeypatch, tmp_path):
+    from app.config import settings
+
+    from tests.test_concept_stats_cache import _admin_headers, _workspace
+
+    monkeypatch.setattr(settings, "fs_browse_roots", str(tmp_path))
+    folder = tmp_path / "wh"
+    (folder / "hosp").mkdir(parents=True)
+    (folder / "icu").mkdir()
+    _write(folder / "hosp" / "person.parquet", "v")
+    _write(folder / "icu" / "stays.parquet", "v")
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    r = await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "pq", "name": {"en": "PQ"}, "sourceType": "database",
+        "connectionConfig": {"engine": "parquet", "serverPath": str(folder)},
+    })
+    assert r.status_code == 201, r.text
+    src = r.json()["id"]
+
+    r = await client.post(f"{API}/data-sources/{src}/parquet-layout", headers=headers, json={"checks": [
+        {"schema": "hosp", "table": "person", "column": "person_id"},
+        {"schema": "HOSP", "table": "PERSON", "column": "PERSON_ID"},
+        {"schema": "icu", "table": "person", "column": "person_id"},
+    ]})
+    assert r.status_code == 200, r.text
+    assert [(e["schema"], e["table"]) for e in r.json()] == [("hosp", "person")]

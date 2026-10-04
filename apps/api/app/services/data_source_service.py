@@ -1111,6 +1111,11 @@ async def assemble_concept_cache(
     )
 
 
+# Each check reads the footers of every file of its table; the notice asks for a
+# few (table, patient column) pairs, so anything beyond this is not worth serving.
+PARQUET_LAYOUT_MAX_CHECKS = 40
+
+
 async def parquet_layout(db: AsyncSession, source: DataSource, checks: list[dict]) -> list[dict]:
     """For each (schema, table, column) asked, how a lookup by that column reads
     the table's Parquet files (`parquet_layout.column_layout`). Empty for a
@@ -1120,13 +1125,23 @@ async def parquet_layout(db: AsyncSession, source: DataSource, checks: list[dict
         return []
     tables = {name.lower(): paths for name, paths in parquet_table_paths(source, files).items()}
     out: list[dict] = []
+    seen: set[tuple[str, str]] = set()
     for check in checks:
         table = str(check.get("table") or "")
         schema = check.get("schema")
-        paths = tables.get(f"{schema}.{table}".lower() if schema else table.lower()) or tables.get(table.lower())
+        key = f"{schema}.{table}".lower() if schema else table.lower()
+        column = str(check.get("column") or "")
+        if (key, column.lower()) in seen:
+            continue
+        seen.add((key, column.lower()))
+        if len(seen) > PARQUET_LAYOUT_MAX_CHECKS:
+            break
+        # A schema-qualified table is looked up as such only: falling back to the
+        # bare name would report another schema's table of the same name.
+        paths = tables.get(key)
         if not paths:
             continue
-        layout = await asyncio.to_thread(parquet_layout_fs.column_layout, paths, str(check.get("column") or ""))
+        layout = await asyncio.to_thread(parquet_layout_fs.column_layout, paths, column)
         out.append({"schema": schema, "table": table, "column": check.get("column"), **layout})
     return out
 
