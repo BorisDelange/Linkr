@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils'
 export function CardGrid({ className, ...props }: ComponentProps<'div'>) {
   return (
     <div
+      // Scopes useCardSelection's Shift-press handling to the grid.
+      data-card-grid=""
       className={cn('grid grid-cols-[repeat(auto-fill,minmax(min(20rem,100%),1fr))] gap-3', className)}
       {...props}
     />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { clearsSelection, isSelectionClick, rangeAnchor, retainPresent } from './use-card-selection'
+import { blocksShiftTextSelection, clearsSelection, isSelectionClick, rangeAnchor, retainPresent } from './use-card-selection'
 import type { RowKey } from './data-table'
 
 const mods = (over: Partial<{ metaKey: boolean; ctrlKey: boolean; shiftKey: boolean }> = {}) => ({
@@ -85,5 +85,35 @@ describe('clearsSelection', () => {
     expect(clearsSelection(mods(), inside('button'))).toBe(false)
     expect(clearsSelection(mods(), inside('input'))).toBe(false)
     expect(clearsSelection(mods(), inside('[role="alertdialog"]'))).toBe(false)
+  })
+})
+
+describe('clearsSelection on a dialog overlay', () => {
+  const inside = (...ancestors: string[]) => ({
+    closest: (selector: string) => (ancestors.some((a) => selector.split(', ').includes(a)) ? {} : null),
+  }) as unknown as EventTarget
+
+  it('keeps it when the click dismisses a confirm by its overlay', () => {
+    expect(clearsSelection(mods(), inside('[data-slot="dialog-overlay"]'))).toBe(false)
+    expect(clearsSelection(mods(), inside('[data-slot="alert-dialog-overlay"]'))).toBe(false)
+  })
+})
+
+describe('blocksShiftTextSelection', () => {
+  const at = (...ancestors: string[]) => ({
+    closest: (selector: string) => (ancestors.some((a) => selector.split(', ').includes(a)) ? {} : null),
+  }) as unknown as EventTarget
+
+  it('blocks the press on a card grid', () => {
+    expect(blocksShiftTextSelection(at('[data-card-grid]'))).toBe(true)
+  })
+
+  it('leaves Shift-click text selection alone elsewhere on the page', () => {
+    expect(blocksShiftTextSelection(at('div'))).toBe(false)
+    expect(blocksShiftTextSelection(null)).toBe(false)
+  })
+
+  it('leaves a field inside the grid alone', () => {
+    expect(blocksShiftTextSelection(at('[data-card-grid]', 'input'))).toBe(false)
   })
 })

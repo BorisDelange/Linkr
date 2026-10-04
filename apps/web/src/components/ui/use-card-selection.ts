@@ -57,9 +57,10 @@ export function retainPresent(selected: Set<RowKey>, keys: RowKey[]): Set<RowKey
 /**
  * Where a plain click does not drop the selection: a control (the bulk action
  * acting on it, a toolbar), a field, or anything inside a dialog or menu — a
- * confirm dialog opened from the selection is portalled outside the grid.
+ * confirm dialog opened from the selection is portalled outside the grid, and
+ * clicking its overlay to dismiss it must not drop what it was about to act on.
  */
-const KEEPS_SELECTION = 'button, a, input, textarea, select, label, [role="button"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="option"], [data-radix-popper-content-wrapper]'
+const KEEPS_SELECTION = 'button, a, input, textarea, select, label, [role="button"], [role="dialog"], [role="alertdialog"], [role="menu"], [role="menuitem"], [role="listbox"], [role="option"], [data-radix-popper-content-wrapper], [data-slot="dialog-overlay"], [data-slot="alert-dialog-overlay"]'
 
 /** Whether a click drops the selection: plain, and on nothing that acts on it. */
 export function clearsSelection(e: ClickMods, target: EventTarget | null): boolean {
@@ -68,9 +69,16 @@ export function clearsSelection(e: ClickMods, target: EventTarget | null): boole
   return !el?.closest?.(KEEPS_SELECTION)
 }
 
-/** A press that should keep the browser's text selection: in a field. */
-function inEditable(target: EventTarget | null): boolean {
-  return target instanceof Element && !!target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')
+/**
+ * Whether a Shift-press should not extend the page's text selection: on a card
+ * grid (`CardGrid` carries `data-card-grid`), outside its fields. Elsewhere
+ * Shift-click keeps selecting text.
+ */
+export function blocksShiftTextSelection(target: EventTarget | null): boolean {
+  const el = target as { closest?: (selector: string) => unknown } | null
+  if (!el?.closest) return false
+  return !!el.closest('[data-card-grid]')
+    && !el.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')
 }
 
 export function useCardSelection(keys: RowKey[]): CardSelection {
@@ -79,10 +87,10 @@ export function useCardSelection(keys: RowKey[]): CardSelection {
 
   // Shift-press extends the page's text selection from the last click, which
   // highlights every card in between as soon as the button goes down: stopped
-  // at the press, while this grid is on screen.
+  // at the press, on the grid only.
   useEffect(() => {
     const onMouseDown = (e: MouseEvent) => {
-      if (e.shiftKey && e.button === 0 && !inEditable(e.target)) e.preventDefault()
+      if (e.shiftKey && e.button === 0 && blocksShiftTextSelection(e.target)) e.preventDefault()
     }
     document.addEventListener('mousedown', onMouseDown)
     return () => document.removeEventListener('mousedown', onMouseDown)
