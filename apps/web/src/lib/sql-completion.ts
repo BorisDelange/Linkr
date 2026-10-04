@@ -7,8 +7,8 @@
  *
  * Deliberately a lexer plus a few backward-looking rules, not a parser: the text
  * being completed is unfinished SQL, which no grammar accepts. Not handled:
- * dollar-quoted strings (`$$…$$`) and nested block comments — a `*/` closes the
- * outermost `/*`.
+ * dollar-quoted strings (`$$…$$`) and nested block comments — the first closing
+ * marker ends the outermost one.
  */
 
 export interface SqlCatalogColumn {
