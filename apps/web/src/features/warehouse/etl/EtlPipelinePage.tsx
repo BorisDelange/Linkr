@@ -267,7 +267,13 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           <EtlSchemasTab pipelineId={pipeline.id} initialDataSourceId={schemasDbId} />
         )}
         {activeTab === 'vocabulary' && <EtlVocabularyTab pipelineId={pipeline.id} />}
-        {activeTab === 'quality' && <EtlQualityTab pipelineId={pipeline.id} />}
+        {activeTab === 'quality' && (
+          <EtlQualityTab
+            pipelineId={pipeline.id}
+            onOpenScript={handleSelectFile}
+            onOpenVocabulary={() => setActiveTab('vocabulary')}
+          />
+        )}
       </div>
     </div>
   )

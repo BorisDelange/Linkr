@@ -65,6 +65,10 @@ let lastQualityTab: QualityTab = 'statistics'
 
 interface Props {
   pipelineId: string
+  /** Opens a script in the Scripts tab. */
+  onOpenScript: (fileId: string) => void
+  /** Opens the Vocabulary tab, where 00_vocabulary.sql is generated. */
+  onOpenVocabulary: () => void
 }
 
 /**
@@ -74,9 +78,12 @@ interface Props {
  * side, and per-concept counts comparing what arrived carrying a source concept
  * against what came out mapped to a standard one.
  */
-export function EtlQualityTab({ pipelineId }: Props) {
+export function EtlQualityTab({ pipelineId, onOpenScript, onOpenVocabulary }: Props) {
   const { t } = useTranslation()
   const { etlPipelines } = useEtlStore()
+  // A run holds the target open for writing, so reading it fails until the run
+  // ends. Both views wait for it instead of reporting an empty or broken target.
+  const targetBusy = useEtlStore((s) => s.pipelineRunning)
   const dataSources = useDataSourceStore((s) => s.dataSources)
   const [activeTab, setActiveTab] = useState<QualityTab>(lastQualityTab)
   const selectTab = useCallback((tab: QualityTab) => {
@@ -130,8 +137,17 @@ export function EtlQualityTab({ pipelineId }: Props) {
 
         <div className="min-h-0 min-w-0 flex-1">
           {activeTab === 'statistics'
-            ? <StatisticsView sourceDs={sourceDs} targetDs={targetDs} onActions={setActions} />
-            : <ConceptQualityView pipelineId={pipelineId} targetDs={targetDs} onActions={setActions} />}
+            ? <StatisticsView sourceDs={sourceDs} targetDs={targetDs} targetBusy={targetBusy} onActions={setActions} />
+            : (
+              <ConceptQualityView
+                pipelineId={pipelineId}
+                targetDs={targetDs}
+                targetBusy={targetBusy}
+                onActions={setActions}
+                onOpenScript={onOpenScript}
+                onOpenVocabulary={onOpenVocabulary}
+              />
+            )}
         </div>
       </div>
     </TooltipProvider>
@@ -142,18 +158,24 @@ export function EtlQualityTab({ pipelineId }: Props) {
 // Statistics — both databases side by side
 // ---------------------------------------------------------------------------
 
+type StatsResult = { stats: DatabaseStatsCache | null; error?: string }
+
 function StatisticsView({
   sourceDs,
   targetDs,
+  targetBusy,
   onActions,
 }: {
   sourceDs: DataSource | undefined
   targetDs: DataSource | undefined
+  targetBusy: boolean
   onActions: (node: React.ReactNode) => void
 }) {
   const { t, i18n } = useTranslation()
   const [sourceStats, setSourceStats] = useState<DatabaseStatsCache | null>(null)
   const [targetStats, setTargetStats] = useState<DatabaseStatsCache | null>(null)
+  const [sourceError, setSourceError] = useState<string>()
+  const [targetError, setTargetError] = useState<string>()
   const [loading, setLoading] = useState(false)
 
   /**
@@ -164,8 +186,8 @@ function StatisticsView({
    * databaseStatsCache — the same store the Databases page uses, backed by the
    * server's /stats-cache in server mode.
    */
-  const computeOne = async (ds: DataSource | undefined): Promise<DatabaseStatsCache | null> => {
-    if (!ds?.id || !ds.schemaMapping) return null
+  const computeOne = async (ds: DataSource | undefined): Promise<StatsResult> => {
+    if (!ds?.id || !ds.schemaMapping) return { stats: null }
     try {
       const fresh = await computeDatabaseStats(ds.id, ds.schemaMapping)
       // Merge, not replace: tableCounts belong to the schema browser, which fills
@@ -184,21 +206,27 @@ function StatisticsView({
         // Someone else may be showing these; keep them in step either way.
         notifyTableCounts(ds.id)
       }
-      return { ...fresh, tableCounts }
-    } catch {
-      return null
+      return { stats: { ...fresh, tableCounts } }
+    } catch (e) {
+      return { stats: null, error: errorText(e) }
     }
   }
 
+  const applySource = (r: StatsResult) => { setSourceStats(r.stats); setSourceError(r.error) }
+  const applyTarget = (r: StatsResult) => { setTargetStats(r.stats); setTargetError(r.error) }
+
   const computeStats = useCallback(async () => {
     setLoading(true)
-    const [src, tgt] = await Promise.all([computeOne(sourceDs), computeOne(targetDs)])
-    setSourceStats(src)
-    setTargetStats(tgt)
+    const [src, tgt] = await Promise.all([
+      computeOne(sourceDs),
+      targetBusy ? Promise.resolve(null) : computeOne(targetDs),
+    ])
+    applySource(src)
+    if (tgt) applyTarget(tgt)
     setLoading(false)
   // computeOne only reads the two data sources, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping, targetBusy])
 
   /** Newest of the two timestamps: one button recomputes both, so one date. */
   const computedAt = [sourceStats?.computedAt, targetStats?.computedAt]
@@ -257,25 +285,39 @@ function StatisticsView({
       // get the comparison the tab exists for. The guard that matters is the
       // saved result: once counted, arriving here costs nothing.
       const needsSource = !srcCached && !!sourceDs?.schemaMapping
-      const needsTarget = !tgtCached && !!targetDs?.schemaMapping
+      const needsTarget = !tgtCached && !!targetDs?.schemaMapping && !targetBusy
       if (!needsSource && !needsTarget) {
         setLoading(false)
         return
       }
       const [src, tgt] = await Promise.all([
-        needsSource ? computeOne(sourceDs) : Promise.resolve(srcCached ?? null),
-        needsTarget ? computeOne(targetDs) : Promise.resolve(tgtCached ?? null),
+        needsSource ? computeOne(sourceDs) : Promise.resolve({ stats: srcCached ?? null }),
+        needsTarget ? computeOne(targetDs) : Promise.resolve({ stats: tgtCached ?? null }),
       ])
       if (cancelled) return
-      setSourceStats(src)
-      setTargetStats(tgt)
+      applySource(src)
+      applyTarget(tgt)
       setLoading(false)
     }
     void load()
     return () => { cancelled = true }
   // computeOne only reads the two data sources, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping])
+  }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping, targetBusy])
+
+  // A run that just ended has rewritten the target: its saved figures describe
+  // the database before the run, so they are recounted rather than shown.
+  const wasBusy = useRef(targetBusy)
+  useEffect(() => {
+    const finished = wasBusy.current && !targetBusy
+    wasBusy.current = targetBusy
+    if (!finished || !targetDs?.schemaMapping) return
+    let cancelled = false
+    void computeOne(targetDs).then((r) => { if (!cancelled) applyTarget(r) })
+    return () => { cancelled = true }
+  // computeOne only reads the target, listed.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetBusy, targetDs?.id, targetDs?.schemaMapping])
 
   // Counting from the Browse-schema tab writes the same cache entry, so the
   // table list here follows along instead of staying at whatever it was when
@@ -301,8 +343,14 @@ function StatisticsView({
   return (
     <ScrollArea className="h-full">
       <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-2">
-        <StatsColumn label={t('etl.source')} ds={sourceDs} stats={sourceStats} loading={loading} accent="orange" />
-        <StatsColumn label={t('etl.target')} ds={targetDs} stats={targetStats} loading={loading} accent="emerald" />
+        <StatsColumn
+          label={t('etl.source')} ds={sourceDs} stats={sourceStats} error={sourceError}
+          loading={loading} accent="orange" onRetry={() => void computeStats()}
+        />
+        <StatsColumn
+          label={t('etl.target')} ds={targetDs} stats={targetStats} error={targetError}
+          busy={targetBusy} loading={loading} accent="emerald" onRetry={() => void computeStats()}
+        />
       </div>
     </ScrollArea>
   )
@@ -312,14 +360,20 @@ function StatsColumn({
   label,
   ds,
   stats,
+  error,
+  busy = false,
   loading,
   accent,
+  onRetry,
 }: {
   label: string
   ds: DataSource | undefined
   stats: DatabaseStatsCache | null
+  error?: string
+  busy?: boolean
   loading: boolean
   accent: 'orange' | 'emerald'
+  onRetry: () => void
 }) {
   const { t, i18n } = useTranslation()
   const borderColor = accent === 'orange' ? 'border-orange-500/30' : 'border-emerald-500/30'
@@ -342,7 +396,9 @@ function StatsColumn({
         <span className="min-w-0 truncate text-xs text-muted-foreground">— {localized(ds.name, i18n.language)}</span>
       </div>
 
-      {loading && (
+      {busy && <RunInProgressNotice text={t('etl.quality_stats_target_busy')} />}
+
+      {!busy && loading && (
         <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
           <Loader2 size={12} className="animate-spin" />
           {t('common.loading')}…
@@ -350,23 +406,25 @@ function StatsColumn({
       )}
 
       {/* Without this the card was a bare "Source — MIMIC-IV" and nothing else,
-          which reads as a rendering fault rather than "not computed". Server mode
-          never auto-counts, and a database with no data model has nothing to count. */}
-      {!loading && !stats && (
+          which reads as a rendering fault rather than "not computed". */}
+      {!busy && !loading && !stats && (
         <div className="space-y-2 py-1">
-          <p className="text-[11px] text-muted-foreground">
-            {/* A missing data model is the specific reason nothing can be
-                counted, and it says what to do about it. Anything else reaching
-                here means the computation ran and failed, in either mode — this
-                view now counts on arrival rather than waiting for the button. */}
-            {!ds.schemaMapping
-              ? t('etl.quality_stats_no_model')
-              : t('etl.quality_stats_unavailable')}
-          </p>
+          {/* A missing data model is the specific reason nothing can be counted,
+              and it says what to do about it. Otherwise the count ran and failed,
+              and the database's own error is the only useful explanation. */}
+          {!ds.schemaMapping ? (
+            <p className="text-xs text-muted-foreground">{t('etl.quality_stats_no_model')}</p>
+          ) : (
+            <QueryErrorNotice
+              text={t('etl.quality_stats_unavailable')}
+              error={error}
+              onRetry={onRetry}
+            />
+          )}
         </div>
       )}
 
-      {stats && (
+      {!busy && stats && (
         <div className="space-y-3">
           <div className="grid grid-cols-3 gap-2">
             <StatBox icon={<Users size={16} className="text-blue-500" />} value={stats.summary.patientCount} label={t('etl.sidebar_patients')} />
@@ -501,11 +559,17 @@ function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number;
 function ConceptQualityView({
   pipelineId,
   targetDs,
+  targetBusy,
   onActions,
+  onOpenScript,
+  onOpenVocabulary,
 }: {
   pipelineId: string
   targetDs: DataSource | undefined
+  targetBusy: boolean
   onActions: (node: React.ReactNode) => void
+  onOpenScript: (fileId: string) => void
+  onOpenVocabulary: () => void
 }) {
   const { t, i18n } = useTranslation()
   const language = i18n.language
@@ -517,6 +581,7 @@ function ConceptQualityView({
   const runHistory = useEtlStore((s) => s.runHistory)
   const runHistoryLoaded = useEtlStore((s) => s.runHistoryLoaded)
   const [rows, setRows] = useState<QualityConceptRow[]>([])
+  const [error, setError] = useState<string>()
   const [loading, setLoading] = useState(false)
   const [computedAt, setComputedAt] = useState<string | null>(null)
   const [diffFilter, setDiffFilter] = useState<QualityDiff | null>(null)
@@ -534,6 +599,7 @@ function ConceptQualityView({
       }
     }
     setLoading(true)
+    setError(undefined)
     try {
       const loaded = await loadConceptQuality(targetId)
       const at = new Date().toISOString()
@@ -546,8 +612,9 @@ function ConceptQualityView({
         fingerprint,
         rows: loaded,
       }).catch(() => {})
-    } catch {
+    } catch (e) {
       setRows([])
+      setError(errorText(e))
     } finally {
       setLoading(false)
     }
@@ -555,9 +622,16 @@ function ConceptQualityView({
 
   // Gated on the history being read: the fingerprint keys on the last run, so
   // firing early would compute against 'none' and then recompute a moment later.
+  // Held while a run writes the target; the run's end changes the fingerprint,
+  // which recounts on its own.
   useEffect(() => {
-    if (runHistoryLoaded) void load(false)
-  }, [load, runHistoryLoaded])
+    if (runHistoryLoaded && !targetBusy) void load(false)
+  }, [load, runHistoryLoaded, targetBusy])
+
+  // The script that fills the mappings, to open it straight from the empty state.
+  const vocabularyScriptId = useEtlStore((s) => s.files.find(
+    (f) => f.pipelineId === pipelineId && f.type === 'file' && f.name === VOCABULARY_SCRIPT,
+  )?.id)
 
   const counts = useMemo(() => countByDiff(rows), [rows])
   const shown = useMemo(
@@ -695,6 +769,14 @@ function ConceptQualityView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [language])
 
+  if (targetBusy) {
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <RunInProgressNotice text={t('etl.quality_concepts_target_busy')} />
+      </div>
+    )
+  }
+
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-xs text-muted-foreground">
@@ -704,14 +786,36 @@ function ConceptQualityView({
     )
   }
 
+  if (error) {
+    return (
+      <div className="mx-auto flex h-full max-w-xl flex-col justify-center p-6">
+        <QueryErrorNotice text={t('etl.quality_concepts_failed')} error={error} onRetry={() => void load(true)} />
+      </div>
+    )
+  }
+
   if (rows.length === 0) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
-        <p className="text-sm text-muted-foreground">{t('etl.comparison_no_mappings')}</p>
-        <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={() => void load(true)}>
-          <RefreshCw size={12} />
-          {t('common.refresh')}
-        </Button>
+      <div className="mx-auto flex h-full max-w-xl flex-col items-center justify-center gap-3 p-6 text-center">
+        <p className="text-sm">{t('etl.comparison_no_mappings_title')}</p>
+        <p className="text-xs text-muted-foreground">
+          {vocabularyScriptId
+            ? t('etl.comparison_no_mappings_run', { script: VOCABULARY_SCRIPT })
+            : t('etl.comparison_no_mappings_generate', { script: VOCABULARY_SCRIPT })}
+        </p>
+        <div className="flex items-center gap-2">
+          {vocabularyScriptId ? (
+            <Button size="sm" onClick={() => onOpenScript(vocabularyScriptId)}>
+              {t('etl.comparison_open_script', { script: VOCABULARY_SCRIPT })}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={onOpenVocabulary}>{t('etl.comparison_open_vocabulary')}</Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => void load(true)}>
+            <RefreshCw size={12} />
+            {t('common.refresh')}
+          </Button>
+        </div>
       </div>
     )
   }
@@ -724,7 +828,7 @@ function ConceptQualityView({
           data={shown}
           columns={columns}
           rowKey={(r) => `${r.sourceVocabularyId}|${r.sourceCode}|${r.targetConceptId}`}
-          emptyMessage={t('etl.comparison_no_mappings')}
+          emptyMessage={t('etl.comparison_no_mappings_title')}
           // A dictionary runs to thousands of mappings; rendering a DOM row for
           // each is what made sorting and resizing crawl.
           pageSize={100}
@@ -789,8 +893,9 @@ async function loadConceptQuality(targetDsId: string): Promise<QualityConceptRow
     LEFT JOIN concept t ON t.concept_id = cr.concept_id_2
     WHERE c.concept_id >= 2000000000
       AND cr.concept_id_2 != 0
-  `).catch(() => [])
+  `)
 
+  // Not every target has a source_to_concept_map: its absence only means none.
   const stcm = ccr.length > 0 ? ccr : await duckdbEngine.queryDataSource(targetDsId, `
     SELECT source_vocabulary_id, source_code, source_code_description,
            source_concept_id, target_concept_id, target_vocabulary_id
@@ -869,4 +974,40 @@ async function countConcepts(
     }
   }
   return counts
+}
+
+const VOCABULARY_SCRIPT = '00_vocabulary.sql'
+
+function errorText(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+function RunInProgressNotice({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2 py-1 text-xs text-muted-foreground">
+      <Loader2 size={12} className="mt-0.5 shrink-0 animate-spin" />
+      <p>{text}</p>
+    </div>
+  )
+}
+
+function QueryErrorNotice({ text, error, onRetry }: { text: string; error?: string; onRetry: () => void }) {
+  const { t } = useTranslation()
+  return (
+    <div className="space-y-2">
+      <p className="flex items-start gap-1.5 text-xs">
+        <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
+        {text}
+      </p>
+      {error && (
+        <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-muted px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
+          {error}
+        </pre>
+      )}
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        <RefreshCw size={12} />
+        {t('etl.quality_retry')}
+      </Button>
+    </div>
+  )
 }
