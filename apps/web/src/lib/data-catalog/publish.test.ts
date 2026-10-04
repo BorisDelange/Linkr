@@ -181,7 +181,7 @@ describe('the concept list at category level', () => {
     const withUncategorized = { ...cache, concepts: [...cache.concepts, uncategorized(5, 50, 90), uncategorized(6, 3, 10)] } as CatalogResultCache
     const withoutOneWay = { ...withUncategorized, crossings: cache.crossings!.filter((c) => c.id !== 'concept') } as CatalogResultCache
     for (const [crossings, results] of [[[['concept']], withUncategorized], [[['concept', 'sex']], withoutOneWay]] as const) {
-      expect(publishedConcepts(categoryCatalog(crossings as DataCatalog['crossings']), results).slice(4).map((c) => c.status)).toEqual([SECONDARY, PRIMARY])
+      expect(publishedConcepts(categoryCatalog(crossings as unknown as DataCatalog['crossings']), results).slice(4).map((c) => c.status)).toEqual([SECONDARY, PRIMARY])
     }
   })
 
