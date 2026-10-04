@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildReaderExpr, commonDirPrefix, defaultSchemaAliases, extractTableName, extractTableRef, fileGroupingTables, groupFilesByTable } from './engine'
+import { buildReaderExpr, commonDirPrefix, registeredFileName, defaultSchemaAliases, extractTableName, extractTableRef, fileGroupingTables, groupFilesByTable } from './engine'
 
 const MIMIC_IV_FILES = [
   'admissions', 'caregiver', 'chartevents', 'd_hcpcs', 'd_icd_diagnoses',
@@ -312,5 +312,17 @@ describe('buildReaderExpr', () => {
 
   it('keeps a backslash as is, since DuckDB does not read it as an escape', () => {
     expect(buildReaderExpr(['C:\\data\\x.parquet'])).toBe("read_parquet('C:\\data\\x.parquet')")
+  })
+})
+
+describe('registeredFileName', () => {
+  it('names a file opaquely, so its own name is never read as a glob', () => {
+    expect(registeredFileName('ds_x', 0, 'wh/a?.parquet')).toBe('linkr-ds_x/0/f.parquet')
+    expect(registeredFileName('ds_x', 1, "wh/[x]*'.CSV")).toBe('linkr-ds_x/1/f.csv')
+  })
+
+  it('keeps the hive partition folders, whose columns DuckDB reads off the path', () => {
+    expect(registeredFileName('ds_x', 2, 'wh/m/y=1/m=2/0123.parquet')).toBe('linkr-ds_x/2/y=1/m=2/f.parquet')
+    expect(registeredFileName('ds_x', 3, 'wh/m/y=a*/f.parquet')).toBe('linkr-ds_x/3/f.parquet')
   })
 })

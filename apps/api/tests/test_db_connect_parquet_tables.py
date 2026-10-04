@@ -288,3 +288,9 @@ def test_pyarrow_dataset_keeps_a_name_that_is_not_a_uuid():
 
 def test_shard_names_are_ascii_like_the_frontend():
     assert _table_of("wh/labevents/part-\u0663.parquet", []) == "part-\u0663"
+
+
+def test_a_path_read_parquet_would_glob_is_left_out():
+    # `a?.parquet` would also read `ab.parquet`; escaped, it no longer matches allowed_paths.
+    files = [("wh/a?.parquet", "/srv/wh/a?.parquet"), ("wh/ab.parquet", "/srv/wh/ab.parquet")]
+    assert _group_parquet(files, []) == {(None, "ab"): ["/srv/wh/ab.parquet"]}

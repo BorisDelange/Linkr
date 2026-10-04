@@ -88,6 +88,17 @@ def _sql_path(path: str) -> str:
     return str(path).replace("'", "''")
 
 
+_GLOB_CHARS = re.compile(r"[*?\[]")
+
+
+def has_glob_chars(path: str) -> bool:
+    """Whether `read_parquet` would expand `path` as a glob (`a?.parquet` also reads
+    `ab.parquet`). Such a file is left out rather than escaped: an escaped pattern
+    (`a[?].parquet`) is no longer the path `allowed_paths` grants, so the locked-down
+    connection could not read it anyway."""
+    return bool(_GLOB_CHARS.search(str(path)))
+
+
 def _lock_down_user_sql(con: duckdb.DuckDBPyConnection) -> None:
     """Harden a DuckDB connection that is about to run arbitrary client SQL:
     forbid auto-installing/loading unknown or community extensions, then lock the
@@ -935,6 +946,8 @@ def _group_parquet_placed(
     borrowed: set[tuple[str | None, str]] = set()
     for file_name, path in files:
         if not file_name.lower().endswith((".parquet", ".pq")):
+            continue
+        if has_glob_chars(path):
             continue
         schema, table, is_borrowed = _placed_table_ref(file_name, root, known)
         # Both are interpolated into quoted identifiers; a name that doesn't yield

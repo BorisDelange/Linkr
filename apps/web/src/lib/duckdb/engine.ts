@@ -251,7 +251,7 @@ export async function mountDataSource(
       // Single file -> ATTACH (DuckDB or SQLite)
       const file = files[0]
       await db.registerFileBuffer(file.fileName, new Uint8Array(file.data))
-      await conn.query(`ATTACH '${file.fileName}' AS "${schema}" (READ_ONLY)`)
+      await conn.query(`ATTACH ${pathLiteral(file.fileName)} AS "${schema}" (READ_ONLY)`)
       attachedSources.add(dataSource.id)
     }
   } finally {
@@ -1140,6 +1140,21 @@ function fileReaderFn(fileName: string): string {
 // itself, so doubling it would no longer name the registered `C:\data\x.csv`.
 const pathLiteral = (path: string): string => `'${path.replace(/'/g, "''")}'`
 
+/**
+ * The name a file is registered under in DuckDB's virtual filesystem: opaque, so
+ * a `?`, `*` or `[` in the user's file name is never read as a glob by
+ * `read_parquet` (`a?.parquet` would also read `ab.parquet`), and two sources
+ * holding the same relative path never share one registration. The extension
+ * picks the reader; the hive partition folders are kept so their columns still
+ * come through as they do on the server.
+ */
+export function registeredFileName(schema: string, index: number, fileName: string): string {
+  const parts = fileName.replace(/\\/g, '/').split('/').filter(Boolean)
+  const ext = /\.(parquet|pq|csv|tsv|txt|gz|duckdb|db|sqlite3?)$/i.exec(parts[parts.length - 1] ?? '')?.[0].toLowerCase() ?? ''
+  const hive = parts.slice(0, -1).filter((p) => isHiveSegment(p) && !/[*?[\]{}'\\]/.test(p))
+  return [`linkr-${schema}`, String(index), ...hive, `f${ext}`].join('/')
+}
+
 /** Build a DuckDB reader expression for one or more files (auto-detects CSV vs Parquet). */
 export function buildReaderExpr(fileNames: string[]): string {
   const fn = fileReaderFn(fileNames[0])
@@ -1165,12 +1180,13 @@ async function mountFileFolder(
   await conn.query(`ATTACH ':memory:' AS "${schema}"`)
   const byTable = groupFilesByTable(files, knownTables)
 
+  let index = 0
   for (const [key, tableFiles] of byTable) {
-    // Register all files for this table
     const registeredNames: string[] = []
     for (const f of tableFiles) {
-      await db.registerFileBuffer(f.fileName, new Uint8Array(f.data))
-      registeredNames.push(f.fileName)
+      const name = registeredFileName(schema, index++, f.fileName)
+      await db.registerFileBuffer(name, new Uint8Array(f.data))
+      registeredNames.push(name)
     }
 
     await createSourceView(conn, schema, key, buildReaderExpr(registeredNames))
@@ -1246,17 +1262,19 @@ export async function mountDataSourceFromHandles(
       const knownTables = fileGroupingTables(dataSource.schemaMapping)
       const byTable = groupHandlesByTable(handles, knownTables)
 
+      let index = 0
       for (const [key, tableHandles] of byTable) {
         const registeredNames: string[] = []
         for (const h of tableHandles) {
           const file = await h.handle.getFile()
+          const name = registeredFileName(schema, index++, h.fileName)
           await db.registerFileHandle(
-            h.fileName,
+            name,
             file,
             (await loadDuckDBModule()).DuckDBDataProtocol.BROWSER_FILEREADER,
             true,
           )
-          registeredNames.push(h.fileName)
+          registeredNames.push(name)
         }
 
         await createSourceView(conn, schema, key, buildReaderExpr(registeredNames))
@@ -1272,7 +1290,7 @@ export async function mountDataSourceFromHandles(
         (await loadDuckDBModule()).DuckDBDataProtocol.BROWSER_FILEREADER,
         true,
       )
-      await conn.query(`ATTACH '${h.fileName}' AS "${schema}" (READ_ONLY)`)
+      await conn.query(`ATTACH ${pathLiteral(h.fileName)} AS "${schema}" (READ_ONLY)`)
       attachedSources.add(dataSource.id)
     }
   } finally {
