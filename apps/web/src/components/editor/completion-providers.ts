@@ -5,7 +5,7 @@ import { completePython } from '@/lib/runtimes/pyodide-engine'
 import { completeR } from '@/lib/runtimes/webr-engine'
 import type { CodeCompletionItem } from '@/lib/runtimes/types'
 import { loadSqlCatalog } from '@/lib/sql-catalog'
-import { sqlCompletions, type SqlCompletionKind } from '@/lib/sql-completion'
+import { sqlCompletions, sqlSlot, type SqlCompletionKind } from '@/lib/sql-completion'
 
 /** What an editor completes against: a database's schema, or the project's kernel. */
 export type EditorCompletion =
@@ -129,8 +129,11 @@ function registerProviders(monaco: typeof Monaco) {
   }
 }
 
-const EMPTY_CATALOG = { schemas: [], defaultSchemas: [] }
 const IDLE_MS = 1000
+// The slot is read from this many lines before the cursor, not the whole script:
+// it runs on every keystroke. A block comment or string opened further up is
+// missed — the cost is a stray list after the pause.
+const SLOT_WINDOW_LINES = 200
 // The pause opens the list only when the word before the space calls for a name;
 // after `x = 1 ⎵` the user has finished a term and is about to type a keyword.
 const EXPECTS_NAME = /(?:\b(?:select|where|and|or|not|on|by|having|when|then|else|distinct|set|qualify)|[,(=<>+\-/])\s+$/i
@@ -154,15 +157,20 @@ export function attachSqlAutoSuggest(
     const ctx = get()
     if (!model || !pos || ctx?.kind !== 'sql' || !ctx.dataSourceId) return null
     if (model.getLanguageId() !== 'sql' || editor.getOption(monaco.editor.EditorOption.readOnly)) return null
-    const offset = model.getOffsetAt(pos)
-    // Right after whitespace, with no word started.
-    if (offset === 0 || !/\s/.test(model.getValue().charAt(offset - 1))) return null
-    return { model, pos, slot: sqlCompletions(model.getValue(), offset, EMPTY_CATALOG).slot }
+    // Right after whitespace, with no word started. A line break leaves the
+    // cursor at column 1: the character before it is that newline.
+    const prevChar = pos.column > 1
+      ? model.getValueInRange(new monaco.Range(pos.lineNumber, pos.column - 1, pos.lineNumber, pos.column))
+      : pos.lineNumber > 1 ? '\n' : ''
+    if (!/\s/.test(prevChar)) return null
+    const fromLine = Math.max(1, pos.lineNumber - SLOT_WINDOW_LINES)
+    const before = model.getValueInRange(new monaco.Range(fromLine, 1, pos.lineNumber, pos.column))
+    return { model, pos, slot: sqlSlot(before) }
   }
   const suggest = () => editor.trigger('auto', 'editor.action.triggerSuggest', {})
   const wantsName = (at: NonNullable<ReturnType<typeof slotAtCursor>>) => {
-    const from = at.model.getOffsetAt({ lineNumber: Math.max(1, at.pos.lineNumber - 1), column: 1 })
-    return EXPECTS_NAME.test(at.model.getValue().slice(from, at.model.getOffsetAt(at.pos)))
+    const fromLine = Math.max(1, at.pos.lineNumber - 1)
+    return EXPECTS_NAME.test(at.model.getValueInRange(new monaco.Range(fromLine, 1, at.pos.lineNumber, at.pos.column)))
   }
 
   const onType = editor.onDidChangeModelContent(() => {
