@@ -108,10 +108,11 @@ async def test_counting_run_routes(client, monkeypatch, tmp_path):
     base = f"{API}/data-sources/{src}/concept-cache"
 
     unit = {"sql": "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, "
-                   "COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM measurement GROUP BY concept_id"}
-    assert (await client.post(f"{base}/units/records-0", headers=headers, json=unit)).status_code == 400
+                   "COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM measurement GROUP BY concept_id",
+            "runId": "r1"}
+    assert (await client.post(f"{base}/units/records-0", headers=headers, json=unit)).status_code == 409
 
-    r = await client.put(f"{base}/run", headers=headers, json={"manifest": {"signature": "s"}, "reset": True})
+    r = await client.put(f"{base}/run", headers=headers, json={"manifest": {"signature": "s", "runId": "r1"}, "reset": True})
     assert r.status_code == 204
     r = await client.post(f"{base}/units/records-0", headers=headers, json=unit)
     assert r.status_code == 204, r.text
@@ -123,7 +124,7 @@ async def test_counting_run_routes(client, monkeypatch, tmp_path):
     assert r.json()["exists"] is True
 
     status = (await client.get(base, headers=headers)).json()
-    assert status["run"]["manifest"] == {"signature": "s"}
+    assert status["run"]["manifest"] == {"signature": "s", "runId": "r1"}
     assert status["run"]["doneUnits"] == ["records-0"]
 
     rows = (await client.post(f"{base}/query", headers=headers, json={"sql": "SELECT * FROM concepts ORDER BY concept_id"})).json()["rows"]
