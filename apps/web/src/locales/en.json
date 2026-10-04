@@ -637,6 +637,7 @@
     "count_paused": "Paused — the counts shown are partial.",
     "count_complete": "Counted on {{date}}",
     "count_open_tab": "Database Concepts tab",
+    "absent_tables_description": "Counts and patient data read them as empty. Missing: {{tables}}.",
     "count_step_records": "Rows per table",
     "count_step_patients": "Patients, slice by slice",
     "count_phase_planning": "Planning the run",

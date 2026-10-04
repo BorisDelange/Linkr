@@ -21,6 +21,7 @@
 
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import type { AbsentRelation } from '@/lib/schema-classes/presence'
 import { rangeCondition } from '@/lib/duckdb/catalog-queries'
 import type { SerializedRange } from '@/lib/duckdb/catalog-compute'
 import { deterministicId } from '@/lib/deterministic-id'
@@ -119,12 +120,16 @@ export function planConceptCountUnits(mapping: SchemaMapping, slices: readonly S
 }
 
 /**
- * Identifies what a run counts: the units' SQL. A paused run resumes only when
- * re-planning it over its own slices gives the same signature — a changed
- * mapping, or a build whose SQL changed, starts over instead of mixing counts.
+ * Identifies what a run counts: the units' SQL, and the relations it read as
+ * empty or without a join because the database lacked their table
+ * (`absentRelations`). A paused run resumes only when re-planning it over its
+ * own slices gives the same signature — a changed mapping, a build whose SQL
+ * changed, or a table that has since appeared starts over instead of mixing counts.
  */
-export function conceptCountSignature(units: readonly ConceptCountUnit[]): string {
-  return deterministicId(`concept-counts-v${CONCEPT_COUNT_VERSION}`, units.map((u) => `${u.key}\n${u.sql}`).join('\n\n'))
+export function conceptCountSignature(units: readonly ConceptCountUnit[], absent: readonly AbsentRelation[] = []): string {
+  const body = units.map((u) => `${u.key}\n${u.sql}`).join('\n\n')
+  const missing = absent.map((a) => `${a.specKey}:${a.empty ? 'empty' : 'join'}:${a.tables.join(',')}`).sort()
+  return deterministicId(`concept-counts-v${CONCEPT_COUNT_VERSION}`, missing.length ? `${body}\n\nabsent:${missing.join('\n')}` : body)
 }
 
 export interface ConceptCountStepProgress {

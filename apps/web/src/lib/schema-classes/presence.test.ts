@@ -28,6 +28,10 @@ describe('relationsPresentIn', () => {
     expect(absentRelations(omop, ALL)).toEqual([])
   })
 
+  it('finds a table the database holds under a schema the mapping does not name', () => {
+    expect(absentRelations(omop, ALL.map((t) => `omop.${t}`))).toEqual([])
+  })
+
   it('empties a relation whose table is missing, keeping its name and columns', () => {
     const device = relationsPresentIn(omop, without('device_exposure')).find((r) => r.key === 'Device')!
     expect(device.name).toBe(eventRelation(omop, 'Device')!.name)

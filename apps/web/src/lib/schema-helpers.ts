@@ -211,12 +211,17 @@ export function qualify(ref: { schema?: string; table: string }): string {
  * cache held thousands of rows.
  *
  * The unqualified name is still accepted, since a flat import reports it that way.
+ * The other way round, a ref naming no schema matches the table in any schema —
+ * the search path finds it there.
  * Case-insensitive: DuckDB lowercases the schemas it derives from directories,
  * while a mapping keeps whatever the preset author typed.
  */
 export function tableListHas(tables: readonly string[], ref: { schema?: string; table: string }): boolean {
   if (!ref.table) return false
-  const wanted = new Set<string>([ref.table.toLowerCase()])
-  if (ref.schema) wanted.add(`${ref.schema.toLowerCase()}.${ref.table.toLowerCase()}`)
-  return tables.some((t) => wanted.has(t.toLowerCase()))
+  const table = ref.table.toLowerCase()
+  const qualified = ref.schema ? `${ref.schema.toLowerCase()}.${table}` : null
+  return tables.some((t) => {
+    const name = t.toLowerCase()
+    return name === table || name === qualified || (!qualified && name.endsWith(`.${table}`))
+  })
 }

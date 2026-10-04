@@ -18,6 +18,7 @@ import { isProjectBoard, usePatientChartStore } from '@/stores/patient-chart-sto
 import { PatientChartContext } from './patient-data/PatientChartContext'
 import { PatientChartTabBar } from './patient-data/PatientChartTabBar'
 import { PatientChartGrid } from './patient-data/PatientChartGrid'
+import { AbsentRelationsNotice } from './concepts/AbsentRelationsNotice'
 import { TabVisibilityContext } from './patient-data/TabVisibilityContext'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
@@ -371,6 +372,7 @@ export function PatientDataPage() {
             </div>
           </TooltipProvider>
         </div>
+        <AbsentRelationsNotice dataSourceId={dataSourceId} mapping={schemaMapping} className="mx-3 mt-2" />
 
         {/* Main content: dashboard + sidebar */}
         <div ref={containerRef} className="flex-1 overflow-hidden">

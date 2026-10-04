@@ -69,6 +69,7 @@ import {
 import { packSetNames, unpackSetNames } from './concepts/concept-set-names'
 import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptCountNotice } from './concepts/ConceptCountNotice'
+import { AbsentRelationsNotice } from './concepts/AbsentRelationsNotice'
 import { ConceptDetail } from './concepts/ConceptDetail'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useConceptsDatabase } from './concepts/use-concepts-database'
@@ -712,6 +713,7 @@ export function ConceptsPage() {
         </div>
       </TooltipProvider>
 
+      <AbsentRelationsNotice dataSourceId={mappedSource?.id} mapping={mappedSource?.schemaMapping} className="mx-4 mt-2" />
       <ConceptCountNotice count={count} dataSourceId={mappedSource?.id} className="mx-4 mt-2" />
 
       <ConceptListModal

@@ -175,6 +175,12 @@ describe('tableListHas', () => {
     expect(tableListHas(['d_items'], { schema: 'icu', table: 'd_items' })).toBe(true)
   })
 
+  it('matches a ref naming no schema against the table in any schema', () => {
+    expect(tableListHas(mimic, { table: 'chartevents' })).toBe(true)
+    expect(tableListHas(mimic, { table: 'D_ITEMS' })).toBe(true)
+    expect(tableListHas(mimic, { table: 'events' })).toBe(false)
+  })
+
   it('ignores case, since derived schemas are lowercased', () => {
     expect(tableListHas(['ICU.D_Items'], { schema: 'icu', table: 'd_items' })).toBe(true)
     expect(tableListHas(mimic, { schema: 'ICU', table: 'D_ITEMS' })).toBe(true)

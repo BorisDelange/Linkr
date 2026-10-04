@@ -9,6 +9,7 @@ import {
 } from './concept-count-plan'
 import { buildConceptsAssembleQuery, buildConceptsQuery, computeAvailableColumns, CONCEPT_COUNTS_VIEW } from './concept-queries'
 import { conceptRelations } from '@/lib/schema-classes/relations'
+import { absentRelations } from '@/lib/schema-classes/presence'
 
 const v1 = {
   patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth', genderColumn: 'gender_concept_id' },
@@ -65,6 +66,16 @@ describe('conceptCountSignature', () => {
     expect(conceptCountSignature(planConceptCountUnits(mapping, [{}]))).not.toBe(a)
     const other = mappingV1ToV2({ ...v1, eventTables: { Measurement: v1.eventTables.Measurement } } as unknown as SchemaMappingV1)
     expect(conceptCountSignature(planConceptCountUnits(other, [{ hi: 100 }, { lo: 100 }]))).not.toBe(a)
+  })
+
+  it('changes once a table the database lacked appears, so a resume recounts', () => {
+    const units = planConceptCountUnits(mapping, [{}])
+    const lacking = absentRelations(mapping, ['person', 'concept', 'measurement'])
+    expect(lacking.map((r) => r.specKey)).toEqual(['events.Condition'])
+    const before = conceptCountSignature(units, lacking)
+    expect(before).not.toBe(conceptCountSignature(units))
+    expect(conceptCountSignature(units, absentRelations(mapping, ['person', 'concept', 'measurement', 'condition_occurrence']))).toBe(conceptCountSignature(units))
+    expect(conceptCountSignature(units, [...lacking].reverse())).toBe(before)
   })
 })
 

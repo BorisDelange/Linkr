@@ -637,6 +637,7 @@
     "count_paused": "En pause — les décomptes affichés sont partiels.",
     "count_complete": "Décomptés le {{date}}",
     "count_open_tab": "Onglet Concepts de la base",
+    "absent_tables_description": "Les comptages et les données patient les lisent comme vides. Absentes : {{tables}}.",
     "count_step_records": "Lignes par table",
     "count_step_patients": "Patients, tranche par tranche",
     "count_phase_planning": "Préparation du calcul",

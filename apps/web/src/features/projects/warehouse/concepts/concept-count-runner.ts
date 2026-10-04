@@ -14,6 +14,7 @@ import { queryDataSource, sourceTables } from '@/lib/duckdb/engine'
 import { planSlices, type SerializedRange } from '@/lib/duckdb/catalog-compute'
 import { classRelation, conceptRelations } from '@/lib/schema-classes/relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
+import { absentRelations, type AbsentRelation } from '@/lib/schema-classes/presence'
 import { createRunRegistry, type RunSnapshotBase } from '@/lib/run-registry'
 import {
   assembleConceptCache,
@@ -65,10 +66,10 @@ const IDLE: ConceptCountSnapshot = {
 }
 
 /** The stored run's units if it can be resumed, re-planned over its own slices. */
-function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping): ConceptCountUnit[] | null {
+function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping, absent: readonly AbsentRelation[]): ConceptCountUnit[] | null {
   if (!manifest || !manifest.runId || manifest.finishedAt || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
   const units = planConceptCountUnits(mapping, manifest.slices)
-  return conceptCountSignature(units) === manifest.signature ? units : null
+  return conceptCountSignature(units, absent) === manifest.signature ? units : null
 }
 
 async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortSignal): Promise<SerializedRange[]> {
@@ -89,8 +90,12 @@ async function execute(
 ): Promise<void> {
   emit({ phase: 'planning' }, true)
   const status = await getConceptCacheStatus(dataSourceId)
+  // Units run on the server as sent, outside queryDataSource: the relations go
+  // with them, emptied where the database lacks their table.
+  const tables = await sourceTables(dataSourceId)
+  const absent = tables ? absentRelations(mapping, tables) : []
 
-  let units = restart ? null : resumable(status.run?.manifest, mapping)
+  let units = restart ? null : resumable(status.run?.manifest, mapping, absent)
   let manifest: ConceptCountManifest
   const done = new Set<string>()
   if (units && status.run) {
@@ -102,7 +107,7 @@ async function execute(
     manifest = {
       runId: crypto.randomUUID(),
       version: CONCEPT_COUNT_VERSION,
-      signature: conceptCountSignature(units),
+      signature: conceptCountSignature(units, absent),
       slices,
       units: units.map(({ key, step }) => ({ key, step })),
       startedAt: new Date().toISOString(),
@@ -127,9 +132,6 @@ async function execute(
     emit({ assembled: ++assembled }, true)
   }
 
-  // Units run on the server as sent, outside queryDataSource: the relations go
-  // with them, emptied where the database lacks their table.
-  const tables = await sourceTables(dataSourceId)
   emit({ records: count('records'), patients: count('patients') }, true)
   let assembledAt = Date.now()
   let unassembled = false
