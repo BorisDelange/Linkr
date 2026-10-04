@@ -885,11 +885,13 @@ function isShardFileName(baseName: string): boolean {
   // digits after the separator are what distinguish a shard from a real table
   // that merely starts with one of these words (`data_quality`, `file_registry`).
   // A bare number or date (`0001`, `1999-01`) names no table either, nor the
-  // vocabulary library's per-vocabulary partitions (`concept/vocab-SNOMED`).
+  // vocabulary library's per-vocabulary partitions (`concept/vocab-SNOMED`) and
+  // single file of its shared tables (`domain/shared`).
   // pyarrow's `write_to_dataset` names its files `<uuid hex>-0`.
   return /^(part|chunk|data|file)[-_.]\d+([-_.]\w+)*$/.test(baseName)
     || /^\d+([-_.]\d+)*$/.test(baseName)
     || /^vocab-[\w-]+$/.test(baseName)
+    || baseName === 'shared'
     || /^[0-9a-f]{32}(-\d+)?$/.test(baseName)
 }
 

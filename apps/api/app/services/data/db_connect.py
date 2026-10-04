@@ -815,10 +815,11 @@ def introspect_file(engine: str, path: str) -> list[dict]:
 
 
 # Numbered shards, bare numbers/dates, the vocabulary library's per-vocabulary
-# partitions (`concept/vocab-SNOMED.parquet`) and pyarrow's `<uuid hex>-0` files.
+# partitions (`concept/vocab-SNOMED.parquet`) and single file of its shared
+# tables (`domain/shared.parquet`), and pyarrow's `<uuid hex>-0` files.
 # ASCII like the frontend's `isShardFileName`, whose `\w`/`\d` are ASCII.
 _SHARD_RE = re.compile(
-    r"(part|chunk|data|file)[-_.]\d+([-_.]\w+)*|\d+([-_.]\d+)*|vocab-[\w-]+|[0-9a-f]{32}(-\d+)?",
+    r"(part|chunk|data|file)[-_.]\d+([-_.]\w+)*|\d+([-_.]\d+)*|vocab-[\w-]+|shared|[0-9a-f]{32}(-\d+)?",
     re.ASCII,
 )
 # A shard named after its table directory (`document/document_1999-01`): only a

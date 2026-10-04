@@ -69,6 +69,7 @@ describe('extractTableName', () => {
     expect(extractTableName('db/document/1999-01.parquet', ['document'])).toBe('document')
     expect(extractTableName('db/document/document_2.parquet', ['document'])).toBe('document')
     expect(extractTableName('concept/vocab-SNOMED.parquet', ['concept'])).toBe('concept')
+    expect(extractTableName('domain/shared.parquet', ['domain'])).toBe('domain')
   })
 
   it('treats a real table whose name starts with a shard keyword as a table', () => {
