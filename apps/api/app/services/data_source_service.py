@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
@@ -248,33 +249,55 @@ class AliasTaken(ValueError):
     """Another database of the same workspace already has this alias."""
 
 
+def alias_key(alias: str) -> str:
+    """What two aliases are compared by: the catalog DuckDB mounts a database as
+    (`ds_` + the alias with every non-alphanumeric as `_`), case-insensitive as
+    DuckDB is — so `My-DB` and `my_db` collide. Twin of the frontend's `aliasKey`
+    (lib/alias.ts); frozen in migration 5e6f7a8b9c0d."""
+    return re.sub(r"[^a-zA-Z0-9]", "_", alias).lower()
+
+
 async def _aliases_in_workspace(
     db: AsyncSession, workspace_id: str | None, except_id: str | None = None
-) -> set[str]:
+) -> dict[str, str]:
+    """`alias_key` -> alias of the workspace's databases."""
     # A script finds a database by alias within its project's workspace
     # (linkr.connect), so the alias is unique there — not instance-wide: the same
     # database installed in two workspaces keeps its alias in both.
     query = select(DataSource.id, DataSource.alias).where(DataSource.workspace_id == workspace_id)
-    return {alias for id_, alias in (await db.execute(query)).all() if id_ != except_id}
+    return {alias_key(alias): alias for id_, alias in (await db.execute(query)).all() if id_ != except_id}
 
 
 async def ensure_alias_free(
     db: AsyncSession, workspace_id: str | None, alias: str, except_id: str | None = None
 ) -> None:
-    if alias in await _aliases_in_workspace(db, workspace_id, except_id):
-        raise AliasTaken(f"Another database of this workspace already uses the alias '{alias}'.")
+    other = (await _aliases_in_workspace(db, workspace_id, except_id)).get(alias_key(alias))
+    if other is not None:
+        raise AliasTaken(f"Another database of this workspace already uses the alias '{other}'.")
 
 
 async def free_alias(db: AsyncSession, workspace_id: str | None, alias: str) -> str:
     """`alias`, or `alias_2`, `alias_3`… — for a row registered after work already
     done, where refusing would lose it."""
     taken = await _aliases_in_workspace(db, workspace_id)
-    if alias not in taken:
+    if alias_key(alias) not in taken:
         return alias
     n = 2
-    while f"{alias}_{n}" in taken:
+    while alias_key(f"{alias}_{n}") in taken:
         n += 1
     return f"{alias}_{n}"
+
+
+async def _commit_alias(db: AsyncSession, alias: str) -> None:
+    """Commit, reading the unique constraint's refusal as the 409 the service's
+    own check gives: another request took the alias between the two."""
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        if "alias" not in str(exc.orig):
+            raise
+        raise AliasTaken(f"Another database of this workspace already uses the alias '{alias}'.") from exc
 
 
 async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataSource:
@@ -294,7 +317,7 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     source = DataSource(**payload, owner_id=owner.id)
     await author_provenance.stamp_creator(db, source, payload, owner)
     db.add(source)
-    await db.commit()
+    await _commit_alias(db, source.alias)
     await db.refresh(source)
     if login and database_credential_service.is_external(source):
         await database_credential_service.save(db, source, owner.id, *login, remember=True)
@@ -341,7 +364,7 @@ async def update(
     # After the setattr loop, like the other services: it must overwrite whatever
     # created_by_id the changes carried, not be overwritten by it.
     await author_provenance.relink_creator_on_update(db, source, changes)
-    await db.commit()
+    await _commit_alias(db, source.alias)
     await db.refresh(source)
     if retargeted or now_session_only:
         await database_credential_service.forget_all(db, source.id)

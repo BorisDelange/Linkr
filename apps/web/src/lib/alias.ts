@@ -12,12 +12,28 @@ export function generateAlias(name: string): string {
 }
 
 /**
+ * What two aliases are compared by: the catalog a database is mounted as
+ * (`ds_` + the alias with every non-alphanumeric as `_`, see `schemaName`), and
+ * DuckDB ignores case — so `My-DB` and `my_db` are one catalog. Twin of the
+ * server's `alias_key`.
+ */
+export function aliasKey(alias: string): string {
+  return alias.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase()
+}
+
+/** Whether `alias` would mount as the same catalog as one of `existingAliases`. */
+export function isAliasTaken(alias: string, existingAliases: string[]): boolean {
+  const key = aliasKey(alias)
+  return existingAliases.some((a) => aliasKey(a) === key)
+}
+
+/**
  * Ensure alias is unique among existing aliases by appending _2, _3, etc.
  */
 export function ensureUniqueAlias(alias: string, existingAliases: string[]): string {
-  if (!existingAliases.includes(alias)) return alias
+  if (!isAliasTaken(alias, existingAliases)) return alias
   let i = 2
-  while (existingAliases.includes(`${alias}_${i}`)) i++
+  while (isAliasTaken(`${alias}_${i}`, existingAliases)) i++
   return `${alias}_${i}`
 }
 

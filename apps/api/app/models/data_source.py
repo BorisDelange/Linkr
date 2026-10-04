@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin, UUIDPKMixin
@@ -14,6 +14,11 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     """
 
     __tablename__ = "data_sources"
+    # The service also refuses an alias that differs only by case or punctuation
+    # (`alias_key`); this catches the race between its check and the insert.
+    __table_args__ = (
+        UniqueConstraint("workspace_id", "alias", name="uq_data_sources_workspace_alias"),
+    )
 
     workspace_id: Mapped[str | None] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE")
