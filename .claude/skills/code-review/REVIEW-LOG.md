@@ -29,6 +29,17 @@ Notes / follow-ups:
 
 ---
 
+## 2026-10-04 — Fixes of the 2026-10-04 review
+
+- Fixed by: five parallel fixers (Claude Opus 5.5) directly on feature/fastapi-backend (no worktrees, disjoint file ownership, commits by path), then one follow-up fixer and the lead. 46 commits after 291dcc62. Both 🔴 and every 🟠 fixed; 🟡 fixed except where noted.
+- 🔴 ETL COPY bypass: keywords compared without glued comments, ETL EXPLAIN limited to SELECT, EXPORT DATABASE / COPY FROM DATABASE / PREPARE / EXECUTE refused (12 tests fail on the old code). 🔴 masker `csv.Error`: field limit raised, `csv.Error` fails closed; workspace export answers 400, the mapping export shows the server's reason.
+- 🟠 masking: no count derived from percentages any more (percentage-only entries dropped), per-cell `patients_count` emitted and masked on, outermost histogram bins dropped, depth cap 20 both twins (fixture regenerated, byte-identical twins) · pyarrow/pandas shards + hive segments both twins · concept-count `runId` (409 on stale run / second live run, re-check before rename, tmp sweep) · absent relations: suffix match, notice on Concepts + patient data, folded into the count signature · naive timestamps read as UTC; DATE end +1 day only for a date-only value · SQL auto-suggest reads one char then a 200-line window.
+- 🟡 all fixed, incl. alias unique constraint (migration `5e6f7a8b9c0d` renames existing duplicates `_2`, `_3`…, DuckDB-normalised comparison, 409) and alias renames surfaced on Databases page / workspace import / catalog install; audit models the uncategorized group without changing published output; static jedi in a stdlib-only subprocess; `iat_us` closes the same-second password window.
+- Left open: `formatSqlCell` callers pass no column type (query results carry rows only, no schema) — an ISO-looking VARCHAR is still reformatted · per-cell patient counts absent from old/file-source profiles (B3 doc says so) · live-run guard is per process (runId check holds across workers).
+- Gates on the final head: web **3927** (281 files) · format **387** · MCP **250** + tsc clean · backend **1517 passed, 3 skipped** · web tsc 0 · lint 0 errors (194 warnings) · ruff `app/` clean · single alembic head `5e6f7a8b9c0d`.
+
+---
+
 ## 2026-10-04 — Fixes of the 2026-10-01 review (2.4.3), resumable concept counts, zoom-level patient overview, SQL/kernel completion, password policy, per-workspace database names, Settings/cards/Link-database UI
 
 - Reviewed by: Claude Opus 5.5 — five parallel scope reviewers (backend security + auth, masking + format + catalog/import, Parquet/MCP/databases, billion-row scale + patient data, completion + UI); gates run by the lead; kernel completion endpoint reviewed by the lead; both 🔴 reproduced by the lead (ETL COPY bypass writes the file on duckdb 1.5.5; `csv.Error` → `return text` read in code).
