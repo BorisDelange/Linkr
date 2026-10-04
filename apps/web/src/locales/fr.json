@@ -2187,6 +2187,8 @@
     "run_file": "Exécuter le fichier",
     "run_selection": "Exécuter la sélection",
     "run_line": "Exécuter la ligne",
+    "image_loading": "Chargement de l'image…",
+    "image_unavailable": "Cette image ne peut pas être affichée ici",
     "zoom_in": "Zoomer",
     "zoom_out": "Dézoomer",
     "zoom_reset": "Réinitialiser le zoom (double-clic)",

@@ -1,4 +1,4 @@
-import { apiRequest } from '@/lib/api-client'
+import { apiFetch, apiRequest } from '@/lib/api-client'
 import type { IdeFileStorage } from '@/lib/storage'
 import type { IdeFile } from '@/types'
 
@@ -125,4 +125,21 @@ export const apiIdeFileStorage: IdeFileStorage = {
   deleteByProject: async () => {
     // The whole project dir is removed with the project on the server; no-op here.
   },
+}
+
+/** A file's raw bytes as a data URL — the tree scan only carries text, so this is
+ *  how a binary file (an image) reaches the browser. `path` is relative to the IDE
+ *  root, as the scan returns it. Null when the read fails. */
+export async function fetchIdeFileDataUrl(projectUid: string, path: string): Promise<string | null> {
+  const res = await apiFetch(
+    `/api/v1${BASE}/raw?projectUid=${encodeURIComponent(projectUid)}&path=${encodeURIComponent(path)}`,
+  )
+  if (!res.ok) return null
+  const blob = await res.blob()
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null)
+    reader.onerror = () => resolve(null)
+    reader.readAsDataURL(blob)
+  })
 }

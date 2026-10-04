@@ -3,8 +3,10 @@ source of truth. The tree is scanned from disk on every read, so files added by
 any means (terminal, git) appear in the IDE. No DB table backs these files."""
 
 import asyncio
+import mimetypes
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -69,6 +71,26 @@ async def list_files(
     # jobs polls piled up behind it and released in a burst, which reads as the IDE
     # stuttering. A bound ide_path can point at a large folder, so this is unbounded.
     return await asyncio.to_thread(_scan_with_content, project_uid)
+
+
+@router.get("/raw")
+async def read_raw(
+    project_uid: str = Query(alias="projectUid"),
+    path: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The file's bytes as-is: the tree scan carries text only, so an image (or any
+    binary file) is read through here."""
+    await _check_project(db, project_uid, user, "ide:read")
+    try:
+        p = project_fs.script_path(project_uid, path)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if not p.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
+    media_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+    return FileResponse(p, media_type=media_type)
 
 
 @router.post("", response_model=IdeFileResponse, status_code=status.HTTP_201_CREATED)

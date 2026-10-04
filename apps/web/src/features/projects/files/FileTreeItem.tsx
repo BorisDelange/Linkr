@@ -7,7 +7,9 @@ import { useMyProjectRole } from '@/hooks/use-context-role'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isDataExtension } from '@/lib/entity-io'
 import { FileTypeIcon } from '@/components/ui/file-type-icon'
+import { isImageFileName } from '@/lib/image-file'
 import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
+import { openImageInOutput } from './open-image-output'
 import {
   FileCode,
   ChevronRight,
@@ -172,7 +174,9 @@ export function FileTreeItem({
     clickFile(node.id, visibleIds, modifiers)
     // A modified click builds the selection; it must not also open the file, which
     // would replace what the user is assembling.
-    if (!modifiers.meta && !modifiers.shift) selectFile(node.id)
+    if (modifiers.meta || modifiers.shift) return
+    if (isImageFileName(node.name)) void openImageInOutput(node)
+    else selectFile(node.id)
   }
 
   const startRename = () => {

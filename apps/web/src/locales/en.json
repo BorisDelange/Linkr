@@ -2187,6 +2187,8 @@
     "run_file": "Run file",
     "run_selection": "Run selection",
     "run_line": "Run current line",
+    "image_loading": "Loading image…",
+    "image_unavailable": "This image can't be displayed here",
     "zoom_in": "Zoom in",
     "zoom_out": "Zoom out",
     "zoom_reset": "Reset zoom (double-click)",

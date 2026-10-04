@@ -112,3 +112,24 @@ async def test_node_id_stable_for_path():
     b = project_fs.node_id("ide", "utils/helpers.R")
     c = project_fs.node_id("ide", "utils/other.R")
     assert a == b and a != c
+
+
+async def test_raw_serves_binary_bytes_with_image_type(client, seed_roles):
+    """The scan carries text only (a PNG reads as ""); /raw is how the IDE shows it."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    png = b"\x89PNG\r\n\x1a\n\x00\x00\xff\xfe"
+    _scripts(uid).mkdir(parents=True, exist_ok=True)
+    (_scripts(uid) / "plot.png").write_bytes(png)
+    path = next(f["path"] for f in (await client.get(f"{API}/ide-files", headers=h, params={"projectUid": uid})).json()
+                if f["name"] == "plot.png")
+
+    r = await client.get(f"{API}/ide-files/raw", headers=h, params={"projectUid": uid, "path": path})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/png"
+    assert r.content == png
+
+    r = await client.get(f"{API}/ide-files/raw", headers=h, params={"projectUid": uid, "path": "../../secret.key"})
+    assert r.status_code == 400
+    r = await client.get(f"{API}/ide-files/raw", headers=h, params={"projectUid": uid, "path": "missing.png"})
+    assert r.status_code == 404
