@@ -7,7 +7,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, localizedRaw, setLocalized } from '@/lib/localized'
 import { commonDirPrefix, extractTableName, fileGroupingTables, generateAlias, ensureUniqueAlias } from '@/lib/duckdb/engine'
-import { aliasesInScope } from '@/lib/alias'
+import { aliasesInScope, isAliasTaken } from '@/lib/alias'
 import { getStorage } from '@/lib/storage'
 import type {
   DataSource,
@@ -650,7 +650,7 @@ export function AddDatabaseDialog({
 
   // Fixed after creation, so only checked on create. Same submit guard as the name.
   const takenAliases = aliasesInScope(dataSources, targetWorkspaceId, { instanceWide: !isServerMode(), exceptId: editingSource?.id })
-  const aliasIsDuplicate = !isEditMode && !uploading && !!alias.trim() && takenAliases.includes(alias.trim())
+  const aliasIsDuplicate = !isEditMode && !uploading && !!alias.trim() && isAliasTaken(alias.trim(), takenAliases)
 
   const isNameValid = !!name.trim() && !nameIsDuplicate && !aliasIsDuplicate
   const isConnectionValid =
