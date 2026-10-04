@@ -98,6 +98,26 @@ def test_cannot_overwrite_its_inputs_through_explain_or_prepare(target_db, parqu
     assert duckdb.execute(f"SELECT id FROM read_parquet('{table}') ORDER BY id").fetchall() == [(1,), (2,)]
 
 
+@pytest.mark.parametrize("stmt", [
+    "COPY (SELECT 99 AS id) TO/**/'{out}'",
+    "COPY/**/(SELECT 99 AS id) TO '{out}'",
+    "COPY (SELECT 99 AS id) TO--c\n'{out}'",
+    "COPY (SELECT 99 AS id) /*(*/ TO '{out}'",
+    "EXPLAIN (ANALYZE/**/) COPY (SELECT 99 AS id) TO '{out}'",
+    "EXPLAIN (\"analyze\") COPY (SELECT 99 AS id) TO '{out}'",
+    "EXPORT DATABASE '{dir}'",
+    "EXPORT DATABASE target TO '{dir}'",
+    "COPY FROM DATABASE target TO memory",
+])
+def test_cannot_write_a_file_through_comments_or_other_statements(target_db, parquet_role, tmp_path, stmt):
+    _, role = parquet_role
+    out, export_dir = tmp_path / "out.parquet", tmp_path / "export"
+    with pytest.raises(ValueError):
+        _run(target_db, stmt.format(out=out, dir=export_dir), role)
+    assert not out.exists()
+    assert not export_dir.exists()
+
+
 def test_cannot_turn_external_access_back_on(target_db, parquet_role):
     _, role = parquet_role
     with pytest.raises(duckdb.Error):
@@ -112,6 +132,10 @@ def test_cannot_turn_external_access_back_on(target_db, parquet_role):
     ("COPY t (a, b) FROM 'x' (HEADER)", False),
     ('COPY "to" FROM \'x\'', False),
     ("COPY FROM DATABASE a TO b", False),
+    ("COPY t TO/**/'x'", True),
+    ("COPY/**/t TO 'x'", True),
+    ("COPY t TO--c\n'x'", True),
+    ("copy t from/**/'x'", False),
     ("SELECT 'COPY t TO x'", False),
 ])
 def test_copy_direction(stmt, writes):

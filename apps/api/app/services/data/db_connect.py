@@ -381,15 +381,30 @@ def _reject_forbidden_statements(sql: str) -> None:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
 
 
+# Where a token's own text stops: DuckDB's tokenizer only gives start offsets, so
+# the slice up to the next token also carries the whitespace and any comment glued
+# to it (`TO/**/'x'` slices as `TO/**/`).
+_TOKEN_END = re.compile(r"\s|/\*|--")
+
+
+def _token_texts(stmt: str) -> list[tuple[str, "duckdb.token_type"]]:
+    """(text, kind) per token, upper-cased, without the trailing whitespace or comment."""
+    tokens = duckdb.tokenize(stmt)
+    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
+    out = []
+    for i, (pos, kind) in enumerate(tokens):
+        raw = stmt[pos:ends[i]]
+        m = _TOKEN_END.search(raw)
+        out.append(((raw[:m.start()] if m else raw).upper(), kind))
+    return out
+
+
 def _copies_to_a_file(stmt: str) -> bool:
     """Whether `stmt` is a `COPY … TO` (writes out) rather than a `COPY … FROM`
     (loads in): the first FROM/TO keyword outside parentheses after COPY decides,
     so `COPY (SELECT … FROM t) TO` reads as TO."""
-    tokens = duckdb.tokenize(stmt)
-    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
     depth = 0
-    for i, (pos, kind) in enumerate(tokens):
-        text = stmt[pos:ends[i]].strip().upper()
+    for i, (text, kind) in enumerate(_token_texts(stmt)):
         if i == 0:
             if kind != duckdb.token_type.keyword or text != "COPY":
                 return False
@@ -404,8 +419,7 @@ def _explained(stmt: str) -> tuple[str, bool] | None:
     """The statement an EXPLAIN wraps and whether EXPLAIN runs it (`ANALYZE`, bare
     or among the parenthesised options), or None when its target cannot be read."""
     tokens = duckdb.tokenize(stmt)
-    ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
-    texts = [stmt[pos:ends[i]].strip().upper() for i, (pos, _) in enumerate(tokens)]
+    texts = [text.strip('"') for text, _ in _token_texts(stmt)]
     if not texts or texts[0] != "EXPLAIN":
         return None
     i, analyze = 1, False
@@ -460,15 +474,25 @@ def _reject_copy_to_file(sql: str) -> None:
     and `allowed_paths` would let a `COPY … TO` overwrite those shared blobs.
 
     The parser is asked as well, since a COPY also runs inside `EXPLAIN ANALYZE`
-    and through `PREPARE … AS COPY` + `EXECUTE`, neither of which starts with COPY."""
+    and through `PREPARE … AS COPY` + `EXECUTE`, neither of which starts with COPY.
+    Only a SELECT may be explained, so whether an option list really says ANALYZE
+    never has to be decided; EXPORT DATABASE and COPY FROM DATABASE write files too."""
     for stmt in _split_statements(sql):
         if _copies_to_a_file(_strip_leading_noise(stmt)):
             raise ValueError("COPY … TO a file is not allowed in a pipeline script")
         for kind, text, explain in _classified(stmt):
-            if kind in (duckdb.StatementType.PREPARE, duckdb.StatementType.EXECUTE):
+            if kind in _FORBIDDEN_TYPES_IN_ETL:
                 raise ValueError(f"{kind.name} is not allowed in a pipeline script")
-            if explain and (kind == duckdb.StatementType.INVALID or _copies_to_a_file(_strip_leading_noise(text))):
+            if explain is not None and kind != duckdb.StatementType.SELECT:
+                raise ValueError("EXPLAIN is only allowed on a SELECT in a pipeline script")
+            if kind == duckdb.StatementType.COPY and _copies_to_a_file(_strip_leading_noise(text)):
                 raise ValueError("COPY … TO a file is not allowed in a pipeline script")
+
+
+_FORBIDDEN_TYPES_IN_ETL = frozenset({
+    duckdb.StatementType.PREPARE, duckdb.StatementType.EXECUTE,
+    duckdb.StatementType.EXPORT, duckdb.StatementType.COPY_DATABASE,
+})
 
 
 # On a pooled connection shared by every user of a file/Parquet source, these would
