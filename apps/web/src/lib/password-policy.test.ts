@@ -13,6 +13,9 @@ describe('passwordRuleError', () => {
     ['x'.repeat(73), 'password_too_long'],
     // é is two bytes in UTF-8: 37 of them are 74 bytes.
     ['é'.repeat(37), 'password_too_long'],
+    // An emoji is two UTF-16 units but one character, as the server counts it.
+    ['k7#mQ2!vR9\u{1F511}', 'password_too_short'],
+    ['k7#mQ2!vR9p\u{1F511}', null],
     ['Alice.Martin', 'password_is_username'],
     [' alice.martin ', 'password_is_username'],
     ['alice.martin!', null],

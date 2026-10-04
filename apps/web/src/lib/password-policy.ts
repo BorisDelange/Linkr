@@ -42,7 +42,7 @@ export function passwordRuleError(
   password: string,
   { username = '', current }: { username?: string; current?: string } = {},
 ): PasswordRuleError | null {
-  if (password.length < minLength) return { code: 'password_too_short', params: { count: minLength } }
+  if ([...password].length < minLength) return { code: 'password_too_short', params: { count: minLength } }
   if (new TextEncoder().encode(password).length > PASSWORD_MAX_BYTES) {
     return { code: 'password_too_long', params: { count: PASSWORD_MAX_BYTES } }
   }
