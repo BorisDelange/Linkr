@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 
 interface NoticeBannerProps {
   /** `warning` (amber): something is missing and limits what works.
@@ -39,15 +40,16 @@ export function NoticeBanner({ tone, title, description, action, onDismiss, clas
       </div>
       {action && <div className="shrink-0">{action}</div>}
       {onDismiss && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-xs"
           onClick={onDismiss}
           aria-label={t('common.close')}
           title={t('common.close')}
-          className="flex size-6 shrink-0 items-center justify-center self-start rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="shrink-0 self-start text-muted-foreground"
         >
-          <X size={14} />
-        </button>
+          <X />
+        </Button>
       )}
     </div>
   )
