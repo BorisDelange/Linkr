@@ -2,22 +2,16 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { toMs } from '@/lib/duckdb/value-coercion'
 import {
   buildStayWindowQuery,
   buildVisitWindowQuery,
+  windowBound,
   type PatientScope,
   type TimeWindow,
 } from '@/lib/duckdb/patient-scope'
 
 /** Windows already read, per database and id: every widget of a board asks for the same one. */
 const windows = new Map<string, Promise<TimeWindow | null>>()
-
-/** The window bound as the UTC ISO string `patient-scope.ts` writes as a literal. */
-function toIso(v: unknown): string | null {
-  const ms = toMs(v)
-  return ms == null ? null : new Date(ms).toISOString()
-}
 
 function readWindow(dataSourceId: string, sql: string | null): Promise<TimeWindow | null> {
   if (!sql) return Promise.resolve(null)
@@ -26,8 +20,8 @@ function readWindow(dataSourceId: string, sql: string | null): Promise<TimeWindo
   if (!hit) {
     hit = queryDataSource(dataSourceId, sql)
       .then((rows) => {
-        const start = toIso(rows[0]?.window_start)
-        return start ? { start, end: toIso(rows[0]?.window_end) } : null
+        const start = windowBound(rows[0]?.window_start)
+        return start ? { start, end: windowBound(rows[0]?.window_end) } : null
       })
       .catch(() => {
         windows.delete(key)

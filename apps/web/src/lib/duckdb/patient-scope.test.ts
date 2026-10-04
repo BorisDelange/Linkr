@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { eventRelation } from '@/lib/schema-classes/relations'
-import { eventScopeCondition, windowCondition, NO_SCOPE, buildVisitWindowQuery, type PatientScope } from './patient-scope'
+import { eventScopeCondition, windowBound, windowCondition, NO_SCOPE, buildVisitWindowQuery, type PatientScope } from './patient-scope'
 import { buildNotesQuery, buildTimelineQuery } from './patient-data-queries'
 
 const v1 = {
@@ -55,9 +55,15 @@ describe('eventScopeCondition', () => {
   })
 
   it('keeps the whole last day of a window ending on a date', () => {
-    const sql = windowCondition({ start: visit.start, end: '2150-01-10T00:00:00.000Z' }, 'e.start_datetime')
-    expect(sql).toContain("e.start_datetime < TIMESTAMP '2150-01-10T00:00:00.000Z' + INTERVAL 1 DAY")
+    const sql = windowCondition({ start: visit.start, end: '2150-01-10' }, 'e.start_datetime')
+    expect(sql).toContain("e.start_datetime < TIMESTAMP '2150-01-10' + INTERVAL 1 DAY")
     expect(sql).not.toContain('<=')
+  })
+
+  it('stops a window ending on a timestamp at midnight there, not a day later', () => {
+    const sql = windowCondition({ start: visit.start, end: '2150-01-10T00:00:00.000Z' }, 'e.start_datetime')
+    expect(sql).toContain("e.start_datetime <= TIMESTAMP '2150-01-10T00:00:00.000Z'")
+    expect(sql).not.toContain('INTERVAL')
   })
 
   it('keeps a row still running when the stay began', () => {
@@ -70,6 +76,22 @@ describe('windowCondition', () => {
   it('has no upper bound for an open stay', () => {
     const sql = windowCondition({ start: stay.start, end: null }, 'n.note_datetime')
     expect(sql).toBe(`\n  AND n.note_datetime >= TIMESTAMP '${stay.start}'`)
+  })
+})
+
+describe('windowBound', () => {
+  it('keeps a DATE as a date, as both engines return it', () => {
+    expect(windowBound('2150-01-10')).toBe('2150-01-10')
+  })
+
+  it('reads a timestamp, midnight included, as its UTC instant', () => {
+    expect(windowBound('2150-01-10T00:00:00')).toBe('2150-01-10T00:00:00.000Z')
+    expect(windowBound('2150-01-10 00:00:00')).toBe('2150-01-10T00:00:00.000Z')
+    expect(windowBound(Date.UTC(2150, 0, 10))).toBe('2150-01-10T00:00:00.000Z')
+  })
+
+  it('has no bound for a missing value', () => {
+    expect(windowBound(null)).toBeNull()
   })
 })
 

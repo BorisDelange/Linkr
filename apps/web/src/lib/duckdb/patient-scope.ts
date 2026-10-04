@@ -16,6 +16,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { classRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql } from '@/lib/format-helpers'
+import { toMs } from '@/lib/duckdb/value-coercion'
 
 /** A hospitalisation's or a stay's dates; an open one has no end. */
 export interface TimeWindow {
@@ -56,8 +57,19 @@ WHERE visit_detail_id = '${escSql(visitDetailId)}'
 LIMIT 1`
 }
 
-/** An end at midnight is a DATE (or reads as one): the day it names is in the window. */
-const isMidnight = (iso: string) => /T00:00(:00(\.0+)?)?(Z|[+-]00:?00)?$/.test(iso) || /^\d{4}-\d{2}-\d{2}$/.test(iso)
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * A window bound as `windowCondition` takes it. A DATE stays date-only — both
+ * engines return one as `YYYY-MM-DD` — so that a window ending on a date keeps
+ * that whole day, while one ending on a timestamp at midnight stops there.
+ * Anything else becomes its UTC ISO instant.
+ */
+export function windowBound(value: unknown): string | null {
+  if (typeof value === 'string' && DATE_ONLY.test(value.trim())) return value.trim()
+  const ms = toMs(value)
+  return ms == null ? null : new Date(ms).toISOString()
+}
 
 /**
  * `AND`-clause keeping the rows that overlap a window, or '' without one.
@@ -70,7 +82,7 @@ export function windowCondition(window: TimeWindow | null, dateColumn: string, e
   const upperBound = window.end && `TIMESTAMP '${escSql(window.end)}'`
   const upper = !upperBound
     ? ''
-    : isMidnight(window.end!)
+    : DATE_ONLY.test(window.end!)
       ? `\n  AND ${dateColumn} < ${upperBound} + INTERVAL 1 DAY`
       : `\n  AND ${dateColumn} <= ${upperBound}`
   return `\n  AND ${end} >= TIMESTAMP '${escSql(window.start)}'${upper}`
