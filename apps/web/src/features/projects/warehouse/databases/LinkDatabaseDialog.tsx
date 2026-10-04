@@ -9,6 +9,7 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { SearchInput } from '@/components/ui/search-input'
 import { DatabaseCard } from './DatabaseCard'
 import { localized } from '@/lib/localized'
+import { foldAccents } from '@/lib/fold-accents'
 
 interface LinkDatabaseDialogProps {
   open: boolean
@@ -31,10 +32,11 @@ export function LinkDatabaseDialog({ open, onOpenChange, projectUid }: LinkDatab
 
   const availableSources = dataSources.filter((ds) => !linkedIds.includes(ds.id) && !ds.isVocabularyReference && (!ds.workspaceId || ds.workspaceId === projectWsId))
   const shownSources = useMemo(() => {
-    const words = search.toLowerCase().split(/\s+/).filter(Boolean)
+    const fold = (text: string) => foldAccents(text).toLowerCase()
+    const words = fold(search).split(/\s+/).filter(Boolean)
     if (!words.length) return availableSources
     return availableSources.filter((ds) => {
-      const haystack = `${localized(ds.name, i18n.language)} ${localized(ds.description, i18n.language)} ${ds.alias}`.toLowerCase()
+      const haystack = fold(`${localized(ds.name, i18n.language)} ${localized(ds.description, i18n.language)} ${ds.alias}`)
       return words.every((w) => haystack.includes(w))
     })
   }, [availableSources, search, i18n.language])
