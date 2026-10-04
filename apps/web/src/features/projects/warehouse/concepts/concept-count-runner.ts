@@ -66,7 +66,7 @@ const IDLE: ConceptCountSnapshot = {
 
 /** The stored run's units if it can be resumed, re-planned over its own slices. */
 function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping): ConceptCountUnit[] | null {
-  if (!manifest || manifest.finishedAt || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
+  if (!manifest || !manifest.runId || manifest.finishedAt || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
   const units = planConceptCountUnits(mapping, manifest.slices)
   return conceptCountSignature(units) === manifest.signature ? units : null
 }
@@ -100,6 +100,7 @@ async function execute(
     const slices = await plan(dataSourceId, mapping, signal)
     units = planConceptCountUnits(mapping, slices)
     manifest = {
+      runId: crypto.randomUUID(),
       version: CONCEPT_COUNT_VERSION,
       signature: conceptCountSignature(units),
       slices,
@@ -144,7 +145,7 @@ async function execute(
       }
       signal.throwIfAborted()
       emit({ phase: unit.step }, true)
-      await writeConceptUnit(dataSourceId, unit.key, withClassRelations(unit.sql, mapping, tables), signal)
+      await writeConceptUnit(dataSourceId, manifest.runId, unit.key, withClassRelations(unit.sql, mapping, tables), signal)
       done.add(unit.key)
       unassembled = true
       emit({ records: count('records'), patients: count('patients') })

@@ -33,10 +33,12 @@ class ConceptRunStart(CamelModel):
 
 
 class ConceptUnitRequest(CamelModel):
-    """One counting unit: a single SELECT whose rows are kept as the unit's file.
-    `query_id` makes it cancellable through `/query/cancel`."""
+    """One counting unit: a single SELECT whose rows are kept as the unit's file,
+    for the run `run_id` (the manifest's `runId`) — refused once that run was
+    replaced. `query_id` makes it cancellable through `/query/cancel`."""
 
     sql: str
+    run_id: str
     query_id: str | None = None
 
 

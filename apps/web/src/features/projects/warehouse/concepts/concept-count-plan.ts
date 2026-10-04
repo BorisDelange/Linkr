@@ -47,6 +47,9 @@ export interface ConceptCountUnit {
 
 /** What the server keeps of a run, to resume it and to report where it stands. */
 export interface ConceptCountManifest {
+  /** Names the run: every unit sends it, and the server refuses a unit of a run
+   *  that was since replaced. */
+  runId: string
   version: number
   signature: string
   slices: SerializedRange[]

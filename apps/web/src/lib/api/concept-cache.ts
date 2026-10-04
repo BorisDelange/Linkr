@@ -34,12 +34,13 @@ export function startConceptRun(sourceId: string, manifest: ConceptCountManifest
   })
 }
 
-/** Run one counting unit server-side; `signal` interrupts it. */
-export function writeConceptUnit(sourceId: string, key: string, sql: string, signal?: AbortSignal): Promise<void> {
+/** Run one counting unit of run `runId` server-side; `signal` interrupts it.
+ *  Rejects (409) once that run was replaced, or while another unit counts. */
+export function writeConceptUnit(sourceId: string, runId: string, key: string, sql: string, signal?: AbortSignal): Promise<void> {
   return cancellableOnServer(sourceId, signal, (queryId) =>
     apiRequest<void>(`${base(sourceId)}/units/${encodeURIComponent(key)}`, {
       method: 'POST',
-      body: JSON.stringify({ sql, ...(queryId ? { queryId } : {}) }),
+      body: JSON.stringify({ sql, runId, ...(queryId ? { queryId } : {}) }),
     }),
   )
 }

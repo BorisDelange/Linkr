@@ -1088,14 +1088,14 @@ async def start_concept_run(source: DataSource, login: Login | None, manifest: d
 
 
 async def write_concept_unit(
-    db: AsyncSession, source: DataSource, login: Login | None, key: str, select_sql: str
+    db: AsyncSession, source: DataSource, login: Login | None, key: str, select_sql: str, run_id: str
 ) -> None:
-    """Run one unit of the concept counts and keep its rows."""
+    """Run one unit of the concept counts for run `run_id` and keep its rows."""
     _audit(source, "concept_cache_unit", select_sql)
     config, password, files, known = await _materialize_inputs(db, source, login)
     await asyncio.to_thread(
         concept_cache_fs.write_unit, config, password, files, known, select_sql, source.id,
-        login.principal if login else "", key,
+        login.principal if login else "", key, run_id,
     )
 
 

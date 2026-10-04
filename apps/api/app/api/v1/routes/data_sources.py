@@ -844,6 +844,8 @@ async def start_concept_run(
     login = await _login(db, source, user)
     try:
         await data_source_service.start_concept_run(source, login, body.manifest, body.reset)
+    except concept_cache_fs.RunConflict as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
@@ -856,16 +858,19 @@ async def write_concept_unit(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run one counting unit and keep its rows. Cancellable like a query: tagged
-    with `queryId`, `/query/cancel` interrupts it (409)."""
+    """Run one counting unit of run `runId` and keep its rows — 409 once that run
+    was replaced, or while another unit of the database is counted. Cancellable
+    like a query: tagged with `queryId`, `/query/cancel` interrupts it (409)."""
     source = await _load_source(db, source_id, user, "databases:read")
     await _require_source_access(db, source, user, _cache_write_permission(source))
     login = await _login(db, source, user)
     tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
     try:
-        await data_source_service.write_concept_unit(db, source, login, key, body.sql)
+        await data_source_service.write_concept_unit(db, source, login, key, body.sql, body.run_id)
     except (query_cancel.QueryCancelled, duckdb.InterruptException):
         raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
+    except concept_cache_fs.RunConflict as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client

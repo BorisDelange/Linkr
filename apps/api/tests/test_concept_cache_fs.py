@@ -116,22 +116,22 @@ def test_units_add_up_in_the_assembled_list(duckdb_source, data_dir):
     """Records from one unit and patients from two disjoint slices: the list sums
     them, and a concept no unit saw keeps the dictionary row with no counts."""
     config, files = duckdb_source
-    concept_cache_fs.write_manifest("src", "", {"signature": "s1"}, reset=True)
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "signature": "s1"}, reset=True)
 
     # Before any unit, the list is the dictionary with empty counts.
     concept_cache_fs.assemble(config, None, files, [], _ASSEMBLE, "src", "")
     assert _counts("src") == {1: (0, None), 2: (0, None), 3: (0, None)}
 
-    concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0")
+    concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0", "r1")
     for i, cond in enumerate(["person_id < 2", "person_id >= 2"]):
         sql = (
             "SELECT 'd' AS dict_key, concept_id, NULL::BIGINT AS record_count,"
             f" COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM ext.measurement WHERE {cond} GROUP BY concept_id"
         )
-        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", f"patients-{i}")
+        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", f"patients-{i}", "r1")
 
     status = concept_cache_fs.run_status("src", "")
-    assert status["manifest"] == {"signature": "s1"}
+    assert status["manifest"] == {"runId": "r1", "signature": "s1"}
     assert sorted(status["done_units"]) == ["patients-0", "patients-1", "records-0"]
     assert status["last_unit_at"] is not None
 
@@ -141,28 +141,30 @@ def test_units_add_up_in_the_assembled_list(duckdb_source, data_dir):
 
 def test_reset_drops_the_units_and_a_resume_keeps_them(duckdb_source, data_dir):
     config, files = duckdb_source
-    concept_cache_fs.write_manifest("src", "", {"n": 1}, reset=True)
-    concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0")
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "n": 1}, reset=True)
+    concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0", "r1")
 
-    concept_cache_fs.write_manifest("src", "", {"n": 2}, reset=False)
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "n": 2}, reset=False)
     assert concept_cache_fs.run_status("src", "")["done_units"] == ["records-0"]
 
-    concept_cache_fs.write_manifest("src", "", {"n": 3}, reset=True)
+    concept_cache_fs.write_manifest("src", "", {"runId": "r2", "n": 3}, reset=True)
     status = concept_cache_fs.run_status("src", "")
-    assert status["manifest"] == {"n": 3}
+    assert status["manifest"] == {"runId": "r2", "n": 3}
     assert status["done_units"] == []
 
 
 def test_a_unit_needs_a_run_and_a_safe_key(duckdb_source, data_dir):
     config, files = duckdb_source
     sql = _UNIT.format(pc="NULL::BIGINT")
-    with pytest.raises(ValueError, match="no counting run"):
-        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", "records-0")
-    concept_cache_fs.write_manifest("src", "", {}, reset=True)
+    with pytest.raises(concept_cache_fs.RunConflict, match="no counting run"):
+        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", "records-0", "r1")
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
     with pytest.raises(ValueError, match="invalid unit key"):
-        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", "../escape")
+        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", "../escape", "r1")
+    with pytest.raises(ValueError, match="invalid run id"):
+        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", "records-0", "../x")
     with pytest.raises(ValueError, match="single SELECT"):
-        concept_cache_fs.write_unit(config, None, files, [], f"{sql}; SELECT 1", "src", "", "records-0")
+        concept_cache_fs.write_unit(config, None, files, [], f"{sql}; SELECT 1", "src", "", "records-0", "r1")
 
 
 def test_manifest_size_is_bounded(data_dir):
@@ -174,7 +176,7 @@ def test_a_running_unit_can_be_interrupted(duckdb_source, data_dir):
     """The unit route tags its query, and `/query/cancel` interrupts it: the COPY
     stops and no unit file is left behind."""
     config, files = duckdb_source
-    concept_cache_fs.write_manifest("src", "", {}, reset=True)
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
     slow = (
         "SELECT 'd' AS dict_key, (r % 1000)::BIGINT AS concept_id, COUNT(*)::BIGINT AS record_count,"
         " NULL::BIGINT AS patient_count FROM range(10000000000) t(r) GROUP BY 2"
@@ -184,7 +186,7 @@ def test_a_running_unit_can_be_interrupted(duckdb_source, data_dir):
     def run():
         token = query_cancel.current_query.set(("q1", "u1"))
         try:
-            concept_cache_fs.write_unit(config, None, files, [], slow, "src", "", "records-0")
+            concept_cache_fs.write_unit(config, None, files, [], slow, "src", "", "records-0", "r1")
         except BaseException as e:  # noqa: BLE001
             errors.append(e)
         finally:
@@ -201,3 +203,85 @@ def test_a_running_unit_can_be_interrupted(duckdb_source, data_dir):
     assert not t.is_alive()
     assert errors and isinstance(errors[0], duckdb.InterruptException)
     assert concept_cache_fs.run_status("src", "")["done_units"] == []
+
+
+def _stalled_unit(monkeypatch, during):
+    """A unit whose COPY runs `during()` before it finishes, as a reset or an
+    invalidation landing mid-COPY would."""
+    from app.services.data import db_connect
+    real = db_connect.materialize_parquet
+
+    def slow(*args, **kwargs):
+        real(*args, **kwargs)
+        during()
+
+    monkeypatch.setattr(db_connect, "materialize_parquet", slow)
+
+
+def test_a_unit_of_a_replaced_run_is_dropped(duckdb_source, data_dir, monkeypatch):
+    """Another worker resets the run between the unit's start and its rename:
+    the unit is not kept in the new run, which a resume would count as done."""
+    config, files = duckdb_source
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    run = concept_cache_fs._run_dir("src", "")
+
+    def reset_elsewhere():
+        (run / "manifest.json").write_text('{"runId": "r2"}')
+
+    _stalled_unit(monkeypatch, reset_elsewhere)
+    with pytest.raises(concept_cache_fs.RunConflict, match="replaced"):
+        concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0", "r1")
+    assert concept_cache_fs.run_status("src", "")["done_units"] == []
+    assert not list((run / "units").iterdir())
+
+
+def test_a_unit_of_an_invalidated_run_is_dropped(duckdb_source, data_dir, monkeypatch):
+    config, files = duckdb_source
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    _stalled_unit(monkeypatch, lambda: concept_cache_fs.invalidate("src"))
+    with pytest.raises(concept_cache_fs.RunConflict):
+        concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0", "r1")
+    concept_cache_fs.write_manifest("src", "", {"runId": "r2"}, reset=False)
+    assert concept_cache_fs.run_status("src", "")["done_units"] == []
+
+
+def test_a_unit_for_a_stale_run_is_refused(duckdb_source, data_dir):
+    config, files = duckdb_source
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    concept_cache_fs.write_manifest("src", "", {"runId": "r2"}, reset=True)
+    with pytest.raises(concept_cache_fs.RunConflict, match="replaced"):
+        concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0", "r1")
+    with pytest.raises(concept_cache_fs.RunConflict, match="replaced"):
+        concept_cache_fs.write_manifest("src", "", {"runId": "r1", "finishedAt": "x"}, reset=False)
+
+
+def test_a_second_live_run_is_refused(duckdb_source, data_dir, monkeypatch):
+    """While a unit counts, neither a reset nor another unit of the database may
+    start; once it ends, both may."""
+    config, files = duckdb_source
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    sql = _UNIT.format(pc="NULL::BIGINT")
+    seen: list[str] = []
+
+    def try_concurrent():
+        with pytest.raises(concept_cache_fs.RunConflict, match="in progress"):
+            concept_cache_fs.write_manifest("src", "", {"runId": "r2"}, reset=True)
+        with pytest.raises(concept_cache_fs.RunConflict, match="in progress"):
+            concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", "records-1", "r1")
+        seen.append("checked")
+
+    _stalled_unit(monkeypatch, try_concurrent)
+    concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", "records-0", "r1")
+    assert seen == ["checked"]
+    assert concept_cache_fs.run_status("src", "")["done_units"] == ["records-0"]
+    monkeypatch.undo()
+    concept_cache_fs.write_manifest("src", "", {"runId": "r2"}, reset=True)
+
+
+def test_a_manifest_write_sweeps_leftover_unit_files(data_dir):
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    units = concept_cache_fs._run_dir("src", "") / "units"
+    units.mkdir()
+    (units / "records-0.parquet.tmp-1-abc").write_text("x")
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=False)
+    assert not list(units.iterdir())
