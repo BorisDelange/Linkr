@@ -32,7 +32,7 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
-from app.services.data.db_connect import _ext_dir
+from app.services.data.db_connect import _ext_dir, has_glob_chars
 
 # Column types of the OMOP CDM v5.4 vocabulary tables. Every import is cast to
 # them, so partitions written from a CSV (all text) and from a Parquet (typed)
@@ -161,6 +161,9 @@ ExportFiles = list[tuple[str, str]]
 def group_export_files(files: ExportFiles) -> dict[str, ExportFiles]:
     groups: dict[str, ExportFiles] = {}
     for name, path in files:
+        # read_parquet/read_csv would expand it as a pattern (see has_glob_chars).
+        if has_glob_chars(path):
+            continue
         table = table_of(name)
         if table:
             groups.setdefault(table, []).append((name, path))

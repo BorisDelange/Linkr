@@ -225,3 +225,9 @@ async def test_a_removal_during_an_import_answers_409_at_once(client):
     assert r.status_code == 409
     r = await client.delete(f"{API}/workspaces/{ws}/vocabulary-library/vocabularies/LOINC", headers=headers)
     assert r.status_code == 204
+
+
+def test_an_export_file_read_parquet_would_glob_is_left_out():
+    # `a?.parquet` would also read `ab.parquet`.
+    files = [("concept/a?.parquet", "/srv/v/concept/a?.parquet"), ("concept/b.parquet", "/srv/v/concept/b.parquet")]
+    assert lib.group_export_files(files) == {"concept": [("concept/b.parquet", "/srv/v/concept/b.parquet")]}
