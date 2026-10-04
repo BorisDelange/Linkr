@@ -55,17 +55,33 @@ def set_password(user, password: str) -> None:
     user.password_changed_at = datetime.now(timezone.utc)
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+
+def _epoch_us(moment: datetime) -> int:
+    return (moment - _EPOCH) // timedelta(microseconds=1)
+
+
+def _issued_at(now: datetime) -> dict:
+    """`iat` has whole-second resolution; `iat_us` carries the microseconds a
+    password change must be compared against."""
+    return {"iat": now, "iat_us": _epoch_us(now)}
+
+
 def predates_password_change(payload: dict, user) -> bool:
     """Whether a session token was issued before `user` last set a password.
 
-    `iat` has whole-second resolution, so the change is floored to its second:
-    the tokens handed to the caller right after the change, in the same second,
-    must stay valid."""
+    A token without `iat_us` (minted before it existed) is compared by `iat`, its
+    change floored to the second: the tokens handed out right after the change,
+    in the same second, must stay valid."""
     changed = user.password_changed_at
     if changed is None:
         return False
     if changed.tzinfo is None:
         changed = changed.replace(tzinfo=timezone.utc)
+    issued_us = payload.get("iat_us")
+    if isinstance(issued_us, int):
+        return issued_us < _epoch_us(changed)
     return int(payload.get("iat", 0)) < int(changed.timestamp())
 
 
@@ -76,7 +92,7 @@ def create_access_token(user_id: int, username: str, role: str) -> str:
         "username": username,
         "role": role,
         "type": "access",
-        "iat": now,
+        **_issued_at(now),
         "exp": now + timedelta(minutes=settings.access_token_expire_minutes),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
@@ -89,7 +105,7 @@ def create_refresh_token(user_id: int, username: str, role: str) -> str:
         "username": username,
         "role": role,
         "type": "refresh",
-        "iat": now,
+        **_issued_at(now),
         "exp": now + timedelta(days=settings.refresh_token_expire_days),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
@@ -126,7 +142,7 @@ def create_kernel_token(user_id: int, username: str, role: str, project_uid: str
         "project": project_uid,
         "via": via,
         "type": "kernel",
-        "iat": now,
+        **_issued_at(now),
         "exp": now + timedelta(minutes=settings.kernel_token_expire_minutes),
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)

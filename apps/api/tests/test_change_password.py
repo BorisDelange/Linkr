@@ -3,13 +3,22 @@ did not exist. Current password required, a server-side policy, logged. A change
 ends every session issued before it; the caller gets fresh tokens."""
 
 import time
+from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 from jose import jwt
 
 from app.config import settings
 from app.core import audit
-from app.core.security import password_policy_error
+from app.core.security import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    password_policy_error,
+    predates_password_change,
+    set_password,
+)
 
 API = "/api/v1"
 
@@ -72,8 +81,7 @@ async def test_the_status_states_the_minimum_length(client, monkeypatch):
 
 
 def _earlier_token(user_id: int, kind: str) -> str:
-    """A session token issued a while ago — `iat` has whole-second resolution, so
-    one minted in the test's own second would count as issued with the change."""
+    """A session token issued a while ago, without `iat_us` (as minted before it existed)."""
     now = int(time.time())
     payload = {"sub": str(user_id), "username": "admin", "role": "admin", "type": kind,
                "iat": now - 10, "exp": now + 3600}
@@ -101,6 +109,25 @@ async def test_a_change_ends_the_sessions_issued_before_it(client):
     me = await client.get(f"{API}/auth/me", headers={"Authorization": f"Bearer {fresh['access_token']}"})
     assert me.status_code == 200
     assert (await client.post(f"{API}/auth/refresh", json={"refresh_token": fresh["refresh_token"]})).status_code == 200
+
+
+def test_a_token_from_the_same_second_but_before_the_change_is_stale():
+    changed = datetime(2026, 10, 4, 12, 0, 0, 500_000, tzinfo=timezone.utc)
+    user = SimpleNamespace(password_changed_at=changed)
+    same_second = int(changed.timestamp())
+    before = {"iat": same_second, "iat_us": same_second * 1_000_000 + 499_999}
+    after = {"iat": same_second, "iat_us": same_second * 1_000_000 + 500_000}
+    assert predates_password_change(before, user)
+    assert not predates_password_change(after, user)
+    assert not predates_password_change({"iat": same_second}, user)
+    assert predates_password_change({"iat": same_second - 1}, user)
+
+
+def test_the_tokens_minted_after_a_change_are_current():
+    user = SimpleNamespace(password_changed_at=None)
+    set_password(user, "a-long-enough-one")
+    for token in (create_access_token(1, "admin", "admin"), create_refresh_token(1, "admin", "admin")):
+        assert not predates_password_change(decode_token(token), user)
 
 
 async def test_an_admin_reset_ends_the_users_sessions(client):
