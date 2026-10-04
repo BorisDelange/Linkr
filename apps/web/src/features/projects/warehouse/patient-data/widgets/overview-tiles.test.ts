@@ -90,6 +90,17 @@ describe('OverviewDataCache', () => {
     expect(px.reduce((a, b) => a + b, 0)).toBe(4)
   })
 
+  it('counts only the share of a stand-in bucket that is in view', () => {
+    const c = new OverviewDataCache()
+    const counts = new Float64Array(TILE_BUCKETS)
+    counts[0] = 8
+    c.putTile('r', 4096, 0, counts)
+    // Half of the bucket [0, 4096) lies left of the view.
+    const px = c.pixelCounts('r', 2048, 2048 + 1024 * 8, 8, 1024)!
+    expect([...px.slice(0, 2)]).toEqual([2, 2])
+    expect(px.reduce((a, b) => a + b, 0)).toBe(4)
+  })
+
   it('has nothing to show before any tile covers the view', () => {
     expect(new OverviewDataCache().pixelCounts('r', 0, 1000, 10, 1024)).toBeNull()
   })
@@ -110,6 +121,16 @@ describe('runLimited', () => {
     await runLimited(tasks, 3, new AbortController().signal)
     expect(done).toHaveLength(10)
     expect(peak).toBe(3)
+  })
+
+  it('runs the other tasks when one throws', async () => {
+    const done: number[] = []
+    const tasks = Array.from({ length: 4 }, (_, i) => async () => {
+      if (i === 0) throw new Error('boom')
+      done.push(i)
+    })
+    await expect(runLimited(tasks, 1, new AbortController().signal)).resolves.toBeUndefined()
+    expect(done).toEqual([1, 2, 3])
   })
 
   it('stops starting tasks once aborted', async () => {

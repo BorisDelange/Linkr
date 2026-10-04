@@ -114,10 +114,13 @@ export class OverviewDataCache {
           const end = start + level
           if (end <= lo || start >= hi) continue
           // A bucket wider than a pixel (a coarser level standing in) spreads
-          // over the pixels it spans rather than piling onto one.
-          const p0 = Math.max(0, Math.floor(((start - lo) / span) * nb))
-          const p1 = Math.min(nb - 1, Math.floor(((end - 1 - lo) / span) * nb))
-          const share = counts[i] / (p1 - p0 + 1)
+          // over the pixels it spans rather than piling onto one; partly off
+          // screen, it brings only the share of its count that is in view.
+          const from = Math.max(start, lo)
+          const to = Math.min(end, hi)
+          const p0 = Math.max(0, Math.floor(((from - lo) / span) * nb))
+          const p1 = Math.min(nb - 1, Math.floor(((to - 1 - lo) / span) * nb))
+          const share = (counts[i] * (to - from)) / level / (p1 - p0 + 1)
           for (let p = p0; p <= p1; p++) out[p] += share
         }
       }
@@ -169,7 +172,11 @@ export async function runLimited(tasks: (() => Promise<void>)[], limit: number, 
   const worker = async () => {
     while (next < tasks.length && !signal.aborted) {
       const task = tasks[next++]
-      await task()
+      try {
+        await task()
+      } catch {
+        // The task reports its own failure; the next ones still run.
+      }
     }
   }
   await Promise.all(Array.from({ length: Math.min(limit, tasks.length) }, worker))
