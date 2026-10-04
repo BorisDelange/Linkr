@@ -1551,6 +1551,17 @@ describe('git-linkable catalog / dq-rule-set / schema-preset — export layout +
       expect(created.createdAt).toBe('2026-08-27T14:28:28.000Z')
     })
 
+    it('says when the repo\'s alias was taken and the database took another', async () => {
+      // Its scripts still query `ds_mimic_iv_demo`: silent, they broke unexplained.
+      const { store, calls } = makeStore([{ id: 'other', alias: 'MIMIC-IV-demo' } as never])
+      const zip = new JSZip()
+      zip.file('_database.json', META())
+
+      const result = await applyClonedEntity(zip, 'database', 'db-target', store)
+      expect(result.aliasRenamed).toEqual({ from: 'mimic_iv_demo', to: 'mimic_iv_demo_2' })
+      expect((calls['ds.create']![0][0] as { alias: string }).alias).toBe('mimic_iv_demo_2')
+    })
+
     it('stores each declared Parquet and points the source at them', async () => {
       const { store, calls } = makeStore()
       const zip = new JSZip()

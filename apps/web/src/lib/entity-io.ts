@@ -3563,6 +3563,9 @@ async function applyClonedDatabase(
     meta.alias ?? targetId,
     aliasesInScope(await storage.dataSources.getAll().catch(() => []), workspaceId, { instanceWide: !isServerMode(), exceptId: targetId }),
   )
+  // The repo's scripts and the other entities imported with it still say
+  // `ds_<repo alias>`: the caller has to tell the user, nothing here can fix them.
+  const aliasRenamed = !existing && meta.alias && alias !== meta.alias ? { from: meta.alias, to: alias } : undefined
   const record = {
     id: targetId,
     alias,
@@ -3718,7 +3721,7 @@ async function applyClonedDatabase(
         ? `Could not store this database's data: ${failedTables[0]}`
         : DB_ERROR_NO_DATA_ON_IMPORT,
     }).catch(() => {})
-    return { ok: true }
+    return { ok: true, aliasRenamed }
   }
   {
     try {
@@ -3745,7 +3748,7 @@ async function applyClonedDatabase(
       console.warn('[entity-io] database imported but not connected:', e)
     }
   }
-  return { ok: true }
+  return { ok: true, aliasRenamed }
 }
 
 /** What a database ZIP declares, read before deciding overwrite vs duplicate. */
@@ -3857,6 +3860,12 @@ export interface ApplyClonedResult {
   reason?: 'missing-manifest' | 'missing-file' | 'unreadable-project' | 'write-failed'
   /** The file that is missing, or the underlying write error. */
   context?: string
+  /**
+   * A cloned database whose alias another database of its scope already held,
+   * and the one it took instead (`mimic` → `mimic_2`). What was imported with it
+   * still queries `ds_<from>`: show `databases.import_alias_renamed`.
+   */
+  aliasRenamed?: { from: string; to: string }
 }
 
 /**

@@ -898,6 +898,7 @@
     "detail_concepts": "Concepts",
     "layout_unsorted_title_one": "1 table n'est pas rangée par patient",
     "layout_unsorted_title_other": "{{count}} tables ne sont pas rangées par patient",
+    "import_alias_renamed": "L'alias {{from}} est déjà utilisé ici : la base a été importée sous {{to}}. Les scripts importés avec elle qui interrogent ds_{{from}} doivent désormais interroger ds_{{to}}.",
     "layout_unsorted_description": "Lire un patient y parcourt l'essentiel de la table : {{tables}}. Écrire les fichiers Parquet triés par patient (puis par date) permet à toutes les vues patient, et au décompte des concepts, de sauter le reste."
   },
   "reports": {
