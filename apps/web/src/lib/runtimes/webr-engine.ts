@@ -428,7 +428,8 @@ interface Shelter {
 /**
  * Completions from R's own engine (the one RStudio uses) over the global env, so
  * `df$` lists the frame's columns. Only once webR is loaded and idle: completion
- * never triggers the runtime download, nor queues behind a run.
+ * never triggers the runtime download, nor queues behind a run. Twin:
+ * `.linkr_complete` in apps/api/app/services/execution/kernel.py (kernel).
  */
 export async function completeR(code: string, cursor: number): Promise<CodeCompletionItem[]> {
   const webR = _webR

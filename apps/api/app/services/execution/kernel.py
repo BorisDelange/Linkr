@@ -324,7 +324,8 @@ def _run(code, stream):
 # Completion ("C" request): jedi over the live namespace, so `df.` lists the
 # columns and methods of the frame the user built. A venv without jedi borrows the
 # server's copy (LINKR_JEDI_PATH), off sys.path again once imported so it never
-# shadows the project's own packages.
+# shadows the project's own packages. Twins: completePython in
+# apps/web/src/lib/runtimes/pyodide-engine.ts and the static pass in completion.py.
 def _complete(payload):
     try:
         req = json.loads(base64.b64decode(payload).decode("utf-8"))
@@ -560,6 +561,7 @@ sql_query <- function(sql) {
   names(.df) <- .cols
   as.data.frame(.df, stringsAsFactors = FALSE, optional = TRUE)
 }
+# Twin: completeR in apps/web/src/lib/runtimes/webr-engine.ts.
 .linkr_complete <- function(payload) {
   tryCatch({
     .req <- fromJSON(rawToChar(base64decode(payload)))
