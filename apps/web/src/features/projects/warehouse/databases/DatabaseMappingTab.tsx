@@ -17,11 +17,15 @@ import type { DataSource } from '@/types'
 import type { SchemaMapping, SchemaOverrides } from '@/types/schema-mapping'
 import { findSourcePreset } from '@/lib/find-source-preset'
 import { NoticeBanner } from '@/components/ui/notice-banner'
-import { discoverFullSchema, type IntrospectedTable } from '@/lib/duckdb/engine'
+import type { IntrospectedTable } from '@/lib/duckdb/engine'
+import { loadSourceTables } from '@/lib/sql-catalog'
 import { absentRelations } from '@/lib/schema-classes/presence'
 
-/** Databases whose missing-table notice was closed: hidden until the page reloads. */
+/** Missing-table notices closed, by database and the tables they listed: hidden
+ *  until the page reloads, or until another table goes missing. */
 const dismissedAbsent = new Set<string>()
+const absentNoticeKey = (sourceId: string, absent: readonly { specKey: string; tables: string[] }[]) =>
+  JSON.stringify([sourceId, ...absent.map((a) => [a.specKey, ...a.tables])])
 
 /**
  * A database's mapping: its preset's copy (the base) with what this site changes
@@ -53,22 +57,24 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const [updateOpen, setUpdateOpen] = useState(false)
 
   // What the database actually holds: the editor suggests its tables and
-  // columns, and the relations reading a table it lacks are flagged.
+  // columns, and the relations reading a table it lacks are flagged — all of
+  // them when it was read and holds none. Null while unread or unreadable.
   const [schema, setSchema] = useState<{ id: string; tables: IntrospectedTable[] } | null>(null)
   useEffect(() => {
     if (source.status !== 'connected') return
     let live = true
-    discoverFullSchema(source.id).then(
+    loadSourceTables(source.id).then(
       (tables) => { if (live) setSchema({ id: source.id, tables }) },
-      () => { /* unreachable: the DDL's suggestions stand in */ },
+      () => { /* introspection failed: flag nothing, the DDL's suggestions stand in */ },
     )
     return () => { live = false }
   }, [source.id, source.status])
-  const sourceSchema = schema?.id === source.id && schema.tables.length ? schema.tables : null
+  const sourceSchema = schema?.id === source.id ? schema.tables : null
   const absent = useMemo(
     () => (sourceSchema && source.schemaMapping ? absentRelations(source.schemaMapping, sourceSchema.map((t) => t.name)) : []),
     [sourceSchema, source.schemaMapping],
   )
+  const noticeKey = absentNoticeKey(source.id, absent)
 
   if (!base) {
     return <p className="px-6 py-10 text-center text-sm text-muted-foreground">{t('schema_mapping.db_no_mapping')}</p>
@@ -163,11 +169,11 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const presetChanged = !!preset && JSON.stringify(sanitizeSchemaMapping(preset.mapping)) !== JSON.stringify(base)
   const staleAfterUpdate = preset ? staleOverrides(sanitizeSchemaMapping(preset.mapping), overrides) : []
 
-  const notice = absent.length > 0 && !editing && !dismissedAbsent.has(source.id) ? (
+  const notice = absent.length > 0 && !editing && !dismissedAbsent.has(noticeKey) ? (
     <NoticeBanner
       tone="warning"
       onDismiss={() => {
-        dismissedAbsent.add(source.id)
+        dismissedAbsent.add(noticeKey)
         setDismissals((n) => n + 1)
       }}
       title={t('schema_mapping.absent_tables_title', { count: absent.length })}
