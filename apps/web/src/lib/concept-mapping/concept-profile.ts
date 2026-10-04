@@ -257,6 +257,18 @@ function eventScope(event: ClassRelation, conceptId: number): string {
 
 const patientsExpr = (event: ClassRelation) => (has(event, 'patient_id') ? 'COUNT(DISTINCT e.patient_id)' : 'NULL')
 
+/** A cell's own records and patients ride along with it: export masking needs
+ *  both, since a percentage does not say over which records it was taken and
+ *  a cell of many records can still be one patient's. */
+function withCellCounts<T extends Record<string, unknown>>(row: T): T {
+  const out: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(row)) {
+    if (key !== 'count' && key !== 'patients_count') out[key] = value
+    else if (value != null) out[key] = Number(value)
+  }
+  return out as T
+}
+
 /** The "no value at all" predicate over whichever value columns the event has. */
 function emptyValue(event: ClassRelation): string | null {
   const empty: string[] = []
@@ -492,7 +504,8 @@ export function histogramBins(count: number, bins: number | 'auto'): number {
  *
  * The width is a round m × 10^e near (max − min) / bins, and the edges are its
  * multiples: bins anchored on the minimum would give the minimum and maximum
- * back through their centres, and those are one patient's values each.
+ * back through their centres, and those are one patient's values each. Each bin
+ * also counts its distinct patients, for export masking.
  */
 export function buildHistogramQuery(
   source: ProfileSource,
@@ -501,8 +514,9 @@ export function buildHistogramQuery(
   bins: number,
 ): string {
   if (!has(source.event, 'value_number')) return ''
+  const withPatient = has(source.event, 'patient_id')
   return `WITH filtered AS (
-    SELECT e.value_number AS value
+    SELECT e.value_number AS value${withPatient ? ', e.patient_id AS patient_id' : ''}
     ${eventScope(source.event, conceptId)} AND e.value_number IS NOT NULL${withinBounds(bounds)}
   ),
   spread AS (
@@ -518,15 +532,17 @@ export function buildHistogramQuery(
   )
   SELECT CAST(FLOOR(CASE WHEN s.step_e < 0 THEN f.value * POW(10, -s.step_e) / s.step_m
                          ELSE f.value / (s.step_m * POW(10, s.step_e)) END) AS INTEGER) AS bin_idx,
-         s.step_m, s.step_e, COUNT(*) AS count
+         s.step_m, s.step_e, COUNT(*) AS count,
+         ${withPatient ? 'COUNT(DISTINCT f.patient_id)' : 'NULL'} AS patients_count
   FROM filtered f, step s GROUP BY ALL ORDER BY bin_idx`
 }
 
-/** The histogram query's rows as {x: bin centre, count}. */
-export function histogramFromRows(rows: Record<string, unknown>[]): { x: number; count: number }[] {
+/** The histogram query's rows as {x: bin centre, count, patients_count}. */
+export function histogramFromRows(rows: Record<string, unknown>[]): { x: number; count: number; patients_count?: number }[] {
   return rows.map((row) => ({
     x: binCentre(Number(row.bin_idx), Number(row.step_m), Number(row.step_e)),
     count: Number(row.count),
+    ...(row.patients_count != null ? { patients_count: Number(row.patients_count) } : {}),
   }))
 }
 
@@ -544,8 +560,8 @@ export function buildCategoricalQuery(
 ): string {
   if (!has(source.event, 'value_string')) return ''
   const v = 'CAST(e.value_string AS VARCHAR)'
-  return `SELECT category, count, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
-    SELECT ${v} AS category, COUNT(*) AS count
+  return `SELECT category, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
+    SELECT ${v} AS category, COUNT(*) AS count, ${patientsExpr(source.event)} AS patients_count
     ${eventScope(source.event, conceptId)} AND ${v} IS NOT NULL AND TRIM(${v}) <> ''
     GROUP BY ${v}
     HAVING COUNT(*) >= ${Math.trunc(options.minCategoryCount)}
@@ -608,21 +624,23 @@ export function buildPerPatientQuery(
   FROM per_patient`
 }
 
-/** Date range plus the per-year share of records. */
+/** Date range plus the per-year share of records, with each year's records and patients. */
 export function buildTemporalQuery(source: ProfileSource, conceptId: number): string {
   if (!has(source.event, 'start_datetime')) return ''
+  const withPatient = has(source.event, 'patient_id')
   return `WITH times AS (
-    SELECT CAST(e.start_datetime AS TIMESTAMP) AS ts
+    SELECT CAST(e.start_datetime AS TIMESTAMP) AS ts${withPatient ? ', e.patient_id AS patient_id' : ''}
     ${eventScope(source.event, conceptId)} AND e.start_datetime IS NOT NULL
   )
   SELECT EXTRACT(YEAR FROM ts) AS year, COUNT(*) AS count,
+         ${withPatient ? 'COUNT(DISTINCT patient_id)' : 'NULL'} AS patients_count,
          ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (), 1) AS percentage,
          MIN(MIN(ts)) OVER ()::DATE AS start_date,
          MAX(MAX(ts)) OVER ()::DATE AS end_date
   FROM times GROUP BY EXTRACT(YEAR FROM ts) ORDER BY year`
 }
 
-/** Top wards the concept is recorded in, as a share of records. */
+/** Top wards the concept is recorded in, as a share of the records that have a ward, with their records and patients. */
 export function buildHospitalUnitsQuery(
   mapping: SchemaMapping,
   source: ProfileSource,
@@ -631,8 +649,8 @@ export function buildHospitalUnitsQuery(
 ): string {
   const ward = resolveWardExpr(mapping, source.event)
   if (!ward) return ''
-  return `SELECT unit, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
-    SELECT ${ward.expr} AS unit, COUNT(*) AS count
+  return `SELECT unit, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
+    SELECT ${ward.expr} AS unit, COUNT(*) AS count, COUNT(DISTINCT e.patient_id) AS patients_count
     FROM ${source.event.name} e
     ${ward.joins}
     WHERE (${conceptMatch(source.event, conceptId)}) AND ${ward.expr} IS NOT NULL
@@ -649,12 +667,12 @@ export interface ProfileQueryResults {
   base: { rows_count: number; patients_count: number | null }
   missingRate?: { missing_rate: number | null }
   numeric?: Record<string, number | null>
-  histogram?: { x: number; count: number }[]
-  categorical?: { category: string; count: number; percentage: number }[]
+  histogram?: { x: number; count: number; patients_count?: number | null }[]
+  categorical?: { category: string; count: number; patients_count?: number | null; percentage: number }[]
   unit?: { unit: string }
   frequency?: { median_hours: number | null }
-  temporal?: { year: number; percentage: number; start_date: string; end_date: string }[]
-  hospitalUnits?: { unit: string; percentage: number }[]
+  temporal?: { year: number; percentage: number; count?: number | null; patients_count?: number | null; start_date: string; end_date: string }[]
+  hospitalUnits?: { unit: string; percentage: number; count?: number | null; patients_count?: number | null }[]
   perPatient?: { mean: number | null; median: number | null; min: number | null; max: number | null }
 }
 
@@ -733,7 +751,7 @@ export function assembleProfileJson(
 
   const hasNumeric = !!results.numeric && results.numeric.min != null
   const masked = (results.categorical ?? [])
-    .map((row) => ({ ...row, category: maskLongValue(row.category, options.maxCategoryLength) }))
+    .map((row) => withCellCounts({ ...row, category: maskLongValue(row.category, options.maxCategoryLength) }))
     .filter((row): row is typeof row & { category: string } => row.category !== null)
   const categorical = categoriesMirrorNumbers(masked, hasNumeric) ? [] : masked
   const hasCategorical = categorical.length > 0
@@ -751,7 +769,7 @@ export function assembleProfileJson(
     // Fixed key order: this is what the detail view's stats row renders in.
     out.numeric_data = pickDefined(n, ['min', 'p5', 'p25', 'median', 'mean', 'p75', 'p95', 'max', 'sd'])
   }
-  if (results.histogram?.length) out.histogram = results.histogram
+  if (results.histogram?.length) out.histogram = results.histogram.map(withCellCounts)
   if (hasCategorical) out.categorical_data = categorical
 
   const interval = frequencyLabel(results.frequency?.median_hours)
@@ -769,11 +787,11 @@ export function assembleProfileJson(
     out.temporal_distribution = {
       start_date: temporal[0].start_date,
       end_date: temporal[0].end_date,
-      by_year: temporal.map((row) => ({ year: row.year, percentage: row.percentage })),
+      by_year: temporal.map((row) => withCellCounts({ year: row.year, percentage: row.percentage, count: row.count, patients_count: row.patients_count })),
     }
   }
 
-  if (results.hospitalUnits?.length) out.hospital_units = results.hospitalUnits
+  if (results.hospitalUnits?.length) out.hospital_units = results.hospitalUnits.map(withCellCounts)
 
   return out
 }

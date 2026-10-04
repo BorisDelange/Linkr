@@ -15,6 +15,7 @@ import {
   buildNumericStatsQuery,
   buildPerPatientQuery,
   buildProfileBaseQuery,
+  buildTemporalQuery,
   effectiveSections,
   frequencyLabel,
   histogramBins,
@@ -213,6 +214,29 @@ describe('query builders', () => {
       { bin_idx: 1, step_m: 2, step_e: -1, count: 5 },
       { bin_idx: -3, step_m: 2, step_e: 0, count: 6 },
     ])).toEqual([{ x: 35, count: 4 }, { x: 0.3, count: 5 }, { x: -5, count: 6 }])
+  })
+
+  it('gives every cell its own records and patients, which export masking reads', () => {
+    // A ward's share is over the records that have a ward, not over the concept's
+    // records, and a cell of many records can be one patient's.
+    for (const sql of [
+      buildHistogramQuery(source(), 42, null, 10),
+      buildCategoricalQuery(source(), 42, { minCategoryCount: 50, topN: 10 }),
+      buildTemporalQuery(source(), 42),
+      buildHospitalUnitsQuery(OMOP, source(), 42, 10),
+    ]) {
+      expect(sql).toMatch(/COUNT\(DISTINCT [ef.]*patient_id\)\s+AS patients_count/)
+      expect(sql).toMatch(/COUNT\(\*\) AS count/)
+    }
+    expect(histogramFromRows([{ bin_idx: 0, step_m: 1, step_e: 0, count: 40, patients_count: 12 }]))
+      .toEqual([{ x: 0.5, count: 40, patients_count: 12 }])
+    const json = assembleProfileJson({
+      base: { rows_count: 1000, patients_count: 200 },
+      temporal: [{ year: 2020, percentage: 100, count: 1000, patients_count: 200, start_date: '2020-01-01', end_date: '2020-12-31' }],
+      hospitalUnits: [{ unit: 'ICU', percentage: 80, count: 80, patients_count: null }],
+    }, {}, DEFAULT_PROFILE_OPTIONS)
+    expect(json?.temporal_distribution).toMatchObject({ by_year: [{ year: 2020, percentage: 100, count: 1000, patients_count: 200 }] })
+    expect(json?.hospital_units).toEqual([{ unit: 'ICU', percentage: 80, count: 80 }])
   })
 
   it('keeps rare categories out and takes the top N', () => {
