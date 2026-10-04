@@ -63,6 +63,12 @@ type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
 const STATUSES: EffectiveMappingStatus[] = ['approved', 'rejected', 'flagged', 'disputed', 'unchecked', 'ignored']
 
+/** A browser out of memory throws a RangeError (Chrome, Safari) or an
+ *  InternalError "allocation size overflow" (Firefox). */
+function outOfMemory(err: unknown): boolean {
+  return err instanceof RangeError || (err instanceof Error && /memory|allocation/i.test(err.message))
+}
+
 export function ExportTab({ project, dataSource }: ExportTabProps) {
   const { t } = useTranslation()
   const { mappings } = useConceptMappingStore()
@@ -311,8 +317,12 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         setZipError(t('concept_mapping.source_csv_unreadable'))
         return
       }
-      // ZIP generation failed (likely memory overflow on very large source CSV)
-      // Fall back: download ZIP without source CSV + source CSV separately
+      if (!outOfMemory(err)) {
+        setZipError(t('concept_mapping.export_zip_failed', { reason: err instanceof Error ? err.message : String(err) }))
+        return
+      }
+      // The ZIP did not fit in memory (a very large source CSV): the ZIP without
+      // it, then the source CSV on its own
       try {
         const zip = new JSZip()
         await buildMappingProjectFolder(zip, '', project, getStorage(), {
@@ -336,9 +346,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
             const csvBlob = new Blob([out as BlobPart], { type: 'text/csv' })
             downloadBlob(csvBlob, `${slugify(localized(project.name, 'en'))}-source-concepts.csv`)
           } catch (csvErr) {
-            setZipError(t(csvErr instanceof SourceConceptsUnreadableError
-              ? 'concept_mapping.source_csv_unreadable'
-              : 'concept_mapping.source_csv_too_large'))
+            if (csvErr instanceof SourceConceptsUnreadableError) setZipError(t('concept_mapping.source_csv_unreadable'))
+            else if (outOfMemory(csvErr)) setZipError(t('concept_mapping.source_csv_too_large'))
+            else setZipError(t('concept_mapping.export_zip_failed', { reason: csvErr instanceof Error ? csvErr.message : String(csvErr) }))
           }
         } else {
           setZipError(t('concept_mapping.source_csv_too_large'))
