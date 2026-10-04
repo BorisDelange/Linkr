@@ -393,3 +393,5 @@ def test_a_logged_clone_url_carries_no_credentials():
     assert _without_credentials("https://oauth2:glpat-x@gitlab.chu.local:8443/g/r.git") == "https://gitlab.chu.local:8443/g/r.git"
     assert _without_credentials("https://framagit.org/g/r.git") == "https://framagit.org/g/r.git"
     assert _without_credentials("git@framagit.org:g/r.git") == "git@framagit.org:g/r.git"
+    assert _without_credentials("https://oauth2:tok@[fd00::1]:8443/g/r.git") == "https://[fd00::1]:8443/g/r.git"
+    assert _without_credentials("https://gitlab.chu.local/g/r.git?private_token=glpat-x#frag") == "https://gitlab.chu.local/g/r.git"

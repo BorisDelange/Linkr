@@ -1290,10 +1290,9 @@ async def clone(
 
 
 def _without_credentials(url: str) -> str:
+    """`url` without its userinfo, query or fragment — a token can sit in any of them."""
     parts = urlsplit(url)
-    if not parts.password and not parts.username:
-        return url
-    return urlunsplit(parts._replace(netloc=parts.hostname + (f":{parts.port}" if parts.port else "")))
+    return urlunsplit(parts._replace(netloc=parts.netloc.rsplit("@", 1)[-1], query="", fragment=""))
 
 
 # --- Per-user host token management ---------------------------------------
