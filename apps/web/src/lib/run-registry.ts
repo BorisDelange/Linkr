@@ -72,13 +72,18 @@ export function createRunRegistry<I, S extends RunSnapshotBase>(opts: RunRegistr
 
   const watch = (key: string, watcher: (snapshot: S) => void) => {
     const run = runs.get(key)
-    if (run) {
-      run.watchers.add(watcher)
-      return () => { runs.get(key)?.watchers.delete(watcher) }
-    }
+    if (run) run.watchers.add(watcher)
     // No run yet: hold the watcher so a run started elsewhere picks it up.
-    pending.set(key, (pending.get(key) ?? new Set()).add(watcher))
-    return () => { pending.get(key)?.delete(watcher) }
+    else pending.set(key, (pending.get(key) ?? new Set()).add(watcher))
+    // Looked up at unsubscribe time: a run started since took the pending watchers.
+    return () => {
+      pending.get(key)?.delete(watcher)
+      const current = runs.get(key)
+      if (!current) return
+      current.watchers.delete(watcher)
+      // A finished run kept only for its watchers goes with the last of them.
+      if (current.watchers.size === 0 && !current.snapshot.running && !current.snapshot.error) runs.delete(key)
+    }
   }
 
   const start = (key: string, input: I) => {

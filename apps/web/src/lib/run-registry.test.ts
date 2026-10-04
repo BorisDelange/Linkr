@@ -70,4 +70,24 @@ describe('createRunRegistry', () => {
     release(); await tick(); await tick()
     expect(registry.get('a')).toMatchObject({ running: false, error: null })
   })
+
+  it('forgets a finished run once its last watcher leaves', async () => {
+    const { registry, release } = controllable()
+    const unwatch = registry.watch('a', () => {})
+    registry.start('a', { steps: 1 })
+    release(); await tick(); await tick()
+    expect(registry.get('a')).toMatchObject({ running: false })
+    expect(registry.get('a')).not.toBe(IDLE)
+    unwatch()
+    expect(registry.get('a')).toBe(IDLE)
+  })
+
+  it('keeps a failed run for a later watcher after the last one leaves', async () => {
+    const { registry, release } = controllable()
+    const unwatch = registry.watch('a', () => {})
+    registry.start('a', { steps: 1, fail: true })
+    release(); await tick(); await tick()
+    unwatch()
+    expect(registry.get('a').error).toBe('boom')
+  })
 })
