@@ -92,6 +92,32 @@ def test_an_auth_failure_is_not_retried_with_the_suffix(monkeypatch):
     assert probed == ["https://gitlab.com/g/private"]
 
 
+def test_an_unreachable_host_fails_once_as_a_network_error(monkeypatch):
+    probed = _fake_ls_remote(monkeypatch, {
+        "https://gitlab.example/g/repo": "fatal: unable to access '…': Could not resolve host: gitlab.example",
+    })
+    with pytest.raises(g.GitError) as exc:
+        g._with_credentials("https://gitlab.example/g/repo", None)
+    assert exc.value.code == "network"
+    assert probed == ["https://gitlab.example/g/repo"]
+
+
+def test_a_probe_timeout_is_a_network_error(monkeypatch):
+    probed = []
+
+    def run(cmd, **kwargs):
+        probed.append(cmd[2])
+        raise subprocess.TimeoutExpired(cmd, kwargs.get("timeout"))
+
+    monkeypatch.setattr(g.subprocess, "run", run)
+    monkeypatch.setattr(g, "_answering_form", {})
+    with pytest.raises(g.GitError) as exc:
+        g._with_credentials("https://gitlab.example/g/repo", "tok")
+    assert exc.value.code == "network"
+    assert "tok" not in str(exc.value)
+    assert probed == ["https://oauth2:tok@gitlab.example/g/repo"]
+
+
 def test_an_ssh_failure_does_not_tell_which_hosts_answer():
     error = g._failure(
         "ssh: connect to host 10.0.0.5 port 22: Connection refused\nfatal: Could not read from remote repository.",

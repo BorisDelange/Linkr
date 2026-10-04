@@ -322,15 +322,22 @@ def _remote_form(url: str, token: str | None) -> str:
     if known:
         return known
     for candidate in candidates:
-        proc = subprocess.run(
-            ["git", "ls-remote", _inject_token(candidate, token), "HEAD"],
-            capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
-        )
+        try:
+            proc = subprocess.run(
+                ["git", "ls-remote", _inject_token(candidate, token), "HEAD"],
+                capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise GitError("git ls-remote timed out", "network") from exc
         if proc.returncode == 0:
             _answering_form[candidates[0]] = candidate
             return candidate
-        if not _REDIRECTED_OR_MISSING.search(proc.stderr):
-            break
+        if _REDIRECTED_OR_MISSING.search(proc.stderr):
+            continue
+        # An unreachable host would only time out again on the caller's own call.
+        if _classify_error(proc.stderr) == "network":
+            raise _failure(proc.stderr.strip(), token, ["ls-remote", candidate])
+        break
     return candidates[0]
 
 
