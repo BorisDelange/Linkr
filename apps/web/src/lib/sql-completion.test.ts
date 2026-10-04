@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { quoteIdent, sqlCompletions, type SqlCatalog } from './sql-completion'
+import { MAX_UNSCOPED_COLUMNS, quoteIdent, sqlCompletions, sqlSlot, type SqlCatalog } from './sql-completion'
 
 const omop: SqlCatalog = {
   defaultSchemas: ['main'],
@@ -130,6 +130,18 @@ describe('sqlCompletions — where nothing belongs', () => {
     expect(labels('-- FROM cdm.person\nSELECT | FROM main.notes', 'column')).toEqual(['note_id', 'text'])
   })
 
+  it('stays silent inside a line comment, up to its end of line', () => {
+    expect(complete('SELECT 1 -- see per|').items).toEqual([])
+    expect(complete('SELECT 1 -- from |\nFROM person').slot).toBe('none')
+    expect(complete('SELECT 1 -- note\n|').slot).not.toBe('none')
+  })
+
+  it('stays silent inside a block comment, closed or not', () => {
+    expect(complete('SELECT /* FROM | */ 1').slot).toBe('none')
+    expect(complete('SELECT 1 /* FROM per|').items).toEqual([])
+    expect(complete('SELECT /* x */ | FROM main.notes').slot).toBe('expression')
+  })
+
   it('reports where the replaced word starts', () => {
     expect(complete('SELECT * FROM cdm.per|').wordStart).toBe('SELECT * FROM cdm.'.length)
   })
@@ -142,6 +154,30 @@ describe('sqlCompletions — slot', () => {
     expect(complete('SELECT |').slot).toBe('expression')
     expect(complete('SELECT * FROM person |').slot).toBe('keywords')
     expect(complete('SELECT * FROM cdm.|').slot).toBe('qualified')
+  })
+})
+
+describe('sqlCompletions — without FROM', () => {
+  it('caps the every-column fallback on a large database', () => {
+    const tables = Array.from({ length: 300 }, (_, i) => ({
+      name: `t${i}`,
+      columns: Array.from({ length: 20 }, (_, j) => ({ name: `c${i}_${j}` })),
+    }))
+    const big: SqlCatalog = { defaultSchemas: ['main'], schemas: [{ name: 'main', tables }] }
+    expect(labels('SELECT |', 'column', big)).toHaveLength(MAX_UNSCOPED_COLUMNS)
+  })
+})
+
+describe('sqlSlot', () => {
+  it('reads the slot from the text before the cursor alone', () => {
+    expect(sqlSlot('SELECT * FROM ')).toBe('table')
+    expect(sqlSlot('SELECT * FROM person WHERE ')).toBe('expression')
+    expect(sqlSlot('SELECT 1;\nSELECT * FROM person ')).toBe('keywords')
+  })
+
+  it('is none inside a comment or a string', () => {
+    expect(sqlSlot('SELECT 1 -- FROM ')).toBe('none')
+    expect(sqlSlot("SELECT * FROM person WHERE x = 'a ")).toBe('none')
   })
 })
 

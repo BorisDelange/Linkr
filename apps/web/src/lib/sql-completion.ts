@@ -6,7 +6,9 @@
  * loader live elsewhere.
  *
  * Deliberately a lexer plus a few backward-looking rules, not a parser: the text
- * being completed is unfinished SQL, which no grammar accepts.
+ * being completed is unfinished SQL, which no grammar accepts. Not handled:
+ * dollar-quoted strings (`$$…$$`) and nested block comments — a `*/` closes the
+ * outermost `/*`.
  */
 
 export interface SqlCatalogColumn {
@@ -58,6 +60,7 @@ export type SqlSlot = 'none' | 'keywords' | 'table' | 'qualified' | 'expression'
 type Token =
   | { t: 'ident'; v: string; quoted: boolean; start: number; end: number; open?: boolean }
   | { t: 'punct'; v: string; start: number; end: number; open?: boolean }
+  | { t: 'comment'; v: '--' | '/*'; start: number; end: number; open?: boolean }
 
 const KEYWORDS = [
   'SELECT', 'FROM', 'WHERE', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT', 'OFFSET',
@@ -108,10 +111,11 @@ const RESERVED = new Set([
 ])
 
 /**
- * Splits SQL into identifiers and punctuation. String literals, numbers, comments
- * and operators are dropped (they never carry a name worth completing), but a
- * `'` left open at the cursor still swallows the rest — so completion stays out
- * of string literals.
+ * Splits SQL into identifiers, punctuation and comments. Numbers and operators
+ * are dropped and a string literal is one `'` token (none carries a name worth
+ * completing), but strings and comments keep their extent, open to the end when
+ * unclosed — so completion stays out of them. A line comment's extent includes
+ * its newline: a cursor at the end of the comment's line is still in it.
  */
 export function tokenizeSql(sql: string): Token[] {
   const tokens: Token[] = []
@@ -121,10 +125,14 @@ export function tokenizeSql(sql: string): Token[] {
     const c = sql[i]
     if (c === '-' && sql[i + 1] === '-') {
       const nl = sql.indexOf('\n', i)
-      i = nl === -1 ? n : nl + 1
+      const end = nl === -1 ? n : nl + 1
+      tokens.push({ t: 'comment', v: '--', start: i, end, open: nl === -1 })
+      i = end
     } else if (c === '/' && sql[i + 1] === '*') {
       const close = sql.indexOf('*/', i + 2)
-      i = close === -1 ? n : close + 2
+      const end = close === -1 ? n : close + 2
+      tokens.push({ t: 'comment', v: '/*', start: i, end, open: close === -1 })
+      i = end
     } else if (c === "'") {
       let j = i + 1
       while (j < n) {
@@ -326,23 +334,39 @@ function matches(label: string, prefix: string): boolean {
   return label.toLowerCase().startsWith(prefix.toLowerCase())
 }
 
-/** Suggestions for the cursor at `offset` in `sql`. */
-export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog): SqlCompletionResult {
-  const tokens = tokenizeSql(sql)
+/** No-FROM fallback cap: every column of every table can be tens of thousands. */
+export const MAX_UNSCOPED_COLUMNS = 2000
+
+/** Where the cursor stands: the word it replaces, its statement, and what it expects. */
+function locate(sql: string, offset: number) {
+  const all = tokenizeSql(sql)
   // The word under the cursor is what gets replaced — exclude it from the context.
   let wordStart = offset
   while (wordStart > 0 && /[A-Za-z0-9_$À-￿]/.test(sql[wordStart - 1])) wordStart--
-  const prefix = sql.slice(wordStart, offset)
-
+  // A string, quoted identifier or comment around the cursor swallows it.
+  const inside = all.some((tok) =>
+    tok.start < offset && (tok.end > offset || tok.open)
+    && (tok.t === 'comment' || tok.v === "'" || (tok.t === 'ident' && tok.quoted)))
+  const tokens = all.filter((tok) => tok.t !== 'comment')
   const [from, to] = statementBounds(tokens, offset)
   const statement = tokens.slice(from, to)
-  const before = statement.filter((tok) => tok.end <= wordStart)
-  // An unterminated string or quoted identifier swallows the cursor.
-  const open = statement.find((tok) =>
-    tok.start < offset && (tok.end > offset || tok.open) && (tok.v === "'" || (tok.t === 'ident' && tok.quoted)))
-  if (open) return { items: [], wordStart, slot: 'none' }
+  const ctx: Context = inside ? { kind: 'none' } : cursorContext(statement.filter((tok) => tok.end <= wordStart))
+  return { wordStart, statement, ctx }
+}
 
-  const ctx = cursorContext(before)
+/**
+ * What the cursor at the end of `textBefore` expects — no suggestions built.
+ * The caller may pass only the text leading up to the cursor (a few hundred
+ * lines suffice): a slot is read backwards, never from what follows.
+ */
+export function sqlSlot(textBefore: string): SqlSlot {
+  return locate(textBefore, textBefore.length).ctx.kind
+}
+
+/** Suggestions for the cursor at `offset` in `sql`. */
+export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog): SqlCompletionResult {
+  const { wordStart, statement, ctx } = locate(sql, offset)
+  const prefix = sql.slice(wordStart, offset)
   const { refs, ctes } = collectRefs(statement)
   const items: SqlCompletion[] = []
   const push = (item: SqlCompletion) => { if (matches(item.label, prefix)) items.push(item) }
@@ -360,10 +384,12 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
       }
     }
   }
-  const columnItems = (tables: { schema: string; table: SqlCatalogTable; via?: string }[], rank: number) => {
+  const columnItems = (tables: { schema: string; table: SqlCatalogTable; via?: string }[], rank: number, max = Infinity) => {
     const seen = new Set<string>()
+    const stop = items.length + max
     for (const { table, via } of tables) {
       for (const c of table.columns) {
+        if (items.length >= stop) return
         const key = `${via ?? table.name}.${c.name}`
         if (seen.has(key)) continue
         seen.add(key)
@@ -432,7 +458,7 @@ export function sqlCompletions(sql: string, offset: number, catalog: SqlCatalog)
       push({ label: name, kind: 'table', insertText: quoteIdent(name), detail: r.alias ? r.path.join('.') : undefined, rank: 2 })
     }
   } else if (!refs.length) {
-    columnItems(catalog.schemas.flatMap((s) => s.tables.map((table) => ({ schema: s.name, table }))), 2)
+    columnItems(catalog.schemas.flatMap((s) => s.tables.map((table) => ({ schema: s.name, table }))), 2, MAX_UNSCOPED_COLUMNS)
   }
   keywordItems(3)
   return { items: dedupe(items), wordStart, slot: ctx.kind }
