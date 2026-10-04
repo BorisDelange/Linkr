@@ -19,6 +19,8 @@ export interface LayoutEntry extends LayoutCheck {
 const MIN_ROW_GROUPS = 8
 /** A lookup reading more than this share of a table means it is not in patient order. */
 const MAX_SCAN_FRACTION = 0.25
+/** The server refuses a request asking more (`PARQUET_LAYOUT_MAX_CHECKS`). */
+export const MAX_LAYOUT_CHECKS = 40
 
 /**
  * Every table the patient views read by patient, with its patient column: the
@@ -40,7 +42,7 @@ export function patientLayoutChecks(mapping: SchemaMapping): LayoutCheck[] {
     const check: LayoutCheck = { table: ref.table.table, column: ref.column, ...(ref.table.schema ? { schema: ref.table.schema } : {}) }
     out.set(`${check.schema ?? ''}.${check.table}`.toLowerCase(), check)
   }
-  return [...out.values()]
+  return [...out.values()].slice(0, MAX_LAYOUT_CHECKS)
 }
 
 /** The tables a patient lookup reads mostly in full, worst first. */

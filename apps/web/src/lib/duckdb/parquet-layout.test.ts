@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
-import { patientLayoutChecks, unsortedTables, type LayoutEntry } from './parquet-layout'
+import { MAX_LAYOUT_CHECKS, patientLayoutChecks, unsortedTables, type LayoutEntry } from './parquet-layout'
 
 const mapping = mappingV1ToV2({
   patientTable: { table: 'person', idColumn: 'person_id' },
@@ -19,6 +19,14 @@ describe('patientLayoutChecks', () => {
       { table: 'visit_occurrence', column: 'person_id' },
       { table: 'measurement', column: 'person_id' },
     ])
+  })
+
+  it('never asks more tables than the server answers', () => {
+    const eventTables = Object.fromEntries(Array.from({ length: 60 }, (_, i) => [
+      `E${i}`, { table: `events_${i}`, conceptIdColumn: 'concept_id', patientIdColumn: 'person_id', dateColumn: 'dt' },
+    ]))
+    const wide = mappingV1ToV2({ patientTable: { table: 'person', idColumn: 'person_id' }, eventTables } as unknown as SchemaMappingV1)
+    expect(patientLayoutChecks(wide)).toHaveLength(MAX_LAYOUT_CHECKS)
   })
 })
 

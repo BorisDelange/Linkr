@@ -463,7 +463,9 @@ class ParquetLayoutCheck(CamelModel):
 
 
 class ParquetLayoutRequest(CamelModel):
-    checks: list[ParquetLayoutCheck] = Field(max_length=200)
+    # PARQUET_LAYOUT_MAX_CHECKS: the service answers no more, so a longer list
+    # is a client asking for work it will not get.
+    checks: list[ParquetLayoutCheck] = Field(max_length=40)
 
 
 class ParquetLayoutEntry(CamelModel):
