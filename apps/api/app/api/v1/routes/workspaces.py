@@ -75,6 +75,7 @@ async def export_zip(
     structured body."""
     from fastapi.responses import Response
 
+    from app.services.export_masking import SourceConceptsUnreadable
     from app.services.workspace_export import _slugify
     from app.services.workspace_export_assemble import (
         WorkspaceExportOptions,
@@ -90,7 +91,10 @@ async def export_zip(
         sections=opts.sections,
         exclude_entities=opts.exclude_entities,
     )
-    zip_bytes = await assemble_workspace_zip(db, workspace, options)
+    try:
+        zip_bytes = await assemble_workspace_zip(db, workspace, options)
+    except SourceConceptsUnreadable as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     audit.bind(action="export", workspace_id=workspace.id,
                detail=f"workspace export ({len(zip_bytes)} bytes)")
     name = workspace.name.get("en") if isinstance(workspace.name, dict) else workspace.name

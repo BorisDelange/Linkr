@@ -180,3 +180,18 @@ async def test_workspace_badge_categories_persist(client):
     )
     assert r.status_code == 201
     assert r.json()["badgeCategories"] == categories
+
+
+async def test_export_refuses_an_unmaskable_source_file_with_400(client, monkeypatch):
+    from app.services import workspace_export_assemble
+    from app.services.export_masking import SourceConceptsUnreadable
+
+    async def unreadable(*_args, **_kwargs):
+        raise SourceConceptsUnreadable()
+
+    monkeypatch.setattr(workspace_export_assemble, "assemble_workspace_zip", unreadable)
+    headers = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    r = await client.post(f"{API}/workspaces/{ws}/export-zip", headers=headers, json={})
+    assert r.status_code == 400
+    assert "cannot be masked" in r.json()["detail"]
