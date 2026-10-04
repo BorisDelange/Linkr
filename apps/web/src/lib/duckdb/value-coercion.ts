@@ -24,9 +24,14 @@ export function toMs(value: unknown): number | null {
   // "2024-01-15 14:30:00" is not ISO-8601 until the space becomes a T; without
   // this, Safari returns NaN where Chrome happens to parse it.
   const normalized = s.includes('T') || !s.includes(' ') ? s : s.replace(' ', 'T')
-  const ms = new Date(normalized).getTime()
+  // A naive timestamp (the server's `.isoformat()` of a TIMESTAMP) is read as
+  // UTC, as DuckDB-WASM's epoch values and `epoch_ms()` are: read as local
+  // time, it would shift by the browser's offset.
+  const ms = new Date(NAIVE_DATETIME.test(normalized) ? `${normalized}Z` : normalized).getTime()
   return Number.isNaN(ms) ? null : ms
 }
+
+const NAIVE_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
 
 /** Same as `toMs`, as a Date, falling back to the epoch for unusable values. */
 export function toDate(value: unknown): Date {

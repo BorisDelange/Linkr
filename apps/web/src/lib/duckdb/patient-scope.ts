@@ -56,6 +56,9 @@ WHERE visit_detail_id = '${escSql(visitDetailId)}'
 LIMIT 1`
 }
 
+/** An end at midnight is a DATE (or reads as one): the day it names is in the window. */
+const isMidnight = (iso: string) => /T00:00(:00(\.0+)?)?(Z|[+-]00:?00)?$/.test(iso) || /^\d{4}-\d{2}-\d{2}$/.test(iso)
+
 /**
  * `AND`-clause keeping the rows that overlap a window, or '' without one.
  * With `endColumn`, a row that started before the window and is still running
@@ -64,7 +67,12 @@ LIMIT 1`
 export function windowCondition(window: TimeWindow | null, dateColumn: string, endColumn: string | null = null): string {
   if (!window) return ''
   const end = endColumn ? `COALESCE(${endColumn}, ${dateColumn})` : dateColumn
-  const upper = window.end ? `\n  AND ${dateColumn} <= TIMESTAMP '${escSql(window.end)}'` : ''
+  const upperBound = window.end && `TIMESTAMP '${escSql(window.end)}'`
+  const upper = !upperBound
+    ? ''
+    : isMidnight(window.end!)
+      ? `\n  AND ${dateColumn} < ${upperBound} + INTERVAL 1 DAY`
+      : `\n  AND ${dateColumn} <= ${upperBound}`
   return `\n  AND ${end} >= TIMESTAMP '${escSql(window.start)}'${upper}`
 }
 

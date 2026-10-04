@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { toMs } from '@/lib/duckdb/value-coercion'
 import {
   buildStayWindowQuery,
   buildVisitWindowQuery,
@@ -12,10 +13,10 @@ import {
 /** Windows already read, per database and id: every widget of a board asks for the same one. */
 const windows = new Map<string, Promise<TimeWindow | null>>()
 
+/** The window bound as the UTC ISO string `patient-scope.ts` writes as a literal. */
 function toIso(v: unknown): string | null {
-  if (v == null) return null
-  const d = v instanceof Date ? v : new Date(typeof v === 'number' ? v : String(v))
-  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+  const ms = toMs(v)
+  return ms == null ? null : new Date(ms).toISOString()
 }
 
 function readWindow(dataSourceId: string, sql: string | null): Promise<TimeWindow | null> {

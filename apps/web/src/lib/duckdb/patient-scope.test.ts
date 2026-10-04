@@ -22,8 +22,8 @@ const drug = eventRelation(mapping, 'Drug')!
 const withVisitId = { ...measurement, mapped: new Set([...measurement.mapped, 'visit_id']) }
 const noVisitId = { ...measurement, mapped: new Set([...measurement.mapped].filter((c) => c !== 'visit_id')) }
 
-const visit = { start: '2150-01-01T00:00:00.000Z', end: '2150-01-10T00:00:00.000Z' }
-const stay = { start: '2150-01-03T00:00:00.000Z', end: '2150-01-05T00:00:00.000Z' }
+const visit = { start: '2150-01-01T00:00:00.000Z', end: '2150-01-10T18:00:00.000Z' }
+const stay = { start: '2150-01-03T08:00:00.000Z', end: '2150-01-05T14:30:00.000Z' }
 const scope = (patch: Partial<PatientScope>): PatientScope => ({ ...NO_SCOPE, ...patch })
 
 describe('eventScopeCondition', () => {
@@ -52,6 +52,12 @@ describe('eventScopeCondition', () => {
     expect(sql).toContain("e.visit_id = 'v1'")
     expect(sql).toContain(`e.start_datetime >= TIMESTAMP '${stay.start}'`)
     expect(sql).toContain(`e.start_datetime <= TIMESTAMP '${stay.end}'`)
+  })
+
+  it('keeps the whole last day of a window ending on a date', () => {
+    const sql = windowCondition({ start: visit.start, end: '2150-01-10T00:00:00.000Z' }, 'e.start_datetime')
+    expect(sql).toContain("e.start_datetime < TIMESTAMP '2150-01-10T00:00:00.000Z' + INTERVAL 1 DAY")
+    expect(sql).not.toContain('<=')
   })
 
   it('keeps a row still running when the stay began', () => {

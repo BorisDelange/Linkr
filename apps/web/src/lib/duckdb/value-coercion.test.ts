@@ -26,14 +26,21 @@ describe('toMs', () => {
   })
 
   it('accepts DuckDB\'s space-separated form', () => {
-    // Parsed as local time, like `new Date('2138-11-21T22:32:00')` — the point is
-    // that it parses at all rather than returning NaN as it does in Safari.
-    const ms = toMs('2138-11-21 22:32:00')
-    expect(ms).not.toBeNull()
-    const d = new Date(ms as number)
-    expect(d.getFullYear()).toBe(2138)
-    expect(d.getMonth()).toBe(10)
-    expect(d.getDate()).toBe(21)
+    expect(toMs('2138-11-21 22:32:00')).toBe(expected)
+  })
+
+  it('reads a naive timestamp as UTC whatever the browser\'s zone', () => {
+    // The server sends a TIMESTAMP as a naive `.isoformat()`; read as local time
+    // it would shift by the offset, unlike the same value from DuckDB-WASM.
+    const tz = process.env.TZ
+    process.env.TZ = 'America/New_York'
+    try {
+      expect(toMs('2138-11-21T22:32:00')).toBe(expected)
+      expect(toMs('2138-11-21T22:32:00.000000')).toBe(expected)
+      expect(toMs('2138-11-21T22:32:00+01:00')).toBe(expected - 3_600_000)
+    } finally {
+      process.env.TZ = tz
+    }
   })
 
   it('returns null rather than a bogus date for unusable values', () => {
