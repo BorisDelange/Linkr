@@ -175,6 +175,16 @@ describe('the concept list at category level', () => {
     expect(publishedConcepts(cat, withoutOneWay).map((c) => c.status)).toEqual([SECONDARY, PRIMARY, SECONDARY, PRIMARY])
   })
 
+  it('protects the concepts with no category as a group of their own', () => {
+    // u1 + u2 = the grand records total minus the categories': u1 published gives u2 away.
+    const uncategorized = (conceptId: number, patientCount: number, recordCount: number) => ({ conceptId, conceptName: `U${conceptId}`, patientCount, recordCount })
+    const withUncategorized = { ...cache, concepts: [...cache.concepts, uncategorized(5, 50, 90), uncategorized(6, 3, 10)] } as CatalogResultCache
+    const withoutOneWay = { ...withUncategorized, crossings: cache.crossings!.filter((c) => c.id !== 'concept') } as CatalogResultCache
+    for (const [crossings, results] of [[[['concept']], withUncategorized], [[['concept', 'sex']], withoutOneWay]] as const) {
+      expect(publishedConcepts(categoryCatalog(crossings as DataCatalog['crossings']), results).slice(4).map((c) => c.status)).toEqual([SECONDARY, PRIMARY])
+    }
+  })
+
   it('ranks the categories by code when their 1-way crossing is not published', () => {
     // D (194 patients) before C (52) would tell their unpublished totals apart.
     const ranked = { ...cache, modalities: { ...cache.modalities, concept: ['D', 'C'] } } as CatalogResultCache

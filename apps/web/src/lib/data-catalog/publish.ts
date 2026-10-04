@@ -222,14 +222,14 @@ function maskOfRows(rows: readonly CatalogCrossingRow[], statusOf: (row: Catalog
 
 /**
  * The category margin of the concept list (`[category, concept]` rows), summed
- * from the list: exact on records, an upper bound on distinct patients. A
- * concept with no category is in no category's cell, so in no total.
+ * from the list: exact on records, an upper bound on distinct patients. The
+ * concepts with no category get a total of their own: in no category's cell,
+ * they still add up to the grand total minus the categories'.
  */
 function categoryTotals(rows: readonly CatalogCrossingRow[]): MaskTable {
   const byCategory = new Map<string, CatalogCrossingRow>()
   for (const r of rows) {
     const category = r.values[0]
-    if (category === NO_CATEGORY) continue
     const total = byCategory.get(category)
     if (total) {
       byCategory.set(category, { ...total, patients: total.patients + r.patients, records: (total.records ?? 0) + (r.records ?? 0) })
@@ -298,7 +298,11 @@ export function computeCatalogMasks(
     // 1-way crossing they come from the list itself: records add up exactly
     // across a category's concepts, so its total is known either way — masking
     // the list with no total to protect left a concept recoverable by subtraction.
-    const totals = computedOneWay ?? categoryTotals(margin.rows)
+    const listTotals = categoryTotals(margin.rows)
+    const noCategory = listTotals.rows.find((r) => r.values[0] === NO_CATEGORY)
+    const totals = computedOneWay
+      ? { ...computedOneWay, rows: noCategory ? [...computedOneWay.rows, noCategory] : computedOneWay.rows }
+      : listTotals
     marginMask = computeCrossingMasks([totals, margin], threshold).get(CONCEPT_LIST)!
   }
   const marginStatus = new Map(margin.rows.map((r, i) => [r.values[r.values.length - 1], marginMask.status[i] as CellStatus]))
