@@ -43,6 +43,19 @@ Built, never exercised by hand. Everything else below is still to build.
 | 🔜 | Patient data: localStorage migration, server round-trip, export → reimport → export stability | both | S |
 | 🔜 | Setup wizard on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | server | S |
 
+## Embedded chat over LibreChat — [embedded-chat-plan.md](embedded-chat-plan.md)
+
+Global chat panel in Linkr, the agent run by LibreChat's Agents API; history owned by
+Linkr, app-native links and previews through client tools. Branch `feature/librechat-chat`.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Spike: local LibreChat, Responses API, client-tool round-trips measured (plan §7.1) | S |
+| 🤔 | Tools run by LibreChat with per-user keys (A) or by Linkr with one service key (B) — plan §3 | — |
+| 🔜 | Backend proxy + `ChatConversation`/`ChatMessage` + list/delete routes | M |
+| 🔜 | Global chat panel, conversation list, tool lines, app-native client tools | M |
+| 💤 | Docker compose with optional LibreChat | S |
+
 ## IDE — web apps — [web-apps-plan.md](web-apps-plan.md)
 
 Run a **long-lived web server** from project code (Shiny, Streamlit, Dash, Gradio, plumber,
