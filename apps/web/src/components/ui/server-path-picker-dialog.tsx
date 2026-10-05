@@ -54,6 +54,28 @@ function formatSize(bytes: number | null | undefined): string {
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[i]}`
 }
 
+/** The folder the picker was last left in, whatever opened it. Reopening there
+ *  is what the user expects after picking a file and wanting another one beside
+ *  it — the root, or the default folder, made them walk back every time. Per
+ *  browser, best-effort: storage may be unavailable. */
+const LAST_DIR_KEY = 'linkr.serverPicker.lastDir'
+
+function readLastDir(): string | undefined {
+  try {
+    return localStorage.getItem(LAST_DIR_KEY) || undefined
+  } catch {
+    return undefined
+  }
+}
+
+function writeLastDir(path: string) {
+  try {
+    localStorage.setItem(LAST_DIR_KEY, path)
+  } catch {
+    // Not remembering is harmless.
+  }
+}
+
 interface Props {
   open: boolean
   /** `folder` returns the folder being browsed; `file` returns the selected file.
@@ -63,6 +85,7 @@ interface Props {
   scope: FsScope
   /** Display filter for files, e.g. ['.parquet']. Never a security boundary. */
   extensions?: string[]
+  /** Where to open. Omitted → the folder the picker was last left in. */
   initialPath?: string
   /** A "reset to default" button jumps here; the user still confirms. */
   defaultPath?: string
@@ -147,7 +170,7 @@ export function ServerPathPickerDialog({
   const [startMissing, setStartMissing] = useState<string | null>(null)
   useEffect(() => {
     if (!open) return
-    const start = initialPathRef.current ?? ''
+    const start = initialPathRef.current ?? readLastDir() ?? ''
     setStartMissing(null)
     void (async () => {
       // No starting folder: open the filesystem root rather than the empty
@@ -193,6 +216,9 @@ export function ServerPathPickerDialog({
   }
 
   const current = listing?.path ?? ''
+  useEffect(() => {
+    if (open && current) writeLastDir(current)
+  }, [open, current])
   const filteredEntries = useMemo(() => {
     const q = search.trim().toLowerCase()
     const entries = listing?.entries ?? []

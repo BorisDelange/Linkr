@@ -196,9 +196,21 @@ export async function apiRequest<T>(
   init?: RequestInit,
   opts?: { promptLogin?: boolean },
 ): Promise<T> {
-  const res = await apiFetch(`/api/v1${path}`, init, opts)
+  let res = await apiFetch(`/api/v1${path}`, init, opts)
+  // A route that outlives the gateway timeout answers 202 with a task id and
+  // keeps working (backend `core/deferred.py`); polling returns the response it
+  // would have sent, so every caller sees one ordinary request.
+  if (res.status === 202) {
+    const taskId = ((await res.clone().json().catch(() => null)) as { deferredTaskId?: string } | null)?.deferredTaskId
+    while (taskId && res.status === 202) {
+      await new Promise((resolve) => setTimeout(resolve, DEFERRED_POLL_MS))
+      res = await apiFetch(`/api/v1/deferred/${encodeURIComponent(taskId)}`, {}, opts)
+    }
+  }
   if (!res.ok) {
     throw new ApiError(res.status, await res.text())
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
+
+const DEFERRED_POLL_MS = 1500

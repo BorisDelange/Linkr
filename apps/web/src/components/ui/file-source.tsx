@@ -62,10 +62,6 @@ export function FileSource({
   const { t } = useTranslation()
   const origin = originProp ?? (serverPath ? 'server' : 'upload')
   const [pickerOpen, setPickerOpen] = useState(false)
-  /** Where the browser was last left, so reopening resumes there instead of
-   *  starting over at the root. Survives a cancelled browse; `serverPath` alone
-   *  would not, since cancelling leaves it empty. */
-  const [lastBrowsedPath, setLastBrowsedPath] = useState('')
   /** Set by onPick, read by onClose — both fire in the same tick, so state would
    *  still hold its pre-pick value there. */
   const pickedRef = useRef(false)
@@ -152,9 +148,9 @@ export function FileSource({
         mode={expect === 'dir' ? 'folder' : 'file'}
         scope={scope}
         extensions={extensions}
-        // Reopens where it was left, so a browse cancelled by accident does not
-        // start over from the filesystem root.
-        initialPath={serverPath || lastBrowsedPath || undefined}
+        // The chosen path when there is one; otherwise the picker reopens where
+        // it was last left, in this dialog or any other.
+        initialPath={serverPath || undefined}
         onClose={() => {
           setPickerOpen(false)
           // Falling back to the upload side is only right when the browse was
@@ -168,7 +164,6 @@ export function FileSource({
         }}
         onPick={(path) => {
           pickedRef.current = true
-          setLastBrowsedPath(path)
           onServerPathChange(path)
         }}
       />

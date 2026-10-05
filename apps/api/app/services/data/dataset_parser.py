@@ -219,13 +219,25 @@ def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict
 
     Returns {columns, preview, rowCount, sheetNames?}."""
     opts = parse_options or {}
+    overrides = opts.get("columnTypes")
     con = duckdb.connect()
     try:
         reader = build_read_expr(con, str(path), file_name, opts)
-        rel = con.sql(f"SELECT * FROM {reader}")
-        headers = list(rel.columns)
-        row_count = con.sql(f"SELECT count(*) FROM {reader}").fetchone()[0]
-        types = _infer_types_sql(con, reader, headers, opts.get("naValues"))
+        if is_native_parquet_expr(reader):
+            # A real Parquet carries its own types (timestamps, ints…), which the
+            # import keeps too (`parquet_schema`): text inference would not apply,
+            # and its string functions reject a TIMESTAMP column outright.
+            columns, row_count = parquet_schema(path)
+            for col in columns:
+                col["type"] = _typed(col["type"], col["id"], overrides)
+        else:
+            headers = list(con.sql(f"SELECT * FROM {reader}").columns)
+            types, row_count = _infer_types_sql(con, reader, headers, opts.get("naValues"))
+            ids = build_column_ids(headers)
+            columns = [
+                {"id": ids[idx], "name": name, "type": _typed(types[idx], ids[idx], overrides), "order": idx}
+                for idx, name in enumerate(headers)
+            ]
         preview_raw = con.sql(
             f"SELECT * FROM {reader} LIMIT {PREVIEW_ROWS}"
         ).fetchall()
@@ -233,12 +245,6 @@ def preview_blob(path: Path, file_name: str, parse_options: dict | None) -> dict
         cleanup_transcoded(con)
         con.close()
 
-    ids = build_column_ids(headers)
-    overrides = opts.get("columnTypes")
-    columns = [
-        {"id": ids[idx], "name": name, "type": _typed(types[idx], ids[idx], overrides), "order": idx}
-        for idx, name in enumerate(headers)
-    ]
     result: dict[str, Any] = {
         "columns": columns,
         "preview": _rows_from(preview_raw, columns, opts.get("naValues")),
@@ -253,34 +259,48 @@ def _quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
+def is_native_parquet_expr(reader: str) -> bool:
+    """`build_read_expr` reads a real Parquet natively (typed), everything else as
+    text — this tells the two apart."""
+    return reader.startswith("read_parquet(")
+
+
+def _trimmed(c: str) -> str:
+    # Strip the SAME whitespace the row-by-row parser does: Python str.strip()
+    # trims tab/newline/CR too, but DuckDB's one-arg trim() strips only spaces
+    # — so a "\ttrue" cell would infer boolean at import but string in preview.
+    # Build the ASCII-whitespace set via chr() so the SQL stays readable.
+    return f"trim({c}, ' ' || chr(9) || chr(10) || chr(13) || chr(11) || chr(12))"
+
+
+def _na_list(na_set: set[str]) -> str:
+    return ", ".join(_sql_str(t) for t in sorted(na_set))
+
+
 def _infer_types_sql(
     con: duckdb.DuckDBPyConnection,
     reader: str,
     headers: list[str],
     na_values: list[str] | None = None,
-) -> list[str]:
+) -> tuple[list[str], int]:
     """Infer each column's type over the whole file with one aggregate query,
     mirroring ``infer_column_type``'s priority (boolean > number > date > string)
-    and its token/date semantics, but in SQL so no rows are materialized.
+    and its token/date semantics, but in SQL so no rows are materialized. The
+    row count rides in the same pass, so a big file is scanned once.
 
     A column is a type iff EVERY present value satisfies it. Empty string and NA
-    tokens count as null (matching the Python coercion)."""
+    tokens count as null (matching the Python coercion). Returns (types, rows)."""
     if not headers:
-        return []
+        return [], int(con.sql(f"SELECT count(*) FROM {reader}").fetchone()[0])
     bool_tokens = ", ".join(f"'{t}'" for t in _BOOL_TOKENS)
     na_set = normalize_na_values(na_values)
     parts = []
     for i, _name in enumerate(headers):
         c = _quote_ident(f"col{i}")
-        # Strip the SAME whitespace the row-by-row parser does: Python str.strip()
-        # trims tab/newline/CR too, but DuckDB's one-arg trim() strips only spaces
-        # — so a "\ttrue" cell would infer boolean at import but string in preview.
-        # Build the ASCII-whitespace set via chr() so the SQL stays readable.
-        tc = f"trim({c}, ' ' || chr(9) || chr(10) || chr(13) || chr(11) || chr(12))"
+        tc = _trimmed(c)
         # "Present" must match is_missing_value: non-empty AND not an NA token.
         if na_set:
-            na_list = ", ".join(_sql_str(t) for t in sorted(na_set))
-            present = f"{tc} <> '' AND lower({tc}) NOT IN ({na_list})"
+            present = f"{tc} <> '' AND lower({tc}) NOT IN ({_na_list(na_set)})"
         else:
             present = f"{tc} <> ''"
         # present count and per-type "all match" counts.
@@ -300,7 +320,7 @@ def _infer_types_sql(
     aliased = ", ".join(f"{_quote_ident(h)} AS {_quote_ident(f'col{i}')}"
                         for i, h in enumerate(headers))
     row = con.sql(
-        f"SELECT {', '.join(parts)} FROM (SELECT {aliased} FROM {reader})"
+        f"SELECT {', '.join(parts)}, count(*) FROM (SELECT {aliased} FROM {reader})"
     ).fetchone()
 
     types: list[str] = []
@@ -316,4 +336,66 @@ def _infer_types_sql(
             types.append("date")
         else:
             types.append("string")
-    return types
+    return types, int(row[-1])
+
+
+def _cell_sql(i: int, col_type: str, na_set: set[str]) -> str:
+    """SQL twin of ``_coerce`` + ``dataset_rows._typed_projection`` for raw column
+    ``col{i}``: empty or NA → NULL, a number → DOUBLE (NULL when it does not
+    parse), a boolean → the FR/EN token sets, anything else → the cell as read."""
+    c = _quote_ident(f"col{i}")
+    tc = _trimmed(c)
+    missing = f"{c} = ''"
+    if na_set:
+        missing += f" OR lower({tc}) IN ({_na_list(na_set)})"
+    if col_type == "number":
+        value = f"try_cast({tc} AS DOUBLE)"
+    elif col_type == "boolean":
+        trues = ", ".join(_sql_str(t) for t in sorted(BOOL_TRUE))
+        falses = ", ".join(_sql_str(t) for t in sorted(BOOL_FALSE))
+        value = (f"CASE WHEN lower({tc}) IN ({trues}) THEN true "
+                 f"WHEN lower({tc}) IN ({falses}) THEN false END")
+    else:
+        value = c
+    return f"CASE WHEN {c} IS NULL OR {missing} THEN NULL ELSE {value} END"
+
+
+def convert_to_parquet(
+    path: Path, file_name: str, parse_options: dict | None, dest: Path
+) -> tuple[list[dict], int]:
+    """Parse a CSV/Excel file straight into the dataset's Parquet cache at `dest`,
+    entirely inside DuckDB: one pass infers the types (the preview's own query),
+    one ``COPY`` writes the typed rows. Nothing is materialized in Python, so a
+    multi-GB file costs two scans instead of a row list in memory, a JSON dump
+    and a re-read — the path ``parse_blob`` takes, which ran past any gateway
+    timeout. Same columns, ids, types and cell values as ``parse_blob`` +
+    ``dataset_rows.write_parquet``. Returns (columns, row_count)."""
+    opts = parse_options or {}
+    na_values = opts.get("naValues")
+    con = duckdb.connect()
+    try:
+        reader = build_read_expr(con, str(path), file_name, opts)
+        headers = list(con.sql(f"SELECT * FROM {reader}").columns)
+        types, row_count = _infer_types_sql(con, reader, headers, na_values)
+        ids = build_column_ids(headers)
+        overrides = opts.get("columnTypes")
+        columns = [
+            {"id": ids[idx], "name": name, "type": _typed(types[idx], ids[idx], overrides), "order": idx}
+            for idx, name in enumerate(headers)
+        ]
+        if columns:
+            na_set = normalize_na_values(na_values)
+            aliased = ", ".join(f"{_quote_ident(h)} AS {_quote_ident(f'col{i}')}"
+                                for i, h in enumerate(headers))
+            projection = ", ".join(
+                f"{_cell_sql(i, col['type'], na_set)} AS {_quote_ident(col['id'])}"
+                for i, col in enumerate(columns)
+            )
+            source = f"SELECT {projection} FROM (SELECT {aliased} FROM {reader})"
+        else:
+            source = "SELECT NULL WHERE FALSE"
+        con.execute(f"COPY ({source}) TO {_sql_str(dest.as_posix())} (FORMAT PARQUET)")
+    finally:
+        cleanup_transcoded(con)
+        con.close()
+    return columns, row_count

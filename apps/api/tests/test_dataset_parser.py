@@ -1,6 +1,9 @@
 from pathlib import Path
 
-from app.services.data.dataset_parser import parquet_schema, parse_blob, preview_blob
+import duckdb
+import pytest
+
+from app.services.data.dataset_parser import convert_to_parquet, parquet_schema, parse_blob, preview_blob
 from app.services.data.type_inference import (
     infer_column_type,
     is_missing_value,
@@ -269,3 +272,53 @@ def test_parquet_schema_no_row_materialization(tmp_path):
         "col_d": "date",
     }
     assert [c["order"] for c in columns] == [0, 1, 2, 3]
+
+
+# --- convert_to_parquet: the SQL-only import path must equal the Python one ----
+
+def _python_cache(path, name, opts, tmp_path):
+    from app.services.data import dataset_rows
+
+    columns, rows, count = parse_blob(path, name, opts)
+    out = dataset_rows.write_parquet(rows, columns, dir=tmp_path / "py")
+    return columns, count, duckdb.sql(f"SELECT * FROM read_parquet('{out}')").fetchall()
+
+
+@pytest.mark.parametrize("opts", [
+    {},
+    {"naValues": ["-", "missing"]},
+    {"columnTypes": {"col_flag": "string", "col_n": "string"}},
+    {"delimiter": ";"},
+])
+def test_convert_to_parquet_matches_python_path(tmp_path, opts):
+    sep = opts.get("delimiter", ",")
+    lines = [
+        ["id", "n", "flag", "when", "label", "empty"],
+        ["1", " 3.5", "oui", "2024-01-02", "  padded ", ""],
+        ["2", "na", "Non", "2024-01-03 10:00", "-", ""],
+        ["3", "1e3", "\ttrue", "", "missing", ""],
+        ["4", "", "f", "2024-02-30", "x;y" if sep == "," else "x,y", ""],
+    ]
+    p = tmp_path / "mix.csv"
+    p.write_text("\n".join(sep.join(r) for r in lines) + "\n")
+    dest = tmp_path / "sql.parquet"
+
+    columns, count = convert_to_parquet(p, "mix.csv", opts, dest)
+    py_columns, py_count, py_rows = _python_cache(p, "mix.csv", opts, tmp_path)
+
+    assert columns == py_columns
+    assert count == py_count == 4
+    assert duckdb.sql(f"SELECT * FROM read_parquet('{dest}')").fetchall() == py_rows
+
+
+def test_preview_native_parquet_keeps_timestamps(tmp_path):
+    p = tmp_path / "events.parquet"
+    duckdb.sql(
+        "COPY (SELECT 1 AS id, TIMESTAMPTZ '2024-01-02 10:00:00+00' AS at, 'a' AS label) "
+        f"TO '{p}' (FORMAT PARQUET)"
+    )
+    prev = preview_blob(p, "events.parquet", {})
+    assert {c["name"]: c["type"] for c in prev["columns"]} == {
+        "id": "number", "at": "date", "label": "string",
+    }
+    assert prev["rowCount"] == 1 and len(prev["preview"]) == 1

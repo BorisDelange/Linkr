@@ -1,0 +1,84 @@
+"""Requests that may outlive the gateway's read timeout.
+
+A large dataset preview or import can take minutes, and the reverse proxy in
+front of the API (nginx: 60 s by default) answers 504 long before — while the
+work goes on, unseen. A route opts in by wrapping its work in ``respond``: when
+the work finishes within ``WAIT_SECONDS`` the response is exactly what it would
+have been; otherwise the route answers ``202`` with ``{"deferredTaskId": …}``, the work
+keeps running, and the client polls
+``GET /deferred/{id}`` until it gets the very response the route would have sent
+(the frontend's ``apiRequest`` does this transparently).
+
+State is in memory, like database compaction: the API runs a single worker. A
+restart loses an unfinished task, and the poll then reads 404.
+
+The work must not use the request's DB session — the session closes when the
+first response is sent. Check permissions before calling ``respond``.
+"""
+
+import asyncio
+import time
+import uuid
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
+
+from fastapi.responses import JSONResponse
+
+WAIT_SECONDS = 20.0
+# A finished task nobody came back for is dropped after this long.
+_KEEP_SECONDS = 600.0
+
+
+@dataclass
+class _Entry:
+    user_id: str
+    task: asyncio.Task
+    finished_at: float | None = None
+
+
+_tasks: dict[str, _Entry] = {}
+
+
+def _pending_response(task_id: str) -> JSONResponse:
+    # A key no route body uses, so the client cannot mistake a real 202 for it.
+    return JSONResponse({"deferredTaskId": task_id}, status_code=202)
+
+
+def _sweep() -> None:
+    now = time.monotonic()
+    for task_id, entry in list(_tasks.items()):
+        if entry.task.done():
+            if entry.finished_at is None:
+                entry.finished_at = now
+            elif now - entry.finished_at > _KEEP_SECONDS:
+                _tasks.pop(task_id, None)
+
+
+async def respond(user_id: str, work: Callable[[], Awaitable[Any]]) -> Any:
+    """Run `work`; its result (or exception) if it ends within `WAIT_SECONDS`,
+    else a 202 pointing at the task it keeps running as."""
+    _sweep()
+    task = asyncio.create_task(work())
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), WAIT_SECONDS)
+    except TimeoutError:
+        task_id = uuid.uuid4().hex
+        _tasks[task_id] = _Entry(user_id=user_id, task=task)
+        return _pending_response(task_id)
+
+
+def poll(user_id: str, task_id: str) -> Any:
+    """The task's outcome once done — its result, or its exception re-raised so
+    the poll answers with the status the route would have used. None when the id
+    is unknown or belongs to someone else (the caller answers 404 either way)."""
+    entry = _tasks.get(task_id)
+    if entry is None or entry.user_id != user_id:
+        return None
+    if not entry.task.done():
+        return _pending_response(task_id)
+    _tasks.pop(task_id, None)
+    exc = entry.task.exception()
+    if exc is not None:
+        raise exc
+    return entry.task.result()

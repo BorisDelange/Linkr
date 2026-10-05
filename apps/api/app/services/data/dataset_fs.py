@@ -11,6 +11,7 @@ log is part of what the cache is derived from — see dataset_ops.
 
 import hashlib
 import json
+import uuid
 from pathlib import Path
 
 from app.services import project_fs
@@ -272,21 +273,32 @@ def resolve_cache(
             effective_options = parse_options
         else:
             effective_options = read_parse_options(project_uid, rel)
-        if suffix in _NATIVE_PARQUET:
-            columns, row_count = dataset_parser.parquet_schema(raw)
-            rows = dataset_rows.read_parquet(raw)
+        parquet.parent.mkdir(parents=True, exist_ok=True)
+        if not ops:
+            # Unedited: DuckDB writes the cache straight from the raw file, with no
+            # row ever held in Python — the only way a large file imports at all.
+            tmp = parquet.with_name(f"{parquet.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                columns, row_count = dataset_parser.convert_to_parquet(
+                    raw, Path(rel).name, effective_options, tmp
+                )
+                tmp.replace(parquet)
+            finally:
+                tmp.unlink(missing_ok=True)
         else:
-            columns, rows, row_count = _parse(raw, rel, effective_options)
-        if ops:
+            # Edited: the log replays over Python rows, so they are materialized.
+            if suffix in _NATIVE_PARQUET:
+                columns, row_count = dataset_parser.parquet_schema(raw)
+                rows = dataset_rows.read_parquet(raw)
+            else:
+                columns, rows, row_count = _parse(raw, rel, effective_options)
             columns, rows = dataset_ops.replay_ops(columns, rows, ops)
             row_count = len(rows)
-        parquet.parent.mkdir(parents=True, exist_ok=True)
-        # Write the temp on the destination filesystem so the replace() below is a
-        # same-device atomic rename (a mounted volume differs from /tmp in Docker).
-        # Carry the row key only for an edited dataset: an unedited one has no log
-        # to address, and the extra column would show up in every cache needlessly.
-        tmp = dataset_rows.write_parquet(rows, columns, dir=parquet.parent, row_ord=bool(ops))
-        Path(tmp).replace(parquet)
+            # Write the temp on the destination filesystem so the replace() below is
+            # a same-device atomic rename (a mounted volume differs from /tmp in
+            # Docker). The row key travels with it: the edit log addresses rows by it.
+            tmp = dataset_rows.write_parquet(rows, columns, dir=parquet.parent, row_ord=True)
+            Path(tmp).replace(parquet)
         meta = {"sig": sig, "columns": columns, "rowCount": row_count, "native": False,
                 "opsSig": ops_sig}
         _write_meta(meta_path, meta)

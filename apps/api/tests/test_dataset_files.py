@@ -508,3 +508,55 @@ async def test_stage_server_file_refuses_linkr_data_dir(client, seed_roles):
         json={"projectUid": uid, "serverPath": str(inside)},
     )
     assert r.status_code == 400
+
+
+async def test_slow_preview_defers_then_polls_to_the_same_body(client, seed_roles, monkeypatch):
+    """Past the wait, the route answers 202 and the poll later returns exactly the
+    body the route would have sent — the gateway never sees a long request."""
+    import asyncio
+
+    from app.core import deferred
+    from app.services import blob_store
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    sha, _ = await blob_store.store_bytes(b"a,b\n1,x\n2,y\n")
+    body = {"projectUid": uid, "sha": sha, "fileName": "d.csv"}
+    direct = (await client.post(f"{API}/dataset-files/preview", headers=h, json=body)).json()
+
+    monkeypatch.setattr(deferred, "WAIT_SECONDS", 0)
+    started = await client.post(f"{API}/dataset-files/preview", headers=h, json=body)
+    assert started.status_code == 202
+    task_id = started.json()["deferredTaskId"]
+
+    for _ in range(100):
+        polled = await client.get(f"{API}/deferred/{task_id}", headers=h)
+        if polled.status_code != 202:
+            break
+        await asyncio.sleep(0.05)
+    assert polled.status_code == 200
+    assert polled.json() == direct
+    # Read once: the task is gone afterwards.
+    assert (await client.get(f"{API}/deferred/{task_id}", headers=h)).status_code == 404
+
+
+async def test_deferred_error_keeps_the_route_status(client, seed_roles, monkeypatch):
+    import asyncio
+
+    from app.core import deferred
+    from app.services import blob_store
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    sha, _ = await blob_store.store_bytes(b"PKnot-a-workbook")
+    monkeypatch.setattr(deferred, "WAIT_SECONDS", 0)
+    started = await client.post(f"{API}/dataset-files/preview", headers=h, json={
+        "projectUid": uid, "sha": sha, "fileName": "fake.xlsx",
+    })
+    task_id = started.json()["deferredTaskId"]
+    for _ in range(100):
+        polled = await client.get(f"{API}/deferred/{task_id}", headers=h)
+        if polled.status_code != 202:
+            break
+        await asyncio.sleep(0.05)
+    assert polled.status_code in (400, 501)
