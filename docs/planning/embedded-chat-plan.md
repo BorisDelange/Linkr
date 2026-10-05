@@ -1,5 +1,9 @@
 # Chat intégré — Linkr par-dessus l'API Agents de LibreChat
 
+> **💤 En pause (2026-10-05).** Les limitations de l'API (§9) rendent le projet trop
+> coûteux pour ce qu'il apporte aujourd'hui. On reste sur LibreChat dans un onglet à
+> côté de Linkr. À rouvrir quand la condition du §9 est remplie.
+
 **Problème.** Aujourd'hui l'agent vit dans un autre onglet (LibreChat) et agit sur
 Linkr par le MCP `linkr`. Ça marche, mais rien de ce que l'agent produit n'appartient
 à l'app : un lien vers une cohorte ne l'ouvre pas, un aperçu reste du texte, une
@@ -45,8 +49,10 @@ rejeu complet de l'historique.
 - **Linkr stocke** les conversations (`ChatConversation`, `ChatMessage`, propres à
   l'utilisateur) : liste, recherche, renommage, **suppression réelle**, « tout
   supprimer », et une durée de rétention configurable par l'admin.
+- **Décidé (2026-10-05)** : les conversations du chat intégré ne vivent que dans Linkr.
 - **Conséquence acceptée** : ces conversations n'apparaissent pas dans l'interface de
-  LibreChat. C'est le prix de la suppression. En contexte clinique, une conversation
+  LibreChat. L'usage de LibreChat en direct ne change pas : ses propres conversations,
+  son approbation des outils et ses MCP restent les mêmes. C'est le prix de la suppression. En contexte clinique, une conversation
   peut contenir des données patients : elle doit rester visible et supprimable par son
   auteur (design §10).
 - Rejeté : `store: true`, qui crée une copie dans LibreChat que Linkr ne peut ni lister
@@ -102,11 +108,14 @@ de Linkr qui les exécute.
 
 ## 5. Interface
 
-- **Panneau latéral global**, ouvert depuis le header (bouton + raccourci), redimensionnable,
-  qui **reste ouvert pendant la navigation** : c'est ce qui permet « ouvre-moi ça » sans
-  perdre la conversation.
-- Liste des conversations (recherche, renommage, suppression, tout supprimer), nouvelle
-  conversation, choix de l'agent (liste tirée de LibreChat), streaming, bouton Stop.
+- **Grand panneau latéral droit**, ouvrable depuis n'importe quelle page (bouton dans le
+  header + raccourci), **redimensionnable** (largeur mémorisée), qui **reste ouvert
+  pendant la navigation** : c'est ce qui permet « ouvre-moi ça » sans perdre la
+  conversation.
+- Gestion des conversations dans le panneau : liste, **recherche dans le contenu**,
+  renommage, suppression, tout supprimer, nouvelle conversation.
+- **Choix du modèle** : en pratique, l'agent LibreChat (liste tirée de LibreChat ; chaque
+  agent porte son modèle), streaming, bouton Stop.
 - Lignes d'outils en deux modes, repris du design §5 : **clinicien** (une phrase métier
   par appel, table `nom d'outil → phrase i18n`) et **développeur** (arguments, sortie).
 - À récupérer dans l'historique git : l'interface de confirmation et d'annulation et le
@@ -142,3 +151,35 @@ Docker compose (service LibreChat optionnel, `librechat.yaml` pré-rempli) : plu
 - Un modèle local respecte-t-il « un seul client tool par tour » ? Sinon, Linkr doit
   rejeter proprement un tour mixte.
 - Rétention par défaut des conversations : aucune limite, ou N jours fixés par l'admin ?
+
+## 9. Pourquoi c'est en pause — les limitations
+
+1. **Pas de confirmation des actions par l'API.** Un outil réglé sur `ask` dans
+   LibreChat est bloqué, pas mis en pause (`hitlCapable = false`). Dans le montage A,
+   les outils `linkr` passent donc en `allow` sans confirmation, avec pour seul filet le
+   journal et l'annulation.
+2. **La confirmation dans Linkr ne couvre que les outils Linkr.** Dans le montage B,
+   Linkr bloque avant d'exécuter et affiche une carte, mais seulement parce que c'est
+   lui qui exécute. Les autres MCP d'un agent (GitLab, Jira, ClickHouse…) tournent dans
+   LibreChat : sans confirmation possible, il faudrait soit les autoriser sans
+   confirmation, soit les retirer de l'agent. Les redéclarer comme client tools dans
+   Linkr reviendrait à refaire LibreChat. **Avec plusieurs MCP, ça devient ingérable.**
+3. **Pas d'accès aux conversations LibreChat** : l'historique doit être stocké et géré
+   par Linkr (§2), donc une deuxième copie de tout ce que LibreChat sait déjà faire.
+4. **Une clé de plus** : par utilisateur (A) ou une clé de service qui écrase les quotas
+   par utilisateur (B), faute d'OIDC dans Linkr.
+5. **Rejeu de l'historique** à chaque appel d'outil (B) : latence et tokens non mesurés.
+6. **API jeune** (« beta ») : chaque point ci-dessus peut bouger d'une version à l'autre.
+
+**Ce qu'on a déjà sans le chat intégré** : LibreChat dans un onglet à côté agit par le
+MCP, la page de Linkr se met à jour en direct, chaque écriture arrive dans la cloche avec
+son annulation, et `get_ui_context` donne à l'agent la page où se trouve l'utilisateur.
+Il manque seulement les liens et aperçus natifs (§4).
+
+**Condition de réouverture** : que l'API Agents de LibreChat sache **mettre une run en
+pause pour approbation et la reprendre** (un `hitlCapable` exposé à l'API, avec un
+événement d'interruption et une route de reprise). Le montage A devient alors simple :
+une clé par utilisateur, l'approbation de tous les MCP gérée par LibreChat et affichée
+dans Linkr, et Linkr qui n'ajoute que l'interface et les outils d'interface du §4.
+Autre déclencheur possible : de l'OIDC dans Linkr, partagé avec LibreChat, qui supprime
+la question des clés.

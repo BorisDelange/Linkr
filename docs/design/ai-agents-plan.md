@@ -313,8 +313,9 @@ What makes an external agent usable next to the app. None of it depends on layer
 
 ## 5. An embedded chat — open, decided later
 
-> **2026-10-05**: option (a) taken up, as a global panel —
-> [`../planning/embedded-chat-plan.md`](../planning/embedded-chat-plan.md).
+> **2026-10-05**: option (a) studied and parked — the Agents API cannot pause a run for
+> tool approval. Limits and reopening condition:
+> [`../planning/embedded-chat-plan.md`](../planning/embedded-chat-plan.md) §9.
 
 **For now: LibreChat in a tab beside Linkr.** Whether a chat *inside* Linkr is worth
 it is decided after the PoC and some days of real side-by-side use. An embedded chat

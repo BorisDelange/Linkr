@@ -45,16 +45,14 @@ Built, never exercised by hand. Everything else below is still to build.
 
 ## Embedded chat over LibreChat — [embedded-chat-plan.md](embedded-chat-plan.md)
 
-Global chat panel in Linkr, the agent run by LibreChat's Agents API; history owned by
-Linkr, app-native links and previews through client tools. Branch `feature/librechat-chat`.
+Global right-hand chat panel in Linkr, the agent run by LibreChat's Agents API; history
+owned by Linkr. **Parked 2026-10-05**: the API cannot pause a run for tool approval, so
+actions (and any other MCP: GitLab, Jira…) would run unconfirmed. Reopen when it can
+(plan §9). Until then: LibreChat in a tab beside Linkr.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Spike: local LibreChat, Responses API, client-tool round-trips measured (plan §7.1) | S |
-| 🤔 | Tools run by LibreChat with per-user keys (A) or by Linkr with one service key (B) — plan §3 | — |
-| 🔜 | Backend proxy + `ChatConversation`/`ChatMessage` + list/delete routes | M |
-| 🔜 | Global chat panel, conversation list, tool lines, app-native client tools | M |
-| 💤 | Docker compose with optional LibreChat | S |
+| 💤 | Embedded chat — reopen when LibreChat's Agents API supports approval pause/resume (plan §9) | L |
 
 ## IDE — web apps — [web-apps-plan.md](web-apps-plan.md)
 
