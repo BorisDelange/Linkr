@@ -111,6 +111,13 @@ describe('classRelations (converted v1 mapping)', () => {
     expect(conceptJoinOn(eventRelation(omop, 'Measurement')!, 'e', 'c')).toBe('e.concept_id = c.concept_id')
   })
 
+  it('resolves a composite-key event concept_id to its dictionary id', () => {
+    const ev = eventRelation(thesaurus, 'Data')!
+    expect(ev.sql).toMatch(/^SELECT _ev\.\* REPLACE \(_dict\.concept_id AS concept_id\)/)
+    expect(ev.sql).toContain('LEFT JOIN linkr_concept_thes _dict ON _ev.concept_terminology = _dict.concept_terminology AND _ev.concept_code = _dict.concept_code')
+    expect(eventRelation(omop, 'Measurement')!.sql).not.toContain('_dict')
+  })
+
   it('exposes safe extra columns only', () => {
     const concept = classRelations(omop).find((r) => r.cls === 'concept')!
     expect(concept.extras).toEqual({ standard_concept: 'extra_standard_concept' })

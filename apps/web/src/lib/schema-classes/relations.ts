@@ -445,13 +445,29 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
     const composite = !!dict && ['concept_terminology', 'concept_code'].every((c) => compiled.mapped.has(c) && dict.mapped.has(c))
     rels.push({
       name, cls, key: spec.label, specKey: `${cls}s.${spec.label}`,
-      sql: compiled.sql, mapped: compiled.mapped, custom: compiled.custom, problems: compiled.problems,
+      sql: composite ? resolveConceptId(compiled.sql, dict.name) : compiled.sql,
+      mapped: compiled.mapped, custom: compiled.custom, problems: compiled.problems,
       dictionary, compositeConceptKey: composite, tables: specTables(spec),
     })
   }
   for (const spec of mapping.events ?? []) addEvent('event', spec, deriveEvent(spec))
   for (const spec of mapping.drugs ?? []) addEvent('drug', spec, deriveDrug(spec), drugFixed(spec))
   return rels
+}
+
+/**
+ * An event keyed by (terminology, code) has no dictionary id of its own — what
+ * the mapping gives as its `concept_id` is a code. Every consumer filters,
+ * counts and joins on `concept_id` as the dictionary's id, so the relation looks
+ * it up once here. The pair is the dictionary's unique key: the join cannot
+ * multiply rows. A code the dictionary lacks reads a NULL concept_id.
+ */
+function resolveConceptId(eventSql: string, dictName: string): string {
+  return `SELECT _ev.* REPLACE (_dict.concept_id AS concept_id)
+FROM (
+${eventSql}
+) _ev
+LEFT JOIN ${dictName} _dict ON _ev.concept_terminology = _dict.concept_terminology AND _ev.concept_code = _dict.concept_code`
 }
 
 /** The relation's class, derived columns and fixed values, by where it lives. */
@@ -515,6 +531,7 @@ export function inlineRelation(mapping: SchemaMapping, name: string, used: Reado
   const parts = rel && compileParts(mapping, rel.specKey)
   if (!rel || !parts) return null
   const { cls, spec, derive, fixed } = parts
+  if (rel.compositeConceptKey && used.has('concept_id')) return inlineCompositeEvent(mapping, rel, parts, used)
   if (!rel.custom && spec.from && !spec.joins?.length && !spec.where?.trim()) {
     const visual = visualExprs(cls, { ...spec, customSql: null }, derive, true)
     if (visual) {
@@ -533,4 +550,22 @@ export function inlineRelation(mapping: SchemaMapping, name: string, used: Reado
   }
   const sql = compileVisual(cls, { ...spec, customSql: null }, derive, true, false, used)?.sql
   return sql ? { kind: 'subquery', sql } : null
+}
+
+const CONCEPT_KEY = new Set(['concept_id', 'concept_terminology', 'concept_code'])
+
+/** An event keyed by (terminology, code) whose `concept_id` is read: its
+ *  dictionary lookup (`resolveConceptId`) written on the source tables too. */
+function inlineCompositeEvent(
+  mapping: SchemaMapping, rel: ClassRelation, parts: NonNullable<ReturnType<typeof compileParts>>, used: ReadonlySet<string>,
+): InlineRelation | null {
+  const dict = dictionaryOf(mapping, rel)
+  const dictParts = dict && compileParts(mapping, dict.specKey)
+  if (!dictParts) return null
+  const subquery = (p: NonNullable<ReturnType<typeof compileParts>>, only: ReadonlySet<string>) => p.spec.customSql?.trim()
+    ? compileCustom(p.cls, p.spec, p.fixed, only).sql
+    : compileVisual(p.cls, { ...p.spec, customSql: null }, p.derive, true, false, only)?.sql
+  const eventSql = subquery(parts, new Set([...used, 'concept_terminology', 'concept_code']))
+  const dictSql = subquery(dictParts, CONCEPT_KEY)
+  return eventSql && dictSql ? { kind: 'subquery', sql: resolveConceptId(eventSql, `(\n${dictSql}\n)`) } : null
 }

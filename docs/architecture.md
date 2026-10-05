@@ -407,6 +407,15 @@ decisions: `docs/design/schema-classes-plan.md`.
   still store raw codes), ward name (`unit_name` = source value, else lookup
   name, else raw code) and `unit_category` (lookup name, else raw code — what the
   care-site criterion and the catalog services compare with).
+- **Composite concept key**: an event whose terminology and code are mapped, as
+  are its dictionary's, holds no dictionary id of its own (eHOP: the mapping's
+  "concept id" is the code). Its relation looks the id up in the dictionary on
+  (terminology, code) (`resolveConceptId`), so `concept_id` is the dictionary's
+  id for every consumer — counts, cohorts, catalogs, DQ; the native-SQL
+  rewrite writes the same lookup on the source tables. The concept count
+  refuses to start when an event's id and its dictionary's are text vs number
+  (`buildConceptIdTypesSql`), and its resume signature hashes each unit with the
+  relations it reads, so a mapping edit restarts the run.
 - **Concept identity untouched**: a dictionary with no id column still gets
   `hash(code) % 2147483647` in the concept-mapping builders, and a missing
   vocabulary still falls back to the table name — mapping projects store both.

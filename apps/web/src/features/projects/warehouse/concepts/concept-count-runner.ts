@@ -10,11 +10,11 @@
  */
 
 import type { SchemaMapping } from '@/types/schema-mapping'
+import i18n from '@/lib/i18n'
 import { queryDataSource, sourceTables } from '@/lib/duckdb/engine'
 import { planSlices, type SerializedRange } from '@/lib/duckdb/catalog-compute'
 import { classRelation, conceptRelations } from '@/lib/schema-classes/relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
-import { absentRelations, type AbsentRelation } from '@/lib/schema-classes/presence'
 import { createRunRegistry, type RunSnapshotBase } from '@/lib/run-registry'
 import {
   assembleConceptCache,
@@ -26,7 +26,9 @@ import { buildConceptsAssembleQuery, computeAvailableColumns } from './concept-q
 import {
   CONCEPT_COUNT_VERSION,
   CONCEPT_SLICE_ROWS,
+  buildConceptIdTypesSql,
   conceptCountSignature,
+  conceptIdTypeMismatches,
   planConceptCountUnits,
   type ConceptCountManifest,
   type ConceptCountStepProgress,
@@ -66,10 +68,10 @@ const IDLE: ConceptCountSnapshot = {
 }
 
 /** The stored run's units if it can be resumed, re-planned over its own slices. */
-function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping, absent: readonly AbsentRelation[]): ConceptCountUnit[] | null {
+function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping, tables: readonly string[] | null): ConceptCountUnit[] | null {
   if (!manifest || !manifest.runId || manifest.finishedAt || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
   const units = planConceptCountUnits(mapping, manifest.slices)
-  return conceptCountSignature(units, absent) === manifest.signature ? units : null
+  return conceptCountSignature(units, mapping, tables) === manifest.signature ? units : null
 }
 
 async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortSignal): Promise<SerializedRange[]> {
@@ -83,19 +85,29 @@ async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortS
   )
 }
 
+/** Refuses a mapping whose event and dictionary ids cannot be joined, before
+ *  any unit runs — rather than fail on DuckDB's cast deep into the run. */
+async function checkConceptIdTypes(dataSourceId: string, mapping: SchemaMapping, signal: AbortSignal): Promise<void> {
+  const sql = buildConceptIdTypesSql(mapping)
+  if (!sql) return
+  const mismatches = conceptIdTypeMismatches(await queryDataSource(dataSourceId, sql, { signal }))
+  if (!mismatches.length) return
+  throw new Error(mismatches.map((m) => i18n.t('concepts.count_id_type_mismatch', { ...m })).join(' '))
+}
+
 async function execute(
   { dataSourceId, mapping, restart, recordsOnly }: ConceptCountInput,
   signal: AbortSignal,
   emit: (patch: Partial<ConceptCountSnapshot>, immediate?: boolean) => void,
 ): Promise<void> {
   emit({ phase: 'planning' }, true)
+  await checkConceptIdTypes(dataSourceId, mapping, signal)
   const status = await getConceptCacheStatus(dataSourceId)
   // Units run on the server as sent, outside queryDataSource: the relations go
   // with them, emptied where the database lacks their table.
   const tables = await sourceTables(dataSourceId)
-  const absent = tables ? absentRelations(mapping, tables) : []
 
-  let units = restart ? null : resumable(status.run?.manifest, mapping, absent)
+  let units = restart ? null : resumable(status.run?.manifest, mapping, tables)
   let manifest: ConceptCountManifest
   const done = new Set<string>()
   if (units && status.run) {
@@ -107,7 +119,7 @@ async function execute(
     manifest = {
       runId: crypto.randomUUID(),
       version: CONCEPT_COUNT_VERSION,
-      signature: conceptCountSignature(units, absent),
+      signature: conceptCountSignature(units, mapping, tables),
       slices,
       units: units.map(({ key, step }) => ({ key, step })),
       startedAt: new Date().toISOString(),

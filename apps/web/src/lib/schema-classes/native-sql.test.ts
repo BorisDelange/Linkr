@@ -123,3 +123,23 @@ describe('buildCohortCriteriaSql', () => {
     expect(buildCohortCriteriaSql(c, mimic, true)).toContain('  linkr_visit.visit_id AS visit_id\nFROM')
   })
 })
+
+describe('an event keyed by (terminology, code)', () => {
+  const thesaurus = mappingV1ToV2({
+    presetId: 'eav', presetLabel: { en: 'EAV' },
+    patientTable: { table: 'persons', idColumn: 'pid' },
+    conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+    eventTables: {
+      Data: { table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code', patientIdColumn: 'pid' },
+    },
+  } as never)
+
+  it('filters on the dictionary id, looked up through the source tables', () => {
+    const sql = buildCohortNativeSql(cohort('patient', [
+      crit('concept', { eventTableLabel: 'Data', conceptIds: [42], conceptNames: {} }),
+    ]), thesaurus)!
+    noRelation(sql)
+    expect(sql).toContain('REPLACE (_dict.concept_id AS concept_id)')
+    expect(sql).toMatch(/LEFT JOIN \(\s*SELECT[\s\S]*d\."id" AS concept_id[\s\S]*FROM "thesaurus" d\s*\) _dict ON _ev\.concept_terminology = _dict\.concept_terminology AND _ev\.concept_code = _dict\.concept_code/)
+  })
+})

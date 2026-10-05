@@ -631,6 +631,7 @@
     "dictionary_manage": "Manage data dictionaries",
     "count_steps": "Rows {{records}}/{{recordsTotal}} · patients {{patients}}/{{patientsTotal}}",
     "count_failed": "Counting the concepts failed: {{error}}",
+    "count_id_type_mismatch": "The concept ids of “{{event}}” ({{eventType}}) and of its dictionary ({{dictionaryType}}) cannot be compared: one is text, the other a number. In the schema mapping, the event's concept id must be the column the dictionary's id refers to — or map the terminology and the code on both sides to join on them.",
     "count_running": "Counting the concepts…",
     "count_none": "Concepts not counted: the Records and Patients columns stay empty.",
     "count_partial": "The counts are incomplete",

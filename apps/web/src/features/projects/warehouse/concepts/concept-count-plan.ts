@@ -21,7 +21,7 @@
 
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
-import type { AbsentRelation } from '@/lib/schema-classes/presence'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 import { rangeCondition } from '@/lib/duckdb/catalog-queries'
 import type { SerializedRange } from '@/lib/duckdb/catalog-compute'
 import { deterministicId } from '@/lib/deterministic-id'
@@ -120,16 +120,52 @@ export function planConceptCountUnits(mapping: SchemaMapping, slices: readonly S
 }
 
 /**
- * Identifies what a run counts: the units' SQL, and the relations it read as
- * empty or without a join because the database lacked their table
- * (`absentRelations`). A paused run resumes only when re-planning it over its
- * own slices gives the same signature — a changed mapping, a build whose SQL
+ * The type of `concept_id` in each counted event relation and in its
+ * dictionary, from one non-NULL row of each. A text id on one side and a number
+ * on the other cannot be joined: DuckDB casts the text and fails on the first
+ * code that is not a number (`'Y831'`). Typically an event mapping a code
+ * column as its concept id while the dictionary's id is a number.
+ */
+export function buildConceptIdTypesSql(mapping: SchemaMapping): string | null {
+  const firstType = (relation: string) => `(SELECT typeof(concept_id) FROM ${relation} WHERE concept_id IS NOT NULL LIMIT 1)`
+  const seen = new Set<string>()
+  const parts: string[] = []
+  for (const { event, dict } of [...countedEvents(mapping, 'record_count'), ...countedEvents(mapping, 'patient_count')]) {
+    if (seen.has(event.name)) continue
+    seen.add(event.name)
+    parts.push(`SELECT '${esc(event.key ?? event.name)}' AS event, ${firstType(event.name)} AS event_type, ${firstType(dict.name)} AS dictionary_type`)
+  }
+  return parts.length ? parts.join('\nUNION ALL\n') : null
+}
+
+export interface ConceptIdTypeMismatch {
+  event: string
+  eventType: string
+  dictionaryType: string
+}
+
+const isTextType = (type: string) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR)/i.test(type)
+
+/** The rows of `buildConceptIdTypesSql` whose two ids cannot be compared. */
+export function conceptIdTypeMismatches(rows: readonly Record<string, unknown>[]): ConceptIdTypeMismatch[] {
+  return rows.flatMap((r) => {
+    const eventType = r.event_type == null ? null : String(r.event_type)
+    const dictionaryType = r.dictionary_type == null ? null : String(r.dictionary_type)
+    if (!eventType || !dictionaryType || isTextType(eventType) === isTextType(dictionaryType)) return []
+    return [{ event: String(r.event), eventType, dictionaryType }]
+  })
+}
+
+/**
+ * Identifies what a run counts: each unit's SQL as the server runs it, with the
+ * relations it reads — emptied or without a join where the database lacks their
+ * table (`tables`). A paused run resumes only when re-planning it over its own
+ * slices gives the same signature — a changed mapping, a build whose SQL
  * changed, or a table that has since appeared starts over instead of mixing counts.
  */
-export function conceptCountSignature(units: readonly ConceptCountUnit[], absent: readonly AbsentRelation[] = []): string {
-  const body = units.map((u) => `${u.key}\n${u.sql}`).join('\n\n')
-  const missing = absent.map((a) => `${a.specKey}:${a.empty ? 'empty' : 'join'}:${a.tables.join(',')}`).sort()
-  return deterministicId(`concept-counts-v${CONCEPT_COUNT_VERSION}`, missing.length ? `${body}\n\nabsent:${missing.join('\n')}` : body)
+export function conceptCountSignature(units: readonly ConceptCountUnit[], mapping: SchemaMapping, tables?: readonly string[] | null): string {
+  const body = units.map((u) => `${u.key}\n${withClassRelations(u.sql, mapping, tables)}`).join('\n\n')
+  return deterministicId(`concept-counts-v${CONCEPT_COUNT_VERSION}`, body)
 }
 
 export interface ConceptCountStepProgress {

@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import {
+  buildConceptIdTypesSql,
   buildPatientUnitSql,
+  conceptIdTypeMismatches,
   conceptCountProgress,
   conceptCountSignature,
   planConceptCountUnits,
@@ -9,7 +11,6 @@ import {
 } from './concept-count-plan'
 import { buildConceptsAssembleQuery, buildConceptsQuery, computeAvailableColumns, CONCEPT_COUNTS_VIEW } from './concept-queries'
 import { conceptRelations } from '@/lib/schema-classes/relations'
-import { absentRelations } from '@/lib/schema-classes/presence'
 
 const v1 = {
   patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth', genderColumn: 'gender_concept_id' },
@@ -61,21 +62,28 @@ describe('planConceptCountUnits', () => {
 
 describe('conceptCountSignature', () => {
   it('is stable for the same plan and changes with the slices or the mapping', () => {
-    const a = conceptCountSignature(planConceptCountUnits(mapping, [{ hi: 100 }, { lo: 100 }]))
-    expect(conceptCountSignature(planConceptCountUnits(mapping, [{ hi: 100 }, { lo: 100 }]))).toBe(a)
-    expect(conceptCountSignature(planConceptCountUnits(mapping, [{}]))).not.toBe(a)
+    const a = conceptCountSignature(planConceptCountUnits(mapping, [{ hi: 100 }, { lo: 100 }]), mapping)
+    expect(conceptCountSignature(planConceptCountUnits(mapping, [{ hi: 100 }, { lo: 100 }]), mapping)).toBe(a)
+    expect(conceptCountSignature(planConceptCountUnits(mapping, [{}]), mapping)).not.toBe(a)
     const other = mappingV1ToV2({ ...v1, eventTables: { Measurement: v1.eventTables.Measurement } } as unknown as SchemaMappingV1)
-    expect(conceptCountSignature(planConceptCountUnits(other, [{ hi: 100 }, { lo: 100 }]))).not.toBe(a)
+    expect(conceptCountSignature(planConceptCountUnits(other, [{ hi: 100 }, { lo: 100 }]), other)).not.toBe(a)
+  })
+
+  it('changes with what a relation reads, though the units name it alike', () => {
+    const units = planConceptCountUnits(mapping, [{}])
+    const renamed = mappingV1ToV2({
+      ...v1,
+      eventTables: { ...v1.eventTables, Measurement: { ...v1.eventTables.Measurement, conceptIdColumn: 'measurement_type_concept_id' } },
+    } as unknown as SchemaMappingV1)
+    expect(planConceptCountUnits(renamed, [{}]).map((u) => u.sql)).toEqual(units.map((u) => u.sql))
+    expect(conceptCountSignature(units, renamed)).not.toBe(conceptCountSignature(units, mapping))
   })
 
   it('changes once a table the database lacked appears, so a resume recounts', () => {
     const units = planConceptCountUnits(mapping, [{}])
-    const lacking = absentRelations(mapping, ['person', 'concept', 'measurement'])
-    expect(lacking.map((r) => r.specKey)).toEqual(['events.Condition'])
-    const before = conceptCountSignature(units, lacking)
-    expect(before).not.toBe(conceptCountSignature(units))
-    expect(conceptCountSignature(units, absentRelations(mapping, ['person', 'concept', 'measurement', 'condition_occurrence']))).toBe(conceptCountSignature(units))
-    expect(conceptCountSignature(units, [...lacking].reverse())).toBe(before)
+    const before = conceptCountSignature(units, mapping, ['person', 'concept', 'measurement'])
+    expect(before).not.toBe(conceptCountSignature(units, mapping))
+    expect(conceptCountSignature(units, mapping, ['person', 'concept', 'measurement', 'condition_occurrence'])).toBe(conceptCountSignature(units, mapping))
   })
 })
 
@@ -175,5 +183,23 @@ describe('buildConceptsQuery, not counted yet', () => {
     expect(sql).not.toContain('measurement')
     expect(sql).toContain('NULL::BIGINT AS record_count')
     expect(sql).toContain('NULL::BIGINT AS patient_count')
+  })
+})
+
+describe('concept id types', () => {
+  it('reads one id type per counted event and its dictionary', () => {
+    const sql = buildConceptIdTypesSql(mapping)!
+    expect(sql.match(/UNION ALL/g)).toHaveLength(1)
+    expect(sql).toContain("SELECT 'Measurement' AS event, (SELECT typeof(concept_id) FROM linkr_event_measurement WHERE concept_id IS NOT NULL LIMIT 1) AS event_type")
+    expect(sql).toContain('(SELECT typeof(concept_id) FROM linkr_concept_concept WHERE concept_id IS NOT NULL LIMIT 1) AS dictionary_type')
+  })
+
+  it('flags a text id joined to a number, never two numbers or an empty side', () => {
+    expect(conceptIdTypeMismatches([
+      { event: 'Codes', event_type: 'VARCHAR', dictionary_type: 'DOUBLE' },
+      { event: 'Ids', event_type: 'BIGINT', dictionary_type: 'DOUBLE' },
+      { event: 'Texts', event_type: 'VARCHAR', dictionary_type: 'VARCHAR' },
+      { event: 'Empty', event_type: null, dictionary_type: 'BIGINT' },
+    ])).toEqual([{ event: 'Codes', eventType: 'VARCHAR', dictionaryType: 'DOUBLE' }])
   })
 })
