@@ -183,3 +183,19 @@ une clé par utilisateur, l'approbation de tous les MCP gérée par LibreChat et
 dans Linkr, et Linkr qui n'ajoute que l'interface et les outils d'interface du §4.
 Autre déclencheur possible : de l'OIDC dans Linkr, partagé avec LibreChat, qui supprime
 la question des clés.
+
+**Tickets LibreChat à suivre** (dépôt `LibreChat-AI/LibreChat`, état au 2026-10-05) :
+aucun ne demande une approbation interactive par l'API.
+
+- [#13824](https://github.com/LibreChat-AI/LibreChat/issues/13824) — *Enterprise Readiness
+  for Autonomous Agents*, point « Policy & Approval Hooks ». Le mainteneur annonce une
+  approbation qui tient compte du déclencheur (chat / API / planifié), mais pour
+  **autoriser ou bloquer**, pas pour suspendre une run et la reprendre. Il invite à ouvrir
+  des tickets ciblés sur l'approbation.
+- [#12105](https://github.com/LibreChat-AI/LibreChat/issues/12105) — rendre visibles dans
+  l'interface de LibreChat les runs lancées par l'API.
+- Bugs ouverts de l'API Responses, signe qu'elle est encore jeune :
+  [#14466](https://github.com/LibreChat-AI/LibreChat/issues/14466) (`store: true`
+  n'enregistre aucun message), [#16315](https://github.com/LibreChat-AI/LibreChat/issues/16315)
+  (`previous_response_id` cassé), [#16313](https://github.com/LibreChat-AI/LibreChat/issues/16313),
+  [#15276](https://github.com/LibreChat-AI/LibreChat/issues/15276).
