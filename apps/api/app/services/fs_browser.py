@@ -3,7 +3,9 @@
 - the project **Folders** settings pick a folder to bind the IDE working dir /
   datasets dir to (``validate_binding_path``);
 - a **database** points at data already on the server — a DuckDB/SQLite file or a
-  Parquet folder — instead of uploading it (``validate_source_path``).
+  Parquet folder — instead of uploading it (``validate_source_path``);
+- a **dataset import** or an **IDE upload** copies a server file into the project
+  instead of uploading it from the user's machine (``validate_import_source``).
 
 This exposes the server filesystem, so every route using it is permission-gated
 (``project-settings:write`` for a binding, ``databases:write`` for a source) and
@@ -215,6 +217,30 @@ def validate_source_path(path: str) -> None:
         raise FsBrowseError("Server path is neither a file nor a folder")
     if not os.access(target, os.R_OK):
         raise FsBrowseError("Server path is not readable by the server")
+
+
+def validate_import_source(path: str) -> Path:
+    """Check a server file a user copies INTO a project — a dataset import or an
+    IDE upload — and return it resolved. Inside the browse roots, an existing
+    readable file, and outside Linkr's own data folder: that folder holds the
+    sealing key, the blob store and every other project's files, which a copy
+    would hand to anyone holding datasets/IDE write on *one* project.
+
+    Not gated on `enable_code_execution`, like `validate_source_path`: copying a
+    file in is reading data, not running code. Raises FsBrowseError."""
+    if not path:
+        raise FsBrowseError("No server file chosen")
+    target = Path(path).expanduser().resolve()
+    if not _within_roots(target):
+        raise FsBrowseError("Path is outside the allowed browse roots")
+    data_dir = settings.data_path.resolve()
+    if target == data_dir or data_dir in target.parents:
+        raise FsBrowseError("Files inside Linkr's data folder cannot be imported")
+    if not target.is_file():
+        raise FsBrowseError("Server path is not an existing file")
+    if not os.access(target, os.R_OK):
+        raise FsBrowseError("Server path is not readable by the server")
+    return target
 
 
 DATABASE_FILE_SUFFIX = ".duckdb"

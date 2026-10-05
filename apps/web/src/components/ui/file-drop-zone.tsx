@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -15,6 +15,8 @@ export function FileDropZone({
   label,
   hint,
   onClick,
+  onDropFiles,
+  disabled,
   className,
 }: {
   icon: ReactNode
@@ -23,14 +25,34 @@ export function FileDropZone({
    *  change the box height, so the slot is reserved either way. */
   hint?: string
   onClick: () => void
+  /** Accept files dragged onto the zone. Omit for a zone nothing can be dropped
+   *  on (a server browse). */
+  onDropFiles?: (files: File[]) => void
+  disabled?: boolean
   className?: string
 }) {
+  const [dragActive, setDragActive] = useState(false)
+  const dropHandlers = onDropFiles && !disabled
+    ? {
+        onDragOver: (e: React.DragEvent) => { e.preventDefault(); setDragActive(true) },
+        onDragLeave: () => setDragActive(false),
+        onDrop: (e: React.DragEvent) => {
+          e.preventDefault()
+          setDragActive(false)
+          const files = Array.from(e.dataTransfer.files)
+          if (files.length > 0) onDropFiles(files)
+        },
+      }
+    : {}
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
+      {...dropHandlers}
       className={cn(
-        'flex h-28 w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-4 transition-colors hover:border-muted-foreground/40 hover:bg-muted/50',
+        'flex h-28 w-full cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed border-muted-foreground/25 bg-muted/30 px-4 transition-colors hover:border-muted-foreground/40 hover:bg-muted/50 disabled:cursor-default disabled:opacity-60',
+        dragActive && 'border-primary bg-primary/5 hover:border-primary hover:bg-primary/5',
         className,
       )}
     >

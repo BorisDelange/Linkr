@@ -132,6 +132,20 @@ export async function previewDatasetOnServer(params: {
 }
 
 /**
+ * Server-mode "upload" of a file already on the server: copied into the blob
+ * store, so previewDatasetBySha / importDatasetBySha take it like an upload.
+ */
+export function stageServerDatasetFile(params: {
+  projectUid: string
+  serverPath: string
+}): Promise<{ sha: string; size: number; fileName: string }> {
+  return apiRequest('/dataset-files/stage-server-file', {
+    method: 'POST',
+    body: JSON.stringify({ projectUid: params.projectUid, serverPath: params.serverPath }),
+  })
+}
+
+/**
  * Re-preview a blob already uploaded (by sha) with new parse options, WITHOUT
  * re-uploading — the option-tweak path for the upload dialog. Same `/preview`
  * endpoint as previewDatasetOnServer, minus the chunked upload.

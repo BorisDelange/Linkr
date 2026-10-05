@@ -45,7 +45,9 @@ import {
 import { cn } from '@/lib/utils'
 import { findDatasetConflict, resolveDatasetUploadTarget } from './dataset-upload-target'
 import { isServerMode } from '@/lib/api-client'
-import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer, importDatasetOnServer, setDatasetColumnMeta } from '@/lib/api/datasets'
+import { importDatasetBySha, previewDatasetBySha, previewDatasetOnServer, importDatasetOnServer, setDatasetColumnMeta, stageServerDatasetFile } from '@/lib/api/datasets'
+import { FileSource } from '@/components/ui/file-source'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { parseGoupileWorkbook, type GoupileColumnMeta, type SheetMap } from '@/lib/goupile-import'
 import { SURVEY_PRESETS, presetsForFile, suggestPreset, findPreset } from '@/lib/survey/survey-presets'
 import type { SurveySource } from '@/lib/survey/survey-schema'
@@ -72,6 +74,20 @@ interface ParsedData {
   // the full data), so only `preview` drives the table.
   sha?: string
 }
+
+/** A file picked on the server (server mode): copied into the blob store, then
+ *  previewed and imported by sha like an upload. `sha` is empty while the copy
+ *  runs. */
+interface ServerPickedFile {
+  name: string
+  serverPath: string
+  sha: string
+}
+
+/** What the dialog imports: a file from the user's machine, or one on the server. */
+type DatasetSource = File | ServerPickedFile
+
+const ACCEPTED_EXTENSIONS = ['.csv', '.tsv', '.txt', '.xlsx', '.xls', '.parquet']
 
 type Delimiter = 'auto' | ',' | '\t' | ';' | '|'
 type Encoding = 'UTF-8' | 'ISO-8859-1' | 'Windows-1252'
@@ -209,9 +225,8 @@ function remapRows(rows: Record<string, unknown>[], columns: DatasetColumn[]): R
 
 export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadDatasetDialogProps) {
   const { t } = useTranslation()
-  const [file, setFile] = useState<File | null>(null)
+  const [file, setFile] = useState<DatasetSource | null>(null)
   const [parsed, setParsed] = useState<ParsedData | null>(null)
-  const [dragActive, setDragActive] = useState(false)
   const [loading, setLoading] = useState(false)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -286,17 +301,17 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [naValues])
 
-  const isCSVLike = useCallback((f: File) => {
+  const isCSVLike = useCallback((f: DatasetSource) => {
     const ext = f.name.toLowerCase()
-    return ext.endsWith('.csv') || ext.endsWith('.tsv') || ext.endsWith('.txt') || f.type === 'text/csv'
+    return ext.endsWith('.csv') || ext.endsWith('.tsv') || ext.endsWith('.txt') || (f instanceof File && f.type === 'text/csv')
   }, [])
 
-  const isExcel = useCallback((f: File) => {
+  const isExcel = useCallback((f: DatasetSource) => {
     const ext = f.name.toLowerCase()
     return ext.endsWith('.xlsx') || ext.endsWith('.xls')
   }, [])
 
-  const isParquet = useCallback((f: File) => {
+  const isParquet = useCallback((f: DatasetSource) => {
     return f.name.toLowerCase().endsWith('.parquet')
   }, [])
 
@@ -316,17 +331,20 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   // and returns columns/types/rowCount/preview (+ Excel sheet names), so what the
   // user previews is exactly what gets imported. The blob is uploaded once here
   // and its sha reused at import time.
-  const parseServer = useCallback(async (f: File) => {
+  const parseServer = useCallback(async (f: DatasetSource) => {
     const seq = ++previewSeqRef.current
     try {
       const projectUid = useDatasetStore.getState().activeProjectUid ?? ''
       // Upload the raw file only the FIRST time this file is previewed; every
       // later option tweak re-previews by the cached sha (no full re-upload).
+      // A server-picked file was staged by sha before its first preview.
       const cached = uploadedShaRef.current
-      const res = cached && cached.file === f
-        ? await previewDatasetBySha({ projectUid, sha: cached.sha, fileName: f.name, parseOptions: buildParseOptions() })
-        : await previewDatasetOnServer({ projectUid, file: f, fileName: f.name, parseOptions: buildParseOptions() })
-      uploadedShaRef.current = { file: f, sha: res.sha }
+      const res = !(f instanceof File)
+        ? await previewDatasetBySha({ projectUid, sha: f.sha, fileName: f.name, parseOptions: buildParseOptions() })
+        : cached && cached.file === f
+          ? await previewDatasetBySha({ projectUid, sha: cached.sha, fileName: f.name, parseOptions: buildParseOptions() })
+          : await previewDatasetOnServer({ projectUid, file: f, fileName: f.name, parseOptions: buildParseOptions() })
+      if (f instanceof File) uploadedShaRef.current = { file: f, sha: res.sha }
       // Drop a stale response (a newer option change already fired, or the dialog
       // closed / a different file was picked) so it can't overwrite fresher state.
       if (seq !== previewSeqRef.current) return
@@ -354,7 +372,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     if (seq === previewSeqRef.current) setLoading(false)
   }, [buildParseOptions, selectedSheet, t])
 
-  const parseFile = useCallback((f: File) => {
+  const parseFile = useCallback((f: DatasetSource) => {
     setLoading(true)
     setError(null)
     setWarning(null)
@@ -369,14 +387,15 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     // A questionnaire preset is applied client-side (in both server and local
     // modes): the importer reshapes the file into one wide table before the
     // normal dataset-create path takes over.
-    if (preset === 'goupile' && isExcel(f)) {
+    if (preset === 'goupile' && isExcel(f) && f instanceof File) {
       parseGoupile(f)
       return
     }
 
     // In server mode every supported format is parsed server-side; the browser
-    // parsers (papaparse/xlsx/DuckDB-WASM) exist only for local (WASM) mode.
-    if (isServerMode()) {
+    // parsers (papaparse/xlsx/DuckDB-WASM) exist only for local (WASM) mode —
+    // which never holds a server-picked file.
+    if (isServerMode() || !(f instanceof File)) {
       parseServer(f)
     } else if (isCSVLike(f)) {
       parseCSV(f)
@@ -634,14 +653,34 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
     [parseFile, parseGoupile, isExcel],
   )
 
-  const handleDrop = useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault()
-      setDragActive(false)
-      const f = e.dataTransfer.files[0]
-      if (f) handleFile(f)
+  // The server copies the file into its blob store first (as an upload would
+  // land there), then the normal by-sha preview takes over. The questionnaire
+  // presets read the workbook in the browser, so a server file is a plain table.
+  const handleServerPick = useCallback(
+    async (serverPath: string) => {
+      const name = serverPath.replace(/\/+$/, '').split('/').pop() ?? serverPath
+      setFile({ name, serverPath, sha: '' })
+      setParsed(null)
+      setError(null)
+      setColumnTypes({})
+      setSuggestedPreset('none')
+      setPreset('none')
+      setLoading(true)
+      const seq = ++previewSeqRef.current
+      try {
+        const projectUid = useDatasetStore.getState().activeProjectUid ?? ''
+        const staged = await stageServerDatasetFile({ projectUid, serverPath })
+        if (seq !== previewSeqRef.current) return
+        const picked = { name: staged.fileName, serverPath, sha: staged.sha }
+        setFile(picked)
+        parseFile(picked)
+      } catch (e) {
+        if (seq !== previewSeqRef.current) return
+        setError(e instanceof Error ? e.message : t('datasets.upload_parse_error'))
+        setLoading(false)
+      }
     },
-    [handleFile],
+    [parseFile, t],
   )
 
   /**
@@ -680,7 +719,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   }, [parsed, columnTypes, naValues])
 
   // Check for duplicate filename when file is parsed
-  const { files: storeFiles } = useDatasetStore()
+  const { files: storeFiles, activeProjectUid } = useDatasetStore()
   // Suppressed while importing: the import adds the dataset to the store before
   // onOpenChange(false) unmounts us, so the conflict would match the row we just
   // wrote and flash the "already exists" banner on a successful upload.
@@ -734,8 +773,6 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
     const parseOpts = buildParseOptions()
 
-    const rawFile = { blob: file, fileName: file.name }
-
     // Server mode: the blob was already uploaded during the server preview — land
     // it by its sha (no re-upload) and parse it with the SAME options the preview
     // used, so what was previewed is exactly what gets imported. Keep the dialog
@@ -772,6 +809,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
     // Local (client-only) mode: persist to IndexedDB. Keep the dialog open on
     // error so an IDB write failure is shown rather than lost silently.
+    if (!(file instanceof File)) return
+    const rawFile = { blob: file, fileName: file.name }
     setImporting(true)
     setError(null)
     try {
@@ -827,7 +866,11 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
   // Only the presets that can actually read this extension, so the dropdown
   // never offers a Goupile import for a .csv.
   const availablePresets = useMemo(
-    () => (file ? presetsForFile(file.name) : SURVEY_PRESETS),
+    () => {
+      if (!file) return SURVEY_PRESETS
+      const presets = presetsForFile(file.name)
+      return file instanceof File ? presets : presets.filter((p) => p.id === 'none')
+    },
     [file],
   )
 
@@ -845,32 +888,35 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
         <div className="flex-1 overflow-hidden flex flex-col gap-4">
           {/* Drop zone or file info */}
           {!file ? (
-            <div
-              className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors cursor-pointer ${
-                dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-              }`}
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
-              onDragLeave={() => setDragActive(false)}
-              onDrop={handleDrop}
+            <FileSource
+              scope={{ kind: 'project-import', projectUid: activeProjectUid ?? '', target: 'datasets' }}
+              expect="file"
+              extensions={ACCEPTED_EXTENSIONS}
+              serverPath=""
+              onServerPathChange={(path) => { if (path) void handleServerPick(path) }}
             >
-              <Upload size={32} className="text-muted-foreground/50" />
-              <p className="mt-3 text-sm text-muted-foreground">
-                {t('datasets.drag_drop_or')}
-              </p>
-              <p className="mt-2 text-[10px] text-muted-foreground">CSV, TSV, Excel (.xlsx, .xls), Parquet</p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".csv,.tsv,.txt,.xlsx,.xls,.parquet"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) handleFile(f)
-                  e.target.value = ''
-                }}
-              />
-            </div>
+              <div className="space-y-2">
+                <Label>{t('datasets.upload_from_computer')}</Label>
+                <FileDropZone
+                  icon={<Upload size={20} className="text-muted-foreground" />}
+                  label={t('datasets.upload_drop_hint')}
+                  hint="CSV, TSV, Excel, Parquet"
+                  onClick={() => fileInputRef.current?.click()}
+                  onDropFiles={(files) => handleFile(files[0])}
+                />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept={ACCEPTED_EXTENSIONS.join(',')}
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    if (f) handleFile(f)
+                    e.target.value = ''
+                  }}
+                />
+              </div>
+            </FileSource>
           ) : (
             <>
               {/* File info bar */}

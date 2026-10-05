@@ -1415,7 +1415,6 @@
     "upload": "Upload",
     "upload_dataset": "Upload dataset",
     "upload_description": "Upload a CSV, Excel, or Parquet file to create a new dataset.",
-    "drag_drop_or": "Drag and drop a file here, or",
     "browse_files": "Browse files",
     "import": "Import",
     "upload_delimiter": "Delimiter",
@@ -1724,7 +1723,9 @@
     "col_move_to": "Move to…",
     "col_move_to_description": "Choose where \"{{name}}\" should sit among the other columns.",
     "cell_edit": "Edit",
-    "cell_clear": "Clear"
+    "cell_clear": "Clear",
+    "upload_from_computer": "From your computer",
+    "upload_drop_hint": "Click to browse or drag and drop"
   },
   "survey": {
     "choice_order_hint": "Drag the answers into the order the chart should read.",
@@ -2171,7 +2172,6 @@
     "edit_in_editor": "Edit in editor",
     "move": "Move to...",
     "upload_description": "Upload files to the project.",
-    "upload_drop": "Click or drag files here",
     "upload_rejected": "Not added, the name is reserved or invalid: {{names}}",
     "upload_conflict_intro": "{{count}} file(s) already exist here:",
     "upload_conflict_hint": "Keeping both adds the new files under a suffixed name. Replacing overwrites the contents of the existing files, keeping their place in the pipeline and their versioning marks.",
@@ -2231,7 +2231,9 @@
     "root_folder": "scripts (root)",
     "column_name": "Name",
     "column_size": "Size",
-    "name_reserved_attachments": "This name is reserved: attachments/ is generated from the entity's own attachments — add them there, not as a folder"
+    "name_reserved_attachments": "This name is reserved: attachments/ is generated from the entity's own attachments — add them there, not as a folder",
+    "upload_from_computer": "From your computer",
+    "upload_drop_hint": "Click to browse or drag and drop files"
   },
   "pipeline": {
     "title": "Pipeline",

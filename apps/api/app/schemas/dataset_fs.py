@@ -59,6 +59,20 @@ class DsFromQuery(CamelModel):
     replace: bool = False
 
 
+class DsStageServerFile(CamelModel):
+    """Copy a file already on the server into the blob store, so the import dialog
+    previews and imports it by sha exactly like an uploaded one."""
+
+    project_uid: str
+    server_path: str
+
+
+class DsStagedFile(CamelModel):
+    sha: str
+    size: int
+    file_name: str
+
+
 class DsPreview(CamelModel):
     """Parse an already-uploaded blob WITHOUT persisting it, to drive the import
     dialog's preview server-side (same parser as the eventual import)."""

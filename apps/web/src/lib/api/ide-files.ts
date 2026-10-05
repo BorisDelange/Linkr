@@ -127,6 +127,24 @@ export const apiIdeFileStorage: IdeFileStorage = {
   },
 }
 
+/** Copy a file picked on the server into the IDE tree, byte for byte, under
+ *  `parentId` as `name` — an existing file of that name is overwritten. */
+export async function copyIdeFileFromServer(params: {
+  projectUid: string
+  serverPath: string
+  parentId: string | null
+  name: string
+}): Promise<void> {
+  await apiRequest(`${BASE}/copy-from-server`, {
+    method: 'POST',
+    body: JSON.stringify({
+      projectUid: params.projectUid,
+      serverPath: params.serverPath,
+      path: childPath(params.parentId, params.name),
+    }),
+  })
+}
+
 /** A file's raw bytes as a data URL — the tree scan only carries text, so this is
  *  how a binary file (an image) reaches the browser. `path` is relative to the IDE
  *  root, as the scan returns it. Null when the read fails. */

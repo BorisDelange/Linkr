@@ -37,3 +37,11 @@ class IdeFileMove(CamelModel):
 class IdeFileDelete(CamelModel):
     project_uid: str
     path: str
+
+
+class IdeFileCopyFromServer(CamelModel):
+    project_uid: str
+    server_path: str
+    # Target relative path under the IDE root. The client picks the final name
+    # (replace or keep both), so an existing file here is overwritten.
+    path: str

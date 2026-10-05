@@ -1,8 +1,11 @@
-"""Server file-browser routes for the project Folders settings. Every route is
-gated on ``project-settings:write`` (choosing which server folder a project binds
-to is a project-configuration act, not code execution). The heavy lifting lives in
+"""Server file-browser routes. The project Folders settings routes are gated on
+``project-settings:write`` (choosing which server folder a project binds to is a
+project-configuration act, not code execution); the import and workspace routes
+answer to the permission of what they feed (see below). The heavy lifting lives in
 ``services.fs_browser``; validation against the configured browse roots happens
 there. Server mode only — front-only has no server filesystem to browse."""
+
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
@@ -11,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_permission, require_project_permission
+from app.core.permissions import check_project_permission, check_workspace_permission, require_project_permission
 from app.models.project import Project
 from app.models.user import User
 from app.services import fs_browser, project_fs
@@ -103,6 +106,34 @@ async def rebind_copy(
     _guard()
     try:
         return fs_browser.copy_tree(body.src, body.dst, body.on_conflict)
+    except fs_browser.FsBrowseError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+
+# --- Project-scoped browsing for an import (dataset / IDE upload from the server)
+# Picking a file to COPY into the project answers to the permission of what it
+# lands in, not to project-settings:write — a member who may import a dataset need
+# not be allowed to re-bind the project's folders. Not behind `_guard()`, for the
+# same reason as the workspace routes below: copying a file in is not running code.
+
+_IMPORT_PERMISSION = {"datasets": "datasets:write", "ide": "ide:write"}
+
+
+@router.get("/import/{target}/list-dir")
+async def import_list_dir(
+    project_uid: str,
+    target: Literal["datasets", "ide"],
+    path: str = Query("", description="Absolute server path; empty = a browse root"),
+    extensions: str | None = Query(None, description="Comma-separated, e.g. .csv,.parquet"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    project = await db.get(Project, project_uid)
+    if project is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
+    await check_project_permission(db, project, user, _IMPORT_PERMISSION[target])
+    try:
+        return fs_browser.list_dir(path, True, _split_extensions(extensions))
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

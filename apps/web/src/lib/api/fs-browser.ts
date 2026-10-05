@@ -70,15 +70,29 @@ export function fsValidateDir(projectUid: string, path: string): Promise<FsValid
 
 /** Which authority a browse request answers to. A project binds its IDE folders
  *  (project-settings:write); a workspace points a database at server data
- *  (databases:write). The scope picks the route, and the route picks the gate. */
+ *  (databases:write); an import copies a server file into a project's datasets
+ *  (datasets:write) or IDE tree (ide:write). The scope picks the route, and the
+ *  route picks the gate. */
 export type FsScope =
   | { kind: 'project'; projectUid: string }
   | { kind: 'workspace'; workspaceId: string }
+  | { kind: 'project-import'; projectUid: string; target: 'datasets' | 'ide' }
 
 function scopePrefix(scope: FsScope): string {
-  return scope.kind === 'project'
-    ? `/projects/${encodeURIComponent(scope.projectUid)}/fs`
-    : `/workspaces/${encodeURIComponent(scope.workspaceId)}/fs`
+  switch (scope.kind) {
+    case 'project':
+      return `/projects/${encodeURIComponent(scope.projectUid)}/fs`
+    case 'workspace':
+      return `/workspaces/${encodeURIComponent(scope.workspaceId)}/fs`
+    case 'project-import':
+      return `/projects/${encodeURIComponent(scope.projectUid)}/fs/import/${scope.target}`
+  }
+}
+
+/** A stable string for a scope, for hook dependencies: call sites pass inline
+ *  objects, which change identity on every render. */
+export function fsScopeKey(scope: FsScope): string {
+  return `${scope.kind}:${scopePrefix(scope)}`
 }
 
 export function fsBrowse(

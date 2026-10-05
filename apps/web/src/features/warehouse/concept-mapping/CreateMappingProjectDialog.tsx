@@ -54,7 +54,7 @@ import { EntityIdField, isEntityIdValid } from '@/components/ui/entity-id-field'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { isServerMode } from '@/lib/api-client'
 import { importServerFileForMappingProject, previewFileColumnsOnServer } from '@/lib/api/mapping-projects'
-import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
+import { FileSource, type FileOrigin } from '@/components/ui/file-source'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { vocabularyDataSourceIdFor } from '@/lib/vocabulary-library/resolve'
 import { getStorage } from '@/lib/storage'
@@ -1385,8 +1385,8 @@ export function CreateMappingProjectDialog({
 
                 {/* Drop zone — shown when no existing file OR new file not yet picked */}
                 {!file && !hasExistingFileData && activeWorkspaceId && (
-                  <DatabaseFileSource
-                    workspaceId={activeWorkspaceId}
+                  <FileSource
+                    scope={{ kind: 'workspace', workspaceId: activeWorkspaceId }}
                     origin={fileOrigin}
                     onOriginChange={setFileOrigin}
                     expect="file"
@@ -1420,7 +1420,7 @@ export function CreateMappingProjectDialog({
                       }}
                     />
                   </div>
-                  </DatabaseFileSource>
+                  </FileSource>
                 )}
 
                 {/* New file just uploaded */}

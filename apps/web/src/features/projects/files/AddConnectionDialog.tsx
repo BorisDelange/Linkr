@@ -9,7 +9,7 @@ import {
   AlertTriangle,
 } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
-import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
+import { FileSource, type FileOrigin } from '@/components/ui/file-source'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -273,8 +273,8 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
                 </div>
               )}
 
-              <DatabaseFileSource
-                workspaceId={activeWorkspaceId ?? ''}
+              <FileSource
+                scope={{ kind: 'workspace', workspaceId: activeWorkspaceId ?? '' }}
                 origin={fileOrigin}
                 onOriginChange={(o) => {
                   setFileOrigin(o)
@@ -329,7 +329,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
                     t={t}
                   />
                 )}
-              </DatabaseFileSource>
+              </FileSource>
             </>
           )}
 

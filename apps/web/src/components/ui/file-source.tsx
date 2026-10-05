@@ -8,18 +8,23 @@ import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
 import { isServerMode } from '@/lib/api-client'
+import type { FsScope } from '@/lib/api/fs-browser'
 
-/** Where a file-backed database gets its data. `upload` copies bytes from the
- *  user's machine; `server` points at data already on the server and copies
- *  nothing — the only workable option for a warehouse too big to upload, and the
- *  server-side analogue of the front-only zero-copy FS Access handles. */
+/** Where a file comes from. `upload` sends bytes from the user's machine;
+ *  `server` uses a file already on the server — for a database it copies
+ *  nothing (the only workable option for a warehouse too big to upload, and the
+ *  server-side analogue of the front-only zero-copy FS Access handles); for a
+ *  dataset or an IDE file the server copies it in itself. */
 export type FileOrigin = 'upload' | 'server'
 
 interface Props {
-  /** Which workspace's `databases:write` authorizes the browse. */
-  workspaceId: string
-  origin: FileOrigin
-  onOriginChange: (origin: FileOrigin) => void
+  /** Which authority the browse answers to (see `FsScope`). */
+  scope: FsScope
+  /** Controlled origin, for a form that keeps the chosen path on screen (a
+   *  database). Omit it when the caller acts on the pick at once and moves on
+   *  (a dataset import, an IDE upload): the origin then follows `serverPath`. */
+  origin?: FileOrigin
+  onOriginChange?: (origin: FileOrigin) => void
   /** A Parquet source is a folder; DuckDB/SQLite is a single file. */
   expect: 'file' | 'dir'
   /** Display filter for the picker, e.g. ['.duckdb']. */
@@ -34,8 +39,9 @@ interface Props {
 }
 
 /**
- * Where a file-backed database's data comes from, shared by the two add-database
- * dialogs (warehouse and IDE connections).
+ * Where a file comes from — the user's machine or the server — shared by every
+ * dialog that takes a file in server mode: the two add-database dialogs
+ * (warehouse and IDE connections), the dataset import and the IDE upload.
  *
  * The two origins sit **side by side** rather than behind a mode switch: they are
  * alternatives of the same kind, so showing both makes the server option
@@ -43,10 +49,10 @@ interface Props {
  * something, it takes the full row and the other steps aside — the choice has
  * been made, and a live picker for the road not taken is only noise.
  */
-export function DatabaseFileSource({
-  workspaceId,
-  origin,
-  onOriginChange,
+export function FileSource({
+  scope,
+  origin: originProp,
+  onOriginChange = () => {},
   expect,
   extensions,
   serverPath,
@@ -55,6 +61,7 @@ export function DatabaseFileSource({
   children,
 }: Props) {
   const { t } = useTranslation()
+  const origin = originProp ?? (serverPath ? 'server' : 'upload')
   const [pickerOpen, setPickerOpen] = useState(false)
   /** Where the browser was last left, so reopening resumes there instead of
    *  starting over at the root. Survives a cancelled browse; `serverPath` alone
@@ -148,7 +155,7 @@ export function DatabaseFileSource({
       <ServerPathPickerDialog
         open={pickerOpen}
         mode={expect === 'dir' ? 'folder' : 'file'}
-        scope={{ kind: 'workspace', workspaceId }}
+        scope={scope}
         extensions={extensions}
         // Reopens where it was left, so a browse cancelled by accident does not
         // start over from the filesystem root.

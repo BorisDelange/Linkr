@@ -4,6 +4,7 @@ any means (terminal, git) appear in the IDE. No DB table backs these files."""
 
 import asyncio
 import mimetypes
+import shutil
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -15,13 +16,14 @@ from app.core.permissions import check_project_permission
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.ide_file import (
+    IdeFileCopyFromServer,
     IdeFileCreate,
     IdeFileDelete,
     IdeFileMove,
     IdeFileResponse,
     IdeFileWrite,
 )
-from app.services import notification_service, project_fs
+from app.services import fs_browser, notification_service, project_fs
 
 router = APIRouter(prefix="/ide-files", tags=["ide-files"])
 
@@ -118,6 +120,38 @@ async def create_file(
         language=None if body.type == "folder" else project_fs.language_for(body.path),
         order=0,
         content=None if body.type == "folder" else (body.content or ""),
+    )
+
+
+@router.post("/copy-from-server", response_model=IdeFileResponse, status_code=status.HTTP_201_CREATED)
+async def copy_from_server(
+    body: IdeFileCopyFromServer,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload's server-side counterpart: copy a file picked on the server into the
+    IDE tree. Bytes are copied as-is, so a binary file (an image, a workbook)
+    arrives intact — unlike the text body the browser upload sends."""
+    await _check_project(db, body.project_uid, user, "ide:write")
+    try:
+        src = fs_browser.validate_import_source(body.server_path)
+        dst = project_fs.script_path(body.project_uid, body.path)
+    except (fs_browser.FsBrowseError, ValueError) as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if dst.is_dir():
+        raise HTTPException(status.HTTP_409_CONFLICT, "A folder already has this name")
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(shutil.copyfile, src, dst)
+    await _notify(db, request, user, "created", body.project_uid, body.path)
+    return IdeFileResponse(
+        id=project_fs.node_id("ide", body.path),
+        name=body.path.rsplit("/", 1)[-1],
+        type="file",
+        parent_id=(project_fs.node_id("ide", body.path.rsplit("/", 1)[0]) if "/" in body.path else None),
+        path=body.path,
+        language=project_fs.language_for(body.path),
+        order=0,
     )
 
 

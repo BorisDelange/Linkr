@@ -39,10 +39,20 @@ from app.schemas.dataset_fs import (
     DsPreviewPath,
     DsPreviewResponse,
     DsReimport,
+    DsStagedFile,
+    DsStageServerFile,
 )
 from app.core.permissions import check_workspace_permission
 from app.models.data_source import DataSource
-from app.services import blob_store, data_source_service, database_credential_service, dataset_service, notification_service, project_fs
+from app.services import (
+    blob_store,
+    data_source_service,
+    database_credential_service,
+    dataset_service,
+    fs_browser,
+    notification_service,
+    project_fs,
+)
 from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
@@ -194,6 +204,25 @@ async def get_raw(
     audit.bind(action="download", project_uid=project_uid,
                detail=f"datasets/{path} ({p.stat().st_size} bytes)")
     return FileResponse(p, filename=name, headers={"x-file-name": name})
+
+
+@router.post("/stage-server-file", response_model=DsStagedFile)
+async def stage_server_file(
+    body: DsStageServerFile,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The server-side counterpart of the chunked upload: copy a file the user
+    picked on the server into the blob store and return its sha, so `/preview` and
+    `/import` take it unchanged. The source is copied, never moved — it belongs to
+    whoever put it there."""
+    await _check_project(db, body.project_uid, user, "datasets:write")
+    try:
+        src = fs_browser.validate_import_source(body.server_path)
+    except fs_browser.FsBrowseError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    sha, size = await blob_store.store_copy(src)
+    return DsStagedFile(sha=sha, size=size, file_name=src.name)
 
 
 @router.post("/preview", response_model=DsPreviewResponse)

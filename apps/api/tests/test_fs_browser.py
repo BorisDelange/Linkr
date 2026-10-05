@@ -278,3 +278,34 @@ def test_validate_source_path_ignores_code_execution_flag(monkeypatch, tmp_path)
     _set_roots(monkeypatch, str(tmp_path))
     monkeypatch.setattr(settings, "enable_code_execution", False)
     fs_browser.validate_source_path(str(f))
+
+
+# --- validate_import_source (dataset import / IDE upload from the server) -------
+
+def test_import_source_accepts_readable_file(tmp_path_factory):
+    f = tmp_path_factory.mktemp("server") / "data.csv"
+    f.write_text("a\n1\n")
+    assert fs_browser.validate_import_source(str(f)) == f.resolve()
+
+
+def test_import_source_refuses_linkr_data_dir(tmp_path):
+    # The tests' data_dir IS tmp_path (conftest): its sealing key, blobs and other
+    # projects' files must never be copied into a project.
+    key = tmp_path / "secret.key"
+    key.write_text("k")
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_import_source(str(key))
+
+
+def test_import_source_refuses_outside_roots_folders_and_missing(monkeypatch, tmp_path_factory):
+    server = tmp_path_factory.mktemp("server")
+    (server / "sub").mkdir()
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_import_source(str(server / "sub"))
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_import_source(str(server / "missing.csv"))
+    outside = tmp_path_factory.mktemp("outside") / "x.csv"
+    outside.write_text("a")
+    _set_roots(monkeypatch, str(server))
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.validate_import_source(str(outside))

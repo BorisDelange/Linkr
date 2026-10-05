@@ -133,3 +133,35 @@ async def test_raw_serves_binary_bytes_with_image_type(client, seed_roles):
     assert r.status_code == 400
     r = await client.get(f"{API}/ide-files/raw", headers=h, params={"projectUid": uid, "path": "missing.png"})
     assert r.status_code == 404
+
+
+async def test_copy_from_server_copies_bytes_into_folder(client, seed_roles, tmp_path_factory):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    src = tmp_path_factory.mktemp("server") / "logo.png"
+    payload = bytes(range(256))  # not valid UTF-8: must arrive byte for byte
+    src.write_bytes(payload)
+
+    r = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
+        "projectUid": uid, "serverPath": str(src), "path": "img/logo.png",
+    })
+    assert r.status_code == 201
+    assert r.json()["path"] == "img/logo.png"
+    assert (_scripts(uid) / "img" / "logo.png").read_bytes() == payload
+    assert src.is_file()
+
+
+async def test_copy_from_server_refuses_traversal_and_data_dir(client, seed_roles, tmp_path_factory):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    src = tmp_path_factory.mktemp("server") / "a.py"
+    src.write_text("x = 1")
+    escape = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
+        "projectUid": uid, "serverPath": str(src), "path": "../../escape.py",
+    })
+    assert escape.status_code == 400
+    inside = settings.data_path / "linkr.db"
+    leak = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
+        "projectUid": uid, "serverPath": str(inside), "path": "db.sqlite",
+    })
+    assert leak.status_code == 400

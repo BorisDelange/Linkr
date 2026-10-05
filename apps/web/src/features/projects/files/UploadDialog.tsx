@@ -3,6 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { useFileStore } from '@/stores/file-store'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
+import { Label } from '@/components/ui/label'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { FileSource } from '@/components/ui/file-source'
+import { copyIdeFileFromServer } from '@/lib/api/ide-files'
 import { Upload, Loader2 } from 'lucide-react'
 import {
   findConflicts,
@@ -19,19 +23,24 @@ interface UploadDialogProps {
   parentId: string | null
 }
 
+/** Files read and waiting on the user's answer about clashing names. A server
+ *  pick has no content to read: the server copies its bytes once the name is
+ *  settled. */
+type Pending =
+  | { kind: 'local'; candidates: UploadCandidate[]; conflicts: string[] }
+  | { kind: 'server'; serverPath: string; candidate: UploadCandidate; conflicts: string[] }
+
 export function UploadDialog({
   open,
   onOpenChange,
   parentId,
 }: UploadDialogProps) {
   const { t } = useTranslation()
-  const { createFileWithContent, updateFileContent, saveFile, selectFile } = useFileStore()
+  const { createFileWithContent, updateFileContent, saveFile, selectFile, reloadFromDisk, activeProjectUid } = useFileStore()
   const inputRef = useRef<HTMLInputElement>(null)
-  const [dragActive, setDragActive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** Files read and waiting on the user's answer about clashing names. */
-  const [pending, setPending] = useState<{ candidates: UploadCandidate[]; conflicts: string[] } | null>(null)
+  const [pending, setPending] = useState<Pending | null>(null)
 
   /** Existing siblings — clashes are per FOLDER: the same name in two folders is
    *  two distinct paths in the export tree. */
@@ -39,6 +48,12 @@ export function UploadDialog({
     useFileStore.getState().files
       .filter((f) => f.parentId === parentId && f.type === 'file')
       .map((f) => ({ id: f.id, name: f.name }))
+
+  const finish = (lastId: string | null) => {
+    if (lastId) selectFile(lastId)
+    setPending(null)
+    onOpenChange(false)
+  }
 
   const apply = async (candidates: UploadCandidate[], resolution: ConflictResolution) => {
     setBusy(true)
@@ -60,10 +75,7 @@ export function UploadDialog({
         const id = await createFileWithContent(c.name, parentId, c.content)
         if (id) lastId = id
       }
-
-      if (lastId) selectFile(lastId)
-      setPending(null)
-      onOpenChange(false)
+      finish(lastId)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -71,14 +83,35 @@ export function UploadDialog({
     }
   }
 
-  const handleFiles = async (fileList: FileList | null) => {
-    if (!fileList || fileList.length === 0) return
+  /** The server copies the bytes itself, so a binary file arrives intact. The
+   *  name is settled by the same plan as an upload; replacing overwrites the
+   *  file under its own name, which keeps its path — and so its id. */
+  const applyServer = async (serverPath: string, candidate: UploadCandidate, resolution: ConflictResolution) => {
+    setBusy(true)
+    setError(null)
+    try {
+      const plan = planUpload([candidate], siblings(), resolution)
+      const name = plan.replaces[0]?.name ?? plan.creates[0].name
+      const projectUid = activeProjectUid ?? ''
+      await copyIdeFileFromServer({ projectUid, serverPath, parentId, name })
+      await reloadFromDisk(projectUid)
+      const match = useFileStore.getState().files.find((f) => f.name === name && f.parentId === parentId)
+      finish(match?.id ?? null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleFiles = async (files: File[]) => {
+    if (files.length === 0) return
     setBusy(true)
     setError(null)
     try {
       const candidates: UploadCandidate[] = []
       const rejected: string[] = []
-      for (const file of Array.from(fileList)) {
+      for (const file of files) {
         // Upload was the one entry point taking the browser's name verbatim: a
         // directory drop could nest via `sub/file.sql`, and README.md/LICENSE.md/
         // attachments could land at the root, where the export overwrites them
@@ -100,12 +133,34 @@ export function UploadDialog({
         await apply(candidates, 'keep-both')
         return
       }
-      setPending({ candidates, conflicts })
+      setPending({ kind: 'local', candidates, conflicts })
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setBusy(false)
     }
+  }
+
+  const handleServerPick = async (serverPath: string) => {
+    setError(null)
+    const safe = safeUploadFileName(serverPath, parentId)
+    if (!safe) {
+      setError(t('files.upload_rejected', { names: serverPath }))
+      return
+    }
+    const candidate = { name: safe, content: '' }
+    const conflicts = findConflicts([candidate], siblings())
+    if (conflicts.length === 0) {
+      await applyServer(serverPath, candidate, 'keep-both')
+      return
+    }
+    setPending({ kind: 'server', serverPath, candidate, conflicts })
+  }
+
+  const resolve = (resolution: ConflictResolution) => {
+    if (!pending) return
+    if (pending.kind === 'local') void apply(pending.candidates, resolution)
+    else void applyServer(pending.serverPath, pending.candidate, resolution)
   }
 
   const close = () => {
@@ -121,7 +176,7 @@ export function UploadDialog({
       title={t('files.upload')}
       description={t('files.upload_description')}
       cancelLabel={t('common.cancel')}
-      onConfirm={pending ? () => void apply(pending.candidates, 'replace') : undefined}
+      onConfirm={pending ? () => resolve('replace') : undefined}
       confirmLabel={t('files.upload_replace')}
       /* Destructive styling: it overwrites a file's contents, and the previous
          version is not kept anywhere. */
@@ -132,7 +187,7 @@ export function UploadDialog({
           variant="outline"
           size="sm"
           disabled={busy}
-          onClick={() => void apply(pending.candidates, 'keep-both')}
+          onClick={() => resolve('keep-both')}
         >
           {t('files.upload_keep_both')}
         </Button>
@@ -147,49 +202,43 @@ export function UploadDialog({
                 bare count — replacing the wrong file is not recoverable. */}
             <ul className="max-h-32 space-y-0.5 overflow-y-auto rounded bg-muted/50 p-2">
               {pending.conflicts.map((name) => (
-                <li key={name} className="truncate font-mono text-[11px]">{name}</li>
+                <li key={name} className="truncate font-mono text-[10px]">{name}</li>
               ))}
             </ul>
             <p className="text-xs text-muted-foreground">{t('files.upload_conflict_hint')}</p>
           </div>
         ) : (
-          <div
-            className={`mt-4 flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 transition-colors ${
-              busy ? 'cursor-default opacity-60' : 'cursor-pointer'
-            } ${
-              dragActive ? 'border-primary bg-primary/5' : 'border-muted-foreground/25 hover:border-muted-foreground/50'
-            }`}
-            onClick={() => { if (!busy) inputRef.current?.click() }}
-            onDragOver={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              if (!busy) setDragActive(true)
-            }}
-            onDragLeave={() => setDragActive(false)}
-            onDrop={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              setDragActive(false)
-              if (!busy) void handleFiles(e.dataTransfer.files)
-            }}
-          >
-            {busy
-              ? <Loader2 size={32} className="animate-spin text-muted-foreground/50" />
-              : <Upload size={32} className="text-muted-foreground/50" />}
-            <p className="mt-3 text-sm text-muted-foreground">
-              {t('files.upload_drop')}
-            </p>
-            <input
-              ref={inputRef}
-              type="file"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                void handleFiles(e.target.files)
-                // Cleared so re-picking the same file fires change again.
-                e.target.value = ''
-              }}
-            />
+          <div className="mt-4">
+            <FileSource
+              scope={{ kind: 'project-import', projectUid: activeProjectUid ?? '', target: 'ide' }}
+              expect="file"
+              serverPath=""
+              onServerPathChange={(path) => { if (path) void handleServerPick(path) }}
+            >
+              <div className="space-y-2">
+                <Label>{t('files.upload_from_computer')}</Label>
+                <FileDropZone
+                  icon={busy
+                    ? <Loader2 size={20} className="animate-spin text-muted-foreground" />
+                    : <Upload size={20} className="text-muted-foreground" />}
+                  label={t('files.upload_drop_hint')}
+                  onClick={() => inputRef.current?.click()}
+                  onDropFiles={(files) => void handleFiles(files)}
+                  disabled={busy}
+                />
+                <input
+                  ref={inputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleFiles(Array.from(e.target.files ?? []))
+                    // Cleared so re-picking the same file fires change again.
+                    e.target.value = ''
+                  }}
+                />
+              </div>
+            </FileSource>
           </div>
         )}
         {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}

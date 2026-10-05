@@ -559,6 +559,20 @@ The dashed "choose a file" area is `components/ui/file-drop-zone.tsx` — icon,
 label, optional `hint` (the accepted extensions). Its height is **fixed**
 (`h-28`), and the hint line is rendered even when empty.
 
+Pass `onDropFiles` to accept drag-and-drop (the zone highlights while a file
+hovers it) and `disabled` while a drop is being processed.
+
+**Machine or server: `FileSource`** (`components/ui/file-source.tsx`). Any dialog
+that takes a file a server-mode user may already have *on the server* wraps its
+upload zone in `FileSource`: the upload side (its own `Label` + `FileDropZone`) and
+a "Choose on the server" zone sit side by side, and the picker opens on click.
+`scope` (an `FsScope`) decides which permission the browse answers to. A form that
+keeps the chosen path on screen (add database) controls `origin`; a dialog that
+acts on the pick at once (dataset import, IDE upload) passes `serverPath=""` and
+handles `onServerPathChange` itself. Client-only, it renders the upload side alone.
+Used by the two add-database dialogs, the mapping-project source, the dataset
+import and the IDE upload — don't hand-roll a second "from the server" button.
+
 That is the whole point: these zones sit side by side across the add-database
 dialogs (upload a file · upload a folder · pick a server path) and used to be
 five copies of one class string whose height followed their content. A zone with

@@ -1,5 +1,6 @@
 """datasets/ disk-source-of-truth: scan + derived Parquet cache (pagination/stats)."""
 
+from app.config import settings
 from app.services import project_fs
 from app.services.data import dataset_fs
 
@@ -469,3 +470,41 @@ def test_column_meta_keeps_the_languages_that_hold_text():
     )
     got = dataset_fs.read_column_meta("p1", "weights.csv")
     assert got["col_weight"]["label"] == {"en": "Weight", "fr": ""}
+
+
+async def test_stage_server_file_feeds_preview_and_import(client, seed_roles, tmp_path_factory):
+    """A file picked on the server is copied into the blob store and then takes
+    the exact preview/import path an upload does; the source stays in place."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    src = tmp_path_factory.mktemp("server") / "vitals.csv"
+    src.write_text("hr,spo2\n80,97\n92,95\n")
+
+    staged = await client.post(
+        f"{API}/dataset-files/stage-server-file", headers=h,
+        json={"projectUid": uid, "serverPath": str(src)},
+    )
+    assert staged.status_code == 200
+    st = staged.json()
+    assert st["fileName"] == "vitals.csv" and st["size"] == src.stat().st_size
+    assert src.is_file()
+
+    imp = await client.post(
+        f"{API}/dataset-files/import", headers=h,
+        json={"projectUid": uid, "sha": st["sha"], "path": "vitals.csv"},
+    )
+    assert imp.status_code == 201
+    assert imp.json()["rowCount"] == 2
+    assert (_datasets(uid) / "vitals.csv").read_text() == src.read_text()
+
+
+async def test_stage_server_file_refuses_linkr_data_dir(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    inside = settings.data_path / "secret-ish.csv"
+    inside.write_text("a\n1\n")
+    r = await client.post(
+        f"{API}/dataset-files/stage-server-file", headers=h,
+        json={"projectUid": uid, "serverPath": str(inside)},
+    )
+    assert r.status_code == 400

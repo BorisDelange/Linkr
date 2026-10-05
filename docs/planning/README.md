@@ -124,12 +124,12 @@ only Goupile is reachable from the UI.
 
 ## Server file picker — [server-file-picker-plan.md](server-file-picker-plan.md)
 
-Databases (`serverPath`), the ATHENA folder and, since 2026-09-28, the concept-mapping
-source file can point at a server file. Left:
+Databases (`serverPath`), the ATHENA folder, the concept-mapping source file (2026-09-28)
+and, since 2026-10-05, the dataset import and the IDE upload can take a server file. Left:
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Category B, screen by screen: dataset import, scores, IDE upload, ETL upload — each needs a "read a server file" backend path | M |
+| 🔜 | Category B, remaining screens: scores import, ETL upload — each needs a "read a server file" backend path | M |
 | 🤔 | `fs_browse_roots` empty = the whole filesystem (still the default): keep, or default to a root? | S |
 
 ## Versioning

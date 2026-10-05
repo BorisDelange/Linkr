@@ -18,7 +18,7 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { fsBrowse, type FsEntry, type FsListing, type FsScope } from '@/lib/api/fs-browser'
+import { fsBrowse, fsScopeKey, type FsEntry, type FsListing, type FsScope } from '@/lib/api/fs-browser'
 import { formatApiError } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
 
@@ -132,7 +132,7 @@ export function ServerPathPickerDialog({
     // `scope` is an inline object at every call site; keying on its parts keeps
     // this callback stable instead of reloading on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [scope.kind, scope.kind === 'project' ? scope.projectUid : scope.workspaceId, extKey],
+    [fsScopeKey(scope), extKey],
   )
 
   // `initialPath` seeds the browse at each opening; it must not steer it while

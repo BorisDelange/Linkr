@@ -60,7 +60,7 @@ import { NoticeBanner } from '@/components/ui/notice-banner'
 import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
-import { DatabaseFileSource, type FileOrigin } from '@/components/ui/database-file-source'
+import { FileSource, type FileOrigin } from '@/components/ui/file-source'
 import { EntityDialogTabs } from '@/components/ui/entity-dialog-tabs'
 import { BadgeEditor } from '@/components/ui/badge-editor'
 import { useBadgeCategories } from '@/hooks/use-badge-categories'
@@ -989,8 +989,8 @@ export function AddDatabaseDialog({
                       <CurrentFilesInfo source={editingSource} t={t} />
                     )}
 
-                    <DatabaseFileSource
-                      workspaceId={activeWorkspaceId ?? ''}
+                    <FileSource
+                      scope={{ kind: 'workspace', workspaceId: activeWorkspaceId ?? '' }}
                       origin={fileOrigin}
                       onOriginChange={(o) => {
                         setFileOrigin(o)
@@ -1039,7 +1039,7 @@ export function AddDatabaseDialog({
                           t={t}
                         />
                       )}
-                    </DatabaseFileSource>
+                    </FileSource>
                   </>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">

@@ -1415,7 +1415,6 @@
     "upload": "Importer",
     "upload_dataset": "Importer un jeu de données",
     "upload_description": "Importez un fichier CSV, Excel ou Parquet pour créer un nouveau jeu de données.",
-    "drag_drop_or": "Glissez-déposez un fichier ici, ou",
     "browse_files": "Parcourir les fichiers",
     "import": "Importer",
     "upload_delimiter": "Séparateur",
@@ -1724,7 +1723,9 @@
     "col_move_to": "Déplacer vers…",
     "col_move_to_description": "Choisissez où placer « {{name}} » parmi les autres colonnes.",
     "cell_edit": "Modifier",
-    "cell_clear": "Vider"
+    "cell_clear": "Vider",
+    "upload_from_computer": "Depuis votre ordinateur",
+    "upload_drop_hint": "Cliquez pour parcourir ou glissez-déposez"
   },
   "survey": {
     "choice_order_hint": "Glissez les réponses dans l’ordre de lecture du graphique.",
@@ -2171,7 +2172,6 @@
     "edit_in_editor": "Éditer dans l'éditeur",
     "move": "Déplacer vers...",
     "upload_description": "Importez des fichiers dans le projet.",
-    "upload_drop": "Cliquez ou glissez des fichiers ici",
     "upload_rejected": "Non ajouté, le nom est réservé ou invalide : {{names}}",
     "upload_conflict_intro": "{{count}} fichier(s) existent déjà ici :",
     "upload_conflict_hint": "Garder les deux ajoute les nouveaux fichiers sous un nom suffixé. Remplacer écrase le contenu des fichiers existants, en conservant leur place dans le pipeline et leurs marques de versioning.",
@@ -2231,7 +2231,9 @@
     "root_folder": "scripts (racine)",
     "column_name": "Nom",
     "column_size": "Taille",
-    "name_reserved_attachments": "Ce nom est réservé : attachments/ est généré depuis les pièces jointes de l'élément — ajoutez-les là, pas sous forme de dossier"
+    "name_reserved_attachments": "Ce nom est réservé : attachments/ est généré depuis les pièces jointes de l'élément — ajoutez-les là, pas sous forme de dossier",
+    "upload_from_computer": "Depuis votre ordinateur",
+    "upload_drop_hint": "Cliquez pour parcourir ou glissez-déposez des fichiers"
   },
   "pipeline": {
     "title": "Pipeline",

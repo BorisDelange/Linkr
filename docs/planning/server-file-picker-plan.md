@@ -285,8 +285,18 @@ cinq fois.
 
 ## 5. Ce qui reste à faire — catégorie B
 
-Les 5 écrans optionnels (datasets, source de mapping project, import des scores,
-upload IDE, upload ETL). Chacun demande, en plus du sélecteur d'origine, un
+Faits : source de mapping project (2026-09-28), **import de dataset** et **upload
+IDE** (2026-10-05). Le dataset copie le fichier serveur dans le blob store
+(`POST /dataset-files/stage-server-file`) puis reprend le flux preview/import par
+sha inchangé ; l'IDE le copie octet par octet dans l'arbre
+(`POST /ide-files/copy-from-server`), mêmes choix « remplacer / garder les deux »
+qu'un upload. Le navigateur passe par `/projects/{uid}/fs/import/{datasets|ide}/*`,
+gaté sur `datasets:write` / `ide:write`. `validate_import_source` refuse en plus
+le dossier de données de Linkr (clé de chiffrement, blob store, fichiers des autres
+projets). Limite : les presets questionnaire (Goupile) lisent le classeur dans le
+navigateur, donc un fichier serveur s'importe en table simple.
+
+Restent les écrans optionnels (import des scores, upload ETL). Chacun demande, en plus du sélecteur d'origine, un
 travail backend : lire un fichier serveur là où un blob est attendu aujourd'hui.
 À faire écran par écran, une fois le lot 1 éprouvé en usage réel.
 
@@ -307,6 +317,12 @@ les tests. À faire avant de merger :
 6. **Concept mapping › vocabulaire ATHENA** depuis un dossier serveur en Parquet.
 7. **Client-only** (`npm run dev` sans `VITE_API_URL`) : aucun sélecteur
    d'origine nulle part, l'upload fonctionne comme avant.
-8. **Confinement** : poser `LINKR_FS_BROWSE_ROOTS=/un/dossier`, vérifier qu'on ne
+8. **Datasets › Importer** → *Choisir sur le serveur* → un `.csv` puis un `.xlsx` :
+   aperçu, options (séparateur, feuille), import ; un fichier du dossier de
+   données Linkr est refusé avec un message clair.
+9. **IDE › Upload** → *Choisir sur le serveur* → un script, puis une image (les
+   octets arrivent intacts) ; même nom qu'un fichier existant → choix
+   remplacer / garder les deux.
+10. **Confinement** : poser `LINKR_FS_BROWSE_ROOTS=/un/dossier`, vérifier qu'on ne
    remonte pas au-dessus, et qu'un `PATCH` fabriqué à la main avec un chemin
    hors racine est refusé en 400.
