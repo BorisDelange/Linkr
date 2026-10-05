@@ -557,7 +557,7 @@ maps each editor's model to its context — never register a provider elsewhere.
 
 The dashed "choose a file" area is `components/ui/file-drop-zone.tsx` — icon,
 label, optional `hint` (the accepted extensions). Its height is **fixed**
-(`h-28`), and the hint line is rendered even when empty.
+(`h-28`), and the icon + label (+ hint, only when given) are centred in it.
 
 Pass `onDropFiles` to accept drag-and-drop (the zone highlights while a file
 hovers it) and `disabled` while a drop is being processed.
@@ -579,6 +579,9 @@ five copies of one class string whose height followed their content. A zone with
 an extra hint line rendered taller than its neighbour, so the box visibly resized
 when the user switched engine or origin. Pass a `hint` or don't — the box does
 not move.
+
+Neither origin label carries a `RequiredMark`: when a file can come from either
+side, starring one (or both) reads as "this one is mandatory", which it is not.
 
 ### Buttons
 

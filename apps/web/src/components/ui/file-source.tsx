@@ -3,7 +3,6 @@ import { useTranslation } from 'react-i18next'
 import { Database, FolderOpen, Server, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
-import { RequiredMark } from '@/components/ui/required-mark'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
@@ -91,7 +90,6 @@ export function FileSource({
     <div className="min-w-0 space-y-2">
       <Label>
         {t(expect === 'dir' ? 'databases.server_folder' : 'databases.server_file')}
-        <RequiredMark />
       </Label>
       <div className="flex min-w-0 items-center gap-2 rounded-md bg-muted/50 px-3 py-2">
         {expect === 'dir' ? (
@@ -132,13 +130,10 @@ export function FileSource({
         <div className="grid grid-cols-2 items-start gap-3">
           <div className="min-w-0">{children}</div>
           <div className="min-w-0 space-y-2">
-            {/* Both sides are marked even though either one alone satisfies the
-                form: marking only the left made the right look optional, which
-                is the opposite of true — one of the two is required. */}
-            <Label>
-              {t('databases.file_origin_server')}
-              <RequiredMark />
-            </Label>
+            {/* Neither origin carries a required mark: either one satisfies the
+                form, so starring one side (or both) reads as "this one is
+                mandatory". The callers' upload labels follow the same rule. */}
+            <Label>{t('databases.file_origin_server')}</Label>
             <FileDropZone
               icon={<Server size={20} className="text-muted-foreground" />}
               label={t('databases.server_path_hint')}

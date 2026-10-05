@@ -22,7 +22,7 @@ export function FileDropZone({
   icon: ReactNode
   label: string
   /** Optional second line (e.g. the accepted extensions). Its presence must not
-   *  change the box height, so the slot is reserved either way. */
+   *  change the box height — `h-28` fixes it. */
   hint?: string
   onClick: () => void
   /** Accept files dragged onto the zone. Omit for a zone nothing can be dropped
@@ -58,9 +58,9 @@ export function FileDropZone({
     >
       {icon}
       <p className="text-xs text-muted-foreground">{label}</p>
-      {/* Rendered even when empty: the reserved line is what keeps every zone
-          the same height whether or not it has a hint. */}
-      <p className="min-h-4 text-[10px] text-muted-foreground/60">{hint ?? ''}</p>
+      {/* Only when given: `h-28` already fixes the height, and an empty
+          reserved line would push the icon and label above the centre. */}
+      {hint && <p className="text-[10px] text-muted-foreground/60">{hint}</p>}
     </button>
   )
 }

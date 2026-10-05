@@ -393,7 +393,6 @@ function FileUploadArea({
     <div className="space-y-2">
       <Label>
         {multiple ? t('connections.upload_files') : t('connections.upload_file')}
-        <RequiredMark />
       </Label>
       <FileDropZone
         icon={<Upload size={20} className="text-muted-foreground" />}
@@ -503,7 +502,7 @@ function FolderUploadArea({
 
   return (
     <div className="space-y-2">
-      <Label>{t('connections.select_folder')}<RequiredMark /></Label>
+      <Label>{t('connections.select_folder')}</Label>
       {files.length === 0 ? (
         <FileDropZone
           icon={<FolderOpen size={20} className="text-muted-foreground" />}

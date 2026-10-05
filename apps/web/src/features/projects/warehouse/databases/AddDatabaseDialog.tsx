@@ -1278,7 +1278,7 @@ function FileUploadArea({
 }) {
   return (
     <div className="space-y-2">
-      <Label>{multiple ? t('databases.upload_files') : t('databases.upload_file')}<RequiredMark /></Label>
+      <Label>{multiple ? t('databases.upload_files') : t('databases.upload_file')}</Label>
       <FileDropZone
         icon={<Upload size={20} className="text-muted-foreground" />}
         label={t('databases.upload_drop_hint')}
@@ -1392,7 +1392,7 @@ function FolderUploadArea({
 
   return (
     <div className="space-y-2">
-      <Label>{t('databases.select_folder')}<RequiredMark /></Label>
+      <Label>{t('databases.select_folder')}</Label>
       {files.length === 0 ? (
         <FileDropZone
           icon={<FolderOpen size={20} className="text-muted-foreground" />}
