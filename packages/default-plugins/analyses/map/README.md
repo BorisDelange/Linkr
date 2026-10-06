@@ -86,6 +86,13 @@ Two settings help: lower **Opacity (%)** so overlapping points darken visibly
 instead of one hiding the rest, and reduce **Point size** when you have many
 points.
 
+**Group nearby points** (on by default) does this for you as you zoom: points
+closer than a few millimetres on screen merge into one bubble showing how many
+it holds, coloured like most of its points, and split apart as you zoom in.
+Click a bubble to zoom until it splits. It also keeps a map of tens of thousands
+of rows fluid; turn it off only for a few hundred points you want to see one by
+one.
+
 Beyond a few thousand markers, the honest fix is aggregation rather than
 styling. One bubble per commune, sized by count, tells the truth about density
 that a thousand overlapping dots cannot.

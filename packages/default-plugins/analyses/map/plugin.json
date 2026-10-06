@@ -100,6 +100,22 @@
         "notEmpty": true
       }
     },
+    "clusterPoints": {
+      "type": "boolean",
+      "label": {
+        "en": "Group nearby points",
+        "fr": "Regrouper les points proches"
+      },
+      "default": true,
+      "section": {
+        "en": "Map",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "Draws nearby points as one bubble showing their count, split as you zoom in. Keeps maps with thousands of points fluid.",
+        "fr": "Dessine les points proches en une bulle indiquant leur nombre, qui se divise quand on zoome. Garde fluides les cartes de milliers de points."
+      }
+    },
     "latColumn": {
       "type": "column-select",
       "label": {

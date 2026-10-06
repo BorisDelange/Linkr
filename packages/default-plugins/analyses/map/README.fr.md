@@ -94,6 +94,13 @@ l'inverse de ce qu'on veut. Deux réglages aident : baissez l'**Opacité (%)** p
 que les superpositions foncent visiblement au lieu qu'un point cache les autres,
 et réduisez la **Taille des points** quand ils sont nombreux.
 
+**Regrouper les points proches** (activé par défaut) le fait pour vous selon le
+zoom : les points distants de quelques millimètres à l'écran fusionnent en une
+bulle qui indique leur nombre, colorée comme la majorité de ses points, et se
+divisent quand on zoome. Un clic sur une bulle zoome jusqu'à ce qu'elle se
+divise. Cela garde aussi fluide une carte de dizaines de milliers de lignes ; ne
+le désactivez que pour quelques centaines de points à voir un par un.
+
 Au-delà de quelques milliers de marqueurs, la solution honnête est l'agrégation,
 pas le style. Une bulle par commune, dimensionnée par l'effectif, dit sur la
 densité une vérité que mille points superposés ne peuvent pas dire.

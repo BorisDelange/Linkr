@@ -1,6 +1,6 @@
 import { useMemo, useEffect, useState, type CSSProperties } from 'react'
 import { useTranslation } from 'react-i18next'
-import { MapContainer, TileLayer, CircleMarker, Tooltip as LeafletTooltip, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { cn } from '@/lib/utils'
@@ -9,6 +9,8 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildMapSpec } from './map-server'
+import { MapPointsLayer } from './MapPointsLayer'
+import type { MapPoint } from './map-clusters'
 
 interface MapServerRow {
   lat: number
@@ -49,15 +51,6 @@ function toNumeric(val: unknown): number {
   if (typeof val === 'number') return val
   const n = Number(String(val).trim())
   return isNaN(n) ? NaN : n
-}
-
-interface MapPoint {
-  lat: number
-  lon: number
-  color: string
-  radius: number
-  label?: string
-  popup?: { key: string; value: string }[]
 }
 
 /**
@@ -143,11 +136,14 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
   const colorCol = config.colorColumn as string | undefined
   const sizeCol = config.sizeColumn as string | undefined
   const labelCol = config.labelColumn as string | undefined
-  const popupCols = (config.popupColumns as string[] | undefined) ?? []
+  const rawPopupCols = config.popupColumns as string[] | undefined
+  // Stable identity: `points` (and the cluster index built from it) depend on it.
+  const popupCols = useMemo(() => rawPopupCols ?? [], [rawPopupCols])
 
   const markerColorName = (config.markerColor as string) ?? 'blue'
   const pointSize = (config.pointSize as number) ?? 6
   const opacityPct = (config.opacity as number) ?? 80
+  const clusterPoints = (config.clusterPoints as boolean) ?? true
   const paletteName = (config.colorPalette as string) ?? 'default'
   const customPaletteStr = (config.customPalette as string) ?? ''
 
@@ -336,6 +332,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
         center={[46.6, 2.5]}
         zoom={5}
         scrollWheelZoom
+        preferCanvas
         className="h-full w-full"
         style={{ background: '#e8eef2' }}
         attributionControl={!compact}
@@ -345,25 +342,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
         {tile && <TileLayer key={basemap} url={tile.url} attribution={tile.attribution} crossOrigin="anonymous" />}
         <FitBounds bounds={bounds} />
         <ResizeHandler />
-        {points.map((p, i) => (
-          <CircleMarker
-            key={i}
-            center={[p.lat, p.lon]}
-            radius={p.radius}
-            pathOptions={{ color: p.color, fillColor: p.color, fillOpacity: opacity, weight: 1 }}
-          >
-            {(p.popup || p.label) && (
-              <LeafletTooltip direction="top" offset={[0, -2]} opacity={1}>
-                <div style={{ fontSize: 11, lineHeight: 1.5 }}>
-                  {p.label && <div style={{ fontWeight: 600 }}>{p.label}</div>}
-                  {p.popup?.map((f, j) => (
-                    <div key={j}><span style={{ opacity: 0.7 }}>{f.key}:</span> {f.value}</div>
-                  ))}
-                </div>
-              </LeafletTooltip>
-            )}
-          </CircleMarker>
-        ))}
+        <MapPointsLayer points={points} opacity={opacity} cluster={clusterPoints} />
       </MapContainer>
       {showLegend && colorScale && colorScale.size > 0 && (
         <div className="absolute bottom-2 right-2 z-20 max-h-[40%] overflow-auto rounded-md border bg-background/90 px-2 py-1.5 text-[10px] shadow-sm backdrop-blur">
