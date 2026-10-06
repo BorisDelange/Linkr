@@ -327,6 +327,21 @@ def _write_meta(p: Path, meta: dict) -> None:
     p.write_text(json.dumps(meta), encoding="utf-8")
 
 
+def move_sidecars(project_uid: str, moves: dict[str, str]) -> None:
+    """Carry each dataset's sidecars from its old path's key to its new one.
+
+    Everything here is keyed by a hash of the path, so a moved dataset that left
+    them behind would come back with its labels, column types and edit log gone
+    (and the next purge would delete them for good)."""
+    roots = [_colmeta_root(project_uid), _cache_root(project_uid)]
+    for old, new in moves.items():
+        for root in roots:
+            for suffix in (".json", ".parquet"):
+                src = root / f"{_key(old)}{suffix}"
+                if src.is_file():
+                    src.replace(root / f"{_key(new)}{suffix}")
+
+
 def purge_orphans(project_uid: str) -> None:
     """Delete cache entries whose raw dataset file no longer exists on disk."""
     root = _cache_root(project_uid)

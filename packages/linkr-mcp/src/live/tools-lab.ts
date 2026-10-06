@@ -569,8 +569,8 @@ export function registerLabTools(server: Server): void {
   }))
 
   server.registerTool('move_dataset', {
-    description: 'Rename or move a dataset (or folder) within the project. Widgets pointing at the old path must '
-      + 'then be updated.',
+    description: 'Rename or move a dataset (or folder) within the project. Its column labels, types, edit history '
+      + 'and analyses move with it, and the project\'s dashboards (widgets, default dataset, filters) are repointed.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ project_uid: string; path: string; new_path: string }>({
       type: 'object',

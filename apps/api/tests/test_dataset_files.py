@@ -560,3 +560,58 @@ async def test_deferred_error_keeps_the_route_status(client, seed_roles, monkeyp
             break
         await asyncio.sleep(0.05)
     assert polled.status_code in (400, 501)
+
+
+async def test_move_keeps_column_meta_and_analyses(client, seed_roles):
+    """A dataset's labels, column types and analyses follow it to its new path:
+    they are keyed by path, so a move that left them behind lost them."""
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "old").mkdir()
+    (_datasets(uid) / "old" / "cohort.csv").write_text("age,sex\n70,m\n80,f\n")
+    await _meta(client, h, uid, "old/cohort.csv")
+    await client.post(f"{API}/dataset-files/columns/meta", headers=h, json={
+        "projectUid": uid, "path": "old/cohort.csv", "columns": {"col_age": {"label": {"en": "Age", "fr": "Âge"}}},
+    })
+    await client.post(f"{API}/dataset-files/analyses", headers=h, json={
+        "projectUid": uid, "datasetPath": "old/cohort.csv", "name": "A1", "type": "table1", "config": {},
+    })
+
+    # A folder rename, then a file rename: both carry the sidecar along.
+    await client.post(f"{API}/dataset-files/move", headers=h, json={"projectUid": uid, "path": "old", "newPath": "new"})
+    await client.post(f"{API}/dataset-files/move", headers=h, json={
+        "projectUid": uid, "path": "new/cohort.csv", "newPath": "new/syn_cohort.csv",
+    })
+
+    by_id = {c["id"]: c for c in (await _meta(client, h, uid, "new/syn_cohort.csv"))["columns"]}
+    assert by_id["col_age"]["label"] == {"en": "Age", "fr": "Âge"}
+    listed = (await client.get(f"{API}/dataset-files/analyses", headers=h, params={
+        "projectUid": uid, "path": "new/syn_cohort.csv",
+    })).json()
+    assert [a["name"] for a in listed] == ["A1"]
+
+
+async def test_move_repoints_dashboards(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "a.csv").write_text("x\n1\n")
+    (_datasets(uid) / "b.csv").write_text("x\n1\n")
+    await client.post(f"{API}/dashboards", headers=h, json={
+        "id": "d1", "projectUid": uid, "name": {"en": "D"}, "defaultDatasetFileId": "a.csv",
+        "filterConfig": [{"id": "f1", "datasetFileId": "a.csv"}, {"id": "f2", "datasetFileId": "b.csv"}],
+    })
+    await client.post(f"{API}/dashboards/tabs", headers=h, json={"id": "t1", "dashboardId": "d1", "name": "T", "displayOrder": 0})
+    for wid, ds in (("w1", "a.csv"), ("w2", "b.csv")):
+        await client.post(f"{API}/dashboards/widgets", headers=h, json={
+            "id": wid, "tabId": "t1", "name": "W", "datasetFileId": ds,
+            "layout": {"x": 0, "y": 0, "w": 6, "h": 4},
+            "source": {"type": "inline", "language": "python", "code": "print(1)", "config": {}},
+        })
+
+    await client.post(f"{API}/dataset-files/move", headers=h, json={"projectUid": uid, "path": "a.csv", "newPath": "c.csv"})
+
+    d = (await client.get(f"{API}/dashboards/d1", headers=h)).json()
+    assert d["defaultDatasetFileId"] == "c.csv"
+    assert [f["datasetFileId"] for f in d["filterConfig"]] == ["c.csv", "b.csv"]
+    widgets = (await client.get(f"{API}/dashboards/tabs/t1/widgets", headers=h)).json()
+    assert {w["id"]: w["datasetFileId"] for w in widgets} == {"w1": "c.csv", "w2": "b.csv"}

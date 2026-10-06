@@ -270,6 +270,53 @@ async def reconcile_analyses(db: AsyncSession, project_uid: str) -> None:
         await db.commit()
 
 
+async def repoint_dataset_paths(db: AsyncSession, project_uid: str, moves: dict[str, str]) -> None:
+    """Point everything that names a dataset by its path at the path it moved to:
+    its analyses, and the project's dashboards (default dataset, filters, widgets).
+    In server mode a dataset's id IS its path, so these would otherwise read a
+    file that no longer exists — and analyses would be reconciled away."""
+    from app.models.dashboard import Dashboard, DashboardTab, DashboardWidget
+
+    if not moves:
+        return
+    analyses = await db.execute(
+        select(DatasetAnalysis).where(
+            DatasetAnalysis.project_uid == project_uid,
+            DatasetAnalysis.dataset_path.in_(moves),
+        )
+    )
+    for a in analyses.scalars().all():
+        a.dataset_path = moves[a.dataset_path]
+
+    dashboards = (
+        await db.execute(select(Dashboard).where(Dashboard.project_uid == project_uid))
+    ).scalars().all()
+    for d in dashboards:
+        if d.default_dataset_file_id in moves:
+            d.default_dataset_file_id = moves[d.default_dataset_file_id]
+        filters = d.filter_config or []
+        if any(isinstance(f, dict) and f.get("datasetFileId") in moves for f in filters):
+            # A new list, not an in-place edit: the JSON column only notices reassignment.
+            d.filter_config = [
+                {**f, "datasetFileId": moves[f["datasetFileId"]]}
+                if isinstance(f, dict) and f.get("datasetFileId") in moves else f
+                for f in filters
+            ]
+
+    if dashboards:
+        widgets = await db.execute(
+            select(DashboardWidget)
+            .join(DashboardTab, DashboardWidget.tab_id == DashboardTab.id)
+            .where(
+                DashboardTab.dashboard_id.in_([d.id for d in dashboards]),
+                DashboardWidget.dataset_file_id.in_(moves),
+            )
+        )
+        for w in widgets.scalars().all():
+            w.dataset_file_id = moves[w.dataset_file_id]
+    await db.commit()
+
+
 async def get_analysis(db: AsyncSession, analysis_id: str) -> DatasetAnalysis | None:
     return await db.get(DatasetAnalysis, analysis_id)
 

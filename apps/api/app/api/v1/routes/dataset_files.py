@@ -592,9 +592,24 @@ async def move_dataset(
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     if src.exists():
+        moves = _moved_files(body.project_uid, src, dst)
         dst.parent.mkdir(parents=True, exist_ok=True)
         src.replace(dst)
+        dataset_fs.move_sidecars(body.project_uid, moves)
+        await dataset_service.repoint_dataset_paths(db, body.project_uid, moves)
         await _notify_dataset(db, request, user, "updated", body.project_uid, body.new_path)
+
+
+def _moved_files(project_uid: str, src, dst) -> dict[str, str]:
+    """Old → new relative path of every dataset file a move carries (one for a
+    file, each file inside for a folder)."""
+    root = project_fs.datasets_dir(project_uid)
+    files = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
+    return {
+        f.relative_to(root).as_posix(): (dst / f.relative_to(src)).relative_to(root).as_posix()
+        if f != src else dst.relative_to(root).as_posix()
+        for f in files
+    }
 
 
 @router.post("/delete", status_code=status.HTTP_204_NO_CONTENT)
