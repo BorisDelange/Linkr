@@ -36,6 +36,7 @@ import { resolveServerFilters } from './resolve-server-filters'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
 import { SizedPreview } from './SizedPreview'
+import { withFallbackTitleConfig } from './widget-title'
 import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
@@ -50,9 +51,11 @@ interface WidgetEditorDialogProps {
   gridWidth?: number
   /** Per-dashboard widget spacing (px) so the preview size matches the live grid. */
   widgetSpacing?: number
+  /** The dashboard hides widget title bars: the preview then applies the same title fallback. */
+  hideTitleBar?: boolean
 }
 
-export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gridWidth, widgetSpacing }: WidgetEditorDialogProps) {
+export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gridWidth, widgetSpacing, hideTitleBar }: WidgetEditorDialogProps) {
   const liveWidget = useDashboardStore((s) => s.widgets.find((w) => w.id === widget?.id))
   const current = liveWidget ?? widget
   if (!current) return null
@@ -72,6 +75,7 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
           projectUid={projectUid}
           gridWidth={gridWidth}
           widgetSpacing={widgetSpacing}
+          hideTitleBar={hideTitleBar}
         />
       </SheetContent>
     </Sheet>
@@ -82,7 +86,7 @@ export function WidgetEditorDialog({ widget, open, onOpenChange, projectUid, gri
 // Editor content
 // ---------------------------------------------------------------------------
 
-function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpacing }: { widget: DashboardWidget; onClose: () => void; projectUid: string; gridWidth?: number; widgetSpacing?: number }) {
+function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpacing, hideTitleBar }: { widget: DashboardWidget; onClose: () => void; projectUid: string; gridWidth?: number; widgetSpacing?: number; hideTitleBar?: boolean }) {
   const { updateWidgetSource, updateWidgetDataset } = useDashboardStore()
 
   const source = widget.source
@@ -161,6 +165,7 @@ function WidgetEditorContent({ widget, onClose, projectUid, gridWidth, widgetSpa
         projectUid={projectUid}
         gridWidth={gridWidth}
         widgetSpacing={widgetSpacing}
+        hideTitleBar={hideTitleBar}
         isInline={isInline}
         isPlugin={isPlugin}
         isComponentPlugin={isComponentPlugin}
@@ -191,6 +196,7 @@ interface WidgetEditorBodyProps {
   projectUid: string
   gridWidth?: number
   widgetSpacing?: number
+  hideTitleBar?: boolean
   isInline: boolean
   isPlugin: boolean
   isComponentPlugin: boolean
@@ -213,7 +219,7 @@ interface WidgetEditorBodyProps {
 }
 
 function WidgetEditorBody({
-  widget, onClose, projectUid, gridWidth, widgetSpacing,
+  widget, onClose, projectUid, gridWidth, widgetSpacing, hideTitleBar,
   isInline, isPlugin: _isPlugin, isComponentPlugin, plugin,
   language, onLanguageChange, config, onConfigChange,
   isCodeCustomized, userCode, setUserCode, setIsCodeCustomized,
@@ -249,6 +255,10 @@ function WidgetEditorBody({
     debounceRef.current = setTimeout(() => setDebouncedConfig(config), 300)
     return () => clearTimeout(debounceRef.current)
   }, [config])
+  const previewConfig = useMemo(
+    () => plugin && hideTitleBar ? withFallbackTitleConfig(plugin.manifest.id, debouncedConfig, localized(widget.name, i18n.language)) : debouncedConfig,
+    [plugin, hideTitleBar, debouncedConfig, widget.name, i18n.language],
+  )
 
   // Generate code from template (draft config/columns/language)
   const generatedCode = useGeneratedCode(plugin ?? undefined, config, columns, language)
@@ -542,7 +552,7 @@ function WidgetEditorBody({
                   {isComponentPlugin && plugin?.componentId ? (
                     <ComponentPluginOutput
                       componentId={plugin.componentId}
-                      config={debouncedConfig}
+                      config={previewConfig}
                       columns={columns}
                       rows={filteredRows}
                       datasetFileId={datasetFileId}

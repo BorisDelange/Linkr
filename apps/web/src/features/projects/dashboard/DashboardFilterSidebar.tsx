@@ -1239,7 +1239,7 @@ function DateFilter({
         </div>
       )}
       {withSlider && bounds && (
-        <div className="space-y-1.5">
+        <div className="space-y-3">
           {!withInputs && (
             <div className="flex items-center justify-between text-[10px] text-muted-foreground">
               <span>{formatDate(from ?? bounds.min, lang)}</span>

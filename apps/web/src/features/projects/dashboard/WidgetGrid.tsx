@@ -12,7 +12,6 @@ import { WidgetCard } from './WidgetCard'
 import { MoveWidgetDialog } from './MoveWidgetDialog'
 import { buildDashboardTree } from './dashboard-tree'
 import { isWidgetPluginStale } from './plugin-drift'
-import { getPlugin } from '@/lib/plugins/registry'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { DashboardDataProvider } from './DashboardDataProvider'
@@ -21,6 +20,7 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
+import { withFallbackTitleConfig } from './widget-title'
 import { DashboardItemEditDialog } from './DashboardItemEditDialog'
 import { DASHBOARD_GRID, computeFitRows, gridBackgroundStyle, FIT_ROWS } from './dashboard-grid'
 import {
@@ -112,14 +112,10 @@ function WidgetFilterBadge({ chips }: { chips: ReturnType<typeof useWidgetFilter
   )
 }
 
-/** With the title bar hidden, a plugin whose own title is left empty shows the widget's
- *  (localized) name instead, so hiding the bars never leaves a chart unnamed. */
 function withFallbackTitle(widget: DashboardWidget, title: string | undefined): DashboardWidget {
-  if (!title || widget.source.type !== 'plugin') return widget
-  const { config } = widget.source
-  if (typeof config.title === 'string' && config.title.trim()) return widget
-  if (!getPlugin(widget.source.pluginId)?.manifest.configSchema?.title) return widget
-  return { ...widget, source: { ...widget.source, config: { ...config, title } } }
+  if (widget.source.type !== 'plugin') return widget
+  const config = withFallbackTitleConfig(widget.source.pluginId, widget.source.config, title)
+  return config === widget.source.config ? widget : { ...widget, source: { ...widget.source, config } }
 }
 
 function WidgetWithData({
@@ -501,6 +497,7 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
         projectUid={projectUid}
         gridWidth={containerWidth}
         widgetSpacing={dashboard.widgetSpacing}
+        hideTitleBar={hideTitleBars}
       />
 
       {editingMetaWidget && (
