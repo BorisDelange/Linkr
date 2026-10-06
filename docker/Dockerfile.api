@@ -36,7 +36,7 @@ RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arro
     && Rscript -e 'library(arrow); library(svglite); library(jsonlite); library(base64enc)'
 
 # Python deps in a venv (Ubuntu 24.04 blocks system pip via PEP 668).
-# Execution extras: pandas, matplotlib, pyarrow, scipy, statsmodels, lifelines.
+# Execution extras: matplotlib, scipy, statsmodels, lifelines (pandas + pyarrow are core).
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"

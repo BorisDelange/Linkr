@@ -141,7 +141,7 @@ cd apps/web && npm run build       # static site in apps/web/dist/
 npm install
 python3 -m venv apps/api/.venv
 source apps/api/.venv/bin/activate
-pip install -e "apps/api[dev]"
+pip install -e "apps/api[dev,execution]"
 
 cp apps/api/.env.example apps/api/.env
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"
