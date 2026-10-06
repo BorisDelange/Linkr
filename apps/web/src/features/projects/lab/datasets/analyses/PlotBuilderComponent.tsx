@@ -21,7 +21,7 @@ import {
 import type { TooltipContentProps } from 'recharts'
 import { cn } from '@/lib/utils'
 import { niceTicks } from '@/lib/chart-ticks'
-import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { outlierBounds, isWithinBounds, type OutlierMethod } from '@/lib/outliers'
 import { windowFromDrag, binCountForWindow, isZoomed, type ZoomWindow } from './histogram-zoom'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
@@ -30,6 +30,7 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildPlotBuilderSpec } from './plot-builder-server'
+import { MAX_PLOT_POINTS, sampleEvenly, sampleRandom } from './plot-sampling'
 
 // Server-computed chart payloads (parity with each sub-plot's front-only useMemo shape).
 interface PlotScatterSeries { name: string; data: { x: number; y: number }[] }
@@ -43,6 +44,8 @@ interface PlotServerData {
   /** Rows dropped by the outlier filter, so server mode can report the same
    *  notice the client computes locally. */
   outliersExcluded?: number
+  /** Plottable points before sampling, sent only when scatter/line was sampled. */
+  pointsTotal?: number
 }
 
 
@@ -580,6 +583,20 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
     return Array.from(set).sort()
   }, [groupCol, columns, sourceRows])
 
+  // Scatter/line draw one element per point: cap them (the server samples on its side).
+  // A line is sorted first so the sample spans the X range, as the server does.
+  const { plottedRows, pointsTotal } = useMemo(() => {
+    const unsampled = { plottedRows: sourceRows, pointsTotal: 0 }
+    if (server || (plotType !== 'scatter' && plotType !== 'line') || !xCol || !yCol) return unsampled
+    const valid = sourceRows
+      .map(row => ({ row, x: toNumeric(row[xCol]) }))
+      .filter(p => !isNaN(p.x) && !isNaN(toNumeric(p.row[yCol])))
+    if (valid.length <= MAX_PLOT_POINTS) return unsampled
+    if (plotType === 'line') valid.sort((a, b) => a.x - b.x)
+    const sample = plotType === 'line' ? sampleEvenly(valid) : sampleRandom(valid)
+    return { plottedRows: sample.map(p => p.row), pointsTotal: valid.length }
+  }, [server, plotType, sourceRows, xCol, yCol])
+
   // Server mode: the backend computes the chart data (aggregates for bar/histogram/box,
   // raw points for scatter/line) on the Parquet from a validated spec — it owns the
   // program, so a viewer can't run arbitrary code. Stable string keys so the effect
@@ -729,13 +746,22 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       {t('plugins.outliers_excluded', { count: excludedCount })}
     </p>
   ) : null
+  const sampledFrom = server ? sd?.pointsTotal ?? 0 : pointsTotal
+  const samplingNotice = sampledFrom > 0 ? (
+    <p className="shrink-0 px-1 pt-1 text-[10px] text-muted-foreground">
+      {t('plugins.points_sampled', {
+        shown: MAX_PLOT_POINTS.toLocaleString(),
+        total: sampledFrom.toLocaleString(),
+      })}
+    </p>
+  ) : null
 
   // --- Build the chart body (without title) ---
   const chartBody = (
     <>
       {plotType === 'scatter' && (
         <ScatterPlot
-          rows={sourceRows}
+          rows={plottedRows}
           xCol={xCol!}
           yCol={yCol!}
           groupCol={groupCol}
@@ -759,7 +785,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       )}
       {plotType === 'line' && (
         <LinePlot
-          rows={sourceRows}
+          rows={plottedRows}
           xCol={xCol!}
           yCol={yCol!}
           groupCol={groupCol}
@@ -915,6 +941,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           {chartBody}
         </div>
         {outlierNotice}
+        {samplingNotice}
       </div>
     )
   }
@@ -929,6 +956,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
         {chartBody}
       </div>
       {outlierNotice}
+      {samplingNotice}
     </div>
   )
 }
@@ -969,7 +997,7 @@ function ScatterPlot({
   const yScale = useMemo(() => yIsDate ? null : niceTicks(data.flatMap(s => s.data.map(d => d.y)), yAxisStartZero), [data, yIsDate, yAxisStartZero])
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
       <ScatterChart margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" name={xLabel || undefined} label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedNumericTick formatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} />} height={28} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xScale ? xScale.domain : (xAxisStartZero ? [0, 'auto'] : undefined)} ticks={xScale?.ticks} />
@@ -1058,7 +1086,7 @@ function LinePlot({
   }, [merged, series, yAxisStartZero])
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
       <LineChart data={merged} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedNumericTick formatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} />} height={28} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xScale ? xScale.domain : (xAxisStartZero ? [0, 'auto'] : undefined)} ticks={xScale?.ticks} />
@@ -1195,7 +1223,7 @@ function BarPlot({
   const effXLabelMaxLen = Math.max(3, Math.min(xLabelMaxLen, Math.round(130 / Math.max(1, data.length))))
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
       <BarChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={effXLabelMaxLen} angle={-30} textAnchor="end" />} interval={0} height={60} />
@@ -1429,7 +1457,7 @@ function HistogramPlot({
           {t('plugins.reset_zoom')}
         </button>
       )}
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
       <BarChart
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}

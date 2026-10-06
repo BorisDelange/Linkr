@@ -41,7 +41,7 @@ import {
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { DatasetColumn } from '@/types'
-import { resolveColor, resolvePalette, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
+import { resolveColor, resolvePalette, TOOLTIP_STYLE, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { niceTicks, tightHistogramScale } from '@/lib/chart-ticks'
 import { BoxPlot } from '@/components/charts/box-plot'
 import { TruncatedTick, TruncatedNumericTick } from './chart-axis-helpers'
@@ -488,7 +488,7 @@ function ColumnChart({
   // clipped by the plot edge.
   const scale = niceTicks([0, Math.max(...data.map((d) => d.value), 1) * 1.12], true)
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
       <BarChart data={data} margin={{ top: 12, right: 8, bottom: 4, left: 0 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} vertical={false} />}
         <XAxis
@@ -590,7 +590,7 @@ function SharePie({
   return (
     <div className={cn('flex h-full min-h-0 w-full', compact ? 'flex-col' : 'items-center gap-3')}>
       <div className={cn('relative min-h-0', compact ? 'h-full w-full' : 'h-full flex-[3]')}>
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
           <PieChart margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
             <Pie
               data={drawn}
@@ -794,7 +794,7 @@ function Histogram({
 
   return (
     <div ref={holderRef} className="h-full w-full">
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
       {/* top margin holds the median label: at 8px it was clipped away. */}
       <BarChart data={data} margin={{ top: showMedian && median !== undefined ? 18 : 8, right: 12, bottom: 4, left: 0 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}

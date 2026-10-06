@@ -3144,6 +3144,7 @@
     "reset_zoom": "Reset zoom",
     "outliers_excluded": "{{count}} outlier excluded",
     "outliers_excluded_plural": "{{count}} outliers excluded",
+    "points_sampled": "Showing {{shown}} of {{total}} points (sample)",
     "sankey": {
       "configure": "Choose the columns that describe each flow to build the diagram.",
       "no_flows": "No flows to display with the current settings.",

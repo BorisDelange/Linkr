@@ -81,6 +81,11 @@ export function getLucideIcon(name: string): LucideIcons.LucideIcon {
   return Puzzle
 }
 
+// Recharts' ResponsiveContainer redraws the whole chart on every resize frame,
+// which stalls a dashboard widget resize on a dense chart. Wait for the size to
+// settle instead.
+export const CHART_RESIZE_DEBOUNCE_MS = 150
+
 // ---------------------------------------------------------------------------
 // Shared Recharts tooltip style (dark background, white text)
 // ---------------------------------------------------------------------------

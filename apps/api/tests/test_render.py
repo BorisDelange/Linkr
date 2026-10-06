@@ -965,3 +965,39 @@ def test_stats_override_outranks_the_global_preference():
         "preference": "nonparametric", "overrides": {"x": "welch-t"},
     })
     assert out[0]["testName"] == "welch-t"
+
+
+def test_plot_builder_scatter_samples_past_the_point_cap():
+    """66k raw points stalled the browser; the program sends a sample and the real
+    total so the chart can say it is sampled."""
+    import pandas as pd
+
+    n = 12_000
+    df = pd.DataFrame({"a": range(n), "b": range(n), "g": ["p", "q"] * (n // 2)})
+    out = _run_plot({"plotType": "scatter", "x": "a", "y": "b", "group": "g"}, df)
+    assert out["pointsTotal"] == n
+    sizes = {s["name"]: len(s["data"]) for s in out["series"]}
+    assert sum(sizes.values()) == 5000
+    # Interleaved groups must not alias with the sampling: each keeps about half.
+    assert abs(sizes["p"] - sizes["q"]) < 300
+    assert out == _run_plot({"plotType": "scatter", "x": "a", "y": "b", "group": "g"}, df)
+
+
+def test_plot_builder_line_samples_after_sorting_on_x():
+    import pandas as pd
+
+    n = 10_000
+    df = pd.DataFrame({"a": list(range(n))[::-1], "b": range(n)})
+    out = _run_plot({"plotType": "line", "x": "a", "y": "b"}, df)
+    xs = [p["x"] for p in out["series"][0]["data"]]
+    assert xs == sorted(xs)
+    assert xs[0] == 0 and xs[-1] == n - 2
+
+
+def test_plot_builder_scatter_under_the_cap_is_not_sampled():
+    import pandas as pd
+
+    df = pd.DataFrame({"a": [1, 2, None, "x"], "b": [1, 2, 3, 4]})
+    out = _run_plot({"plotType": "scatter", "x": "a", "y": "b", "excludeNA": False}, df)
+    assert "pointsTotal" not in out
+    assert _scatter_xs(out) == [1, 2]

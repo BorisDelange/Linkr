@@ -14,7 +14,7 @@ import {
 } from 'recharts'
 import { AlertTriangle } from 'lucide-react'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import { getLucideIcon, resolveColor, TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
+import { getLucideIcon, resolveColor, TOOLTIP_STYLE, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import { computeSpc } from '@/lib/spc/spc-compute'
@@ -188,7 +188,7 @@ function SpcChart({ result, config, compact }: ChartProps) {
       {result.warnings.length > 0 && !compact && <Warnings warnings={result.warnings} />}
 
       <div className="min-h-0 flex-1">
-        <ResponsiveContainer width="100%" height="100%">
+        <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
             {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />}
             <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="var(--color-muted-foreground)" minTickGap={24} />

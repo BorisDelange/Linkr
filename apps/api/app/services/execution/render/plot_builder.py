@@ -195,6 +195,22 @@ def _linkr_num_series(col):
         return parsed.astype("int64").where(parsed.notna()) // 1_000_000
     return num
 
+# Scatter/line draw one SVG element per point in the browser; past a few thousand
+# the chart stalls on every redraw. Mirror of plot-sampling.ts in
+# apps/web/src/features/projects/lab/datasets/analyses/ (same cap and strategies).
+_LINKR_MAX_PLOT_POINTS = 5000
+
+def _linkr_sample_points(frame, sorted_line, max_points=_LINKR_MAX_PLOT_POINTS):
+    n = len(frame)
+    if n <= max_points:
+        return frame
+    if sorted_line:
+        # Evenly spaced along the sorted X, so the line keeps its full span.
+        return frame.iloc[[k * n // max_points for k in range(max_points)]]
+    # A stride would alias with any periodic row order (interleaved groups, repeated
+    # visits); a seeded random pick doesn't, and stays the same on every render.
+    return frame.sample(n=max_points, random_state=0).sort_index()
+
 def _linkr_is_categorical(df, col):
     total = 0; numeric = 0
     for v in df[col]:
@@ -386,27 +402,28 @@ def _linkr_print_plot(dataset, spec):
     if plot_type in ("scatter", "line"):
         if not x or not y or x not in df.columns or y not in df.columns:
             print(_json.dumps({**result, "series": []})); return
-        series = []
-        if not group_names or group not in df.columns:
-            pts = []
-            for _, row in df.iterrows():
-                xv = _linkr_to_num(row[x]); yv = _linkr_to_num(row[y])
-                if not (_math.isnan(xv) or _math.isnan(yv)):
-                    pts.append({"x": xv, "y": yv})
-            if plot_type == "line":
-                pts.sort(key=lambda p: p["x"])
-            series.append({"name": "all", "data": pts})
+        pts = _pd.DataFrame({
+            "x": _linkr_num_series(df[x]).astype("float64"),
+            "y": _linkr_num_series(df[y]).astype("float64"),
+        })
+        grouped = bool(group_names) and group in df.columns
+        if grouped:
+            pts["g"] = df[group].astype(str)
+        pts = pts.dropna(subset=["x", "y"])
+        if plot_type == "line":
+            # Stable sort so equal x keep their row order, like the per-series sort did.
+            pts = pts.sort_values("x", kind="mergesort")
+        total = len(pts)
+        # Sampled over all series at once, so each group keeps its share of the points.
+        pts = _linkr_sample_points(pts, plot_type == "line")
+        if total > len(pts):
+            result["pointsTotal"] = total
+        def _points(frame):
+            return [{"x": xv, "y": yv} for xv, yv in zip(frame["x"].tolist(), frame["y"].tolist())]
+        if grouped:
+            series = [{"name": g, "data": _points(pts[pts["g"] == g])} for g in group_names]
         else:
-            for g in group_names:
-                sub = df[df[group].astype(str) == g]
-                pts = []
-                for _, row in sub.iterrows():
-                    xv = _linkr_to_num(row[x]); yv = _linkr_to_num(row[y])
-                    if not (_math.isnan(xv) or _math.isnan(yv)):
-                        pts.append({"x": xv, "y": yv})
-                if plot_type == "line":
-                    pts.sort(key=lambda p: p["x"])
-                series.append({"name": g, "data": pts})
+            series = [{"name": "all", "data": _points(pts)}]
         print(_json.dumps({**result, "series": series})); return
 
     if plot_type == "bar":

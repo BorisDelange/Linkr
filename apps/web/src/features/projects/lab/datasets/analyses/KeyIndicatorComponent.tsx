@@ -14,7 +14,7 @@ import {
 import type { ContentType } from 'recharts/types/component/Tooltip'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
 import { cn } from '@/lib/utils'
-import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette } from '@/lib/plugins/shared-styles'
+import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
@@ -747,7 +747,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
 
   if (chartType === 'histogram') {
     return (
-      <ResponsiveContainer width="100%" height={(showXAxis ? 120 : 100) + (hasXLabel ? 16 : 0)}>
+      <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height={(showXAxis ? 120 : 100) + (hasXLabel ? 16 : 0)}>
         <BarChart data={data} margin={{ top: 0, right: 4, left: 4, bottom: bottomMargin }}>
           {showXAxis && (
             <XAxis
@@ -777,7 +777,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
 
   if (chartType === 'bar') {
     return (
-      <ResponsiveContainer width="100%" height={Math.max(80, data.length * 26) + (hasXLabel ? 16 : 0)}>
+      <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height={Math.max(80, data.length * 26) + (hasXLabel ? 16 : 0)}>
         <BarChart data={data} layout="vertical" margin={{ top: 0, right: 0, left: 0, bottom: hasXLabel ? 16 : 0 }}>
           <XAxis
             type="number"
@@ -803,7 +803,7 @@ function MiniChart({ values, chartType, bins, showXAxis, xAxisLabel, yLabelMaxLe
 
   if (chartType === 'pie') {
     return (
-      <ResponsiveContainer width="100%" height={120}>
+      <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height={120}>
         <PieChart>
           <Pie
             data={data}

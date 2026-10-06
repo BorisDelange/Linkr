@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useRef, useEffect, useState, memo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { GridLayout, type LayoutItem } from 'react-grid-layout'
+import { GridLayout, type Layout, type LayoutItem } from 'react-grid-layout'
 import 'react-grid-layout/css/styles.css'
 import 'react-resizable/css/styles.css'
 import type { Dashboard, DashboardWidget, FilterValue } from '@/types'
@@ -143,8 +143,10 @@ function WidgetWithData({
 
 /** One widget: resolves its filters (for the data provider + the filter badge), then renders the
  *  card with the badge in its top-left rail. Separate component so the filter hook runs per widget
- *  (hooks can't be called inside the .map callback). */
-function WidgetCell({
+ *  (hooks can't be called inside the .map callback). Memoised, and its callbacks take the widget
+ *  id so the grid can pass stable references: saving one widget's layout after a resize must not
+ *  redraw every chart of the tab. */
+const WidgetCell = memo(function WidgetCell({
   widget,
   dashboard,
   activeFilters,
@@ -169,35 +171,36 @@ function WidgetCell({
   editMode: boolean
   hideTitleBar?: boolean
   canMove: boolean
-  onRemove: () => void
-  onEdit: () => void
-  onConfigure: () => void
-  onExport?: () => void
-  onDuplicate: () => void
-  onMove: () => void
-  onAcceptPluginVersion: () => void
+  onRemove: (widgetId: string) => void
+  onEdit: (widgetId: string) => void
+  onConfigure: (widgetId: string) => void
+  onExport?: (widgetId: string) => void
+  onDuplicate: (widgetId: string) => void
+  onMove: (widgetId: string) => void
+  onAcceptPluginVersion: (widgetId: string) => void
 }) {
   const { filters, filterChips } = useWidgetFilters(widget, dashboard, activeFilters, parentTabId)
+  const id = widget.id
   return (
     <WidgetCard
       title={localized(widget.name, language)}
       description={localized(widget.description, language)}
-      onRemove={onRemove}
-      onEdit={onEdit}
-      onConfigure={onConfigure}
-      onExport={onExport}
-      onDuplicate={onDuplicate}
-      onMove={canMove ? onMove : undefined}
+      onRemove={() => onRemove(id)}
+      onEdit={() => onEdit(id)}
+      onConfigure={() => onConfigure(id)}
+      onExport={onExport ? () => onExport(id) : undefined}
+      onDuplicate={() => onDuplicate(id)}
+      onMove={canMove ? () => onMove(id) : undefined}
       editMode={editMode}
       hideTitleBar={hideTitleBar}
       stale={isWidgetPluginStale(widget)}
-      onAcceptPluginVersion={onAcceptPluginVersion}
+      onAcceptPluginVersion={() => onAcceptPluginVersion(id)}
       topLeftBadges={filterChips.length > 0 ? <WidgetFilterBadge chips={filterChips} /> : undefined}
     >
       <WidgetWithData widget={widget} dashboard={dashboard} filters={filters} />
     </WidgetCard>
   )
-}
+})
 
 function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUid, onRequestExport }: WidgetGridProps) {
   const { t } = useTranslation()
@@ -313,6 +316,38 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
     [widgets]
   )
 
+  // A chart follows its container's size, so a dense one would redraw on every step of a
+  // resize drag. Pin the widget body to its starting size for the drag (the card clips or
+  // pads it meanwhile) and release it on drop: one redraw, at the final size.
+  const widgetBody = useCallback(
+    (item: LayoutItem | null) =>
+      item
+        ? containerRef.current?.querySelector<HTMLElement>(
+            `[data-widget-id="${CSS.escape(item.i)}"] [data-widget-content] > *`,
+          ) ?? null
+        : null,
+    [],
+  )
+  const handleResizeStart = useCallback(
+    (_layout: Layout, _oldItem: LayoutItem | null, item: LayoutItem | null) => {
+      const body = widgetBody(item)
+      if (!body) return
+      const { width, height } = body.getBoundingClientRect()
+      body.style.width = `${width}px`
+      body.style.height = `${height}px`
+    },
+    [widgetBody],
+  )
+  const handleResizeStop = useCallback(
+    (_layout: Layout, _oldItem: LayoutItem | null, item: LayoutItem | null) => {
+      const body = widgetBody(item)
+      if (!body) return
+      body.style.width = ''
+      body.style.height = ''
+    },
+    [widgetBody],
+  )
+
   const handleLayoutChange = useCallback(
     (newLayout: readonly LayoutItem[]) => {
       for (const item of newLayout) {
@@ -400,6 +435,8 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
           enabled: editMode,
         }}
         onLayoutChange={handleLayoutChange}
+        onResizeStart={handleResizeStart}
+        onResizeStop={handleResizeStop}
         autoSize
       >
         {widgets.map((widget) => {
@@ -425,13 +462,13 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
               editMode={editMode}
               hideTitleBar={hideTitleBars}
               canMove={canMove}
-              onRemove={() => setConfirmDeleteWidgetId(widget.id)}
-              onEdit={() => setEditingMetaWidgetId(widget.id)}
-              onConfigure={() => setEditingWidgetId(widget.id)}
-              onExport={onRequestExport ? () => onRequestExport(widget.id) : undefined}
-              onDuplicate={() => duplicateWidget(widget.id)}
-              onMove={() => setMovingWidgetId(widget.id)}
-              onAcceptPluginVersion={() => acceptPluginVersion(widget.id)}
+              onRemove={setConfirmDeleteWidgetId}
+              onEdit={setEditingMetaWidgetId}
+              onConfigure={setEditingWidgetId}
+              onExport={onRequestExport}
+              onDuplicate={duplicateWidget}
+              onMove={setMovingWidgetId}
+              onAcceptPluginVersion={acceptPluginVersion}
             />
           </div>
           )
