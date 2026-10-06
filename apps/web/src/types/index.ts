@@ -646,8 +646,9 @@ export interface DashboardFilter {
    *  tooltips). Empty/absent falls back to `columnName`. Legacy data may hold a plain string. */
   label?: LocalizedString | string
   type: 'categorical' | 'numeric' | 'date'
-  /** `slider` is date-only: a dual-thumb range bounded by the column's own extremes. */
-  inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range' | 'double-range' | 'slider'
+  /** `slider` is date-only: a dual-thumb range bounded by the column's own extremes.
+   *  `slider-range` (date-only) shows that slider above the from/to pickers, both on one value. */
+  inputType: 'checkbox' | 'multi-select' | 'single-select' | 'range' | 'double-range' | 'slider' | 'slider-range'
   /** @deprecated Cross-dataset matching is now automatic, governed by `scope`. Retained for stored data. */
   propagate?: boolean
   scope?: DashboardFilterScope

@@ -87,8 +87,10 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="flex size-5 items-center justify-center rounded bg-muted/80 text-muted-foreground backdrop-blur-sm">
-            <Info size={11} />
+          {/* Same box as the menu button (size-6, rounded-md, 2px from the edge), so its
+              corner follows the card's own rounding. */}
+          <span className="flex size-6 items-center justify-center rounded-md bg-muted/80 text-muted-foreground backdrop-blur-sm">
+            <Info size={12} />
           </span>
         </TooltipTrigger>
         <TooltipContent side="right" className="max-w-64 whitespace-pre-wrap bg-foreground text-background">
@@ -250,7 +252,7 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="flex items-center rounded bg-card/80 p-1 text-amber-500 backdrop-blur-sm">
+                  <span className="flex size-6 items-center justify-center rounded-md bg-card/80 text-amber-500 backdrop-blur-sm">
                     <AlertTriangle size={12} />
                   </span>
                 </TooltipTrigger>

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Plus, Database, ChevronsUpDown, ChevronRight, TriangleAlert, Settings2 } from 'lucide-react'
+import { X, Plus, ChevronsUpDown, ChevronRight, TriangleAlert, Settings2, Trash2 } from 'lucide-react'
 import { SearchInput } from '@/components/ui/search-input'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,7 +16,6 @@ import {
   type DateBounds,
 } from './date-slider'
 import { Label } from '@/components/ui/label'
-import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Select,
@@ -58,11 +57,25 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { isServerMode } from '@/lib/api-client'
 import { fetchColumnDistinct, fetchColumnStats } from '@/lib/api/datasets'
-import { presetLabel } from './date-presets'
+import { presetLabel, resolveRelativeWindow } from './date-presets'
 import { FILTER_NONE } from './DashboardDataProvider'
 
 /** Filter cards start collapsed to keep the sidebar compact. */
 const DEFAULT_FILTER_OPEN = false
+
+// An "empty" value (Clear pressed, no selection, no bounds) does nothing, so the filter is
+// removed entirely — otherwise the active dot lingers and it counts as active.
+// For categorical, selected=[] means "all pass" (see applyFilters), i.e. no active filter.
+function isEmptyFilterValue(value: FilterValue): boolean {
+  switch (value.type) {
+    case 'categorical': return value.selected.length === 0
+    case 'numeric': return value.min == null && value.max == null
+    case 'numeric-double':
+      return value.min1 == null && value.max1 == null && value.min2 == null && value.max2 == null
+    case 'date': return value.from == null && value.to == null
+    case 'date-relative': return false
+  }
+}
 
 /** Map a dataset column's type to the filter's type + default input widget. */
 function detectColumnDefaults(col: DatasetColumn | undefined): {
@@ -100,8 +113,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     if (next.has(id)) next.delete(id); else next.add(id)
     return next
   })
-  // Reset per-card open/closed overrides when switching modes (defaults differ: open out of edit, closed in edit).
-  useEffect(() => { setExpanded(new Set()) }, [editMode])
 
   // The `expanded` set flips each card from the collapsed default. So "collapse all" clears it
   // and "expand all" adds every filter id.
@@ -193,20 +204,6 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     setPendingRemoval(null)
   }
 
-  // An "empty" value (Clear pressed, no selection, no bounds) does nothing, so remove the
-  // filter entirely — otherwise the active dot lingers and it counts as active.
-  // For categorical, selected=[] means "all pass" (see applyFilters), i.e. no active filter.
-  const isEmptyFilterValue = (value: FilterValue): boolean => {
-    switch (value.type) {
-      case 'categorical': return value.selected.length === 0
-      case 'numeric': return value.min == null && value.max == null
-      case 'numeric-double':
-        return value.min1 == null && value.max1 == null && value.min2 == null && value.max2 == null
-      case 'date': return value.from == null && value.to == null
-      case 'date-relative': return false
-    }
-  }
-
   const handleFilterChange = (filterId: string, value: FilterValue) => {
     if (isEmptyFilterValue(value)) clearFilter(filterId)
     else setFilter(filterId, value)
@@ -230,6 +227,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
     }
     if (filterType === 'date') {
       options.push({ value: 'slider', label: t('dashboard.input_type_slider') })
+      options.push({ value: 'slider-range', label: t('dashboard.input_type_slider_range') })
     }
     if (filterType === 'numeric') {
       options.push({ value: 'double-range', label: t('dashboard.input_type_double_range') })
@@ -277,94 +275,39 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
               </p>
             )}
 
-            {dashboard.filterConfig.map((fc) => {
-              const dsFile = datasetFiles.find((f) => f.id === fc.datasetFileId)
-              const inputTypeOptions = getInputTypeOptions(fc.type)
-              // Filters are collapsed by default to save space; the `expanded` set flips that.
-              const toggled = expanded.has(fc.id)
-              const isOpen = toggled ? !DEFAULT_FILTER_OPEN : DEFAULT_FILTER_OPEN
-              const isActive = !!activeFilters[fc.id]
-
-              return (
-                <div
-                  key={fc.id}
-                  className={cn(
-                    'rounded-lg border transition-colors',
-                    isActive && 'border-green-500/40 bg-green-500/5',
-                  )}
-                >
-                  {/* Collapsible header. Fixed height so toggling edit mode (which swaps the scope
-                      badge for a taller remove button) doesn't change the collapsed row height. */}
-                  <div className="flex h-9 items-center gap-1.5 px-2.5">
-                    <button
-                      type="button"
-                      onClick={() => toggleExpanded(fc.id)}
-                      className="flex h-full flex-1 items-center gap-1.5 min-w-0 text-left"
-                    >
-                      <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', isOpen && 'rotate-90')} />
-                      <span className="text-xs font-medium truncate">{localized(fc.label, language) || fc.columnName}</span>
-                    </button>
-                    {!editMode && <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />}
-                    {editMode && (
+            <TooltipProvider delayDuration={300}>
+              {dashboard.filterConfig.map((fc) => {
+                // Filters are collapsed by default to save space; the `expanded` set flips that.
+                const isOpen = expanded.has(fc.id) ? !DEFAULT_FILTER_OPEN : DEFAULT_FILTER_OPEN
+                return (
+                  <FilterCard
+                    key={fc.id}
+                    fc={fc}
+                    open={isOpen}
+                    onToggle={() => toggleExpanded(fc.id)}
+                    active={!!activeFilters[fc.id]}
+                    tabs={tabs}
+                    widgets={widgets}
+                    actions={editMode && (
                       <>
-                        <Button variant="ghost" size="icon-xs" className="shrink-0" onClick={() => setConfiguring(fc)}>
+                        <IconAction label={t('dashboard.filter_configure')} onClick={() => setConfiguring(fc)}>
                           <Settings2 size={12} />
-                        </Button>
-                        <Button variant="ghost" size="icon-xs" className="-mr-1 shrink-0" onClick={() => setPendingRemoval(fc)}>
-                          <X size={12} />
-                        </Button>
+                        </IconAction>
+                        <IconAction label={t('common.delete')} onClick={() => setPendingRemoval(fc)} className="-mr-1">
+                          <Trash2 size={12} />
+                        </IconAction>
                       </>
                     )}
-                  </div>
-
-                  {isOpen && (
-                    <div className="space-y-2 px-2.5 pb-2.5">
-                      {/* Edit mode shows a read-only summary — the fields themselves live in
-                          the config dialog, so add and edit can't drift apart again. */}
-                      {editMode && (
-                        <div className="space-y-1.5">
-                          <Badge variant="secondary" className="gap-1">
-                            <Database size={9} />
-                            {dsFile?.name ?? '?'}
-                          </Badge>
-                          <dl className="space-y-0.5 text-[10px] text-muted-foreground">
-                            <div className="flex gap-1.5">
-                              <dt>{t('dashboard.filter_select_column')}</dt>
-                              <dd className="truncate font-medium text-foreground">{fc.columnName}</dd>
-                            </div>
-                            <div className="flex gap-1.5">
-                              <dt>{t('dashboard.filter_input_type')}</dt>
-                              <dd className="truncate font-medium text-foreground">
-                                {inputTypeOptions.find((o) => o.value === fc.inputType)?.label ?? fc.inputType}
-                              </dd>
-                            </div>
-                            <div className="flex gap-1.5">
-                              <dt>{t('dashboard.filter_scope')}</dt>
-                              <dd className="truncate font-medium text-foreground">
-                                <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />
-                              </dd>
-                            </div>
-                          </dl>
-                          <Button variant="outline" size="xs" className="w-full gap-1.5" onClick={() => setConfiguring(fc)}>
-                            <Settings2 size={11} />
-                            {t('dashboard.filter_configure')}
-                          </Button>
-                        </div>
-                      )}
-
-                      {/* Filter control — hidden in edit mode (no live preview while configuring) */}
-                      {!editMode && (
-                        <FilterControlWithData
-                          fc={fc}
-                          value={activeFilters[fc.id]}
-                          onChange={(v) => handleFilterChange(fc.id, v)}
-                        />
-                      )}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                  >
+                    <FilterControlWithData
+                      fc={fc}
+                      value={activeFilters[fc.id]}
+                      onChange={(v) => handleFilterChange(fc.id, v)}
+                    />
+                  </FilterCard>
+                )
+              })}
+            </TooltipProvider>
 
             {/* Add filter — edit mode only; the fields live in the config dialog */}
             {editMode && (
@@ -404,6 +347,14 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
         renderDatePresets={(presets, onChange) => (
           <DatePresetEditor presets={presets} onChange={onChange} />
         )}
+        renderPreview={(filter) => (
+          <FilterPreview
+            key={`${filter.datasetFileId}|${filter.columnId}|${filter.inputType}`}
+            fc={filter}
+            tabs={tabs}
+            widgets={widgets}
+          />
+        )}
       />
 
       <AlertDialog open={pendingRemoval !== null} onOpenChange={(o) => { if (!o) setPendingRemoval(null) }}>
@@ -420,16 +371,101 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmRemoval}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
+            <AlertDialogAction variant="destructive" onClick={handleConfirmRemoval}>
               {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  )
+}
+
+/** One filter as the sidebar shows it: a collapsible header (label, scope badge, optional
+ *  actions) over the filter's control. The config dialog's preview renders the same card. */
+function FilterCard({
+  fc,
+  open,
+  onToggle,
+  active,
+  tabs,
+  widgets,
+  actions,
+  children,
+}: {
+  fc: DashboardFilter
+  open: boolean
+  onToggle: () => void
+  active: boolean
+  tabs: DashboardTab[]
+  widgets: DashboardWidget[]
+  actions?: React.ReactNode
+  children: React.ReactNode
+}) {
+  const { i18n } = useTranslation()
+  return (
+    <div className={cn('rounded-lg border transition-colors', active && 'border-green-500/40 bg-green-500/5')}>
+      <div className="flex h-9 items-center gap-1.5 px-2.5">
+        <button
+          type="button"
+          onClick={onToggle}
+          className="flex h-full min-w-0 flex-1 items-center gap-1.5 text-left"
+        >
+          <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
+          <span className="truncate text-xs font-medium">{localized(fc.label, i18n.language) || fc.columnName}</span>
+        </button>
+        <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />
+        {actions}
+      </div>
+      {open && <div className="px-2.5 pb-2.5">{children}</div>}
+    </div>
+  )
+}
+
+function IconAction({
+  label,
+  onClick,
+  className,
+  children,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="icon-xs" className={cn('shrink-0', className)} onClick={onClick} aria-label={label}>
+          {children}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** A filter card driven by a draft config, with its own throwaway value so trying the
+ *  control never touches the dashboard's applied filters. */
+function FilterPreview({
+  fc,
+  tabs,
+  widgets,
+}: {
+  fc: DashboardFilter
+  tabs: DashboardTab[]
+  widgets: DashboardWidget[]
+}) {
+  const [value, setValue] = useState<FilterValue | undefined>(undefined)
+  const [open, setOpen] = useState(true)
+  return (
+    <FilterCard fc={fc} open={open} onToggle={() => setOpen((o) => !o)} active={!!value} tabs={tabs} widgets={widgets}>
+      <FilterControlWithData
+        fc={fc}
+        value={value}
+        onChange={(v) => setValue(isEmptyFilterValue(v) ? undefined : v)}
+      />
+    </FilterCard>
   )
 }
 
@@ -638,18 +674,20 @@ function FilterControl({
   dateBounds?: DateBounds | null
 }) {
   // Range inputs for numeric / date
-  if (fc.inputType === 'range' || (fc.type === 'date' && fc.inputType === 'slider')) {
-    if (fc.type === 'date') {
-      return (
-        <DateFilter
-          value={value as (FilterValue & { type: 'date' | 'date-relative' }) | undefined}
-          presets={fc.datePresets ?? []}
-          onChange={onChange}
-          bounds={dateBounds ?? null}
-          asSlider={fc.inputType === 'slider'}
-        />
-      )
-    }
+  const isDateRange = fc.inputType === 'range' || fc.inputType === 'slider' || fc.inputType === 'slider-range'
+  if (fc.type === 'date' && isDateRange) {
+    return (
+      <DateFilter
+        value={value as (FilterValue & { type: 'date' | 'date-relative' }) | undefined}
+        presets={fc.datePresets ?? []}
+        onChange={onChange}
+        bounds={dateBounds ?? null}
+        withSlider={fc.inputType !== 'range'}
+        withInputs={fc.inputType !== 'slider'}
+      />
+    )
+  }
+  if (fc.inputType === 'range') {
     return (
       <NumericFilter
         columnId={fc.columnId}
@@ -1140,7 +1178,8 @@ function DateFilter({
   presets,
   onChange,
   bounds,
-  asSlider,
+  withSlider,
+  withInputs,
 }: {
   value?: { type: 'date'; from: string | null; to: string | null } | { type: 'date-relative'; count: number; unit: DatePresetUnit }
   presets: DatePreset[]
@@ -1148,7 +1187,8 @@ function DateFilter({
   /** The column's own first and last day; null while unknown (still loading, or a
    *  column with no parseable dates), in which case the pickers stay unbounded. */
   bounds?: DateBounds | null
-  asSlider?: boolean
+  withSlider: boolean
+  withInputs: boolean
 }) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -1163,47 +1203,20 @@ function DateFilter({
   const maxDate = bounds ? fromIsoDay(bounds.max) : undefined
   const pickerBounds = minDate && maxDate ? { before: minDate, after: maxDate } : undefined
 
-  if (asSlider) {
-    if (!bounds) {
-      // No usable range: a slider with no scale would be a dead control, so say so.
-      return <p className="text-[10px] text-muted-foreground">{t('dashboard.filter_no_date_range')}</p>
-    }
-    const span = daysBetween(bounds.min, bounds.max)
-    const [start, end] = valueToSlider(bounds, from, to)
-    return (
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>{formatDate(from ?? bounds.min, lang)}</span>
-          <span>{formatDate(to ?? bounds.max, lang)}</span>
-        </div>
-        <Slider
-          min={0}
-          max={span}
-          step={1}
-          value={[start, end]}
-          onValueChange={([s, e]) => onChange({ type: 'date', ...sliderToValue(bounds, [s, e]) })}
-          // A single-day column has a zero-width scale; the thumbs would overlap
-          // with nothing to choose between.
-          disabled={span === 0}
-        />
-        {hasValue && (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="h-5 gap-1 text-[10px] text-muted-foreground"
-            onClick={() => onChange({ type: 'date', from: null, to: null })}
-          >
-            <X size={10} />
-            {t('common.clear', 'Clear')}
-          </Button>
-        )}
-      </div>
-    )
+  // A quick range drives the slider too, so its handles show the window it selects.
+  const shown = isRelative ? resolveRelativeWindow(value.count, value.unit) : { from, to }
+  const span = bounds ? daysBetween(bounds.min, bounds.max) : 0
+  const [start, end] = bounds ? valueToSlider(bounds, shown.from, shown.to) : [0, 0]
+
+  // No usable range: a slider with no scale would be a dead control, so say so.
+  if (withSlider && !withInputs && !bounds) {
+    return <p className="text-[10px] text-muted-foreground">{t('dashboard.filter_no_date_range')}</p>
   }
+
 
   return (
     <div className="space-y-1.5">
-      {presets.length > 0 && (
+      {withInputs && presets.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {presets.map((p) => {
             const active = isRelative && value.count === p.count && value.unit === p.unit
@@ -1225,30 +1238,52 @@ function DateFilter({
           })}
         </div>
       )}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1">
-          <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_from', 'From')}</span>
-          <DatePickerField
-            value={from ?? undefined}
-            onChange={(v) => onChange({ type: 'date', from: v ?? null, to })}
-            // Unset means "from the beginning of the data", so show that day rather
-            // than an empty box the reader has to interpret.
-            placeholder={bounds ? formatDate(bounds.min, lang) : undefined}
-            defaultMonth={minDate}
-            disabledDays={pickerBounds}
+      {withSlider && bounds && (
+        <div className="space-y-1.5">
+          {!withInputs && (
+            <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+              <span>{formatDate(from ?? bounds.min, lang)}</span>
+              <span>{formatDate(to ?? bounds.max, lang)}</span>
+            </div>
+          )}
+          <Slider
+            min={0}
+            max={span}
+            step={1}
+            value={[start, end]}
+            onValueChange={([s, e]) => onChange({ type: 'date', ...sliderToValue(bounds, [s, e]) })}
+            // A single-day column has a zero-width scale; the thumbs would overlap
+            // with nothing to choose between.
+            disabled={span === 0}
           />
         </div>
-        <div className="space-y-1">
-          <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_to', 'To')}</span>
-          <DatePickerField
-            value={to ?? undefined}
-            onChange={(v) => onChange({ type: 'date', from, to: v ?? null })}
-            placeholder={bounds ? formatDate(bounds.max, lang) : undefined}
-            defaultMonth={maxDate}
-            disabledDays={pickerBounds}
-          />
+      )}
+      {withInputs && (
+        <div className="grid grid-cols-2 gap-2">
+          <div className="space-y-1">
+            <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_from', 'From')}</span>
+            <DatePickerField
+              value={from ?? undefined}
+              onChange={(v) => onChange({ type: 'date', from: v ?? null, to })}
+              // Unset means "from the beginning of the data", so show that day rather
+              // than an empty box the reader has to interpret.
+              placeholder={bounds ? formatDate(bounds.min, lang) : undefined}
+              defaultMonth={minDate}
+              disabledDays={pickerBounds}
+            />
+          </div>
+          <div className="space-y-1">
+            <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_to', 'To')}</span>
+            <DatePickerField
+              value={to ?? undefined}
+              onChange={(v) => onChange({ type: 'date', from, to: v ?? null })}
+              placeholder={bounds ? formatDate(bounds.max, lang) : undefined}
+              defaultMonth={maxDate}
+              disabledDays={pickerBounds}
+            />
+          </div>
         </div>
-      </div>
+      )}
       {hasValue && (
         <Button
           variant="ghost"

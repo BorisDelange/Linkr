@@ -31,7 +31,8 @@ const readmeDefaultWidth = () =>
  */
 export function PluginReadmeContent({
   plugin,
-  className = 'p-4',
+  // Little room above: the README's own title opens the page.
+  className = 'px-4 pt-2 pb-4 [&_.prose>:first-child]:mt-0',
 }: {
   plugin: Plugin
   className?: string

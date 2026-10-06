@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Database } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { FormField } from '@/components/ui/form-field'
+import { Label } from '@/components/ui/label'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
   Select,
@@ -61,6 +62,8 @@ interface FilterConfigDialogProps {
   ) => React.ReactNode
   /** Renders the date-preset editor, shown only for date columns. */
   renderDatePresets: (presets: DatePreset[], onChange: (p: DatePreset[]) => void) => React.ReactNode
+  /** Renders the filter as the sidebar would show it, from the draft. */
+  renderPreview: (filter: DashboardFilter) => React.ReactNode
   /** Input-type options for a filter type — owned by the sidebar. */
   getInputTypeOptions: (type: DashboardFilter['type']) => { value: DashboardFilter['inputType']; label: string }[]
   /** Maps a column to its filter type + default input widget. */
@@ -87,6 +90,7 @@ export function FilterConfigDialog({
   renderScope,
   renderColumnPicker,
   renderDatePresets,
+  renderPreview,
   getInputTypeOptions,
   detectColumnDefaults,
 }: FilterConfigDialogProps) {
@@ -130,6 +134,20 @@ export function FilterConfigDialog({
   const selectedColumn = columns.find((c) => c.id === draft.columnId)
   const filterType = detectColumnDefaults(selectedColumn).type
   const inputTypeOptions = getInputTypeOptions(filterType)
+
+  const previewFilter: DashboardFilter | null = draft.datasetFileId && selectedColumn
+    ? {
+        id: filter?.id ?? 'preview',
+        datasetFileId: draft.datasetFileId,
+        columnId: selectedColumn.id,
+        columnName: selectedColumn.name,
+        label: draft.label.trim() || undefined,
+        type: filterType,
+        inputType: draft.inputType,
+        scope: draft.scope,
+        datePresets: draft.datePresets,
+      }
+    : null
 
   const handleColumnChange = (columnId: string) => {
     const col = columns.find((c) => c.id === columnId)
@@ -234,6 +252,15 @@ export function FilterConfigDialog({
 
             {filterType === 'date' &&
               renderDatePresets(draft.datePresets, (datePresets) => setDraft((d) => ({ ...d, datePresets })))}
+
+            {previewFilter && (
+              <div className="space-y-1.5">
+                <Label>{t('dashboard.filter_preview')}</Label>
+                <div className="rounded-lg border border-dashed p-3">
+                  <div className="mx-auto max-w-xs">{renderPreview(previewFilter)}</div>
+                </div>
+              </div>
+            )}
           </>
         )}
       </div>
