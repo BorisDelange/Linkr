@@ -23,6 +23,8 @@ import { renderOnServer } from '@/lib/api/execution'
 import { computeSpc } from '@/lib/spc/spc-compute'
 import type { SpcConfig } from '@/lib/spc/spc-compute'
 import type { ChartPoint, SpcResult, SpcWarning } from '@/lib/spc/spc-types'
+import { classifyVariation, hasFewCrossings } from '@/lib/spc/spc-variation'
+import type { ImprovementDirection, Variation } from '@/lib/spc/spc-variation'
 import { buildSpcSpec } from './spc-server'
 import { cn } from '@/lib/utils'
 
@@ -153,6 +155,15 @@ function SpcChart({ result, config, compact }: ChartProps) {
   const showBaselineSplit = config.showBaselineSplit !== false
   const lineColor = resolveColor((config.lineColor as string) ?? 'blue').hex
   const signalColor = resolveColor((config.signalColor as string) ?? 'red').hex
+  const direction = (config.improvementDirection as ImprovementDirection) ?? 'none'
+  // NHS "Making Data Count": orange for a concern; blue for an improvement in the
+  // original, teal here since blue is the line's own default colour.
+  const variationColor: Record<Variation, string> = {
+    common: lineColor,
+    concern: resolveColor('orange').hex,
+    improvement: resolveColor('teal').hex,
+    special: signalColor,
+  }
   const bgColorName = (config.bgColor as string) ?? 'none'
   const bg = bgColorName === 'none' ? undefined : resolveColor(bgColorName).bg
   const titleColorName = (config.titleColor as string) ?? 'auto'
@@ -168,7 +179,8 @@ function SpcChart({ result, config, compact }: ChartProps) {
   // Recharts needs one flat row per point; the limits ride along so each is
   // drawn at its own height — the staircase that makes a varying denominator
   // visible.
-  const data = result.points.map(p => ({
+  const variations = classifyVariation(result.points, direction)
+  const data = result.points.map((p, i) => ({
     date: p.date,
     value: p.value,
     ucl: p.ucl,
@@ -177,7 +189,7 @@ function SpcChart({ result, config, compact }: ChartProps) {
     // range" without the dashed lines competing with the data.
     band: Number.isFinite(p.lcl) && Number.isFinite(p.ucl) ? [p.lcl, p.ucl] : null,
     centre: p.centre,
-    signal: p.signals.length > 0 ? p.value : null,
+    variation: variations[i],
     numerator: p.numerator,
     denominator: p.denominator,
     signals: p.signals,
@@ -188,7 +200,8 @@ function SpcChart({ result, config, compact }: ChartProps) {
       ? result.points[result.baselineCount].date
       : null
 
-  const signalCount = result.points.filter(p => p.signals.length > 0).length
+  const countOf = (kind: Variation) => variations.filter(v => v === kind).length
+  const fewCrossings = hasFewCrossings(result.points)
 
   return (
     <div className={cn('flex h-full w-full flex-col gap-1 p-2', bg)}>
@@ -201,7 +214,9 @@ function SpcChart({ result, config, compact }: ChartProps) {
 
       {result.warnings.length > 0 && !compact && <Warnings warnings={result.warnings} />}
 
-      <div className="min-h-0 flex-1">
+      {/* Clipped: the tooltip mounts once at an unmeasured position before Recharts
+          moves it into the plot, which flashed a scrollbar on the widget. */}
+      <div className="min-h-0 flex-1 overflow-hidden">
         <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
             {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />}
@@ -237,11 +252,12 @@ function SpcChart({ result, config, compact }: ChartProps) {
               />
             )}
 
-            <Area type="stepAfter" dataKey="band" fill={lineColor} fillOpacity={0.1} stroke="none" isAnimationActive={false} activeDot={false} connectNulls />
+            {/* `step` turns halfway between periods, so each limit sits centred on its own point. */}
+            <Area type="step" dataKey="band" fill={lineColor} fillOpacity={0.1} stroke="none" isAnimationActive={false} activeDot={false} connectNulls />
             <Line type="linear" dataKey="centre" stroke="var(--color-muted-foreground)" strokeWidth={1} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
             {bars ? (
               <Bar dataKey="value" maxBarSize={28} radius={[3, 3, 0, 0]} isAnimationActive={false}>
-                {data.map(d => <Cell key={d.date} fill={d.signal !== null ? signalColor : lineColor} />)}
+                {data.map(d => <Cell key={d.date} fill={variationColor[d.variation]} />)}
               </Bar>
             ) : (
               // Straight segments: a spline would invent values between periods.
@@ -250,12 +266,22 @@ function SpcChart({ result, config, compact }: ChartProps) {
                 dataKey="value"
                 stroke={lineColor}
                 strokeWidth={2}
-                // One dot per period, in the signal colour when flagged: a signal
-                // stands out by its colour, not by a bigger marker drawn on top.
-                dot={(props: { cx?: number; cy?: number; index?: number; payload?: { signal: number | null } }) => {
+                // Common-cause dots stay small and in the line's colour; a special
+                // cause gets a larger dot ringed in the card colour, which cuts it
+                // out of the line instead of sitting on it like a stain.
+                dot={(props: { cx?: number; cy?: number; index?: number; payload?: { variation: Variation } }) => {
                   if (!Number.isFinite(props.cx) || !Number.isFinite(props.cy)) return <g key={props.index} />
-                  const color = props.payload?.signal != null ? signalColor : lineColor
-                  return <circle key={props.index} cx={props.cx} cy={props.cy} r={2.5} fill={color} stroke={color} strokeWidth={1} />
+                  const variation = props.payload?.variation ?? 'common'
+                  if (variation === 'common') return <circle key={props.index} cx={props.cx} cy={props.cy} r={2.5} fill={lineColor} />
+                  return (
+                    <circle key={props.index} cx={props.cx} cy={props.cy} r={4.5} fill={variationColor[variation]} stroke="var(--color-card)" strokeWidth={2} />
+                  )
+                }}
+                // Hover keeps the point's own colour: a signal must not turn blue under the cursor.
+                activeDot={(props: { cx?: number; cy?: number; index?: number; payload?: { variation: Variation } }) => {
+                  if (!Number.isFinite(props.cx) || !Number.isFinite(props.cy)) return <g key={props.index} />
+                  const color = variationColor[props.payload?.variation ?? 'common']
+                  return <circle key={props.index} cx={props.cx} cy={props.cy} r={5.5} fill={color} stroke="var(--color-card)" strokeWidth={2} />
                 }}
                 isAnimationActive={false}
               />
@@ -271,12 +297,27 @@ function SpcChart({ result, config, compact }: ChartProps) {
           {result.sigmaZ !== undefined && result.sigmaZ > 1.05 && (
             <span>{t('analyses.spc_dispersion', { value: result.sigmaZ.toFixed(2) })}</span>
           )}
-          <span className={cn(signalCount > 0 && 'font-medium')} style={signalCount > 0 ? { color: signalColor } : undefined}>
-            {t('analyses.spc_signal_count', { count: signalCount })}
-          </span>
+          {direction === 'none' ? (
+            <VariationCount count={countOf('special')} color={variationColor.special} label={t('analyses.spc_signal_count', { count: countOf('special') })} />
+          ) : (
+            <>
+              <VariationCount count={countOf('concern')} color={variationColor.concern} label={t('analyses.spc_concern_count', { count: countOf('concern') })} />
+              <VariationCount count={countOf('improvement')} color={variationColor.improvement} label={t('analyses.spc_improvement_count', { count: countOf('improvement') })} />
+            </>
+          )}
+          {fewCrossings && <span>{t('analyses.spc_few_crossings')}</span>}
         </div>
       )}
     </div>
+  )
+}
+
+function VariationCount({ count, color, label }: { count: number; color: string; label: string }) {
+  return (
+    <span className={cn('inline-flex items-center gap-1', count > 0 && 'font-medium')} style={count > 0 ? { color } : undefined}>
+      {count > 0 && <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: color }} />}
+      {label}
+    </span>
   )
 }
 

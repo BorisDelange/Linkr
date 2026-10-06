@@ -835,6 +835,45 @@
       },
       "row": "rulesRow"
     },
+    "improvementDirection": {
+      "type": "select",
+      "label": {
+        "en": "Improvement is",
+        "fr": "Une amélioration, c'est"
+      },
+      "default": "none",
+      "section": {
+        "en": "Signals",
+        "fr": "Signaux"
+      },
+      "description": {
+        "en": "Which way the indicator gets better. Once set, a signal reads as an improvement (teal) or a concern (orange), after the NHS \"Making Data Count\" convention, and points of common-cause variation stay plain. Left undefined, every signal takes the Signals colour.",
+        "fr": "Le sens dans lequel l'indicateur s'améliore. Une fois défini, un signal se lit comme une amélioration (sarcelle) ou une dégradation (orange), selon la convention « Making Data Count » du NHS, et les points de variation habituelle restent neutres. Non défini, chaque signal prend la couleur « Signaux »."
+      },
+      "options": [
+        {
+          "value": "none",
+          "label": {
+            "en": "Undefined",
+            "fr": "Non défini"
+          }
+        },
+        {
+          "value": "down",
+          "label": {
+            "en": "A decrease",
+            "fr": "Une baisse"
+          }
+        },
+        {
+          "value": "up",
+          "label": {
+            "en": "An increase",
+            "fr": "Une hausse"
+          }
+        }
+      ]
+    },
     "showBaselineSplit": {
       "type": "boolean",
       "label": {
@@ -1021,8 +1060,8 @@
         "defaultOpen": false
       },
       "description": {
-        "en": "Colour of the points a rule flags.",
-        "fr": "Couleur des points signalés par une règle."
+        "en": "Colour of the points a rule flags, while the improvement direction is undefined.",
+        "fr": "Couleur des points signalés par une règle, tant que le sens de l'amélioration n'est pas défini."
       }
     },
     "bgColor": {

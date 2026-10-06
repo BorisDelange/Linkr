@@ -97,6 +97,14 @@ de la série. C'est délibéré : chaque règle ajoutée augmente la sensibilit�
 diminue la spécificité, et une carte cumulant les huit règles Western Electric
 alarme en permanence sur un processus parfaitement stable.
 
+Renseignez **Une amélioration, c'est** pour indiquer dans quel sens
+l'indicateur s'améliore. Les signaux se lisent alors comme une **amélioration**
+(sarcelle) ou une **dégradation** (orange), selon la convention
+[Making Data Count](https://www.england.nhs.uk/publication/making-data-count/) du
+NHS, et les points de variation habituelle restent neutres. Trop peu de
+franchissements est une propriété de toute la série : il est signalé sous la carte
+plutôt que sur chaque point.
+
 Un signal veut dire *regardez*, pas *agissez*. Il indique que la variation a peu
 de chances d'être due au hasard — en trouver la cause reste votre travail.
 

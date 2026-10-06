@@ -91,6 +91,12 @@ This is deliberate: every rule you add raises sensitivity and lowers specificity
 and a chart with all eight Western Electric rules stacked on alarms constantly on
 a perfectly stable process.
 
+Set **Improvement is** to say which way the indicator gets better. Signals then
+read as an **improvement** (teal) or a **concern** (orange), after the NHS
+[Making Data Count](https://www.england.nhs.uk/publication/making-data-count/)
+convention, and common-cause points stay plain. Too few crossings is a property
+of the whole series, so it is reported under the chart rather than on every point.
+
 A signal means *look*, not *act*. It says the variation is unlikely to be chance
 — finding the cause is still your job.
 
