@@ -18,6 +18,8 @@ export interface PlotBuilderSpec {
   binWidth: number
   decimals: number
   xAxisStartZero: boolean
+  /** Boxplot/violin: order categories by descending median before the 20-category cap. */
+  boxSortByMedian: boolean
   /** Histogram drag-to-zoom: re-bin only the values in this range, so zooming shows
    *  finer structure rather than the same bars drawn wider. Null when unzoomed. */
   zoomLo: number | null
@@ -43,10 +45,16 @@ export function buildPlotBuilderSpec(
   const colType = (id: string | undefined): string | null => (id ? byId.get(id)?.type ?? null : null)
 
   const histogramOrientation = (config.histogramOrientation as string) ?? 'vertical'
-  const xId = config.xColumn as string | undefined
+  const isBoxLike = plotType === 'boxplot' || plotType === 'violin'
+  // A horizontal box/violin has its columns swapped in the config (categories on Y,
+  // values on X); swap them back so the server sees the usual x = categories, y = values.
+  const swapBoxAxes = isBoxLike && config.boxplotOrientation === 'horizontal'
+  const configX = config.xColumn as string | undefined
+  const configY = config.yColumn as string | undefined
+  const xId = swapBoxAxes ? configY : configX
   // A pie counts one variable: a Y left over from another plot type must not
   // filter its rows (excludeNA / outliers read Y).
-  const yId = plotType === 'pie' ? undefined : (config.yColumn as string | undefined)
+  const yId = plotType === 'pie' ? undefined : swapBoxAxes ? configX : configY
   const groupId = config.groupColumn as string | undefined
   const isHorizontalHistogram = plotType === 'histogram' && histogramOrientation === 'horizontal'
   const histId = isHorizontalHistogram ? yId : xId
@@ -71,6 +79,7 @@ export function buildPlotBuilderSpec(
     // Padding the axis down to 0 inside a zoom would drag the view back to the
     // origin and undo it, so it only applies unzoomed.
     xAxisStartZero: zoom ? false : ((config.xAxisStartZero as boolean) ?? false),
+    boxSortByMedian: isBoxLike && ((config.sortByMedian as boolean) ?? false),
     zoomLo: zoom?.lo ?? null,
     zoomHi: zoom?.hi ?? null,
   }

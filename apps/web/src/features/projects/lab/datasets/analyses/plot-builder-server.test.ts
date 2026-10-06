@@ -19,6 +19,26 @@ describe('buildPlotBuilderSpec', () => {
     expect(spec.yType).toBeNull()
   })
 
+  it('swaps a horizontal boxplot back to x = categories, y = values', () => {
+    const spec = buildPlotBuilderSpec(columns, {
+      plotType: 'boxplot', boxplotOrientation: 'horizontal', xColumn: 'col_age', yColumn: 'col_ward',
+    })
+    expect([spec.x, spec.y, spec.xType, spec.yType]).toEqual(['ward', 'age', 'string', 'number'])
+  })
+
+  it('leaves a horizontal histogram setting alone on a boxplot', () => {
+    const spec = buildPlotBuilderSpec(columns, {
+      plotType: 'boxplot', histogramOrientation: 'horizontal', xColumn: 'col_ward', yColumn: 'col_age',
+    })
+    expect([spec.x, spec.y]).toEqual(['ward', 'age'])
+  })
+
+  it('sends the median ordering only for box and violin plots', () => {
+    expect(buildPlotBuilderSpec(columns, { plotType: 'violin', xColumn: 'col_ward', sortByMedian: true }).boxSortByMedian).toBe(true)
+    expect(buildPlotBuilderSpec(columns, { plotType: 'bar', xColumn: 'col_ward', sortByMedian: true }).boxSortByMedian).toBe(false)
+    expect(buildPlotBuilderSpec(columns, { plotType: 'boxplot', xColumn: 'col_ward' }).boxSortByMedian).toBe(false)
+  })
+
   it('keeps Y for the other plot types', () => {
     const spec = buildPlotBuilderSpec(columns, { plotType: 'scatter', xColumn: 'col_age', yColumn: 'col_age' })
     expect(spec.y).toBe('age')

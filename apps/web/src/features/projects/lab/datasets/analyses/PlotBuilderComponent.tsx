@@ -33,6 +33,7 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildPlotBuilderSpec } from './plot-builder-server'
+import { buildBoxplotGroups, computeBoxplotStats, type BoxplotData } from './plot-builder-box'
 import { MAX_PLOT_POINTS, sampleEvenly, sampleRandom } from './plot-sampling'
 
 // Server-computed chart payloads (parity with each sub-plot's front-only useMemo shape).
@@ -254,51 +255,40 @@ function buildHistogramGrouped(
   return buckets
 }
 
-function computeBoxplotStats(values: number[]) {
-  if (values.length === 0) return null
-  const sorted = [...values].sort((a, b) => a - b)
-  const q1Idx = Math.floor(sorted.length * 0.25)
-  const medIdx = Math.floor(sorted.length * 0.5)
-  const q3Idx = Math.floor(sorted.length * 0.75)
-  const q1 = sorted[q1Idx]
-  const median = sorted[medIdx]
-  const q3 = sorted[q3Idx]
-  const iqr = q3 - q1
-  const whiskerLow = Math.max(sorted[0], q1 - 1.5 * iqr)
-  const whiskerHigh = Math.min(sorted[sorted.length - 1], q3 + 1.5 * iqr)
-  return { min: whiskerLow, q1, median, q3, max: whiskerHigh, mean: values.reduce((s, v) => s + v, 0) / values.length }
-}
-
 // ---------------------------------------------------------------------------
 // Boxplot / Violin sub-component (custom SVG)
 // ---------------------------------------------------------------------------
 
-interface BoxplotData {
-  name: string
-  stats: { min: number; q1: number; median: number; q3: number; max: number; mean: number }
-  values: number[]
-}
+/** Rough width of one 10px glyph in the 600-unit viewBox, for sizing label room. */
+const BOX_CHAR_PX = 5.6
 
 function BoxplotChart({
   data,
   colors,
   opacity,
-  yLabel,
+  valueLabel,
   showGrid,
   violin,
   startAtZero = false,
   xLabelMaxLen = 12,
   decimals = 1,
+  horizontal = false,
+  boxStyle = 'filled',
+  showCount = false,
 }: {
   data: BoxplotData[]
   colors: string[]
   opacity: number
-  yLabel: string
+  /** Title of the value axis (left when vertical, bottom when horizontal). */
+  valueLabel: string
   showGrid: boolean
   violin: boolean
   startAtZero?: boolean
   xLabelMaxLen?: number
   decimals?: number
+  horizontal?: boolean
+  boxStyle?: string
+  showCount?: boolean
 }) {
   const { t } = useTranslation()
   const [hover, setHover] = useState<{ index: number; x: number; y: number } | null>(null)
@@ -312,24 +302,54 @@ function BoxplotChart({
   const plotMin = scale ? scale.domain[0] : allMin - 1
   const plotMax = scale ? scale.domain[1] : allMax + 1
   const plotRange = plotMax - plotMin || 1
-  const yTicks = scale ? scale.ticks : [plotMin, plotMax]
+  const valueTicks = scale ? scale.ticks : [plotMin, plotMax]
 
-  const marginLeft = 60
-  const marginRight = 20
-  const marginTop = 10
-  const marginBottom = 40
+  const fmt = formatNumericTick(decimals)
+  const outline = !violin && boxStyle === 'outline'
+  const countSuffix = (d: BoxplotData) => `n = ${d.values.length.toLocaleString()}`
+
   const width = 600
   const height = 340
+
+  // Horizontal: category names sit left of the plot and are read in full — the margin
+  // follows the longest one, and only a name past 40% of the width gets truncated.
+  const maxCatLabelW = width * 0.4
+  const hSuffix = (d: BoxplotData) => (showCount ? ` · ${countSuffix(d)}` : '')
+  const hLabelW = horizontal
+    ? Math.min(maxCatLabelW, Math.max(...data.map(d => (d.name.length + hSuffix(d).length) * BOX_CHAR_PX)) + 8)
+    : 0
+  const hNameMaxLen = (d: BoxplotData) =>
+    Math.max(3, Math.floor((maxCatLabelW - 8) / BOX_CHAR_PX) - hSuffix(d).length)
+
+  const marginLeft = horizontal ? Math.round(hLabelW + 12) : 60
+  const marginRight = 20
+  const marginTop = 10
+  const marginBottom = horizontal ? 28 + (valueLabel ? 16 : 0) : 40 + (showCount ? 12 : 0)
   const plotW = width - marginLeft - marginRight
   const plotH = height - marginTop - marginBottom
+  const catSpan = horizontal ? plotH : plotW
+  const slot = catSpan / data.length
 
   // Tighten category-label truncation to the room each one gets. Box/violin labels sit flat under
   // the axis, so allow ~7px per char to leave a gap between neighbours. Full text on hover.
-  const effXLabelMaxLen = Math.max(3, Math.min(xLabelMaxLen, Math.floor((plotW / data.length) / 7)))
+  const effXLabelMaxLen = Math.max(3, Math.min(xLabelMaxLen, Math.floor(slot / 7)))
 
-  const toY = (val: number) => marginTop + plotH - ((val - plotMin) / plotRange) * plotH
+  /** Pixel position of a value along the value axis. */
+  const toV = (val: number) => {
+    const frac = (val - plotMin) / plotRange
+    return horizontal ? marginLeft + frac * plotW : marginTop + plotH - frac * plotH
+  }
+  /** (category-axis, value-axis) → (x, y). */
+  const P = (c: number, v: number): [number, number] => (horizontal ? [v, c] : [c, v])
+  const seg = (c1: number, v1: number, c2: number, v2: number, props: React.SVGProps<SVGLineElement>) => {
+    const [x1, y1] = P(c1, v1)
+    const [x2, y2] = P(c2, v2)
+    return <line x1={x1} y1={y1} x2={x2} y2={y2} {...props} />
+  }
 
-  const boxWidth = Math.min(60, Math.max(20, plotW / data.length - 10))
+  const boxWidth = horizontal
+    ? Math.min(40, Math.max(6, slot * (outline ? 0.45 : 0.6)))
+    : Math.min(60, Math.max(20, plotW / data.length - 10))
 
   function kernelDensity(values: number[], nPoints = 50): { val: number; density: number }[] {
     if (values.length < 2) return []
@@ -348,9 +368,8 @@ function BoxplotChart({
     return points
   }
 
-  const fmt = formatNumericTick(decimals)
   const hovered = hover ? data[hover.index] : undefined
-  const slotW = plotW / data.length
+  const plotBottom = marginTop + plotH
 
   return (
     <>
@@ -376,57 +395,88 @@ function BoxplotChart({
       onMouseLeave={() => setHover(null)}
     >
       {showGrid &&
-        yTicks.map((tick, i) => (
-          <line
-            key={i}
-            x1={marginLeft}
-            x2={width - marginRight}
-            y1={toY(tick)}
-            y2={toY(tick)}
-            stroke="currentColor"
-            strokeOpacity={0.1}
-            strokeDasharray="3,3"
-          />
-        ))}
+        valueTicks.map((tick, i) => {
+          const [x1, y1] = P(horizontal ? marginTop : marginLeft, toV(tick))
+          const [x2, y2] = P(horizontal ? plotBottom : width - marginRight, toV(tick))
+          return (
+            <line key={i} x1={x1} x2={x2} y1={y1} y2={y2} stroke="currentColor" strokeOpacity={0.1} strokeDasharray="3,3" />
+          )
+        })}
 
-      <line x1={marginLeft} x2={marginLeft} y1={marginTop} y2={marginTop + plotH} stroke="currentColor" strokeOpacity={0.2} />
-      {yTicks.map((tick, i) => (
-        <text key={i} x={marginLeft - 8} y={toY(tick) + 4} textAnchor="end" fontSize={10} fill="currentColor" opacity={0.6}>
-          {formatBoxTick(tick)}
-        </text>
-      ))}
-
-      {yLabel && (
-        <text
-          x={14}
-          y={marginTop + plotH / 2}
-          textAnchor="middle"
-          fontSize={11}
-          fill="currentColor"
-          opacity={0.7}
-          transform={`rotate(-90, 14, ${marginTop + plotH / 2})`}
-        >
-          {yLabel}
-        </text>
+      {horizontal ? (
+        <>
+          <line x1={marginLeft} x2={width - marginRight} y1={plotBottom} y2={plotBottom} stroke="currentColor" strokeOpacity={0.2} />
+          {valueTicks.map((tick, i) => (
+            <text key={i} x={toV(tick)} y={plotBottom + 14} textAnchor="middle" fontSize={10} fill="currentColor" opacity={0.6}>
+              {formatBoxTick(tick)}
+            </text>
+          ))}
+          {valueLabel && (
+            <text x={marginLeft + plotW / 2} y={height - 6} textAnchor="middle" fontSize={11} fill="currentColor" opacity={0.7}>
+              {valueLabel}
+            </text>
+          )}
+        </>
+      ) : (
+        <>
+          <line x1={marginLeft} x2={marginLeft} y1={marginTop} y2={plotBottom} stroke="currentColor" strokeOpacity={0.2} />
+          {valueTicks.map((tick, i) => (
+            <text key={i} x={marginLeft - 8} y={toV(tick) + 4} textAnchor="end" fontSize={10} fill="currentColor" opacity={0.6}>
+              {formatBoxTick(tick)}
+            </text>
+          ))}
+          {valueLabel && (
+            <text
+              x={14}
+              y={marginTop + plotH / 2}
+              textAnchor="middle"
+              fontSize={11}
+              fill="currentColor"
+              opacity={0.7}
+              transform={`rotate(-90, 14, ${marginTop + plotH / 2})`}
+            >
+              {valueLabel}
+            </text>
+          )}
+        </>
       )}
 
       {data.map((d, i) => {
-        const cx = marginLeft + slotW * (i + 0.5)
+        const c = (horizontal ? marginTop : marginLeft) + slot * (i + 0.5)
         const color = colors[i % colors.length]
         const { min, q1, median, q3, max } = d.stats
-        // The whole column answers the hover, not just the box: a short box or a
+        // The whole band answers the hover, not just the box: a short box or a
         // thin violin is otherwise a hard target.
         const hitArea = (
           <rect
-            x={marginLeft + slotW * i}
-            y={marginTop}
-            width={slotW}
-            height={plotH}
+            x={horizontal ? marginLeft : marginLeft + slot * i}
+            y={horizontal ? marginTop + slot * i : marginTop}
+            width={horizontal ? plotW : slot}
+            height={horizontal ? slot : plotH}
             fill={hover?.index === i ? 'var(--color-muted)' : 'transparent'}
             fillOpacity={0.5}
           />
         )
         const track = (e: React.MouseEvent) => setHover({ index: i, x: e.clientX, y: e.clientY })
+        const label = horizontal ? (
+          <CategoryAxisLabel
+            x={marginLeft - 8}
+            y={c + 3}
+            textAnchor="end"
+            name={d.name}
+            maxLen={hNameMaxLen(d)}
+            suffix={hSuffix(d) || undefined}
+          />
+        ) : (
+          <>
+            <CategoryAxisLabel x={c} y={plotBottom + 20} name={d.name} maxLen={effXLabelMaxLen} />
+            {showCount && (
+              <text x={c} y={plotBottom + 32} textAnchor="middle" fontSize={10} fill="currentColor" opacity={0.45}>
+                {countSuffix(d)}
+              </text>
+            )}
+          </>
+        )
 
         if (violin) {
           const density = kernelDensity(d.values)
@@ -434,11 +484,11 @@ function BoxplotChart({
           const maxD = Math.max(...density.map(p => p.density))
           const halfW = boxWidth * 0.6
           const pathPoints = density.map(p => ({
-            y: toY(p.val),
-            dx: maxD > 0 ? (p.density / maxD) * halfW : 0,
+            v: toV(p.val),
+            dc: maxD > 0 ? (p.density / maxD) * halfW : 0,
           }))
-          const leftPath = pathPoints.map(p => `${cx - p.dx},${p.y}`).join(' ')
-          const rightPath = [...pathPoints].reverse().map(p => `${cx + p.dx},${p.y}`).join(' ')
+          const leftPath = pathPoints.map(p => P(c - p.dc, p.v).join(',')).join(' ')
+          const rightPath = [...pathPoints].reverse().map(p => P(c + p.dc, p.v).join(',')).join(' ')
           return (
             <g key={i} onMouseMove={track}>
               {hitArea}
@@ -450,32 +500,71 @@ function BoxplotChart({
                 strokeWidth={1}
                 strokeOpacity={0.6}
               />
-              <line x1={cx - halfW * 0.4} x2={cx + halfW * 0.4} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-              <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={effXLabelMaxLen} />
+              {seg(c - halfW * 0.4, toV(median), c + halfW * 0.4, toV(median), { stroke: 'white', strokeWidth: 2 })}
+              {label}
             </g>
           )
         }
 
         const halfBox = boxWidth / 2
+        const [bx1, by1] = P(c - halfBox, toV(q3))
+        const [bx2, by2] = P(c + halfBox, toV(q1))
+        const boxRect = { x: Math.min(bx1, bx2), y: Math.min(by1, by2), width: Math.abs(bx2 - bx1), height: Math.abs(by2 - by1) }
+
+        if (outline) {
+          // The median is what the eye should compare: a thick line in the series colour
+          // pulled toward the foreground (darker on light, lighter on dark), over a faint box.
+          const medianTone = `color-mix(in oklab, ${color} 55%, var(--color-foreground))`
+          const medianText = fmt(median)
+          const capHalf = Math.max(3, halfBox * 0.25)
+          // Vertical: value beside the median, in the gap to the next box. Horizontal: just
+          // above the median line. Dropped when the gap can't hold it (the tooltip still has it).
+          const medianLabelFits = horizontal
+            ? (slot - boxWidth) / 2 >= 12
+            : slot - boxWidth - 6 >= medianText.length * BOX_CHAR_PX
+          const [mx, my] = horizontal ? [toV(median), c - halfBox - 3] : [c + halfBox + 3, toV(median) + 3]
+          return (
+            <g key={i} onMouseMove={track}>
+              {hitArea}
+              {seg(c, toV(max), c, toV(q3), { stroke: color, strokeWidth: 1, strokeOpacity: 0.6 })}
+              {seg(c, toV(q1), c, toV(min), { stroke: color, strokeWidth: 1, strokeOpacity: 0.6 })}
+              {seg(c - capHalf, toV(max), c + capHalf, toV(max), { stroke: color, strokeWidth: 1, strokeOpacity: 0.6 })}
+              {seg(c - capHalf, toV(min), c + capHalf, toV(min), { stroke: color, strokeWidth: 1, strokeOpacity: 0.6 })}
+              <rect {...boxRect} fill={color} fillOpacity={0.15} stroke={color} strokeWidth={1.5} rx={2} />
+              {seg(c - halfBox, toV(median), c + halfBox, toV(median), { style: { stroke: medianTone }, strokeWidth: 3, strokeLinecap: 'butt' })}
+              {medianLabelFits && (
+                <text
+                  x={mx}
+                  y={my}
+                  textAnchor={horizontal ? 'middle' : 'start'}
+                  fontSize={10}
+                  fontWeight={600}
+                  style={{ fill: medianTone }}
+                >
+                  {medianText}
+                </text>
+              )}
+              {label}
+            </g>
+          )
+        }
+
         return (
           <g key={i} onMouseMove={track}>
             {hitArea}
-            <line x1={cx} x2={cx} y1={toY(max)} y2={toY(min)} stroke={color} strokeWidth={1.5} strokeOpacity={0.5} />
-            <line x1={cx - halfBox * 0.4} x2={cx + halfBox * 0.4} y1={toY(max)} y2={toY(max)} stroke={color} strokeWidth={1.5} />
-            <line x1={cx - halfBox * 0.4} x2={cx + halfBox * 0.4} y1={toY(min)} y2={toY(min)} stroke={color} strokeWidth={1.5} />
+            {seg(c, toV(max), c, toV(min), { stroke: color, strokeWidth: 1.5, strokeOpacity: 0.5 })}
+            {seg(c - halfBox * 0.4, toV(max), c + halfBox * 0.4, toV(max), { stroke: color, strokeWidth: 1.5 })}
+            {seg(c - halfBox * 0.4, toV(min), c + halfBox * 0.4, toV(min), { stroke: color, strokeWidth: 1.5 })}
             <rect
-              x={cx - halfBox}
-              y={toY(q3)}
-              width={boxWidth}
-              height={toY(q1) - toY(q3)}
+              {...boxRect}
               fill={color}
               fillOpacity={opacity}
               stroke={color}
               strokeWidth={1.5}
               rx={2}
             />
-            <line x1={cx - halfBox} x2={cx + halfBox} y1={toY(median)} y2={toY(median)} stroke="white" strokeWidth={2} />
-            <CategoryAxisLabel x={cx} y={height - marginBottom + 20} name={d.name} maxLen={effXLabelMaxLen} />
+            {seg(c - halfBox, toV(median), c + halfBox, toV(median), { stroke: 'white', strokeWidth: 2 })}
+            {label}
           </g>
         )
       })}
@@ -536,6 +625,10 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const binWidthConfig = (config.binWidth as number) ?? 5
   const barMode = (config.barMode as string) ?? 'grouped'
   const histogramOrientation = (config.histogramOrientation as string) ?? 'vertical'
+  const boxplotOrientation = (config.boxplotOrientation as string) ?? 'vertical'
+  const boxStyle = (config.boxStyle as string) ?? 'filled'
+  const sortByMedian = (config.sortByMedian as boolean) ?? false
+  const showCount = (config.showCount as boolean) ?? false
   const barStyle = (config.barStyle as string) ?? 'classic'
   const excludeNA = (config.excludeNA as boolean) ?? true
   const outlierMethod = ((config.outlierMethod as string) ?? 'none') as OutlierMethod
@@ -705,6 +798,18 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const histogramCol = isHorizontalHistogram ? yCol : xCol
   const histogramColumn = isHorizontalHistogram ? yColumn : xColumn
 
+  // A horizontal box/violin has its columns swapped (categories on Y, values on X), like a
+  // horizontal histogram. In axis-free terms: the required column sits on the category axis,
+  // the optional one on the value axis.
+  const isBoxLike = plotType === 'boxplot' || plotType === 'violin'
+  const isHorizontalBox = isBoxLike && boxplotOrientation === 'horizontal'
+  const boxCatCol = isHorizontalBox ? yCol : xCol
+  const boxValCol = isHorizontalBox ? xCol : yCol
+  const boxCatColumn = isHorizontalBox ? yColumn : xColumn
+  const boxValColumn = isHorizontalBox ? xColumn : yColumn
+  const requiredColumn = plotType === 'histogram' ? histogramColumn : isBoxLike ? boxCatColumn : xColumn
+  const requiresY = isHorizontalHistogram || isHorizontalBox
+
   const resolvedXLabel = xLabel || ''
   const resolvedYLabel = yLabel || ''
   const resolvedTitle =
@@ -716,10 +821,10 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       : `${xColumn?.name ?? xCol ?? ''} vs ${yColumn?.name ?? yCol ?? ''}`)
 
   // Histogram requires its binned variable (Y when horizontal, X otherwise); other plots require X.
-  if (plotType === 'histogram' ? !histogramColumn : !xColumn) {
+  if (!requiredColumn) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
-        {isHorizontalHistogram
+        {requiresY
           ? t('datasets.plot_builder_select_y', 'Select a Y variable.')
           : t('datasets.plot_builder_select_x', 'Select an X variable to begin.')}
       </div>
@@ -752,17 +857,20 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
     }
   }
 
-  // Box/violin compute stats over a numeric value column (Y if given, else X). A categorical
-  // value column coerces to NaN for every row and renders "No data" — say why instead.
-  if (plotType === 'boxplot' || plotType === 'violin') {
-    const valueColumn = yColumn ?? xColumn
+  // Box/violin compute stats over a numeric value column (the value axis if given, else the
+  // category axis). A categorical value column coerces to NaN for every row and renders
+  // "No data" — say why instead.
+  if (isBoxLike) {
+    const valueColumn = boxValColumn ?? boxCatColumn
     if (valueColumn && valueColumn.type !== 'number') {
       return (
         <div className="flex h-full items-center justify-center p-8 text-center text-xs text-muted-foreground">
-          {t('datasets.plot_builder_value_must_be_numeric', {
-            defaultValue: '"{{column}}" is not numeric. Box and violin plots need a numeric value axis (Y), with an optional categorical X.',
-            column: valueColumn.name,
-          })}
+          {isHorizontalBox
+            ? t('datasets.plot_builder_value_must_be_numeric_horizontal', { column: valueColumn.name })
+            : t('datasets.plot_builder_value_must_be_numeric', {
+                defaultValue: '"{{column}}" is not numeric. Box and violin plots need a numeric value axis (Y), with an optional categorical X.',
+                column: valueColumn.name,
+              })}
         </div>
       )
     }
@@ -929,32 +1037,40 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       {plotType === 'boxplot' && (
         <BoxViolinPlot
           rows={sourceRows}
-          xCol={xCol!}
-          yCol={yCol}
+          catCol={boxCatCol!}
+          valCol={boxValCol}
           colors={colors}
           opacity={opacity}
-          yLabel={resolvedYLabel}
+          valueLabel={isHorizontalBox ? resolvedXLabel : resolvedYLabel}
           showGrid={showGrid}
           violin={false}
           startAtZero={xAxisStartZero}
           xLabelMaxLen={xLabelMaxLen}
           decimals={decimals}
+          horizontal={isHorizontalBox}
+          boxStyle={boxStyle}
+          sortByMedian={sortByMedian}
+          showCount={showCount}
           serverData={sd}
         />
       )}
       {plotType === 'violin' && (
         <BoxViolinPlot
           rows={sourceRows}
-          xCol={xCol!}
-          yCol={yCol}
+          catCol={boxCatCol!}
+          valCol={boxValCol}
           colors={colors}
           opacity={opacity}
-          yLabel={resolvedYLabel}
+          valueLabel={isHorizontalBox ? resolvedXLabel : resolvedYLabel}
           showGrid={showGrid}
           violin={true}
           startAtZero={xAxisStartZero}
           xLabelMaxLen={xLabelMaxLen}
           decimals={decimals}
+          horizontal={isHorizontalBox}
+          boxStyle={boxStyle}
+          sortByMedian={sortByMedian}
+          showCount={showCount}
           serverData={sd}
         />
       )}
@@ -1850,39 +1966,39 @@ function binLabelAt(data: Record<string, unknown>[], index: number): string | un
 // ---------------------------------------------------------------------------
 
 function BoxViolinPlot({
-  rows, xCol, yCol, colors, opacity, yLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12, decimals = 1, serverData,
+  rows, catCol, valCol, colors, opacity, valueLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12, decimals = 1,
+  horizontal = false, boxStyle = 'filled', sortByMedian = false, showCount = false, serverData,
 }: {
-  rows: Record<string, unknown>[]; xCol: string; yCol?: string
-  colors: string[]; opacity: number; yLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number; decimals?: number; serverData?: PlotServerData | null
+  rows: Record<string, unknown>[]
+  /** Category column, or the value column itself when `valCol` is empty (one box). */
+  catCol: string
+  valCol?: string
+  colors: string[]; opacity: number; valueLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number; decimals?: number
+  horizontal?: boolean; boxStyle?: string; sortByMedian?: boolean; showCount?: boolean
+  serverData?: PlotServerData | null
 }) {
   const data = useMemo<BoxplotData[]>(() => {
     if (serverData) return (serverData.data ?? []) as unknown as BoxplotData[]
-    const valCol = yCol ?? xCol
-    const catCol = yCol ? xCol : null
+    const valueCol = valCol ?? catCol
+    const groupCol = valCol ? catCol : null
 
-    if (!catCol) {
-      const values = rows.map(r => toNumeric(r[valCol])).filter(v => !isNaN(v))
+    if (!groupCol) {
+      const values = rows.map(r => toNumeric(r[valueCol])).filter(v => !isNaN(v))
       const stats = computeBoxplotStats(values)
       if (!stats) return []
-      return [{ name: valCol, stats, values }]
+      return [{ name: valueCol, stats, values }]
     }
 
     const groups = new Map<string, number[]>()
     for (const row of rows) {
-      const cat = String(row[catCol] ?? '')
-      const val = toNumeric(row[valCol])
+      const cat = String(row[groupCol] ?? '')
+      const val = toNumeric(row[valueCol])
       if (isNaN(val)) continue
       if (!groups.has(cat)) groups.set(cat, [])
       groups.get(cat)!.push(val)
     }
-
-    const result: BoxplotData[] = []
-    for (const [name, values] of Array.from(groups.entries()).slice(0, 20)) {
-      const stats = computeBoxplotStats(values)
-      if (stats) result.push({ name, stats, values })
-    }
-    return result
-  }, [serverData, rows, xCol, yCol])
+    return buildBoxplotGroups(groups, sortByMedian)
+  }, [serverData, rows, catCol, valCol, sortByMedian])
 
   return (
     <div className="w-full h-full">
@@ -1890,12 +2006,15 @@ function BoxViolinPlot({
         data={data}
         colors={colors}
         opacity={opacity}
-        yLabel={yLabel}
+        valueLabel={valueLabel}
         showGrid={showGrid}
         violin={violin}
         startAtZero={startAtZero}
         xLabelMaxLen={xLabelMaxLen}
         decimals={decimals}
+        horizontal={horizontal}
+        boxStyle={boxStyle}
+        showCount={showCount}
       />
     </div>
   )

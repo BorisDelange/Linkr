@@ -80,11 +80,12 @@ export interface PluginConfigField {
   /** Static hint badge shown next to the label (e.g. "required", "optional"). */
   hint?: { en: string; fr: string }
   /** Conditional hint: shown only when another field has a specific value. Overrides `hint`.
-   *  `override` swaps the values map when a second field matches (e.g. flip X/Y hints by orientation). */
+   *  `override` swaps entries of the values map when a second field matches (e.g. flip X/Y hints
+   *  by orientation); a list applies every override that matches, later ones winning. */
   hintWhen?: {
     field: string
     values: Record<string, { en: string; fr: string }>
-    override?: { field: string; value: unknown; values: Record<string, { en: string; fr: string }> }
+    override?: HintOverride | HintOverride[]
   }
   /**
    * Auto-set other fields when a column-select changes, based on column type.
@@ -95,6 +96,12 @@ export interface PluginConfigField {
     numeric?: Record<string, unknown>
     categorical?: Record<string, unknown>
   }
+}
+
+export interface HintOverride {
+  field: string
+  value: unknown
+  values: Record<string, { en: string; fr: string }>
 }
 
 /** Editable plugin metadata captured by the create/edit dialog (single active language). */

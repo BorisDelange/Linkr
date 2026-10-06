@@ -143,6 +143,52 @@
         }
       ]
     },
+    "boxplotOrientation": {
+      "type": "select",
+      "label": {
+        "en": "Orientation",
+        "fr": "Orientation"
+      },
+      "default": "vertical",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "boxplot",
+          "violin"
+        ]
+      },
+      "row": "orientationRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "swapFieldsOnChange": [
+        [
+          "xColumn",
+          "yColumn"
+        ],
+        [
+          "xLabel",
+          "yLabel"
+        ]
+      ],
+      "options": [
+        {
+          "value": "vertical",
+          "label": {
+            "en": "Vertical",
+            "fr": "Verticale"
+          }
+        },
+        {
+          "value": "horizontal",
+          "label": {
+            "en": "Horizontal",
+            "fr": "Horizontale"
+          }
+        }
+      ]
+    },
     "barMode": {
       "type": "select",
       "label": {
@@ -363,16 +409,32 @@
             "fr": "catégories"
           }
         },
-        "override": {
-          "field": "histogramOrientation",
-          "value": "horizontal",
-          "values": {
-            "histogram": {
-              "en": "not used",
-              "fr": "non utilisé"
+        "override": [
+          {
+            "field": "histogramOrientation",
+            "value": "horizontal",
+            "values": {
+              "histogram": {
+                "en": "not used",
+                "fr": "non utilisé"
+              }
+            }
+          },
+          {
+            "field": "boxplotOrientation",
+            "value": "horizontal",
+            "values": {
+              "boxplot": {
+                "en": "numeric",
+                "fr": "numérique"
+              },
+              "violin": {
+                "en": "numeric",
+                "fr": "numérique"
+              }
             }
           }
-        }
+        ]
       }
     },
     "yColumn": {
@@ -419,16 +481,32 @@
             "fr": "numérique"
           }
         },
-        "override": {
-          "field": "histogramOrientation",
-          "value": "horizontal",
-          "values": {
-            "histogram": {
-              "en": "required",
-              "fr": "requis"
+        "override": [
+          {
+            "field": "histogramOrientation",
+            "value": "horizontal",
+            "values": {
+              "histogram": {
+                "en": "required",
+                "fr": "requis"
+              }
+            }
+          },
+          {
+            "field": "boxplotOrientation",
+            "value": "horizontal",
+            "values": {
+              "boxplot": {
+                "en": "categories",
+                "fr": "catégories"
+              },
+              "violin": {
+                "en": "categories",
+                "fr": "catégories"
+              }
             }
           }
-        }
+        ]
       }
     },
     "uniquePer": {
@@ -859,6 +937,91 @@
         "en": "Style",
         "fr": "Style",
         "defaultOpen": false
+      }
+    },
+    "boxStyle": {
+      "type": "select",
+      "label": {
+        "en": "Box style",
+        "fr": "Style des boîtes"
+      },
+      "default": "filled",
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "boxplot"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Outline: a light box with a coloured border and a thick median line labelled with its value, so medians are what the eye compares.",
+        "fr": "Épuré : une boîte légère au contour coloré et une médiane épaisse annotée de sa valeur, pour que l'œil compare les médianes."
+      },
+      "options": [
+        {
+          "value": "filled",
+          "label": {
+            "en": "Filled",
+            "fr": "Plein"
+          }
+        },
+        {
+          "value": "outline",
+          "label": {
+            "en": "Outline",
+            "fr": "Épuré"
+          }
+        }
+      ]
+    },
+    "sortByMedian": {
+      "type": "boolean",
+      "label": {
+        "en": "Sort by median",
+        "fr": "Trier par médiane"
+      },
+      "default": false,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "boxplot",
+          "violin"
+        ]
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Order the categories from the highest median to the lowest.",
+        "fr": "Ordonne les catégories de la médiane la plus haute à la plus basse."
+      }
+    },
+    "showCount": {
+      "type": "boolean",
+      "label": {
+        "en": "Show counts (n)",
+        "fr": "Afficher les effectifs (n)"
+      },
+      "default": false,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "boxplot",
+          "violin"
+        ]
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Add the number of values (n = …) to each category label.",
+        "fr": "Ajoute le nombre de valeurs (n = …) à l'étiquette de chaque catégorie."
       }
     },
     "barStyle": {

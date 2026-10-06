@@ -520,6 +520,37 @@ def test_plot_builder_unique_per_keeps_non_numeric_first():
     assert res["data"] == [{"name": "A", "stats": pytest_approx_stats(20.0), "values": [20.0]}]
 
 
+def _box_frame(n_categories):
+    import pandas as pd
+
+    # Category c<i> holds [i, i, i]: its median is i, so first-seen order is ascending.
+    cats, vals = [], []
+    for i in range(n_categories):
+        cats += [f"c{i}"] * 3
+        vals += [float(i)] * 3
+    return pd.DataFrame({"cat": cats, "val": vals})
+
+
+def test_plot_builder_boxplot_keeps_first_seen_order_by_default():
+    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val"}, _box_frame(3))
+    assert [d["name"] for d in res["data"]] == ["c0", "c1", "c2"]
+
+
+def test_plot_builder_boxplot_sorts_by_descending_median():
+    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val", "boxSortByMedian": True}, _box_frame(3))
+    assert [d["name"] for d in res["data"]] == ["c2", "c1", "c0"]
+    assert [len(d["values"]) for d in res["data"]] == [3, 3, 3]
+
+
+def test_plot_builder_boxplot_sorts_before_the_category_cap():
+    """Mirror of buildBoxplotGroups: with 25 categories the sorted chart keeps the
+    20 highest medians, not the first 20 met."""
+    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val", "boxSortByMedian": True}, _box_frame(25))
+    names = [d["name"] for d in res["data"]]
+    assert len(names) == 20
+    assert names[0] == "c24" and names[-1] == "c5"
+
+
 def pytest_approx_stats(v):
     return {"min": v, "q1": v, "median": v, "q3": v, "max": v, "mean": v}
 

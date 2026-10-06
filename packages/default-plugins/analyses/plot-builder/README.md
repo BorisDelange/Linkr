@@ -21,7 +21,10 @@ you give the chart its columns — **X variable**, **Y variable**, an optional
 **Per-entity function**, then what is dropped with **Exclude NA / missing** and
 **Exclude outliers** (with its **Threshold**). Histograms add **Bin mode** with
 **Bins** or **Bin width**, plus an **Orientation** and, when grouped, a **Bar
-mode**. The **Style** section carries the presentation: **Title** and axis
+mode**. Boxplots and violins add an **Orientation** too (horizontal puts the
+categories on Y, with their full names), **Sort by median** and **Show counts
+(n)**; boxplots also a **Box style**, *Outline* drawing a light box with a thick,
+labelled median. The **Style** section carries the presentation: **Title** and axis
 labels, **Color palette**, **Legend**, **Grid**, **Opacity (%)**, point and bar
 sizes, and **X / Y axis starts at 0**.
 
@@ -40,7 +43,7 @@ The plot type is not a style choice. It follows from the question.
 
 A bar chart with an empty **Y variable** counts rows; with a Y it averages that
 column per category — not sums it. Bar charts keep at most 30 categories, boxes
-and violins at most 20; beyond that the chart is unreadable anyway, so aggregate
+and violins at most 20 (with **Sort by median**, the 20 highest medians); beyond that the chart is unreadable anyway, so aggregate
 your categories upstream rather than hoping the chart sorts it out.
 
 ## Notes on the method

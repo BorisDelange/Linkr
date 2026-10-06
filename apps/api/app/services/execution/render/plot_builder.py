@@ -74,6 +74,7 @@ def validate_spec(spec: dict) -> dict:
         "binWidth": _num(spec.get("binWidth"), "binWidth", 5),
         "decimals": _num(spec.get("decimals"), "decimals", 1),
         "xAxisStartZero": bool(spec.get("xAxisStartZero", False)),
+        "boxSortByMedian": bool(spec.get("boxSortByMedian", False)),
         # Histogram drag-to-zoom: re-bin only this value range, so zooming reveals
         # finer structure rather than redrawing the same bars wider.
         "zoomLo": None if spec.get("zoomLo") is None else _num(spec.get("zoomLo"), "zoomLo", 0),
@@ -548,10 +549,14 @@ def _linkr_print_plot(dataset, spec):
                 val = _linkr_to_num(row[val_col])
                 if _math.isnan(val): continue
                 groups.setdefault(cat, []).append(val)
-            for name, vals in list(groups.items())[:20]:
+            for name, vals in groups.items():
                 stats = _linkr_boxplot_stats(vals)
                 if stats:
                     data.append({"name": name, "stats": stats, "values": vals})
+            # Ordered before the cap, so a sorted chart keeps the highest medians.
+            if spec.get("boxSortByMedian"):
+                data.sort(key=lambda d: -d["stats"]["median"])
+            data = data[:20]
         print(_json.dumps({**result, "data": data})); return
 
     print(_json.dumps({**result, "data": []}))

@@ -108,14 +108,17 @@ export function TruncatedNumericTick({ x, y, payload, formatter, maxLen = 10 }: 
   )
 }
 
-/** Plain SVG <text> for hand-drawn (non-recharts) category axes — truncates + styled hover tooltip. */
-export function CategoryAxisLabel({ x, y, name, maxLen = 12 }: { x: number; y: number; name: string; maxLen?: number }) {
+/** Plain SVG <text> for hand-drawn (non-recharts) category axes — truncates + styled hover tooltip.
+ *  `suffix` (e.g. a count) follows the name on the same line, dimmed and never truncated. */
+export function CategoryAxisLabel({ x, y, name, maxLen = 12, textAnchor = 'middle', suffix }: {
+  x: number; y: number; name: string; maxLen?: number; textAnchor?: 'start' | 'middle' | 'end'; suffix?: string
+}) {
   const display = truncateLabel(name, maxLen)
   const isTruncated = display !== name
   return (
     <text
       x={x} y={y}
-      textAnchor="middle"
+      textAnchor={textAnchor}
       fontSize={10}
       fill="currentColor"
       opacity={0.7}
@@ -125,6 +128,7 @@ export function CategoryAxisLabel({ x, y, name, maxLen = 12 }: { x: number; y: n
       onMouseLeave={isTruncated ? hideLabelTooltip : undefined}
     >
       {display}
+      {suffix && <tspan opacity={0.6}>{suffix}</tspan>}
     </text>
   )
 }

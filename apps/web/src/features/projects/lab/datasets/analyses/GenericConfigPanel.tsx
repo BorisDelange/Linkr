@@ -320,10 +320,11 @@ function resolveHint(
     const depValue = String(config[field.hintWhen.field] ?? '')
     // An override swaps specific hints when a second field matches (e.g. flip X/Y by orientation).
     // Override keys take precedence; missing keys fall back to the base map.
-    const ov = field.hintWhen.override
-    const values = ov && config[ov.field] === ov.value
-      ? { ...field.hintWhen.values, ...ov.values }
-      : field.hintWhen.values
+    const overrides = [field.hintWhen.override ?? []].flat()
+    const values = overrides.reduce(
+      (acc, ov) => (config[ov.field] === ov.value ? { ...acc, ...ov.values } : acc),
+      field.hintWhen.values,
+    )
     const label = values[depValue]
     if (label) return label[lang] ?? label.en
     return null

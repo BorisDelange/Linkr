@@ -22,7 +22,10 @@ ligne avec **Unique par** et **Fonction par entité**, puis de ce qui est écart
 avec **Exclure NA / manquants** et **Exclure les valeurs aberrantes** (et son
 **Seuil**). Les histogrammes ajoutent un **Mode bins** avec **Barres** ou
 **Largeur**, une **Orientation** et, en cas de groupe, un **Mode des barres**.
-La section **Style** porte la présentation : **Titre** et légendes d'axes,
+Les boîtes et les violons ont aussi une **Orientation** (horizontale : les
+catégories en Y, avec leur nom complet), **Trier par médiane** et **Afficher les
+effectifs (n)** ; les boîtes, un **Style des boîtes**, *Épuré* traçant une boîte
+légère et une médiane épaisse annotée. La section **Style** porte la présentation : **Titre** et légendes d'axes,
 **Palette**, **Légende**, **Grille**, **Opacité (%)**, taille des points et des
 barres, et **Axe X / Y commence à 0**.
 
@@ -41,7 +44,8 @@ Le type de graphique n'est pas un choix esthétique. Il découle de la question.
 
 Un graphique en barres avec **Variable Y** vide compte les lignes ; avec un Y, il
 en calcule la moyenne par catégorie — pas la somme. Les barres retiennent au plus
-30 catégories, les boîtes et les violons au plus 20 : au-delà la figure est de
+30 catégories, les boîtes et les violons au plus 20 (avec **Trier par médiane**, les 20 médianes les plus
+hautes) : au-delà la figure est de
 toute façon illisible, agrégez donc vos catégories en amont plutôt que d'espérer
 que le graphique s'en sorte.
 
