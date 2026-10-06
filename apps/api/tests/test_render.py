@@ -195,6 +195,56 @@ def test_key_indicator_proportion_auto_target_is_lowercase():
     assert out["matchCount"] == 2
 
 
+def test_key_indicator_any_row_keeps_entities_without_values_in_the_denominator():
+    """A long table: one row per event, the infection flag only on infection rows.
+    "% of patients with a BSI" must count every patient, and a patient matches as
+    soon as one of their rows does — not only on their first row."""
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "patient_id": ["a", "a", "b", "b", "c", "d"],
+        "bsi": [None, "Oui", "Non", None, None, "Non"],
+    })
+    out = _run_kpi(
+        {"column": {"name": "bsi", "numeric": False}, "aggregate": "proportion",
+         "targetValue": "Oui", "uniquePer": "patient_id", "uniqueAggregation": "any"},
+        df,
+    )
+    assert out["n"] == 4
+    assert out["matchCount"] == 1
+    assert out["result"] == pytest.approx(25.0)
+
+
+def test_key_indicator_any_row_without_target_counts_any_value():
+    """"% of patients with at least one antibiotic": no target value, a patient
+    matches as soon as one of their rows is filled."""
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "patient_id": [1, 1, 2, 3],
+        "molecule": [None, "Amoxicilline", None, "Cefotaxime"],
+    })
+    out = _run_kpi(
+        {"column": {"name": "molecule", "numeric": False}, "aggregate": "proportion",
+         "uniquePer": "patient_id", "uniqueAggregation": "any"},
+        df,
+    )
+    assert out["n"] == 3
+    assert out["matchCount"] == 2
+
+
+def test_key_indicator_any_row_reads_as_first_outside_a_proportion():
+    import pandas as pd
+
+    df = pd.DataFrame({"patient_id": ["a", "a", "b"], "los": [3.0, 3.0, 5.0]})
+    out = _run_kpi(
+        {"column": {"name": "los", "numeric": True}, "aggregate": "mean",
+         "uniquePer": "patient_id", "uniqueAggregation": "any"},
+        df,
+    )
+    assert out["result"] == pytest.approx(4.0)
+
+
 def test_key_indicator_count_matches_boolean_target():
     """Same mismatch on the non-proportion branch: aggregate=count with a target
     counted 0 rows for a boolean column."""
@@ -1001,6 +1051,39 @@ def test_plot_builder_scatter_under_the_cap_is_not_sampled():
     out = _run_plot({"plotType": "scatter", "x": "a", "y": "b", "excludeNA": False}, df)
     assert "pointsTotal" not in out
     assert _scatter_xs(out) == [1, 2]
+
+
+def test_plot_builder_pie_counts_categories_largest_first():
+    import pandas as pd
+
+    df = pd.DataFrame({"ward": ["ICU", "ED", "ICU", "Ward", "ICU", "ED", None, ""]})
+    out = _run_plot({"plotType": "pie", "x": "ward", "hist": "ward"}, df)
+    assert out["data"] == [
+        {"bin": "ICU", "count": 3},
+        {"bin": "ED", "count": 2},
+        {"bin": "Ward", "count": 1},
+    ]
+    assert out["series"] == ["count"]
+
+
+def test_plot_builder_pie_counts_once_per_entity():
+    """uniquePer collapses each entity to one row before counting, so a patient
+    with several stays counts once."""
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "patient": ["P1", "P1", "P1", "P2", "P3"],
+        "sex": ["F", "F", "F", "M", "M"],
+    })
+    out = _run_plot({"plotType": "pie", "x": "sex", "hist": "sex", "uniquePer": "patient"}, df)
+    assert out["data"] == [{"bin": "M", "count": 2}, {"bin": "F", "count": 1}]
+
+
+def test_plot_builder_pie_ignores_a_missing_column():
+    import pandas as pd
+
+    out = _run_plot({"plotType": "pie", "x": "gone", "hist": "gone"}, pd.DataFrame({"a": [1]}))
+    assert out["data"] == []
 
 
 def test_key_indicator_unique_per_aggregates_the_metric_per_entity():

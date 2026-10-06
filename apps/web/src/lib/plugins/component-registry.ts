@@ -1,6 +1,14 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
 import type { DatasetColumn } from '@/types'
 
+/** One comparison window: rows for the front-only path, filters for the server. */
+export interface PreviousPeriod {
+  rows: Record<string, unknown>[]
+  datasetFilters?: unknown[]
+  from: string
+  to: string
+}
+
 /** Props that every component-runtime plugin receives. */
 export interface ComponentPluginProps {
   config: Record<string, unknown>
@@ -14,6 +22,13 @@ export interface ComponentPluginProps {
    *  not yet migrated ignore them and are gated by the caller. */
   datasetFileId?: string | null
   datasetFilters?: unknown[]
+  /**
+   * The same data over the period just before the dashboard's date window (a
+   * 6-month window gives the 6 months before it), for components that show a
+   * trend. Lazy: only a component that compares pays for the extra filtering.
+   * Absent outside dashboards; returns null when no closed date window is active.
+   */
+  getPreviousPeriod?: () => PreviousPeriod | null
   /**
    * Write back into the analysis config, for a control the RESULT itself owns.
    *

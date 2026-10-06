@@ -1,12 +1,14 @@
-import { Suspense } from 'react'
+import { Suspense, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle } from 'lucide-react'
 import type { DashboardWidget } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
-import { useDashboardData } from '../DashboardDataProvider'
+import { applyFilters, useDashboardData } from '../DashboardDataProvider'
 import { resolveServerFilters } from '../resolve-server-filters'
+import { previousPeriodFilters } from '../previous-period'
+import type { PreviousPeriod } from '@/lib/plugins/component-registry'
 import { useWidgetExecution } from './use-widget-execution'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { isServerMode } from '@/lib/api-client'
@@ -131,10 +133,22 @@ function ScriptPluginWidget({ widget }: { widget: DashboardWidget }) {
 
 function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidget; componentId: string }) {
   const { t } = useTranslation()
-  const { filteredRows, columns, datasetFileId, filters } = useDashboardData()
+  const { rows, filteredRows, columns, datasetFileId, filters } = useDashboardData()
   const source = widget.source as { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
 
   const Component = getComponent(componentId)
+
+  const getPreviousPeriod = useCallback((): PreviousPeriod | null => {
+    const previous = previousPeriodFilters(filters)
+    if (!previous) return null
+    const server = isServerMode() && !!datasetFileId
+    return {
+      rows: server ? [] : applyFilters(rows, previous.filters),
+      datasetFilters: server ? resolveServerFilters(previous.filters, columns) : undefined,
+      from: previous.from,
+      to: previous.to,
+    }
+  }, [filters, rows, columns, datasetFileId])
 
   if (columns.length === 0) {
     return (
@@ -174,6 +188,7 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
           compact
           datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
           datasetFilters={isServerMode() && datasetFileId ? resolveServerFilters(filters, columns) : undefined}
+          getPreviousPeriod={getPreviousPeriod}
         />
       </Suspense>
     </div>

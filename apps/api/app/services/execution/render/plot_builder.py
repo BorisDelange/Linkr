@@ -9,7 +9,7 @@ never ships code, so it can't run arbitrary Python via the render endpoint.
 import json
 
 # Enum-checked against the values used in plot-builder-server.ts / PlotBuilderComponent.tsx.
-_ALLOWED_PLOT_TYPES = {"scatter", "line", "bar", "histogram", "boxplot", "violin"}
+_ALLOWED_PLOT_TYPES = {"scatter", "line", "bar", "histogram", "pie", "boxplot", "violin"}
 _ALLOWED_BIN_MODES = {"count", "width"}
 _ALLOWED_ORIENTATIONS = {"vertical", "horizontal"}
 _ALLOWED_AGGREGATIONS = {"first", "last", "mean", "median", "min", "max", "sum"}
@@ -522,6 +522,13 @@ def _linkr_print_plot(dataset, spec):
             print(_json.dumps({**result, "data": data, "series": ["count"], "isCategorical": False, "colorByCategory": color_by_cat})); return
         data = _linkr_histogram_grouped(df, hist, eff_group, bin_mode, bins_cfg, bin_width_cfg, eff_group_names, saz, decimals)
         print(_json.dumps({**result, "data": data, "series": eff_group_names, "isCategorical": False, "colorByCategory": color_by_cat})); return
+
+    if plot_type == "pie":
+        # Same per-category count as the categorical histogram, already sorted by
+        # descending count, so slices come out largest first on both paths.
+        if not hist or hist not in df.columns:
+            print(_json.dumps({**result, "data": [], "series": ["count"]})); return
+        print(_json.dumps({**result, "data": _linkr_categorical(df, hist), "series": ["count"]})); return
 
     if plot_type in ("boxplot", "violin"):
         val_col = y if y else x

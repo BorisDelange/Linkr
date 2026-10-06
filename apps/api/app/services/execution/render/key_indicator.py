@@ -17,8 +17,9 @@ _ALLOWED_AGGREGATE = {
     "sd", "q1", "q3", "iqr", "proportion", "none",
 }
 # uniqueAggregation reduces one row per entity: first/last pick the row, the rest
-# are numeric reductions handled by _linkr_agg.
-_ALLOWED_UNIQUE_AGG = {"first", "last", "mean", "median", "min", "max", "sum"}
+# are numeric reductions handled by _linkr_agg. "any" only applies to a proportion
+# (entity matches when one of its rows holds the target); elsewhere it reads as first.
+_ALLOWED_UNIQUE_AGG = {"first", "last", "mean", "median", "min", "max", "sum", "any"}
 _ALLOWED_CHART = {"none", "histogram", "boxplot", "bar", "pie"}
 
 
@@ -205,6 +206,35 @@ def _linkr_boxplot_stats(values):
         "mean": sum(s) / n,
     }
 
+def _linkr_print_any_row_proportion(df, name, unique_per, target):
+    # Long tables (one row per event): an entity matches when ANY of its rows holds
+    # the target, and an entity with no value at all stays in the denominator as a
+    # non-match. Mirror of anyRowProportion() in KeyIndicatorComponent.tsx.
+    import pandas as _pd
+    keys = df[unique_per]
+    values = df[name]
+    filled = values[~values.map(_linkr_is_empty)]
+    filled_str = _linkr_str(filled)
+    # No target: any non-empty value is a match.
+    resolved = target
+    hit = _pd.Series(False, index=df.index)
+    hit.loc[filled.index] = (filled_str == resolved).to_numpy() if resolved else True
+    known = keys.notna()
+    per_entity = hit[known].groupby(keys[known], sort=False).any()
+    total = int(len(per_entity))
+    if total == 0:
+        print(_json.dumps({"error": "no_data"}))
+        return
+    match_count = int(per_entity.sum())
+    print(_json.dumps({
+        "isProportion": True,
+        "result": (match_count / total) * 100,
+        "n": total,
+        "matchCount": match_count,
+        "resolvedTarget": resolved,
+        "chart": None,
+    }))
+
 def _linkr_print_kpi(dataset, spec):
     import pandas as _pd
     col = spec.get("column")
@@ -221,6 +251,12 @@ def _linkr_print_kpi(dataset, spec):
     chart_type = spec.get("chartType", "none")
 
     df = dataset
+
+    if unique_per and unique_per in df.columns and unique_agg == "any":
+        if aggregate == "proportion":
+            _linkr_print_any_row_proportion(df, name, unique_per, target)
+            return
+        unique_agg = "first"
 
     # aggregateByEntity: one row per entity. first/last pick the row; numeric aggs
     # (mean/median/min/max/sum) reduce numeric columns, non-numeric keep first.
