@@ -8,6 +8,7 @@
   },
   "footer": {
     "source": "Source code",
+    "source_hint": "Browse the code on Framagit, or on GitHub.",
     "cite": "Cite",
     "cite_title": "Cite this article",
     "cite_group_styles": "Citation styles",

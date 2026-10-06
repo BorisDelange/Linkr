@@ -463,7 +463,8 @@ export function AppSidebar() {
 
       {level === 'app' && (
         <SidebarFooter>
-          <SidebarSeparator />
+          {/* Edge to edge: pulled out of the footer's 0.5rem padding and widened by both sides. */}
+          <SidebarSeparator className="-mx-2 data-[orientation=horizontal]:w-[calc(100%+1rem)]" />
           <SidebarMenu>
             {appBottomItems.map(renderAppItem)}
           </SidebarMenu>
@@ -472,7 +473,8 @@ export function AppSidebar() {
 
       {level === 'workspace' && (
         <SidebarFooter>
-          <SidebarSeparator />
+          {/* Edge to edge: pulled out of the footer's 0.5rem padding and widened by both sides. */}
+          <SidebarSeparator className="-mx-2 data-[orientation=horizontal]:w-[calc(100%+1rem)]" />
           <SidebarMenu>
             {/* eslint-disable-next-line react-hooks/refs -- buildPath reads lastRoutes (route-memory ref); writes are driven by location.pathname effect, so it's always in sync at render */}
             {workspaceBottomItems.map((item) => renderSegmentTopItem(item))}
@@ -482,7 +484,8 @@ export function AppSidebar() {
 
       {level === 'project' && (
         <SidebarFooter>
-          <SidebarSeparator />
+          {/* Edge to edge: pulled out of the footer's 0.5rem padding and widened by both sides. */}
+          <SidebarSeparator className="-mx-2 data-[orientation=horizontal]:w-[calc(100%+1rem)]" />
           <SidebarMenu>
             {/* eslint-disable-next-line react-hooks/refs -- buildPath reads lastRoutes (route-memory ref); writes are driven by location.pathname effect, so it's always in sync at render */}
             {projectBottomItems.map((item) => renderSegmentTopItem(item))}

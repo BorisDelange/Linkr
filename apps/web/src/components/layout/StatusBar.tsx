@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Cpu, HardDrive, MemoryStick, Circle, Box, GitBranch, Trash2, Server, Monitor } from 'lucide-react'
+import { Cpu, HardDrive, MemoryStick, Circle, Box, Trash2, Server, Monitor } from 'lucide-react'
 import {
   Popover,
   PopoverContent,
@@ -20,6 +20,7 @@ import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 import { APP_VERSION } from '@/lib/version'
 import { JobsIndicator } from '@/components/layout/JobsIndicator'
 import { CiteDialog } from '@/components/layout/CiteDialog'
+import { SourceCodeDialog } from '@/components/layout/SourceCodeDialog'
 import type { RuntimeStatus } from '@/lib/runtimes/types'
 
 function usageColor(pct: number) {
@@ -121,15 +122,7 @@ export function StatusBar() {
           </Tooltip>
         </TooltipProvider>
         <span className="opacity-30">|</span>
-        <a
-          href="https://framagit.org/interhop/linkr/linkr"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-accent/50 transition-colors"
-        >
-          <GitBranch size={11} />
-          <span>{t('footer.source')}</span>
-        </a>
+        <SourceCodeDialog />
         <CiteDialog />
       </div>
       <div className="flex items-center gap-3">
