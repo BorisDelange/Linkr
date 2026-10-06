@@ -42,8 +42,8 @@
         "fr": "Données"
       },
       "description": {
-        "en": "This choice sets the variance model, and so the control limits themselves: binomial for a proportion, Poisson for a rate, Gaussian for a measurement. It is the one setting that changes what the limits mean, which is why it comes first. Left on Auto, the plugin infers it and says what it inferred.",
-        "fr": "Ce choix fixe le modèle de variance, donc les limites de contrôle elles-mêmes : binomial pour une proportion, Poisson pour un taux, gaussien pour une mesure. C'est le seul réglage qui change la signification des limites, d'où sa place en premier. Laissé sur Auto, le plugin le déduit et annonce ce qu'il a déduit."
+        "en": "This choice sets the variance model, and so the control limits themselves: binomial for a proportion, Poisson for a rate, Gaussian for a measurement. It is the one setting that changes what the limits mean, which is why it comes first. Left on Auto, the plugin infers it and says what it inferred. \"Share of patient-days with a device\" is the device utilisation ratio (NHSN DUR): days with a device over patient-days, charted as a proportion.",
+        "fr": "Ce choix fixe le modèle de variance, donc les limites de contrôle elles-mêmes : binomial pour une proportion, Poisson pour un taux, gaussien pour une mesure. C'est le seul réglage qui change la signification des limites, d'où sa place en premier. Laissé sur Auto, le plugin le déduit et annonce ce qu'il a déduit. « Part des jours-patients sous dispositif » est le ratio d’utilisation des dispositifs (DUR du NHSN) : jours avec dispositif rapportés aux jours-patients, suivis comme une proportion."
       },
       "options": [
         {
@@ -65,6 +65,13 @@
           "label": {
             "en": "Rate per exposure time",
             "fr": "Taux par temps d'exposition"
+          }
+        },
+        {
+          "value": "device-utilisation",
+          "label": {
+            "en": "Share of patient-days with a device",
+            "fr": "Part des jours-patients sous dispositif"
           }
         },
         {
@@ -192,8 +199,8 @@
         "fr": "Données"
       },
       "description": {
-        "en": "Which values of the variable count as the event — several may. Left empty on a 0/1 flag, any non-zero counts.",
-        "fr": "Quelles valeurs de la variable comptent comme événement — il peut y en avoir plusieurs. Laissé vide sur un indicateur 0/1, toute valeur non nulle compte."
+        "en": "Which values of the variable count as the event — several may. Left empty on a 0/1 flag, any non-zero counts. For a share of patient-days with a device, left empty, every filled row is a device.",
+        "fr": "Quelles valeurs de la variable comptent comme événement — il peut y en avoir plusieurs. Laissé vide sur un indicateur 0/1, toute valeur non nulle compte. Pour une part de jours-patients sous dispositif, laissé vide, toute ligne remplie est un dispositif."
       },
       "row": "eventRow",
       "visibleWhen": {
@@ -202,7 +209,8 @@
           "auto",
           "proportion",
           "rate",
-          "rare-event"
+          "rare-event",
+          "device-utilisation"
         ]
       }
     },
@@ -346,14 +354,24 @@
       "min": 1,
       "max": 100000,
       "row": "denomRow",
-      "visibleWhen": {
-        "field": "denominatorMode",
-        "values": [
-          "exposure-column",
-          "patient-days",
-          "device-days"
-        ]
-      },
+      "visibleWhen": [
+        {
+          "field": "denominatorMode",
+          "values": [
+            "exposure-column",
+            "patient-days",
+            "device-days"
+          ]
+        },
+        {
+          "field": "statisticType",
+          "values": [
+            "auto",
+            "proportion",
+            "rate"
+          ]
+        }
+      ],
       "section": {
         "en": "Data",
         "fr": "Données"
@@ -370,10 +388,20 @@
         "fr": "Colonne de durée"
       },
       "filter": "numeric",
-      "visibleWhen": {
-        "field": "denominatorMode",
-        "value": "exposure-column"
-      },
+      "visibleWhen": [
+        {
+          "field": "denominatorMode",
+          "value": "exposure-column"
+        },
+        {
+          "field": "statisticType",
+          "values": [
+            "auto",
+            "proportion",
+            "rate"
+          ]
+        }
+      ],
       "section": {
         "en": "Data",
         "fr": "Données"
@@ -391,8 +419,16 @@
       },
       "row": "stayBounds",
       "visibleWhen": {
-        "field": "denominatorMode",
-        "value": "patient-days"
+        "anyOf": [
+          {
+            "field": "denominatorMode",
+            "value": "patient-days"
+          },
+          {
+            "field": "statisticType",
+            "value": "device-utilisation"
+          }
+        ]
       },
       "section": {
         "en": "Data",
@@ -407,8 +443,16 @@
       },
       "row": "stayBounds",
       "visibleWhen": {
-        "field": "denominatorMode",
-        "value": "patient-days"
+        "anyOf": [
+          {
+            "field": "denominatorMode",
+            "value": "patient-days"
+          },
+          {
+            "field": "statisticType",
+            "value": "device-utilisation"
+          }
+        ]
       },
       "section": {
         "en": "Data",
@@ -427,8 +471,16 @@
       },
       "row": "deviceBounds",
       "visibleWhen": {
-        "field": "denominatorMode",
-        "value": "device-days"
+        "anyOf": [
+          {
+            "field": "denominatorMode",
+            "value": "device-days"
+          },
+          {
+            "field": "statisticType",
+            "value": "device-utilisation"
+          }
+        ]
       },
       "section": {
         "en": "Data",
@@ -443,12 +495,115 @@
       },
       "row": "deviceBounds",
       "visibleWhen": {
-        "field": "denominatorMode",
-        "value": "device-days"
+        "anyOf": [
+          {
+            "field": "denominatorMode",
+            "value": "device-days"
+          },
+          {
+            "field": "statisticType",
+            "value": "device-utilisation"
+          }
+        ]
       },
       "section": {
         "en": "Data",
         "fr": "Données"
+      }
+    },
+    "deviceFilterColumn": {
+      "type": "column-select",
+      "label": {
+        "en": "Devices counted",
+        "fr": "Dispositifs comptés"
+      },
+      "optional": true,
+      "row": "deviceFilter",
+      "visibleWhen": [
+        {
+          "field": "denominatorMode",
+          "value": "device-days"
+        },
+        {
+          "field": "statisticType",
+          "values": [
+            "auto",
+            "proportion",
+            "rate"
+          ]
+        }
+      ],
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Only the rows whose column holds one of the chosen values give device-days — e.g. the central line types for CLABSI. Empty: every row with device dates.",
+        "fr": "Seules les lignes dont la colonne vaut l’une des valeurs choisies donnent des jours-dispositif — par exemple les types de cathéters centraux pour les CLABSI. Vide : toutes les lignes ayant des dates de dispositif."
+      }
+    },
+    "deviceFilterValues": {
+      "type": "column-value-select",
+      "multi": true,
+      "columnField": "deviceFilterColumn",
+      "label": {
+        "en": "Values",
+        "fr": "Valeurs"
+      },
+      "optional": true,
+      "row": "deviceFilter",
+      "visibleWhen": [
+        {
+          "field": "denominatorMode",
+          "value": "device-days"
+        },
+        {
+          "field": "statisticType",
+          "values": [
+            "auto",
+            "proportion",
+            "rate"
+          ]
+        },
+        {
+          "field": "deviceFilterColumn",
+          "notEmpty": true
+        }
+      ],
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      }
+    },
+    "exposureEntity": {
+      "type": "column-select",
+      "label": {
+        "en": "Exposure counted per",
+        "fr": "Exposition comptée par"
+      },
+      "optional": true,
+      "visibleWhen": {
+        "anyOf": [
+          {
+            "field": "denominatorMode",
+            "values": [
+              "patient-days",
+              "device-days"
+            ]
+          },
+          {
+            "field": "statisticType",
+            "value": "device-utilisation"
+          }
+        ]
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Usually the patient identifier. Each patient’s intervals are merged so a day is counted once: a stay repeated on every row of a table with one row per event, or two lines in place the same day (NHSN counts line-days, not lines). Empty: every row’s interval is summed.",
+        "fr": "Généralement l’identifiant patient. Les intervalles de chaque patient sont fusionnés pour qu’un jour ne compte qu’une fois : un séjour répété sur chaque ligne d’une table à une ligne par événement, ou deux cathéters en place le même jour (le NHSN compte des jours-cathéter, pas des cathéters). Vide : l’intervalle de chaque ligne est additionné."
       }
     },
     "chartType": {
@@ -765,6 +920,36 @@
         "fr": "Style",
         "defaultOpen": false
       }
+    },
+    "display": {
+      "type": "select",
+      "label": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "default": "line",
+      "row": "labelsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "options": [
+        {
+          "value": "line",
+          "label": {
+            "en": "Line",
+            "fr": "Ligne"
+          }
+        },
+        {
+          "value": "bars",
+          "label": {
+            "en": "Bars",
+            "fr": "Barres"
+          }
+        }
+      ]
     },
     "centerTitle": {
       "type": "boolean",

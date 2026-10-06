@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
+  Area,
+  Bar,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Line,
   ReferenceLine,
   ResponsiveContainer,
-  Scatter,
   Tooltip,
   XAxis,
   YAxis,
@@ -49,6 +51,9 @@ function useSpcConfig(config: Record<string, unknown>, columnName: (id: unknown)
       deviceStartColumn: columnName(config.deviceStartColumn) || undefined,
       deviceEndColumn: columnName(config.deviceEndColumn) || undefined,
       deduplicateBy: columnName(config.deduplicateBy) || undefined,
+      deviceFilterColumn: columnName(config.deviceFilterColumn) || undefined,
+      deviceFilterValues: Array.isArray(config.deviceFilterValues) ? (config.deviceFilterValues as string[]) : undefined,
+      exposureEntity: columnName(config.exposureEntity) || undefined,
       aggregation: (config.aggregation as SpcConfig['aggregation']) ?? 'median',
       rateBasis: num('rateBasis') ?? 1000,
       // The config panel enforces min/max as HTML attributes only, with no
@@ -155,6 +160,10 @@ function SpcChart({ result, config, compact }: ChartProps) {
   const iconName = (config.cardIcon as string) ?? '__none__'
   const title = (config.title as string) ?? ''
   const yLabel = ((config.yLabel as string) ?? '') || defaultYLabel(result, t)
+  const bars = config.display === 'bars'
+  // Proportions are computed as fractions and read as percentages.
+  const percent = result.yUnit === '%'
+  const fmt = (v: number) => (percent ? `${formatValue(v * 100, decimals)} %` : formatValue(v, decimals))
 
   // Recharts needs one flat row per point; the limits ride along so each is
   // drawn at its own height — the staircase that makes a varying denominator
@@ -164,6 +173,9 @@ function SpcChart({ result, config, compact }: ChartProps) {
     value: p.value,
     ucl: p.ucl,
     lcl: p.lcl,
+    // The control band: a tinted area between the limits reads as "the expected
+    // range" without the dashed lines competing with the data.
+    band: Number.isFinite(p.lcl) && Number.isFinite(p.ucl) ? [p.lcl, p.ucl] : null,
     centre: p.centre,
     signal: p.signals.length > 0 ? p.value : null,
     numerator: p.numerator,
@@ -203,12 +215,15 @@ function SpcChart({ result, config, compact }: ChartProps) {
                   ? { value: yLabel, angle: -90, position: 'insideLeft', style: { fontSize: 10, fill: 'var(--color-muted-foreground)' } }
                   : undefined
               }
-              tickFormatter={(v: number) => formatValue(v, decimals)}
+              // Ticks are round numbers: no trailing ".0".
+              tickFormatter={(v: number) => fmt(v).replace(/\.0+(?= |$)/, '')}
             />
             <Tooltip
               {...TOOLTIP_STYLE}
               formatter={(value, name) => [
-                formatValue(typeof value === 'number' ? value : Number(value), decimals),
+                Array.isArray(value)
+                  ? `${fmt(Number(value[0]))} – ${fmt(Number(value[1]))}`
+                  : fmt(typeof value === 'number' ? value : Number(value)),
                 t(`analyses.spc_series_${name}`, { defaultValue: String(name) }),
               ]}
             />
@@ -222,12 +237,29 @@ function SpcChart({ result, config, compact }: ChartProps) {
               />
             )}
 
-            <Line type="stepAfter" dataKey="ucl" stroke={signalColor} strokeDasharray="5 3" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
-            <Line type="stepAfter" dataKey="lcl" stroke={signalColor} strokeDasharray="5 3" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
-            <Line type="monotone" dataKey="centre" stroke="var(--color-muted-foreground)" strokeWidth={1} dot={false} isAnimationActive={false} />
-            <Line type="monotone" dataKey="value" stroke={lineColor} strokeWidth={2} dot={{ r: 2.5, fill: lineColor }} isAnimationActive={false} />
-            {/* Flagged points are drawn on top, so a signal reads at a glance. */}
-            <Scatter dataKey="signal" fill={signalColor} shape="circle" isAnimationActive={false} />
+            <Area type="stepAfter" dataKey="band" fill={lineColor} fillOpacity={0.1} stroke="none" isAnimationActive={false} activeDot={false} connectNulls />
+            <Line type="linear" dataKey="centre" stroke="var(--color-muted-foreground)" strokeWidth={1} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
+            {bars ? (
+              <Bar dataKey="value" maxBarSize={28} radius={[3, 3, 0, 0]} isAnimationActive={false}>
+                {data.map(d => <Cell key={d.date} fill={d.signal !== null ? signalColor : lineColor} />)}
+              </Bar>
+            ) : (
+              // Straight segments: a spline would invent values between periods.
+              <Line
+                type="linear"
+                dataKey="value"
+                stroke={lineColor}
+                strokeWidth={2}
+                // One dot per period, in the signal colour when flagged: a signal
+                // stands out by its colour, not by a bigger marker drawn on top.
+                dot={(props: { cx?: number; cy?: number; index?: number; payload?: { signal: number | null } }) => {
+                  if (!Number.isFinite(props.cx) || !Number.isFinite(props.cy)) return <g key={props.index} />
+                  const color = props.payload?.signal != null ? signalColor : lineColor
+                  return <circle key={props.index} cx={props.cx} cy={props.cy} r={2.5} fill={color} stroke={color} strokeWidth={1} />
+                }}
+                isAnimationActive={false}
+              />
+            )}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -235,7 +267,7 @@ function SpcChart({ result, config, compact }: ChartProps) {
       {showLegend && !compact && (
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
           <span>{t('analyses.spc_chart_type', { type: chartLabel(result.chartType, t) })}</span>
-          <span>{t('analyses.spc_centre', { value: formatValue(result.centre, decimals) })}</span>
+          <span>{t('analyses.spc_centre', { value: fmt(result.centre) })}</span>
           {result.sigmaZ !== undefined && result.sigmaZ > 1.05 && (
             <span>{t('analyses.spc_dispersion', { value: result.sigmaZ.toFixed(2) })}</span>
           )}
@@ -290,7 +322,7 @@ function chartLabel(type: SpcResult['chartType'], t: TFunction): string {
 }
 
 function defaultYLabel(result: SpcResult, t: TFunction): string {
-  if (result.yUnit) return t('analyses.spc_y_rate', { basis: result.yUnit.replace('/', '') })
+  if (result.yUnit && result.yUnit !== '%') return t('analyses.spc_y_rate', { basis: result.yUnit.replace('/', '') })
   if (result.chartType === 'g' || result.chartType === 't') return t('analyses.spc_y_interval')
   return ''
 }

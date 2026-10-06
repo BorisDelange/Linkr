@@ -41,7 +41,8 @@ import type {
 } from './spc-types'
 
 export interface SpcConfig {
-  statisticType: StatisticType | 'auto'
+  /** `device-utilisation`: days with a device over patient-days — a proportion of days. */
+  statisticType: StatisticType | 'auto' | 'device-utilisation'
   chartType: ChartType | 'auto'
   dateColumn: string
   valueColumn: string
@@ -54,6 +55,11 @@ export interface SpcConfig {
   deviceStartColumn?: string
   deviceEndColumn?: string
   deduplicateBy?: string
+  /** Device-days denominator restricted to rows whose column holds one of these values. */
+  deviceFilterColumn?: string
+  deviceFilterValues?: string[]
+  /** Entity whose overlapping exposure intervals count each day once. */
+  exposureEntity?: string
   aggregation?: 'mean' | 'median' | 'sum' | 'min' | 'max'
   rateBasis?: number
   sigmaWidth?: number
@@ -141,10 +147,13 @@ export function computeSpc(rows: Record<string, unknown>[], config: SpcConfig): 
   if (!config.dateColumn || !config.valueColumn) return null
 
   const warnings: SpcWarning[] = []
-  const statisticType =
+  // A utilisation ratio is a proportion of days: binomial limits, patient-days below.
+  const utilisation = config.statisticType === 'device-utilisation'
+  const denominatorMode = utilisation ? 'patient-days' : config.denominatorMode
+  const statisticType: StatisticType =
     config.statisticType === 'auto'
       ? detectStatisticType(rows, config.valueColumn, config.denominatorMode)
-      : config.statisticType
+      : utilisation ? 'proportion' : config.statisticType as StatisticType
 
   // A measurement has no event denominator, so a configured denominator mode
   // cannot apply. Say so rather than ignoring it silently — this is the exact
@@ -166,7 +175,7 @@ export function computeSpc(rows: Record<string, unknown>[], config: SpcConfig): 
           period: config.period,
           valueColumn: config.valueColumn,
           eventValues: config.eventValues,
-          denominatorMode: config.denominatorMode,
+          denominatorMode,
           exposureColumn: config.exposureColumn,
           admissionColumn: config.admissionColumn,
           dischargeColumn: config.dischargeColumn,
@@ -174,6 +183,10 @@ export function computeSpc(rows: Record<string, unknown>[], config: SpcConfig): 
           deviceEndColumn: config.deviceEndColumn,
           deduplicateBy: config.deduplicateBy,
           aggregation: config.aggregation,
+          numerator: utilisation ? 'device-days' : 'events',
+          deviceFilterColumn: config.deviceFilterColumn,
+          deviceFilterValues: config.deviceFilterValues,
+          exposureEntity: config.exposureEntity,
         })
 
   if (points.length === 0) return null
@@ -205,6 +218,7 @@ export function computeSpc(rows: Record<string, unknown>[], config: SpcConfig): 
     case 'p':
     case 'p-prime':
       result = buildPChart({ ...common, prime: chartType === 'p-prime' })
+      result.yUnit = '%'
       break
     case 'u':
     case 'u-prime':
@@ -248,6 +262,7 @@ export function computeSpc(rows: Record<string, unknown>[], config: SpcConfig): 
         bounds,
       })
       if (statisticType === 'rate') result.yUnit = `/${basis}`
+      if (statisticType === 'proportion') result.yUnit = '%'
       break
     }
   }

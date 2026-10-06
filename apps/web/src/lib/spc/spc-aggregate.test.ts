@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   aggregate,
+  mergeIntervals,
   eventIntervals,
   floorToPeriod,
   isoDate,
@@ -363,5 +364,67 @@ describe('toNumber', () => {
     expect(toNumber('')).toBeNull()
     expect(toNumber(null)).toBeNull()
     expect(toNumber('abc')).toBeNull()
+  })
+})
+
+describe('aggregate — long tables (one row per event of any kind)', () => {
+  // Patient p1: one stay Jan 1–10, a sepsis suspicion with BSI, a central line
+  // Jan 2–6 and an overlapping one Jan 4–8, plus a temperature row.
+  // Patient p2: one stay Jan 1–5, a suspicion without BSI, a peripheral line.
+  const rows = [
+    { pid: 'p1', adm: '2024-01-01', dis: '2024-01-10', start: '2024-01-03', end: '2024-01-03', bsi: 'Oui', kt: null },
+    { pid: 'p1', adm: '2024-01-01', dis: '2024-01-10', start: '2024-01-02', end: '2024-01-06', bsi: null, kt: 'UVC' },
+    { pid: 'p1', adm: '2024-01-01', dis: '2024-01-10', start: '2024-01-04', end: '2024-01-08', bsi: null, kt: 'UAC' },
+    { pid: 'p1', adm: '2024-01-01', dis: '2024-01-10', start: '2024-01-05', end: '2024-01-05', bsi: null, kt: null },
+    { pid: 'p2', adm: '2024-01-01', dis: '2024-01-05', start: '2024-01-02', end: '2024-01-02', bsi: 'Non', kt: null },
+    { pid: 'p2', adm: '2024-01-01', dis: '2024-01-05', start: '2024-01-02', end: '2024-01-04', bsi: null, kt: 'PIV' },
+  ]
+  const base = { rows, dateColumn: 'start', period: 'month' as const, valueColumn: 'bsi', eventValues: ['Oui'] }
+
+  it('does not count rows whose variable is empty as cases', () => {
+    const pts = aggregate({ ...base, statisticType: 'proportion', denominatorMode: 'cases' })
+    expect(pts).toEqual([{ date: '2024-01-01', y: 1, n: 2 }])
+  })
+
+  it('counts each patient-day once when the exposure is merged per entity', () => {
+    const pts = aggregate({
+      ...base, statisticType: 'rate', denominatorMode: 'patient-days',
+      admissionColumn: 'adm', dischargeColumn: 'dis', exposureEntity: 'pid',
+    })
+    expect(pts[0].n).toBe(15) // 10 + 5, not one stay per row
+  })
+
+  it('keeps only the selected devices and counts overlapping ones once', () => {
+    const pts = aggregate({
+      ...base, statisticType: 'rate', denominatorMode: 'device-days',
+      deviceStartColumn: 'start', deviceEndColumn: 'end',
+      deviceFilterColumn: 'kt', deviceFilterValues: ['UVC', 'UAC'], exposureEntity: 'pid',
+    })
+    expect(pts[0]).toMatchObject({ y: 1, n: 7 }) // Jan 2–8, the PIV excluded
+  })
+
+  it('charts the share of patient-days with a device', () => {
+    const pts = aggregate({
+      ...base, valueColumn: 'kt', eventValues: ['UVC', 'UAC'], statisticType: 'proportion',
+      denominatorMode: 'patient-days', numerator: 'device-days',
+      admissionColumn: 'adm', dischargeColumn: 'dis', deviceStartColumn: 'start', deviceEndColumn: 'end',
+      exposureEntity: 'pid',
+    })
+    expect(pts).toEqual([{ date: '2024-01-01', y: 7, n: 15 }])
+  })
+})
+
+describe('mergeIntervals', () => {
+  it('joins overlapping intervals and lets an open end absorb the rest', () => {
+    const d = (s: string) => Date.parse(`${s}T00:00:00Z`)
+    expect(mergeIntervals([
+      { start: d('2024-01-05'), end: d('2024-01-08') },
+      { start: d('2024-01-01'), end: d('2024-01-05') },
+      { start: d('2024-01-10'), end: null },
+      { start: d('2024-01-12'), end: d('2024-01-20') },
+    ])).toEqual([
+      { start: d('2024-01-01'), end: d('2024-01-08') },
+      { start: d('2024-01-10'), end: null },
+    ])
   })
 })

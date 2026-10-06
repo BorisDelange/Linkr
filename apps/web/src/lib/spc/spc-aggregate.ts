@@ -129,6 +129,21 @@ export interface AggregateOptions {
   /** How to aggregate a measurement within a period. */
   aggregation?: 'mean' | 'median' | 'sum' | 'min' | 'max'
   /**
+   * What the numerator counts. `events` (default): rows whose variable is an
+   * event. `device-days`: the days covered by those rows' device intervals —
+   * the numerator of a device utilisation ratio, over patient-days.
+   */
+  numerator?: 'events' | 'device-days'
+  /** Device-days denominator: only the rows whose column holds one of these values. */
+  deviceFilterColumn?: string
+  deviceFilterValues?: string[]
+  /**
+   * Entity the exposure is counted per (e.g. `patient_id`): its intervals are
+   * merged, so a stay repeated on every row of a long table, or two lines in
+   * place the same day, count each day once. Absent: every interval is summed.
+   */
+  exposureEntity?: string
+  /**
    * Rows to compute the denominator over, when the numerator is filtered.
    * Defaults to `rows` — pass the unfiltered dataset for a rate whose
    * denominator must span every stay, not only the ones with an event.
@@ -218,18 +233,52 @@ export function overlapDaysByPeriod(
   return out
 }
 
+type Interval = { start: number; end: number | null }
+
+/** Union of intervals: a day covered several times counts once. An open end absorbs what follows. */
+export function mergeIntervals(intervals: Interval[]): Interval[] {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start)
+  const out: Interval[] = []
+  for (const iv of sorted) {
+    const last = out[out.length - 1]
+    if (last && (last.end === null || iv.start <= last.end)) {
+      if (last.end !== null) last.end = iv.end === null ? null : Math.max(last.end, iv.end)
+    } else {
+      out.push({ ...iv })
+    }
+  }
+  return out
+}
+
 function collectIntervals(
   rows: Record<string, unknown>[],
   startCol: string,
   endCol: string | undefined,
-): { start: number; end: number | null }[] {
-  const out: { start: number; end: number | null }[] = []
+  entityCol?: string,
+): Interval[] {
+  if (entityCol) {
+    const byEntity = new Map<string, Interval[]>()
+    for (const row of rows) {
+      const entity = row[entityCol]
+      const start = parseDate(row[startCol])
+      if (entity == null || start === null) continue
+      const list = byEntity.get(String(entity)) ?? []
+      list.push({ start, end: endCol ? parseDate(row[endCol]) : null })
+      byEntity.set(String(entity), list)
+    }
+    return [...byEntity.values()].flatMap(mergeIntervals)
+  }
+  const out: Interval[] = []
   for (const row of rows) {
     const start = parseDate(row[startCol])
     if (start === null) continue
     out.push({ start, end: endCol ? parseDate(row[endCol]) : null })
   }
   return out
+}
+
+function isEmptyCell(value: unknown): boolean {
+  return value == null || (typeof value === 'string' && value.trim() === '')
 }
 
 /**
@@ -255,11 +304,25 @@ export function aggregate(opts: AggregateOptions): PeriodPoint[] {
     deviceEndColumn,
     deduplicateBy,
     aggregation = 'median',
+    numerator = 'events',
+    deviceFilterColumn,
+    deviceFilterValues,
+    exposureEntity,
     denominatorRows,
   } = opts
 
-  const numeratorRows = dedupe(rows, deduplicateBy)
-  const denomRows = dedupe(denominatorRows ?? rows, deduplicateBy)
+  // A row whose variable is empty is not an observation: in a long table (one
+  // row per event of any kind) it belongs to another kind of event, and counting
+  // it as a non-event would dilute every proportion.
+  const numeratorRows = dedupe(rows.filter(r => !isEmptyCell(r[valueColumn])), deduplicateBy)
+  const denomRows = denominatorRows ? dedupe(denominatorRows, deduplicateBy) : numeratorRows
+  // Exposure intervals come from every row: the patient-days of a stay are on
+  // its rows whatever their event.
+  const exposureRows = dedupe(denominatorRows ?? rows, deduplicateBy)
+
+  if (numerator === 'device-days') {
+    return deviceUtilisation(numeratorRows, exposureRows, opts)
+  }
 
   const dated = numeratorRows
     .map(row => ({ row, ms: parseDate(row[dateColumn]) }))
@@ -304,7 +367,10 @@ export function aggregate(opts: AggregateOptions): PeriodPoint[] {
     const startCol = denominatorMode === 'patient-days' ? admissionColumn : deviceStartColumn
     const endCol = denominatorMode === 'patient-days' ? dischargeColumn : deviceEndColumn
     if (!startCol) return []
-    const intervals = collectIntervals(denomRows, startCol, endCol)
+    const intervalRows = denominatorMode === 'device-days' && deviceFilterColumn && deviceFilterValues?.length
+      ? exposureRows.filter(r => r[deviceFilterColumn] != null && deviceFilterValues.includes(String(r[deviceFilterColumn])))
+      : exposureRows
+    const intervals = collectIntervals(intervalRows, startCol, endCol, exposureEntity)
     if (intervals.length === 0) return []
     const starts = intervals.map(i => i.start)
     const ends = intervals.map(i => i.end).filter((e): e is number => e !== null)
@@ -335,6 +401,41 @@ export function aggregate(opts: AggregateOptions): PeriodPoint[] {
     .filter(([, n]) => n > 0)
     .sort((a, b) => a[0] - b[0])
     .map(([ms, n]) => ({ date: isoDate(ms), y: events.get(ms) ?? 0, n }))
+}
+
+/**
+ * Device utilisation ratio: days with the device over patient-days, per period
+ * (NHSN DUR). The device intervals are the rows whose variable is an event (e.g.
+ * the central line types); both sides are merged per `exposureEntity` when set,
+ * so overlapping devices count a day once.
+ */
+function deviceUtilisation(
+  numeratorRows: Record<string, unknown>[],
+  exposureRows: Record<string, unknown>[],
+  opts: AggregateOptions,
+): PeriodPoint[] {
+  const { period, valueColumn, eventValues, admissionColumn, dischargeColumn, deviceStartColumn, deviceEndColumn, exposureEntity } = opts
+  if (!admissionColumn || !deviceStartColumn) return []
+  const stays = collectIntervals(exposureRows, admissionColumn, dischargeColumn, exposureEntity)
+  // No modality chosen: any filled row is a device (e.g. any antibiotic line).
+  const devices = collectIntervals(
+    eventValues?.length ? numeratorRows.filter(r => isEvent(r[valueColumn], eventValues)) : numeratorRows,
+    deviceStartColumn,
+    deviceEndColumn,
+    exposureEntity,
+  )
+  if (stays.length === 0) return []
+  const all = [...stays, ...devices]
+  const starts = all.map(i => i.start)
+  const ends = all.map(i => i.end).filter((e): e is number => e !== null)
+  const openEnd = Math.max(...ends, ...starts)
+  const grid = periodGrid(Math.min(...starts), openEnd, period)
+  const patientDays = overlapDaysByPeriod(stays, grid, period, openEnd)
+  const deviceDays = overlapDaysByPeriod(devices, grid, period, openEnd)
+  return grid
+    .filter(b => (patientDays.get(b) ?? 0) > 0)
+    // A device recorded outside the stay bounds must not push the ratio past 1.
+    .map(b => ({ date: isoDate(b), y: Math.min(deviceDays.get(b) ?? 0, patientDays.get(b)!), n: patientDays.get(b)! }))
 }
 
 /**

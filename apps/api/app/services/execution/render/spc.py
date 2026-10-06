@@ -13,7 +13,7 @@ held here so a viewer can never send Python through the render route.
 import json
 
 _PERIODS = ("day", "week", "month", "quarter", "year")
-_STATISTIC_TYPES = ("auto", "proportion", "rate", "measurement", "rare-event")
+_STATISTIC_TYPES = ("auto", "proportion", "rate", "measurement", "rare-event", "device-utilisation")
 _CHART_TYPES = ("auto", "p", "p-prime", "np", "u", "u-prime", "c", "i-mr", "ewma", "g", "t")
 _DENOMINATORS = ("cases", "exposure-column", "patient-days", "device-days")
 _AGGREGATIONS = ("mean", "median", "sum", "min", "max")
@@ -72,6 +72,12 @@ def validate_spec(spec: dict) -> dict:
             raise ValueError("spc spec.eventValues must be a list of strings or null")
         event_values = event_values or None
 
+    device_filter_values = spec.get("deviceFilterValues")
+    if device_filter_values is not None:
+        if not isinstance(device_filter_values, list) or not all(isinstance(v, str) for v in device_filter_values):
+            raise ValueError("spc spec.deviceFilterValues must be a list of strings or null")
+        device_filter_values = device_filter_values or None
+
     target = spec.get("target")
     if target is not None:
         try:
@@ -95,6 +101,9 @@ def validate_spec(spec: dict) -> dict:
         "deviceStart": _opt_str(spec, "deviceStart"),
         "deviceEnd": _opt_str(spec, "deviceEnd"),
         "deduplicateBy": _opt_str(spec, "deduplicateBy"),
+        "deviceFilterColumn": _opt_str(spec, "deviceFilterColumn"),
+        "deviceFilterValues": device_filter_values,
+        "exposureEntity": _opt_str(spec, "exposureEntity"),
         "aggregation": _choice(spec, "aggregation", _AGGREGATIONS, "median"),
         "rateBasis": _number(spec, "rateBasis", 1000, 1, 100000),
         "sigmaWidth": _number(spec, "sigmaWidth", 3, 1, 5),
@@ -220,7 +229,12 @@ def _spc_is_event(cell, event_values):
         if number is not None:
             return number != 0
         return str(cell).strip().lower() in ("true", "yes", "oui")
-    return str(cell) in event_values
+    text = str(cell)
+    # pandas renders a boolean "True" while the value picker (DuckDB, and the
+    # client's String(v)) offers "true": a chosen boolean would never match.
+    if text in ("True", "False") and not isinstance(cell, str):
+        text = text.lower()
+    return text in event_values
 
 
 def _spc_rows(dataset):
@@ -285,7 +299,30 @@ def _spc_overlap_days(intervals, grid, period, open_end):
     return out
 
 
-def _spc_collect_intervals(rows, start_col, end_col):
+def _spc_merge_intervals(intervals):
+    # Union: a day covered several times counts once. An open end absorbs what follows.
+    out = []
+    for start, end in sorted(intervals, key=lambda iv: iv[0]):
+        if out and (out[-1][1] is None or start <= out[-1][1]):
+            last_start, last_end = out[-1]
+            if last_end is not None:
+                out[-1] = (last_start, None if end is None else max(last_end, end))
+        else:
+            out.append((start, end))
+    return out
+
+
+def _spc_collect_intervals(rows, start_col, end_col, entity_col=None):
+    if entity_col:
+        by_entity = {}
+        for row in rows:
+            entity = row.get(entity_col)
+            start = _spc_parse_date(row.get(start_col))
+            if entity is None or entity != entity or start is None:
+                continue
+            end = _spc_parse_date(row.get(end_col)) if end_col else None
+            by_entity.setdefault(str(entity), []).append((start, end))
+        return [iv for ivs in by_entity.values() for iv in _spc_merge_intervals(ivs)]
     out = []
     for row in rows:
         start = _spc_parse_date(row.get(start_col))
@@ -296,6 +333,42 @@ def _spc_collect_intervals(rows, start_col, end_col):
     return out
 
 
+def _spc_is_empty(cell):
+    return cell is None or cell != cell or (isinstance(cell, str) and not cell.strip())
+
+
+def _spc_device_utilisation(numerator_rows, exposure_rows, spec):
+    # Days with the device over patient-days (NHSN DUR). Mirror of deviceUtilisation()
+    # in apps/web/src/lib/spc/spc-aggregate.ts.
+    period = spec["period"]
+    if not spec["admission"] or not spec["deviceStart"]:
+        return []
+    entity = spec["exposureEntity"]
+    stays = _spc_collect_intervals(exposure_rows, spec["admission"], spec["discharge"], entity)
+    # No modality chosen: any filled row is a device (e.g. any antibiotic line).
+    device_rows = numerator_rows if not spec["eventValues"] else [
+        r for r in numerator_rows if _spc_is_event(r.get(spec["value"]), spec["eventValues"])]
+    devices = _spc_collect_intervals(
+        device_rows,
+        spec["deviceStart"], spec["deviceEnd"], entity)
+    if not stays:
+        return []
+    every = stays + devices
+    starts = [s for s, _ in every]
+    ends = [e for _, e in every if e is not None]
+    open_end = max(ends + starts)
+    grid = _spc_grid(min(starts), open_end, period)
+    patient_days = _spc_overlap_days(stays, grid, period, open_end)
+    device_days = _spc_overlap_days(devices, grid, period, open_end)
+    points = []
+    for bucket in grid:
+        n = patient_days.get(bucket, 0)
+        if n > 0:
+            # A device recorded outside the stay bounds must not push the ratio past 1.
+            points.append({"date": bucket.isoformat(), "y": min(device_days.get(bucket, 0), n), "n": n, "variance": None})
+    return points
+
+
 def _spc_aggregate(rows, spec, statistic_type):
     date_col = spec["date"]
     value_col = spec["value"]
@@ -303,7 +376,13 @@ def _spc_aggregate(rows, spec, statistic_type):
     event_values = spec["eventValues"]
     mode = spec["denominatorMode"]
 
-    numerator_rows = _spc_dedupe(rows, spec["deduplicateBy"])
+    # A row whose variable is empty is not an observation: in a long table it
+    # belongs to another kind of event, and counting it as a non-event would
+    # dilute every proportion. Exposure intervals still come from every row.
+    numerator_rows = _spc_dedupe([r for r in rows if not _spc_is_empty(r.get(value_col))], spec["deduplicateBy"])
+    exposure_rows = _spc_dedupe(rows, spec["deduplicateBy"])
+    if statistic_type == "device-utilisation":
+        return _spc_device_utilisation(numerator_rows, exposure_rows, spec)
     dated = []
     for row in numerator_rows:
         day = _spc_parse_date(row.get(date_col))
@@ -343,7 +422,12 @@ def _spc_aggregate(rows, spec, statistic_type):
         end_col = spec["discharge"] if mode == "patient-days" else spec["deviceEnd"]
         if not start_col:
             return []
-        intervals = _spc_collect_intervals(numerator_rows, start_col, end_col)
+        interval_rows = exposure_rows
+        filter_col, filter_values = spec["deviceFilterColumn"], spec["deviceFilterValues"]
+        if mode == "device-days" and filter_col and filter_values:
+            interval_rows = [r for r in exposure_rows
+                             if not _spc_is_empty(r.get(filter_col)) and str(r.get(filter_col)) in filter_values]
+        intervals = _spc_collect_intervals(interval_rows, start_col, end_col, spec["exposureEntity"])
         if not intervals:
             return []
         starts = [s for s, _ in intervals]
@@ -543,6 +627,7 @@ def _linkr_print_spc(dataset, spec):
     statistic_type = spec["statisticType"]
     if statistic_type == "auto":
         statistic_type = _spc_detect_type(rows, spec["value"], spec["denominatorMode"])
+    utilisation = statistic_type == "device-utilisation"
 
     if statistic_type == "measurement" and spec["denominatorMode"] != "cases":
         warnings.append({"code": "option-ignored", "detail": spec["denominatorMode"]})
@@ -555,6 +640,9 @@ def _linkr_print_spc(dataset, spec):
         points = _spc_intervals(rows, spec)
     else:
         points = _spc_aggregate(rows, spec, statistic_type)
+    if utilisation:
+        # A utilisation ratio is a proportion of days: binomial limits from here on.
+        statistic_type = "proportion"
 
     if not points:
         print(_json.dumps(None))
@@ -593,6 +681,7 @@ def _linkr_print_spc(dataset, spec):
                        width, 0.0, 1.0, i < baseline_end)
             for i, p in enumerate(points)
         ]
+        y_unit = "%"
         if not prime:
             observed = _spc_laney_sigma_z(base, centre, sigma_of)
             if observed > 1.2:
@@ -668,6 +757,7 @@ def _linkr_print_spc(dataset, spec):
         if statistic_type == "proportion":
             variance_of = lambda p: (centre * (1 - centre) / p["n"]) if p["n"] > 0 else 0.0
             low, high = 0.0, 1.0
+            y_unit = "%"
         elif statistic_type == "rate":
             variance_of = lambda p: (centre * basis / p["n"]) if p["n"] > 0 else 0.0
             low, high = 0.0, None

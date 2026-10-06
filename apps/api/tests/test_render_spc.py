@@ -288,3 +288,55 @@ def test_rows_with_an_empty_parsed_date_are_skipped():
     result = run_spc(rows, {"statisticType": "proportion", "chartType": "p", "eventValues": ["Oui"]})
     assert result["points"][0]["numerator"] == 1
     assert result["points"][0]["denominator"] == 2
+
+
+# A long table: one row per event of any kind. Same fixture as the client's
+# "aggregate — long tables" tests, so both sides must give the same numbers.
+LONG_ROWS = [
+    {"pid": "p1", "adm": "2024-01-01", "dis": "2024-01-10", "date": "2024-01-03", "end": "2024-01-03", "flag": "Oui", "kt": None},
+    {"pid": "p1", "adm": "2024-01-01", "dis": "2024-01-10", "date": "2024-01-02", "end": "2024-01-06", "flag": None, "kt": "UVC"},
+    {"pid": "p1", "adm": "2024-01-01", "dis": "2024-01-10", "date": "2024-01-04", "end": "2024-01-08", "flag": None, "kt": "UAC"},
+    {"pid": "p1", "adm": "2024-01-01", "dis": "2024-01-10", "date": "2024-01-05", "end": "2024-01-05", "flag": None, "kt": None},
+    {"pid": "p2", "adm": "2024-01-01", "dis": "2024-01-05", "date": "2024-01-02", "end": "2024-01-02", "flag": "Non", "kt": None},
+    {"pid": "p2", "adm": "2024-01-01", "dis": "2024-01-05", "date": "2024-01-02", "end": "2024-01-04", "flag": None, "kt": "PIV"},
+]
+
+
+def test_rows_with_an_empty_variable_are_not_cases():
+    result = run_spc(LONG_ROWS, {"statisticType": "proportion", "chartType": "p", "eventValues": ["Oui"]})
+    assert result["points"][0]["numerator"] == 1
+    assert result["points"][0]["denominator"] == 2
+    assert result["yUnit"] == "%"
+
+
+def test_patient_days_are_merged_per_entity():
+    result = run_spc(LONG_ROWS, {
+        "statisticType": "rate", "chartType": "u", "eventValues": ["Oui"], "denominatorMode": "patient-days",
+        "admission": "adm", "discharge": "dis", "exposureEntity": "pid",
+    })
+    assert result["points"][0]["denominator"] == 15
+
+
+def test_device_days_keep_the_selected_devices_and_count_overlaps_once():
+    result = run_spc(LONG_ROWS, {
+        "statisticType": "rate", "chartType": "u", "eventValues": ["Oui"], "denominatorMode": "device-days",
+        "deviceStart": "date", "deviceEnd": "end", "deviceFilterColumn": "kt",
+        "deviceFilterValues": ["UVC", "UAC"], "exposureEntity": "pid",
+    })
+    assert result["points"][0]["numerator"] == 1
+    assert result["points"][0]["denominator"] == 7
+
+
+def test_device_utilisation_is_device_days_over_patient_days():
+    result = run_spc(LONG_ROWS, {
+        "statisticType": "device-utilisation", "chartType": "p", "value": "kt", "eventValues": ["UVC", "UAC"],
+        "admission": "adm", "discharge": "dis", "deviceStart": "date", "deviceEnd": "end", "exposureEntity": "pid",
+    })
+    assert result["points"][0]["numerator"] == 7
+    assert result["points"][0]["denominator"] == 15
+
+
+def test_a_boolean_column_matches_the_values_the_picker_offers():
+    rows = [{"date": "2024-01-05", "flag": True}, {"date": "2024-01-06", "flag": False}]
+    result = run_spc(rows, {"statisticType": "proportion", "chartType": "p", "eventValues": ["true"]})
+    assert result["points"][0]["numerator"] == 1

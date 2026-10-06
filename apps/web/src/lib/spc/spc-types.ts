@@ -129,7 +129,10 @@ export interface SpcResult {
    * Localised by the caller from `SpcWarning.code`.
    */
   warnings: SpcWarning[]
-  /** The unit of the y axis, when the chart implies one (e.g. per 1000 days). */
+  /**
+   * The unit of the y axis, when the chart implies one: `/1000` for a rate per
+   * 1000 days, `%` for a proportion (values stay fractions; the chart shows them ×100).
+   */
   yUnit?: string
 }
 

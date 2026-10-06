@@ -25,6 +25,9 @@ export interface SpcSpec {
   deviceStart: string | null
   deviceEnd: string | null
   deduplicateBy: string | null
+  deviceFilterColumn: string | null
+  deviceFilterValues: string[] | null
+  exposureEntity: string | null
   aggregation: string
   rateBasis: number
   sigmaWidth: number
@@ -54,6 +57,9 @@ export function buildSpcSpec(config: SpcConfig): SpcSpec {
     deviceStart: name(config.deviceStartColumn),
     deviceEnd: name(config.deviceEndColumn),
     deduplicateBy: name(config.deduplicateBy),
+    deviceFilterColumn: name(config.deviceFilterColumn),
+    deviceFilterValues: config.deviceFilterValues && config.deviceFilterValues.length > 0 ? config.deviceFilterValues : null,
+    exposureEntity: name(config.exposureEntity),
     aggregation: config.aggregation ?? 'median',
     rateBasis: config.rateBasis ?? 1000,
     sigmaWidth: config.sigmaWidth ?? 3,
