@@ -129,7 +129,8 @@ _MIN_PERIODS = 8
 
 def _spc_parse_date(value):
     """Leading YYYY-MM-DD of a date-ish cell, as a date. None when unusable."""
-    if value is None:
+    # NaT (pandas' empty date) passes the datetime check below, then yields a NaN year.
+    if value is None or value != value:
         return None
     if isinstance(value, _dt.datetime):
         return value.date()

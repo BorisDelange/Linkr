@@ -1,4 +1,3 @@
-import type { DatasetColumn } from '@/types'
 import type { SpcConfig } from '@/lib/spc/spc-compute'
 
 /**
@@ -36,9 +35,10 @@ export interface SpcSpec {
   baselineUntil: string | null
 }
 
-export function buildSpcSpec(columns: DatasetColumn[], config: SpcConfig): SpcSpec {
-  const byId = new Map(columns.map(c => [c.id, c]))
-  const name = (id: string | undefined) => (id ? (byId.get(id)?.name ?? null) : null)
+/** `config` already carries column names (SpcComponent resolves the stored ids):
+ *  resolving them a second time against the ids would null every column. */
+export function buildSpcSpec(config: SpcConfig): SpcSpec {
+  const name = (column: string | undefined) => column || null
 
   return {
     statisticType: config.statisticType,

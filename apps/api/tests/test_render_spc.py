@@ -276,3 +276,15 @@ def test_deduplicates_to_one_row_per_stay():
     })
     assert result["points"][0]["numerator"] == 1
     assert result["points"][0]["denominator"] == 2
+
+
+def test_rows_with_an_empty_parsed_date_are_skipped():
+    # The server loads a date column as datetimes, so its empty cells arrive as NaT.
+    rows = [
+        {"date": pd.Timestamp("2024-01-05"), "flag": "Oui"},
+        {"date": pd.NaT, "flag": "Non"},
+        {"date": pd.Timestamp("2024-01-20"), "flag": "Non"},
+    ]
+    result = run_spc(rows, {"statisticType": "proportion", "chartType": "p", "eventValues": ["Oui"]})
+    assert result["points"][0]["numerator"] == 1
+    assert result["points"][0]["denominator"] == 2

@@ -84,7 +84,7 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
     return computeSpc(rows, spcConfig)
   }, [server, ready, rows, spcConfig])
 
-  const spec = server && datasetFileId && ready ? buildSpcSpec(columns, spcConfig) : null
+  const spec = server && datasetFileId && ready ? buildSpcSpec(spcConfig) : null
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResult, setServerResult] = useState<SpcResult | null>(null)
