@@ -708,6 +708,22 @@ _WARM_BOOTSTRAP = {
 }
 
 
+def _unexpected_exit_message(exit_code: int | None) -> str:
+    """What to tell the user when the kernel died mid-run without a traceback."""
+    if exit_code == -9:
+        # SIGKILL from outside the process: on a server, the kernel's OOM killer.
+        return (
+            "Kernel was killed (SIGKILL), most likely because the server ran out of "
+            "memory. Fewer widgets rendering at once (LINKR_WIDGET_MAX_CONCURRENCY) "
+            "or more memory for the server should fix it."
+        )
+    if exit_code is not None and exit_code < 0:
+        return f"Kernel crashed (signal {-exit_code})."
+    if exit_code is not None:
+        return f"Kernel exited unexpectedly (exit code {exit_code})."
+    return "Kernel exited unexpectedly."
+
+
 async def _resolve_query(query_resolver, sql: str) -> dict:
     """Run a kernel SQL RPC via the resolver; return {rows} or {error}."""
     if query_resolver is None:
@@ -886,8 +902,9 @@ class Kernel:
                 self.last_activity = time.monotonic()
 
         if done is None:
+            exit_code = await self._exit_code()
             await self.shutdown()
-            raise ExecutionError("Kernel exited unexpectedly.")
+            raise ExecutionError(_unexpected_exit_message(exit_code))
         return RuntimeOutput(
             stdout=done.get("stdout", ""),
             stderr=done.get("stderr", ""),
@@ -1011,6 +1028,16 @@ class Kernel:
             except (asyncio.TimeoutError, BrokenPipeError, ConnectionResetError):
                 # A slow reply is skipped by the next run's reader; the kernel lives on.
                 return None
+
+    async def _exit_code(self) -> int | None:
+        """The dead process's exit code (negative = killed by that signal), or None
+        if it is somehow still running."""
+        if self._proc is None:
+            return None
+        try:
+            return await asyncio.wait_for(self._proc.wait(), timeout=1)
+        except asyncio.TimeoutError:
+            return None
 
     async def shutdown(self) -> None:
         if self._proc is not None and self._proc.returncode is None:

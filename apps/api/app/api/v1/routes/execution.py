@@ -345,12 +345,15 @@ async def render_component(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
     # Renders are Python-only today; the dataset is injected as `dataset` first.
+    # Warnings are silenced: every component shows any stderr as the widget's error,
+    # and a pandas deprecation notice about the server's own program is not one.
     code = analysis_code
     if body.dataset_file_id:
         preamble = await _dataset_preamble(
             db, body.dataset_file_id, "python", body.dataset_filters, body.project_uid
         )
         code = preamble + "\n" + analysis_code
+    code = "import warnings as _linkr_warnings\n_linkr_warnings.simplefilter('ignore')\n" + code
     # Built-in renders run ephemeral (a fresh process from the warm pool) so a page
     # of component widgets renders IN PARALLEL — the old shared __app__ kernel
     # serialised them on its lock. environment=None → the app interpreter

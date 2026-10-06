@@ -516,3 +516,12 @@ async def test_r_kernel_stops_the_run_at_the_first_error():
         assert out.table is not None and len(out.table["rows"]) == 3
     finally:
         await k.shutdown()
+
+
+def test_unexpected_exit_names_an_oom_kill():
+    from app.services.execution.kernel import _unexpected_exit_message
+
+    assert "out of memory" in _unexpected_exit_message(-9)
+    assert "signal 11" in _unexpected_exit_message(-11)
+    assert "exit code 1" in _unexpected_exit_message(1)
+    assert _unexpected_exit_message(None) == "Kernel exited unexpectedly."

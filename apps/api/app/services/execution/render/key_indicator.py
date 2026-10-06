@@ -224,31 +224,23 @@ def _linkr_print_kpi(dataset, spec):
 
     # aggregateByEntity: one row per entity. first/last pick the row; numeric aggs
     # (mean/median/min/max/sum) reduce numeric columns, non-numeric keep first.
+    # Only the metric column is read below, so only it is reduced: a per-group Python
+    # reduce over every column took minutes (and gigabytes) on a wide dataset.
     if unique_per and unique_per in df.columns:
-        df = df[df[unique_per].notna()]
-        if unique_agg == "first":
-            df = df.groupby(unique_per, sort=False, as_index=False).first()
-        elif unique_agg == "last":
-            df = df.groupby(unique_per, sort=False, as_index=False).last()
+        cols = [unique_per] + ([name] if name != unique_per and name in df.columns else [])
+        df = df.loc[df[unique_per].notna(), cols]
+        gb = df.groupby(unique_per, sort=False)
+        if unique_agg == "last":
+            out = gb.last().reset_index()
         else:
-            cols = list(df.columns)
-            def _reduce(g):
-                out = {}
-                for c in cols:
-                    if c == unique_per:
-                        out[c] = g[c].iloc[0]
-                        continue
-                    nums = _pd.to_numeric(g[c], errors="coerce").dropna()
-                    if len(nums) > 0:
-                        out[c] = _linkr_agg(list(nums), unique_agg)
-                    else:
-                        out[c] = g[c].iloc[0]
-                return _pd.Series(out)
-            df = (
-                df.groupby(unique_per, sort=False, group_keys=False)[cols]
-                .apply(_reduce)
-                .reset_index(drop=True)
-            )
+            out = gb.first().reset_index()
+            if unique_agg != "first" and name != unique_per and name in df.columns:
+                nums = _pd.to_numeric(df[name], errors="coerce")
+                # Entities with no numeric value keep their first (non-numeric) one.
+                if nums.notna().any():
+                    stat = nums.groupby(df[unique_per], sort=False).agg(unique_agg)
+                    out[name] = out[unique_per].map(stat).where(lambda s: s.notna(), out[name])
+        df = out
 
     series = df[name]
     # metricRows: optionally drop NA/empty of the chosen column.

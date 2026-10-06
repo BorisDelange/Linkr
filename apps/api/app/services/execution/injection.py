@@ -38,12 +38,16 @@ import pandas as _pd
 dataset = {read}
 {filter_code}
 dataset = dataset.rename(columns={json.dumps(rename)})
-for _linkr_c in {json.dumps(number_cols)}:
-    if _linkr_c in dataset.columns:
-        dataset[_linkr_c] = _pd.to_numeric(dataset[_linkr_c], errors="coerce")
-for _linkr_c in {json.dumps(date_cols)}:
-    if _linkr_c in dataset.columns:
-        dataset[_linkr_c] = _pd.to_datetime(dataset[_linkr_c], errors="coerce")
+_linkr_conv = {{_c: _pd.to_numeric(dataset[_c], errors="coerce") for _c in {json.dumps(number_cols)} if _c in dataset.columns}}
+_linkr_conv.update({{_c: _pd.to_datetime(dataset[_c], errors="coerce") for _c in {json.dumps(date_cols)} if _c in dataset.columns}})
+# Swapped in with one concat: assigning ~50 columns one by one fragments the frame,
+# and pandas then warns (on stderr) at the next groupby.
+if _linkr_conv:
+    dataset = _pd.concat(
+        [dataset.drop(columns=list(_linkr_conv)), _pd.DataFrame(_linkr_conv, index=dataset.index)],
+        axis=1,
+    )[list(dataset.columns)]
+del _linkr_conv
 """
 
 

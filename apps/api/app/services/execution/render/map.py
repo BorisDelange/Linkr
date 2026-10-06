@@ -46,15 +46,17 @@ _MAP_PY = r"""
 import json as _json
 import math as _math
 
-def _map_num(v):
-    if v is None:
-        return float("nan")
-    if isinstance(v, (int, float)):
-        return float(v)
-    try:
-        return float(str(v).strip())
-    except Exception:
-        return float("nan")
+def _map_num_series(col):
+    # Vectorised float(str(v).strip()): unparseable or missing -> NaN.
+    import pandas as _pd
+    if _pd.api.types.is_bool_dtype(col) or _pd.api.types.is_numeric_dtype(col):
+        return col.astype("float64")
+    return _pd.to_numeric(col.astype(str).str.strip(), errors="coerce")
+
+def _map_str_list(col):
+    # String(v ?? '') on the client: a missing value is "", not "None"/"nan"/"NaT".
+    import pandas as _pd
+    return ["" if _pd.isna(v) else str(v) for v in col.tolist()]
 
 def _linkr_print_map(dataset, spec):
     df = dataset
@@ -64,46 +66,36 @@ def _linkr_print_map(dataset, spec):
     if not lat or not lon or lat not in df.columns or lon not in df.columns:
         print(_json.dumps({"rows": [], "colorCats": [], "sizeMin": None, "sizeMax": None})); return
 
-    out_rows = []
-    color_cats = set()
-    size_vals = []
     has_color = bool(color) and color in df.columns
     has_size = bool(size) and size in df.columns
     has_label = bool(label) and label in df.columns
     popup_cols = [c for c in popup if c in df.columns]
 
-    for _, r in df.iterrows():
-        la = _map_num(r[lat]); lo = _map_num(r[lon])
-        if _math.isnan(la) or _math.isnan(lo):
-            continue
-        if la < -90 or la > 90 or lo < -180 or lo > 180:
-            continue
-        color_cat = None
-        if has_color:
-            cv = r[color]
-            color_cat = str(cv) if cv is not None else ""
-            if color_cat != "":
-                color_cats.add(color_cat)
-        size_val = None
-        if has_size:
-            sv = _map_num(r[size])
-            if not _math.isnan(sv):
-                size_val = sv
-                size_vals.append(sv)
-        popup_fields = None
-        if popup_cols:
-            popup_fields = [{"key": c, "value": ("" if r[c] is None else str(r[c]))} for c in popup_cols]
+    # Vectorised: iterrows() over tens of thousands of rows took seconds.
+    la = _map_num_series(df[lat]); lo = _map_num_series(df[lon])
+    keep = la.between(-90, 90) & lo.between(-180, 180)
+    df = df[keep]
+    las = la[keep].tolist(); los = lo[keep].tolist()
+    n = len(las)
+    cats = _map_str_list(df[color]) if has_color else [None] * n
+    sizes = [None if _math.isnan(v) else v for v in _map_num_series(df[size]).tolist()] if has_size else [None] * n
+    labels = _map_str_list(df[label]) if has_label else [None] * n
+    popup_vals = [_map_str_list(df[c]) for c in popup_cols]
+
+    out_rows = []
+    for k in range(n):
         out_rows.append({
-            "lat": la, "lon": lo,
-            "colorCat": color_cat,
-            "sizeVal": size_val,
-            "label": (("" if r[label] is None else str(r[label])) if has_label else None),
-            "popup": popup_fields,
+            "lat": las[k], "lon": los[k],
+            "colorCat": cats[k],
+            "sizeVal": sizes[k],
+            "label": labels[k],
+            "popup": [{"key": c, "value": popup_vals[j][k]} for j, c in enumerate(popup_cols)] if popup_cols else None,
         })
+    size_vals = [v for v in sizes if v is not None]
 
     print(_json.dumps({
         "rows": out_rows,
-        "colorCats": sorted(color_cats),
+        "colorCats": sorted({c for c in cats if c}) if has_color else [],
         "sizeMin": (min(size_vals) if size_vals else None),
         "sizeMax": (max(size_vals) if size_vals else None),
     }))

@@ -1001,3 +1001,111 @@ def test_plot_builder_scatter_under_the_cap_is_not_sampled():
     out = _run_plot({"plotType": "scatter", "x": "a", "y": "b", "excludeNA": False}, df)
     assert "pointsTotal" not in out
     assert _scatter_xs(out) == [1, 2]
+
+
+def test_key_indicator_unique_per_aggregates_the_metric_per_entity():
+    """uniquePer + mean: one value per entity (its mean), then the KPI over them.
+    Entities with no numeric value keep their first one."""
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "visit": ["E1", "E1", "E2", "E2", "E3", None],
+        "hr": [80, 100, 60, 70, "na", 999],
+        "noise": list("abcdef"),
+    })
+    out = _run_kpi(
+        {"column": {"name": "hr", "numeric": True}, "aggregate": "mean",
+         "uniquePer": "visit", "uniqueAggregation": "mean"},
+        df,
+    )
+    # E1 → 90, E2 → 65, E3 → "na" (dropped as empty); the null entity row is gone.
+    assert out["allStats"]["n"] == 2
+    assert out["result"] == pytest.approx(77.5)
+
+
+def test_key_indicator_unique_per_last_takes_the_last_row():
+    import pandas as pd
+
+    df = pd.DataFrame({"visit": ["E1", "E1", "E2"], "hr": [80, 100, 60]})
+    out = _run_kpi(
+        {"column": {"name": "hr", "numeric": True}, "aggregate": "sum",
+         "uniquePer": "visit", "uniqueAggregation": "last"},
+        df,
+    )
+    assert out["result"] == pytest.approx(160.0)
+
+
+def test_dataset_preamble_converts_types_without_fragmenting(tmp_path):
+    """Converting ~50 columns one assignment at a time fragmented the frame, and
+    pandas' PerformanceWarning then landed on stderr — shown as the widget's error."""
+    import warnings
+
+    import pandas as pd
+
+    from app.services.execution import injection
+
+    n = 150
+    raw = pd.DataFrame({f"col_{i}": ["1", "2", "x"] for i in range(n)} | {"col_d": ["2024-01-02"] * 3})
+    path = tmp_path / "d.parquet"
+    raw.to_parquet(path)
+    columns = [{"id": f"col_{i}", "name": f"c{i}", "type": "number"} for i in range(n)]
+    columns.append({"id": "col_d", "name": "d", "type": "date"})
+    code = injection.python_preamble_from(path.as_posix(), columns, None)
+    ns: dict = {}
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        exec(code, ns)  # noqa: S102 — server-owned program, test-only
+        ns["dataset"].groupby("c0", as_index=False).last()
+    ds = ns["dataset"]
+    assert list(ds.columns) == [f"c{i}" for i in range(n)] + ["d"]
+    assert ds["c0"].tolist()[:2] == [1, 2] and pd.isna(ds["c0"].iloc[2])
+    assert pd.api.types.is_datetime64_any_dtype(ds["d"])
+    assert "_linkr_conv" not in ns
+
+
+def _run_map(spec_extra, df):
+    import io
+    import json
+    from contextlib import redirect_stdout
+
+    from app.services.execution.render import map as map_render
+
+    code = map_render.build_code(map_render.validate_spec(spec_extra))
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+        exec(code, {"dataset": df})  # noqa: S102 — server-owned program, test-only
+    return json.loads(buf.getvalue().strip().splitlines()[-1])
+
+
+def test_map_keeps_valid_coordinates_and_resolves_fields():
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "lat": [48.1, " 43.3 ", None, 95.0, 45.0],
+        "lon": [-1.6, 5.4, 2.0, 2.0, "x"],
+        "site": ["Rennes", None, "a", "b", "c"],
+        "n": [10, None, 1, 1, 1],
+        "day": pd.to_datetime(["2024-01-02", None, "2024-01-01", "2024-01-01", "2024-01-01"]),
+    })
+    out = _run_map({"lat": "lat", "lon": "lon", "color": "site", "size": "n",
+                    "label": "site", "popup": ["day", "missing"]}, df)
+    # Missing, out-of-range and unparseable coordinates are dropped.
+    assert [(r["lat"], r["lon"]) for r in out["rows"]] == [(48.1, -1.6), (43.3, 5.4)]
+    first, second = out["rows"]
+    assert first["colorCat"] == "Rennes" and first["label"] == "Rennes"
+    assert first["sizeVal"] == 10.0
+    assert first["popup"] == [{"key": "day", "value": "2024-01-02 00:00:00"}]
+    # A missing value reads as empty, never "None"/"nan"/"NaT".
+    assert second["colorCat"] == "" and second["sizeVal"] is None
+    assert second["popup"] == [{"key": "day", "value": ""}]
+    assert out["colorCats"] == ["Rennes"]
+    assert (out["sizeMin"], out["sizeMax"]) == (10.0, 10.0)
+
+
+def test_map_without_optional_fields():
+    import pandas as pd
+
+    out = _run_map({"lat": "lat", "lon": "lon"}, pd.DataFrame({"lat": [1.0], "lon": [2.0]}))
+    assert out["rows"] == [{"lat": 1.0, "lon": 2.0, "colorCat": None, "sizeVal": None,
+                            "label": None, "popup": None}]
+    assert out["colorCats"] == []
