@@ -23,12 +23,16 @@ stay: a survivorship artefact, not an outcome.
 
 One row per subject. Not one row per measurement, not one row per stay if the
 unit of analysis is the patient — the table describes the rows it is given, so a
-patient with twelve stays would count twelve times.
+patient with twelve stays would count twelve times. When the dataset has
+several rows per subject, **Unique per** brings it back to one.
 
 - **Variables** — the rows of the table. Identifiers and raw timestamps start
   unticked: an id column has a meaningless mean and one level per patient.
 - **Group by** *(optional)* — one column per level of this variable. It is never
   described as a row of itself.
+- **Unique per** *(optional)* — describe each entity once, e.g. `patient_id` on a
+  table with one row per event. Each entity keeps its first row (or its last);
+  a numeric variable can instead take the entity's mean, median, min, max or sum.
 
 ## Notes on the method
 

@@ -12,6 +12,9 @@ export interface Table1Spec {
   missingLabel: string
   maxLevels: number
   othersLabel: string
+  /** Column NAME whose rows collapse to one per entity before anything is counted. */
+  uniquePer: string | null
+  uniqueAggregation: string
 }
 
 /**
@@ -37,6 +40,9 @@ export function buildTable1Spec(
     missingLabel: string
     othersLabel: string
     variableOrder: VariableOrder
+    /** Column id. */
+    uniquePer: string | null
+    uniqueAggregation: string
     /** Active UI language: labels are localized, and the server never sees them. */
     lang: string
   },
@@ -58,5 +64,7 @@ export function buildTable1Spec(
     missingLabel: options.missingLabel,
     maxLevels: options.maxLevels,
     othersLabel: options.othersLabel,
+    uniquePer: (options.uniquePer && byId.get(options.uniquePer)?.name) || null,
+    uniqueAggregation: options.uniqueAggregation,
   }
 }

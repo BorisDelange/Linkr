@@ -100,6 +100,95 @@
         "fr": "Une colonne par groupe, chacune avec son effectif. La variable de regroupement n'est jamais décrite comme une ligne d'elle-même."
       }
     },
+    "uniquePer": {
+      "type": "column-select",
+      "label": {
+        "en": "Unique per",
+        "fr": "Unique par"
+      },
+      "optional": true,
+      "row": "unique",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Describe each entity once rather than once per row. Example: patient_id when the dataset has one row per event, so a patient with ten events is not counted ten times.",
+        "fr": "Décrit chaque entité une seule fois plutôt qu’une fois par ligne. Exemple : patient_id quand le jeu de données a une ligne par événement, pour qu’un patient avec dix événements ne compte pas dix fois."
+      }
+    },
+    "uniqueAggregation": {
+      "type": "select",
+      "label": {
+        "en": "Per-entity function",
+        "fr": "Fonction par entité"
+      },
+      "default": "first",
+      "row": "unique",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "visibleWhen": {
+        "field": "uniquePer",
+        "notEmpty": true
+      },
+      "description": {
+        "en": "How a numeric variable is reduced to one value per entity. Other variables, and the grouping, take the entity’s first row (or last, with Last value).",
+        "fr": "Comment une variable numérique est réduite à une valeur par entité. Les autres variables, et le regroupement, prennent la première ligne de l’entité (ou la dernière, avec Dernière valeur)."
+      },
+      "options": [
+        {
+          "value": "first",
+          "label": {
+            "en": "First value",
+            "fr": "Première valeur"
+          }
+        },
+        {
+          "value": "last",
+          "label": {
+            "en": "Last value",
+            "fr": "Dernière valeur"
+          }
+        },
+        {
+          "value": "mean",
+          "label": {
+            "en": "Mean",
+            "fr": "Moyenne"
+          }
+        },
+        {
+          "value": "median",
+          "label": {
+            "en": "Median",
+            "fr": "Médiane"
+          }
+        },
+        {
+          "value": "min",
+          "label": {
+            "en": "Min",
+            "fr": "Min"
+          }
+        },
+        {
+          "value": "max",
+          "label": {
+            "en": "Max",
+            "fr": "Max"
+          }
+        },
+        {
+          "value": "sum",
+          "label": {
+            "en": "Sum",
+            "fr": "Somme"
+          }
+        }
+      ]
+    },
     "stat": {
       "type": "select",
       "label": {

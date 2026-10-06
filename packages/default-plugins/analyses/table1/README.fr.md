@@ -24,13 +24,18 @@ de survie, pas un résultat.
 
 Une ligne par sujet. Pas une ligne par mesure, ni une ligne par séjour si
 l'unité d'analyse est le patient — le tableau décrit les lignes qu'on lui donne,
-donc un patient avec douze séjours compterait douze fois.
+donc un patient avec douze séjours compterait douze fois. Quand le jeu de
+données a plusieurs lignes par sujet, **Unique par** le ramène à une seule.
 
 - **Variables** — les lignes du tableau. Les identifiants et les horodatages
   bruts sont décochés par défaut : une colonne d'identifiants a une moyenne
   dénuée de sens et une modalité par patient.
 - **Grouper par** *(facultatif)* — une colonne par modalité de cette variable.
   Elle n'est jamais décrite comme une ligne d'elle-même.
+- **Unique par** *(facultatif)* — décrit chaque entité une seule fois, par
+  exemple `patient_id` sur une table à une ligne par événement. Chaque entité
+  garde sa première ligne (ou sa dernière) ; une variable numérique peut prendre
+  à la place la moyenne, la médiane, le min, le max ou la somme de l'entité.
 
 ## Notes sur la méthode
 

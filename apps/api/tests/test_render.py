@@ -776,6 +776,52 @@ def test_table1_rejects_a_malformed_group():
         table1.validate_spec({"selected": [], "group": "arm"})
 
 
+def test_table1_counts_each_entity_once_with_unique_per():
+    import pandas as pd
+
+    # Patient 1 has three event rows: without uniquePer, ICU would count 3 times.
+    df = pd.DataFrame({
+        "pid": [1, 1, 1, 2, 3],
+        "svc": ["ICU", "ICU", "ICU", "HDU", "HDU"],
+    })
+    out = _run_table1(df, _svc_spec(uniquePer="pid"))
+    assert out["groupSizes"][""] == 3
+    cells = {r["label"]: r["cells"][""]["text"] for r in out["rows"]}
+    assert cells["ICU"] == "1 (33%)"
+    assert cells["HDU"] == "2 (67%)"
+
+
+def test_table1_unique_per_reduces_numeric_variables_only():
+    import pandas as pd
+
+    df = pd.DataFrame({
+        "pid": [1, 1, 2],
+        "los": [2, 4, 10],
+        "dead": [False, True, False],
+    })
+    spec = _svc_spec(
+        selected=[
+            {"name": "los", "label": "LOS", "numeric": True},
+            {"name": "dead", "label": "Dead", "numeric": False},
+        ],
+        uniquePer="pid",
+        uniqueAggregation="max",
+    )
+    out = _run_table1(df, spec)
+    # max per patient: 4 and 10 → median 7; the boolean keeps the first row.
+    assert out["rows"][0]["cells"][""]["text"].startswith("7")
+    labels = [r["label"] for r in out["rows"]]
+    assert "True" not in labels and "true" not in labels
+
+
+def test_table1_validate_spec_defaults_unique_aggregation():
+    spec = table1.validate_spec({"selected": [], "uniquePer": "pid", "uniqueAggregation": "bogus"})
+    assert spec["uniquePer"] == "pid"
+    assert spec["uniqueAggregation"] == "first"
+    with pytest.raises(ValueError):
+        table1.validate_spec({"selected": [], "uniquePer": 5})
+
+
 # ---------------------------------------------------------------------------
 # survey-question
 #

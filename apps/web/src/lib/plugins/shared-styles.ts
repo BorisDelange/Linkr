@@ -119,11 +119,16 @@ export const TOOLTIP_STYLE = {
  * - `first` / `last`: keep the first or last row encountered
  * - `mean`, `median`, `min`, `max`, `sum`: aggregate all **numeric** columns,
  *   keeping the first value for non-numeric columns
+ *
+ * `numericCols` restricts the aggregation to those columns. Without it, any
+ * column holding numbers is aggregated, booleans included (`true` → 1), which a
+ * table that prints a boolean as its levels cannot take.
  */
 export function aggregateByEntity(
   rows: Record<string, unknown>[],
   entityCol: string,
   aggFn: string,
+  numericCols?: ReadonlySet<string>,
 ): Record<string, unknown>[] {
   if (rows.length === 0) return rows
 
@@ -151,6 +156,10 @@ export function aggregateByEntity(
   return Array.from(groups.values()).map(group => {
     const result: Record<string, unknown> = {}
     for (const col of colKeys) {
+      if (numericCols && !numericCols.has(col)) {
+        result[col] = group[0][col]
+        continue
+      }
       // Try numeric aggregation
       const nums: number[] = []
       for (const row of group) {

@@ -31,6 +31,7 @@ import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading
 import type { ExportTable, ExportTableCell } from '@/lib/table-export'
 import { usePublishAnalysisTable } from './analysis-table-context'
 import { localized } from '@/lib/localized'
+import { aggregateByEntity } from '@/lib/plugins/shared-styles'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { DatasetColumn, LocalizedString } from '@/types'
 import { buildTable1Spec } from './table1-server'
@@ -65,6 +66,8 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   const wrap = config.wrap === true
   const showOverall = config.showOverall === true
   const variableOrder = ((config.variableOrder as VariableOrder) ?? 'dataset')
+  const uniquePer = (config.uniquePer as string) || null
+  const uniqueAggregation = (config.uniqueAggregation as string) || 'first'
 
   // Variables carry their LABEL: this table is read and exported, so a storage
   // name like `zone_dechocage` makes it unusable as-is.
@@ -88,12 +91,18 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
 
   const groupColumn = groupByColumn ? columns.find((c) => c.id === groupByColumn) : undefined
 
+  const entityRows = useMemo(() => {
+    if (server || !uniquePer) return rows
+    const numeric = new Set(variables.filter((v) => v.kind === 'numeric').map((v) => v.key))
+    return aggregateByEntity(rows, uniquePer, uniqueAggregation, numeric)
+  }, [server, rows, uniquePer, uniqueAggregation, variables])
+
   const localTable = useMemo(
     () =>
       server
         ? null
         : buildDescriptiveTable({
-            rows,
+            rows: entityRows,
             variables,
             groupBy: groupColumn
               ? { id: groupColumn.id, key: groupColumn.id, label: displayColumnName(groupColumn, lang) }
@@ -104,7 +113,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
             maxLevels,
             othersLabel: t('datasets.table1_others'),
           }),
-    [server, rows, variables, groupColumn, stat, showMissing, maxLevels, t],
+    [server, entityRows, variables, groupColumn, stat, showMissing, maxLevels, t],
   )
 
   const [serverTable, setServerTable] = useState<DescriptiveTable | null>(null)
@@ -117,6 +126,8 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
         missingLabel: t('datasets.table1_missing'),
         othersLabel: t('datasets.table1_others'),
         variableOrder,
+        uniquePer,
+        uniqueAggregation,
         lang,
       })
     : null

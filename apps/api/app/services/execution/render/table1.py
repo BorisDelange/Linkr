@@ -24,6 +24,7 @@ locale the server knows nothing about, and both ends must print the same words.
 import json
 
 _ALLOWED_STATS = {"median_iqr", "mean_sd", "min_max", "range"}
+_ALLOWED_UNIQUE_AGGREGATIONS = {"first", "last", "mean", "median", "min", "max", "sum"}
 
 
 def validate_spec(spec: dict) -> dict:
@@ -58,6 +59,13 @@ def validate_spec(spec: dict) -> dict:
     max_levels = spec.get("maxLevels")
     max_levels = int(max_levels) if isinstance(max_levels, (int, float)) else 0
 
+    unique_per = spec.get("uniquePer")
+    if unique_per is not None and not isinstance(unique_per, str):
+        raise ValueError("table1 spec.uniquePer must be a string or null")
+    unique_aggregation = spec.get("uniqueAggregation")
+    if unique_aggregation not in _ALLOWED_UNIQUE_AGGREGATIONS:
+        unique_aggregation = "first"
+
     return {
         "selected": selected,
         "group": group,
@@ -66,6 +74,8 @@ def validate_spec(spec: dict) -> dict:
         "missingLabel": str(spec.get("missingLabel") or "Missing"),
         "maxLevels": max(0, max_levels),
         "othersLabel": str(spec.get("othersLabel") or "Other"),
+        "uniquePer": unique_per or None,
+        "uniqueAggregation": unique_aggregation,
     }
 
 
@@ -167,6 +177,29 @@ def _linkr_count_cell(count, answered):
     pct = int(_math.floor((count / answered) * 100 + 0.5))
     return f"{count} ({pct}%)"
 
+def _linkr_per_entity(dataset, entity, fn, numeric_names):
+    # Parity with aggregateByEntity(rows, entity, fn, numericCols): one row per
+    # entity, the entity's first row (last for "last"), with the numeric
+    # variables replaced by their per-entity statistic. Row-wise first, not
+    # pandas' first-non-null, so a missing value stays missing.
+    import pandas as _pd
+    df = dataset[dataset[entity].notna()]
+    gb = df.groupby(entity, sort=False)
+    if fn == "last":
+        return gb.tail(1).reset_index(drop=True)
+    out = gb.head(1).reset_index(drop=True)
+    if fn == "first":
+        return out
+    for name in numeric_names:
+        if name == entity or name not in df.columns:
+            continue
+        nums = _pd.to_numeric(df[name], errors="coerce")
+        if not nums.notna().any():
+            continue
+        stat = nums.groupby(df[entity], sort=False).agg(fn)
+        out[name] = out[entity].map(stat).where(lambda v: v.notna(), out[name])
+    return out
+
 def _linkr_print_table1(dataset, spec):
     selected = spec.get("selected") or []
     group = spec.get("group")
@@ -175,6 +208,11 @@ def _linkr_print_table1(dataset, spec):
     missing_label = spec.get("missingLabel") or "Missing"
     max_levels = int(spec.get("maxLevels") or 0)
     others_label = spec.get("othersLabel") or "Other"
+
+    unique_per = spec.get("uniquePer")
+    if unique_per and unique_per in dataset.columns:
+        numeric_names = [v["name"] for v in selected if v.get("numeric")]
+        dataset = _linkr_per_entity(dataset, unique_per, spec.get("uniqueAggregation") or "first", numeric_names)
 
     total = int(len(dataset))
     cols = set(dataset.columns)
