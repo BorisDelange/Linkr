@@ -38,13 +38,15 @@ export function buildPlotBuilderSpec(
   zoom?: { lo: number; hi: number } | null,
 ): PlotBuilderSpec {
   const byId = new Map(columns.map((c) => [c.id, c]))
+  const plotType = (config.plotType as string) ?? 'scatter'
   const colName = (id: string | undefined): string | null => (id ? byId.get(id)?.name ?? null : null)
   const colType = (id: string | undefined): string | null => (id ? byId.get(id)?.type ?? null : null)
 
-  const plotType = (config.plotType as string) ?? 'scatter'
   const histogramOrientation = (config.histogramOrientation as string) ?? 'vertical'
   const xId = config.xColumn as string | undefined
-  const yId = config.yColumn as string | undefined
+  // A pie counts one variable: a Y left over from another plot type must not
+  // filter its rows (excludeNA / outliers read Y).
+  const yId = plotType === 'pie' ? undefined : (config.yColumn as string | undefined)
   const groupId = config.groupColumn as string | undefined
   const isHorizontalHistogram = plotType === 'histogram' && histogramOrientation === 'horizontal'
   const histId = isHorizontalHistogram ? yId : xId

@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useState } from 'react'
+import { useMemo, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChartScatter } from 'lucide-react'
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
@@ -11,6 +11,8 @@ import {
   BarChart,
   Bar,
   Cell,
+  PieChart,
+  Pie,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -18,14 +20,15 @@ import {
   Legend,
   ReferenceArea,
 } from 'recharts'
-import type { TooltipContentProps } from 'recharts'
+import type { TooltipContentProps, PieLabelRenderProps } from 'recharts'
 import { cn } from '@/lib/utils'
 import { niceTicks } from '@/lib/chart-ticks'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { outlierBounds, isWithinBounds, type OutlierMethod } from '@/lib/outliers'
 import { windowFromDrag, binCountForWindow, isZoomed, type ZoomWindow } from './histogram-zoom'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
-import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel } from './chart-axis-helpers'
+import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel, truncateLabel } from './chart-axis-helpers'
+import { ChartTooltipCard, FloatingChartTooltip } from './chart-tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
@@ -86,6 +89,11 @@ function formatNumericTick(decimals: number) {
     if (Number.isInteger(n)) return n.toLocaleString(undefined, { useGrouping: true, maximumFractionDigits: 0 })
     return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals, useGrouping: true })
   }
+}
+
+/** `value` as a percentage of `total`, one decimal. */
+function sharePct(value: number, total: number): string {
+  return total > 0 ? ((value / total) * 100).toFixed(1) : '0'
 }
 
 /** Boxplot/violin Y-axis tick: ~3 significant digits, grouped thousands, never scientific notation.
@@ -280,6 +288,7 @@ function BoxplotChart({
   violin,
   startAtZero = false,
   xLabelMaxLen = 12,
+  decimals = 1,
 }: {
   data: BoxplotData[]
   colors: string[]
@@ -289,8 +298,10 @@ function BoxplotChart({
   violin: boolean
   startAtZero?: boolean
   xLabelMaxLen?: number
+  decimals?: number
 }) {
   const { t } = useTranslation()
+  const [hover, setHover] = useState<{ index: number; x: number; y: number } | null>(null)
   if (data.length === 0) return <div className="flex items-center justify-center h-full text-xs text-muted-foreground">{t('datasets.no_data_available')}</div>
 
   const allMin = Math.min(...data.map(d => d.stats.min))
@@ -337,8 +348,33 @@ function BoxplotChart({
     return points
   }
 
+  const fmt = formatNumericTick(decimals)
+  const hovered = hover ? data[hover.index] : undefined
+  const slotW = plotW / data.length
+
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet">
+    <>
+    <FloatingChartTooltip point={hover}>
+      {hover && hovered && (
+        <ChartTooltipCard
+          title={hovered.name}
+          color={colors[hover.index % colors.length]}
+          rows={[
+            { label: 'n', value: hovered.values.length.toLocaleString() },
+            { label: t('datasets.plot_builder_median'), value: fmt(hovered.stats.median) },
+            { label: t('datasets.plot_builder_q1_q3'), value: `${fmt(hovered.stats.q1)} – ${fmt(hovered.stats.q3)}` },
+            { label: t('datasets.plot_builder_whiskers'), value: `${fmt(hovered.stats.min)} – ${fmt(hovered.stats.max)}` },
+            ...(Number.isFinite(hovered.stats.mean) ? [{ label: t('datasets.plot_builder_mean'), value: fmt(hovered.stats.mean) }] : []),
+          ]}
+        />
+      )}
+    </FloatingChartTooltip>
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="w-full h-full"
+      preserveAspectRatio="xMidYMid meet"
+      onMouseLeave={() => setHover(null)}
+    >
       {showGrid &&
         yTicks.map((tick, i) => (
           <line
@@ -375,9 +411,22 @@ function BoxplotChart({
       )}
 
       {data.map((d, i) => {
-        const cx = marginLeft + (plotW / data.length) * (i + 0.5)
+        const cx = marginLeft + slotW * (i + 0.5)
         const color = colors[i % colors.length]
         const { min, q1, median, q3, max } = d.stats
+        // The whole column answers the hover, not just the box: a short box or a
+        // thin violin is otherwise a hard target.
+        const hitArea = (
+          <rect
+            x={marginLeft + slotW * i}
+            y={marginTop}
+            width={slotW}
+            height={plotH}
+            fill={hover?.index === i ? 'var(--color-muted)' : 'transparent'}
+            fillOpacity={0.5}
+          />
+        )
+        const track = (e: React.MouseEvent) => setHover({ index: i, x: e.clientX, y: e.clientY })
 
         if (violin) {
           const density = kernelDensity(d.values)
@@ -391,7 +440,8 @@ function BoxplotChart({
           const leftPath = pathPoints.map(p => `${cx - p.dx},${p.y}`).join(' ')
           const rightPath = [...pathPoints].reverse().map(p => `${cx + p.dx},${p.y}`).join(' ')
           return (
-            <g key={i}>
+            <g key={i} onMouseMove={track}>
+              {hitArea}
               <polygon
                 points={`${leftPath} ${rightPath}`}
                 fill={color}
@@ -408,7 +458,8 @@ function BoxplotChart({
 
         const halfBox = boxWidth / 2
         return (
-          <g key={i}>
+          <g key={i} onMouseMove={track}>
+            {hitArea}
             <line x1={cx} x2={cx} y1={toY(max)} y2={toY(min)} stroke={color} strokeWidth={1.5} strokeOpacity={0.5} />
             <line x1={cx - halfBox * 0.4} x2={cx + halfBox * 0.4} y1={toY(max)} y2={toY(max)} stroke={color} strokeWidth={1.5} />
             <line x1={cx - halfBox * 0.4} x2={cx + halfBox * 0.4} y1={toY(min)} y2={toY(min)} stroke={color} strokeWidth={1.5} />
@@ -429,6 +480,7 @@ function BoxplotChart({
         )
       })}
     </svg>
+    </>
   )
 }
 
@@ -441,15 +493,18 @@ function buildLegendProps(position: string, fontSize = 11): Record<string, unkno
   // never crushes the plot: side legends cap their width, stacked ones cap their height.
   const vertical = { fontSize, lineHeight: 1.3, maxWidth: '42%', maxHeight: '100%', overflowY: 'auto' as const, overflowX: 'hidden' as const }
   const horizontal = { fontSize, lineHeight: 1.3, maxHeight: '32%', overflowY: 'auto' as const }
+  // Recharts paints legend text in the series colour; a light series then
+  // vanishes on a light card. The swatch carries the colour, the text stays legible.
+  const formatter = (value: unknown) => <span style={{ color: 'var(--color-foreground)' }}>{String(value)}</span>
   switch (position) {
     case 'top-right':
-      return { verticalAlign: 'top', align: 'right', layout: 'vertical', wrapperStyle: vertical }
+      return { verticalAlign: 'top', align: 'right', layout: 'vertical', wrapperStyle: vertical, formatter }
     case 'top-left':
-      return { verticalAlign: 'top', align: 'left', layout: 'vertical', wrapperStyle: vertical }
+      return { verticalAlign: 'top', align: 'left', layout: 'vertical', wrapperStyle: vertical, formatter }
     case 'top-center':
-      return { verticalAlign: 'top', align: 'center', wrapperStyle: horizontal }
+      return { verticalAlign: 'top', align: 'center', wrapperStyle: horizontal, formatter }
     default: // 'bottom'
-      return { verticalAlign: 'bottom', align: 'center', wrapperStyle: horizontal }
+      return { verticalAlign: 'bottom', align: 'center', wrapperStyle: horizontal, formatter }
   }
 }
 
@@ -471,7 +526,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const centerTitle = (config.centerTitle as boolean) ?? true
   const plotType = (config.plotType as string) ?? 'scatter'
   const xCol = config.xColumn as string | undefined
-  const yCol = config.yColumn as string | undefined
+  // A pie counts one variable: a Y left over from another plot type must not filter its rows.
+  const yCol = plotType === 'pie' ? undefined : config.yColumn as string | undefined
   const uniquePerId = config.uniquePer as string | undefined
   const uniqueAggregation = (config.uniqueAggregation as string) ?? 'first'
   const groupCol = config.groupColumn as string | undefined
@@ -480,6 +536,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const binWidthConfig = (config.binWidth as number) ?? 5
   const barMode = (config.barMode as string) ?? 'grouped'
   const histogramOrientation = (config.histogramOrientation as string) ?? 'vertical'
+  const barStyle = (config.barStyle as string) ?? 'classic'
   const excludeNA = (config.excludeNA as boolean) ?? true
   const outlierMethod = ((config.outlierMethod as string) ?? 'none') as OutlierMethod
   const outlierCoef = (config.outlierCoef as number) ?? 1.5
@@ -654,6 +711,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
     chartTitle ||
     (plotType === 'histogram'
       ? `${t('datasets.plot_builder_histogram', 'Histogram')}: ${histogramColumn?.name ?? histogramCol ?? ''}`
+      : plotType === 'pie'
+      ? xColumn?.name ?? xCol ?? ''
       : `${xColumn?.name ?? xCol ?? ''} vs ${yColumn?.name ?? yCol ?? ''}`)
 
   // Histogram requires its binned variable (Y when horizontal, X otherwise); other plots require X.
@@ -851,9 +910,20 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           xLabelMaxLen={xLabelMaxLen}
           yLabelMaxLen={yLabelMaxLen}
           barSize={barSize}
+          barStyle={barStyle}
           serverData={sd}
           zoom={zoom}
           onZoomChange={setZoom}
+        />
+      )}
+      {plotType === 'pie' && (
+        <PiePlot
+          rows={sourceRows}
+          xCol={xCol!}
+          colors={colors}
+          opacity={opacity}
+          labelMaxLen={xLabelMaxLen}
+          serverData={sd}
         />
       )}
       {plotType === 'boxplot' && (
@@ -868,6 +938,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           violin={false}
           startAtZero={xAxisStartZero}
           xLabelMaxLen={xLabelMaxLen}
+          decimals={decimals}
           serverData={sd}
         />
       )}
@@ -883,6 +954,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           violin={true}
           startAtZero={xAxisStartZero}
           xLabelMaxLen={xLabelMaxLen}
+          decimals={decimals}
           serverData={sd}
         />
       )}
@@ -996,22 +1068,34 @@ function ScatterPlot({
   const xScale = useMemo(() => xIsDate ? null : niceTicks(data.flatMap(s => s.data.map(d => d.x)), xAxisStartZero), [data, xIsDate, xAxisStartZero])
   const yScale = useMemo(() => yIsDate ? null : niceTicks(data.flatMap(s => s.data.map(d => d.y)), yAxisStartZero), [data, yIsDate, yAxisStartZero])
 
+  // Custom content: the default one lists x and y but never says which group a
+  // point belongs to.
+  const renderTooltip = useCallback(({ active, payload }: TooltipContentProps<number, string>) => {
+    const point = payload?.[0]?.payload as { x?: number; y?: number } | undefined
+    if (!active || !point || point.x == null || point.y == null) return null
+    const seriesIndex = data.findIndex(s => s.data.includes(point as { x: number; y: number }))
+    const group = groupNames && seriesIndex >= 0 ? data[seriesIndex].name : undefined
+    const fmtX = xIsDate ? formatDateTick : formatNumericTick(decimals)
+    const fmtY = yIsDate ? formatDateTick : formatNumericTick(decimals)
+    return (
+      <ChartTooltipCard
+        title={group}
+        color={group ? colors[seriesIndex % colors.length] : undefined}
+        rows={[
+          { label: xLabel || xCol, value: fmtX(point.x) },
+          { label: yLabel || yCol, value: fmtY(point.y) },
+        ]}
+      />
+    )
+  }, [data, groupNames, colors, xIsDate, yIsDate, decimals, xLabel, yLabel, xCol, yCol])
+
   return (
     <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
-      <ScatterChart margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
+      <ScatterChart margin={{ top: 12, right: 20, bottom: xLabel ? 22 : 4, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" name={xLabel || undefined} label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedNumericTick formatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} />} height={28} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xScale ? xScale.domain : (xAxisStartZero ? [0, 'auto'] : undefined)} ticks={xScale?.ticks} />
         <YAxis dataKey="y" type="number" name={yLabel || undefined} label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11, style: { textAnchor: 'middle' } } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={yIsDate ? formatDateTick : formatNumericTick(decimals)} domain={yScale ? yScale.domain : (yAxisStartZero ? [0, 'auto'] : undefined)} ticks={yScale?.ticks} />
-        <Tooltip
-          {...TOOLTIP_STYLE}
-          cursor={{ strokeDasharray: '3 3' }}
-          formatter={(_v, name, item) => {
-            const point = item?.payload as { x?: number; y?: number } | undefined
-            if (name === 'x' && xIsDate && point?.x) return formatDateTick(point.x)
-            if (name === 'y' && yIsDate && point?.y) return formatDateTick(point.y)
-            return typeof _v === 'number' ? formatNumericTick(decimals)(_v) : String(_v)
-          }}
-        />
+        <Tooltip cursor={{ strokeDasharray: '3 3' }} content={renderTooltip} />
         {showLegend && groupNames && <Legend {...legendProps} />}
         {data.map((series, i) => (
           <Scatter
@@ -1087,14 +1171,18 @@ function LinePlot({
 
   return (
     <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
-      <LineChart data={merged} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
+      <LineChart data={merged} margin={{ top: 12, right: 20, bottom: xLabel ? 22 : 4, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedNumericTick formatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} />} height={28} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xScale ? xScale.domain : (xAxisStartZero ? [0, 'auto'] : undefined)} ticks={xScale?.ticks} />
         <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11, style: { textAnchor: 'middle' } } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={formatNumericTick(decimals)} domain={yScale ? yScale.domain : undefined} ticks={yScale?.ticks} />
         <Tooltip
           {...TOOLTIP_STYLE}
-          labelFormatter={xIsDate ? (label) => formatDateTick(label as string | number) : undefined}
-          formatter={(v) => (typeof v === 'number' ? formatNumericTick(decimals)(v) : String(v))}
+          cursor={{ stroke: 'var(--color-muted-foreground)', strokeOpacity: 0.4, strokeDasharray: '3 3' }}
+          labelFormatter={(label) => (xIsDate ? formatDateTick : formatNumericTick(decimals))(label as string | number)}
+          formatter={(v, name) => [
+            typeof v === 'number' ? formatNumericTick(decimals)(v) : String(v),
+            name === 'all' ? (yLabel || yCol) : name,
+          ]}
         />
         {showLegend && groupNames && <Legend {...legendProps} />}
         {series.map((s, i) => (
@@ -1127,6 +1215,7 @@ function BarPlot({
   colors: string[]; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
   legendPosition: string; legendFontSize?: number; decimals?: number; xLabelMaxLen?: number; barSize?: number; serverData?: PlotServerData | null
 }) {
+  const { t } = useTranslation()
   const legendProps = buildLegendProps(legendPosition, legendFontSize)
   const isCountMode = !yCol
   const dataKey = isCountMode ? 'count' : 'value'
@@ -1224,17 +1313,17 @@ function BarPlot({
 
   return (
     <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
-      <BarChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 10 }}>
+      <BarChart data={data} margin={{ top: 12, right: 20, bottom: xLabel ? 22 : 4, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={effXLabelMaxLen} angle={-30} textAnchor="end" />} interval={0} height={60} />
         <YAxis label={yLabel ? { value: yLabel, angle: -90, position: 'insideLeft', offset: 5, fontSize: 11, style: { textAnchor: 'middle' } } : undefined} tick={{ fontSize: 10 }} width={56} tickFormatter={formatNumericTick(decimals)} domain={yScale ? yScale.domain : undefined} ticks={yScale?.ticks} />
         <Tooltip
           {...TOOLTIP_STYLE}
-          formatter={(v: unknown) => {
-            if (typeof v !== 'number') return String(v)
+          formatter={(v: unknown, name) => [
             // Count mode yields integers; only the averaged-value mode needs decimals.
-            return isCountMode ? v.toLocaleString() : formatNumericTick(decimals)(v)
-          }}
+            typeof v !== 'number' ? String(v) : isCountMode ? v.toLocaleString() : formatNumericTick(decimals)(v),
+            name === 'count' ? t('datasets.plot_builder_count') : name === 'value' ? (yLabel || yCol || name) : name,
+          ]}
         />
         {showLegend && effGroupNames && <Legend {...legendProps} />}
         {series.map((s, i) => (
@@ -1252,11 +1341,11 @@ function BarPlot({
 // ---------------------------------------------------------------------------
 
 function HistogramPlot({
-  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, barMode, orientation, xAxisStartZero, decimals = 1, xLabelMaxLen = 12, yLabelMaxLen = 16, barSize = 0, serverData, zoom, onZoomChange,
+  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, barMode, orientation, xAxisStartZero, decimals = 1, xLabelMaxLen = 12, yLabelMaxLen = 16, barSize = 0, barStyle = 'classic', serverData, zoom, onZoomChange,
 }: {
   rows: Record<string, unknown>[]; xCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; binMode: string; binsConfig: number; binWidthConfig: number; opacity: number; xLabel: string; yLabel: string
-  showGrid: boolean; showLegend: boolean; legendPosition: string; legendFontSize?: number; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number; barSize?: number; serverData?: PlotServerData | null
+  showGrid: boolean; showLegend: boolean; legendPosition: string; legendFontSize?: number; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number; barSize?: number; barStyle?: string; serverData?: PlotServerData | null
   /** Drag-to-zoom window, owned by the parent so server mode can put it in the spec. */
   zoom?: ZoomWindow | null
   onZoomChange?: (zoom: ZoomWindow | null) => void
@@ -1378,26 +1467,26 @@ function HistogramPlot({
   const binAxisLabel = isHorizontal ? yLabel : xLabel
   const countAxisLabel = isHorizontal ? xLabel : yLabel
   // Tooltip needs a word for the effectif; only fall back to "Count" there, never on the empty axis title.
-  const countLabel = countAxisLabel || 'Count'
+  const countLabel = countAxisLabel || t('datasets.plot_builder_count')
+  const multiSeries = series.length > 1
   const renderHistTooltip = useCallback(({ active, payload, label }: TooltipContentProps<number, string>) => {
     if (!active || !payload?.length) return null
     return (
-      <div style={{ fontSize: 10, padding: '6px 10px', background: 'rgba(0,0,0,.85)', borderRadius: 4, color: '#fff', lineHeight: 1.6 }}>
-        <div style={{ fontWeight: 600, marginBottom: 2 }}>{label}</div>
-        {payload.map((p, i) => {
+      <ChartTooltipCard
+        title={label}
+        color={multiSeries ? undefined : payload[0].color}
+        rows={payload.map((p) => {
           const value = typeof p.value === 'number' ? p.value : 0
-          const pct = totalCount > 0 ? ((value / totalCount) * 100).toFixed(1) : '0'
-          return (
-            <div key={i}>
-              {hasGroups && <span style={{ color: p.color }}>{p.name}: </span>}
-              <span>{countLabel}: {value.toLocaleString()}</span>
-              <span style={{ marginLeft: 8, opacity: 0.7 }}>({pct}%)</span>
-            </div>
-          )
+          return {
+            label: multiSeries ? String(p.name) : countLabel,
+            color: multiSeries ? p.color : undefined,
+            value: value.toLocaleString(),
+            note: `(${sharePct(value, totalCount)} %)`,
+          }
         })}
-      </div>
+      />
     )
-  }, [totalCount, hasGroups, countLabel])
+  }, [totalCount, multiSeries, countLabel])
 
   const tickInterval = Math.max(0, Math.floor(effectiveBins / 10) - 1)
   const barRadius: [number, number, number, number] = isHorizontal ? [0, 2, 2, 0] : [2, 2, 0, 0]
@@ -1447,6 +1536,21 @@ function HistogramPlot({
     ...(countScale ? { domain: countScale.domain, ticks: countScale.ticks } : {}),
   }
 
+  // The ranked list reads one count per category: numeric bins and a split by
+  // another column keep the classic bars.
+  if (barStyle === 'list' && isCategorical && !effGroupNames) {
+    return (
+      <RankedBarList
+        data={data as { bin: string; count: number }[]}
+        colors={colors}
+        colorByCategory={colorByCategory}
+        opacity={opacity}
+        labelMaxLen={yLabelMaxLen}
+        countLabel={countLabel}
+      />
+    )
+  }
+
   return (
     <div className="relative h-full w-full">
       {zoomed && (
@@ -1461,7 +1565,7 @@ function HistogramPlot({
       <BarChart
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}
-        margin={{ top: 5, right: 20, bottom: 25, left: 10 }}
+        margin={{ top: 12, right: 20, bottom: (isHorizontal ? countAxisLabel : binAxisLabel) ? 22 : 4, left: 10 }}
         onMouseDown={handleDragStart}
         onMouseMove={handleDragMove}
         onMouseUp={handleDragEnd}
@@ -1484,7 +1588,7 @@ function HistogramPlot({
             <YAxis width={56} {...countAxisProps} />
           </>
         )}
-        <Tooltip content={renderHistTooltip} cursor={{ fill: 'rgba(255,255,255,.15)' }} />
+        <Tooltip content={renderHistTooltip} cursor={TOOLTIP_STYLE.cursor} />
         {showLegend && effGroupNames && <Legend {...legendProps} />}
         {series.map((s, i) => (
           <Bar
@@ -1518,6 +1622,223 @@ function HistogramPlot({
   )
 }
 
+/** Tremor-style ranked list: one row per category, a thin bar on a full-width
+ *  track, the count right after the bar end. Rows share the card height between
+ *  a minimum and a maximum; past the minimum the list scrolls inside the card. */
+function RankedBarList({
+  data, colors, colorByCategory, opacity, labelMaxLen, countLabel,
+}: {
+  data: { bin: string; count: number }[]; colors: string[]; colorByCategory: boolean
+  opacity: number; labelMaxLen: number; countLabel: string
+}) {
+  const { t } = useTranslation()
+  const [hover, setHover] = useState<{ index: number; x: number; y: number } | null>(null)
+  if (data.length === 0) return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">{t('datasets.no_data_available')}</div>
+  const max = Math.max(...data.map(d => d.count))
+  const total = data.reduce((s, d) => s + d.count, 0)
+  // Room after the longest bar for its count, so the label never leaves the card.
+  const countChars = Math.max(...data.map(d => d.count.toLocaleString().length))
+  const colorOf = (i: number) => (colorByCategory ? colors[i % colors.length] : colors[0])
+  const hovered = hover ? data[hover.index] : undefined
+  return (
+    <>
+    <FloatingChartTooltip point={hover}>
+      {hover && hovered && (
+        <ChartTooltipCard
+          title={hovered.bin}
+          color={colorOf(hover.index)}
+          rows={[
+            { label: countLabel, value: hovered.count.toLocaleString() },
+            { label: t('datasets.plot_builder_share'), value: `${sharePct(hovered.count, total)} %` },
+          ]}
+        />
+      )}
+    </FloatingChartTooltip>
+    <div
+      onMouseLeave={() => setHover(null)}
+      className="grid h-full w-full gap-x-3 overflow-y-auto pt-1.5 pr-1"
+      style={{
+        gridTemplateColumns: 'max-content minmax(0, 1fr)',
+        gridAutoRows: 'minmax(22px, 30px)',
+        // `safe` keeps the first rows reachable once the list overflows and scrolls.
+        alignContent: 'safe center',
+      }}
+    >
+      {data.map((d, i) => {
+        const pct = max > 0 ? (d.count / max) * 100 : 0
+        const active = hover?.index === i
+        return (
+          <div key={d.bin} className="contents" onMouseMove={(e) => setHover({ index: i, x: e.clientX, y: e.clientY })}>
+            <span className="self-center truncate text-xs text-foreground">{truncateLabel(d.bin, labelMaxLen)}</span>
+            <div className="flex items-center" style={{ paddingRight: `${countChars + 1}ch` }}>
+              <div className="relative h-2 w-full rounded-full bg-muted">
+                <div
+                  className="absolute inset-y-0 left-0 min-w-2 rounded-full transition-opacity"
+                  style={{ width: `${pct}%`, backgroundColor: colorOf(i), opacity: active ? Math.min(1, opacity + 0.2) : opacity }}
+                />
+                <span
+                  className="absolute top-1/2 -translate-y-1/2 pl-1.5 text-xs tabular-nums text-muted-foreground"
+                  style={{ left: `${pct}%` }}
+                >
+                  {d.count.toLocaleString()}
+                </span>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+    </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Pie / donut
+// ---------------------------------------------------------------------------
+
+const RADIAN = Math.PI / 180
+/** Slices thinner than this keep their tooltip but get no outside label: on a
+ *  crowded ring those labels would only pile on top of each other. */
+const PIE_MIN_LABEL_SHARE = 0.03
+
+/** Average width of an 11px label character, to reserve room for outside labels. */
+const PIE_LABEL_CHAR_PX = 6.2
+
+function polarPoint(cx: number, cy: number, r: number, angle: number) {
+  return { x: cx + r * Math.cos(-angle * RADIAN), y: cy + r * Math.sin(-angle * RADIAN) }
+}
+
+function PiePlot({
+  rows, xCol, colors, opacity, labelMaxLen, serverData,
+}: {
+  rows: Record<string, unknown>[]; xCol: string; colors: string[]; opacity: number; labelMaxLen: number; serverData?: PlotServerData | null
+}) {
+  const { t } = useTranslation()
+  const data = useMemo(
+    () => (serverData ? (serverData.data ?? []) as { bin: string; count: number }[] : buildCategoricalData(rows, xCol)),
+    [serverData, rows, xCol],
+  )
+  const total = useMemo(() => data.reduce((s, d) => s + d.count, 0), [data])
+  const countLabel = t('datasets.plot_builder_count')
+  const [size, setSize] = useState({ width: 0, height: 0 })
+  const observerRef = useRef<ResizeObserver | null>(null)
+  const containerRef = useCallback((el: HTMLDivElement | null) => {
+    observerRef.current?.disconnect()
+    if (!el) return
+    const measure = () => setSize({ width: el.clientWidth, height: el.clientHeight })
+    measure()
+    observerRef.current = new ResizeObserver(measure)
+    observerRef.current.observe(el)
+  }, [])
+
+  // A one-colour palette shades that colour from full to light, largest slice first.
+  const monochrome = colors.length === 1
+  const sliceOpacity = (i: number) => {
+    if (!monochrome || data.length < 2) return opacity
+    return opacity * (1 - 0.75 * (i / (data.length - 1)))
+  }
+
+  const renderLabel = useCallback((props: PieLabelRenderProps) => {
+    const { cx, cy, midAngle, innerRadius, outerRadius, percent, index } = props as {
+      cx: number; cy: number; midAngle: number; innerRadius: number; outerRadius: number; percent: number; index: number
+    }
+    const name = String(data[index]?.bin ?? '')
+    let sliceLabel = null
+    if (percent >= PIE_MIN_LABEL_SHARE) {
+      const { x, y } = polarPoint(cx, cy, outerRadius + 14, midAngle)
+      // Shift the two-line block so it grows away from the ring at the top and bottom.
+      const nameY = y - 4 + 10 * Math.sin(-midAngle * RADIAN)
+      sliceLabel = (
+        <text x={x} y={nameY} textAnchor={x >= cx ? 'start' : 'end'}>
+          <tspan x={x} fontSize={11} fill="var(--color-foreground)">
+            {truncateLabel(name, labelMaxLen)}
+            <title>{name}</title>
+          </tspan>
+          <tspan x={x} dy={13} fontSize={10} fill="var(--color-muted-foreground)" className="tabular-nums">
+            {(percent * 100).toFixed(1)} %
+          </tspan>
+        </text>
+      )
+    }
+    // The total rides on the first slice's label: it is the only hook that gets the
+    // ring's resolved centre and hole radius (a <Label position="center"> sees the
+    // chart's box, not the Pie's radii).
+    if (index !== 0) return sliceLabel
+    const text = total.toLocaleString()
+    // Big enough to anchor the ring, small enough that a long total fits the hole.
+    const size = Math.max(12, Math.min(30, innerRadius * 0.45, (innerRadius * 1.5) / (0.6 * text.length)))
+    return (
+      <g>
+        {sliceLabel}
+        <text x={cx} y={cy} textAnchor="middle">
+          <tspan x={cx} dy={size * 0.15} fontSize={size} fontWeight={700} fill="var(--color-foreground)" className="tabular-nums">{text}</tspan>
+          <tspan x={cx} dy={Math.max(12, size * 0.6)} fontSize={Math.max(10, size * 0.4)} fill="var(--color-muted-foreground)">n</tspan>
+        </text>
+      </g>
+    )
+  }, [data, labelMaxLen, total])
+
+  const renderLabelLine = useCallback((props: { cx: number; cy: number; midAngle: number; outerRadius: number; percent: number }) => {
+    if (props.percent < PIE_MIN_LABEL_SHARE) return <g />
+    const a = polarPoint(props.cx, props.cy, props.outerRadius + 3, props.midAngle)
+    const b = polarPoint(props.cx, props.cy, props.outerRadius + 10, props.midAngle)
+    return <path d={`M${a.x},${a.y}L${b.x},${b.y}`} fill="none" stroke="var(--color-muted-foreground)" strokeOpacity={0.5} strokeWidth={1} />
+  }, [])
+
+  const renderTooltip = useCallback(({ active, payload }: TooltipContentProps<number, string>) => {
+    if (!active || !payload?.length) return null
+    const p = payload[0]
+    const value = typeof p.value === 'number' ? p.value : 0
+    const fill = p.color || (p.payload as { fill?: string } | undefined)?.fill
+    return (
+      <ChartTooltipCard
+        title={p.name}
+        color={fill}
+        rows={[{ label: countLabel, value: value.toLocaleString(), note: `(${sharePct(value, total)} %)` }]}
+      />
+    )
+  }, [total, countLabel])
+
+  // The ring gives way to its outside labels: a percentage radius sized on the
+  // smaller side clipped the left/right labels of a narrow widget.
+  const longestLabel = Math.min(labelMaxLen, Math.max(0, ...data.map(d => String(d.bin).length)))
+  const labelRoom = 26 + longestLabel * PIE_LABEL_CHAR_PX
+  const outerRadius = size.width > 0
+    ? Math.max(24, Math.min(size.height / 2 - 34, size.width / 2 - labelRoom))
+    : 0
+
+  if (data.length === 0) return <div className="flex h-full items-center justify-center text-xs text-muted-foreground">{t('datasets.no_data_available')}</div>
+
+  return (
+    <div ref={containerRef} className="h-full w-full">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
+      <PieChart margin={{ top: 12, right: 12, bottom: 12, left: 12 }}>
+        <Tooltip content={renderTooltip} />
+        <Pie
+          data={data}
+          dataKey="count"
+          nameKey="bin"
+          innerRadius={outerRadius * 0.72}
+          outerRadius={outerRadius}
+          startAngle={90}
+          endAngle={-270}
+          paddingAngle={data.length > 1 ? 1.5 : 0}
+          cornerRadius={3}
+          stroke="none"
+          isAnimationActive={false}
+          label={renderLabel}
+          labelLine={renderLabelLine}
+        >
+          {data.map((d, i) => (
+            <Cell key={d.bin} fill={monochrome ? colors[0] : colors[i % colors.length]} fillOpacity={sliceOpacity(i)} />
+          ))}
+        </Pie>
+      </PieChart>
+    </ResponsiveContainer>
+    </div>
+  )
+}
+
 /** The bin label at an index, for a ReferenceArea bound on the categorical axis. */
 function binLabelAt(data: Record<string, unknown>[], index: number): string | undefined {
   const row = data[index] as { bin?: unknown } | undefined
@@ -1529,10 +1850,10 @@ function binLabelAt(data: Record<string, unknown>[], index: number): string | un
 // ---------------------------------------------------------------------------
 
 function BoxViolinPlot({
-  rows, xCol, yCol, colors, opacity, yLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12, serverData,
+  rows, xCol, yCol, colors, opacity, yLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12, decimals = 1, serverData,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol?: string
-  colors: string[]; opacity: number; yLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number; serverData?: PlotServerData | null
+  colors: string[]; opacity: number; yLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number; decimals?: number; serverData?: PlotServerData | null
 }) {
   const data = useMemo<BoxplotData[]>(() => {
     if (serverData) return (serverData.data ?? []) as unknown as BoxplotData[]
@@ -1574,6 +1895,7 @@ function BoxViolinPlot({
         violin={violin}
         startAtZero={startAtZero}
         xLabelMaxLen={xLabelMaxLen}
+        decimals={decimals}
       />
     </div>
   )

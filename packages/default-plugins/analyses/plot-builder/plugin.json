@@ -5,8 +5,8 @@
     "fr": "Constructeur de graphiques"
   },
   "description": {
-    "en": "Interactive plot builder: scatter, line, bar, histogram, boxplot, and violin plots with grouping, colors, and labels.",
-    "fr": "Constructeur interactif de graphiques : nuages de points, lignes, barres, histogrammes, boîtes à moustaches et violons avec regroupement, couleurs et légendes."
+    "en": "Interactive plot builder: scatter, line, bar, histogram, pie/donut, boxplot, and violin plots with grouping, colors, and labels.",
+    "fr": "Constructeur interactif de graphiques : nuages de points, lignes, barres, histogrammes, camemberts/anneaux, boîtes à moustaches et violons avec regroupement, couleurs et légendes."
   },
   "version": "1.1.0",
   "category": "visualization",
@@ -63,6 +63,13 @@
           "label": {
             "en": "Histogram",
             "fr": "Histogramme"
+          }
+        },
+        {
+          "value": "pie",
+          "label": {
+            "en": "Pie / donut",
+            "fr": "Camembert / anneau"
           }
         },
         {
@@ -271,6 +278,17 @@
         "fr": "Légende axe X"
       },
       "default": "",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
       "row": "axisLabels",
       "section": {
         "en": "Chart",
@@ -284,6 +302,17 @@
         "fr": "Légende axe Y"
       },
       "default": "",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
       "row": "axisLabels",
       "section": {
         "en": "Chart",
@@ -318,6 +347,10 @@
             "fr": "requis"
           },
           "histogram": {
+            "en": "required",
+            "fr": "requis"
+          },
+          "pie": {
             "en": "required",
             "fr": "requis"
           },
@@ -370,6 +403,10 @@
             "fr": "optionnel"
           },
           "histogram": {
+            "en": "not used",
+            "fr": "non utilisé"
+          },
+          "pie": {
             "en": "not used",
             "fr": "non utilisé"
           },
@@ -710,6 +747,17 @@
         "fr": "Grille"
       },
       "default": true,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
       "row": "togglesRow",
       "section": {
         "en": "Style",
@@ -738,6 +786,17 @@
         "fr": "Axe X commence à 0"
       },
       "default": false,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
       "row": "axisZeroRow",
       "section": {
         "en": "Style",
@@ -752,6 +811,17 @@
         "fr": "Axe Y commence à 0"
       },
       "default": false,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
       "row": "axisZeroRow",
       "section": {
         "en": "Style",
@@ -790,6 +860,44 @@
         "fr": "Style",
         "defaultOpen": false
       }
+    },
+    "barStyle": {
+      "type": "select",
+      "label": {
+        "en": "Bar style",
+        "fr": "Style des barres"
+      },
+      "default": "classic",
+      "row": "barSizeRow",
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Ranked list: one row per category with a thin bar and its count, sorted by count. Applies to a categorical variable; numeric bins and a split by another column keep the classic bars.",
+        "fr": "Liste classée : une ligne par catégorie avec une barre fine et son effectif, triée par effectif. S'applique à une variable catégorielle ; les classes numériques et un regroupement par une autre colonne gardent les barres classiques."
+      },
+      "options": [
+        {
+          "value": "classic",
+          "label": {
+            "en": "Classic",
+            "fr": "Classique"
+          }
+        },
+        {
+          "value": "list",
+          "label": {
+            "en": "Ranked list",
+            "fr": "Liste classée"
+          }
+        }
+      ]
     },
     "barSize": {
       "type": "number",
@@ -834,7 +942,8 @@
           "bar",
           "histogram",
           "boxplot",
-          "violin"
+          "violin",
+          "pie"
         ]
       },
       "section": {
