@@ -12,6 +12,7 @@ import { WidgetCard } from './WidgetCard'
 import { MoveWidgetDialog } from './MoveWidgetDialog'
 import { buildDashboardTree } from './dashboard-tree'
 import { isWidgetPluginStale } from './plugin-drift'
+import { getPlugin } from '@/lib/plugins/registry'
 import { PluginWidgetRenderer } from './widget-renderers/PluginWidgetRenderer'
 import { InlineCodeWidgetRenderer } from './widget-renderers/InlineCodeWidgetRenderer'
 import { DashboardDataProvider } from './DashboardDataProvider'
@@ -111,15 +112,28 @@ function WidgetFilterBadge({ chips }: { chips: ReturnType<typeof useWidgetFilter
   )
 }
 
+/** With the title bar hidden, a plugin whose own title is left empty shows the widget's
+ *  (localized) name instead, so hiding the bars never leaves a chart unnamed. */
+function withFallbackTitle(widget: DashboardWidget, title: string | undefined): DashboardWidget {
+  if (!title || widget.source.type !== 'plugin') return widget
+  const { config } = widget.source
+  if (typeof config.title === 'string' && config.title.trim()) return widget
+  if (!getPlugin(widget.source.pluginId)?.manifest.configSchema?.title) return widget
+  return { ...widget, source: { ...widget.source, config: { ...config, title } } }
+}
+
 function WidgetWithData({
-  widget,
+  widget: stored,
   dashboard,
   filters,
+  fallbackTitle,
 }: {
   widget: DashboardWidget
   dashboard: Dashboard
   filters: Record<string, FilterValue> | undefined
+  fallbackTitle?: string
 }) {
+  const widget = useMemo(() => withFallbackTitle(stored, fallbackTitle), [stored, fallbackTitle])
   return (
     <DashboardDataProvider
       datasetFileId={widget.datasetFileId ?? null}
@@ -197,7 +211,12 @@ const WidgetCell = memo(function WidgetCell({
       onAcceptPluginVersion={() => onAcceptPluginVersion(id)}
       topLeftBadges={filterChips.length > 0 ? <WidgetFilterBadge chips={filterChips} /> : undefined}
     >
-      <WidgetWithData widget={widget} dashboard={dashboard} filters={filters} />
+      <WidgetWithData
+        widget={widget}
+        dashboard={dashboard}
+        filters={filters}
+        fallbackTitle={hideTitleBar ? localized(widget.name, language) : undefined}
+      />
     </WidgetCard>
   )
 })

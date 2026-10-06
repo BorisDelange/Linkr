@@ -213,14 +213,22 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     return <Placeholder icon text={t('datasets.table1_no_columns')} />
   }
 
-  return (
+  const title = typeof config.title === 'string' ? config.title.trim() : ''
+  const publication = (
     <PublicationTable
       rows={displayRows}
       columns={tableColumns}
       wrap={wrap}
-      className="h-full p-4"
+      className={title ? 'min-h-0 flex-1 px-4 pb-4' : 'h-full p-4'}
       emptyMessage={t('common.no_results')}
     />
+  )
+  if (!title) return publication
+  return (
+    <div className="flex h-full flex-col">
+      <div className="truncate px-4 pt-3 pb-1 text-center text-sm font-medium">{title}</div>
+      {publication}
+    </div>
   )
 }
 

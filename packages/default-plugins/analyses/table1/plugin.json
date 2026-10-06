@@ -221,6 +221,18 @@
         "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
         "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
       }
+    },
+    "title": {
+      "type": "string",
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     }
   },
   "badges": [
