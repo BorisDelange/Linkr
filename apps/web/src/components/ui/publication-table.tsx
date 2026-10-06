@@ -25,6 +25,9 @@ import { ResizeGrip } from '@/components/ui/table-primitives'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { cn } from '@/lib/utils'
 
+/** A double-click fit stops here, so one very long cell can't push the rest off-screen. */
+const FIT_MAX_WIDTH = 640
+
 export interface PublicationColumn<T> {
   id: string
   header: string
@@ -136,6 +139,23 @@ export function PublicationTable<T extends PublicationRow>({
     [],
   )
 
+  // Double-click on a grip: the column takes the width of its longest cell,
+  // header included, as in a spreadsheet. A truncated cell clips its text, so
+  // the natural width is read from the cell's content, not from the cell.
+  const fitColumn = (col: PublicationColumn<T>) => {
+    const cells = scrollRef.current?.querySelectorAll<HTMLElement>(`[data-col="${CSS.escape(col.id)}"]`)
+    if (!cells?.length) return
+    let widest = 0
+    for (const cell of cells) {
+      const style = getComputedStyle(cell)
+      const content = cell.firstElementChild instanceof HTMLElement ? cell.firstElementChild : cell
+      const width = content.scrollWidth + parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      if (width > widest) widest = width
+    }
+    const next = Math.min(FIT_MAX_WIDTH, Math.max(col.minWidth ?? 60, Math.ceil(widest) + 2))
+    setWidths((w) => ({ ...w, [col.id]: next }))
+  }
+
   // Group headers, as runs of adjacent columns sharing a `group`. Built from the
   // column order so a group is always contiguous by construction.
   const groups: { label: string | undefined; span: number }[] = []
@@ -208,6 +228,7 @@ export function PublicationTable<T extends PublicationRow>({
             {columns.map((col) => (
               <th
                 key={col.id}
+                data-col={col.id}
                 className={cn(
                   'relative select-none border-b border-foreground/70 px-3 pb-1.5 font-semibold',
                   hasGroups ? 'pt-1.5' : 'pt-2',
@@ -217,7 +238,7 @@ export function PublicationTable<T extends PublicationRow>({
                 <TruncatedText text={col.header} readOnly />
                 <ResizeGrip
                   onStart={onResizeStart(col)}
-                  onReset={() => setWidths((w) => { const n = { ...w }; delete n[col.id]; return n })}
+                  onReset={() => fitColumn(col)}
                   active={resizing === col.id}
                 />
               </th>
@@ -233,6 +254,7 @@ export function PublicationTable<T extends PublicationRow>({
               {columns.map((col, ci) => (
                 <td
                   key={col.id}
+                  data-col={col.id}
                   className={cn(
                     'px-3 py-1 align-top',
                     alignOf(col.align),

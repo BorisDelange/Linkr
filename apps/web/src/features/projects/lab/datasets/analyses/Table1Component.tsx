@@ -226,7 +226,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   if (!title) return publication
   return (
     <div className="flex h-full flex-col">
-      <div className="truncate px-4 pt-3 pb-1 text-center text-sm font-medium">{title}</div>
+      <div className="truncate px-4 pt-3 pb-2.5 text-center text-sm font-medium">{title}</div>
       {publication}
     </div>
   )
