@@ -204,7 +204,7 @@ export function PublicationTable<T extends PublicationRow>({
               ))}
             </tr>
           )}
-          <tr className={cn(!hasGroups && 'border-t-2 border-foreground/70')}>
+          <tr className={cn('group/thead', !hasGroups && 'border-t-2 border-foreground/70')}>
             {columns.map((col) => (
               <th
                 key={col.id}
@@ -244,7 +244,7 @@ export function PublicationTable<T extends PublicationRow>({
                   )}
                   style={{ maxWidth: widthOf(col) }}
                 >
-                  {col.cell(row)}
+                  {cellContent(col.cell(row), wrap)}
                 </td>
               ))}
             </tr>
@@ -253,4 +253,11 @@ export function PublicationTable<T extends PublicationRow>({
       </table>
     </div>
   )
+}
+
+/** Plain text cut by the column width reveals itself on hover. A rich cell
+ *  (a badge, a p-value marker) is left to its renderer. */
+function cellContent(content: ReactNode, wrap: boolean): ReactNode {
+  if (wrap || (typeof content !== 'string' && typeof content !== 'number')) return content
+  return <TruncatedText text={String(content)} readOnly />
 }

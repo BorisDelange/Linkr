@@ -281,7 +281,9 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 table still looks like the others: `FILTER_INPUT_CLASS` (and its `_DENSE`
 variant), `SortIndicator`, `nextSorting` (desc → asc → none), `columnLabel`, and
 `ColumnResizeHandle` / `ResizeGrip` — the latter headless, for the two tables
-that track widths themselves instead of through TanStack.
+that track widths themselves instead of through TanStack. Mark a header row
+`group/thead` and every `ResizeGrip` in it shows a faint column edge while the
+header is hovered (`PublicationTable` does).
 
 ---
 
@@ -719,6 +721,11 @@ other keeps it.
 light text, rounded, `text-xs`, arrow, animated in. It is theme-aware
 (`bg-foreground text-background`), so it inverts correctly in dark mode. When a
 tooltip is asked for, this is the default; never reach for the browser's.
+
+**Chart tooltips** (the hover card over a plot) use
+`features/projects/lab/datasets/analyses/chart-tooltip.tsx`: `ChartTooltipCard`
+(title with the series' colour dot on its left, then `label : value` lines) as a
+recharts `content`, and `FloatingChartTooltip` for a chart not drawn by recharts.
 
 ```tsx
 <Tooltip>

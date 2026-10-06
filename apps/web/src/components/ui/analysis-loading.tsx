@@ -55,7 +55,7 @@ export function AnalysisLoading({
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className={cn('animate-loading-dot rounded-full bg-current motion-reduce:animate-none', compact ? 'size-2' : 'size-2.5')}
+            className={cn('animate-loading-dot rounded-full bg-current motion-reduce:animate-none', compact ? 'size-[6.5px]' : 'size-2')}
             style={{ animationDelay: `${i * 160}ms` }}
           />
         ))}

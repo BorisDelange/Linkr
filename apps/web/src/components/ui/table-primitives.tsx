@@ -59,7 +59,9 @@ export function columnLabel<T>(colDefs: ColumnDef<T>[], id: string): string {
 /**
  * The drag strip on a column's trailing edge. It sits slightly outside the cell
  * so the cursor finds it before the neighbouring header, and shows itself only
- * on hover — a visible divider per column reads as chrome.
+ * on hover — a visible divider per column reads as chrome. A table that marks
+ * its header row `group/thead` gets every grip faintly drawn while that row is
+ * hovered, so the columns' edges can be found without hunting for them.
  *
  * Headless: the tables that resize through TanStack and the two that track
  * widths themselves render the same strip, so it takes handlers rather than a
@@ -83,7 +85,9 @@ export function ResizeGrip({
     >
       <div
         className={`absolute left-1/2 top-0 h-full w-0.5 -translate-x-1/2 transition-colors ${
-          active ? 'bg-primary' : 'bg-transparent group-hover/resize:bg-muted-foreground/40'
+          active
+            ? 'bg-primary'
+            : 'bg-transparent group-hover/thead:bg-muted-foreground/25 group-hover/resize:bg-muted-foreground/60!'
         }`}
       />
     </div>
