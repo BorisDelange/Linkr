@@ -98,7 +98,7 @@ export interface DatasetNode {
   name: string
   type: 'file' | 'folder'
   path: string
-  columns?: ({ id: string; name: string; type: string; label?: string; description?: string } & Record<string, unknown>)[] | null
+  columns?: ({ id: string; name: string; type: string; label?: Record<string, string> | string; description?: Record<string, string> | string } & Record<string, unknown>)[] | null
   rowCount?: number | null
 }
 

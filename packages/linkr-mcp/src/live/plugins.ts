@@ -94,6 +94,12 @@ export function pluginDoc(manifest: PluginManifest): string {
       if (field.filter) parts.push(`${field.filter} only`)
     } else if (field.type === 'string' && field.localized) {
       parts.push('string, or {"en": "...", "fr": "..."} for one text per language')
+    } else if (field.type === 'choice-order') {
+      const source = field.choices === 'column-values' ? 'values of the column' : 'answers of the survey question'
+      // The column can move with the layout (Y once a chart is horizontal): name every candidate.
+      const columns = [field.columnField, ...(field.columnFieldWhen ?? []).map((c) => c.columnField)]
+        .filter((c, i, all): c is string => !!c && all.indexOf(c) === i)
+      parts.push(`array of the ${source} in ${columns.join(' or ') || 'its column field'}, in display order`)
     } else {
       parts.push(field.type)
     }

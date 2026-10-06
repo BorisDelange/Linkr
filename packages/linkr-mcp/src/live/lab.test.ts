@@ -92,6 +92,11 @@ describe('plugins', () => {
     expect(doc).toContain('xColumn (column')
     expect(doc).not.toMatch(/colorPalette|legendFontSize/)
   })
+
+  it('tells what a custom order holds and which column it reads', () => {
+    expect(pluginDoc(findPlugin('plot-builder')!))
+      .toMatch(/categoryOrderCustom \(array of the values of the column in xColumn or yColumn, in display order/)
+  })
 })
 
 describe('buildFilter', () => {

@@ -79,7 +79,7 @@ export function registerLabTools(server: Server): void {
     const meta = await api.getDatasetMeta(project_uid, path)
     const out = [`${meta.path} — ${meta.rowCount ?? '?'} rows`]
     for (const c of meta.columns ?? []) {
-      let line = `  ${c.id} · "${c.name}" · ${c.type}${c.label ? ` · ${c.label}` : ''}`
+      let line = `  ${c.id} · "${c.name}" · ${c.type}${c.label ? ` · ${loc(c.label)}` : ''}`
       if (stats) {
         const s = await api.getColumnStats(project_uid, path, c.id).catch(() => null)
         if (s) line += ` · ${JSON.stringify(s).slice(0, 300)}`
