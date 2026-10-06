@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { PluginManifest } from '@/types/plugin'
-import { GRID_COLUMNS, buildFilter, columnMetaMap, findColumn, matchDatasetPath, placeWidget, resolveColumns } from './lab'
+import {
+  GRID_COLUMNS, bilingual, buildFilter, columnMetaMap, findColumn, localizedChange, matchDatasetPath, placeWidget, resolveColumns,
+} from './lab'
 import { findPlugin, listPlugins, pluginDoc } from './plugins'
 
 const MANIFEST = {
@@ -124,5 +126,19 @@ describe('matchDatasetPath', () => {
   it('refuses an ambiguous or unknown name, listing the datasets', () => {
     expect(matchDatasetPath([{ path: 'a/x.parquet' }, { path: 'b/x.csv' }], 'x')).toMatchObject({ error: expect.stringMatching(/several datasets/) })
     expect(matchDatasetPath(files, 'nope')).toMatchObject({ error: expect.stringMatching(/No dataset "nope".*los\.parquet/) })
+  })
+})
+
+describe('bilingual / localizedChange', () => {
+  it('copies one text to both languages unless a French one is given', () => {
+    expect(bilingual('Age')).toEqual({ en: 'Age', fr: 'Age' })
+    expect(bilingual('Age', 'Âge')).toEqual({ en: 'Age', fr: 'Âge' })
+    expect(bilingual('Age', '  ')).toEqual({ en: 'Age', fr: 'Age' })
+  })
+
+  it('on update, a French text alone keeps the English one', () => {
+    expect(localizedChange({ en: 'Age', fr: 'Age' }, undefined, 'Âge')).toEqual({ en: 'Age', fr: 'Âge' })
+    expect(localizedChange({ en: 'Old', fr: 'Vieux' }, 'New')).toEqual({ en: 'New', fr: 'New' })
+    expect(localizedChange({ en: 'Old' })).toBeUndefined()
   })
 })

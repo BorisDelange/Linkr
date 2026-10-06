@@ -5,7 +5,7 @@ import type { DashboardWidget } from '@/types'
 import { formatRows } from './cohorts.js'
 import { columnId } from '@linkr/format'
 import {
-  bilingual, buildFilter, columnMetaMap, findColumn, layoutSchema, matchDatasetPath, placeWidget, resolveColumns,
+  bilingual, buildFilter, frenchParam, localizedChange, columnMetaMap, findColumn, layoutSchema, matchDatasetPath, placeWidget, resolveColumns,
   type DatasetColumn, type Layout,
 } from './lab.js'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
@@ -199,24 +199,29 @@ export function registerLabTools(server: Server): void {
   server.registerTool('create_dashboard', {
     description: 'Create a dashboard in a project, with a first tab. Returns both ids.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ project_uid: string; name: string; dataset_path?: string; first_tab?: string }>({
+    inputSchema: fromJsonSchema<{
+      project_uid: string; name: string; name_fr?: string; dataset_path?: string; first_tab?: string; first_tab_fr?: string
+    }>({
       type: 'object',
       properties: {
         project_uid: { type: 'string' },
         name: { type: 'string' },
+        name_fr: frenchParam('name'),
         dataset_path: { type: 'string', description: 'Default dataset for its widgets.' },
         first_tab: { type: 'string', description: 'Name of the first tab. Default "Overview".' },
+        first_tab_fr: frenchParam('first_tab'),
       },
       required: ['project_uid', 'name'],
     }),
-  }, guard(async ({ project_uid, name, dataset_path, first_tab }) => {
+  }, guard(async ({ project_uid, name, name_fr, dataset_path, first_tab, first_tab_fr }) => {
     const dataset = dataset_path ? await datasetPath(project_uid, dataset_path) : undefined
     const dashboard = await api.createDashboard({
-      id: randomUUID(), projectUid: project_uid, name: bilingual(name), gridV: 2,
+      id: randomUUID(), projectUid: project_uid, name: bilingual(name, name_fr), gridV: 2,
       ...(dataset ? { defaultDatasetFileId: dataset } : {}),
     })
     const tab = await api.createTab({
-      id: randomUUID(), dashboardId: dashboard.id, name: bilingual(first_tab ?? 'Overview'), displayOrder: 0,
+      id: randomUUID(), dashboardId: dashboard.id, displayOrder: 0,
+      name: first_tab ? bilingual(first_tab, first_tab_fr) : bilingual('Overview', first_tab_fr ?? 'Vue d\'ensemble'),
     })
     return text(`Created dashboard "${name}" — dashboard_id: ${dashboard.id}, first tab_id: ${tab.id}`)
   }))
@@ -224,15 +229,17 @@ export function registerLabTools(server: Server): void {
   server.registerTool('add_tab', {
     description: 'Add a tab to a dashboard (or a sub-tab under another tab).',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ dashboard_id: string; name: string; parent_tab_id?: string }>({
+    inputSchema: fromJsonSchema<{ dashboard_id: string; name: string; name_fr?: string; parent_tab_id?: string }>({
       type: 'object',
-      properties: { dashboard_id: { type: 'string' }, name: { type: 'string' }, parent_tab_id: { type: 'string' } },
+      properties: {
+        dashboard_id: { type: 'string' }, name: { type: 'string' }, name_fr: frenchParam('name'), parent_tab_id: { type: 'string' },
+      },
       required: ['dashboard_id', 'name'],
     }),
-  }, guard(async ({ dashboard_id, name, parent_tab_id }) => {
+  }, guard(async ({ dashboard_id, name, name_fr, parent_tab_id }) => {
     const tabs = await api.listTabs(dashboard_id)
     const tab = await api.createTab({
-      id: randomUUID(), dashboardId: dashboard_id, name: bilingual(name),
+      id: randomUUID(), dashboardId: dashboard_id, name: bilingual(name, name_fr),
       displayOrder: tabs.reduce((m, t) => Math.max(m, t.displayOrder + 1), 0),
       ...(parent_tab_id ? { parentTabId: parent_tab_id } : {}),
     })
@@ -242,11 +249,13 @@ export function registerLabTools(server: Server): void {
   server.registerTool('rename_tab', {
     description: 'Rename a dashboard tab.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ tab_id: string; name: string }>({
-      type: 'object', properties: { tab_id: { type: 'string' }, name: { type: 'string' } }, required: ['tab_id', 'name'],
+    inputSchema: fromJsonSchema<{ tab_id: string; name: string; name_fr?: string }>({
+      type: 'object',
+      properties: { tab_id: { type: 'string' }, name: { type: 'string' }, name_fr: frenchParam('name') },
+      required: ['tab_id', 'name'],
     }),
-  }, guard(async ({ tab_id, name }) => {
-    await api.updateTab(tab_id, { name: bilingual(name) })
+  }, guard(async ({ tab_id, name, name_fr }) => {
+    await api.updateTab(tab_id, { name: bilingual(name, name_fr) })
     return text(`Renamed tab ${tab_id} to "${name}".`)
   }))
 
@@ -257,13 +266,14 @@ export function registerLabTools(server: Server): void {
       + 'columns or fields are refused. Without a layout the widget goes below the others, half width.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
-      tab_id: string; name: string; plugin_id: string; dataset_path?: string; config: Record<string, unknown>
+      tab_id: string; name: string; name_fr?: string; plugin_id: string; dataset_path?: string; config: Record<string, unknown>
       layout?: Partial<Layout>
     }>({
       type: 'object',
       properties: {
         tab_id: { type: 'string' },
         name: { type: 'string', description: 'Widget title.' },
+        name_fr: frenchParam('name'),
         plugin_id: { type: 'string', description: 'e.g. linkr-analysis-plot-builder (or "plot-builder").' },
         dataset_path: { type: 'string', description: 'Default: the dashboard\'s default dataset.' },
         config: { type: 'object', description: 'Plugin config, e.g. {"plotType": "histogram", "xColumn": "age"}.' },
@@ -271,7 +281,7 @@ export function registerLabTools(server: Server): void {
       },
       required: ['tab_id', 'name', 'plugin_id', 'config'],
     }),
-  }, guard(async ({ tab_id, name, plugin_id, dataset_path, config, layout }) => {
+  }, guard(async ({ tab_id, name, name_fr, plugin_id, dataset_path, config, layout }) => {
     const manifest = findPlugin(plugin_id)
     if (!manifest) return failure(`Unknown plugin "${plugin_id}". See list_plugins.`)
     const { dashboard } = await tabContext(tab_id)
@@ -281,7 +291,7 @@ export function registerLabTools(server: Server): void {
     if (resolved.errors.length) return failure(`Not added:\n- ${resolved.errors.join('\n- ')}`)
     const existing = (await api.listWidgets(tab_id)).map((w) => w.layout)
     const widget = await api.createWidget({
-      id: randomUUID(), tabId: tab_id, name: bilingual(name), datasetFileId: dataset,
+      id: randomUUID(), tabId: tab_id, name: bilingual(name, name_fr), datasetFileId: dataset,
       layout: placeWidget(existing, layout),
       source: { type: 'plugin', pluginId: manifest.id, config: resolved.config, pluginVersion: manifest.version },
     })
@@ -294,12 +304,14 @@ export function registerLabTools(server: Server): void {
       + 'field to null to clear it). Columns may be given by name or id.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
-      widget_id: string; name?: string; dataset_path?: string | null; config?: Record<string, unknown>; layout?: Partial<Layout>
+      widget_id: string; name?: string; name_fr?: string; dataset_path?: string | null; config?: Record<string, unknown>
+      layout?: Partial<Layout>
     }>({
       type: 'object',
       properties: {
         widget_id: { type: 'string' },
         name: { type: 'string' },
+        name_fr: frenchParam('name'),
         dataset_path: {
           // One type only: strict providers (grammar-constrained decoding) reject unions such as string|null.
           type: 'string',
@@ -310,10 +322,11 @@ export function registerLabTools(server: Server): void {
       },
       required: ['widget_id'],
     }),
-  }, guard(async ({ widget_id, name, dataset_path, config, layout }) => {
+  }, guard(async ({ widget_id, name, name_fr, dataset_path, config, layout }) => {
     const widget = await api.getWidget(widget_id)
     const changes: Record<string, unknown> = {}
-    if (name !== undefined) changes.name = bilingual(name)
+    const newName = localizedChange(widget.name, name, name_fr)
+    if (newName) changes.name = newName
     let dataset = widget.datasetFileId
     if (dataset_path === '' || dataset_path === null) {
       dataset = null
@@ -367,12 +380,17 @@ export function registerLabTools(server: Server): void {
   server.registerTool('update_dashboard', {
     description: 'Rename a dashboard, change its description or its default dataset.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ dashboard_id: string; name?: string; description?: string; dataset_path?: string | null }>({
+    inputSchema: fromJsonSchema<{
+      dashboard_id: string; name?: string; name_fr?: string; description?: string; description_fr?: string
+      dataset_path?: string | null
+    }>({
       type: 'object',
       properties: {
         dashboard_id: { type: 'string' },
         name: { type: 'string' },
+        name_fr: frenchParam('name'),
         description: { type: 'string' },
+        description_fr: frenchParam('description'),
         dataset_path: {
           type: 'string',
           description: 'New default dataset for widgets that do not name one; "" clears it.',
@@ -380,10 +398,15 @@ export function registerLabTools(server: Server): void {
       },
       required: ['dashboard_id'],
     }),
-  }, guard(async ({ dashboard_id, name, description, dataset_path }) => {
+  }, guard(async ({ dashboard_id, name, name_fr, description, description_fr, dataset_path }) => {
     const changes: Record<string, unknown> = {}
-    if (name !== undefined) changes.name = bilingual(name)
-    if (description !== undefined) changes.description = bilingual(description)
+    const frenchOnly = (name === undefined && name_fr !== undefined)
+      || (description === undefined && description_fr !== undefined)
+    const current = frenchOnly ? await api.getDashboard(dashboard_id) : undefined
+    const newName = localizedChange(current?.name, name, name_fr)
+    if (newName) changes.name = newName
+    const newDescription = localizedChange(current?.description, description, description_fr)
+    if (newDescription) changes.description = newDescription
     if (dataset_path === '' || dataset_path === null) {
       changes.defaultDatasetFileId = null
     } else if (dataset_path !== undefined) {
@@ -422,8 +445,8 @@ export function registerLabTools(server: Server): void {
         dataset_path: { type: 'string', description: 'Default: the dashboard\'s default dataset.' },
         input_type: {
           type: 'string',
-          enum: ['multi-select', 'checkbox', 'single-select', 'range', 'double-range', 'slider'],
-          description: 'range / double-range for numbers, range / slider for dates.',
+          enum: ['multi-select', 'checkbox', 'single-select', 'range', 'double-range', 'slider', 'slider-range'],
+          description: 'range / double-range for numbers, range / slider / slider-range (both) for dates.',
         },
         label: { type: 'string', description: 'Shown instead of the column name.' },
         tab_ids: { type: 'array', items: { type: 'string' }, description: 'Limit the filter to these tabs. Default: all.' },

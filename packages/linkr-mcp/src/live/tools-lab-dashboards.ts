@@ -3,7 +3,7 @@ import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import { copyName } from '@/lib/copy-name'
 import type { DashboardWidget } from '@/types'
-import { bilingual } from './lab.js'
+import { bilingual, frenchParam } from './lab.js'
 import { reorderIds } from './lab-extra.js'
 import { WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
 import { me } from './lab-rest.js'
@@ -151,14 +151,17 @@ export function registerDashboardExtraTools(server: Server): void {
   server.registerTool('set_dashboard_description', {
     description: 'Set the description of a lab dashboard tab (hover tooltip) or widget (info bubble). "" clears it.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ tab_id?: string; widget_id?: string; description: string }>({
+    inputSchema: fromJsonSchema<{ tab_id?: string; widget_id?: string; description: string; description_fr?: string }>({
       type: 'object',
-      properties: { tab_id: { type: 'string' }, widget_id: { type: 'string' }, description: { type: 'string' } },
+      properties: {
+        tab_id: { type: 'string' }, widget_id: { type: 'string' }, description: { type: 'string' },
+        description_fr: frenchParam('description'),
+      },
       required: ['description'],
     }),
-  }, guard(async ({ tab_id, widget_id, description }) => {
+  }, guard(async ({ tab_id, widget_id, description, description_fr }) => {
     if (!!tab_id === !!widget_id) return failure('Give exactly one of tab_id or widget_id.')
-    const value = description.trim() ? bilingual(description) : null
+    const value = description.trim() ? bilingual(description, description_fr) : null
     if (tab_id) await api.updateTab(tab_id, { description: value })
     else await api.updateWidget(widget_id!, { description: value })
     return text(`Description ${value ? 'set' : 'cleared'}.`)

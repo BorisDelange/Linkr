@@ -12,15 +12,23 @@ import type { PluginConfigField, PluginManifest } from '@/types/plugin'
 
 const ANALYSES_DIR = fileURLToPath(new URL('../../../default-plugins/analyses/', import.meta.url))
 
-let cache: PluginManifest[] | null = null
+/**
+ * The manifests in one built-in plugin folder, read on every call: a field added
+ * to a plugin.json is accepted without restarting the server (11 small files, so
+ * there is nothing worth caching). A manifest mid-edit is skipped, not fatal.
+ */
+export function readManifests(dir: string): PluginManifest[] {
+  if (!existsSync(dir)) return []
+  return readdirSync(dir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && existsSync(`${dir}${d.name}/plugin.json`))
+    .flatMap((d) => {
+      try { return [JSON.parse(readFileSync(`${dir}${d.name}/plugin.json`, 'utf8')) as PluginManifest] } catch { return [] }
+    })
+}
 
 /** The analysis plugins whose manifest is a plugin.json on disk. */
 export function listPlugins(): PluginManifest[] {
-  if (cache) return cache
-  cache = readdirSync(ANALYSES_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && existsSync(`${ANALYSES_DIR}${d.name}/plugin.json`))
-    .map((d) => JSON.parse(readFileSync(`${ANALYSES_DIR}${d.name}/plugin.json`, 'utf8')) as PluginManifest)
-  return cache
+  return readManifests(ANALYSES_DIR)
 }
 
 /** A plugin by id, accepting the short form ("plot-builder" for linkr-analysis-plot-builder). */

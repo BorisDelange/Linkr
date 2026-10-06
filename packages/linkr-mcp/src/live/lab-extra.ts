@@ -3,7 +3,6 @@
  * pipeline diagram, patient boards and workspace plugins. Everything here builds
  * or checks a payload; the tools send it.
  */
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { ROW_ORD, type DatasetCellValue, type DatasetOp, type DatasetOpColumnType } from '@linkr/format'
 import { fitsColumnType } from '@/lib/dataset-utils'
@@ -11,6 +10,7 @@ import type { PipelineEdge, PipelineNode, PipelineNodeType } from '@/types'
 import type { PluginConfigField, PluginManifest } from '@/types/plugin'
 import type { DatasetColumn } from './lab.js'
 import { findColumn } from './lab.js'
+import { readManifests } from './plugins.js'
 
 // --- Dataset edits ------------------------------------------------------------
 
@@ -304,16 +304,9 @@ export function reorderIds(current: string[], requested: string[]): { order?: st
 
 const PATIENT_PLUGINS_DIR = fileURLToPath(new URL('../../../default-plugins/patient-data/', import.meta.url))
 
-let patientCache: PluginManifest[] | null = null
-
 /** The built-in Patient data widgets, read from their manifests on disk. */
 export function listPatientPlugins(): PluginManifest[] {
-  if (patientCache) return patientCache
-  if (!existsSync(PATIENT_PLUGINS_DIR)) return (patientCache = [])
-  patientCache = readdirSync(PATIENT_PLUGINS_DIR, { withFileTypes: true })
-    .filter((d) => d.isDirectory() && existsSync(`${PATIENT_PLUGINS_DIR}${d.name}/plugin.json`))
-    .map((d) => JSON.parse(readFileSync(`${PATIENT_PLUGINS_DIR}${d.name}/plugin.json`, 'utf8')) as PluginManifest)
-  return patientCache
+  return readManifests(PATIENT_PLUGINS_DIR)
 }
 
 /** Default footprint per widget, as the board's store places them. */

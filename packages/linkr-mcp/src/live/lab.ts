@@ -79,16 +79,37 @@ export function placeWidget(existing: Layout[], requested?: Partial<Layout>): La
   }
 }
 
-/** Localized text from what a model writes: the same string in both languages,
- *  so the label is never blank in the other one. */
-export function bilingual(value: string): Record<string, string> {
-  return { en: value, fr: value }
+/** Localized text from what a model writes: `value` is the English text and,
+ *  without a French one, both languages, so the label is never blank in either. */
+export function bilingual(value: string, fr?: string): Record<string, string> {
+  return { en: value, fr: fr?.trim() ? fr : value }
+}
+
+/**
+ * The new value of a localized field on update, or undefined when neither text
+ * is given. A French text alone replaces only the French side of `current`.
+ */
+export function localizedChange(
+  current: Record<string, string> | undefined, en?: string, fr?: string,
+): Record<string, string> | undefined {
+  if (en !== undefined) return bilingual(en, fr)
+  if (fr === undefined) return undefined
+  return { ...(current ?? {}), fr }
+}
+
+/** The `<field>_fr` sibling of a text parameter. Separate params rather than a
+ *  string|{en,fr} union: strict providers reject a parameter of several types. */
+export function frenchParam(field: string): { type: 'string'; description: string } {
+  return {
+    type: 'string',
+    description: `French ${field}; \`${field}\` is then the English one. Omitted: \`${field}\` in both languages.`,
+  }
 }
 
 const INPUT_TYPES: Record<DashboardFilter['type'], DashboardFilter['inputType'][]> = {
   categorical: ['multi-select', 'checkbox', 'single-select'],
   numeric: ['range', 'double-range', 'multi-select', 'checkbox', 'single-select'],
-  date: ['range', 'slider', 'multi-select', 'checkbox', 'single-select'],
+  date: ['range', 'slider', 'slider-range', 'multi-select', 'checkbox', 'single-select'],
 }
 
 /**
