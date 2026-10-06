@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { isSearchEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
 
 /** Cap the number of option rows rendered at once. With very large option sets
  *  (e.g. ~3700 categories) rendering every row is the dominant cost; users reach
@@ -153,8 +154,14 @@ export function MultiSelectFilter({
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {
               e.stopPropagation()
-              // Enter selects every filtered option (not just the rendered slice).
-              if (e.key === 'Enter') { e.preventDefault(); selectAll(); setOpen(false) }
+              if (!isSearchEnter(e)) return
+              e.preventDefault()
+              // Every filtered option, not just the rendered slice.
+              const next = selectMatchesOnEnter(search, value, searchFiltered.map((o) => o.value))
+              if (!next) return
+              if (next !== value) onChange([...next])
+              setOpen(false)
+              setSearch('')
             }}
             placeholder={t('common.search')}
             className="h-7 w-full rounded border bg-transparent pl-7 pr-2 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"

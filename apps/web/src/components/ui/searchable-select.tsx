@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { firstMatchOnEnter, isSearchEnter } from '@/components/ui/search-enter'
 
 /** Same cap as MultiSelectFilter: past this, rendering every row is the dominant
  *  cost and the search box is how anything is reached anyway. */
@@ -69,6 +70,7 @@ export function SearchableSelect({
   const pick = (next: string) => {
     onChange(next)
     setOpen(false)
+    setSearch('')
   }
 
   return (
@@ -117,12 +119,10 @@ export function SearchableSelect({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             onKeyDown={(e) => {
-              // Enter takes the only remaining match — with one left, making the
-              // user reach for it is a pointless extra step.
-              if (e.key === 'Enter' && filtered.length === 1) {
-                e.preventDefault()
-                pick(filtered[0].value)
-              }
+              if (!isSearchEnter(e)) return
+              e.preventDefault()
+              const first = firstMatchOnEnter(search, filtered)
+              if (first) pick(first.value)
             }}
             placeholder={searchPlaceholder ?? t('common.search')}
             className="h-7 w-full rounded border bg-transparent pl-7 pr-2 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary"

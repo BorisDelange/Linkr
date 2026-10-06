@@ -1,6 +1,7 @@
 import { Search, X } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { isSearchEnter } from '@/components/ui/search-enter'
 
 interface SearchInputProps {
   value: string
@@ -19,6 +20,9 @@ interface SearchInputProps {
   borderless?: boolean
   className?: string
   autoFocus?: boolean
+  /** Enter in the box (outside an IME composition). A dropdown's search uses it
+   *  to pick its matches — see `search-enter.ts`. */
+  onEnter?: () => void
 }
 
 export function SearchInput({
@@ -29,6 +33,7 @@ export function SearchInput({
   borderless,
   className,
   autoFocus,
+  onEnter,
 }: SearchInputProps) {
   const { t } = useTranslation()
   const dense = size === 'dense'
@@ -50,6 +55,11 @@ export function SearchInput({
         type="text"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onKeyDown={onEnter && ((e) => {
+          if (!isSearchEnter(e)) return
+          e.preventDefault()
+          onEnter()
+        })}
         placeholder={placeholder ?? t('common.search')}
         autoFocus={autoFocus}
         className={cn(

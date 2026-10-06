@@ -40,6 +40,7 @@ import {
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { SearchInput } from '@/components/ui/search-input'
+import { firstMatchOnEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
 import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
@@ -104,12 +105,13 @@ export function GenericConfigPanel({
   const visibleEntries = Object.entries(schema).filter(([, field]) => {
     if (!field.visibleWhen) return true
     const conditions = Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen]
-    return conditions.every(cond => {
+    const holds = (cond: { field: string; value?: unknown; values?: unknown[]; notEmpty?: boolean }) => {
       const depValue = configWithDefaults[cond.field]
       if (cond.notEmpty) return depValue != null && depValue !== '' && depValue !== undefined
       if (cond.values) return cond.values.includes(depValue)
       return depValue === cond.value
-    })
+    }
+    return conditions.every(cond => ('anyOf' in cond ? cond.anyOf.some(holds) : holds(cond)))
   })
 
   // Group fields by `row` — fields with the same row value are rendered side-by-side
@@ -673,6 +675,14 @@ function MultiColumnSelect({
     )
   }, [filtered, search])
 
+  const selectMatches = () => {
+    const next = selectMatchesOnEnter(search, selected, searchFiltered.map(c => c.id))
+    if (!next) return
+    if (next !== selected) onConfigChange({ [fieldKey]: [...next] })
+    setOpen(false)
+    setSearch('')
+  }
+
   // Column LABELS, not ids: the trigger is read, so it should say what the user
   // named the column rather than its storage name.
   //
@@ -714,6 +724,7 @@ function MultiColumnSelect({
           <SearchInput
             value={search}
             onChange={setSearch}
+            onEnter={selectMatches}
             placeholder={t('common.search')}
             size="dense"
             className="mb-2"
@@ -926,6 +937,10 @@ function SingleColumnSelect({
             <SearchInput
               value={search}
               onChange={setSearch}
+              onEnter={() => {
+                const first = firstMatchOnEnter(search, searchFiltered)
+                if (first) handleSelect(first.id)
+              }}
               placeholder={t('common.search')}
               size="dense"
               className="mb-2"
@@ -1457,6 +1472,12 @@ function IconSelectField({
           <SearchInput
             value={search}
             onChange={setSearch}
+            onEnter={() => {
+              const first = firstMatchOnEnter(search, filtered)
+              if (!first) return
+              onConfigChange({ [fieldKey]: first })
+              setOpen(false)
+            }}
             placeholder="Search icons..."
             size="dense"
             className="mb-2"

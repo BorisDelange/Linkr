@@ -271,7 +271,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 
 | Component | Use for |
 |---|---|
-| `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter selects all matches. |
+| `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter adds every match to the selection. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `DataTable` uses it, so you only reach for it directly in a bespoke table. |
 | `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page; the copy button copies all of it. |
 | `OverflowBadgeList` | A badge row too narrow for its items. Keeps whole badges, folds the rest into `+N` with the full list as bullets on hover. Never clip a badge row with `overflow-hidden`. |
@@ -367,7 +367,10 @@ and turns Cancel into Close while nothing has changed.
   The one sanctioned alternative is `variant="line"` for *detail* panels
   (`entity-docs-dialog`, the detail sheets) — consistent among themselves.
 - **Destructive actions go through an `AlertDialog`.** This one is well held
-  (used consistently throughout) — keep it that way.
+  (used consistently throughout) — keep it that way. Its confirm button is
+  `<AlertDialogAction variant="destructive">` — not a hand-written
+  `bg-destructive …` class string (`text-destructive-foreground` is not a token
+  here, so that spelling left the label black).
 - **`DialogShell` renders no `<form>` — it confirms on Enter itself.** Don't
   re-add a `<form onSubmit>`, and don't hand-roll an `onKeyDown` Enter guard per
   dialog: those were three different spellings across sibling dialogs, and four
@@ -523,6 +526,13 @@ standalone search box use **`SearchInput`** (`components/ui/search-input.tsx`) �
 `ListPageToolbar` itself renders, so the two can't drift. ~15 screens still
 hand-roll one, with magnifier icons from 11px to 16px; migrate them when you
 touch them.
+
+A search box inside a dropdown answers **Enter** the same way everywhere, through
+`components/ui/search-enter.ts` (`SearchInput` takes it as `onEnter`): a
+single-choice list picks its first match and closes, a multi-choice list adds
+every match to the selection and closes. With the search empty, Enter does
+nothing. `SearchableSelect`, `MultiSelectFilter` and `IconPicker` already do it;
+a hand-rolled searchable dropdown must call the same helpers.
 
 Entity cards compose from `CardMetaFooter` (author/org/date), `BadgeStrip`,
 `TypeBadge` and `EntityActionsMenu`. Use them rather than laying out metadata

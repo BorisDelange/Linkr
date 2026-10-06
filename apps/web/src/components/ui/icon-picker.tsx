@@ -5,6 +5,7 @@ import { Search, ExternalLink, Puzzle } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { firstMatchOnEnter, isSearchEnter } from '@/components/ui/search-enter'
 
 /** All valid lucide-react icon names (computed once). */
 const ALL_ICON_NAMES: string[] = (() => {
@@ -119,6 +120,14 @@ export function IconPicker({ value, onChange, iconColor, disabled, showLabel = t
             ref={inputRef}
             value={query}
             onChange={(e) => handleQueryChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (!isSearchEnter(e)) return
+              e.preventDefault()
+              // The live query, not the debounced one: Enter right after typing
+              // must act on what is in the box.
+              const first = firstMatchOnEnter(query, ALL_ICON_NAMES.filter((n) => fuzzyMatch(n, query)))
+              if (first) { onChange(first); setOpen(false) }
+            }}
             placeholder={t('plugins.icon_search_placeholder')}
             className="h-7 border-0 p-0 text-xs shadow-none focus-visible:ring-0"
           />
