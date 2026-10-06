@@ -46,7 +46,7 @@ function isNumericColumn(col: DatasetColumn): boolean {
   return col.type === 'number'
 }
 
-export function Table1Component({ config, columns, rows, datasetFileId, datasetFilters }: ComponentPluginProps) {
+export function Table1Component({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language
   const server = isServerMode()
@@ -207,7 +207,7 @@ export function Table1Component({ config, columns, rows, datasetFileId, datasetF
     return <Placeholder text={serverError} />
   }
   if (!table) {
-    return <AnalysisLoading icon={TableIcon} name={pluginName} />
+    return <AnalysisLoading icon={TableIcon} name={pluginName} compact={compact} />
   }
   if (variables.length === 0) {
     return <Placeholder icon text={t('datasets.table1_no_columns')} />

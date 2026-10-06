@@ -4,6 +4,7 @@ import { sankey as d3Sankey, sankeyLinkHorizontal, type SankeyNode, type SankeyL
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { Workflow, Table as TableIcon, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { cn } from '@/lib/utils'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { getLucideIcon, resolvePalette } from '@/lib/plugins/shared-styles'
@@ -166,6 +167,7 @@ interface SankeyServerData {
 
 export function SankeyComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
+  const pluginName = usePluginName('sankey')
   const server = isServerMode()
 
   const sourceMode = (config.sourceMode as string) ?? 'long'
@@ -453,6 +455,10 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
       {title && <span className="text-xs font-medium truncate text-muted-foreground">{title}</span>}
     </div>
   ) : null
+
+  if (spec && !serverData && !serverError) {
+    return <AnalysisLoading icon={Workflow} name={pluginName} compact={compact} />
+  }
 
   let body: React.ReactNode
   if (server && serverError) {

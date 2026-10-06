@@ -3,7 +3,9 @@ import { useTranslation } from 'react-i18next'
 import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import type { LatLngBoundsExpression } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
+import { Map as MapIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { resolveColor, getLucideIcon, resolvePalette, DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
@@ -121,6 +123,7 @@ function ResizeHandler() {
 export function MapComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
   const server = isServerMode()
+  const pluginName = usePluginName('map')
 
   const title = (config.title as string) ?? ''
   const centerTitle = (config.centerTitle as boolean) ?? true
@@ -270,6 +273,9 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
         <p className="whitespace-pre-wrap">{serverError}</p>
       </div>
     )
+  }
+  if (spec && !serverData) {
+    return <AnalysisLoading icon={MapIcon} name={pluginName} compact={compact} />
   }
   if (!latCol || !lonCol) {
     return (

@@ -1,10 +1,11 @@
 /**
- * What an analysis shows while its result is on the way.
+ * What an analysis shows while its result is on the way — the one loading state
+ * every analysis plugin uses, so a dashboard reads the same whichever is slow.
  *
- * Three lines, all in the same muted colour: the plugin's own icon, its name,
- * and animated dots. The icon alone — which is what these panels used to show —
- * is indistinguishable from an empty state, so a slow server fit read as
- * "nothing to display" rather than "still working".
+ * The plugin's own icon, its name, and three dots in a wave, all in the muted
+ * colour. The icon alone is indistinguishable from an empty state, and small
+ * pulsing "…" went unnoticed: a slow server fit read as "nothing to display"
+ * rather than "still working".
  */
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
@@ -37,32 +38,28 @@ export function AnalysisLoading({
   compact?: boolean
   className?: string
 }) {
+  const { t } = useTranslation()
   return (
     <div
+      role="status"
+      aria-label={t('common.loading')}
       className={cn(
-        'flex h-full flex-col items-center justify-center gap-1 p-8 text-center text-muted-foreground',
+        'flex h-full min-h-0 flex-col items-center justify-center text-center text-muted-foreground',
+        compact ? 'gap-2 p-3' : 'gap-2.5 p-8',
         className,
       )}
     >
-      <Icon size={compact ? 20 : 24} className="opacity-40" />
-      {name && <p className={cn('opacity-70', compact ? 'text-[10px]' : 'text-xs')}>{name}</p>}
-      {/* The dots animate, so the panel is visibly working rather than merely
-          quiet. Rendered as three staggered spans instead of an ellipsis
-          character, which cannot animate. */}
-      <p
-        className={cn('flex gap-0.5 opacity-70', compact ? 'text-[10px]' : 'text-xs')}
-        aria-hidden
-      >
+      <Icon size={compact ? 40 : 48} strokeWidth={1.5} className="opacity-60" />
+      {name && <p className="text-xs opacity-80">{name}</p>}
+      <div className={cn('flex items-center', compact ? 'gap-1.5' : 'gap-2')} aria-hidden>
         {[0, 1, 2].map((i) => (
           <span
             key={i}
-            className="animate-pulse"
-            style={{ animationDelay: `${i * 200}ms`, animationDuration: '1.2s' }}
-          >
-            .
-          </span>
+            className={cn('animate-loading-dot rounded-full bg-current motion-reduce:animate-none', compact ? 'size-2' : 'size-2.5')}
+            style={{ animationDelay: `${i * 160}ms` }}
+          />
         ))}
-      </p>
+      </div>
     </div>
   )
 }

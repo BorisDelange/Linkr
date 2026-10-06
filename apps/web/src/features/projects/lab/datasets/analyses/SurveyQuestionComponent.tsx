@@ -16,7 +16,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ClipboardList, Loader2 } from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
@@ -42,6 +43,7 @@ export function SurveyQuestionComponent({
 }: ComponentPluginProps) {
   const { t, i18n } = useTranslation()
   const server = isServerMode()
+  const pluginName = usePluginName('survey-question')
 
   // The schema is recovered from the dataset itself. In server mode `rows` is
   // empty, so this runs on the columns alone — which is why the one-hot grouping
@@ -107,13 +109,7 @@ export function SurveyQuestionComponent({
   }
   if (server) {
     if (serverError) return <Placeholder text={serverError} />
-    if (!serverSummary) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <Loader2 size={16} className="animate-spin text-muted-foreground" />
-        </div>
-      )
-    }
+    if (!serverSummary) return <AnalysisLoading icon={ClipboardList} name={pluginName} compact={compact} />
   }
 
   // A chart that does not apply to this question type falls back to auto rather

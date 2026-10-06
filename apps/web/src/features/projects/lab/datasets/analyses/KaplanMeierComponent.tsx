@@ -1235,7 +1235,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
       ) : coxError ? (
         <Placeholder text={coxError} />
       ) : !coxResult ? (
-        <Placeholder text={t('common.loading')} />
+        <AnalysisLoading icon={Activity} name={pluginName} compact />
       ) : coxResult.error ? (
         <Placeholder text={coxResult.error} />
       ) : (

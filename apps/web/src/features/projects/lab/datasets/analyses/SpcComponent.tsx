@@ -12,7 +12,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, LineChart } from 'lucide-react'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { getLucideIcon, resolveColor, TOOLTIP_STYLE, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
@@ -69,6 +70,7 @@ function clamp(value: number, min: number, max: number): number {
 
 export function SpcComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
   const { t } = useTranslation()
+  const pluginName = usePluginName('spc')
   const server = isServerMode()
 
   const columnName = useMemo(() => {
@@ -125,7 +127,7 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
 
   if (!ready) return <Placeholder text={t('analyses.spc_select_columns')} />
   if (server && serverError) return <Placeholder text={serverError} />
-  if (server && !serverLoaded) return <Placeholder text={t('common.loading')} />
+  if (server && !serverLoaded) return <AnalysisLoading icon={LineChart} name={pluginName} compact={compact} />
   if (!result || result.points.length === 0) return <Placeholder text={t('analyses.spc_no_data')} />
 
   return <SpcChart result={result} config={config} compact={compact} />

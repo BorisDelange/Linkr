@@ -128,6 +128,13 @@ body {
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+  /* The three dots of AnalysisLoading: a staggered wave, so "still working" reads at
+     a glance where a plain pulse on a "…" went unnoticed. */
+  --animate-loading-dot: loading-dot 1.2s ease-in-out infinite;
+  @keyframes loading-dot {
+    0%, 80%, 100% { opacity: 0.25; transform: translateY(0); }
+    40% { opacity: 1; transform: translateY(-35%); }
+  }
 }
 
 @layer base {

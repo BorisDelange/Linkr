@@ -13,7 +13,9 @@ import {
 } from 'recharts'
 import type { ContentType } from 'recharts/types/component/Tooltip'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
+import { Gauge } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
@@ -245,6 +247,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
   const server = isServerMode()
+  const pluginName = usePluginName('key-indicator')
 
   const columnId = config.column as string | undefined
   const uniquePerId = config.uniquePer as string | undefined
@@ -480,6 +483,10 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
         {serverError}
       </div>
     )
+  }
+
+  if (spec && !serverData) {
+    return <AnalysisLoading icon={Gauge} name={pluginName} compact={compact} />
   }
 
   // In server mode, wait for the aggregate before deciding there is no data —

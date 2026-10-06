@@ -609,6 +609,15 @@ the dominant size). Never hand-roll a CSS spinner — the ones that existed
 have been replaced — and never `return null` while loading (3 pages still do,
 leaving the screen blank).
 
+**Analysis plugins loading** — every analysis component (Plot Builder, KPI,
+Map, SPC, Sankey, Table 1, …) shows **`AnalysisLoading`**
+(`components/ui/analysis-loading.tsx`) while its result is on the way: the
+plugin's manifest icon, its name (`usePluginName(componentId)`) and three dots
+in a wave. Pass `compact` through from the component's props (dashboard
+widgets). Show it only once a request is actually out (`spec && !serverData`),
+or a widget with no dataset waits forever. Before this, one plugin showed tiny
+dots, one a "Loading" line, one a bare spinner, and the KPI nothing at all.
+
 **Not found** — use `components/layout/EntityNotFound.tsx` for any URL whose
 entity does not resolve (every detail page and the project/workspace guards go
 through it): icon, "`<Entity>` not found", why, the id from the URL, and an
