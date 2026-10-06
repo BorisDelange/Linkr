@@ -1,4 +1,6 @@
-/** Plot Builder boxplot/violin data: per-category stats, optional median ordering,
+import { orderCategories, type CategoryOrder } from './plot-category-order'
+
+/** Plot Builder boxplot/violin data: per-category stats, category ordering,
  *  capped category count. Server parity: `_linkr_print_plot` boxplot branch in
  *  apps/api/app/services/execution/render/plot_builder.py. */
 
@@ -24,18 +26,18 @@ export function computeBoxplotStats(values: number[]): BoxStats | null {
   return { min: whiskerLow, q1, median, q3, max: whiskerHigh, mean: values.reduce((s, v) => s + v, 0) / values.length }
 }
 
-/** Categories in first-seen order, or by descending median (stable on ties) when
- *  `sortByMedian`. Ordering happens before the cap, so a sorted chart keeps the
- *  highest medians rather than the first categories met. */
+/** Categories ordered by `order` (value = the median; `data` = first seen).
+ *  Ordering happens before the cap, so a sorted chart keeps its top medians
+ *  rather than the first categories met. */
 export function buildBoxplotGroups(
   groups: Iterable<[string, number[]]>,
-  sortByMedian: boolean,
+  order: CategoryOrder,
+  custom: readonly string[] = [],
 ): BoxplotData[] {
   const out: BoxplotData[] = []
   for (const [name, values] of groups) {
     const stats = computeBoxplotStats(values)
     if (stats) out.push({ name, stats, values })
   }
-  if (sortByMedian) out.sort((a, b) => b.stats.median - a.stats.median)
-  return out.slice(0, MAX_BOX_CATEGORIES)
+  return orderCategories(out, d => d.name, d => d.stats.median, order, custom).slice(0, MAX_BOX_CATEGORIES)
 }

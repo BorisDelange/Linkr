@@ -22,6 +22,7 @@ import {
 } from 'recharts'
 import type { TooltipContentProps, PieLabelRenderProps } from 'recharts'
 import { cn } from '@/lib/utils'
+import { localized } from '@/lib/localized'
 import { niceTicks } from '@/lib/chart-ticks'
 import { resolveColor, getLucideIcon, TOOLTIP_STYLE, aggregateByEntity, CHART_PALETTES, resolvePalette, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { outlierBounds, isWithinBounds, type OutlierMethod } from '@/lib/outliers'
@@ -32,8 +33,10 @@ import { ChartTooltipCard, FloatingChartTooltip } from './chart-tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import type { LocalizedString } from '@/types'
 import { buildPlotBuilderSpec } from './plot-builder-server'
 import { buildBoxplotGroups, computeBoxplotStats, type BoxplotData } from './plot-builder-box'
+import { orderCategories, readCategoryOrder, readCustomCategoryOrder, type CategoryOrder } from './plot-category-order'
 import { MAX_PLOT_POINTS, sampleEvenly, sampleRandom } from './plot-sampling'
 
 // Server-computed chart payloads (parity with each sub-plot's front-only useMemo shape).
@@ -160,6 +163,8 @@ function buildHistogramData(values: number[], binMode: string, binsConfig: numbe
   return buckets
 }
 
+const NO_CUSTOM_ORDER: readonly string[] = []
+
 /** True when fewer than half of the non-empty values parse as numbers — i.e. the column is categorical text. */
 function isCategoricalColumn(rows: Record<string, unknown>[], col: string): boolean {
   let total = 0
@@ -175,8 +180,8 @@ function isCategoricalColumn(rows: Record<string, unknown>[], col: string): bool
   return numeric / total < 0.5
 }
 
-/** Count occurrences of each unique category value, sorted by descending count. */
-function buildCategoricalData(rows: Record<string, unknown>[], col: string) {
+/** Count occurrences of each unique category value, in the chosen category order. */
+function buildCategoricalData(rows: Record<string, unknown>[], col: string, order: CategoryOrder, custom: readonly string[]) {
   const counts = new Map<string, number>()
   for (const r of rows) {
     const v = r[col]
@@ -184,13 +189,12 @@ function buildCategoricalData(rows: Record<string, unknown>[], col: string) {
     const key = String(v)
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
-  return Array.from(counts.entries())
-    .sort((a, b) => b[1] - a[1])
-    .map(([bin, count]) => ({ bin, count }))
+  const data = Array.from(counts, ([bin, count]) => ({ bin, count }))
+  return orderCategories(data, d => d.bin, d => d.count, order, custom)
 }
 
-/** Count occurrences of each category, split by group. */
-function buildCategoricalGrouped(rows: Record<string, unknown>[], col: string, groupCol: string, groupNames: string[]) {
+/** Count occurrences of each category, split by group; ordered on the total over the groups. */
+function buildCategoricalGrouped(rows: Record<string, unknown>[], col: string, groupCol: string, groupNames: string[], order: CategoryOrder, custom: readonly string[]) {
   const counts = new Map<string, Record<string, number>>()
   for (const r of rows) {
     const v = r[col]
@@ -205,12 +209,8 @@ function buildCategoricalGrouped(rows: Record<string, unknown>[], col: string, g
     }
     entry[g]++
   }
-  return Array.from(counts.entries())
-    .sort((a, b) => {
-      const ta = groupNames.reduce((s, n) => s + a[1][n], 0)
-      const tb = groupNames.reduce((s, n) => s + b[1][n], 0)
-      return tb - ta
-    })
+  const total = (entry: Record<string, number>) => groupNames.reduce((s, n) => s + entry[n], 0)
+  return orderCategories(Array.from(counts), ([bin]) => bin, ([, entry]) => total(entry), order, custom)
     .map(([bin, entry]) => ({ bin, ...entry }))
 }
 
@@ -602,7 +602,7 @@ function buildLegendProps(position: string, fontSize = 11): Record<string, unkno
 // ---------------------------------------------------------------------------
 
 export function PlotBuilderComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const server = isServerMode()
   const pluginName = usePluginName('plot-builder')
 
@@ -627,7 +627,9 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const histogramOrientation = (config.histogramOrientation as string) ?? 'vertical'
   const boxplotOrientation = (config.boxplotOrientation as string) ?? 'vertical'
   const boxStyle = (config.boxStyle as string) ?? 'filled'
-  const sortByMedian = (config.sortByMedian as boolean) ?? false
+  const categoryOrder = readCategoryOrder(config)
+  const rawCustomOrder = config.categoryOrderCustom
+  const categoryOrderCustom = useMemo(() => readCustomCategoryOrder({ categoryOrderCustom: rawCustomOrder }), [rawCustomOrder])
   const showCount = (config.showCount as boolean) ?? false
   const barStyle = (config.barStyle as string) ?? 'classic'
   const excludeNA = (config.excludeNA as boolean) ?? true
@@ -639,7 +641,7 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const yLabelMaxLen = (config.yLabelMaxLen as number) ?? 16
   const paletteName = (config.colorPalette as string) ?? 'default'
   const customPaletteStr = (config.customPalette as string) ?? ''
-  const chartTitle = (config.title as string) ?? ''
+  const chartTitle = localized(config.title as LocalizedString | string | undefined, i18n.language).trim()
   const xLabel = (config.xLabel as string) ?? ''
   const yLabel = (config.yLabel as string) ?? ''
   const decimals = (config.decimals as number) ?? 1
@@ -812,13 +814,6 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
 
   const resolvedXLabel = xLabel || ''
   const resolvedYLabel = yLabel || ''
-  const resolvedTitle =
-    chartTitle ||
-    (plotType === 'histogram'
-      ? `${t('datasets.plot_builder_histogram', 'Histogram')}: ${histogramColumn?.name ?? histogramCol ?? ''}`
-      : plotType === 'pie'
-      ? xColumn?.name ?? xCol ?? ''
-      : `${xColumn?.name ?? xCol ?? ''} vs ${yColumn?.name ?? yCol ?? ''}`)
 
   // Histogram requires its binned variable (Y when horizontal, X otherwise); other plots require X.
   if (!requiredColumn) {
@@ -991,6 +986,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           decimals={decimals}
           xLabelMaxLen={xLabelMaxLen}
           barSize={barSize}
+          categoryOrder={categoryOrder}
+          categoryOrderCustom={categoryOrderCustom}
           serverData={sd}
         />
       )}
@@ -1019,6 +1016,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           yLabelMaxLen={yLabelMaxLen}
           barSize={barSize}
           barStyle={barStyle}
+          categoryOrder={categoryOrder}
+          categoryOrderCustom={categoryOrderCustom}
           serverData={sd}
           zoom={zoom}
           onZoomChange={setZoom}
@@ -1031,6 +1030,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           colors={colors}
           opacity={opacity}
           labelMaxLen={xLabelMaxLen}
+          categoryOrder={categoryOrder}
+          categoryOrderCustom={categoryOrderCustom}
           serverData={sd}
         />
       )}
@@ -1049,7 +1050,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           decimals={decimals}
           horizontal={isHorizontalBox}
           boxStyle={boxStyle}
-          sortByMedian={sortByMedian}
+          categoryOrder={categoryOrder}
+          categoryOrderCustom={categoryOrderCustom}
           showCount={showCount}
           serverData={sd}
         />
@@ -1069,7 +1071,8 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
           decimals={decimals}
           horizontal={isHorizontalBox}
           boxStyle={boxStyle}
-          sortByMedian={sortByMedian}
+          categoryOrder={categoryOrder}
+          categoryOrderCustom={categoryOrderCustom}
           showCount={showCount}
           serverData={sd}
         />
@@ -1090,13 +1093,13 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
     else bgClasses = bgColor.bg
   }
 
-  const titleElement = resolvedTitle ? (
+  const titleElement = chartTitle ? (
     <span className={cn(
-      'text-xs font-medium truncate',
-      titleColor ? titleColor.text : 'text-muted-foreground',
-      !compact && !titleColor && 'text-sm text-foreground/80',
+      'font-medium truncate',
+      compact ? 'text-xs' : 'text-sm',
+      titleColor?.text,
     )} style={titleColor?.isCustom ? { color: titleColor.hex } : undefined}>
-      {resolvedTitle}
+      {chartTitle}
     </span>
   ) : null
 
@@ -1325,11 +1328,13 @@ function LinePlot({
 // ---------------------------------------------------------------------------
 
 function BarPlot({
-  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, decimals = 1, xLabelMaxLen = 20, barSize = 0, serverData,
+  rows, xCol, yCol, groupCol, groupNames, colors, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, decimals = 1, xLabelMaxLen = 20, barSize = 0, categoryOrder = null, categoryOrderCustom = NO_CUSTOM_ORDER, serverData,
 }: {
   rows: Record<string, unknown>[]; xCol: string; yCol?: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; opacity: number; xLabel: string; yLabel: string; showGrid: boolean; showLegend: boolean
-  legendPosition: string; legendFontSize?: number; decimals?: number; xLabelMaxLen?: number; barSize?: number; serverData?: PlotServerData | null
+  legendPosition: string; legendFontSize?: number; decimals?: number; xLabelMaxLen?: number; barSize?: number
+  /** Null keeps each path's own order: counts by descending count, the others as met. */
+  categoryOrder?: CategoryOrder | null; categoryOrderCustom?: readonly string[]; serverData?: PlotServerData | null
 }) {
   const { t } = useTranslation()
   const legendProps = buildLegendProps(legendPosition, legendFontSize)
@@ -1357,7 +1362,7 @@ function BarPlot({
           entry.count++
           map.set(key, entry)
         }
-        const data = Array.from(map.entries())
+        const data = orderCategories(Array.from(map), ([name]) => name, ([, a]) => a.sum / a.count, categoryOrder ?? 'data', categoryOrderCustom)
           .slice(0, 30)
           .map(([name, { sum, count }]) => ({ name, value: sum / count }))
         return { data, series: ['value'] }
@@ -1374,7 +1379,12 @@ function BarPlot({
         inner[g].sum += val
         inner[g].count++
       }
-      const data = Array.from(map.entries())
+      // Ordered on the category's mean over all its rows, whatever their group.
+      const overallMean = (groups: Record<string, { sum: number; count: number }>) => {
+        const all = Object.values(groups)
+        return all.reduce((s, a) => s + a.sum, 0) / all.reduce((s, a) => s + a.count, 0)
+      }
+      const data = orderCategories(Array.from(map), ([name]) => name, ([, groups]) => overallMean(groups), categoryOrder ?? 'data', categoryOrderCustom)
         .slice(0, 30)
         .map(([name, groups]) => {
           const entry: Record<string, unknown> = { name }
@@ -1392,8 +1402,7 @@ function BarPlot({
         const key = String(row[xCol] ?? '')
         counts.set(key, (counts.get(key) ?? 0) + 1)
       }
-      const data = Array.from(counts.entries())
-        .sort((a, b) => b[1] - a[1])
+      const data = orderCategories(Array.from(counts), ([name]) => name, ([, count]) => count, categoryOrder ?? 'value-desc', categoryOrderCustom)
         .slice(0, 30)
         .map(([name, count]) => ({ name, count }))
       return { data, series: ['count'] }
@@ -1406,7 +1415,8 @@ function BarPlot({
       const inner = map.get(key)!
       inner[g] = (inner[g] ?? 0) + 1
     }
-    const data = Array.from(map.entries())
+    const total = (groups: Record<string, number>) => Object.values(groups).reduce((s, n) => s + n, 0)
+    const data = orderCategories(Array.from(map), ([name]) => name, ([, groups]) => total(groups), categoryOrder ?? 'data', categoryOrderCustom)
       .slice(0, 30)
       .map(([name, groups]) => {
         const entry: Record<string, unknown> = { name }
@@ -1414,7 +1424,7 @@ function BarPlot({
         return entry
       })
     return { data, series: effGroupNames }
-  }, [serverData, rows, xCol, yCol, effGroupCol, effGroupNames])
+  }, [serverData, rows, xCol, yCol, effGroupCol, effGroupNames, categoryOrder, categoryOrderCustom])
 
   // Nice Y ticks starting at 0 — bar values are naturally anchored at the baseline.
   const yScale = useMemo(() => {
@@ -1457,11 +1467,12 @@ function BarPlot({
 // ---------------------------------------------------------------------------
 
 function HistogramPlot({
-  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, barMode, orientation, xAxisStartZero, decimals = 1, xLabelMaxLen = 12, yLabelMaxLen = 16, barSize = 0, barStyle = 'classic', serverData, zoom, onZoomChange,
+  rows, xCol, groupCol, groupNames, colors, binMode, binsConfig, binWidthConfig, opacity, xLabel, yLabel, showGrid, showLegend, legendPosition, legendFontSize, barMode, orientation, xAxisStartZero, decimals = 1, xLabelMaxLen = 12, yLabelMaxLen = 16, barSize = 0, barStyle = 'classic', categoryOrder = null, categoryOrderCustom = NO_CUSTOM_ORDER, serverData, zoom, onZoomChange,
 }: {
   rows: Record<string, unknown>[]; xCol: string; groupCol?: string; groupNames: string[] | null
   colors: string[]; binMode: string; binsConfig: number; binWidthConfig: number; opacity: number; xLabel: string; yLabel: string
-  showGrid: boolean; showLegend: boolean; legendPosition: string; legendFontSize?: number; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number; barSize?: number; barStyle?: string; serverData?: PlotServerData | null
+  showGrid: boolean; showLegend: boolean; legendPosition: string; legendFontSize?: number; barMode: string; orientation: string; xAxisStartZero?: boolean; decimals?: number; xLabelMaxLen?: number; yLabelMaxLen?: number; barSize?: number; barStyle?: string
+  categoryOrder?: CategoryOrder | null; categoryOrderCustom?: readonly string[]; serverData?: PlotServerData | null
   /** Drag-to-zoom window, owned by the parent so server mode can put it in the spec. */
   zoom?: ZoomWindow | null
   onZoomChange?: (zoom: ZoomWindow | null) => void
@@ -1489,10 +1500,10 @@ function HistogramPlot({
     }
     if (isCategorical) {
       if (!effGroupNames || !effGroupCol) {
-        const d = buildCategoricalData(rows, xCol)
+        const d = buildCategoricalData(rows, xCol, categoryOrder ?? 'value-desc', categoryOrderCustom)
         return { data: d, series: ['count'], effectiveBins: d.length }
       }
-      const d = buildCategoricalGrouped(rows, xCol, effGroupCol, effGroupNames)
+      const d = buildCategoricalGrouped(rows, xCol, effGroupCol, effGroupNames, categoryOrder ?? 'value-desc', categoryOrderCustom)
       return { data: d, series: effGroupNames, effectiveBins: d.length }
     }
     // Zoomed: keep only the rows inside the window, then bin those — capped at the
@@ -1514,7 +1525,7 @@ function HistogramPlot({
     }
     const d = buildHistogramGrouped(zoomedRows, xCol, effGroupCol, binMode, bins, binWidthConfig, effGroupNames, startZero, decimals)
     return { data: d, series: effGroupNames, effectiveBins: d.length }
-  }, [serverData, isCategorical, rows, xCol, effGroupCol, effGroupNames, binMode, binsConfig, binWidthConfig, xAxisStartZero, decimals, zoom])
+  }, [serverData, isCategorical, rows, xCol, effGroupCol, effGroupNames, binMode, binsConfig, binWidthConfig, xAxisStartZero, decimals, zoom, categoryOrder, categoryOrderCustom])
 
   // Numeric edges of the drawn bars, for mapping a drag back onto values.
   const binBounds = useMemo(() => {
@@ -1825,14 +1836,17 @@ function polarPoint(cx: number, cy: number, r: number, angle: number) {
 }
 
 function PiePlot({
-  rows, xCol, colors, opacity, labelMaxLen, serverData,
+  rows, xCol, colors, opacity, labelMaxLen, categoryOrder = null, categoryOrderCustom = NO_CUSTOM_ORDER, serverData,
 }: {
-  rows: Record<string, unknown>[]; xCol: string; colors: string[]; opacity: number; labelMaxLen: number; serverData?: PlotServerData | null
+  rows: Record<string, unknown>[]; xCol: string; colors: string[]; opacity: number; labelMaxLen: number
+  categoryOrder?: CategoryOrder | null; categoryOrderCustom?: readonly string[]; serverData?: PlotServerData | null
 }) {
   const { t } = useTranslation()
   const data = useMemo(
-    () => (serverData ? (serverData.data ?? []) as { bin: string; count: number }[] : buildCategoricalData(rows, xCol)),
-    [serverData, rows, xCol],
+    () => (serverData
+      ? (serverData.data ?? []) as { bin: string; count: number }[]
+      : buildCategoricalData(rows, xCol, categoryOrder ?? 'value-desc', categoryOrderCustom)),
+    [serverData, rows, xCol, categoryOrder, categoryOrderCustom],
   )
   const total = useMemo(() => data.reduce((s, d) => s + d.count, 0), [data])
   const countLabel = t('datasets.plot_builder_count')
@@ -1967,14 +1981,15 @@ function binLabelAt(data: Record<string, unknown>[], index: number): string | un
 
 function BoxViolinPlot({
   rows, catCol, valCol, colors, opacity, valueLabel, showGrid, violin, startAtZero, xLabelMaxLen = 12, decimals = 1,
-  horizontal = false, boxStyle = 'filled', sortByMedian = false, showCount = false, serverData,
+  horizontal = false, boxStyle = 'filled', categoryOrder = null, categoryOrderCustom = NO_CUSTOM_ORDER, showCount = false, serverData,
 }: {
   rows: Record<string, unknown>[]
   /** Category column, or the value column itself when `valCol` is empty (one box). */
   catCol: string
   valCol?: string
   colors: string[]; opacity: number; valueLabel: string; showGrid: boolean; violin: boolean; startAtZero?: boolean; xLabelMaxLen?: number; decimals?: number
-  horizontal?: boolean; boxStyle?: string; sortByMedian?: boolean; showCount?: boolean
+  horizontal?: boolean; boxStyle?: string; showCount?: boolean
+  categoryOrder?: CategoryOrder | null; categoryOrderCustom?: readonly string[]
   serverData?: PlotServerData | null
 }) {
   const data = useMemo<BoxplotData[]>(() => {
@@ -1997,8 +2012,8 @@ function BoxViolinPlot({
       if (!groups.has(cat)) groups.set(cat, [])
       groups.get(cat)!.push(val)
     }
-    return buildBoxplotGroups(groups, sortByMedian)
-  }, [serverData, rows, catCol, valCol, sortByMedian])
+    return buildBoxplotGroups(groups, categoryOrder ?? 'data', categoryOrderCustom)
+  }, [serverData, rows, catCol, valCol, categoryOrder, categoryOrderCustom])
 
   return (
     <div className="w-full h-full">

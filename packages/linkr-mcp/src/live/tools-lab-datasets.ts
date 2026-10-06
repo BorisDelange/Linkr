@@ -5,7 +5,7 @@ import {
   columnId, retypeAddedColumn, type DatasetCellValue, type DatasetOp, type DatasetOpColumnType,
 } from '@linkr/format'
 import { coerceValue, fitsColumnType } from '@/lib/dataset-utils'
-import { findColumn, resolveColumns, type DatasetColumn } from './lab.js'
+import { CHART_TITLE_HINT, findColumn, resolveColumns, type DatasetColumn } from './lab.js'
 import {
   COLUMN_TYPES, buildRowFilters, cellValue, columnOrderWith, formatRowPage, nextAddedRow, opBase, summarizeOps,
   undoStart, type PluginLanguage, type RowFilterInput,
@@ -440,7 +440,7 @@ export function registerLabDatasetTools(server: Server): void {
         project_uid: { type: 'string' }, path: { type: 'string' },
         name: { type: 'string', description: 'Tab title; unique among the dataset\'s analyses.' },
         plugin_id: { type: 'string' },
-        config: { type: 'object' },
+        config: { type: 'object', description: CHART_TITLE_HINT },
         language: { type: 'string', enum: ['python', 'r'], description: 'Script plugins and inline code.' },
         code: { type: 'string', description: 'inline only.' },
       },
@@ -481,7 +481,7 @@ export function registerLabDatasetTools(server: Server): void {
       type: 'object',
       properties: {
         project_uid: { type: 'string' }, path: { type: 'string' }, analysis_id: { type: 'string' },
-        name: { type: 'string' }, config: { type: 'object' },
+        name: { type: 'string' }, config: { type: 'object', description: CHART_TITLE_HINT },
       },
       required: ['project_uid', 'path', 'analysis_id'],
     }),

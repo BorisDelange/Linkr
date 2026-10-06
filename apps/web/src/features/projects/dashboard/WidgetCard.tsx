@@ -246,7 +246,9 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
           then any extra badges (e.g. the active-filters indicator). z-30 to stay above a widget's
           own sticky table header (see the menu button below). */}
       {!showTitleBar && (stale || infoBadge || topLeftBadges) && (
-        <div className="absolute top-0.5 left-0.5 z-30 flex items-center gap-1">
+        // The badge against the card's corner follows its rounding: card radius,
+        // minus the 1px border and the 2px inset, keeps the two arcs concentric.
+        <div className="absolute top-0.5 left-0.5 z-30 flex items-center gap-1 [&>*:first-child]:rounded-tl-[calc(var(--radius-lg)-3px)]">
           {stale && (
             <TooltipProvider delayDuration={300}>
               <Tooltip>

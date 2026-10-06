@@ -7,6 +7,7 @@ import { FormField } from '@/components/ui/form-field'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import {
@@ -38,6 +39,46 @@ interface DashboardSettingsDialogProps {
   dashboard: Dashboard
   projectUid: string
   currentTabId?: string
+}
+
+const WIDGET_SPACING_MAX = 32
+
+/** Pixel value typed by hand, kept in sync with its slider. The draft lets the
+ *  field be emptied while typing; it commits clamped, whole values only. */
+function PixelInput({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (v: number) => void }) {
+  const [draft, setDraft] = useState(String(value))
+  const [shown, setShown] = useState(value)
+  if (shown !== value) {
+    setShown(value)
+    setDraft(String(value))
+  }
+  const commit = () => {
+    const n = Math.round(Number(draft))
+    if (draft.trim() === '' || !Number.isFinite(n)) return setDraft(String(value))
+    const clamped = Math.min(max, Math.max(min, n))
+    setDraft(String(clamped))
+    onChange(clamped)
+  }
+  return (
+    <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value)
+          const n = Number(e.target.value)
+          if (e.target.value.trim() !== '' && Number.isInteger(n) && n >= min && n <= max) onChange(n)
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => { if (e.key === 'Enter') commit() }}
+        className="h-6 w-12 [appearance:textfield] px-1.5 text-right text-xs tabular-nums [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+      />
+      px
+    </div>
+  )
 }
 
 export function DashboardSettingsDialog({
@@ -234,13 +275,13 @@ export function DashboardSettingsDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label>{t('dashboard.widget_spacing', 'Widget spacing')}</Label>
-              <span className="text-[11px] tabular-nums text-muted-foreground">{widgetSpacing} px</span>
+              <PixelInput value={widgetSpacing} min={0} max={WIDGET_SPACING_MAX} onChange={setWidgetSpacing} />
             </div>
             <p className="text-[11px] text-muted-foreground">{t('dashboard.widget_spacing_hint', 'Gap between widgets on the grid.')}</p>
             <input
               type="range"
               min={0}
-              max={32}
+              max={WIDGET_SPACING_MAX}
               step={2}
               value={widgetSpacing}
               onChange={(e) => setWidgetSpacing(Number(e.target.value))}

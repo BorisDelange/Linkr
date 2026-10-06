@@ -294,31 +294,6 @@
         "fr": "Masque les transitions se produisant plus souvent que cette valeur. Laisser à 0 pour aucun maximum."
       }
     },
-    "title": {
-      "type": "string",
-      "label": {
-        "en": "Title",
-        "fr": "Titre"
-      },
-      "default": "",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      }
-    },
-    "centerTitle": {
-      "type": "boolean",
-      "label": {
-        "en": "Center title",
-        "fr": "Centrer le titre"
-      },
-      "default": true,
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
     "displayMode": {
       "type": "select",
       "label": {
@@ -327,9 +302,8 @@
       },
       "default": "diagram",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "description": {
         "en": "Show the flows as a Sankey diagram, as a table (From → To, count, %), both stacked with a draggable divider, or both switchable via tabs.",
@@ -373,10 +347,10 @@
         "fr": "Étiquettes de valeur"
       },
       "default": "none",
+      "row": "labelsRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "options": [
         {
@@ -402,54 +376,6 @@
         }
       ]
     },
-    "nodeWidth": {
-      "type": "number",
-      "label": {
-        "en": "Node width",
-        "fr": "Largeur des nœuds"
-      },
-      "default": 16,
-      "min": 4,
-      "max": 60,
-      "row": "nodeStyle",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "nodePadding": {
-      "type": "number",
-      "label": {
-        "en": "Node spacing",
-        "fr": "Espacement des nœuds"
-      },
-      "default": 14,
-      "min": 2,
-      "max": 60,
-      "row": "nodeStyle",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "linkOpacity": {
-      "type": "number",
-      "label": {
-        "en": "Link opacity (%)",
-        "fr": "Opacité des liens (%)"
-      },
-      "default": 45,
-      "min": 5,
-      "max": 100,
-      "row": "linkStyle",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
     "nodeLabelMaxLen": {
       "type": "number",
       "label": {
@@ -459,15 +385,56 @@
       "default": 22,
       "min": 3,
       "max": 60,
-      "row": "linkStyle",
+      "row": "labelsRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "description": {
         "en": "Maximum characters shown on node labels before truncating with “…”.",
         "fr": "Nombre maximum de caractères affichés sur les libellés de nœuds avant troncature avec « … »."
+      }
+    },
+    "title": {
+      "type": "string",
+      "localized": true,
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "default": "",
+      "row": "titleRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "cardIcon": {
+      "type": "icon-select",
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
+      "default": "__none__",
+      "row": "titleRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "centerTitle": {
+      "type": "boolean",
+      "label": {
+        "en": "Center title",
+        "fr": "Centrer le titre"
+      },
+      "default": true,
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
       }
     },
     "colorPalette": {
@@ -587,6 +554,7 @@
         "fr": "Couleur des liens"
       },
       "default": "source",
+      "row": "linkStyle",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -616,13 +584,48 @@
         }
       ]
     },
-    "cardIcon": {
-      "type": "icon-select",
+    "linkOpacity": {
+      "type": "number",
       "label": {
-        "en": "Icon",
-        "fr": "Icône"
+        "en": "Link opacity (%)",
+        "fr": "Opacité des liens (%)"
       },
-      "default": "__none__",
+      "default": 45,
+      "min": 5,
+      "max": 100,
+      "row": "linkStyle",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "nodeWidth": {
+      "type": "number",
+      "label": {
+        "en": "Node width",
+        "fr": "Largeur des nœuds"
+      },
+      "default": 16,
+      "min": 4,
+      "max": 60,
+      "row": "nodeStyle",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "nodePadding": {
+      "type": "number",
+      "label": {
+        "en": "Node spacing",
+        "fr": "Espacement des nœuds"
+      },
+      "default": 14,
+      "min": 2,
+      "max": 60,
+      "row": "nodeStyle",
       "section": {
         "en": "Style",
         "fr": "Style",

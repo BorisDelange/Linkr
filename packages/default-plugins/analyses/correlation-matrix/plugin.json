@@ -82,6 +82,40 @@
         }
       ]
     },
+    "showValues": {
+      "type": "boolean",
+      "label": {
+        "en": "Show values",
+        "fr": "Afficher les valeurs"
+      },
+      "default": true,
+      "row": "chartOpts",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "The coefficient inside each cell. Colour alone gives the pattern; the number gives the magnitude.",
+        "fr": "Le coefficient dans chaque case. La couleur seule donne la tendance ; le nombre donne l'ampleur."
+      }
+    },
+    "showSignificance": {
+      "type": "boolean",
+      "label": {
+        "en": "Show significance",
+        "fr": "Afficher la significativité"
+      },
+      "default": true,
+      "row": "chartOpts",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Marks cells whose p is below α. A large correlation on few pairs can miss the mark while a tiny one on thousands clears it — the marker says which.",
+        "fr": "Marque les cases dont p est sous α. Une forte corrélation sur peu de paires peut ne pas passer le seuil quand une très faible sur des milliers le franchit — le repère le signale."
+      }
+    },
     "method": {
       "type": "select",
       "label": {
@@ -90,8 +124,8 @@
       },
       "default": "pearson",
       "section": {
-        "en": "Data",
-        "fr": "Données"
+        "en": "Test",
+        "fr": "Test"
       },
       "description": {
         "en": "Pearson measures a straight-line relationship and assumes roughly normal data; Spearman ranks the values first, so it catches any monotonic relationship and is unbothered by outliers or skew.",
@@ -124,49 +158,12 @@
       "min": 0.001,
       "max": 0.2,
       "section": {
-        "en": "Data",
-        "fr": "Données"
+        "en": "Test",
+        "fr": "Test"
       },
-      "row": "dataOpts",
       "description": {
         "en": "With many variables a matrix runs hundreds of tests at once, so some cells cross this threshold by chance alone. Read it as a hint, not a verdict.",
         "fr": "Avec beaucoup de variables, une matrice lance des centaines de tests d'un coup : certaines cases franchissent ce seuil par pur hasard. À lire comme un indice, pas comme un verdict."
-      }
-    },
-    "showValues": {
-      "type": "boolean",
-      "label": {
-        "en": "Show values",
-        "fr": "Afficher les valeurs"
-      },
-      "default": true,
-      "row": "styleOpts",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "The coefficient inside each cell. Colour alone gives the pattern; the number gives the magnitude.",
-        "fr": "Le coefficient dans chaque case. La couleur seule donne la tendance ; le nombre donne l'ampleur."
-      }
-    },
-    "showSignificance": {
-      "type": "boolean",
-      "label": {
-        "en": "Show significance",
-        "fr": "Afficher la significativité"
-      },
-      "default": true,
-      "row": "styleOpts",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Marks cells whose p is below α. A large correlation on few pairs can miss the mark while a tiny one on thousands clears it — the marker says which.",
-        "fr": "Marque les cases dont p est sous α. Une forte corrélation sur peu de paires peut ne pas passer le seuil quand une très faible sur des milliers le franchit — le repère le signale."
       }
     }
   },

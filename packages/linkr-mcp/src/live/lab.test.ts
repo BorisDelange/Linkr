@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PluginManifest } from '@/types/plugin'
 import {
-  GRID_COLUMNS, bilingual, buildFilter, columnMetaMap, findColumn, localizedChange, matchDatasetPath, placeWidget, resolveColumns,
+  GRID_COLUMNS, bilingual, buildFilter, checkTextValue, columnMetaMap, findColumn, localizedChange, matchDatasetPath, placeWidget, resolveColumns,
 } from './lab'
 import { findPlugin, listPlugins, pluginDoc } from './plugins'
 
@@ -37,6 +37,36 @@ describe('resolveColumns', () => {
 
   it('leaves non-column fields untouched even when they look like a column', () => {
     expect(resolveColumns({ plotType: 'age' }, MANIFEST, COLUMNS).config.plotType).toBe('age')
+  })
+})
+
+describe('localized text fields', () => {
+  const TITLED = {
+    id: 'p',
+    configSchema: { title: { type: 'string', localized: true }, unit: { type: 'string' } },
+  } as unknown as PluginManifest
+
+  it('accepts a plain string or one text per language', () => {
+    expect(resolveColumns({ title: 'Age' }, TITLED, COLUMNS).errors).toEqual([])
+    const { config, errors } = resolveColumns({ title: { en: 'Age', fr: 'Âge' } }, TITLED, COLUMNS)
+    expect(errors).toEqual([])
+    expect(config.title).toEqual({ en: 'Age', fr: 'Âge' })
+  })
+
+  it('refuses any other shape, and an object in a plain text field', () => {
+    expect(resolveColumns({ title: ['Age'] }, TITLED, COLUMNS).errors[0]).toMatch(/title: a string .*"en"/)
+    expect(resolveColumns({ title: { en: 1 } }, TITLED, COLUMNS).errors).toHaveLength(1)
+    expect(resolveColumns({ title: { english: 'Age' } }, TITLED, COLUMNS).errors).toHaveLength(1)
+    expect(resolveColumns({ title: {} }, TITLED, COLUMNS).errors).toHaveLength(1)
+    expect(resolveColumns({ unit: { en: 'kg' } }, TITLED, COLUMNS).errors[0]).toMatch(/unit: a string\./)
+  })
+
+  it('leaves numbers alone in a plain text field', () => {
+    expect(checkTextValue('unit', 3, false)).toBeNull()
+  })
+
+  it('documents the bilingual shape on the default plugins', () => {
+    expect(pluginDoc(findPlugin('plot-builder')!)).toMatch(/title \(string, or \{"en"/)
   })
 })
 

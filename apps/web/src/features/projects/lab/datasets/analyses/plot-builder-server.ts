@@ -1,4 +1,5 @@
 import type { DatasetColumn } from '@/types'
+import { readCategoryOrder, readCustomCategoryOrder, type CategoryOrder } from './plot-category-order'
 
 export interface PlotBuilderSpec {
   plotType: string
@@ -18,8 +19,12 @@ export interface PlotBuilderSpec {
   binWidth: number
   decimals: number
   xAxisStartZero: boolean
-  /** Boxplot/violin: order categories by descending median before the 20-category cap. */
-  boxSortByMedian: boolean
+  /** Order of a categorical axis, applied before any category cap. Null = each plot
+   *  path keeps its own default (value-desc for counts, data order for box/violin
+   *  and for a bar chart that averages a Y or is split by a group). */
+  categoryOrder: CategoryOrder | null
+  /** `custom` only: the user's order of the category values. */
+  categoryOrderCustom: string[]
   /** Histogram drag-to-zoom: re-bin only the values in this range, so zooming shows
    *  finer structure rather than the same bars drawn wider. Null when unzoomed. */
   zoomLo: number | null
@@ -58,6 +63,7 @@ export function buildPlotBuilderSpec(
   const groupId = config.groupColumn as string | undefined
   const isHorizontalHistogram = plotType === 'histogram' && histogramOrientation === 'horizontal'
   const histId = isHorizontalHistogram ? yId : xId
+  const categoryOrder = readCategoryOrder(config)
 
   return {
     plotType,
@@ -79,7 +85,8 @@ export function buildPlotBuilderSpec(
     // Padding the axis down to 0 inside a zoom would drag the view back to the
     // origin and undo it, so it only applies unzoomed.
     xAxisStartZero: zoom ? false : ((config.xAxisStartZero as boolean) ?? false),
-    boxSortByMedian: isBoxLike && ((config.sortByMedian as boolean) ?? false),
+    categoryOrder,
+    categoryOrderCustom: categoryOrder === 'custom' ? readCustomCategoryOrder(config) : [],
     zoomLo: zoom?.lo ?? null,
     zoomHi: zoom?.hi ?? null,
   }

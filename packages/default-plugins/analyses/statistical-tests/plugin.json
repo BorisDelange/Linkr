@@ -104,63 +104,6 @@
         }
       ]
     },
-    "testPreference": {
-      "type": "select",
-      "label": {
-        "en": "Test choice",
-        "fr": "Choix du test"
-      },
-      "default": "auto",
-      "section": {
-        "en": "Test",
-        "fr": "Test"
-      },
-      "description": {
-        "en": "Applies to every variable. Auto picks per variable from the data: a normality check on each group decides between the parametric test and its rank-based counterpart. Forcing one applies it everywhere, which is what you want when a protocol fixed the analysis in advance. To override a SINGLE variable, click its test name in the results table.",
-        "fr": "S'applique à toutes les variables. Auto choisit variable par variable d'après les données : un test de normalité sur chaque groupe départage le test paramétrique et son équivalent sur les rangs. Forcer un choix l'applique partout, ce qui convient quand un protocole a fixé l'analyse à l'avance. Pour changer le test d'UNE seule variable, cliquez sur son nom de test dans le tableau des résultats."
-      },
-      "options": [
-        {
-          "value": "auto",
-          "label": {
-            "en": "Auto (guided by the data)",
-            "fr": "Auto (guidé par les données)"
-          }
-        },
-        {
-          "value": "nonparametric",
-          "label": {
-            "en": "Force non-parametric",
-            "fr": "Forcer non-paramétrique"
-          }
-        },
-        {
-          "value": "parametric",
-          "label": {
-            "en": "Force parametric",
-            "fr": "Forcer paramétrique"
-          }
-        }
-      ]
-    },
-    "alpha": {
-      "type": "number",
-      "label": {
-        "en": "Significance level (α)",
-        "fr": "Seuil de significativité (α)"
-      },
-      "default": 0.05,
-      "min": 0.001,
-      "max": 0.2,
-      "section": {
-        "en": "Test",
-        "fr": "Test"
-      },
-      "description": {
-        "en": "The threshold a p-value is compared against. It changes only what is marked significant, never the p-values themselves.",
-        "fr": "Le seuil auquel une p-value est comparée. Il ne change que ce qui est marqué significatif, jamais les p-values elles-mêmes."
-      }
-    },
     "visibleColumns": {
       "type": "select",
       "multi": true,
@@ -170,9 +113,8 @@
       },
       "defaultAll": true,
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Table",
+        "fr": "Tableau"
       },
       "options": [
         {
@@ -233,11 +175,10 @@
         "fr": "Surligner significatifs"
       },
       "default": true,
-      "row": "styleOpts",
+      "row": "tableOpts",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Table",
+        "fr": "Tableau"
       },
       "description": {
         "en": "Marks rows whose p is below α. A marker, not a verdict — a small p on a fragile test still deserves the warning beside it.",
@@ -251,15 +192,71 @@
         "fr": "Retour à la ligne"
       },
       "default": false,
-      "row": "styleOpts",
+      "row": "tableOpts",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Table",
+        "fr": "Tableau"
       },
       "description": {
         "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
         "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
+      }
+    },
+    "testPreference": {
+      "type": "select",
+      "label": {
+        "en": "Test choice",
+        "fr": "Choix du test"
+      },
+      "default": "auto",
+      "section": {
+        "en": "Test",
+        "fr": "Test"
+      },
+      "description": {
+        "en": "Applies to every variable. Auto picks per variable from the data: a normality check on each group decides between the parametric test and its rank-based counterpart. Forcing one applies it everywhere, which is what you want when a protocol fixed the analysis in advance. To override a SINGLE variable, click its test name in the results table.",
+        "fr": "S'applique à toutes les variables. Auto choisit variable par variable d'après les données : un test de normalité sur chaque groupe départage le test paramétrique et son équivalent sur les rangs. Forcer un choix l'applique partout, ce qui convient quand un protocole a fixé l'analyse à l'avance. Pour changer le test d'UNE seule variable, cliquez sur son nom de test dans le tableau des résultats."
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto (guided by the data)",
+            "fr": "Auto (guidé par les données)"
+          }
+        },
+        {
+          "value": "nonparametric",
+          "label": {
+            "en": "Force non-parametric",
+            "fr": "Forcer non-paramétrique"
+          }
+        },
+        {
+          "value": "parametric",
+          "label": {
+            "en": "Force parametric",
+            "fr": "Forcer paramétrique"
+          }
+        }
+      ]
+    },
+    "alpha": {
+      "type": "number",
+      "label": {
+        "en": "Significance level (α)",
+        "fr": "Seuil de significativité (α)"
+      },
+      "default": 0.05,
+      "min": 0.001,
+      "max": 0.2,
+      "section": {
+        "en": "Test",
+        "fr": "Test"
+      },
+      "description": {
+        "en": "The threshold a p-value is compared against. It changes only what is marked significant, never the p-values themselves.",
+        "fr": "Le seuil auquel une p-value est comparée. Il ne change que ce qui est marqué significatif, jamais les p-values elles-mêmes."
       }
     }
   },

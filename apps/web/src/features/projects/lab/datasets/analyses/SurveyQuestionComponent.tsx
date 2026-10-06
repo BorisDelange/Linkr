@@ -20,7 +20,9 @@ import { ClipboardList } from 'lucide-react'
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import type { LocalizedString } from '@/types'
 import { inferSurveySchema } from '@/lib/survey/survey-infer'
 import { questionColumns, type SurveyQuestion, type SurveySchema } from '@/lib/survey/survey-schema'
 import type { CountSort, QuestionSummary } from '@/lib/survey/survey-analysis'
@@ -124,7 +126,7 @@ export function SurveyQuestionComponent({
     chart,
     sort: (config.sort as CountSort) ?? 'frequency',
     choiceOrder: (config.choiceOrder as string[] | undefined) ?? undefined,
-    title: (config.title as string) || undefined,
+    title: localized(config.title as LocalizedString | string | undefined, i18n.language).trim() || undefined,
     showQuestionText: config.showQuestionText !== false,
     showResponseRate: config.showResponseRate !== false,
     valueLabel: (config.valueLabel as SurveyQuestionBlockProps['valueLabel']) ?? 'both',

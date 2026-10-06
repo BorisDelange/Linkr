@@ -62,6 +62,20 @@ export function setLocalized(
 }
 
 /**
+ * `setLocalized` for an optional field that stores nothing when empty: once no language
+ * carries text, the value is `undefined` rather than `{ en: '', fr: '' }`. Text is kept
+ * as typed (no trim), since this runs on every keystroke.
+ */
+export function setLocalizedOptional(
+  value: LocalizedString | string | null | undefined,
+  lang: string,
+  text: string,
+): LocalizedString | undefined {
+  const next = setLocalized(value, lang, text)
+  return hasLocalizedContent(next) ? next : undefined
+}
+
+/**
  * Seed the active language for an edit form: if `lang`'s own value is blank
  * (absent or an explicit empty string), pre-fill it from the best other-language
  * value; otherwise keep it untouched. Called ONCE when a field enters editing

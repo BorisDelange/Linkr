@@ -25,6 +25,59 @@
   "icon": "ClipboardList",
   "iconColor": "teal",
   "configSchema": {
+    "questionColumn": {
+      "type": "column-select",
+      "multi": false,
+      "label": {
+        "en": "Question",
+        "fr": "Question"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Any column of the question. For a multiple-choice question, picking one of its options selects the whole question.",
+        "fr": "N'importe quelle colonne de la question. Pour une question à choix multiples, choisir une de ses options sélectionne la question entière."
+      },
+      "optionHint": "survey"
+    },
+    "maxChoices": {
+      "type": "number",
+      "label": {
+        "en": "Max options",
+        "fr": "Options au maximum"
+      },
+      "default": 0,
+      "min": 0,
+      "max": 100,
+      "row": "dataOpts",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "0 shows every option. Otherwise the rest are grouped as 'Others'.",
+        "fr": "0 affiche toutes les options. Sinon les autres sont regroupées en « Autres »."
+      }
+    },
+    "hideEmptyChoices": {
+      "type": "boolean",
+      "label": {
+        "en": "Hide unpicked",
+        "fr": "Masquer non choisies"
+      },
+      "default": false,
+      "row": "dataOpts",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "An option nobody picked is a finding in itself, so it is shown by default.",
+        "fr": "Une option que personne n'a choisie est un résultat en soi, elle est donc affichée par défaut."
+      }
+    },
     "chart": {
       "type": "select",
       "label": {
@@ -107,21 +160,70 @@
       ],
       "filterOptionsBySurveyQuestion": "questionColumn"
     },
-    "title": {
-      "type": "string",
+    "sort": {
+      "type": "select",
       "label": {
-        "en": "Title",
-        "fr": "Titre"
+        "en": "Sort",
+        "fr": "Tri"
       },
-      "default": "",
-      "optional": true,
+      "default": "frequency",
       "section": {
         "en": "Chart",
         "fr": "Graphique"
       },
       "description": {
-        "en": "Overrides the question text. Leave empty to use the question as asked.",
-        "fr": "Remplace le texte de la question. Laisser vide pour utiliser la question telle que posée."
+        "en": "Scales always keep their questionnaire order — sorting a 1-to-5 scale by frequency would destroy its meaning. Custom lets you drag the answers into any order.",
+        "fr": "Les échelles conservent toujours l'ordre du questionnaire — trier une échelle de 1 à 5 par fréquence détruirait son sens. Personnalisé permet de glisser les réponses dans l'ordre voulu."
+      },
+      "options": [
+        {
+          "value": "frequency",
+          "label": {
+            "en": "By frequency",
+            "fr": "Par fréquence"
+          }
+        },
+        {
+          "value": "declared",
+          "label": {
+            "en": "Questionnaire order",
+            "fr": "Ordre du questionnaire"
+          }
+        },
+        {
+          "value": "alphabetical",
+          "label": {
+            "en": "Alphabetical",
+            "fr": "Alphabétique"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom (drag to reorder)",
+            "fr": "Personnalisé (glisser pour réordonner)"
+          }
+        }
+      ]
+    },
+    "choiceOrder": {
+      "type": "choice-order",
+      "label": {
+        "en": "Answer order",
+        "fr": "Ordre des réponses"
+      },
+      "columnField": "questionColumn",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "visibleWhen": {
+        "field": "sort",
+        "value": "custom"
+      },
+      "description": {
+        "en": "Drag the answers into the order the chart should read.",
+        "fr": "Glissez les réponses dans l'ordre de lecture du graphique."
       }
     },
     "bins": {
@@ -168,149 +270,6 @@
         ]
       }
     },
-    "medianColor": {
-      "type": "color-select",
-      "label": {
-        "en": "Median marker",
-        "fr": "Repère de médiane"
-      },
-      "default": "red",
-      "row": "colorsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "visibleWhen": {
-        "field": "chart",
-        "values": [
-          "histogram"
-        ]
-      },
-      "description": {
-        "en": "Colour of the median line and its value. It has to stand apart from the bars to read as an annotation rather than as data.",
-        "fr": "Couleur de la ligne de médiane et de sa valeur. Elle doit trancher avec les barres pour se lire comme une annotation et non comme une donnée."
-      }
-    },
-    "questionColumn": {
-      "type": "column-select",
-      "multi": false,
-      "label": {
-        "en": "Question",
-        "fr": "Question"
-      },
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "description": {
-        "en": "Any column of the question. For a multiple-choice question, picking one of its options selects the whole question.",
-        "fr": "N'importe quelle colonne de la question. Pour une question à choix multiples, choisir une de ses options sélectionne la question entière."
-      },
-      "optionHint": "survey"
-    },
-    "sort": {
-      "type": "select",
-      "label": {
-        "en": "Sort",
-        "fr": "Tri"
-      },
-      "default": "frequency",
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "description": {
-        "en": "Scales always keep their questionnaire order — sorting a 1-to-5 scale by frequency would destroy its meaning. Custom lets you drag the answers into any order.",
-        "fr": "Les échelles conservent toujours l'ordre du questionnaire — trier une échelle de 1 à 5 par fréquence détruirait son sens. Personnalisé permet de glisser les réponses dans l'ordre voulu."
-      },
-      "options": [
-        {
-          "value": "frequency",
-          "label": {
-            "en": "By frequency",
-            "fr": "Par fréquence"
-          }
-        },
-        {
-          "value": "declared",
-          "label": {
-            "en": "Questionnaire order",
-            "fr": "Ordre du questionnaire"
-          }
-        },
-        {
-          "value": "alphabetical",
-          "label": {
-            "en": "Alphabetical",
-            "fr": "Alphabétique"
-          }
-        },
-        {
-          "value": "custom",
-          "label": {
-            "en": "Custom (drag to reorder)",
-            "fr": "Personnalisé (glisser pour réordonner)"
-          }
-        }
-      ]
-    },
-    "choiceOrder": {
-      "type": "choice-order",
-      "label": {
-        "en": "Answer order",
-        "fr": "Ordre des réponses"
-      },
-      "columnField": "questionColumn",
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "visibleWhen": {
-        "field": "sort",
-        "value": "custom"
-      },
-      "description": {
-        "en": "Drag the answers into the order the chart should read.",
-        "fr": "Glissez les réponses dans l'ordre de lecture du graphique."
-      }
-    },
-    "maxChoices": {
-      "type": "number",
-      "label": {
-        "en": "Max options",
-        "fr": "Options au maximum"
-      },
-      "default": 0,
-      "min": 0,
-      "max": 100,
-      "row": "dataOpts",
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "description": {
-        "en": "0 shows every option. Otherwise the rest are grouped as 'Others'.",
-        "fr": "0 affiche toutes les options. Sinon les autres sont regroupées en « Autres »."
-      }
-    },
-    "hideEmptyChoices": {
-      "type": "boolean",
-      "label": {
-        "en": "Hide unpicked",
-        "fr": "Masquer non choisies"
-      },
-      "default": false,
-      "row": "dataOpts",
-      "section": {
-        "en": "Data",
-        "fr": "Données"
-      },
-      "description": {
-        "en": "An option nobody picked is a finding in itself, so it is shown by default.",
-        "fr": "Une option que personne n'a choisie est un résultat en soi, elle est donc affichée par défaut."
-      }
-    },
     "valueLabel": {
       "type": "select",
       "label": {
@@ -319,9 +278,8 @@
       },
       "default": "both",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "options": [
         {
@@ -363,111 +321,25 @@
       "default": true,
       "row": "checksRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       }
     },
-    "showGrid": {
+    "showResponseRate": {
       "type": "boolean",
       "label": {
-        "en": "Grid",
-        "fr": "Grille"
+        "en": "Response rate",
+        "fr": "Taux de réponse"
       },
       "default": true,
-      "row": "checksRow2",
+      "row": "checksRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "visibleWhen": {
-        "field": "chart",
-        "values": [
-          "column",
-          "histogram"
-        ]
-      }
-    },
-    "xAxisStartZero": {
-      "type": "boolean",
-      "label": {
-        "en": "X axis starts at zero",
-        "fr": "Axe X commence à zéro"
-      },
-      "default": false,
-      "row": "histRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "visibleWhen": {
-        "field": "chart",
-        "values": [
-          "histogram"
-        ]
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "description": {
-        "en": "Anchors the axis at zero, showing where the values sit on an absolute scale. Off, the axis hugs the real range — a span of 467 to 6025 then fills the width instead of leaving most of it empty.",
-        "fr": "Ancre l'axe à zéro, ce qui montre où se situent les valeurs sur une échelle absolue. Décoché, l'axe épouse l'étendue réelle — une plage de 467 à 6025 occupe alors toute la largeur au lieu d'en laisser l'essentiel vide."
-      }
-    },
-    "opacity": {
-      "type": "number",
-      "label": {
-        "en": "Opacity (%)",
-        "fr": "Opacité (%)"
-      },
-      "default": 70,
-      "min": 0,
-      "max": 100,
-      "row": "opacitySize",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "visibleWhen": {
-        "field": "chart",
-        "values": [
-          "bar",
-          "column",
-          "histogram",
-          "pie",
-          "donut"
-        ]
-      },
-      "description": {
-        "en": "Fill opacity of the bars or slices. A little transparency keeps a dense chart from reading as a block of solid colour.",
-        "fr": "Opacité du remplissage des barres ou des parts. Un peu de transparence évite qu'un graphique dense se lise comme un aplat de couleur."
-      }
-    },
-    "barSize": {
-      "type": "number",
-      "label": {
-        "en": "Bar thickness",
-        "fr": "Épaisseur des barres"
-      },
-      "default": 0,
-      "min": 0,
-      "max": 120,
-      "row": "opacitySize",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "visibleWhen": {
-        "field": "chart",
-        "values": [
-          "column",
-          "histogram"
-        ]
-      },
-      "description": {
-        "en": "Fixed bar thickness in pixels. Leave at 0 to size bars automatically — a histogram then spans each bin exactly.",
-        "fr": "Épaisseur fixe des barres en pixels. Laisser à 0 pour un dimensionnement automatique — un histogramme couvre alors exactement chaque classe."
+        "en": "The n/N bar showing how many respondents answered this question.",
+        "fr": "La barre n/N indiquant combien de répondants ont répondu à cette question."
       }
     },
     "xLabelMaxLen": {
@@ -479,11 +351,10 @@
       "default": 20,
       "min": 3,
       "max": 60,
-      "row": "labelLenRow",
+      "row": "axisRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "visibleWhen": {
         "field": "chart",
@@ -497,6 +368,29 @@
         "fr": "Nombre maximum de caractères sur l'axe X avant troncature avec « … »."
       }
     },
+    "xAxisStartZero": {
+      "type": "boolean",
+      "label": {
+        "en": "X axis starts at zero",
+        "fr": "Axe X commence à zéro"
+      },
+      "default": false,
+      "row": "axisRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "Anchors the axis at zero, showing where the values sit on an absolute scale. Off, the axis hugs the real range — a span of 467 to 6025 then fills the width instead of leaving most of it empty.",
+        "fr": "Ancre l'axe à zéro, ce qui montre où se situent les valeurs sur une échelle absolue. Décoché, l'axe épouse l'étendue réelle — une plage de 467 à 6025 occupe alors toute la largeur au lieu d'en laisser l'essentiel vide."
+      }
+    },
     "decimals": {
       "type": "number",
       "label": {
@@ -506,11 +400,10 @@
       "default": 1,
       "min": 0,
       "max": 6,
-      "row": "labelLenRow",
+      "row": "gridRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "visibleWhen": {
         "field": "chart",
@@ -527,22 +420,43 @@
         "fr": "Nombre de décimales sur les nombres d'axe et les pourcentages."
       }
     },
-    "showResponseRate": {
+    "showGrid": {
       "type": "boolean",
       "label": {
-        "en": "Response rate",
-        "fr": "Taux de réponse"
+        "en": "Grid",
+        "fr": "Grille"
       },
       "default": true,
-      "row": "checksRow",
+      "row": "gridRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "column",
+          "histogram"
+        ]
+      }
+    },
+    "title": {
+      "type": "string",
+      "localized": true,
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "default": "",
+      "optional": true,
       "section": {
         "en": "Style",
         "fr": "Style",
         "defaultOpen": false
       },
       "description": {
-        "en": "The n/N bar showing how many respondents answered this question.",
-        "fr": "La barre n/N indiquant combien de répondants ont répondu à cette question."
+        "en": "Overrides the question text. Leave empty to use the question as asked.",
+        "fr": "Remplace le texte de la question. Laisser vide pour utiliser la question telle que posée."
       }
     },
     "colorPalette": {
@@ -626,6 +540,87 @@
       "description": {
         "en": "Bar and histogram color.",
         "fr": "Couleur des barres et de l'histogramme."
+      }
+    },
+    "medianColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Median marker",
+        "fr": "Repère de médiane"
+      },
+      "default": "red",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "Colour of the median line and its value. It has to stand apart from the bars to read as an annotation rather than as data.",
+        "fr": "Couleur de la ligne de médiane et de sa valeur. Elle doit trancher avec les barres pour se lire comme une annotation et non comme une donnée."
+      }
+    },
+    "opacity": {
+      "type": "number",
+      "label": {
+        "en": "Opacity (%)",
+        "fr": "Opacité (%)"
+      },
+      "default": 70,
+      "min": 0,
+      "max": 100,
+      "row": "opacitySize",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "bar",
+          "column",
+          "histogram",
+          "pie",
+          "donut"
+        ]
+      },
+      "description": {
+        "en": "Fill opacity of the bars or slices. A little transparency keeps a dense chart from reading as a block of solid colour.",
+        "fr": "Opacité du remplissage des barres ou des parts. Un peu de transparence évite qu'un graphique dense se lise comme un aplat de couleur."
+      }
+    },
+    "barSize": {
+      "type": "number",
+      "label": {
+        "en": "Bar thickness",
+        "fr": "Épaisseur des barres"
+      },
+      "default": 0,
+      "min": 0,
+      "max": 120,
+      "row": "opacitySize",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "visibleWhen": {
+        "field": "chart",
+        "values": [
+          "column",
+          "histogram"
+        ]
+      },
+      "description": {
+        "en": "Fixed bar thickness in pixels. Leave at 0 to size bars automatically — a histogram then spans each bin exactly.",
+        "fr": "Épaisseur fixe des barres en pixels. Laisser à 0 pour un dimensionnement automatique — un histogramme couvre alors exactement chaque classe."
       }
     }
   },

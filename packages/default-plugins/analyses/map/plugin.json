@@ -26,96 +26,6 @@
   "icon": "Map",
   "iconColor": "emerald",
   "configSchema": {
-    "title": {
-      "type": "string",
-      "label": {
-        "en": "Title",
-        "fr": "Titre"
-      },
-      "default": "",
-      "section": {
-        "en": "Map",
-        "fr": "Carte"
-      }
-    },
-    "basemap": {
-      "type": "select",
-      "label": {
-        "en": "Base map",
-        "fr": "Fond de carte"
-      },
-      "default": "osm",
-      "section": {
-        "en": "Map",
-        "fr": "Carte"
-      },
-      "description": {
-        "en": "Online tiles require network access. Without it, points are drawn on a neutral background.",
-        "fr": "Les tuiles en ligne nécessitent un accès réseau. Sans réseau, les points sont tracés sur un fond neutre."
-      },
-      "options": [
-        {
-          "value": "osm",
-          "label": {
-            "en": "OpenStreetMap",
-            "fr": "OpenStreetMap"
-          }
-        },
-        {
-          "value": "carto-light",
-          "label": {
-            "en": "Light (Carto)",
-            "fr": "Clair (Carto)"
-          }
-        },
-        {
-          "value": "carto-dark",
-          "label": {
-            "en": "Dark (Carto)",
-            "fr": "Sombre (Carto)"
-          }
-        },
-        {
-          "value": "none",
-          "label": {
-            "en": "None (offline)",
-            "fr": "Aucun (hors-ligne)"
-          }
-        }
-      ]
-    },
-    "showLegend": {
-      "type": "boolean",
-      "label": {
-        "en": "Show legend",
-        "fr": "Légende"
-      },
-      "default": true,
-      "section": {
-        "en": "Map",
-        "fr": "Carte"
-      },
-      "visibleWhen": {
-        "field": "colorColumn",
-        "notEmpty": true
-      }
-    },
-    "clusterPoints": {
-      "type": "boolean",
-      "label": {
-        "en": "Group nearby points",
-        "fr": "Regrouper les points proches"
-      },
-      "default": true,
-      "section": {
-        "en": "Map",
-        "fr": "Carte"
-      },
-      "description": {
-        "en": "Draws nearby points as one bubble showing their count, split as you zoom in. Keeps maps with thousands of points fluid.",
-        "fr": "Dessine les points proches en une bulle indiquant leur nombre, qui se divise quand on zoome. Garde fluides les cartes de milliers de points."
-      }
-    },
     "latColumn": {
       "type": "column-select",
       "label": {
@@ -219,6 +129,99 @@
         "fr": "Colonnes affichées dans le popup au survol d'un point."
       }
     },
+    "basemap": {
+      "type": "select",
+      "label": {
+        "en": "Base map",
+        "fr": "Fond de carte"
+      },
+      "default": "osm",
+      "section": {
+        "en": "Map",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "Online tiles require network access. Without it, points are drawn on a neutral background.",
+        "fr": "Les tuiles en ligne nécessitent un accès réseau. Sans réseau, les points sont tracés sur un fond neutre."
+      },
+      "options": [
+        {
+          "value": "osm",
+          "label": {
+            "en": "OpenStreetMap",
+            "fr": "OpenStreetMap"
+          }
+        },
+        {
+          "value": "carto-light",
+          "label": {
+            "en": "Light (Carto)",
+            "fr": "Clair (Carto)"
+          }
+        },
+        {
+          "value": "carto-dark",
+          "label": {
+            "en": "Dark (Carto)",
+            "fr": "Sombre (Carto)"
+          }
+        },
+        {
+          "value": "none",
+          "label": {
+            "en": "None (offline)",
+            "fr": "Aucun (hors-ligne)"
+          }
+        }
+      ]
+    },
+    "clusterPoints": {
+      "type": "boolean",
+      "label": {
+        "en": "Group nearby points",
+        "fr": "Regrouper les points proches"
+      },
+      "default": true,
+      "section": {
+        "en": "Map",
+        "fr": "Carte"
+      },
+      "description": {
+        "en": "Draws nearby points as one bubble showing their count, split as you zoom in. Keeps maps with thousands of points fluid.",
+        "fr": "Dessine les points proches en une bulle indiquant leur nombre, qui se divise quand on zoome. Garde fluides les cartes de milliers de points."
+      }
+    },
+    "showLegend": {
+      "type": "boolean",
+      "label": {
+        "en": "Show legend",
+        "fr": "Légende"
+      },
+      "default": true,
+      "section": {
+        "en": "Map",
+        "fr": "Carte"
+      },
+      "visibleWhen": {
+        "field": "colorColumn",
+        "notEmpty": true
+      }
+    },
+    "title": {
+      "type": "string",
+      "localized": true,
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "default": "",
+      "row": "titleRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
     "cardIcon": {
       "type": "icon-select",
       "label": {
@@ -226,6 +229,7 @@
         "fr": "Icône"
       },
       "default": "__none__",
+      "row": "titleRow",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -239,38 +243,6 @@
         "fr": "Centrer le titre"
       },
       "default": true,
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "pointSize": {
-      "type": "number",
-      "label": {
-        "en": "Point size",
-        "fr": "Taille des points"
-      },
-      "default": 6,
-      "min": 1,
-      "max": 30,
-      "row": "markerRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "opacity": {
-      "type": "number",
-      "label": {
-        "en": "Opacity (%)",
-        "fr": "Opacité (%)"
-      },
-      "default": 80,
-      "min": 0,
-      "max": 100,
-      "row": "markerRow",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -477,6 +449,38 @@
           }
         }
       ]
+    },
+    "pointSize": {
+      "type": "number",
+      "label": {
+        "en": "Point size",
+        "fr": "Taille des points"
+      },
+      "default": 6,
+      "min": 1,
+      "max": 30,
+      "row": "markerRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "opacity": {
+      "type": "number",
+      "label": {
+        "en": "Opacity (%)",
+        "fr": "Opacité (%)"
+      },
+      "default": 80,
+      "min": 0,
+      "max": 100,
+      "row": "markerRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     }
   },
   "badges": [

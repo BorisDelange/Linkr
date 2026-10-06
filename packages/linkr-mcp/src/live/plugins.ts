@@ -92,6 +92,8 @@ export function pluginDoc(manifest: PluginManifest): string {
       // The form uses this to restrict the picker; the model needs it to avoid
       // proposing a text column where a numeric one is required.
       if (field.filter) parts.push(`${field.filter} only`)
+    } else if (field.type === 'string' && field.localized) {
+      parts.push('string, or {"en": "...", "fr": "..."} for one text per language')
     } else {
       parts.push(field.type)
     }

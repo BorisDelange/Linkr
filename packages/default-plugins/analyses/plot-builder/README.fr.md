@@ -23,11 +23,16 @@ avec **Exclure NA / manquants** et **Exclure les valeurs aberrantes** (et son
 **Seuil**). Les histogrammes ajoutent un **Mode bins** avec **Barres** ou
 **Largeur**, une **Orientation** et, en cas de groupe, un **Mode des barres**.
 Les boîtes et les violons ont aussi une **Orientation** (horizontale : les
-catégories en Y, avec leur nom complet), **Trier par médiane** et **Afficher les
-effectifs (n)** ; les boîtes, un **Style des boîtes**, *Épuré* traçant une boîte
-légère et une médiane épaisse annotée. La section **Style** porte la présentation : **Titre** et légendes d'axes,
-**Palette**, **Légende**, **Grille**, **Opacité (%)**, taille des points et des
-barres, et **Axe X / Y commence à 0**.
+catégories en Y, avec leur nom complet) et **Afficher les effectifs (n)** ; les
+boîtes, un **Style des boîtes**, *Épuré* traçant une boîte légère et une médiane
+épaisse annotée. Tout graphique à catégories — barres, camembert, boîtes,
+violons, histogramme d'une variable catégorielle — a un **Ordre des
+catégories** : par valeur, décroissante ou croissante (la valeur étant ce qui
+est tracé : l'effectif, la moyenne de Y, la médiane), alphabétique, l'ordre des
+données, ou **Personnalisé**, où vous glissez les catégories à leur place. Tous ces réglages sont dans la section **Graphique**,
+avec les axes : légendes d'axes, **Axe X / Y commence à 0**, **Légende**, **Grille** et
+**Décimales**. La section **Style** porte l'apparence : **Titre** et icône,
+**Palette** et couleurs, **Opacité (%)**, taille des points et des barres.
 
 ### Quel graphique pour quelle question
 
@@ -44,8 +49,8 @@ Le type de graphique n'est pas un choix esthétique. Il découle de la question.
 
 Un graphique en barres avec **Variable Y** vide compte les lignes ; avec un Y, il
 en calcule la moyenne par catégorie — pas la somme. Les barres retiennent au plus
-30 catégories, les boîtes et les violons au plus 20 (avec **Trier par médiane**, les 20 médianes les plus
-hautes) : au-delà la figure est de
+30 catégories, les boîtes et les violons au plus 20 — les premières dans
+l'**Ordre des catégories**, appliqué avant cette limite : au-delà la figure est de
 toute façon illisible, agrégez donc vos catégories en amont plutôt que d'espérer
 que le graphique s'en sorte.
 
@@ -130,7 +135,7 @@ longue queue n'écrase la partie intéressante.
 
 Une colonne X non numérique n'est pas découpée du tout : l'histogramme se rabat
 sur le comptage de chaque valeur distincte, triées de la plus à la moins
-fréquente.
+fréquente sauf si l'**Ordre des catégories** en décide autrement.
 
 ### Exclure les valeurs extrêmes
 

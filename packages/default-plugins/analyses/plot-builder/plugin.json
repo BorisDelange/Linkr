@@ -25,346 +25,6 @@
   "icon": "ChartScatter",
   "iconColor": "violet",
   "configSchema": {
-    "plotType": {
-      "type": "select",
-      "label": {
-        "en": "Plot type",
-        "fr": "Type de graphique"
-      },
-      "default": "scatter",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      },
-      "options": [
-        {
-          "value": "scatter",
-          "label": {
-            "en": "Scatter plot",
-            "fr": "Nuage de points"
-          }
-        },
-        {
-          "value": "line",
-          "label": {
-            "en": "Line plot",
-            "fr": "Lignes"
-          }
-        },
-        {
-          "value": "bar",
-          "label": {
-            "en": "Bar chart",
-            "fr": "Barres"
-          }
-        },
-        {
-          "value": "histogram",
-          "label": {
-            "en": "Histogram",
-            "fr": "Histogramme"
-          }
-        },
-        {
-          "value": "pie",
-          "label": {
-            "en": "Pie / donut",
-            "fr": "Camembert / anneau"
-          }
-        },
-        {
-          "value": "boxplot",
-          "label": {
-            "en": "Boxplot",
-            "fr": "Boîte à moustaches"
-          }
-        },
-        {
-          "value": "violin",
-          "label": {
-            "en": "Violin",
-            "fr": "Violon"
-          }
-        }
-      ]
-    },
-    "title": {
-      "type": "string",
-      "label": {
-        "en": "Title",
-        "fr": "Titre"
-      },
-      "default": "",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      }
-    },
-    "histogramOrientation": {
-      "type": "select",
-      "label": {
-        "en": "Orientation",
-        "fr": "Orientation"
-      },
-      "default": "vertical",
-      "visibleWhen": {
-        "field": "plotType",
-        "value": "histogram"
-      },
-      "row": "orientationRow",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      },
-      "swapFieldsOnChange": [
-        [
-          "xColumn",
-          "yColumn"
-        ],
-        [
-          "xLabel",
-          "yLabel"
-        ]
-      ],
-      "options": [
-        {
-          "value": "vertical",
-          "label": {
-            "en": "Vertical bars",
-            "fr": "Barres verticales"
-          }
-        },
-        {
-          "value": "horizontal",
-          "label": {
-            "en": "Horizontal bars",
-            "fr": "Barres horizontales"
-          }
-        }
-      ]
-    },
-    "boxplotOrientation": {
-      "type": "select",
-      "label": {
-        "en": "Orientation",
-        "fr": "Orientation"
-      },
-      "default": "vertical",
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "boxplot",
-          "violin"
-        ]
-      },
-      "row": "orientationRow",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      },
-      "swapFieldsOnChange": [
-        [
-          "xColumn",
-          "yColumn"
-        ],
-        [
-          "xLabel",
-          "yLabel"
-        ]
-      ],
-      "options": [
-        {
-          "value": "vertical",
-          "label": {
-            "en": "Vertical",
-            "fr": "Verticale"
-          }
-        },
-        {
-          "value": "horizontal",
-          "label": {
-            "en": "Horizontal",
-            "fr": "Horizontale"
-          }
-        }
-      ]
-    },
-    "barMode": {
-      "type": "select",
-      "label": {
-        "en": "Bar mode",
-        "fr": "Mode des barres"
-      },
-      "default": "grouped",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      },
-      "visibleWhen": [
-        {
-          "field": "plotType",
-          "value": "histogram"
-        },
-        {
-          "field": "groupColumn",
-          "notEmpty": true
-        }
-      ],
-      "options": [
-        {
-          "value": "grouped",
-          "label": {
-            "en": "Grouped",
-            "fr": "Groupées"
-          }
-        },
-        {
-          "value": "stacked",
-          "label": {
-            "en": "Stacked",
-            "fr": "Empilées"
-          }
-        },
-        {
-          "value": "overlay",
-          "label": {
-            "en": "Overlay",
-            "fr": "Superposées"
-          }
-        }
-      ]
-    },
-    "binMode": {
-      "type": "select",
-      "label": {
-        "en": "Bin mode",
-        "fr": "Mode bins"
-      },
-      "default": "count",
-      "visibleWhen": {
-        "field": "plotType",
-        "value": "histogram"
-      },
-      "row": "binRow",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      },
-      "options": [
-        {
-          "value": "count",
-          "label": {
-            "en": "Number of bins",
-            "fr": "Nombre de barres"
-          }
-        },
-        {
-          "value": "width",
-          "label": {
-            "en": "Bin width",
-            "fr": "Largeur de barre"
-          }
-        }
-      ]
-    },
-    "bins": {
-      "type": "number",
-      "label": {
-        "en": "Bins",
-        "fr": "Barres"
-      },
-      "default": 20,
-      "min": 2,
-      "max": 200,
-      "visibleWhen": [
-        {
-          "field": "plotType",
-          "value": "histogram"
-        },
-        {
-          "field": "binMode",
-          "value": "count"
-        }
-      ],
-      "row": "binRow",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      }
-    },
-    "binWidth": {
-      "type": "number",
-      "label": {
-        "en": "Bin width",
-        "fr": "Largeur"
-      },
-      "default": 5,
-      "min": 0.1,
-      "max": 1000,
-      "visibleWhen": [
-        {
-          "field": "plotType",
-          "value": "histogram"
-        },
-        {
-          "field": "binMode",
-          "value": "width"
-        }
-      ],
-      "row": "binRow",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      }
-    },
-    "xLabel": {
-      "type": "string",
-      "label": {
-        "en": "X axis label",
-        "fr": "Légende axe X"
-      },
-      "default": "",
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "scatter",
-          "line",
-          "bar",
-          "histogram",
-          "boxplot",
-          "violin"
-        ]
-      },
-      "row": "axisLabels",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      }
-    },
-    "yLabel": {
-      "type": "string",
-      "label": {
-        "en": "Y axis label",
-        "fr": "Légende axe Y"
-      },
-      "default": "",
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "scatter",
-          "line",
-          "bar",
-          "histogram",
-          "boxplot",
-          "violin"
-        ]
-      },
-      "row": "axisLabels",
-      "section": {
-        "en": "Chart",
-        "fr": "Graphique"
-      }
-    },
     "xColumn": {
       "type": "column-select",
       "label": {
@@ -707,17 +367,697 @@
         "fr": "IQR : k dans Q1−k·IQR / Q3+k·IQR (1,5 = Tukey). Écart-type : k dans moyenne ± k·SD (3 = règle des 3σ). Percentiles : pourcentage écarté de chaque côté (1 = garder du 1er au 99e)."
       }
     },
-    "cardIcon": {
-      "type": "icon-select",
+    "plotType": {
+      "type": "select",
       "label": {
-        "en": "Icon",
-        "fr": "Icône"
+        "en": "Plot type",
+        "fr": "Type de graphique"
       },
-      "default": "__none__",
+      "default": "scatter",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "options": [
+        {
+          "value": "scatter",
+          "label": {
+            "en": "Scatter plot",
+            "fr": "Nuage de points"
+          }
+        },
+        {
+          "value": "line",
+          "label": {
+            "en": "Line plot",
+            "fr": "Lignes"
+          }
+        },
+        {
+          "value": "bar",
+          "label": {
+            "en": "Bar chart",
+            "fr": "Barres"
+          }
+        },
+        {
+          "value": "histogram",
+          "label": {
+            "en": "Histogram",
+            "fr": "Histogramme"
+          }
+        },
+        {
+          "value": "pie",
+          "label": {
+            "en": "Pie / donut",
+            "fr": "Camembert / anneau"
+          }
+        },
+        {
+          "value": "boxplot",
+          "label": {
+            "en": "Boxplot",
+            "fr": "Boîte à moustaches"
+          }
+        },
+        {
+          "value": "violin",
+          "label": {
+            "en": "Violin",
+            "fr": "Violon"
+          }
+        }
+      ]
+    },
+    "histogramOrientation": {
+      "type": "select",
+      "label": {
+        "en": "Orientation",
+        "fr": "Orientation"
+      },
+      "default": "vertical",
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
+      "row": "orientationRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "swapFieldsOnChange": [
+        [
+          "xColumn",
+          "yColumn"
+        ],
+        [
+          "xLabel",
+          "yLabel"
+        ]
+      ],
+      "options": [
+        {
+          "value": "vertical",
+          "label": {
+            "en": "Vertical bars",
+            "fr": "Barres verticales"
+          }
+        },
+        {
+          "value": "horizontal",
+          "label": {
+            "en": "Horizontal bars",
+            "fr": "Barres horizontales"
+          }
+        }
+      ]
+    },
+    "boxplotOrientation": {
+      "type": "select",
+      "label": {
+        "en": "Orientation",
+        "fr": "Orientation"
+      },
+      "default": "vertical",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "boxplot",
+          "violin"
+        ]
+      },
+      "row": "orientationRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "swapFieldsOnChange": [
+        [
+          "xColumn",
+          "yColumn"
+        ],
+        [
+          "xLabel",
+          "yLabel"
+        ]
+      ],
+      "options": [
+        {
+          "value": "vertical",
+          "label": {
+            "en": "Vertical",
+            "fr": "Verticale"
+          }
+        },
+        {
+          "value": "horizontal",
+          "label": {
+            "en": "Horizontal",
+            "fr": "Horizontale"
+          }
+        }
+      ]
+    },
+    "barMode": {
+      "type": "select",
+      "label": {
+        "en": "Bar mode",
+        "fr": "Mode des barres"
+      },
+      "default": "grouped",
+      "row": "variantRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "visibleWhen": [
+        {
+          "field": "plotType",
+          "value": "histogram"
+        },
+        {
+          "field": "groupColumn",
+          "notEmpty": true
+        }
+      ],
+      "options": [
+        {
+          "value": "grouped",
+          "label": {
+            "en": "Grouped",
+            "fr": "Groupées"
+          }
+        },
+        {
+          "value": "stacked",
+          "label": {
+            "en": "Stacked",
+            "fr": "Empilées"
+          }
+        },
+        {
+          "value": "overlay",
+          "label": {
+            "en": "Overlay",
+            "fr": "Superposées"
+          }
+        }
+      ]
+    },
+    "barStyle": {
+      "type": "select",
+      "label": {
+        "en": "Bar style",
+        "fr": "Style des barres"
+      },
+      "default": "classic",
+      "row": "variantRow",
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Ranked list: one row per category with a thin bar and its count, sorted by count. Applies to a categorical variable; numeric bins and a split by another column keep the classic bars.",
+        "fr": "Liste classée : une ligne par catégorie avec une barre fine et son effectif, triée par effectif. S'applique à une variable catégorielle ; les classes numériques et un regroupement par une autre colonne gardent les barres classiques."
+      },
+      "options": [
+        {
+          "value": "classic",
+          "label": {
+            "en": "Classic",
+            "fr": "Classique"
+          }
+        },
+        {
+          "value": "list",
+          "label": {
+            "en": "Ranked list",
+            "fr": "Liste classée"
+          }
+        }
+      ]
+    },
+    "boxStyle": {
+      "type": "select",
+      "label": {
+        "en": "Box style",
+        "fr": "Style des boîtes"
+      },
+      "default": "filled",
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "boxplot"
+      },
+      "row": "variantRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Outline: a light box with a coloured border and a thick median line labelled with its value, so medians are what the eye compares.",
+        "fr": "Épuré : une boîte légère au contour coloré et une médiane épaisse annotée de sa valeur, pour que l'œil compare les médianes."
+      },
+      "options": [
+        {
+          "value": "filled",
+          "label": {
+            "en": "Filled",
+            "fr": "Plein"
+          }
+        },
+        {
+          "value": "outline",
+          "label": {
+            "en": "Outline",
+            "fr": "Épuré"
+          }
+        }
+      ]
+    },
+    "categoryOrder": {
+      "type": "select",
+      "label": {
+        "en": "Category order",
+        "fr": "Ordre des catégories"
+      },
+      "default": "value-desc",
+      "defaultWhen": [
+        {
+          "when": {
+            "field": "sortByMedian",
+            "value": true
+          },
+          "value": "value-desc"
+        },
+        {
+          "when": {
+            "field": "plotType",
+            "values": [
+              "boxplot",
+              "violin"
+            ]
+          },
+          "value": "data"
+        },
+        {
+          "when": [
+            {
+              "field": "plotType",
+              "value": "bar"
+            },
+            {
+              "anyOf": [
+                {
+                  "field": "yColumn",
+                  "notEmpty": true
+                },
+                {
+                  "field": "groupColumn",
+                  "notEmpty": true
+                }
+              ]
+            }
+          ],
+          "value": "data"
+        }
+      ],
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "bar",
+          "histogram",
+          "pie",
+          "boxplot",
+          "violin"
+        ]
+      },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Order of the categories along the axis, or of the slices. The value is what the chart plots: the count, the mean of Y for a bar chart with a Y, the median for a boxplot or violin. Applied before the category cap (30 bars, 20 boxes), so a sorted chart keeps its top categories. By default counts are ordered by descending value, and boxes, violins and bars with a Y or a group keep the data order. On a histogram it only applies to a categorical variable.",
+        "fr": "Ordre des catégories le long de l'axe, ou des parts. La valeur est ce que trace le graphique : l'effectif, la moyenne de Y pour des barres avec un Y, la médiane pour une boîte ou un violon. Appliqué avant la limite de catégories (30 barres, 20 boîtes) : un graphique trié garde ses premières catégories. Par défaut, les effectifs sont triés par valeur décroissante, et les boîtes, violons et barres avec un Y ou un groupe gardent l'ordre des données. Sur un histogramme, il ne s'applique qu'à une variable catégorielle."
+      },
+      "options": [
+        {
+          "value": "value-desc",
+          "label": {
+            "en": "Value, descending",
+            "fr": "Valeur décroissante"
+          }
+        },
+        {
+          "value": "value-asc",
+          "label": {
+            "en": "Value, ascending",
+            "fr": "Valeur croissante"
+          }
+        },
+        {
+          "value": "alpha",
+          "label": {
+            "en": "Alphabetical",
+            "fr": "Alphabétique"
+          }
+        },
+        {
+          "value": "data",
+          "label": {
+            "en": "Data order",
+            "fr": "Ordre des données"
+          }
+        },
+        {
+          "value": "custom",
+          "label": {
+            "en": "Custom",
+            "fr": "Personnalisé"
+          }
+        }
+      ]
+    },
+    "categoryOrderCustom": {
+      "type": "choice-order",
+      "choices": "column-values",
+      "label": {
+        "en": "Custom order",
+        "fr": "Ordre personnalisé"
+      },
+      "columnField": "xColumn",
+      "columnFieldWhen": [
+        {
+          "when": [
+            {
+              "field": "plotType",
+              "value": "histogram"
+            },
+            {
+              "field": "histogramOrientation",
+              "value": "horizontal"
+            }
+          ],
+          "columnField": "yColumn"
+        },
+        {
+          "when": [
+            {
+              "field": "plotType",
+              "values": [
+                "boxplot",
+                "violin"
+              ]
+            },
+            {
+              "field": "boxplotOrientation",
+              "value": "horizontal"
+            }
+          ],
+          "columnField": "yColumn"
+        }
+      ],
+      "visibleWhen": [
+        {
+          "field": "plotType",
+          "values": [
+            "bar",
+            "histogram",
+            "pie",
+            "boxplot",
+            "violin"
+          ]
+        },
+        {
+          "field": "categoryOrder",
+          "value": "custom"
+        }
+      ],
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Drag the categories into the order the chart should read. Categories missing from this list come after it, by descending value.",
+        "fr": "Glissez les catégories dans l'ordre de lecture du graphique. Les catégories absentes de cette liste viennent ensuite, par valeur décroissante."
+      }
+    },
+    "binMode": {
+      "type": "select",
+      "label": {
+        "en": "Bin mode",
+        "fr": "Mode bins"
+      },
+      "default": "count",
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
+      "row": "binRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "options": [
+        {
+          "value": "count",
+          "label": {
+            "en": "Number of bins",
+            "fr": "Nombre de barres"
+          }
+        },
+        {
+          "value": "width",
+          "label": {
+            "en": "Bin width",
+            "fr": "Largeur de barre"
+          }
+        }
+      ]
+    },
+    "bins": {
+      "type": "number",
+      "label": {
+        "en": "Bins",
+        "fr": "Barres"
+      },
+      "default": 20,
+      "min": 2,
+      "max": 200,
+      "visibleWhen": [
+        {
+          "field": "plotType",
+          "value": "histogram"
+        },
+        {
+          "field": "binMode",
+          "value": "count"
+        }
+      ],
+      "row": "binRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "binWidth": {
+      "type": "number",
+      "label": {
+        "en": "Bin width",
+        "fr": "Largeur"
+      },
+      "default": 5,
+      "min": 0.1,
+      "max": 1000,
+      "visibleWhen": [
+        {
+          "field": "plotType",
+          "value": "histogram"
+        },
+        {
+          "field": "binMode",
+          "value": "width"
+        }
+      ],
+      "row": "binRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "showCount": {
+      "type": "boolean",
+      "label": {
+        "en": "Show counts (n)",
+        "fr": "Afficher les effectifs (n)"
+      },
+      "default": false,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "boxplot",
+          "violin"
+        ]
+      },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Add the number of values (n = …) to each category label.",
+        "fr": "Ajoute le nombre de valeurs (n = …) à l'étiquette de chaque catégorie."
+      }
+    },
+    "xLabel": {
+      "type": "string",
+      "label": {
+        "en": "X axis label",
+        "fr": "Légende axe X"
+      },
+      "default": "",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
+      "row": "axisLabels",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "yLabel": {
+      "type": "string",
+      "label": {
+        "en": "Y axis label",
+        "fr": "Légende axe Y"
+      },
+      "default": "",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
+      "row": "axisLabels",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "xLabelMaxLen": {
+      "type": "number",
+      "label": {
+        "en": "X label length",
+        "fr": "Longueur labels X"
+      },
+      "default": 20,
+      "min": 3,
+      "max": 60,
+      "row": "labelLenRow",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin",
+          "pie"
+        ]
+      },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Maximum characters shown for text labels on the X (category/bin) axis before truncating with “…”.",
+        "fr": "Nombre maximum de caractères pour les labels texte de l'axe X (catégories/bins) avant troncature avec « … »."
+      }
+    },
+    "yLabelMaxLen": {
+      "type": "number",
+      "label": {
+        "en": "Y label length",
+        "fr": "Longueur labels Y"
+      },
+      "default": 16,
+      "min": 3,
+      "max": 60,
+      "row": "labelLenRow",
+      "visibleWhen": {
+        "field": "plotType",
+        "value": "histogram"
+      },
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "description": {
+        "en": "Maximum characters shown for text labels on the Y axis (horizontal histogram categories) before truncating with “…”.",
+        "fr": "Nombre maximum de caractères pour les labels texte de l'axe Y (catégories d'histogramme horizontal) avant troncature avec « … »."
+      }
+    },
+    "xAxisStartZero": {
+      "type": "boolean",
+      "label": {
+        "en": "X axis starts at 0",
+        "fr": "Axe X commence à 0"
+      },
+      "default": false,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
+      "row": "axisZeroRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "yAxisStartZero": {
+      "type": "boolean",
+      "label": {
+        "en": "Y axis starts at 0",
+        "fr": "Axe Y commence à 0"
+      },
+      "default": false,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
+      "row": "axisZeroRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
       }
     },
     "decimals": {
@@ -729,11 +1069,47 @@
       "default": 1,
       "min": 0,
       "max": 10,
-      "row": "decimalsLegend",
+      "row": "gridRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "showLegend": {
+      "type": "boolean",
+      "label": {
+        "en": "Show legend",
+        "fr": "Légende"
+      },
+      "default": true,
+      "row": "gridRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "showGrid": {
+      "type": "boolean",
+      "label": {
+        "en": "Show grid",
+        "fr": "Grille"
+      },
+      "default": true,
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "scatter",
+          "line",
+          "bar",
+          "histogram",
+          "boxplot",
+          "violin"
+        ]
+      },
+      "row": "gridRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
       }
     },
     "legendPosition": {
@@ -743,11 +1119,10 @@
         "fr": "Position légende"
       },
       "default": "bottom",
-      "row": "decimalsLegend",
+      "row": "legendRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "visibleWhen": {
         "field": "showLegend",
@@ -793,15 +1168,43 @@
       "default": 11,
       "min": 7,
       "max": 20,
-      "row": "legendStyle",
+      "row": "legendRow",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Chart",
+        "fr": "Graphique"
       },
       "visibleWhen": {
         "field": "showLegend",
         "value": true
+      }
+    },
+    "title": {
+      "type": "string",
+      "localized": true,
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "default": "",
+      "row": "titleRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "cardIcon": {
+      "type": "icon-select",
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
+      "default": "__none__",
+      "row": "titleRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
       }
     },
     "centerTitle": {
@@ -811,336 +1214,10 @@
         "fr": "Centrer le titre"
       },
       "default": true,
-      "row": "togglesRow",
       "section": {
         "en": "Style",
         "fr": "Style",
         "defaultOpen": false
-      }
-    },
-    "showGrid": {
-      "type": "boolean",
-      "label": {
-        "en": "Show grid",
-        "fr": "Grille"
-      },
-      "default": true,
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "scatter",
-          "line",
-          "bar",
-          "histogram",
-          "boxplot",
-          "violin"
-        ]
-      },
-      "row": "togglesRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "showLegend": {
-      "type": "boolean",
-      "label": {
-        "en": "Show legend",
-        "fr": "Légende"
-      },
-      "default": true,
-      "row": "togglesRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "xAxisStartZero": {
-      "type": "boolean",
-      "label": {
-        "en": "X axis starts at 0",
-        "fr": "Axe X commence à 0"
-      },
-      "default": false,
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "scatter",
-          "line",
-          "bar",
-          "histogram",
-          "boxplot",
-          "violin"
-        ]
-      },
-      "row": "axisZeroRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "yAxisStartZero": {
-      "type": "boolean",
-      "label": {
-        "en": "Y axis starts at 0",
-        "fr": "Axe Y commence à 0"
-      },
-      "default": false,
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "scatter",
-          "line",
-          "bar",
-          "histogram",
-          "boxplot",
-          "violin"
-        ]
-      },
-      "row": "axisZeroRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "opacity": {
-      "type": "number",
-      "label": {
-        "en": "Opacity (%)",
-        "fr": "Opacité (%)"
-      },
-      "default": 70,
-      "min": 0,
-      "max": 100,
-      "row": "opacitySize",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "pointSize": {
-      "type": "number",
-      "label": {
-        "en": "Point / line size",
-        "fr": "Taille points / lignes"
-      },
-      "default": 4,
-      "min": 1,
-      "max": 15,
-      "row": "opacitySize",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "boxStyle": {
-      "type": "select",
-      "label": {
-        "en": "Box style",
-        "fr": "Style des boîtes"
-      },
-      "default": "filled",
-      "visibleWhen": {
-        "field": "plotType",
-        "value": "boxplot"
-      },
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Outline: a light box with a coloured border and a thick median line labelled with its value, so medians are what the eye compares.",
-        "fr": "Épuré : une boîte légère au contour coloré et une médiane épaisse annotée de sa valeur, pour que l'œil compare les médianes."
-      },
-      "options": [
-        {
-          "value": "filled",
-          "label": {
-            "en": "Filled",
-            "fr": "Plein"
-          }
-        },
-        {
-          "value": "outline",
-          "label": {
-            "en": "Outline",
-            "fr": "Épuré"
-          }
-        }
-      ]
-    },
-    "sortByMedian": {
-      "type": "boolean",
-      "label": {
-        "en": "Sort by median",
-        "fr": "Trier par médiane"
-      },
-      "default": false,
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "boxplot",
-          "violin"
-        ]
-      },
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Order the categories from the highest median to the lowest.",
-        "fr": "Ordonne les catégories de la médiane la plus haute à la plus basse."
-      }
-    },
-    "showCount": {
-      "type": "boolean",
-      "label": {
-        "en": "Show counts (n)",
-        "fr": "Afficher les effectifs (n)"
-      },
-      "default": false,
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "boxplot",
-          "violin"
-        ]
-      },
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Add the number of values (n = …) to each category label.",
-        "fr": "Ajoute le nombre de valeurs (n = …) à l'étiquette de chaque catégorie."
-      }
-    },
-    "barStyle": {
-      "type": "select",
-      "label": {
-        "en": "Bar style",
-        "fr": "Style des barres"
-      },
-      "default": "classic",
-      "row": "barSizeRow",
-      "visibleWhen": {
-        "field": "plotType",
-        "value": "histogram"
-      },
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Ranked list: one row per category with a thin bar and its count, sorted by count. Applies to a categorical variable; numeric bins and a split by another column keep the classic bars.",
-        "fr": "Liste classée : une ligne par catégorie avec une barre fine et son effectif, triée par effectif. S'applique à une variable catégorielle ; les classes numériques et un regroupement par une autre colonne gardent les barres classiques."
-      },
-      "options": [
-        {
-          "value": "classic",
-          "label": {
-            "en": "Classic",
-            "fr": "Classique"
-          }
-        },
-        {
-          "value": "list",
-          "label": {
-            "en": "Ranked list",
-            "fr": "Liste classée"
-          }
-        }
-      ]
-    },
-    "barSize": {
-      "type": "number",
-      "label": {
-        "en": "Bar thickness",
-        "fr": "Épaisseur des barres"
-      },
-      "default": 0,
-      "min": 0,
-      "max": 120,
-      "row": "barSizeRow",
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "bar",
-          "histogram"
-        ]
-      },
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Fixed bar thickness in pixels. Leave at 0 to size bars automatically.",
-        "fr": "Épaisseur fixe des barres en pixels. Laisser à 0 pour un dimensionnement automatique."
-      }
-    },
-    "xLabelMaxLen": {
-      "type": "number",
-      "label": {
-        "en": "X label length",
-        "fr": "Longueur labels X"
-      },
-      "default": 20,
-      "min": 3,
-      "max": 60,
-      "row": "labelLenRow",
-      "visibleWhen": {
-        "field": "plotType",
-        "values": [
-          "bar",
-          "histogram",
-          "boxplot",
-          "violin",
-          "pie"
-        ]
-      },
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Maximum characters shown for text labels on the X (category/bin) axis before truncating with “…”.",
-        "fr": "Nombre maximum de caractères pour les labels texte de l'axe X (catégories/bins) avant troncature avec « … »."
-      }
-    },
-    "yLabelMaxLen": {
-      "type": "number",
-      "label": {
-        "en": "Y label length",
-        "fr": "Longueur labels Y"
-      },
-      "default": 16,
-      "min": 3,
-      "max": 60,
-      "row": "labelLenRow",
-      "visibleWhen": {
-        "field": "plotType",
-        "value": "histogram"
-      },
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Maximum characters shown for text labels on the Y axis (horizontal histogram categories) before truncating with “…”.",
-        "fr": "Nombre maximum de caractères pour les labels texte de l'axe Y (catégories d'histogramme horizontal) avant troncature avec « … »."
       }
     },
     "colorPalette": {
@@ -1350,6 +1427,65 @@
           }
         }
       ]
+    },
+    "opacity": {
+      "type": "number",
+      "label": {
+        "en": "Opacity (%)",
+        "fr": "Opacité (%)"
+      },
+      "default": 70,
+      "min": 0,
+      "max": 100,
+      "row": "opacitySize",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "pointSize": {
+      "type": "number",
+      "label": {
+        "en": "Point / line size",
+        "fr": "Taille points / lignes"
+      },
+      "default": 4,
+      "min": 1,
+      "max": 15,
+      "row": "opacitySize",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
+    },
+    "barSize": {
+      "type": "number",
+      "label": {
+        "en": "Bar thickness",
+        "fr": "Épaisseur des barres"
+      },
+      "default": 0,
+      "min": 0,
+      "max": 120,
+      "row": "opacitySize",
+      "visibleWhen": {
+        "field": "plotType",
+        "values": [
+          "bar",
+          "histogram"
+        ]
+      },
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Fixed bar thickness in pixels. Leave at 0 to size bars automatically.",
+        "fr": "Épaisseur fixe des barres en pixels. Laisser à 0 pour un dimensionnement automatique."
+      }
     }
   },
   "badges": [

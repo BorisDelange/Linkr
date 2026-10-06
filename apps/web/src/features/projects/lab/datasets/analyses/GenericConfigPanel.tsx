@@ -45,7 +45,7 @@ import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
-import { localized } from '@/lib/localized'
+import { localized, localizedRaw, setLocalizedOptional } from '@/lib/localized'
 import { displayColumnName, displayCellValue, toComparableString } from '@/lib/dataset-utils'
 import { defaultAnalysisColumns } from '@/lib/analysis-default-columns'
 import { inferSurveySchema } from '@/lib/survey/survey-infer'
@@ -58,8 +58,8 @@ import { fetchColumnDistinct } from '@/lib/api/datasets'
 import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
 import { PaletteEditor } from '@/components/ui/palette-editor'
 import { CHART_PALETTES } from '@/lib/plugins/shared-styles'
-import type { DatasetColumn } from '@/types'
-import type { PluginConfigField } from '@/types/plugin'
+import type { DatasetColumn, LocalizedString } from '@/types'
+import type { PluginConfigField, VisibleCondition } from '@/types/plugin'
 
 interface GenericConfigPanelProps {
   schema: Record<string, PluginConfigField>
@@ -77,6 +77,18 @@ interface GenericConfigPanelProps {
   /** Renders a `dataset-select` field (warehouse scope only), on the same terms:
    *  the host owns the picker so this panel keeps no dataset-store dependency. */
   renderDatasetField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
+}
+
+/** Every condition holds against `config`; `{ anyOf }` holds when one of its own does. */
+function conditionsHold(when: VisibleCondition | VisibleCondition[], config: Record<string, unknown>): boolean {
+  const holds = (cond: { field: string; value?: unknown; values?: unknown[]; notEmpty?: boolean }) => {
+    const depValue = config[cond.field]
+    if (cond.notEmpty) return depValue != null && depValue !== ''
+    if (cond.values) return cond.values.includes(depValue)
+    return depValue === cond.value
+  }
+  const conditions = Array.isArray(when) ? when : [when]
+  return conditions.every(cond => ('anyOf' in cond ? cond.anyOf.some(holds) : holds(cond)))
 }
 
 export function GenericConfigPanel({
@@ -99,20 +111,19 @@ export function GenericConfigPanel({
         result[key] = field.default
       }
     }
+    // Conditional defaults read the static ones (e.g. the default plot type), so
+    // they resolve in a second pass.
+    const base = { ...result }
+    for (const [key, field] of Object.entries(schema)) {
+      if (config[key] !== undefined || !field.defaultWhen) continue
+      const match = field.defaultWhen.find(d => conditionsHold(d.when, base))
+      if (match) result[key] = match.value
+    }
     return result
   }, [config, schema])
 
-  const visibleEntries = Object.entries(schema).filter(([, field]) => {
-    if (!field.visibleWhen) return true
-    const conditions = Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen]
-    const holds = (cond: { field: string; value?: unknown; values?: unknown[]; notEmpty?: boolean }) => {
-      const depValue = configWithDefaults[cond.field]
-      if (cond.notEmpty) return depValue != null && depValue !== '' && depValue !== undefined
-      if (cond.values) return cond.values.includes(depValue)
-      return depValue === cond.value
-    }
-    return conditions.every(cond => ('anyOf' in cond ? cond.anyOf.some(holds) : holds(cond)))
-  })
+  const visibleEntries = Object.entries(schema).filter(([, field]) =>
+    !field.visibleWhen || conditionsHold(field.visibleWhen, configWithDefaults))
 
   // Group fields by `row` — fields with the same row value are rendered side-by-side
   const groups: { keys: string[]; fields: PluginConfigField[] }[] = []
@@ -535,6 +546,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           config={config}
           onConfigChange={onConfigChange}
           rows={rows}
+          datasetFileId={datasetFileId}
         />
       )
     default:
@@ -542,13 +554,35 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
   }
 }
 
+const NO_VALUES: string[] = []
+
 /**
- * Drag the ANSWERS of a survey question into an explicit order.
+ * Server mode: the distinct values of a column, fetched because `rows` is empty
+ * there (the browser never holds the dataset). Alphabetical, at most 500. Tagged
+ * with the column id so a result for a previous column is never shown.
+ */
+function useServerColumnDistinct(colId: string | undefined, rows: Record<string, unknown>[] | undefined, datasetFileId: string | undefined): string[] {
+  const [result, setResult] = useState<{ colId: string; values: string[] }>({ colId: '', values: [] })
+  const needsServer = isServerMode() && !!datasetFileId && !!colId && (!rows || rows.length === 0)
+  useEffect(() => {
+    if (!needsServer) return
+    let cancelled = false
+    fetchColumnDistinct(datasetFileId!, colId!, { limit: 500 })
+      .then((res) => { if (!cancelled) setResult({ colId: colId!, values: res.values }) })
+      .catch(() => { if (!cancelled) setResult({ colId: colId!, values: [] }) })
+    return () => { cancelled = true }
+  }, [needsServer, datasetFileId, colId])
+  return needsServer && result.colId === colId ? result.values : NO_VALUES
+}
+
+/**
+ * Drag the ANSWERS of a survey question — or, with `choices: 'column-values'`,
+ * the distinct values of a column — into an explicit order.
  *
- * The stored value is a list of answer codes. Codes the data has but the list
- * does not are appended in declared order rather than dropped: the order is
- * saved in a widget while the data can gain an answer afterwards, and silently
- * hiding a real response would be worse than an imperfect order.
+ * The stored value is a list of codes. Codes the data has but the list does not
+ * are appended rather than dropped: the order is saved in a widget while the data
+ * can gain a value afterwards, and silently hiding it would be worse than an
+ * imperfect order.
  */
 function ChoiceOrderField({
   fieldKey,
@@ -559,17 +593,36 @@ function ChoiceOrderField({
   config,
   onConfigChange,
   rows,
+  datasetFileId,
 }: FieldRendererProps) {
   const { t } = useTranslation()
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
-  const choices = useMemo(() => {
-    const colId = field.columnField ? (config[field.columnField] as string | undefined) : undefined
+  const columnKey = field.columnFieldWhen?.find(c => conditionsHold(c.when, config))?.columnField ?? field.columnField
+  const colId = columnKey ? (config[columnKey] as string | undefined) : undefined
+  const fromColumn = field.choices === 'column-values'
+
+  // Most frequent first, as a count-ordered chart would draw them.
+  const localValues = useMemo(() => {
+    if (!fromColumn || !colId || !rows) return []
+    const counts = new Map<string, number>()
+    for (const row of rows) {
+      const raw = row[colId]
+      if (raw == null || raw === '') continue
+      const key = String(raw)
+      counts.set(key, (counts.get(key) ?? 0) + 1)
+    }
+    return Array.from(counts).sort((a, b) => b[1] - a[1]).map(([name]) => name)
+  }, [fromColumn, colId, rows])
+  const serverValues = useServerColumnDistinct(fromColumn ? colId : undefined, rows, datasetFileId)
+
+  const choices = useMemo<{ name: string; label: LocalizedString | string }[]>(() => {
     if (!colId) return []
+    if (fromColumn) return (localValues.length > 0 ? localValues : serverValues).map(name => ({ name, label: name }))
     const schema = inferSurveySchema(columns, rows ?? [])
     const question = schema.questions.find(q => questionColumns(q).includes(colId))
     return question ? questionChoices(schema, question) : []
-  }, [field.columnField, config, columns, rows])
+  }, [colId, fromColumn, localValues, serverValues, columns, rows])
 
   const ordered = useMemo(() => {
     const saved = (value as string[] | undefined) ?? []
@@ -615,7 +668,9 @@ function ChoiceOrderField({
           </div>
         </SortableContext>
       </DndContext>
-      <p className="text-[10px] text-muted-foreground">{t('survey.choice_order_hint')}</p>
+      <p className="text-[10px] text-muted-foreground">
+        {fromColumn ? t('analyses.category_order_hint') : t('survey.choice_order_hint')}
+      </p>
     </div>
   )
 }
@@ -1021,25 +1076,8 @@ function ColumnValueSelect({
     return Array.from(seen).sort()
   }, [columnFieldId, rows])
 
-  // Server mode: `rows` is empty (the browser never holds the dataset), so the
-  // distinct values must be fetched server-side. Front-only uses localValues.
-  // Tagged with the column id so a result for a previous column is never shown.
-  const [serverValues, setServerValues] = useState<{ colId: string; values: string[] }>({ colId: '', values: [] })
-  const needsServer = isServerMode() && !!datasetFileId && !!columnFieldId && (!rows || rows.length === 0)
-  useEffect(() => {
-    if (!needsServer) return
-    let cancelled = false
-    fetchColumnDistinct(datasetFileId!, columnFieldId!, { limit: 500 })
-      .then((res) => { if (!cancelled) setServerValues({ colId: columnFieldId!, values: res.values }) })
-      .catch(() => { if (!cancelled) setServerValues({ colId: columnFieldId!, values: [] }) })
-    return () => { cancelled = true }
-  }, [needsServer, datasetFileId, columnFieldId])
-
-  const uniqueValues = localValues.length > 0
-    ? localValues
-    : needsServer && serverValues.colId === columnFieldId
-      ? serverValues.values
-      : []
+  const serverValues = useServerColumnDistinct(columnFieldId, rows, datasetFileId)
+  const uniqueValues = localValues.length > 0 ? localValues : serverValues
 
   return (
     <div className="space-y-1.5">
@@ -1401,15 +1439,37 @@ function StringField({
   config,
   onConfigChange,
 }: Omit<FieldRendererProps, 'columns'>) {
-  const current = (value as string | undefined) ?? (field.default as string | undefined) ?? ''
+  const { t } = useTranslation()
+  const stored = (value ?? field.default) as LocalizedString | string | undefined
+  const current = field.localized ? localizedRaw(stored, lang) : ((stored as string | undefined) ?? '')
 
   return (
     <div className="space-y-1.5">
-      <FieldLabel field={field} config={config} lang={lang} />
+      {field.localized ? (
+        <div className="flex items-center justify-between gap-2">
+          <FieldLabel field={field} config={config} lang={lang} />
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="shrink-0 cursor-help rounded bg-muted px-1 py-px text-[10px] font-medium uppercase leading-tight text-muted-foreground">
+                  {lang}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-56">
+                {lang === 'fr' ? t('analyses.localized_field_hint_fr') : t('analyses.localized_field_hint_en')}
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      ) : (
+        <FieldLabel field={field} config={config} lang={lang} />
+      )}
       <Input
         className="h-8 text-xs"
         value={current}
-        onChange={e => onConfigChange({ [fieldKey]: e.target.value })}
+        onChange={e => onConfigChange({
+          [fieldKey]: field.localized ? setLocalizedOptional(value as LocalizedString | string | undefined, lang, e.target.value) : e.target.value,
+        })}
       />
     </div>
   )

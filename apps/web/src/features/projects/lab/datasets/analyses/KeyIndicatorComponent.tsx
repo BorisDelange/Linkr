@@ -20,7 +20,9 @@ import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette, CHART_R
 import { TruncatedTick } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import type { LocalizedString } from '@/types'
 import { buildKeyIndicatorSpec } from './key-indicator-server'
 import { toComparableString } from '@/lib/dataset-utils'
 import { BoxPlot } from '@/components/charts/box-plot'
@@ -368,7 +370,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
   const uniqueAggregation = (config.uniqueAggregation as string) ?? 'first'
   const aggregate = (config.aggregate as string) ?? 'mean'
   const targetValue = (config.targetValue as string | undefined) ?? ''
-  const customTitle = config.title as string | undefined
+  const title = localized(config.title as LocalizedString | string | undefined, i18n.language).trim()
   const centerTitle = (config.centerTitle as boolean) ?? true
   const centerContent = (config.centerContent as boolean) ?? true
   const sizePct = (config.size as number | undefined) ?? 100
@@ -565,16 +567,6 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
       .filter(Boolean) as string[]
   }, [isProportion, proportionResult, numericResult, subtitleStats, aggregate, lang, decimals])
 
-  // Title
-  const aggLabel = AGG_LABELS[aggregate]?.[lang] ?? aggregate
-  const title = customTitle?.trim() || (column
-    ? isNoneStat
-      ? column.name
-      : isProportion && proportionResult
-        ? `${proportionResult.resolvedTarget} — ${column.name}`
-        : `${aggLabel} — ${column.name}`
-    : aggLabel)
-
   if (!column) {
     return (
       <div className="flex h-full items-center justify-center p-8 text-xs text-muted-foreground">
@@ -641,12 +633,14 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
       <div className={cn('flex items-center gap-2 mb-1', centerTitle && 'justify-center')}>
         {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
         <Icon size={iconSize} className={iconColor.text} style={iconColor.isCustom ? { color: iconColor.hex } : undefined} />
-        <span
-          className={cn('font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground')}
-          style={{ fontSize: titleSize, ...(titleColor?.isCustom ? { color: titleColor.hex } : {}) }}
-        >
-          {title}
-        </span>
+        {title && (
+          <span
+            className={cn('font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground')}
+            style={{ fontSize: titleSize, ...(titleColor?.isCustom ? { color: titleColor.hex } : {}) }}
+          >
+            {title}
+          </span>
+        )}
       </div>
 
       {/* Big number + unit — hidden when the main stat is "None". */}

@@ -55,15 +55,44 @@ export function resolveColumns(
   }
   const out: Record<string, unknown> = { ...config }
   for (const [key, field] of Object.entries(manifest.configSchema ?? {})) {
-    if (field.type !== 'column-select' || !(key in out)) continue
+    if (!(key in out)) continue
     const value = out[key]
-    out[key] = Array.isArray(value) ? value.map((v) => resolve(key, v)) : resolve(key, value)
+    if (field.type === 'column-select') {
+      out[key] = Array.isArray(value) ? value.map((v) => resolve(key, v)) : resolve(key, value)
+    } else if (field.type === 'string') {
+      const error = checkTextValue(key, value, field.localized === true)
+      if (error) errors.push(error)
+    }
   }
   const unknown = Object.keys(config).filter((k) => !(k in (manifest.configSchema ?? {})))
   if (unknown.length) {
     errors.push(`Unknown config field(s) for ${manifest.id}: ${unknown.join(', ')} — see describe_plugin.`)
   }
   return { config: out, errors }
+}
+
+/** Appended to the `config` parameter of the widget/analysis tools. */
+export const CHART_TITLE_HINT =
+  'The chart\'s own title is its "title" field, when the plugin has one (left empty: no title). It takes a '
+  + 'string (both languages) or one text per language: {"title": {"en": "Age at admission", "fr": "Âge à l\'admission"}}.'
+
+/**
+ * The error for a `string` config field's value, or null when it is acceptable.
+ * A `localized` field (a chart title) takes a plain string, read as every
+ * language's text, or one text per language: `{"en": "...", "fr": "..."}`. An
+ * object anywhere else would render as "[object Object]".
+ */
+export function checkTextValue(key: string, value: unknown, localized: boolean): string | null {
+  if (value == null || typeof value !== 'object') return null
+  if (localized && !Array.isArray(value)) {
+    const entries = Object.entries(value)
+    if (entries.length > 0 && entries.every(([lang, text]) => /^[a-z]{2}$/.test(lang) && typeof text === 'string')) {
+      return null
+    }
+  }
+  return localized
+    ? `${key}: a string (both languages) or {"en": "...", "fr": "..."}.`
+    : `${key}: a string.`
 }
 
 /** Where a new widget goes: the requested layout clamped to the grid, else just

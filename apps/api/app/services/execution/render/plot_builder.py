@@ -14,6 +14,7 @@ _ALLOWED_BIN_MODES = {"count", "width"}
 _ALLOWED_ORIENTATIONS = {"vertical", "horizontal"}
 _ALLOWED_AGGREGATIONS = {"first", "last", "mean", "median", "min", "max", "sum"}
 _ALLOWED_OUTLIER_METHODS = {"none", "iqr", "sd", "percentile"}
+_ALLOWED_CATEGORY_ORDERS = {"value-desc", "value-asc", "alpha", "data", "custom"}
 
 
 def _opt_str(value, field: str):
@@ -55,6 +56,14 @@ def validate_spec(spec: dict) -> dict:
     if outlier_method not in _ALLOWED_OUTLIER_METHODS:
         raise ValueError("plot-builder spec.outlierMethod is invalid")
 
+    category_order = spec.get("categoryOrder")
+    if category_order is not None and category_order not in _ALLOWED_CATEGORY_ORDERS:
+        raise ValueError("plot-builder spec.categoryOrder is invalid")
+
+    custom_order = spec.get("categoryOrderCustom") or []
+    if not isinstance(custom_order, list) or not all(isinstance(v, str) for v in custom_order):
+        raise ValueError("plot-builder spec.categoryOrderCustom must be a list of strings")
+
     return {
         "plotType": plot_type,
         "x": _opt_str(spec.get("x"), "x"),
@@ -74,7 +83,9 @@ def validate_spec(spec: dict) -> dict:
         "binWidth": _num(spec.get("binWidth"), "binWidth", 5),
         "decimals": _num(spec.get("decimals"), "decimals", 1),
         "xAxisStartZero": bool(spec.get("xAxisStartZero", False)),
-        "boxSortByMedian": bool(spec.get("boxSortByMedian", False)),
+        # Null = each plot path keeps its own default order (see _linkr_print_plot).
+        "categoryOrder": category_order,
+        "categoryOrderCustom": custom_order,
         # Histogram drag-to-zoom: re-bin only this value range, so zooming reveals
         # finer structure rather than redrawing the same bars wider.
         "zoomLo": None if spec.get("zoomLo") is None else _num(spec.get("zoomLo"), "zoomLo", 0),
@@ -222,16 +233,16 @@ def _linkr_is_categorical(df, col):
     if total == 0: return False
     return numeric / total < 0.5
 
-def _linkr_categorical(df, col):
+def _linkr_categorical(df, col, order, custom):
     counts = {}
     for v in df[col]:
         if v is None or v == "": continue
         k = str(v)
         counts[k] = counts.get(k, 0) + 1
-    items = sorted(counts.items(), key=lambda kv: -kv[1])
+    items = _linkr_order_categories(list(counts.items()), lambda kv: kv[0], lambda kv: kv[1], order, custom)
     return [{"bin": k, "count": c} for k, c in items]
 
-def _linkr_categorical_grouped(df, col, gcol, group_names):
+def _linkr_categorical_grouped(df, col, gcol, group_names, order, custom):
     counts = {}
     for _, row in df.iterrows():
         v = row[col]
@@ -242,13 +253,46 @@ def _linkr_categorical_grouped(df, col, gcol, group_names):
         if k not in counts:
             counts[k] = {n: 0 for n in group_names}
         counts[k][g] += 1
-    items = sorted(counts.items(), key=lambda kv: -sum(kv[1][n] for n in group_names))
+    items = _linkr_order_categories(list(counts.items()), lambda kv: kv[0],
+                                    lambda kv: sum(kv[1][n] for n in group_names), order, custom)
     out = []
     for k, entry in items:
         row = {"bin": k}
         row.update(entry)
         out.append(row)
     return out
+
+def _linkr_alpha_key(name):
+    # Approximates Intl.Collator(undefined, {numeric: true, sensitivity: "base"}) in
+    # plot-category-order.ts: case and accents ignored, digit runs compared as
+    # numbers, so "Class 2" < "Class 10".
+    import re as _re
+    import unicodedata as _ud
+    folded = "".join(c for c in _ud.normalize("NFKD", name) if not _ud.combining(c)).casefold()
+    return tuple((0, int(part), "") if part.isdigit() else (1, 0, part)
+                 for part in _re.findall(r"\d+|\D+", folded))
+
+def _linkr_order_categories(items, name_of, value_of, order, custom=()):
+    # Mirror of orderCategories in plot-category-order.ts. Items arrive in first-
+    # appearance order and every sort is stable, so ties keep that order. Callers
+    # cap the category count AFTER this.
+    if order == "value-desc":
+        return sorted(items, key=lambda it: -value_of(it))
+    if order == "value-asc":
+        return sorted(items, key=value_of)
+    if order == "alpha":
+        return sorted(items, key=lambda it: _linkr_alpha_key(name_of(it)))
+    if order == "custom":
+        by_name = {}
+        for it in items:
+            by_name.setdefault(name_of(it), it)
+        head = []; placed = set()
+        for name in custom:
+            if name in by_name and name not in placed:
+                head.append(by_name[name]); placed.add(name)
+        rest = [it for it in items if name_of(it) not in placed]
+        return head + sorted(rest, key=lambda it: -value_of(it))
+    return list(items)
 
 def _linkr_percentile(sorted_vals, p):
     # Linear interpolation between ranks, matching percentile() in
@@ -400,6 +444,11 @@ def _linkr_print_plot(dataset, spec):
 
     result = {"plotType": plot_type, "groupNames": group_names, "outliersExcluded": outliers_excluded}
 
+    # Null keeps each path's own default: counts by descending count, box/violin and
+    # bars that average a Y or split by a group in data order.
+    cat_order = spec.get("categoryOrder")
+    cat_custom = spec.get("categoryOrderCustom") or []
+
     if plot_type in ("scatter", "line"):
         if not x or not y or x not in df.columns or y not in df.columns:
             print(_json.dumps({**result, "series": []})); return
@@ -442,7 +491,9 @@ def _linkr_print_plot(dataset, spec):
                     if _math.isnan(val): continue
                     e = agg.setdefault(k, [0.0, 0])
                     e[0] += val; e[1] += 1
-                data = [{"name": k, "value": s / c} for k, (s, c) in list(agg.items())[:30]]
+                items = _linkr_order_categories(list(agg.items()), lambda kv: kv[0],
+                                                lambda kv: kv[1][0] / kv[1][1], cat_order or "data", cat_custom)
+                data = [{"name": k, "value": s / c} for k, (s, c) in items[:30]]
                 print(_json.dumps({**result, "data": data, "series": ["value"], "colorByCategory": color_by_cat})); return
             agg = {}
             for _, row in df.iterrows():
@@ -453,8 +504,14 @@ def _linkr_print_plot(dataset, spec):
                 inner = agg.setdefault(k, {})
                 e = inner.setdefault(g, [0.0, 0])
                 e[0] += val; e[1] += 1
+            # Ordered on the category's mean over all its rows, whatever their group.
+            def _overall_mean(kv):
+                parts = kv[1].values()
+                return sum(p[0] for p in parts) / sum(p[1] for p in parts)
+            items = _linkr_order_categories(list(agg.items()), lambda kv: kv[0], _overall_mean,
+                                            cat_order or "data", cat_custom)
             data = []
-            for k, groups in list(agg.items())[:30]:
+            for k, groups in items[:30]:
                 entry = {"name": k}
                 for g in eff_group_names:
                     gv = groups.get(g)
@@ -467,7 +524,9 @@ def _linkr_print_plot(dataset, spec):
             for v in df[x]:
                 k = str(v) if v is not None else ""
                 counts[k] = counts.get(k, 0) + 1
-            data = [{"name": k, "count": c} for k, c in sorted(counts.items(), key=lambda kv: -kv[1])[:30]]
+            items = _linkr_order_categories(list(counts.items()), lambda kv: kv[0], lambda kv: kv[1],
+                                            cat_order or "value-desc", cat_custom)
+            data = [{"name": k, "count": c} for k, c in items[:30]]
             print(_json.dumps({**result, "data": data, "series": ["count"], "colorByCategory": color_by_cat})); return
         agg = {}
         for _, row in df.iterrows():
@@ -475,8 +534,10 @@ def _linkr_print_plot(dataset, spec):
             g = str(row[eff_group]) if row[eff_group] is not None else ""
             inner = agg.setdefault(k, {})
             inner[g] = inner.get(g, 0) + 1
+        items = _linkr_order_categories(list(agg.items()), lambda kv: kv[0], lambda kv: sum(kv[1].values()),
+                                        cat_order or "data", cat_custom)
         data = []
-        for k, groups in list(agg.items())[:30]:
+        for k, groups in items[:30]:
             entry = {"name": k}
             for g in eff_group_names:
                 entry[g] = groups.get(g, 0)
@@ -495,9 +556,9 @@ def _linkr_print_plot(dataset, spec):
         is_cat = _linkr_is_categorical(df, hist)
         if is_cat:
             if not eff_group_names or eff_group not in df.columns:
-                data = _linkr_categorical(df, hist)
+                data = _linkr_categorical(df, hist, cat_order or "value-desc", cat_custom)
                 print(_json.dumps({**result, "data": data, "series": ["count"], "isCategorical": True, "colorByCategory": color_by_cat})); return
-            data = _linkr_categorical_grouped(df, hist, eff_group, eff_group_names)
+            data = _linkr_categorical_grouped(df, hist, eff_group, eff_group_names, cat_order or "value-desc", cat_custom)
             print(_json.dumps({**result, "data": data, "series": eff_group_names, "isCategorical": True, "colorByCategory": color_by_cat})); return
         # Drag-to-zoom: restrict to the selected value range and re-bin THOSE values,
         # so the zoom shows finer structure rather than the same bars drawn wider.
@@ -525,11 +586,12 @@ def _linkr_print_plot(dataset, spec):
         print(_json.dumps({**result, "data": data, "series": eff_group_names, "isCategorical": False, "colorByCategory": color_by_cat})); return
 
     if plot_type == "pie":
-        # Same per-category count as the categorical histogram, already sorted by
-        # descending count, so slices come out largest first on both paths.
+        # Same per-category count as the categorical histogram, largest slice first
+        # unless another order was chosen.
         if not hist or hist not in df.columns:
             print(_json.dumps({**result, "data": [], "series": ["count"]})); return
-        print(_json.dumps({**result, "data": _linkr_categorical(df, hist), "series": ["count"]})); return
+        data = _linkr_categorical(df, hist, cat_order or "value-desc", cat_custom)
+        print(_json.dumps({**result, "data": data, "series": ["count"]})); return
 
     if plot_type in ("boxplot", "violin"):
         val_col = y if y else x
@@ -553,10 +615,9 @@ def _linkr_print_plot(dataset, spec):
                 stats = _linkr_boxplot_stats(vals)
                 if stats:
                     data.append({"name": name, "stats": stats, "values": vals})
-            # Ordered before the cap, so a sorted chart keeps the highest medians.
-            if spec.get("boxSortByMedian"):
-                data.sort(key=lambda d: -d["stats"]["median"])
-            data = data[:20]
+            # Ordered before the cap, so a sorted chart keeps its top medians.
+            data = _linkr_order_categories(data, lambda d: d["name"], lambda d: d["stats"]["median"],
+                                           cat_order or "data", cat_custom)[:20]
         print(_json.dumps({**result, "data": data})); return
 
     print(_json.dumps({**result, "data": []}))

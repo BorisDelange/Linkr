@@ -189,11 +189,10 @@
         "fr": "Colonne Total"
       },
       "default": false,
-      "row": "styleOpts",
+      "row": "tableOpts",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Table",
+        "fr": "Tableau"
       },
       "visibleWhen": {
         "field": "groupByColumn",
@@ -211,11 +210,10 @@
         "fr": "Retour à la ligne"
       },
       "default": false,
-      "row": "styleOpts",
+      "row": "tableOpts",
       "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
+        "en": "Table",
+        "fr": "Tableau"
       },
       "description": {
         "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
@@ -224,6 +222,7 @@
     },
     "title": {
       "type": "string",
+      "localized": true,
       "label": {
         "en": "Title",
         "fr": "Titre"

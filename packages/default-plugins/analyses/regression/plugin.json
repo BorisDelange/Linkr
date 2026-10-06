@@ -105,6 +105,136 @@
         }
       ]
     },
+    "displayMode": {
+      "type": "select",
+      "label": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "default": "both",
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "description": {
+        "en": "Show the coefficients table, the forest plot, both stacked with a draggable divider, or both switchable via tabs.",
+        "fr": "Afficher le tableau des coefficients, le forest plot, les deux empilés avec une barre de redimensionnement, ou les deux avec des onglets pour basculer."
+      },
+      "options": [
+        {
+          "value": "table",
+          "label": {
+            "en": "Table",
+            "fr": "Tableau"
+          }
+        },
+        {
+          "value": "plot",
+          "label": {
+            "en": "Forest plot",
+            "fr": "Forest plot"
+          }
+        },
+        {
+          "value": "both",
+          "label": {
+            "en": "Table + plot (stacked)",
+            "fr": "Tableau + graphique (empilés)"
+          }
+        },
+        {
+          "value": "both-tabs",
+          "label": {
+            "en": "Table + plot (tabs)",
+            "fr": "Tableau + graphique (onglets)"
+          }
+        }
+      ]
+    },
+    "visibleColumns": {
+      "type": "select",
+      "multi": true,
+      "label": {
+        "en": "Table columns",
+        "fr": "Colonnes du tableau"
+      },
+      "defaultAll": true,
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "options": [
+        {
+          "value": "estimate",
+          "label": {
+            "en": "Estimate / OR",
+            "fr": "Estimation / OR"
+          }
+        },
+        {
+          "value": "se",
+          "label": {
+            "en": "Std. Error",
+            "fr": "Erreur std."
+          }
+        },
+        {
+          "value": "ci",
+          "label": {
+            "en": "Confidence interval",
+            "fr": "Intervalle de confiance"
+          }
+        },
+        {
+          "value": "statistic",
+          "label": {
+            "en": "Statistic",
+            "fr": "Statistique"
+          }
+        },
+        {
+          "value": "p",
+          "label": {
+            "en": "p-value",
+            "fr": "p-value"
+          }
+        }
+      ]
+    },
+    "highlightSignificant": {
+      "type": "boolean",
+      "label": {
+        "en": "Highlight significant",
+        "fr": "Surligner les significatifs"
+      },
+      "default": true,
+      "row": "tableOpts",
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "description": {
+        "en": "Marks rows whose p is below α. A marker, not a verdict.",
+        "fr": "Marque les lignes dont p est sous α. Un repère, pas un verdict."
+      }
+    },
+    "wrap": {
+      "type": "boolean",
+      "label": {
+        "en": "Wrap long text",
+        "fr": "Retour à la ligne"
+      },
+      "default": false,
+      "row": "tableOpts",
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "description": {
+        "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
+        "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
+      }
+    },
     "regressionType": {
       "type": "select",
       "label": {
@@ -161,140 +291,6 @@
         "en": "The width of each interval, and with it the significance threshold (α = 1 − level). 95% is the convention; a wider interval is not more certain, only more cautious about where the estimate lies.",
         "fr": "La largeur de chaque intervalle, et avec elle le seuil de significativité (α = 1 − niveau). 95 % est la convention ; un intervalle plus large n'est pas plus certain, seulement plus prudent sur la position de l'estimation."
       }
-    },
-    "displayMode": {
-      "type": "select",
-      "label": {
-        "en": "Display",
-        "fr": "Affichage"
-      },
-      "default": "both",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Show the coefficients table, the forest plot, both stacked with a draggable divider, or both switchable via tabs.",
-        "fr": "Afficher le tableau des coefficients, le forest plot, les deux empilés avec une barre de redimensionnement, ou les deux avec des onglets pour basculer."
-      },
-      "options": [
-        {
-          "value": "table",
-          "label": {
-            "en": "Table",
-            "fr": "Tableau"
-          }
-        },
-        {
-          "value": "plot",
-          "label": {
-            "en": "Forest plot",
-            "fr": "Forest plot"
-          }
-        },
-        {
-          "value": "both",
-          "label": {
-            "en": "Table + plot (stacked)",
-            "fr": "Tableau + graphique (empilés)"
-          }
-        },
-        {
-          "value": "both-tabs",
-          "label": {
-            "en": "Table + plot (tabs)",
-            "fr": "Tableau + graphique (onglets)"
-          }
-        }
-      ]
-    },
-    "highlightSignificant": {
-      "type": "boolean",
-      "label": {
-        "en": "Highlight significant",
-        "fr": "Surligner les significatifs"
-      },
-      "default": true,
-      "row": "styleOpts",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Marks rows whose p is below α. A marker, not a verdict.",
-        "fr": "Marque les lignes dont p est sous α. Un repère, pas un verdict."
-      }
-    },
-    "wrap": {
-      "type": "boolean",
-      "label": {
-        "en": "Wrap long text",
-        "fr": "Retour à la ligne"
-      },
-      "default": false,
-      "row": "styleOpts2",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Off by default: irregular row heights break the vertical scan that is the point of a column of figures. Long text is truncated with the full value on hover.",
-        "fr": "Désactivé par défaut : des hauteurs de lignes irrégulières cassent la lecture verticale d'une colonne de chiffres. Le texte long est tronqué, la valeur complète au survol."
-      }
-    },
-    "visibleColumns": {
-      "type": "select",
-      "multi": true,
-      "label": {
-        "en": "Table columns",
-        "fr": "Colonnes du tableau"
-      },
-      "defaultAll": true,
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "options": [
-        {
-          "value": "estimate",
-          "label": {
-            "en": "Estimate / OR",
-            "fr": "Estimation / OR"
-          }
-        },
-        {
-          "value": "se",
-          "label": {
-            "en": "Std. Error",
-            "fr": "Erreur std."
-          }
-        },
-        {
-          "value": "ci",
-          "label": {
-            "en": "Confidence interval",
-            "fr": "Intervalle de confiance"
-          }
-        },
-        {
-          "value": "statistic",
-          "label": {
-            "en": "Statistic",
-            "fr": "Statistique"
-          }
-        },
-        {
-          "value": "p",
-          "label": {
-            "en": "p-value",
-            "fr": "p-value"
-          }
-        }
-      ]
     }
   },
   "badges": [

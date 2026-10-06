@@ -5,7 +5,7 @@ import type { DashboardWidget } from '@/types'
 import { formatRows } from './cohorts.js'
 import { columnId } from '@linkr/format'
 import {
-  bilingual, buildFilter, frenchParam, localizedChange, columnMetaMap, findColumn, layoutSchema, matchDatasetPath, placeWidget, resolveColumns,
+  CHART_TITLE_HINT, bilingual, buildFilter, frenchParam, localizedChange, columnMetaMap, findColumn, layoutSchema, matchDatasetPath, placeWidget, resolveColumns,
   type DatasetColumn, type Layout,
 } from './lab.js'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
@@ -272,11 +272,11 @@ export function registerLabTools(server: Server): void {
       type: 'object',
       properties: {
         tab_id: { type: 'string' },
-        name: { type: 'string', description: 'Widget title.' },
+        name: { type: 'string', description: 'Widget name, shown in its title bar (unless the dashboard hides title bars).' },
         name_fr: frenchParam('name'),
         plugin_id: { type: 'string', description: 'e.g. linkr-analysis-plot-builder (or "plot-builder").' },
         dataset_path: { type: 'string', description: 'Default: the dashboard\'s default dataset.' },
-        config: { type: 'object', description: 'Plugin config, e.g. {"plotType": "histogram", "xColumn": "age"}.' },
+        config: { type: 'object', description: `Plugin config, e.g. {"plotType": "histogram", "xColumn": "age"}. ${CHART_TITLE_HINT}` },
         layout: LAYOUT_SCHEMA,
       },
       required: ['tab_id', 'name', 'plugin_id', 'config'],
@@ -317,7 +317,7 @@ export function registerLabTools(server: Server): void {
           type: 'string',
           description: '"" clears it: the widget then reads no dataset.',
         },
-        config: { type: 'object', description: 'Fields to set.' },
+        config: { type: 'object', description: `Fields to set. ${CHART_TITLE_HINT}` },
         layout: LAYOUT_SCHEMA,
       },
       required: ['widget_id'],

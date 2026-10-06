@@ -22,11 +22,16 @@ you give the chart its columns — **X variable**, **Y variable**, an optional
 **Exclude outliers** (with its **Threshold**). Histograms add **Bin mode** with
 **Bins** or **Bin width**, plus an **Orientation** and, when grouped, a **Bar
 mode**. Boxplots and violins add an **Orientation** too (horizontal puts the
-categories on Y, with their full names), **Sort by median** and **Show counts
-(n)**; boxplots also a **Box style**, *Outline* drawing a light box with a thick,
-labelled median. The **Style** section carries the presentation: **Title** and axis
-labels, **Color palette**, **Legend**, **Grid**, **Opacity (%)**, point and bar
-sizes, and **X / Y axis starts at 0**.
+categories on Y, with their full names) and **Show counts (n)**; boxplots also
+a **Box style**, *Outline* drawing a light box with a thick, labelled median.
+Every chart with categories — bars, pie, boxes, violins, a histogram of a
+categorical variable — has a **Category order**: by value, descending or
+ascending (the value being what is plotted: the count, the mean of Y, the
+median), alphabetical, the data order, or **Custom**, where you drag the
+categories into place. All of these live in the **Chart** section, with the
+axes: axis labels, **X / Y axis starts at 0**, **Legend**, **Grid** and **Decimals**.
+The **Style** section carries the appearance: **Title** and icon, **Color
+palette** and colours, **Opacity (%)**, point and bar sizes.
 
 ### Which plot answers which question
 
@@ -43,7 +48,7 @@ The plot type is not a style choice. It follows from the question.
 
 A bar chart with an empty **Y variable** counts rows; with a Y it averages that
 column per category — not sums it. Bar charts keep at most 30 categories, boxes
-and violins at most 20 (with **Sort by median**, the 20 highest medians); beyond that the chart is unreadable anyway, so aggregate
+and violins at most 20 — the first ones in the **Category order**, which is applied before the cap; beyond that the chart is unreadable anyway, so aggregate
 your categories upstream rather than hoping the chart sorts it out.
 
 ## Notes on the method
@@ -121,7 +126,8 @@ binning. Drag across the chart to zoom into a range — the values inside are
 re-binned, so a long tail stops crushing the interesting part.
 
 A non-numeric X column is not binned at all: the histogram falls back to
-counting each distinct value, sorted from most to least frequent.
+counting each distinct value, sorted from most to least frequent unless the
+**Category order** says otherwise.
 
 ### Excluding extreme values
 

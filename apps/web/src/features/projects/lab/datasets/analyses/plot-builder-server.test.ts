@@ -33,10 +33,16 @@ describe('buildPlotBuilderSpec', () => {
     expect([spec.x, spec.y]).toEqual(['ward', 'age'])
   })
 
-  it('sends the median ordering only for box and violin plots', () => {
-    expect(buildPlotBuilderSpec(columns, { plotType: 'violin', xColumn: 'col_ward', sortByMedian: true }).boxSortByMedian).toBe(true)
-    expect(buildPlotBuilderSpec(columns, { plotType: 'bar', xColumn: 'col_ward', sortByMedian: true }).boxSortByMedian).toBe(false)
-    expect(buildPlotBuilderSpec(columns, { plotType: 'boxplot', xColumn: 'col_ward' }).boxSortByMedian).toBe(false)
+  it('sends the category order, reading the older sortByMedian flag as value-desc', () => {
+    expect(buildPlotBuilderSpec(columns, { plotType: 'violin', xColumn: 'col_ward', sortByMedian: true }).categoryOrder).toBe('value-desc')
+    expect(buildPlotBuilderSpec(columns, { plotType: 'bar', xColumn: 'col_ward', categoryOrder: 'alpha' }).categoryOrder).toBe('alpha')
+    expect(buildPlotBuilderSpec(columns, { plotType: 'boxplot', xColumn: 'col_ward' }).categoryOrder).toBeNull()
+  })
+
+  it('sends the custom list only for a custom order', () => {
+    const custom = { plotType: 'pie', xColumn: 'col_ward', categoryOrderCustom: ['ICU', 'ER'] }
+    expect(buildPlotBuilderSpec(columns, { ...custom, categoryOrder: 'custom' }).categoryOrderCustom).toEqual(['ICU', 'ER'])
+    expect(buildPlotBuilderSpec(columns, { ...custom, categoryOrder: 'alpha' }).categoryOrderCustom).toEqual([])
   })
 
   it('keeps Y for the other plot types', () => {

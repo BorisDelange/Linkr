@@ -9,7 +9,7 @@ import { fitsColumnType } from '@/lib/dataset-utils'
 import type { PipelineEdge, PipelineNode, PipelineNodeType } from '@/types'
 import type { PluginConfigField, PluginManifest } from '@/types/plugin'
 import type { DatasetColumn } from './lab.js'
-import { findColumn } from './lab.js'
+import { checkTextValue, findColumn } from './lab.js'
 import { readManifests } from './plugins.js'
 
 // --- Dataset edits ------------------------------------------------------------
@@ -374,6 +374,12 @@ export function checkPatientConfig(
         if (!Array.isArray(value)) errors.push(`${key}: a list of dataset mappings.`)
         else out[key] = value
         break
+      case 'string': {
+        const error = checkTextValue(key, value, field.localized === true)
+        if (error) errors.push(error)
+        else out[key] = value
+        break
+      }
       default:
         out[key] = value
     }

@@ -33,11 +33,26 @@ export interface PluginConfigField {
   /** For `column-value-select` and `choice-order`: the config key of the
    *  column-select field whose column supplies the values. */
   columnField?: string
+  /** For `choice-order`: swaps `columnField` for another key while a condition holds,
+   *  first match winning (e.g. the categories sit on Y once a chart is horizontal). */
+  columnFieldWhen?: { when: VisibleCondition | VisibleCondition[]; columnField: string }[]
+  /** For `choice-order`: what is ordered. `survey-answers` (default) are the answers
+   *  of the survey question in `columnField`; `column-values` are the distinct values
+   *  of that column, most frequent first. */
+  choices?: 'survey-answers' | 'column-values'
   default?: unknown
+  /** A default that depends on other fields, first match winning over `default`
+   *  (e.g. an order whose natural value differs per plot type). Read like `default`:
+   *  only while the field holds no saved value. */
+  defaultWhen?: { when: VisibleCondition | VisibleCondition[]; value: unknown }[]
   defaultAll?: boolean
   /** `column-select` with `multi`: the chosen columns can be dragged into an
    *  explicit order, and that order is what the value's array preserves. */
   orderable?: boolean
+  /** `string`: the value is a LocalizedString (`{ en, fr }`) and the field edits only the
+   *  active UI language. A legacy plain string still reads as every language's value;
+   *  renderers resolve it with `localized()`. */
+  localized?: boolean
   min?: number
   max?: number
   options?: {

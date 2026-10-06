@@ -55,6 +55,118 @@
         }
       }
     },
+    "aggregate": {
+      "type": "select",
+      "label": {
+        "en": "Stat",
+        "fr": "Statistique"
+      },
+      "default": "mean",
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "filterOptionsByColumn": "column",
+      "description": {
+        "en": "The main statistic to display. When \"Unique per\" is set, this is computed on the per-entity values.",
+        "fr": "La statistique principale affichée. Quand « Unique par » est défini, elle est calculée sur les valeurs par entité."
+      },
+      "options": [
+        {
+          "value": "none",
+          "label": {
+            "en": "None",
+            "fr": "Aucune"
+          }
+        },
+        {
+          "value": "mean",
+          "label": {
+            "en": "Mean",
+            "fr": "Moyenne"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "median",
+          "label": {
+            "en": "Median",
+            "fr": "Médiane"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "min",
+          "label": {
+            "en": "Min",
+            "fr": "Min"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "max",
+          "label": {
+            "en": "Max",
+            "fr": "Max"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "sum",
+          "label": {
+            "en": "Sum",
+            "fr": "Somme"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "count",
+          "label": {
+            "en": "Count",
+            "fr": "Effectif"
+          }
+        },
+        {
+          "value": "sd",
+          "label": {
+            "en": "Std dev",
+            "fr": "Écart-type"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "q1",
+          "label": {
+            "en": "Q1 (25th)",
+            "fr": "Q1 (25e)"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "q3",
+          "label": {
+            "en": "Q3 (75th)",
+            "fr": "Q3 (75e)"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "iqr",
+          "label": {
+            "en": "IQR",
+            "fr": "IQR"
+          },
+          "onlyForColumnType": "numeric"
+        },
+        {
+          "value": "proportion",
+          "label": {
+            "en": "Proportion (%)",
+            "fr": "Proportion (%)"
+          }
+        }
+      ]
+    },
     "targetValue": {
       "type": "column-value-select",
       "label": {
@@ -196,158 +308,6 @@
       "description": {
         "en": "Drop rows whose value is null, empty, or NA before computing the indicator. Uncheck to count them.",
         "fr": "Ignore les lignes dont la valeur est nulle, vide ou NA avant de calculer l’indicateur. Décocher pour les comptabiliser."
-      }
-    },
-    "title": {
-      "type": "string",
-      "label": {
-        "en": "Title",
-        "fr": "Titre"
-      },
-      "default": "",
-      "section": {
-        "en": "Content",
-        "fr": "Contenu"
-      }
-    },
-    "aggregate": {
-      "type": "select",
-      "label": {
-        "en": "Stat",
-        "fr": "Statistique"
-      },
-      "default": "mean",
-      "section": {
-        "en": "Content",
-        "fr": "Contenu"
-      },
-      "filterOptionsByColumn": "column",
-      "description": {
-        "en": "The main statistic to display. When \"Unique per\" is set, this is computed on the per-entity values.",
-        "fr": "La statistique principale affichée. Quand « Unique par » est défini, elle est calculée sur les valeurs par entité."
-      },
-      "options": [
-        {
-          "value": "none",
-          "label": {
-            "en": "None",
-            "fr": "Aucune"
-          }
-        },
-        {
-          "value": "mean",
-          "label": {
-            "en": "Mean",
-            "fr": "Moyenne"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "median",
-          "label": {
-            "en": "Median",
-            "fr": "Médiane"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "min",
-          "label": {
-            "en": "Min",
-            "fr": "Min"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "max",
-          "label": {
-            "en": "Max",
-            "fr": "Max"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "sum",
-          "label": {
-            "en": "Sum",
-            "fr": "Somme"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "count",
-          "label": {
-            "en": "Count",
-            "fr": "Effectif"
-          }
-        },
-        {
-          "value": "sd",
-          "label": {
-            "en": "Std dev",
-            "fr": "Écart-type"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "q1",
-          "label": {
-            "en": "Q1 (25th)",
-            "fr": "Q1 (25e)"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "q3",
-          "label": {
-            "en": "Q3 (75th)",
-            "fr": "Q3 (75e)"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "iqr",
-          "label": {
-            "en": "IQR",
-            "fr": "IQR"
-          },
-          "onlyForColumnType": "numeric"
-        },
-        {
-          "value": "proportion",
-          "label": {
-            "en": "Proportion (%)",
-            "fr": "Proportion (%)"
-          }
-        }
-      ]
-    },
-    "decimals": {
-      "type": "number",
-      "label": {
-        "en": "Decimals",
-        "fr": "Décimales"
-      },
-      "default": 1,
-      "min": 0,
-      "max": 10,
-      "row": "format",
-      "section": {
-        "en": "Content",
-        "fr": "Contenu"
-      }
-    },
-    "unit": {
-      "type": "string",
-      "label": {
-        "en": "Unit",
-        "fr": "Unité"
-      },
-      "default": "",
-      "row": "format",
-      "section": {
-        "en": "Content",
-        "fr": "Contenu"
       }
     },
     "subtitleStats": {
@@ -496,6 +456,34 @@
         }
       ]
     },
+    "decimals": {
+      "type": "number",
+      "label": {
+        "en": "Decimals",
+        "fr": "Décimales"
+      },
+      "default": 1,
+      "min": 0,
+      "max": 10,
+      "row": "format",
+      "section": {
+        "en": "Content",
+        "fr": "Contenu"
+      }
+    },
+    "unit": {
+      "type": "string",
+      "label": {
+        "en": "Unit",
+        "fr": "Unité"
+      },
+      "default": "",
+      "row": "format",
+      "section": {
+        "en": "Content",
+        "fr": "Contenu"
+      }
+    },
     "chartType": {
       "type": "select",
       "label": {
@@ -607,87 +595,6 @@
         "defaultOpen": false
       }
     },
-    "xAxisLabel": {
-      "type": "string",
-      "label": {
-        "en": "X axis label",
-        "fr": "Légende axe X"
-      },
-      "default": "",
-      "row": "chartXAxis",
-      "visibleWhen": {
-        "field": "chartType",
-        "values": [
-          "histogram",
-          "bar"
-        ]
-      },
-      "section": {
-        "en": "Mini-chart",
-        "fr": "Mini-graphique",
-        "defaultOpen": false
-      }
-    },
-    "showXAxis": {
-      "type": "boolean",
-      "label": {
-        "en": "X axis ticks",
-        "fr": "Graduations axe X"
-      },
-      "default": false,
-      "row": "chartXAxis",
-      "visibleWhen": {
-        "field": "chartType",
-        "value": "histogram"
-      },
-      "section": {
-        "en": "Mini-chart",
-        "fr": "Mini-graphique",
-        "defaultOpen": false
-      }
-    },
-    "yLabelMaxLen": {
-      "type": "number",
-      "label": {
-        "en": "Y label length",
-        "fr": "Longueur labels Y"
-      },
-      "default": 11,
-      "min": 3,
-      "max": 40,
-      "row": "chartXAxis",
-      "visibleWhen": {
-        "field": "chartType",
-        "value": "bar"
-      },
-      "section": {
-        "en": "Mini-chart",
-        "fr": "Mini-graphique",
-        "defaultOpen": false
-      },
-      "description": {
-        "en": "Maximum number of characters shown for each Y-axis category label (longer labels are truncated with “…”).",
-        "fr": "Nombre maximum de caractères affichés pour chaque label de catégorie sur l’axe Y (les plus longs sont tronqués avec « … »)."
-      }
-    },
-    "xAxisStartZero": {
-      "type": "boolean",
-      "label": {
-        "en": "X axis starts at 0",
-        "fr": "Axe X commence à 0"
-      },
-      "default": false,
-      "row": "chartXAxisOptions",
-      "visibleWhen": {
-        "field": "chartType",
-        "value": "histogram"
-      },
-      "section": {
-        "en": "Mini-chart",
-        "fr": "Mini-graphique",
-        "defaultOpen": false
-      }
-    },
     "chartPalette": {
       "type": "select",
       "label": {
@@ -789,6 +696,87 @@
         }
       ]
     },
+    "xAxisLabel": {
+      "type": "string",
+      "label": {
+        "en": "X axis label",
+        "fr": "Légende axe X"
+      },
+      "default": "",
+      "row": "chartXAxis",
+      "visibleWhen": {
+        "field": "chartType",
+        "values": [
+          "histogram",
+          "bar"
+        ]
+      },
+      "section": {
+        "en": "Mini-chart",
+        "fr": "Mini-graphique",
+        "defaultOpen": false
+      }
+    },
+    "showXAxis": {
+      "type": "boolean",
+      "label": {
+        "en": "X axis ticks",
+        "fr": "Graduations axe X"
+      },
+      "default": false,
+      "row": "chartXAxis",
+      "visibleWhen": {
+        "field": "chartType",
+        "value": "histogram"
+      },
+      "section": {
+        "en": "Mini-chart",
+        "fr": "Mini-graphique",
+        "defaultOpen": false
+      }
+    },
+    "yLabelMaxLen": {
+      "type": "number",
+      "label": {
+        "en": "Y label length",
+        "fr": "Longueur labels Y"
+      },
+      "default": 11,
+      "min": 3,
+      "max": 40,
+      "row": "chartXAxis",
+      "visibleWhen": {
+        "field": "chartType",
+        "value": "bar"
+      },
+      "section": {
+        "en": "Mini-chart",
+        "fr": "Mini-graphique",
+        "defaultOpen": false
+      },
+      "description": {
+        "en": "Maximum number of characters shown for each Y-axis category label (longer labels are truncated with “…”).",
+        "fr": "Nombre maximum de caractères affichés pour chaque label de catégorie sur l’axe Y (les plus longs sont tronqués avec « … »)."
+      }
+    },
+    "xAxisStartZero": {
+      "type": "boolean",
+      "label": {
+        "en": "X axis starts at 0",
+        "fr": "Axe X commence à 0"
+      },
+      "default": false,
+      "row": "chartXAxisOptions",
+      "visibleWhen": {
+        "field": "chartType",
+        "value": "histogram"
+      },
+      "section": {
+        "en": "Mini-chart",
+        "fr": "Mini-graphique",
+        "defaultOpen": false
+      }
+    },
     "chartCustomPalette": {
       "type": "palette-editor",
       "label": {
@@ -806,16 +794,15 @@
         "defaultOpen": false
       }
     },
-    "size": {
-      "type": "number",
+    "title": {
+      "type": "string",
+      "localized": true,
       "label": {
-        "en": "Size (%)",
-        "fr": "Taille (%)"
+        "en": "Title",
+        "fr": "Titre"
       },
-      "default": 100,
-      "min": 50,
-      "max": 200,
-      "row": "iconSizeRow",
+      "default": "",
+      "row": "titleRow",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -829,7 +816,7 @@
         "fr": "Icône"
       },
       "default": "Activity",
-      "row": "iconSizeRow",
+      "row": "titleRow",
       "section": {
         "en": "Style",
         "fr": "Style",
@@ -878,80 +865,11 @@
         "defaultOpen": false
       }
     },
-    "bgColor": {
-      "type": "color-select",
-      "label": {
-        "en": "Background",
-        "fr": "Fond"
-      },
-      "default": "none",
-      "row": "colorsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "options": [
-        {
-          "value": "none",
-          "label": {
-            "en": "None",
-            "fr": "Aucun"
-          }
-        }
-      ]
-    },
-    "iconColor": {
-      "type": "color-select",
-      "label": {
-        "en": "Icon",
-        "fr": "Icône"
-      },
-      "default": "auto",
-      "row": "colorsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "options": [
-        {
-          "value": "auto",
-          "label": {
-            "en": "Auto",
-            "fr": "Auto"
-          }
-        }
-      ]
-    },
     "valueColor": {
       "type": "color-select",
       "label": {
         "en": "Main value",
         "fr": "Valeur principale"
-      },
-      "default": "auto",
-      "row": "colorsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "options": [
-        {
-          "value": "auto",
-          "label": {
-            "en": "Auto",
-            "fr": "Auto"
-          }
-        }
-      ]
-    },
-    "titleColor": {
-      "type": "color-select",
-      "label": {
-        "en": "Title",
-        "fr": "Titre"
       },
       "default": "auto",
       "row": "colorsRow",
@@ -1015,6 +933,90 @@
           }
         }
       ]
+    },
+    "bgColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Background",
+        "fr": "Fond"
+      },
+      "default": "none",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "options": [
+        {
+          "value": "none",
+          "label": {
+            "en": "None",
+            "fr": "Aucun"
+          }
+        }
+      ]
+    },
+    "titleColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Title",
+        "fr": "Titre"
+      },
+      "default": "auto",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        }
+      ]
+    },
+    "iconColor": {
+      "type": "color-select",
+      "label": {
+        "en": "Icon",
+        "fr": "Icône"
+      },
+      "default": "auto",
+      "row": "colorsRow",
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      },
+      "options": [
+        {
+          "value": "auto",
+          "label": {
+            "en": "Auto",
+            "fr": "Auto"
+          }
+        }
+      ]
+    },
+    "size": {
+      "type": "number",
+      "label": {
+        "en": "Size (%)",
+        "fr": "Taille (%)"
+      },
+      "default": 100,
+      "min": 50,
+      "max": 200,
+      "section": {
+        "en": "Style",
+        "fr": "Style",
+        "defaultOpen": false
+      }
     }
   }
 }

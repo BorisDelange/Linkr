@@ -30,8 +30,9 @@ import { PublicationTable, type PublicationColumn } from '@/components/ui/public
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import type { ExportTable, ExportTableCell } from '@/lib/table-export'
 import { usePublishAnalysisTable } from './analysis-table-context'
+import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import type { DatasetColumn } from '@/types'
+import type { DatasetColumn, LocalizedString } from '@/types'
 import { buildTable1Spec } from './table1-server'
 
 /** A row as the table renders it — `PublicationRow` plus its cells. */
@@ -213,7 +214,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
     return <Placeholder icon text={t('datasets.table1_no_columns')} />
   }
 
-  const title = typeof config.title === 'string' ? config.title.trim() : ''
+  const title = localized(config.title as LocalizedString | string | undefined, i18n.language).trim()
   const publication = (
     <PublicationTable
       rows={displayRows}

@@ -20,7 +20,6 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { Filter } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { WidgetEditorDialog } from './WidgetEditorDialog'
-import { withFallbackTitleConfig } from './widget-title'
 import { DashboardItemEditDialog } from './DashboardItemEditDialog'
 import { DASHBOARD_GRID, computeFitRows, gridBackgroundStyle, FIT_ROWS } from './dashboard-grid'
 import {
@@ -112,24 +111,18 @@ function WidgetFilterBadge({ chips }: { chips: ReturnType<typeof useWidgetFilter
   )
 }
 
-function withFallbackTitle(widget: DashboardWidget, title: string | undefined): DashboardWidget {
-  if (widget.source.type !== 'plugin') return widget
-  const config = withFallbackTitleConfig(widget.source.pluginId, widget.source.config, title)
-  return config === widget.source.config ? widget : { ...widget, source: { ...widget.source, config } }
-}
-
-function WidgetWithData({
-  widget: stored,
+/** Memoised apart from its card: toggling edit mode re-renders every card (handles,
+ *  menus), and without this boundary it redrew every chart of the tab too, which
+ *  made Edit / Done lag by half a second on a full dashboard. */
+const WidgetWithData = memo(function WidgetWithData({
+  widget,
   dashboard,
   filters,
-  fallbackTitle,
 }: {
   widget: DashboardWidget
   dashboard: Dashboard
   filters: Record<string, FilterValue> | undefined
-  fallbackTitle?: string
 }) {
-  const widget = useMemo(() => withFallbackTitle(stored, fallbackTitle), [stored, fallbackTitle])
   return (
     <DashboardDataProvider
       datasetFileId={widget.datasetFileId ?? null}
@@ -149,7 +142,7 @@ function WidgetWithData({
       </div>
     </DashboardDataProvider>
   )
-}
+})
 
 /** One widget: resolves its filters (for the data provider + the filter badge), then renders the
  *  card with the badge in its top-left rail. Separate component so the filter hook runs per widget
@@ -211,7 +204,6 @@ const WidgetCell = memo(function WidgetCell({
         widget={widget}
         dashboard={dashboard}
         filters={filters}
-        fallbackTitle={hideTitleBar ? localized(widget.name, language) : undefined}
       />
     </WidgetCard>
   )
@@ -497,7 +489,6 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
         projectUid={projectUid}
         gridWidth={containerWidth}
         widgetSpacing={dashboard.widgetSpacing}
-        hideTitleBar={hideTitleBars}
       />
 
       {editingMetaWidget && (

@@ -1626,7 +1626,6 @@
     "import_settings_reimporting": "Ré-importation...",
     "map_select_coords": "Sélectionnez les colonnes latitude et longitude pour commencer.",
     "map_no_points": "Aucune coordonnée valide à afficher.",
-    "plot_builder_histogram": "Histogramme",
     "plot_builder_select_x": "Sélectionnez une variable X pour commencer.",
     "plot_builder_select_y": "Sélectionnez une variable Y.",
     "plot_builder_axis_must_be_numeric": "« {{column}} » n'est pas numérique. Les nuages de points et courbes nécessitent des axes X et Y numériques (ou dates).",
@@ -5917,6 +5916,9 @@
   },
   "analyses": {
     "no_data": "Aucune donnée disponible.",
+    "category_order_hint": "Glissez les catégories dans l’ordre de lecture du graphique.",
+    "localized_field_hint_en": "Enregistré par langue : vous modifiez le texte anglais. Passez l'application en français pour modifier le texte français.",
+    "localized_field_hint_fr": "Enregistré par langue : vous modifiez le texte français. Passez l'application en anglais pour modifier le texte anglais.",
     "corr_need_two_numeric": "Au moins 2 variables numériques sont nécessaires.",
     "corr_select_two": "Sélectionnez au moins 2 variables numériques.",
     "corr_correlation": "corrélation",

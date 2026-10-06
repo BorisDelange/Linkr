@@ -537,7 +537,7 @@ def test_plot_builder_boxplot_keeps_first_seen_order_by_default():
 
 
 def test_plot_builder_boxplot_sorts_by_descending_median():
-    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val", "boxSortByMedian": True}, _box_frame(3))
+    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val", "categoryOrder": "value-desc"}, _box_frame(3))
     assert [d["name"] for d in res["data"]] == ["c2", "c1", "c0"]
     assert [len(d["values"]) for d in res["data"]] == [3, 3, 3]
 
@@ -545,10 +545,105 @@ def test_plot_builder_boxplot_sorts_by_descending_median():
 def test_plot_builder_boxplot_sorts_before_the_category_cap():
     """Mirror of buildBoxplotGroups: with 25 categories the sorted chart keeps the
     20 highest medians, not the first 20 met."""
-    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val", "boxSortByMedian": True}, _box_frame(25))
+    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val", "categoryOrder": "value-desc"}, _box_frame(25))
     names = [d["name"] for d in res["data"]]
     assert len(names) == 20
     assert names[0] == "c24" and names[-1] == "c5"
+
+
+def test_plot_builder_boxplot_custom_order_then_descending_median_before_the_cap():
+    res = _run_plot({"plotType": "violin", "x": "cat", "y": "val", "categoryOrder": "custom",
+                     "categoryOrderCustom": ["c3", "gone", "c1"]}, _box_frame(25))
+    names = [d["name"] for d in res["data"]]
+    assert len(names) == 20
+    assert names[:3] == ["c3", "c1", "c24"]
+
+
+# Mirror of plot-category-order.test.ts (orderCategories).
+_ORDER_ITEMS = [("b", 2), ("Class 10", 5), ("a", 2), ("Class 2", 9)]
+
+
+def _order(order, custom=()):
+    from app.services.execution.render.plot_builder import _PLOT_PY
+
+    ns = {}
+    exec(_PLOT_PY, ns)  # noqa: S102 — server-owned program, test-only
+    items = ns["_linkr_order_categories"](_ORDER_ITEMS, lambda kv: kv[0], lambda kv: kv[1], order, list(custom))
+    return [k for k, _ in items]
+
+
+def test_order_categories_by_value_keeps_first_appearance_between_ties():
+    assert _order("value-desc") == ["Class 2", "Class 10", "b", "a"]
+    assert _order("value-asc") == ["b", "a", "Class 10", "Class 2"]
+
+
+def test_order_categories_alphabetical_compares_numbers_as_numbers():
+    assert _order("alpha") == ["a", "b", "Class 2", "Class 10"]
+
+
+def test_order_categories_alphabetical_ignores_case_and_accents():
+    from app.services.execution.render.plot_builder import _PLOT_PY
+
+    ns = {}
+    exec(_PLOT_PY, ns)  # noqa: S102 — server-owned program, test-only
+    names = ns["_linkr_order_categories"](["Éa", "b", "a", "ea", "B"], lambda s: s, lambda s: 0, "alpha")
+    assert names == ["a", "b", "B", "Éa", "ea"]
+
+
+def test_order_categories_data_and_custom():
+    assert _order("data") == ["b", "Class 10", "a", "Class 2"]
+    assert _order("custom", ["a", "gone", "b"]) == ["a", "b", "Class 2", "Class 10"]
+    assert _order("custom") == _order("value-desc")
+
+
+def _cat_frame():
+    import pandas as pd
+
+    # First seen: b, a, c. Counts: a=3, b=1, c=2.
+    return pd.DataFrame({"cat": ["b", "a", "c", "a", "c", "a"], "val": [10.0, 1.0, 5.0, 1.0, 7.0, 1.0]})
+
+
+def test_plot_builder_default_orders_follow_each_plot():
+    df = _cat_frame()
+    hist = _run_plot({"plotType": "histogram", "x": "cat", "hist": "cat"}, df)
+    assert [d["bin"] for d in hist["data"]] == ["a", "c", "b"]
+    pie = _run_plot({"plotType": "pie", "x": "cat", "hist": "cat"}, df)
+    assert [d["bin"] for d in pie["data"]] == ["a", "c", "b"]
+    bar_count = _run_plot({"plotType": "bar", "x": "cat"}, df)
+    assert [d["name"] for d in bar_count["data"]] == ["a", "c", "b"]
+    # A bar chart that averages a Y keeps the categories as met.
+    bar_mean = _run_plot({"plotType": "bar", "x": "cat", "y": "val"}, df)
+    assert [d["name"] for d in bar_mean["data"]] == ["b", "a", "c"]
+
+
+def test_plot_builder_bar_mean_orders_on_the_mean():
+    df = _cat_frame()
+    res = _run_plot({"plotType": "bar", "x": "cat", "y": "val", "categoryOrder": "value-desc"}, df)
+    assert [d["name"] for d in res["data"]] == ["b", "c", "a"]
+    res = _run_plot({"plotType": "bar", "x": "cat", "y": "val", "categoryOrder": "alpha"}, df)
+    assert [d["name"] for d in res["data"]] == ["a", "b", "c"]
+
+
+def test_plot_builder_bar_orders_before_the_30_bar_cap():
+    import pandas as pd
+
+    cats = [f"k{i:02d}" for i in range(35) for _ in range(i + 1)]
+    res = _run_plot({"plotType": "bar", "x": "cat", "categoryOrder": "value-asc"}, pd.DataFrame({"cat": cats}))
+    names = [d["name"] for d in res["data"]]
+    assert len(names) == 30
+    assert names[0] == "k00" and names[-1] == "k29"
+
+
+def test_plot_builder_histogram_categories_in_data_order():
+    res = _run_plot({"plotType": "histogram", "x": "cat", "hist": "cat", "categoryOrder": "data"}, _cat_frame())
+    assert [d["bin"] for d in res["data"]] == ["b", "a", "c"]
+
+
+def test_plot_builder_rejects_an_unknown_category_order():
+    with pytest.raises(ValueError):
+        plot_builder.validate_spec({"plotType": "bar", "x": "a", "categoryOrder": "random"})
+    with pytest.raises(ValueError):
+        plot_builder.validate_spec({"plotType": "bar", "x": "a", "categoryOrderCustom": [1, 2]})
 
 
 def pytest_approx_stats(v):

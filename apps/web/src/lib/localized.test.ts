@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   allLocalizedText, cleanLocalized, localized, localizedRaw, toLocalized, setLocalized,
-  seedLocalizedForEditing,
+  setLocalizedOptional, seedLocalizedForEditing,
 } from './localized'
 
 // localized() is the single read path for every multilingual name/description/
@@ -104,6 +104,31 @@ describe('setLocalized', () => {
 
   it('creates the object when starting from nullish', () => {
     expect(setLocalized(undefined, 'en', 'First')).toEqual({ en: 'First' })
+  })
+})
+
+// setLocalizedOptional() backs localized plugin config fields (chart titles): an
+// emptied field must store nothing, or the chart would keep a blank-but-present title.
+describe('setLocalizedOptional', () => {
+  it('writes only the active language and keeps the text as typed', () => {
+    expect(setLocalizedOptional({ en: 'Deaths', fr: 'Décès' }, 'en', 'Deaths ')).toEqual({
+      en: 'Deaths ',
+      fr: 'Décès',
+    })
+  })
+
+  it('upgrades a legacy string like setLocalized', () => {
+    expect(setLocalizedOptional('Legacy', 'fr', 'Nouveau')).toEqual({ en: 'Legacy', fr: 'Nouveau' })
+  })
+
+  it('keeps the other language when one is cleared', () => {
+    expect(setLocalizedOptional({ en: 'A', fr: 'B' }, 'fr', '')).toEqual({ en: 'A', fr: '' })
+  })
+
+  it('returns undefined once no language carries text', () => {
+    expect(setLocalizedOptional({ en: '', fr: 'B' }, 'fr', '')).toBeUndefined()
+    expect(setLocalizedOptional(undefined, 'en', '  ')).toBeUndefined()
+    expect(setLocalizedOptional('', 'en', '')).toBeUndefined()
   })
 })
 

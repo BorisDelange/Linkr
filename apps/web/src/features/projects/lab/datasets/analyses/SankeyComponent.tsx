@@ -10,7 +10,9 @@ import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { getLucideIcon, resolvePalette } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import type { LocalizedString } from '@/types'
 import { buildSankeySpec } from './sankey-server'
 
 // ---------------------------------------------------------------------------
@@ -166,7 +168,7 @@ interface SankeyServerData {
 // ---------------------------------------------------------------------------
 
 export function SankeyComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const pluginName = usePluginName('sankey')
   const server = isServerMode()
 
@@ -178,7 +180,7 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
   const endNode = (config.addEndNode as string)?.trim() ?? ''
   const minLinkValue = Math.max(1, (config.minLinkValue as number) ?? 1)
   const maxLinkValue = Math.max(0, (config.maxLinkValue as number) ?? 0)
-  const title = (config.title as string) ?? ''
+  const title = localized(config.title as LocalizedString | string | undefined, i18n.language).trim()
   const centerTitle = (config.centerTitle as boolean) ?? true
   const cardIcon = (config.cardIcon as string) ?? '__none__'
   const valueDisplay = (config.valueDisplay as string) ?? 'none'
@@ -452,7 +454,7 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
     <div className={cn('flex items-center gap-2', compact ? 'px-4 pt-3 pb-1' : 'mb-2', centerTitle && 'justify-center')}>
       {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
       {Icon && <Icon size={compact ? 16 : 18} className="text-muted-foreground" />}
-      {title && <span className="text-xs font-medium truncate text-muted-foreground">{title}</span>}
+      {title && <span className={cn('font-medium truncate', compact ? 'text-xs' : 'text-sm')}>{title}</span>}
     </div>
   ) : null
 

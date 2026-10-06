@@ -9,7 +9,9 @@ import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading
 import { resolveColor, getLucideIcon, resolvePalette, DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import type { LocalizedString } from '@/types'
 import { buildMapSpec } from './map-server'
 import { MapPointsLayer } from './MapPointsLayer'
 import type { MapPoint } from './map-clusters'
@@ -121,11 +123,11 @@ function ResizeHandler() {
 // ---------------------------------------------------------------------------
 
 export function MapComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const server = isServerMode()
   const pluginName = usePluginName('map')
 
-  const title = (config.title as string) ?? ''
+  const title = localized(config.title as LocalizedString | string | undefined, i18n.language).trim()
   const centerTitle = (config.centerTitle as boolean) ?? true
   const basemap = (config.basemap as string) ?? 'osm'
   const showLegend = (config.showLegend as boolean) ?? true
@@ -307,7 +309,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
       )}
       {title && (
         <span
-          className={cn('text-xs font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground', !compact && !titleColor && 'text-sm text-foreground/80')}
+          className={cn('font-medium truncate', compact ? 'text-xs' : 'text-sm', titleColor?.text)}
           style={titleColor?.isCustom ? { color: titleColor.hex } : undefined}
         >
           {title}

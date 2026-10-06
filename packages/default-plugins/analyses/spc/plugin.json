@@ -615,7 +615,7 @@
       "default": "auto",
       "section": {
         "en": "Chart",
-        "fr": "Carte"
+        "fr": "Graphique"
       },
       "description": {
         "en": "Auto picks from the statistic and the data: a prime chart when denominators are large, a plain one otherwise. Choose explicitly to override — an EWMA to catch a slow drift, a g-chart when events are too rare for a rate to mean anything.",
@@ -714,7 +714,7 @@
       "row": "chartRow",
       "section": {
         "en": "Chart",
-        "fr": "Carte"
+        "fr": "Graphique"
       },
       "description": {
         "en": "3 is the Shewhart convention — not a significance test but a trade-off, giving about one false alarm every 370 points. Narrower limits catch more, and cry wolf more.",
@@ -737,7 +737,7 @@
       },
       "section": {
         "en": "Chart",
-        "fr": "Carte"
+        "fr": "Graphique"
       },
       "description": {
         "en": "How much weight the newest period carries. 0.2 is the convention; smaller means longer memory and better sensitivity to a tiny drift, at the cost of reacting slowly to a real jump.",
@@ -753,7 +753,7 @@
       "optional": true,
       "section": {
         "en": "Chart",
-        "fr": "Carte"
+        "fr": "Graphique"
       },
       "description": {
         "en": "Judge against a target rather than against the process's own past. Left empty, the centre line is estimated from the baseline — which is what a control chart normally does.",
@@ -769,11 +769,93 @@
       },
       "section": {
         "en": "Chart",
-        "fr": "Carte"
+        "fr": "Graphique"
       },
       "description": {
         "en": "Fit the limits on the periods up to this date, then hold them fixed. Without it every period informs the limits, so a slow drift carries them along with it and the chart absorbs the very deterioration it should reveal. Set it to the end of a period you consider representative.",
         "fr": "Ajuster les limites sur les périodes jusqu'à cette date, puis les maintenir fixes. Sans cela, chaque période alimente les limites : une dérive lente les entraîne avec elle et la carte absorbe la dégradation qu'elle devrait révéler. À fixer à la fin d'une période que vous jugez représentative."
+      }
+    },
+    "display": {
+      "type": "select",
+      "label": {
+        "en": "Display",
+        "fr": "Affichage"
+      },
+      "default": "line",
+      "row": "displayRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      },
+      "options": [
+        {
+          "value": "line",
+          "label": {
+            "en": "Line",
+            "fr": "Ligne"
+          }
+        },
+        {
+          "value": "bars",
+          "label": {
+            "en": "Bars",
+            "fr": "Barres"
+          }
+        }
+      ]
+    },
+    "yLabel": {
+      "type": "string",
+      "label": {
+        "en": "Y axis label",
+        "fr": "Libellé de l'axe Y"
+      },
+      "row": "displayRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "decimals": {
+      "type": "number",
+      "label": {
+        "en": "Decimals",
+        "fr": "Décimales"
+      },
+      "default": 1,
+      "min": 0,
+      "max": 6,
+      "row": "gridRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "showLegend": {
+      "type": "boolean",
+      "label": {
+        "en": "Show legend",
+        "fr": "Légende"
+      },
+      "default": true,
+      "row": "gridRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
+      }
+    },
+    "showGrid": {
+      "type": "boolean",
+      "label": {
+        "en": "Show grid",
+        "fr": "Grille"
+      },
+      "default": true,
+      "row": "gridRow",
+      "section": {
+        "en": "Chart",
+        "fr": "Graphique"
       }
     },
     "runsRules": {
@@ -874,6 +956,45 @@
         }
       ]
     },
+    "signalDisplay": {
+      "type": "select",
+      "label": {
+        "en": "Mark signals with",
+        "fr": "Marquer les signaux par"
+      },
+      "default": "points",
+      "section": {
+        "en": "Signals",
+        "fr": "Signaux"
+      },
+      "description": {
+        "en": "How a period with a signal stands out on the line: a larger ringed dot, a tinted full-height column, or a tinted segment of the control band. Bars always take the signal colour.",
+        "fr": "Comment une période avec un signal ressort sur la courbe : un point plus gros cerclé, une colonne teintée sur toute la hauteur, ou un segment teinté de la bande de contrôle. Les barres prennent toujours la couleur du signal."
+      },
+      "options": [
+        {
+          "value": "points",
+          "label": {
+            "en": "Points",
+            "fr": "Points"
+          }
+        },
+        {
+          "value": "column",
+          "label": {
+            "en": "Column",
+            "fr": "Colonne"
+          }
+        },
+        {
+          "value": "band",
+          "label": {
+            "en": "Band",
+            "fr": "Bande"
+          }
+        }
+      ]
+    },
     "showBaselineSplit": {
       "type": "boolean",
       "label": {
@@ -906,6 +1027,7 @@
     },
     "title": {
       "type": "string",
+      "localized": true,
       "label": {
         "en": "Title",
         "fr": "Titre"
@@ -931,65 +1053,6 @@
       },
       "row": "titleRow"
     },
-    "yLabel": {
-      "type": "string",
-      "label": {
-        "en": "Y axis label",
-        "fr": "Libellé de l'axe Y"
-      },
-      "row": "labelsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "decimals": {
-      "type": "number",
-      "label": {
-        "en": "Decimals",
-        "fr": "Décimales"
-      },
-      "default": 1,
-      "min": 0,
-      "max": 6,
-      "row": "labelsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "display": {
-      "type": "select",
-      "label": {
-        "en": "Display",
-        "fr": "Affichage"
-      },
-      "default": "line",
-      "row": "labelsRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      },
-      "options": [
-        {
-          "value": "line",
-          "label": {
-            "en": "Line",
-            "fr": "Ligne"
-          }
-        },
-        {
-          "value": "bars",
-          "label": {
-            "en": "Bars",
-            "fr": "Barres"
-          }
-        }
-      ]
-    },
     "centerTitle": {
       "type": "boolean",
       "label": {
@@ -997,35 +1060,6 @@
         "fr": "Centrer le titre"
       },
       "default": true,
-      "row": "togglesRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "showGrid": {
-      "type": "boolean",
-      "label": {
-        "en": "Show grid",
-        "fr": "Grille"
-      },
-      "default": true,
-      "row": "togglesRow",
-      "section": {
-        "en": "Style",
-        "fr": "Style",
-        "defaultOpen": false
-      }
-    },
-    "showLegend": {
-      "type": "boolean",
-      "label": {
-        "en": "Show legend",
-        "fr": "Légende"
-      },
-      "default": true,
-      "row": "togglesRow",
       "section": {
         "en": "Style",
         "fr": "Style",

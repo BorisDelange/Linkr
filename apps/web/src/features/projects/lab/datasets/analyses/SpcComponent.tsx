@@ -16,7 +16,9 @@ import {
 } from 'recharts'
 import { AlertTriangle, LineChart } from 'lucide-react'
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
+import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
+import type { LocalizedString } from '@/types'
 import { getLucideIcon, resolveColor, TOOLTIP_STYLE, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
@@ -25,6 +27,10 @@ import type { SpcConfig } from '@/lib/spc/spc-compute'
 import type { ChartPoint, SpcResult, SpcWarning } from '@/lib/spc/spc-types'
 import { classifyVariation, hasFewCrossings } from '@/lib/spc/spc-variation'
 import type { ImprovementDirection, Variation } from '@/lib/spc/spc-variation'
+
+/** How a special-cause period is marked on the line: a ringed dot, a tinted
+ *  full-height column, or a tinted segment of the control band. */
+type SignalDisplay = 'points' | 'column' | 'band'
 import { buildSpcSpec } from './spc-server'
 import { cn } from '@/lib/utils'
 
@@ -147,7 +153,7 @@ interface ChartProps {
 }
 
 function SpcChart({ result, config, compact }: ChartProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const decimals = typeof config.decimals === 'number' ? config.decimals : 1
   const showGrid = config.showGrid !== false
   const showLegend = config.showLegend !== false
@@ -169,9 +175,12 @@ function SpcChart({ result, config, compact }: ChartProps) {
   const titleColorName = (config.titleColor as string) ?? 'auto'
   const titleColor = titleColorName === 'auto' ? undefined : resolveColor(titleColorName).text
   const iconName = (config.cardIcon as string) ?? '__none__'
-  const title = (config.title as string) ?? ''
+  const title = localized(config.title as LocalizedString | string | undefined, i18n.language).trim()
   const yLabel = ((config.yLabel as string) ?? '') || defaultYLabel(result, t)
   const bars = config.display === 'bars'
+  // Bars already carry the signal colour; the tint modes only apply to the line.
+  const signalDisplay: SignalDisplay = bars ? 'points' : ((config.signalDisplay as SignalDisplay) ?? 'points')
+  const tinted = signalDisplay !== 'points'
   // Proportions are computed as fractions and read as percentages.
   const percent = result.yUnit === '%'
   const fmt = (v: number) => (percent ? `${formatValue(v * 100, decimals)} %` : formatValue(v, decimals))
@@ -190,6 +199,10 @@ function SpcChart({ result, config, compact }: ChartProps) {
     band: Number.isFinite(p.lcl) && Number.isFinite(p.ucl) ? [p.lcl, p.ucl] : null,
     centre: p.centre,
     variation: variations[i],
+    // One full-width column per flagged period (hidden 0–1 axis), or the band
+    // segment of that period only: both are bars, so each sits centred on its point.
+    signalColumn: signalDisplay === 'column' && variations[i] !== 'common' ? 1 : null,
+    signalBand: signalDisplay === 'band' && variations[i] !== 'common' && Number.isFinite(p.lcl) && Number.isFinite(p.ucl) ? [p.lcl, p.ucl] : null,
     numerator: p.numerator,
     denominator: p.denominator,
     signals: p.signals,
@@ -218,7 +231,7 @@ function SpcChart({ result, config, compact }: ChartProps) {
           moves it into the plot, which flashed a scrollbar on the widget. */}
       <div className="min-h-0 flex-1 overflow-hidden">
         <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+          <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }} barCategoryGap={tinted ? 0 : undefined}>
             {showGrid && <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" vertical={false} />}
             <XAxis dataKey="date" tick={{ fontSize: 10 }} stroke="var(--color-muted-foreground)" minTickGap={24} />
             <YAxis
@@ -252,6 +265,19 @@ function SpcChart({ result, config, compact }: ChartProps) {
               />
             )}
 
+            {signalDisplay === 'column' && (
+              <>
+                <YAxis yAxisId="signal" domain={[0, 1]} hide />
+                <Bar yAxisId="signal" dataKey="signalColumn" tooltipType="none" isAnimationActive={false}>
+                  {data.map(d => <Cell key={d.date} fill={variationColor[d.variation]} fillOpacity={0.14} />)}
+                </Bar>
+              </>
+            )}
+            {signalDisplay === 'band' && (
+              <Bar dataKey="signalBand" tooltipType="none" isAnimationActive={false}>
+                {data.map(d => <Cell key={d.date} fill={variationColor[d.variation]} fillOpacity={0.3} />)}
+              </Bar>
+            )}
             {/* `step` turns halfway between periods, so each limit sits centred on its own point. */}
             <Area type="step" dataKey="band" fill={lineColor} fillOpacity={0.1} stroke="none" isAnimationActive={false} activeDot={false} connectNulls />
             <Line type="linear" dataKey="centre" stroke="var(--color-muted-foreground)" strokeWidth={1} strokeDasharray="4 3" dot={false} isAnimationActive={false} />
@@ -273,6 +299,8 @@ function SpcChart({ result, config, compact }: ChartProps) {
                   if (!Number.isFinite(props.cx) || !Number.isFinite(props.cy)) return <g key={props.index} />
                   const variation = props.payload?.variation ?? 'common'
                   if (variation === 'common') return <circle key={props.index} cx={props.cx} cy={props.cy} r={2.5} fill={lineColor} />
+                  // The tint already marks the period: the dot only takes its colour.
+                  if (tinted) return <circle key={props.index} cx={props.cx} cy={props.cy} r={3} fill={variationColor[variation]} />
                   return (
                     <circle key={props.index} cx={props.cx} cy={props.cy} r={4.5} fill={variationColor[variation]} stroke="var(--color-card)" strokeWidth={2} />
                   )

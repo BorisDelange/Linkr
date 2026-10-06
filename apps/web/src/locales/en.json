@@ -1626,7 +1626,6 @@
     "import_settings_reimporting": "Re-importing...",
     "map_select_coords": "Select latitude and longitude columns to begin.",
     "map_no_points": "No valid coordinates to display.",
-    "plot_builder_histogram": "Histogram",
     "plot_builder_select_x": "Select an X variable to begin.",
     "plot_builder_select_y": "Select a Y variable.",
     "plot_builder_axis_must_be_numeric": "\"{{column}}\" is not numeric. Scatter and line plots need numeric (or date) X and Y axes.",
@@ -5917,6 +5916,9 @@
   },
   "analyses": {
     "no_data": "No data available.",
+    "category_order_hint": "Drag the categories into the order the chart should read.",
+    "localized_field_hint_en": "Saved per language: you are editing the English text. Switch the app to French to edit the French one.",
+    "localized_field_hint_fr": "Saved per language: you are editing the French text. Switch the app to English to edit the English one.",
     "corr_need_two_numeric": "At least 2 numeric variables are required.",
     "corr_select_two": "Select at least 2 numeric variables.",
     "corr_correlation": "correlation",
