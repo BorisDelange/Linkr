@@ -5,6 +5,7 @@ import { Allotment } from 'allotment'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildKaplanMeierSpec } from './kaplan-meier-server'
 import { buildCoxSpec, type CoxResult, type CoxCoefficient } from './cox-server'
@@ -883,12 +884,15 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   const [serverResult, setServerResult] = useState<KMResult | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   const [serverLoaded, setServerLoaded] = useState(false)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('kaplan-meier', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         setServerLoaded(true)
         if (out.stderr) { setServerError(out.stderr); return }
         try {
@@ -896,7 +900,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
           setServerResult(parsed); setServerError(null)
         } catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) { setServerLoaded(true); setServerError(String(e)) } })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerLoaded(true); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1157,7 +1161,7 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   }
 
   // Server mode: hold the frame until the fit returns.
-  if (server && !serverLoaded) {
+  if (server && (!serverLoaded || refreshing)) {
     return <AnalysisLoading icon={Activity} name={pluginName} compact={compact} />
   }
 

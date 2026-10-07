@@ -4,6 +4,7 @@ import { Grid3X3 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { buildCorrelationMatrixSpec } from './correlation-matrix-server'
@@ -291,17 +292,20 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResult, setServerResult] = useState<CorrelationResult | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('correlation-matrix', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) { setServerError(out.stderr); return }
         try { setServerResult(JSON.parse(out.stdout.trim()) as CorrelationResult); setServerError(null) }
         catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -347,7 +351,7 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   }
 
   // Server mode: hold the frame until the matrix arrives.
-  if (!result) {
+  if (!result || refreshing) {
     return <AnalysisLoading icon={Grid3X3} name={pluginName} compact={compact} />
   }
 

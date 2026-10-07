@@ -22,6 +22,7 @@ import type { LocalizedString } from '@/types'
 import { getLucideIcon, resolveColor, TOOLTIP_STYLE, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { computeSpc } from '@/lib/spc/spc-compute'
 import type { SpcConfig } from '@/lib/spc/spc-compute'
 import type { ChartPoint, SpcResult, SpcWarning } from '@/lib/spc/spc-types'
@@ -105,6 +106,8 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
   const [serverResult, setServerResult] = useState<SpcResult | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   const [serverLoaded, setServerLoaded] = useState(false)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
 
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
@@ -112,6 +115,7 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
     renderOnServer('spc', spec, { datasetFileId, datasetFilters })
       .then(out => {
         if (cancelled) return
+        settle(requestKey)
         setServerLoaded(true)
         if (out.stderr) {
           setServerError(out.stderr)
@@ -127,6 +131,7 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
       })
       .catch(e => {
         if (!cancelled) {
+          settle(requestKey)
           setServerLoaded(true)
           setServerError(String(e))
         }
@@ -140,7 +145,7 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
 
   if (!ready) return <Placeholder text={t('analyses.spc_select_columns')} />
   if (server && serverError) return <Placeholder text={serverError} />
-  if (server && !serverLoaded) return <AnalysisLoading icon={LineChart} name={pluginName} compact={compact} />
+  if (server && (!serverLoaded || refreshing)) return <AnalysisLoading icon={LineChart} name={pluginName} compact={compact} />
   if (!result || result.points.length === 0) return <Placeholder text={t('analyses.spc_no_data')} />
 
   return <SpcChart result={result} config={config} compact={compact} />

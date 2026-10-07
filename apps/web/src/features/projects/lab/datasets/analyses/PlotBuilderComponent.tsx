@@ -32,6 +32,7 @@ import { TruncatedTick, TruncatedNumericTick, CategoryAxisLabel, truncateLabel }
 import { ChartTooltipCard, FloatingChartTooltip } from './chart-tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { LocalizedString } from '@/types'
 import { buildPlotBuilderSpec } from './plot-builder-server'
@@ -777,17 +778,20 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<PlotServerData | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('plot-builder', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) { setServerError(out.stderr); return }
         try { setServerData(JSON.parse(out.stdout.trim()) as PlotServerData); setServerError(null) }
         catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -894,8 +898,9 @@ export function PlotBuilderComponent({ config, columns, rows, compact, datasetFi
       </div>
     )
   }
-  // Server mode: hold the frame until the aggregate arrives (empty rows would render "No data").
-  if (server && !serverData) {
+  // Server mode: hold the frame until the aggregate arrives (empty rows would render "No data"),
+  // and again when a slow refresh would leave the previous figures passing for current ones.
+  if (server && (!serverData || refreshing)) {
     return <AnalysisLoading icon={ChartScatter} name={pluginName} compact={compact} />
   }
   const sd = server ? serverData : null

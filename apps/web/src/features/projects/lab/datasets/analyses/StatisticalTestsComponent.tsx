@@ -27,6 +27,7 @@ import {
 import { groupsLookNormal } from '@/lib/stats/normality'
 import { applicableTests, overrideApplies, type TestName } from '@/lib/stats/applicable-tests'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildStatisticalTestsSpec } from './statistical-tests-server'
 import { usePublishAnalysisTable } from './analysis-table-context'
@@ -1264,17 +1265,20 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverError, setServerError] = useState<string | null>(null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('statistical-tests', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) { setServerError(out.stderr); return }
         try { setServerResults(JSON.parse(out.stdout.trim()) as TestResult[]); setServerError(null) }
         catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1487,7 +1491,7 @@ export function StatisticalTestsComponent({ config, columns, rows, compact, data
   }
 
   // Server mode: hold the frame until results arrive (empty array is a real "no columns" state).
-  if (server && serverResults === null) {
+  if (server && (serverResults === null || refreshing)) {
     return <AnalysisLoading icon={FlaskConical} name={pluginName} compact={compact} />
   }
 

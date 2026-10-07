@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { Table as TableIcon } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { displayColumnName } from '@/lib/dataset-utils'
 import { defaultAnalysisColumns, orderSelection, type VariableOrder } from '@/lib/analysis-default-columns'
 import {
@@ -135,17 +136,20 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   // object itself would refetch forever.
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !specKey) return
     let cancelled = false
     renderOnServer('table1', JSON.parse(specKey), { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) { setServerError(out.stderr); return }
         try { setServerTable(JSON.parse(out.stdout.trim()) as DescriptiveTable); setServerError(null) }
         catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -218,7 +222,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   if (server && serverError) {
     return <Placeholder text={serverError} />
   }
-  if (!table) {
+  if (!table || refreshing) {
     return <AnalysisLoading icon={TableIcon} name={pluginName} compact={compact} />
   }
   if (variables.length === 0) {

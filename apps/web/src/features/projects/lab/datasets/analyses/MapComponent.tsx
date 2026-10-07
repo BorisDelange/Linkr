@@ -9,6 +9,7 @@ import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading
 import { resolveColor, getLucideIcon, resolvePalette, DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { LocalizedString } from '@/types'
@@ -167,19 +168,22 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<MapServerData | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('map', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) { setServerError(out.stderr); return }
         try {
           setServerData(JSON.parse(out.stdout.trim()) as MapServerData)
           setServerError(null)
         } catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -276,7 +280,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
       </div>
     )
   }
-  if (spec && !serverData) {
+  if (spec && (!serverData || refreshing)) {
     return <AnalysisLoading icon={MapIcon} name={pluginName} compact={compact} />
   }
   if (!latCol || !lonCol) {

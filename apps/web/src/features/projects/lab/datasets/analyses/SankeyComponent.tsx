@@ -10,6 +10,7 @@ import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { getLucideIcon, resolvePalette } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { LocalizedString } from '@/types'
@@ -201,19 +202,22 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<SankeyServerData | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('sankey', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) { setServerError(out.stderr); return }
         try {
           setServerData(JSON.parse(out.stdout.trim()) as SankeyServerData)
           setServerError(null)
         } catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -458,7 +462,7 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
     </div>
   ) : null
 
-  if (spec && !serverData && !serverError) {
+  if (spec && ((!serverData && !serverError) || refreshing)) {
     return <AnalysisLoading icon={Workflow} name={pluginName} compact={compact} />
   }
 

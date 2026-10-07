@@ -5,6 +5,7 @@ import { TrendingUp, AlertTriangle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import { buildRegressionSpec } from './regression-server'
 import { niceTicks } from '@/lib/chart-ticks'
@@ -1024,12 +1025,15 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
   const [serverResult, setServerResult] = useState<RegressionResult | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   const [serverLoaded, setServerLoaded] = useState(false)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('regression', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         setServerLoaded(true)
         if (out.stderr) { setServerError(out.stderr); return }
         try {
@@ -1037,7 +1041,7 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
           setServerResult(parsed); setServerError(null)
         } catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) { setServerLoaded(true); setServerError(String(e)) } })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerLoaded(true); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -1146,7 +1150,7 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
   }
 
   // Server mode: hold the frame until the fit returns (null before load = still computing).
-  if (server && !serverLoaded) {
+  if (server && (!serverLoaded || refreshing)) {
     return <AnalysisLoading icon={TrendingUp} name={pluginName} compact={compact} />
   }
 

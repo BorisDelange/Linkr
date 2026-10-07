@@ -20,6 +20,7 @@ import { resolveColor, getLucideIcon, aggregateByEntity, resolvePalette, CHART_R
 import { TruncatedTick } from './chart-axis-helpers'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { LocalizedString } from '@/types'
@@ -428,17 +429,20 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<KpiServerData | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('key-indicator', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) { setServerError(out.stderr); return }
         try { setServerData(JSON.parse(out.stdout.trim()) as KpiServerData); setServerError(null) }
         catch { setServerError(out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) setServerError(String(e)) })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -583,7 +587,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
     )
   }
 
-  if (spec && !serverData) {
+  if (spec && (!serverData || refreshing)) {
     return <AnalysisLoading icon={Gauge} name={pluginName} compact={compact} />
   }
 

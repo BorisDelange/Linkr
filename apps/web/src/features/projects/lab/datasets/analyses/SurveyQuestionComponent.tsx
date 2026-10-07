@@ -20,6 +20,7 @@ import { ClipboardList } from 'lucide-react'
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
+import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { LocalizedString } from '@/types'
@@ -72,6 +73,8 @@ export function SurveyQuestionComponent({
   // itself would refetch forever.
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
+  const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
+  const { refreshing, settle } = useRenderRefresh(requestKey)
 
   useEffect(() => {
     if (!server || !datasetFileId || !specKey) return
@@ -79,6 +82,7 @@ export function SurveyQuestionComponent({
     renderOnServer('survey-question', JSON.parse(specKey), { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
+        settle(requestKey)
         if (out.stderr) {
           setServerError(out.stderr)
           return
@@ -96,7 +100,9 @@ export function SurveyQuestionComponent({
         }
       })
       .catch((e) => {
-        if (!cancelled) setServerError(String(e))
+        if (cancelled) return
+        settle(requestKey)
+        setServerError(String(e))
       })
     return () => {
       cancelled = true
@@ -111,7 +117,7 @@ export function SurveyQuestionComponent({
   }
   if (server) {
     if (serverError) return <Placeholder text={serverError} />
-    if (!serverSummary) return <AnalysisLoading icon={ClipboardList} name={pluginName} compact={compact} />
+    if (!serverSummary || refreshing) return <AnalysisLoading icon={ClipboardList} name={pluginName} compact={compact} />
   }
 
   // A chart that does not apply to this question type falls back to auto rather
