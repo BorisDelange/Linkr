@@ -5,7 +5,8 @@ import type { CSSProperties } from 'react'
  *  Spacing model: the grid uses jointive cells (react-grid-layout margin 0) flush to the container
  *  edge (containerPadding 0), so the full first/last cells are visible right at the border. Each
  *  widget then carries a `gap/2` visual inset, so two touching widgets are separated by a full
- *  `gap` (gap/2 + gap/2, demarcation centered) while edge widgets sit `gap/2` from the border.
+ *  `gap` (gap/2 + gap/2, demarcation centered); on a side touching the grid edge the inset is a
+ *  full `gap`, so edge widgets sit `gap` from the border too.
  *  A cell is `colWidth × rowHeight` with NO inter-cell margin; the gutter lives inside the cell. */
 export const DASHBOARD_GRID = {
   cols: 48,

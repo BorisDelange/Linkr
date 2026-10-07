@@ -273,7 +273,8 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
   // Spacing model (see DASHBOARD_GRID): jointive cells (margin 0) flush to the container edge
   // (containerPadding 0), so the full cells show right at the border. Each widget is inset by gap/2
   // (the wrapper below), so two touching widgets are separated by a full `gap` (gap/2 + gap/2,
-  // demarcation centered) while edge widgets sit gap/2 from the border.
+  // demarcation centered). An edge widget gets a full `gap` on its border side instead, so the
+  // grid edge reads as a neighbouring widget and every margin is the same.
   const gap = dashboard.widgetSpacing ?? DASHBOARD_GRID.margin[0]
   const halfGap = gap / 2
   const fitRows = useMemo(() => {
@@ -281,6 +282,7 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
     return computeFitRows(containerWidth, availableHeight)
   }, [fitToHeight, availableHeight, containerWidth])
   const fitMaxRows = fitRows?.rows ?? 0
+  const bottomRow = fitMaxRows > 0 ? fitMaxRows : Math.max(0, ...widgets.map((w) => w.layout.y + w.layout.h))
 
   const gridConfig = useMemo(() => {
     // Row height = visibleHeight / FIT_ROWS in BOTH modes, so a cell is the same size whether
@@ -456,7 +458,12 @@ function WidgetGridImpl({ widgets, editMode, hideTitleBars, dashboard, projectUi
           <div
             key={widget.id}
             className="box-border h-full"
-            style={{ paddingTop: halfGap + 1, paddingLeft: halfGap + 1, paddingBottom: halfGap, paddingRight: halfGap }}
+            style={{
+              paddingTop: (widget.layout.y === 0 ? gap : halfGap) + 1,
+              paddingLeft: (widget.layout.x === 0 ? gap : halfGap) + 1,
+              paddingBottom: widget.layout.y + widget.layout.h >= bottomRow ? gap : halfGap,
+              paddingRight: widget.layout.x + widget.layout.w >= gridConfig.cols ? gap : halfGap,
+            }}
             data-widget-id={widget.id}
             data-widget-name={localized(widget.name, 'en')}
           >
