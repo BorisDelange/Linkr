@@ -155,10 +155,11 @@ async def _dataset_preamble(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
         path = res["parquet"].as_posix()
         columns = res["columns"]
+        native = bool(res.get("native"))
         return (
-            injection.python_preamble_from(path, columns, filters)
+            injection.python_preamble_from(path, columns, filters, native)
             if language == "python"
-            else injection.r_preamble_from(path, columns, filters)
+            else injection.r_preamble_from(path, columns, filters, native)
         )
     node = await dataset_service.get(db, dataset_ref)
     if node is None:

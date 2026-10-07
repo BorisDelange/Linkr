@@ -300,6 +300,38 @@ async def test_execute_injects_filtered_dataset(client):
     assert r.json()["stdout"].strip() == "1"
 
 
+async def test_execute_filters_native_parquet_dataset(client):
+    """A native .parquet is read in place with its real column names, while the
+    filters arrive keyed by column id: they must still apply."""
+    import duckdb
+
+    from app.services import project_fs
+
+    headers = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    uid = (await client.post(f"{API}/projects", headers=headers, json={"name": {"en": "P"}, "workspaceId": ws})).json()["uid"]
+    target = (project_fs.datasets_dir(uid) / "d.parquet").as_posix()
+    duckdb.execute(
+        "COPY (SELECT * FROM (VALUES (30, 'a', TIMESTAMP '2024-01-10 08:00'), (40, 'b', TIMESTAMP '2025-03-02 12:00'))"
+        f" t(age, grp, admitted)) TO '{target}' (FORMAT PARQUET)"
+    )
+    meta = (await client.get(f"{API}/dataset-files/meta", headers=headers,
+                             params={"projectUid": uid, "path": "d.parquet"})).json()
+    col = {c["name"]: c["id"] for c in meta["columns"]}
+    r = await client.post(f"{API}/execute", headers=headers, json={
+        "language": "python",
+        "code": "print(len(dataset))",
+        "projectUid": uid, "datasetFileId": "d.parquet",
+        "datasetFilters": [
+            {"colId": col["admitted"], "kind": "date",
+             "alternatives": [{"op": "between", "min": "2025-01-01"}]},
+            {"colId": col["grp"], "kind": "string", "alternatives": [{"op": "in", "values": ["b"]}]},
+        ],
+    })
+    assert r.status_code == 200, r.text
+    assert r.json()["stdout"].strip() == "1"
+
+
 async def test_execute_dataset_not_found_is_404(client):
     headers = await _admin_headers(client)
     uid = await _project(client, headers)

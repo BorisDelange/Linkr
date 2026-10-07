@@ -20,12 +20,16 @@ def python_preamble(node: DatasetFile, filters: list[dict] | None = None) -> str
     return python_preamble_from(path, node.columns or [], filters)
 
 
-def python_preamble_from(path: str, columns: list[dict], filters: list[dict] | None = None) -> str:
+def python_preamble_from(
+    path: str, columns: list[dict], filters: list[dict] | None = None, native: bool = False
+) -> str:
     """Python code that loads a Parquet file at `path` as a `dataset` DataFrame.
 
     `filters` (dashboard filters, resolved client-side to concrete predicates keyed
     by columnId) are applied to the raw Parquet before columns are renamed, so a
-    widget sees the same filtered rows it would in front-only mode."""
+    widget sees the same filtered rows it would in front-only mode. A `native`
+    Parquet is read in place, with its real column names instead of the ids."""
+    filters = _keyed_by_raw_column(filters or [], columns, native)
     rename = {c["id"]: c["name"] for c in columns}
     number_cols = [c["name"] for c in columns if c.get("type") == "number"]
     date_cols = [c["name"] for c in columns if c.get("type") == "date"]
@@ -49,6 +53,16 @@ if _linkr_conv:
     )[list(dataset.columns)]
 del _linkr_conv
 """
+
+
+def _keyed_by_raw_column(filters: list[dict], columns: list[dict], native: bool) -> list[dict]:
+    """Predicates arrive keyed by column id; a native Parquet's raw columns carry the
+    names instead. The filter code skips a column it can't find, so an un-mapped
+    predicate would silently leave the widget unfiltered."""
+    if not native:
+        return filters
+    name_by_id = {c["id"]: c["name"] for c in columns}
+    return [{**f, "colId": name_by_id.get(f.get("colId"), f.get("colId"))} for f in filters]
 
 
 def _python_filter_code(filters: list[dict]) -> str:
@@ -105,8 +119,12 @@ def r_preamble(node: DatasetFile, filters: list[dict] | None = None) -> str:
     return r_preamble_from(path, node.columns or [], filters)
 
 
-def r_preamble_from(path: str, columns: list[dict], filters: list[dict] | None = None) -> str:
-    """R code that loads a Parquet file at `path` as a `dataset` data.frame."""
+def r_preamble_from(
+    path: str, columns: list[dict], filters: list[dict] | None = None, native: bool = False
+) -> str:
+    """R code that loads a Parquet file at `path` as a `dataset` data.frame.
+    Same `filters` / `native` contract as python_preamble_from."""
+    filters = _keyed_by_raw_column(filters or [], columns, native)
     # Build named vector for renaming: c("col-1" = "age", ...)
     rename_pairs = ", ".join(
         f"{_r_str(c['id'])} = {_r_str(c['name'])}" for c in columns
