@@ -11,6 +11,7 @@ import {
 } from '@/lib/tree-selection'
 import { isServerMode } from '@/lib/api-client'
 import { useAppStore } from '@/stores/app-store'
+import { disposeLiveTerminal } from '@/lib/terminal-sessions'
 
 export type FileNode = IdeFile
 
@@ -693,8 +694,10 @@ export const useFileStore = create<FileState>((set, get) => ({
     const ids = new Set(stored.map((f) => f.id))
     const prev = get()
     const keepActive = prev.activeProjectUid === projectUid
-    // Preserve selection/open tabs whose paths still exist after the re-scan.
-    const selectedFileId = keepActive && prev.selectedFileId && ids.has(prev.selectedFileId)
+    // Preserve selection/open tabs whose paths still exist after the re-scan. A
+    // terminal tab is not a file, so it survives any re-scan.
+    const selectedFileId = keepActive && prev.selectedFileId
+      && (ids.has(prev.selectedFileId) || prev.terminalTabs.some((t) => t.id === prev.selectedFileId))
       ? prev.selectedFileId : null
     const openFileIds = keepActive ? prev.openFileIds.filter((id) => ids.has(id)) : []
     const expandedFolders = keepActive
@@ -1432,7 +1435,8 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   selectTerminalTab: (id) => set({ selectedFileId: id, editorGroupOutputTab: null }),
 
-  closeTerminalTab: (id) =>
+  closeTerminalTab: (id) => {
+    disposeLiveTerminal(id)
     set((s) => {
       const remaining = s.terminalTabs.filter((t) => t.id !== id)
       // If the closed terminal was active, fall back to the last open file (or
@@ -1444,7 +1448,8 @@ export const useFileStore = create<FileState>((set, get) => ({
           ?? null
       }
       return { terminalTabs: remaining, selectedFileId: selected }
-    }),
+    })
+  },
 
   executionResults: [],
   addExecutionResult: (result) =>

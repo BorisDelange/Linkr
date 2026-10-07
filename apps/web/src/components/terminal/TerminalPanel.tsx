@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Package, X } from 'lucide-react'
 import { TerminalSocket } from '@/lib/api/terminal-ws'
 import { useAppStore, isEditorThemeDark } from '@/stores/app-store'
+import { getLiveTerminal, registerLiveTerminal, disposeLiveTerminal } from '@/lib/terminal-sessions'
 
 type TerminalType = 'bash' | 'python' | 'r'
 
@@ -32,6 +33,10 @@ interface TerminalPanelProps {
   /** True when this terminal's tab is the active one. A hidden xterm has zero
    * size, so we re-fit when it becomes active again. */
   active?: boolean
+  /** Keeps the session alive when the panel unmounts (the IDE tab id), so coming
+   *  back re-attaches it; it ends with disposeLiveTerminal(key). Without a key the
+   *  session ends with the panel. */
+  persistKey?: string
 }
 
 async function executePythonRepl(code: string): Promise<{ stdout: string; stderr: string }> {
@@ -120,7 +125,7 @@ const terminalThemes = {
   },
 }
 
-export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessionId, active = true }: TerminalPanelProps) {
+export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessionId, active = true, persistKey }: TerminalPanelProps) {
   const { t } = useTranslation()
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -165,7 +170,22 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
   }, [active])
 
   useEffect(() => {
-    if (!containerRef.current) return
+    const container = containerRef.current
+    if (!container) return
+
+    const signature = `${terminalType}|${projectUid ?? ''}|${sessionId ?? ''}`
+    if (persistKey) {
+      const existing = getLiveTerminal(persistKey)
+      if (existing && existing.signature === signature) {
+        container.appendChild(existing.host)
+        existing.sink.setInstallOffer = setInstallOffer
+        terminalRef.current = existing.terminal
+        fitAddonRef.current = existing.fitAddon
+        try { existing.fitAddon.fit() } catch { /* not measured yet */ }
+        return () => { existing.host.remove() }
+      }
+      disposeLiveTerminal(persistKey)
+    }
 
     const config = terminalConfig[terminalType]
     let currentLine = ''
@@ -192,8 +212,13 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
 
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
-    terminal.open(containerRef.current)
+    // xterm renders into its own host, which can move to the next panel showing it.
+    const host = document.createElement('div')
+    host.className = 'h-full w-full'
+    container.appendChild(host)
+    terminal.open(host)
     fitAddon.fit()
+    const sink = { setInstallOffer }
 
     // Intercept Cmd/Ctrl+K: clear the terminal's own scrollback (like iTerm), and
     // stop the event so the GLOBAL clear_terminal shortcut doesn't also fire and
@@ -233,12 +258,21 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
     }
 
     const resizeObserver = new ResizeObserver(() => fitAddon.fit())
-    resizeObserver.observe(containerRef.current)
+    resizeObserver.observe(host)
 
+    let ptyResize: ResizeObserver | null = null
     const teardown = () => {
       resizeObserver.disconnect()
+      ptyResize?.disconnect()
       socket?.close()
       terminal.dispose()
+      host.remove()
+    }
+    // A kept session only leaves the page; the tab closing disposes it.
+    const release = () => {
+      if (!persistKey) return teardown()
+      registerLiveTerminal(persistKey, { signature, host, terminal, fitAddon, sink, dispose: teardown })
+      host.remove()
     }
 
     // Full-stack Bash: a raw PTY. The shell owns echo, line editing, the prompt
@@ -281,15 +315,12 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
       socket.connect()
       terminal.onData((data) => socket?.sendInput(data))
       resizeObserver.disconnect()
-      const ptyResize = new ResizeObserver(() => {
+      ptyResize = new ResizeObserver(() => {
         fitAddon.fit()
         socket?.resize(terminal.rows, terminal.cols)
       })
-      ptyResize.observe(containerRef.current)
-      return () => {
-        ptyResize.disconnect()
-        teardown()
-      }
+      ptyResize.observe(host)
+      return release
     }
 
     // Full-stack python/r: line-edited REPL against the persistent kernel; the
@@ -350,7 +381,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
       if (serverMode && (terminalType === 'python' || terminalType === 'r') && isImperativeInstall(terminalType, cmd)) {
         terminal.writeln(`\x1b[33m${t('terminal.installWarning')}\x1b[0m`)
         const pkgs = extractInstallPackages(terminalType, cmd)
-        setInstallOffer(pkgs.length ? { language: terminalType, packages: pkgs } : null)
+        sink.setInstallOffer(pkgs.length ? { language: terminalType, packages: pkgs } : null)
       }
 
       // Server REPL: hand the line to the kernel; chunks stream back via
@@ -494,8 +525,8 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
       }
     })
 
-    return teardown
-  }, [terminalType, onData, projectUid, sessionId, t])
+    return release
+  }, [terminalType, onData, projectUid, sessionId, persistKey, t])
 
   return (
     <div className="relative h-full w-full">

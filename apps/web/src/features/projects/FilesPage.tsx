@@ -435,7 +435,9 @@ export function FilesPage() {
   // is showing) should bring the editor to the front and hide the dataset output —
   // otherwise the new script stays hidden behind the still-visible table. Fires
   // only on an actual selection change, so the eye toggle can still hide the editor.
-  const lastCodeFileRef = useRef<string | null>(null)
+  // Seeded with the current selection: coming back to the page re-mounts it with the
+  // same file still selected, which is not a change and must keep the output open.
+  const lastCodeFileRef = useRef<string | null>(selectedFileId ?? null)
   useEffect(() => {
     if (!selectedNode || selectedNode.type !== 'file' || isVirtualFile) return
     if (selectedFileId === lastCodeFileRef.current) return
@@ -2105,7 +2107,8 @@ export function FilesPage() {
 
                         {/* All terminals stay mounted (hidden when inactive) so a
                             bash shell / REPL keeps its scrollback and connection
-                            across tab switches. TerminalPanel re-fits itself when
+                            across tab switches — and across leaving the page,
+                            through persistKey. TerminalPanel re-fits itself when
                             it becomes visible again (a hidden xterm has zero size). */}
                         {terminalTabs.map((tt) => {
                           const isActive = tt.id === selectedFileId && !editorGroupOutputTab
@@ -2120,6 +2123,7 @@ export function FilesPage() {
                                 projectUid={activeProjectUid ?? undefined}
                                 sessionId={activeSessionId}
                                 active={isActive}
+                                persistKey={tt.id}
                               />
                             </div>
                           )
