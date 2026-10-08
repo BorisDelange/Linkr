@@ -114,7 +114,12 @@ describe('classRelations (converted v1 mapping)', () => {
   it('resolves a composite-key event concept_id to its dictionary id', () => {
     const ev = eventRelation(thesaurus, 'Data')!
     expect(ev.sql).toMatch(/^SELECT _ev\.\* REPLACE \(_dict\.concept_id AS concept_id\)/)
-    expect(ev.sql).toContain('LEFT JOIN linkr_concept_thes _dict ON _ev.concept_terminology = _dict.concept_terminology AND _ev.concept_code = _dict.concept_code')
+    // A pair the dictionary repeats keeps one id, so the join cannot multiply rows.
+    expect(ev.sql).toContain(`LEFT JOIN (
+  SELECT concept_terminology, concept_code, min(concept_id) AS concept_id
+  FROM linkr_concept_thes
+  GROUP BY concept_terminology, concept_code
+) _dict ON _ev.concept_terminology = _dict.concept_terminology AND _ev.concept_code = _dict.concept_code`)
     expect(eventRelation(omop, 'Measurement')!.sql).not.toContain('_dict')
   })
 

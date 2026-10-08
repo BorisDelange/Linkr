@@ -121,19 +121,24 @@ export function planConceptCountUnits(mapping: SchemaMapping, slices: readonly S
 
 /**
  * The type of `concept_id` in each counted event relation and in its
- * dictionary, from one non-NULL row of each. A text id on one side and a number
- * on the other cannot be joined: DuckDB casts the text and fails on the first
- * code that is not a number (`'Y831'`). Typically an event mapping a code
- * column as its concept id while the dictionary's id is a number.
+ * dictionary, from one non-NULL row of each, with the first id of each side
+ * that is not a whole number. DuckDB joins text digits to a number fine, but
+ * fails on the first text code that is not one (`'Y831'`): typically an event
+ * mapping a code column as its concept id while the dictionary's id is a number.
  */
 export function buildConceptIdTypesSql(mapping: SchemaMapping): string | null {
   const firstType = (relation: string) => `(SELECT typeof(concept_id) FROM ${relation} WHERE concept_id IS NOT NULL LIMIT 1)`
+  const firstNonNumeric = (relation: string) =>
+    `(SELECT CAST(concept_id AS VARCHAR) FROM ${relation} WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1)`
   const seen = new Set<string>()
   const parts: string[] = []
   for (const { event, dict } of [...countedEvents(mapping, 'record_count'), ...countedEvents(mapping, 'patient_count')]) {
     if (seen.has(event.name)) continue
     seen.add(event.name)
-    parts.push(`SELECT '${esc(event.key ?? event.name)}' AS event, ${firstType(event.name)} AS event_type, ${firstType(dict.name)} AS dictionary_type`)
+    parts.push(
+      `SELECT '${esc(event.key ?? event.name)}' AS event, ${firstType(event.name)} AS event_type, ${firstType(dict.name)} AS dictionary_type, ` +
+        `${firstNonNumeric(event.name)} AS event_code, ${firstNonNumeric(dict.name)} AS dictionary_code`,
+    )
   }
   return parts.length ? parts.join('\nUNION ALL\n') : null
 }
@@ -142,17 +147,22 @@ export interface ConceptIdTypeMismatch {
   event: string
   eventType: string
   dictionaryType: string
+  /** The first id of the text side that is not a number. */
+  code: string
 }
 
 const isTextType = (type: string) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR)/i.test(type)
 
-/** The rows of `buildConceptIdTypesSql` whose two ids cannot be compared. */
+/** The rows of `buildConceptIdTypesSql` whose two ids cannot be compared: a
+ *  text side holding an id that is not a number, against a numeric side. */
 export function conceptIdTypeMismatches(rows: readonly Record<string, unknown>[]): ConceptIdTypeMismatch[] {
   return rows.flatMap((r) => {
     const eventType = r.event_type == null ? null : String(r.event_type)
     const dictionaryType = r.dictionary_type == null ? null : String(r.dictionary_type)
     if (!eventType || !dictionaryType || isTextType(eventType) === isTextType(dictionaryType)) return []
-    return [{ event: String(r.event), eventType, dictionaryType }]
+    const code = isTextType(eventType) ? r.event_code : r.dictionary_code
+    if (code == null) return []
+    return [{ event: String(r.event), eventType, dictionaryType, code: String(code) }]
   })
 }
 

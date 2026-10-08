@@ -30,32 +30,43 @@ interface Entry {
   catalog?: Promise<SqlCatalog>
   /** Set once `tables` resolved: a stale entry keeps serving it while it refreshes. */
   settled?: IntrospectedTable[]
+  refreshing?: boolean
 }
 const cache = new Map<string, Entry>()
 
-function introspect(dataSourceId: string, previous?: Entry): Entry {
+function introspect(dataSourceId: string): Entry {
   const entry: Entry = { at: Date.now(), tables: discoverFullSchema(dataSourceId) }
   entry.tables.then(
     (tables) => { entry.settled = tables },
-    () => {
-      if (cache.get(dataSourceId) !== entry) return
-      // A failed refresh keeps the last good schema rather than none.
-      if (previous?.settled) cache.set(dataSourceId, { ...previous, at: Date.now() })
-      else cache.delete(dataSourceId)
-    },
+    () => { if (cache.get(dataSourceId) === entry) cache.delete(dataSourceId) },
   )
   cache.set(dataSourceId, entry)
   return entry
 }
 
+// The stale entry stays in the cache until the refresh resolves, so every caller
+// meanwhile gets the last good schema — and keeps it if the refresh fails.
+function refresh(dataSourceId: string, stale: Entry): void {
+  stale.refreshing = true
+  discoverFullSchema(dataSourceId).then(
+    (tables) => {
+      if (cache.get(dataSourceId) !== stale) return
+      cache.set(dataSourceId, { at: Date.now(), tables: Promise.resolve(tables), settled: tables })
+    },
+    () => {
+      stale.at = Date.now()
+      stale.refreshing = false
+    },
+  )
+}
+
 function entryFor(dataSourceId: string): Entry {
   const hit = cache.get(dataSourceId)
   if (!hit) return introspect(dataSourceId)
-  if (Date.now() - hit.at < TTL_MS) return hit
-  if (!hit.settled) return hit
+  if (Date.now() - hit.at < TTL_MS || !hit.settled) return hit
   // Stale but read: serve it now and refresh behind, so a caller never waits
   // on a full introspection again once the schema was read.
-  introspect(dataSourceId, hit)
+  if (!hit.refreshing) refresh(dataSourceId, hit)
   return hit
 }
 

@@ -135,14 +135,12 @@ export function WorkspacesPage() {
   // Delete confirmation state
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null)
 
-
   // Import conflict state
   // pending.workspace already carries gitRemoteConfig (baked in before the conflict
   // check), so runImport re-applies the git link on duplicate/overwrite too.
   const [importConflict, setImportConflict] = useState<{ name: string; pending: ParsedWorkspaceZip } | null>(null)
   const [importError, setImportError] = useState<FormattedError | null>(null)
-  /** Non-fatal: the workspace imported, this only says what is missing from it. */
-  /** Shown one after the other: each carries its own title. */
+  /** Non-fatal notices about what the imported workspace lacks, shown one after the other, each with its own title. */
   const [importWarnings, setImportWarnings] = useState<{ title: string; notice: FormattedError }[]>([])
   /** Held back while the git-linked summary is up, so the two dialogs don't stack. */
   const [pendingWarnings, setPendingWarnings] = useState<{ title: string; notice: FormattedError }[]>([])

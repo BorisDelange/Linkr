@@ -194,12 +194,30 @@ describe('concept id types', () => {
     expect(sql).toContain('(SELECT typeof(concept_id) FROM linkr_concept_concept WHERE concept_id IS NOT NULL LIMIT 1) AS dictionary_type')
   })
 
-  it('flags a text id joined to a number, never two numbers or an empty side', () => {
+  it('reads the first id of each side that is not a whole number', () => {
+    const sql = buildConceptIdTypesSql(mapping)!
+    expect(sql).toContain(
+      '(SELECT CAST(concept_id AS VARCHAR) FROM linkr_event_measurement WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS event_code',
+    )
+    expect(sql).toContain('FROM linkr_concept_concept WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS dictionary_code')
+  })
+
+  it('flags a text code that is not a number joined to a number, with that code', () => {
     expect(conceptIdTypeMismatches([
-      { event: 'Codes', event_type: 'VARCHAR', dictionary_type: 'DOUBLE' },
-      { event: 'Ids', event_type: 'BIGINT', dictionary_type: 'DOUBLE' },
-      { event: 'Texts', event_type: 'VARCHAR', dictionary_type: 'VARCHAR' },
-      { event: 'Empty', event_type: null, dictionary_type: 'BIGINT' },
-    ])).toEqual([{ event: 'Codes', eventType: 'VARCHAR', dictionaryType: 'DOUBLE' }])
+      { event: 'Codes', event_type: 'VARCHAR', dictionary_type: 'DOUBLE', event_code: 'Y831', dictionary_code: null },
+      { event: 'DictCodes', event_type: 'BIGINT', dictionary_type: 'VARCHAR', event_code: null, dictionary_code: "O'12" },
+      { event: 'Ids', event_type: 'BIGINT', dictionary_type: 'DOUBLE', event_code: null, dictionary_code: null },
+      { event: 'Texts', event_type: 'VARCHAR', dictionary_type: 'VARCHAR', event_code: 'A', dictionary_code: 'B' },
+      { event: 'Empty', event_type: null, dictionary_type: 'BIGINT', event_code: null, dictionary_code: null },
+    ])).toEqual([
+      { event: 'Codes', eventType: 'VARCHAR', dictionaryType: 'DOUBLE', code: 'Y831' },
+      { event: 'DictCodes', eventType: 'BIGINT', dictionaryType: 'VARCHAR', code: "O'12" },
+    ])
+  })
+
+  it('lets a VARCHAR of digits join a BIGINT id', () => {
+    expect(conceptIdTypeMismatches([
+      { event: 'Digits', event_type: 'VARCHAR', dictionary_type: 'BIGINT', event_code: null, dictionary_code: null },
+    ])).toEqual([])
   })
 })

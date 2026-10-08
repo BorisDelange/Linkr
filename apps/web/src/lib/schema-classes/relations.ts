@@ -459,7 +459,8 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
  * An event keyed by (terminology, code) has no dictionary id of its own — what
  * the mapping gives as its `concept_id` is a code. Every consumer filters,
  * counts and joins on `concept_id` as the dictionary's id, so the relation looks
- * it up once here. The pair is the dictionary's unique key: the join cannot
+ * it up once here. A dictionary may repeat a (terminology, code) pair, so it is
+ * reduced to one id per pair — the smallest — before the join, which then cannot
  * multiply rows. A code the dictionary lacks reads a NULL concept_id.
  */
 function resolveConceptId(eventSql: string, dictName: string): string {
@@ -467,7 +468,11 @@ function resolveConceptId(eventSql: string, dictName: string): string {
 FROM (
 ${eventSql}
 ) _ev
-LEFT JOIN ${dictName} _dict ON _ev.concept_terminology = _dict.concept_terminology AND _ev.concept_code = _dict.concept_code`
+LEFT JOIN (
+  SELECT concept_terminology, concept_code, min(concept_id) AS concept_id
+  FROM ${dictName}
+  GROUP BY concept_terminology, concept_code
+) _dict ON _ev.concept_terminology = _dict.concept_terminology AND _ev.concept_code = _dict.concept_code`
 }
 
 /** The relation's class, derived columns and fixed values, by where it lives. */

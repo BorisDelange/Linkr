@@ -251,7 +251,7 @@ export function DashboardSettingsDialog({
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p className="text-[11px] text-muted-foreground">{t('dashboard.reload_widgets_on_tab_switch_hint')}</p>
+              <p className="text-xs text-muted-foreground">{t('dashboard.reload_widgets_on_tab_switch_hint')}</p>
             </div>
             <Switch checked={reloadWidgetsOnTabSwitch} onCheckedChange={setReloadWidgetsOnTabSwitch} />
           </div>
@@ -261,14 +261,14 @@ export function DashboardSettingsDialog({
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label>{t('dashboard.show_widget_titles')}</Label>
-              <p className="text-[11px] text-muted-foreground">{t('dashboard.show_widget_titles_hint')}</p>
+              <p className="text-xs text-muted-foreground">{t('dashboard.show_widget_titles_hint')}</p>
             </div>
             <Switch checked={showWidgetTitles} onCheckedChange={setShowWidgetTitles} />
           </div>
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label>{t('dashboard.fit_to_height')}</Label>
-              <p className="text-[11px] text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
+              <p className="text-xs text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
             </div>
             <Switch checked={fitToHeight} onCheckedChange={setFitToHeight} />
           </div>
@@ -277,7 +277,7 @@ export function DashboardSettingsDialog({
               <Label>{t('dashboard.widget_spacing', 'Widget spacing')}</Label>
               <PixelInput value={widgetSpacing} min={0} max={WIDGET_SPACING_MAX} onChange={setWidgetSpacing} />
             </div>
-            <p className="text-[11px] text-muted-foreground">{t('dashboard.widget_spacing_hint', 'Gap between widgets on the grid.')}</p>
+            <p className="text-xs text-muted-foreground">{t('dashboard.widget_spacing_hint', 'Gap between widgets on the grid.')}</p>
             <input
               type="range"
               min={0}

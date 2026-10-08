@@ -1,21 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import {
-  Activity,
-  AlertTriangle,
-  ArrowDown,
-  ArrowUp,
-  Building2,
-  CheckCircle2,
-  Database,
-  Download,
-  Loader2,
-  RefreshCw,
-  Table2,
-  Users,
-} from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Download, Loader2, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { SearchInput } from '@/components/ui/search-input'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import {
@@ -23,10 +10,8 @@ import {
   type DataTableColumn,
 } from '@/components/ui/data-table'
 import { TruncatedText } from '@/components/ui/truncated-text'
-import { SectionLabel } from '@/components/ui/section-label'
 import { cn } from '@/lib/utils'
 import { getStorage } from '@/lib/storage'
-import * as duckdbEngine from '@/lib/duckdb/engine'
 import { computeDatabaseStats } from '@/lib/duckdb/database-stats'
 import {
   countAllTables,
@@ -35,28 +20,21 @@ import {
   sortedCounts,
   subscribeTableCounts,
 } from '@/lib/duckdb/table-counts'
-import { formatDateTimeLocale, validateIntegerIds } from '@/lib/format-helpers'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { csvBlob, toCsv } from '@/lib/csv-export'
 import { downloadBlob } from '@/lib/entity-io'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import {
-  classifyDiff,
-  CLINICAL_TABLES,
   countByDiff,
-  expectedRowsByTarget,
   isQualityCacheUsable,
   qualityFingerprint,
-  sortTableCounts,
-  type ConceptCount,
   type QualityConceptRow,
   type QualityDiff,
-  type TableSort,
-  type TableSortKey,
 } from './quality-diff'
-import type { DatabaseStatsCache, DataSource, TableRowCount } from '@/types'
-import { localized } from '@/lib/localized'
-import { qualify } from '@/lib/schema-helpers'
+import { loadConceptQuality } from './load-concept-quality'
+import { QueryErrorNotice, StatsColumn } from './quality-stats-column'
+import type { DatabaseStatsCache, DataSource } from '@/types'
 
 type QualityTab = 'statistics' | 'concepts'
 
@@ -215,14 +193,29 @@ function StatisticsView({
   const applySource = (r: StatsResult) => { setSourceStats(r.stats); setSourceError(r.error) }
   const applyTarget = (r: StatsResult) => { setTargetStats(r.stats); setTargetError(r.error) }
 
+  // Every computation takes a ticket; only the latest one applies its result, so
+  // a slow count can never overwrite a newer one.
+  const request = useRef(0)
+
+  // A run that just ended has rewritten the target: its saved figures describe
+  // the database before the run, so they are recounted rather than shown. Set
+  // until that recount lands, so a re-run effect still knows.
+  const wasBusy = useRef(targetBusy)
+  const targetStale = useRef(false)
+
   const computeStats = useCallback(async () => {
+    const ticket = ++request.current
     setLoading(true)
     const [src, tgt] = await Promise.all([
       computeOne(sourceDs),
       targetBusy ? Promise.resolve(null) : computeOne(targetDs),
     ])
+    if (ticket !== request.current) return
     applySource(src)
-    if (tgt) applyTarget(tgt)
+    if (tgt) {
+      applyTarget(tgt)
+      targetStale.current = false
+    }
     setLoading(false)
   // computeOne only reads the two data sources, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -242,7 +235,7 @@ function StatisticsView({
         <>
           {/* When it was last counted, so a stale figure is recognisable as one. */}
           {computedAt && (
-            <span className="truncate text-[11px] text-muted-foreground">
+            <span className="truncate text-[10px] text-muted-foreground">
               {t('etl.quality_stats_computed_at', { when: formatDateTimeLocale(computedAt, i18n.language) })}
             </span>
           )}
@@ -264,7 +257,9 @@ function StatisticsView({
   }, [onActions, canCompute, computedAt, loading, computeStats, t, i18n.language])
 
   useEffect(() => {
-    let cancelled = false
+    if (wasBusy.current && !targetBusy) targetStale.current = true
+    wasBusy.current = targetBusy
+    const ticket = ++request.current
     setLoading(true)
 
     const load = async () => {
@@ -274,9 +269,10 @@ function StatisticsView({
         sourceDs?.id ? getStorage().databaseStatsCache.get(sourceDs.id).catch(() => undefined) : undefined,
         targetDs?.id ? getStorage().databaseStatsCache.get(targetDs.id).catch(() => undefined) : undefined,
       ])
-      if (cancelled) return
+      if (ticket !== request.current) return
+      const staleTarget = targetStale.current
       setSourceStats(srcCached ?? null)
-      setTargetStats(tgtCached ?? null)
+      setTargetStats(staleTarget ? null : tgtCached ?? null)
 
       // A side with a data model but no saved figures is computed on arrival,
       // in EVERY mode. Server mode used to withhold this to avoid COUNT(*) over
@@ -285,39 +281,30 @@ function StatisticsView({
       // get the comparison the tab exists for. The guard that matters is the
       // saved result: once counted, arriving here costs nothing.
       const needsSource = !srcCached && !!sourceDs?.schemaMapping
-      const needsTarget = !tgtCached && !!targetDs?.schemaMapping && !targetBusy
+      const needsTarget = (staleTarget || !tgtCached) && !!targetDs?.schemaMapping && !targetBusy
+      if (!targetDs?.schemaMapping) targetStale.current = false
       if (!needsSource && !needsTarget) {
         setLoading(false)
         return
       }
       const [src, tgt] = await Promise.all([
         needsSource ? computeOne(sourceDs) : Promise.resolve({ stats: srcCached ?? null }),
-        needsTarget ? computeOne(targetDs) : Promise.resolve({ stats: tgtCached ?? null }),
+        needsTarget ? computeOne(targetDs) : Promise.resolve(null),
       ])
-      if (cancelled) return
+      if (ticket !== request.current) return
       applySource(src)
-      applyTarget(tgt)
+      if (tgt) {
+        applyTarget(tgt)
+        targetStale.current = false
+      } else if (!staleTarget) {
+        applyTarget({ stats: tgtCached ?? null })
+      }
       setLoading(false)
     }
     void load()
-    return () => { cancelled = true }
   // computeOne only reads the two data sources, both listed.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceDs?.id, sourceDs?.schemaMapping, targetDs?.id, targetDs?.schemaMapping, targetBusy])
-
-  // A run that just ended has rewritten the target: its saved figures describe
-  // the database before the run, so they are recounted rather than shown.
-  const wasBusy = useRef(targetBusy)
-  useEffect(() => {
-    const finished = wasBusy.current && !targetBusy
-    wasBusy.current = targetBusy
-    if (!finished || !targetDs?.schemaMapping) return
-    let cancelled = false
-    void computeOne(targetDs).then((r) => { if (!cancelled) applyTarget(r) })
-    return () => { cancelled = true }
-  // computeOne only reads the target, listed.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [targetBusy, targetDs?.id, targetDs?.schemaMapping])
 
   // Counting from the Browse-schema tab writes the same cache entry, so the
   // table list here follows along instead of staying at whatever it was when
@@ -356,188 +343,6 @@ function StatisticsView({
   )
 }
 
-function StatsColumn({
-  label,
-  ds,
-  stats,
-  error,
-  busy = false,
-  loading,
-  accent,
-  onRetry,
-}: {
-  label: string
-  ds: DataSource | undefined
-  stats: DatabaseStatsCache | null
-  error?: string
-  busy?: boolean
-  loading: boolean
-  accent: 'orange' | 'emerald'
-  onRetry: () => void
-}) {
-  const { t, i18n } = useTranslation()
-  const borderColor = accent === 'orange' ? 'border-orange-500/30' : 'border-emerald-500/30'
-  const iconColor = accent === 'orange' ? 'text-orange-500' : 'text-emerald-500'
-
-  if (!ds) {
-    return (
-      <div className={cn('rounded-lg border-2 p-4 text-center', borderColor)}>
-        <Database size={20} className="mx-auto text-muted-foreground/30" />
-        <p className="mt-2 text-xs text-muted-foreground">{t('etl.pipeline_no_db_selected')}</p>
-      </div>
-    )
-  }
-
-  return (
-    <div className={cn('min-w-0 space-y-3 rounded-lg border-2 p-3', borderColor)}>
-      <div className="flex min-w-0 items-center gap-2">
-        <Database size={14} className={cn('shrink-0', iconColor)} />
-        <span className="shrink-0 text-xs font-medium">{label}</span>
-        <span className="min-w-0 truncate text-xs text-muted-foreground">— {localized(ds.name, i18n.language)}</span>
-      </div>
-
-      {busy && <RunInProgressNotice text={t('etl.quality_stats_target_busy')} />}
-
-      {!busy && loading && (
-        <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground">
-          <Loader2 size={12} className="animate-spin" />
-          {t('common.loading')}…
-        </div>
-      )}
-
-      {/* Without this the card was a bare "Source — MIMIC-IV" and nothing else,
-          which reads as a rendering fault rather than "not computed". */}
-      {!busy && !loading && !stats && (
-        <div className="space-y-2 py-1">
-          {/* A missing data model is the specific reason nothing can be counted,
-              and it says what to do about it. Otherwise the count ran and failed,
-              and the database's own error is the only useful explanation. */}
-          {!ds.schemaMapping ? (
-            <p className="text-xs text-muted-foreground">{t('etl.quality_stats_no_model')}</p>
-          ) : (
-            <QueryErrorNotice
-              text={t('etl.quality_stats_unavailable')}
-              error={error}
-              onRetry={onRetry}
-            />
-          )}
-        </div>
-      )}
-
-      {!busy && stats && (
-        <div className="space-y-3">
-          <div className="grid grid-cols-3 gap-2">
-            <StatBox icon={<Users size={16} className="text-blue-500" />} value={stats.summary.patientCount} label={t('etl.sidebar_patients')} />
-            <StatBox icon={<Activity size={16} className="text-emerald-500" />} value={stats.summary.visitCount} label={t('etl.sidebar_visits')} />
-            <StatBox icon={<Building2 size={16} className="text-amber-500" />} value={stats.summary.visitDetailCount} label={t('etl.sidebar_visit_units')} />
-          </div>
-
-          {stats.tableCounts.length > 0 && <TableCountList counts={stats.tableCounts} />}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * The per-table row counts, searchable and sortable.
- *
- * A full OMOP target runs to dozens of tables in export order, so finding one
- * meant reading the whole list, and "which table is biggest" was not answerable
- * at all. Sorting is local to each column (source and target are independent
- * lists, and comparing them is the Concepts view's job, not this one's).
- */
-function TableCountList({ counts }: { counts: TableRowCount[] }) {
-  const { t } = useTranslation()
-  const [search, setSearch] = useState('')
-  const [sort, setSort] = useState<TableSort>({ by: 'rows', desc: true })
-
-  const shown = useMemo(() => sortTableCounts(counts, search, sort), [counts, search, sort])
-
-  const toggle = (by: TableSortKey) => {
-    // Re-clicking the active column flips it; a new column starts in the
-    // direction that column is usually read — A→Z for names, biggest first
-    // for counts.
-    setSort((s) => (s.by === by ? { by, desc: !s.desc } : { by, desc: by === 'rows' }))
-  }
-
-  return (
-    <div className="space-y-1">
-      <div className="flex items-center gap-2">
-        <SectionLabel as="h4" className="shrink-0">
-          {t('etl.sidebar_tables')} ({shown.length === counts.length ? counts.length : `${shown.length}/${counts.length}`})
-        </SectionLabel>
-        <SearchInput
-          value={search}
-          onChange={setSearch}
-          placeholder={t('etl.quality_stats_search_tables')}
-          size="dense"
-          className="ml-auto min-w-0 flex-1"
-        />
-      </div>
-
-      <div className="flex items-center gap-2 border-b px-1 pb-1">
-        <SortHeader label={t('etl.quality_stats_table_name')} active={sort.by === 'name'} desc={sort.desc} onClick={() => toggle('name')} className="min-w-0 flex-1" />
-        <SortHeader label={t('etl.quality_stats_table_rows')} active={sort.by === 'rows'} desc={sort.desc} onClick={() => toggle('rows')} className="shrink-0" />
-      </div>
-
-      {shown.length === 0 ? (
-        <p className="px-1 py-2 text-[11px] text-muted-foreground">{t('etl.quality_stats_no_table_match')}</p>
-      ) : (
-        <div className="space-y-0.5">
-          {shown.map((tc) => (
-            <div key={tc.tableName} className="flex items-center gap-2 rounded px-1 py-1 text-xs">
-              <Table2 size={11} className="shrink-0 text-blue-500/60" />
-              <span className="min-w-0 flex-1 truncate font-mono">{tc.tableName}</span>
-              <span className="shrink-0 tabular-nums text-muted-foreground">{tc.rowCount.toLocaleString()}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function SortHeader({
-  label,
-  active,
-  desc,
-  onClick,
-  className,
-}: {
-  label: string
-  active: boolean
-  desc: boolean
-  onClick: () => void
-  className?: string
-}) {
-  return (
-    <button
-      onClick={onClick}
-      aria-sort={active ? (desc ? 'descending' : 'ascending') : 'none'}
-      className={cn(
-        'flex items-center gap-0.5 text-[10px] font-medium uppercase tracking-wide transition-colors',
-        active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-        className,
-      )}
-    >
-      <span className="truncate">{label}</span>
-      {active && (desc ? <ArrowDown size={10} className="shrink-0" /> : <ArrowUp size={10} className="shrink-0" />)}
-    </button>
-  )
-}
-
-/** Sized for THIS tab, which is full width — the pipeline sidebar's 300px forced
- *  the 9px labels these started from, and they were barely legible here. */
-function StatBox({ icon, value, label }: { icon: React.ReactNode; value: number; label: string }) {
-  return (
-    <div className="rounded-md border p-3 text-center">
-      <div className="mx-auto mb-1 flex justify-center">{icon}</div>
-      <div className="text-xl font-semibold tabular-nums">{value.toLocaleString()}</div>
-      <div className="text-xs text-muted-foreground">{label}</div>
-    </div>
-  )
-}
 
 // ---------------------------------------------------------------------------
 // Concepts — per-concept source vs target counts
@@ -663,7 +468,7 @@ function ConceptQualityView({
       <>
         {/* Verdict chips as filters, in the shared bar: the label says what each
             one does — a bare "1394 OK" read as a count beside the total. */}
-        <span className="shrink-0 text-[11px] text-muted-foreground">{t('etl.comparison_filter_by')}</span>
+        <span className="shrink-0 text-[10px] text-muted-foreground">{t('etl.comparison_filter_by')}</span>
         {(['missing', 'fewer', 'more', 'match'] as const).map((d) => (
           counts[d] > 0 && (
             <button
@@ -691,7 +496,7 @@ function ConceptQualityView({
         {/* When it was counted, as in Statistics — the table is cached now, so a
             stale figure has to be recognisable as one. */}
         {computedAt && (
-          <span className="truncate text-[11px] text-muted-foreground">
+          <span className="truncate text-[10px] text-muted-foreground">
             {t('etl.quality_stats_computed_at', { when: formatDateTimeLocale(computedAt, i18n.language) })}
           </span>
         )}
@@ -771,8 +576,8 @@ function ConceptQualityView({
 
   if (targetBusy) {
     return (
-      <div className="flex h-full items-center justify-center p-6">
-        <RunInProgressNotice text={t('etl.quality_concepts_target_busy')} />
+      <div className="mx-auto flex h-full max-w-xl flex-col justify-center p-6">
+        <NoticeBanner tone="progress" title={t('etl.quality_concepts_target_busy')} />
       </div>
     )
   }
@@ -869,112 +674,6 @@ function DiffBadge({ diff }: { diff: QualityDiff }) {
   )
 }
 
-/**
- * Read the STCM from the target and count each concept's rows on both sides.
- *
- * Everything is queried from the TARGET: `*_source_concept_id` for what arrived,
- * `*_concept_id` for what was mapped. A source database in its own (non-OMOP)
- * shape has no comparable columns, so comparing against it is not possible here.
- */
-async function loadConceptQuality(targetDsId: string): Promise<QualityConceptRow[]> {
-  // C/CR first: since CDM 5.3 source_to_concept_map is no longer where mappings
-  // live, and a pipeline generating C/CR leaves it empty. Reading only STCM made
-  // this whole tab silently show nothing — no error, just no rows.
-  const ccr = await duckdbEngine.queryDataSource(targetDsId, `
-    SELECT c.vocabulary_id  AS source_vocabulary_id,
-           c.concept_code   AS source_code,
-           c.concept_name   AS source_code_description,
-           c.concept_id     AS source_concept_id,
-           cr.concept_id_2  AS target_concept_id,
-           t.vocabulary_id  AS target_vocabulary_id
-    FROM concept c
-    JOIN concept_relationship cr
-      ON cr.concept_id_1 = c.concept_id AND cr.relationship_id = 'Maps to'
-    LEFT JOIN concept t ON t.concept_id = cr.concept_id_2
-    WHERE c.concept_id >= 2000000000
-      AND cr.concept_id_2 != 0
-  `)
-
-  // Not every target has a source_to_concept_map: its absence only means none.
-  const stcm = ccr.length > 0 ? ccr : await duckdbEngine.queryDataSource(targetDsId, `
-    SELECT source_vocabulary_id, source_code, source_code_description,
-           source_concept_id, target_concept_id, target_vocabulary_id
-    FROM source_to_concept_map
-    WHERE target_concept_id != 0
-  `).catch(() => [])
-  if (stcm.length === 0) return []
-
-  const mappings = stcm.map((r) => ({
-    sourceVocabularyId: String(r.source_vocabulary_id ?? ''),
-    sourceCode: String(r.source_code ?? ''),
-    sourceDescription: String(r.source_code_description ?? ''),
-    sourceConceptId: Number(r.source_concept_id ?? 0),
-    targetConceptId: Number(r.target_concept_id ?? 0),
-    targetVocabularyId: String(r.target_vocabulary_id ?? ''),
-  }))
-
-  const sourceIds = [...new Set(mappings.map((m) => m.sourceConceptId).filter((id) => id > 0))]
-  const targetIds = [...new Set(mappings.map((m) => m.targetConceptId).filter((id) => id > 0))]
-
-  const [sourceCounts, targetCounts] = await Promise.all([
-    countConcepts(targetDsId, sourceIds, 'source'),
-    countConcepts(targetDsId, targetIds, 'standard'),
-  ])
-
-  const expected = expectedRowsByTarget(mappings, sourceCounts)
-
-  return mappings.map((m) => {
-    const sc = sourceCounts.get(m.sourceConceptId) ?? { patients: 0, rows: 0 }
-    const tc = targetCounts.get(m.targetConceptId) ?? { patients: 0, rows: 0 }
-    const expectedRows = expected.get(m.targetConceptId) ?? 0
-    return {
-      ...m,
-      sourcePatients: sc.patients,
-      sourceRows: sc.rows,
-      targetPatients: tc.patients,
-      targetRows: tc.rows,
-      expectedRows,
-      diff: classifyDiff(sc.rows, tc.rows, expectedRows),
-    }
-  })
-}
-
-/** Patients and rows per concept id, summed over the OMOP clinical tables. */
-async function countConcepts(
-  dataSourceId: string,
-  conceptIds: number[],
-  side: 'source' | 'standard',
-): Promise<Map<number, ConceptCount>> {
-  const counts = new Map<number, ConceptCount>()
-  // Ids are interpolated into an IN (...), so they must be proven integers.
-  if (conceptIds.length === 0 || !validateIntegerIds(conceptIds)) return counts
-  const idList = conceptIds.join(',')
-
-  for (const ct of CLINICAL_TABLES) {
-    const col = side === 'source' ? ct.source : ct.standard
-    try {
-      const rows = await duckdbEngine.queryDataSource(dataSourceId, `
-        SELECT "${col}" AS cid,
-               COUNT(DISTINCT person_id)::INTEGER AS patients,
-               COUNT(*)::INTEGER AS rows
-        FROM ${qualify(ct)}
-        WHERE "${col}" IN (${idList})
-        GROUP BY "${col}"
-      `)
-      for (const r of rows) {
-        const cid = Number(r.cid)
-        const prev = counts.get(cid) ?? { patients: 0, rows: 0 }
-        counts.set(cid, {
-          patients: prev.patients + Number(r.patients),
-          rows: prev.rows + Number(r.rows),
-        })
-      }
-    } catch {
-      // The table may not exist in this target — not every pipeline fills all of OMOP.
-    }
-  }
-  return counts
-}
 
 const VOCABULARY_SCRIPT = '00_vocabulary.sql'
 
@@ -982,32 +681,3 @@ function errorText(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-function RunInProgressNotice({ text }: { text: string }) {
-  return (
-    <div className="flex items-start gap-2 py-1 text-xs text-muted-foreground">
-      <Loader2 size={12} className="mt-0.5 shrink-0 animate-spin" />
-      <p>{text}</p>
-    </div>
-  )
-}
-
-function QueryErrorNotice({ text, error, onRetry }: { text: string; error?: string; onRetry: () => void }) {
-  const { t } = useTranslation()
-  return (
-    <div className="space-y-2">
-      <p className="flex items-start gap-1.5 text-xs">
-        <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-500" />
-        {text}
-      </p>
-      {error && (
-        <pre className="max-h-32 overflow-auto whitespace-pre-wrap rounded bg-muted px-2 py-1.5 font-mono text-[10px] text-muted-foreground">
-          {error}
-        </pre>
-      )}
-      <Button variant="outline" size="sm" onClick={onRetry}>
-        <RefreshCw size={12} />
-        {t('etl.quality_retry')}
-      </Button>
-    </div>
-  )
-}

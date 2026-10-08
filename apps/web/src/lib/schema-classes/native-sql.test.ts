@@ -140,6 +140,6 @@ describe('an event keyed by (terminology, code)', () => {
     ]), thesaurus)!
     noRelation(sql)
     expect(sql).toContain('REPLACE (_dict.concept_id AS concept_id)')
-    expect(sql).toMatch(/LEFT JOIN \(\s*SELECT[\s\S]*d\."id" AS concept_id[\s\S]*FROM "thesaurus" d\s*\) _dict ON _ev\.concept_terminology = _dict\.concept_terminology AND _ev\.concept_code = _dict\.concept_code/)
+    expect(sql).toMatch(/LEFT JOIN \(\s*SELECT concept_terminology, concept_code, min\(concept_id\) AS concept_id\s*FROM \(\s*SELECT[\s\S]*d\."id" AS concept_id[\s\S]*FROM "thesaurus" d\s*\)\s*GROUP BY concept_terminology, concept_code\s*\) _dict ON _ev\.concept_terminology = _dict\.concept_terminology AND _ev\.concept_code = _dict\.concept_code/)
   })
 })
