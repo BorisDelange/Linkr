@@ -175,5 +175,7 @@ describe('bilingual / localizedChange', () => {
     expect(localizedChange({ en: 'Age', fr: 'Age' }, undefined, 'Âge')).toEqual({ en: 'Age', fr: 'Âge' })
     expect(localizedChange({ en: 'Old', fr: 'Vieux' }, 'New')).toEqual({ en: 'New', fr: 'New' })
     expect(localizedChange({ en: 'Old' })).toBeUndefined()
+    expect(localizedChange('Age', undefined, 'Âge')).toEqual({ en: 'Age', fr: 'Âge' })
+    expect(localizedChange('Old', 'New', 'Nouveau')).toEqual({ en: 'New', fr: 'Nouveau' })
   })
 })

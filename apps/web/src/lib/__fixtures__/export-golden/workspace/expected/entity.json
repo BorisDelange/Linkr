@@ -32,5 +32,6 @@
   "lineageId": null,
   "parentLineageId": null,
   "version": null,
-  "appVersion": "2.4.3"
+  "appVersion": "2.4.3",
+  "minAppVersion": "2.4.3"
 }

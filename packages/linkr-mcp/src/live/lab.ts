@@ -119,10 +119,12 @@ export function bilingual(value: string, fr?: string): Record<string, string> {
  * is given. A French text alone replaces only the French side of `current`.
  */
 export function localizedChange(
-  current: Record<string, string> | undefined, en?: string, fr?: string,
+  current: Record<string, string> | string | undefined, en?: string, fr?: string,
 ): Record<string, string> | undefined {
   if (en !== undefined) return bilingual(en, fr)
   if (fr === undefined) return undefined
+  // Legacy data may hold a plain string: it is the English text, not an object to spread.
+  if (typeof current === 'string') return { en: current, fr }
   return { ...(current ?? {}), fr }
 }
 

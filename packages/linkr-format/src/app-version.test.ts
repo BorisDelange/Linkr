@@ -30,7 +30,7 @@ describe('compareVersions parity with the server', () => {
 
 describe('minAppVersionFor', () => {
   it('stamps nothing for a kind with no declared minimum', () => {
-    expect(minAppVersionFor('project', '9.9.9')).toBeUndefined()
+    expect(minAppVersionFor('sql-collection', '9.9.9')).toBeUndefined()
   })
 
   it('stamps the declared minimum once the writer has reached it', () => {

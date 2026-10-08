@@ -92,7 +92,15 @@ export interface WidgetSpec {
   extra?: Passthrough
 }
 
-export type FilterInputType = 'multi-select' | 'select' | 'range'
+/** Twin of `DashboardFilter['inputType']` in apps/web/src/types/index.ts. */
+export type FilterInputType =
+  | 'checkbox'
+  | 'multi-select'
+  | 'single-select'
+  | 'range'
+  | 'double-range'
+  | 'slider'
+  | 'slider-range'
 
 /**
  * Where a filter applies. Absent = the whole dashboard.
