@@ -330,6 +330,12 @@ describe('registeredFileName', () => {
     expect(registeredFileName('ds_x', 1, "wh/[x]*'.CSV")).toBe('linkr-ds_x/1/f.csv')
   })
 
+  it('keeps the suffix chain, so a compressed file is still read as what it holds', () => {
+    expect(registeredFileName('ds_x', 4, 'wh/x.csv.zst')).toBe('linkr-ds_x/4/f.csv.zst')
+    expect(registeredFileName('ds_x', 5, 'wh/a.b.c.d.e.csv.gz')).toBe('linkr-ds_x/5/f.e.csv.gz')
+    expect(registeredFileName('ds_x', 6, 'wh/no extension')).toBe('linkr-ds_x/6/f')
+  })
+
   it('keeps the hive partition folders, whose columns DuckDB reads off the path', () => {
     expect(registeredFileName('ds_x', 2, 'wh/m/y=1/m=2/0123.parquet')).toBe('linkr-ds_x/2/y=1/m=2/f.parquet')
     expect(registeredFileName('ds_x', 3, 'wh/m/y=a*/f.parquet')).toBe('linkr-ds_x/3/f.parquet')

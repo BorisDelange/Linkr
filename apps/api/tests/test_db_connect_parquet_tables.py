@@ -74,6 +74,15 @@ def test_non_parquet_files_are_ignored():
     assert set(_group_parquet(files, [])) == {(None, "admissions")}
 
 
+def test_a_file_with_a_glob_character_is_left_out_with_a_warning(caplog):
+    files = [
+        ("wh/admissions.parquet", "/tmp/a.parquet"),
+        ("wh/odd.parquet", "/tmp/od[d].parquet"),
+    ]
+    assert set(_group_parquet(files, [])) == {(None, "admissions")}
+    assert "/tmp/od[d].parquet" in caplog.text
+
+
 # --- Schema directories -----------------------------------------------------
 # A warehouse published one directory per module (MIMIC-IV's hosp/icu, eHOP's
 # Oracle schemas) keeps those directories as schemas. The selected root never is

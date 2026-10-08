@@ -9,6 +9,7 @@ never stored: it lives only for the duration of the connection.
 
 import contextvars
 import datetime
+import logging
 import os
 import re
 import tempfile
@@ -23,6 +24,8 @@ import duckdb
 from app.config import settings
 from app.services.data import connection_pool, file_reader, query_cancel
 from app.services.data.db_host_guard import check_db_host
+
+logger = logging.getLogger(__name__)
 
 _ATTACH_ALIAS = "ext"
 
@@ -91,12 +94,15 @@ def _sql_path(path: str) -> str:
 _GLOB_CHARS = re.compile(r"[*?\[]")
 
 
-def has_glob_chars(path: str) -> bool:
+def skip_glob_path(path: str) -> bool:
     """Whether `read_parquet` would expand `path` as a glob (`a?.parquet` also reads
-    `ab.parquet`). Such a file is left out rather than escaped: an escaped pattern
-    (`a[?].parquet`) is no longer the path `allowed_paths` grants, so the locked-down
-    connection could not read it anyway."""
-    return bool(_GLOB_CHARS.search(str(path)))
+    `ab.parquet`), logging a warning when it would. Such a file is left out rather
+    than escaped: an escaped pattern (`a[?].parquet`) is no longer the path
+    `allowed_paths` grants, so the locked-down connection could not read it anyway."""
+    if _GLOB_CHARS.search(str(path)) is None:
+        return False
+    logger.warning("Left out a data file whose path holds a glob character (*, ? or [): %s", path)
+    return True
 
 
 def _lock_down_user_sql(con: duckdb.DuckDBPyConnection) -> None:
@@ -387,7 +393,7 @@ def _reject_forbidden_statements(sql: str) -> None:
     The splitter keeps string literals intact, so `SELECT '-- install httpfs'` is
     still not a false positive."""
     for stmt in _split_statements(sql):
-        m = _FORBIDDEN_IN_USER_SQL.match(_strip_leading_noise(stmt))
+        m = _leading_match(_FORBIDDEN_IN_USER_SQL, stmt)
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
 
@@ -408,6 +414,14 @@ def _token_texts(stmt: str) -> list[tuple[str, "duckdb.token_type"]]:
         m = _TOKEN_END.search(raw)
         out.append(((raw[:m.start()] if m else raw).upper(), kind))
     return out
+
+
+def _leading_match(pattern: re.Pattern[str], stmt: str) -> re.Match[str] | None:
+    """`pattern` matched on the statement's opening, as written and as its first two
+    tokens: a comment between them (`FORCE/**/INSTALL httpfs`) hides the pair from
+    a regex but not from DuckDB."""
+    text = _strip_leading_noise(stmt)
+    return pattern.match(text) or pattern.match(" ".join(t for t, _ in _token_texts(text)[:2]))
 
 
 def _copies_to_a_file(stmt: str) -> bool:
@@ -530,7 +544,7 @@ _FORBIDDEN_TYPES_IN_SHARED_READ = frozenset({
 
 def _reject_session_statements(sql: str) -> None:
     for stmt in _split_statements(sql):
-        m = _FORBIDDEN_IN_SHARED_READ.match(_strip_leading_noise(stmt))
+        m = _leading_match(_FORBIDDEN_IN_SHARED_READ, stmt)
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a query")
         for kind, _, explain in _classified(stmt):
@@ -928,7 +942,7 @@ def _group_parquet(
     for file_name, path in files:
         if not file_name.lower().endswith((".parquet", ".pq")):
             continue
-        if has_glob_chars(path):
+        if skip_glob_path(path):
             continue
         schema, table = _table_ref_of(file_name, root, known)
         # Both are interpolated into quoted identifiers; a name that doesn't yield
@@ -1374,7 +1388,7 @@ def run_etl_sql(
             # so `source.patients` resolves without `patients` alone ever reaching
             # a read-only role.
             search_path = ",".join(["target", "memory", *_role_schema_path(con)])
-            _reject_ambiguous_role_refs(sql, _ambiguous_role_tables(con))
+            _reject_ambiguous_role_refs(sql, _ambiguous_role_tables(con), _shadowing_tables(con))
             return _run_statements(con, search_path, sql, on_statement=on_statement)
         except duckdb.InterruptException as e:
             # Only a cancel raises this — report it as such rather than as a SQL
@@ -1488,8 +1502,41 @@ def _ambiguous_role_tables(con: duckdb.DuckDBPyConnection) -> dict[str, dict[str
     return out
 
 
-def _reject_ambiguous_role_refs(sql: str, ambiguous: dict[str, dict[str, list[str]]]) -> None:
-    """Refuse a two-part `role.table` whose table two schemas of that role hold.
+def _script_defined_names(tokens: list[tuple[str, "duckdb.token_type"]]) -> set[str]:
+    """Lower-cased names a script creates (`CREATE … TABLE|VIEW [x.]name`) or binds
+    as a CTE (`name AS (`): a bare reference to one reads that, not a role."""
+    texts = [text.strip('"').lower() for text, _ in tokens]
+    out: set[str] = set()
+    for i, text in enumerate(texts):
+        if text in ("table", "view") and i > 0:
+            j = i + 1
+            while j < len(texts) and texts[j] in ("if", "not", "exists"):
+                j += 1
+            while j + 2 < len(texts) and texts[j + 1] == ".":
+                j += 2
+            if j < len(texts):
+                out.add(texts[j])
+        elif text == "as" and i > 0 and i + 1 < len(texts) and texts[i + 1] in ("(", "materialized"):
+            out.add(texts[i - 1])
+    return out
+
+
+def _shadowing_tables(con: duckdb.DuckDBPyConnection) -> frozenset[str]:
+    """Lower-cased tables of the catalogs ahead of the roles on an ETL search path."""
+    rows = con.execute(
+        "SELECT DISTINCT lower(table_name) FROM information_schema.tables "
+        "WHERE table_catalog IN ('target', 'memory') AND table_schema = 'main'"
+    ).fetchall()
+    return frozenset(name for (name,) in rows)
+
+
+def _reject_ambiguous_role_refs(
+    sql: str, ambiguous: dict[str, dict[str, list[str]]], shadowed: frozenset[str] = frozenset(),
+) -> None:
+    """Refuse a two-part `role.table` whose table two schemas of that role hold,
+    and a bare `FROM|JOIN table` that two schemas of one role hold, unless a table
+    of that name sits ahead of the roles on the search path (`shadowed`: the
+    target's and memory's) or the script defines it.
 
     The search path would resolve it to whichever schema comes first, reading one
     module's table where the author may have meant the other's. The script has to
@@ -1497,9 +1544,28 @@ def _reject_ambiguous_role_refs(sql: str, ambiguous: dict[str, dict[str, list[st
     if not ambiguous:
         return
     names = (duckdb.token_type.identifier, duckdb.token_type.keyword)
-    for stmt in _split_statements(sql):
-        tokens = _token_texts(stmt)
+    statements = [_token_texts(stmt) for stmt in _split_statements(sql)]
+    defined = set(shadowed)
+    for tokens in statements:
+        defined |= _script_defined_names(tokens)
+    for tokens in statements:
         texts = [text for text, _ in tokens]
+        for i in range(1, len(tokens)):
+            if texts[i - 1] not in ("FROM", "JOIN") or tokens[i][1] not in names:
+                continue
+            if i + 1 < len(tokens) and texts[i + 1] in (".", "("):
+                continue
+            table = texts[i].strip('"').lower()
+            if table in defined:
+                continue
+            for role, tables in ambiguous.items():
+                schemas = tables.get(table)
+                if schemas:
+                    options = " or ".join(f"{role}.{schema}.{table}" for schema in schemas)
+                    raise ValueError(
+                        f"{table} is ambiguous: {', '.join(schemas)} of {role} each hold a "
+                        f"table {table}. Name the schema: {options}."
+                    )
         for i in range(len(tokens) - 2):
             if tokens[i][1] not in names or tokens[i + 2][1] not in names:
                 continue

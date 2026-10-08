@@ -9,7 +9,7 @@ alone tells which: no row is read.
 
 import duckdb
 
-from app.services.data.db_connect import _sql_path, has_glob_chars
+from app.services.data.db_connect import _sql_path, skip_glob_path
 
 
 def _number(v: object) -> float | None:
@@ -24,7 +24,7 @@ def column_layout(paths: list[str], column: str) -> dict:
     `column` has to read: about 1/n when the files are sorted on it, about 1
     when they are not. The share is None when the statistics are missing or
     not numeric."""
-    paths = [p for p in paths if not has_glob_chars(p)]
+    paths = [p for p in paths if not skip_glob_path(p)]
     if not paths:
         return {"row_groups": 0, "scan_fraction": None}
     files = ", ".join(f"'{_sql_path(p)}'" for p in paths)

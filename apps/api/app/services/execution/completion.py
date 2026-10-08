@@ -13,6 +13,7 @@ import os
 import sys
 import sysconfig
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from functools import cache
 
 from app.services.execution.kernel import Kernel
@@ -83,7 +84,11 @@ def _static_jedi():
 
 
 # One jedi subprocess serves every request, and its pipe is not thread-safe.
+# Held from dispatch to the end of the call: a request arriving meanwhile gets
+# nothing rather than queueing behind a slow one. Its own thread, so a slow
+# call never holds one of the default executor's (shared with count units).
 _static_lock = threading.Lock()
+_static_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jedi-static")
 
 
 # Twins: `_complete` in kernel.py (live kernel) and completePython in
@@ -99,8 +104,7 @@ def _python_static(code: str, cursor: int) -> list[dict]:
     line = before.count("\n") + 1
     col = len(before) - (before.rfind("\n") + 1)
     try:
-        with _static_lock:
-            found = jedi.Script(code, environment=env, project=project).complete(line, col)[:_MAX_ITEMS]
+        found = jedi.Script(code, environment=env, project=project).complete(line, col)[:_MAX_ITEMS]
     except Exception:  # noqa: BLE001 — jedi raises on odd input; no completion then
         return []
     return [
@@ -109,13 +113,31 @@ def _python_static(code: str, cursor: int) -> list[dict]:
     ]
 
 
+def _python_static_then_release(code: str, cursor: int) -> list[dict]:
+    try:
+        return _python_static(code, cursor)
+    finally:
+        _static_lock.release()
+
+
+async def _python_static_if_idle(code: str, cursor: int) -> list[dict]:
+    if not _static_lock.acquire(blocking=False):
+        return []
+    try:
+        future = _static_executor.submit(_python_static_then_release, code, cursor)
+    except BaseException:
+        _static_lock.release()
+        raise
+    return await asyncio.wrap_future(future)
+
+
 async def complete(kernel: Kernel | None, language: str, code: str, cursor: int) -> list[dict]:
     cursor = max(0, min(cursor, len(code)))
     raw = await kernel.complete(code, cursor) if kernel is not None else None
     if language == "python":
         if raw is not None:
             return _python_items(raw)[:_MAX_ITEMS]
-        return await asyncio.to_thread(_python_static, code, cursor)
+        return await _python_static_if_idle(code, cursor)
     if language == "r" and raw is not None:
         return _r_items(raw)[:_MAX_ITEMS]
     return []

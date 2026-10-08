@@ -10,7 +10,9 @@ front-only and a server client pushing the same repo would fight over the file.
 The rule, with k the threshold:
 - a count column cell in 1..k-1 becomes "<k" (a count is plain decimal text);
 - the profile JSON of a concept under k patients (or records) is withheld, and
-  so is a cell that is not a JSON object;
+  so is a cell that is not a JSON object, and one with no total — a count cell
+  of its row, or the profile's `patients_count`/`rows_count` — reading as an
+  integer of at least k (missing, "2e0", -1, "n/a" all fail closed);
 - otherwise the profile loses its extremes (min/max, per-patient min/max,
   range, first and last event dates), p1/p5/p95/p99 under 100 values, and
   every histogram bin, category, hospital unit or year whose `count` (records)
@@ -89,6 +91,11 @@ def _number(value: object) -> float:
 
 def _small(value: object, k: int) -> bool:
     return 0 < _number(value) < k
+
+
+def _at_least(value: object, k: int) -> bool:
+    n = _number(value)
+    return math.isfinite(n) and n == int(n) and n >= k
 
 
 def mask_frequency(value: object, k: int | None = None) -> object:
@@ -187,9 +194,14 @@ def _suppress(entries: list, small: Callable[[dict], bool], mass: Callable[[dict
     return kept
 
 
-def mask_profile(profile: dict, k: int) -> dict | None:
-    """The profile as it may leave the instance, or None to withhold it."""
+def mask_profile(profile: dict, k: int, counted: bool = False) -> dict | None:
+    """The profile as it may leave the instance, or None to withhold it. It leaves
+    only over a total known to reach k: `counted` (a count cell of its row does)
+    or its own `patients_count`/`rows_count` — a total that cannot be read could
+    be one patient's."""
     if _small(profile.get("patients_count"), k) or _small(profile.get("rows_count"), k):
+        return None
+    if not (counted or _at_least(profile.get("patients_count"), k) or _at_least(profile.get("rows_count"), k)):
         return None
     out = dict(profile)
     out.pop("range", None)
@@ -355,13 +367,14 @@ def mask_source_concepts_csv(text: str, column_mapping: dict | None = None, k: i
     changed = False
     for cells in rows[1:]:
         withheld = any(i < len(cells) and _small(cells[i], k) for i in count_idx)
+        counted = any(i < len(cells) and _at_least(cells[i], k) for i in count_idx)
         for i in count_idx:
             if i < len(cells) and _small(cells[i], k):
                 cells[i] = f"<{k}"
                 changed = True
         if 0 <= json_idx < len(cells) and cells[json_idx].strip():
             profile = _parse_profile(cells[json_idx])
-            masked = None if withheld or not isinstance(profile, dict) else mask_profile(profile, k)
+            masked = None if withheld or not isinstance(profile, dict) else mask_profile(profile, k, counted)
             new = "" if masked is None else _js_json(masked)
             if masked != profile or masked is None:
                 cells[json_idx] = new

@@ -154,3 +154,30 @@ def test_an_ambiguous_name_with_its_schema_runs(target_db, multi_schema_source):
          "CREATE OR REPLACE TABLE target.out_rows AS "
          "SELECT count(*) FROM source.icu.transfers WHERE 'source.transfers' <> '';")
     assert _count(target_db) == 2
+
+
+def test_a_bare_name_two_schemas_hold_is_refused(target_db, multi_schema_source):
+    """`FROM transfers` would silently read whichever of hosp/icu comes first."""
+    with pytest.raises(ValueError, match=r"transfers is ambiguous.*source\.hosp\.transfers or source\.icu\.transfers"):
+        _run(target_db, multi_schema_source,
+             "CREATE OR REPLACE TABLE target.out_rows AS SELECT count(*) FROM transfers;")
+
+
+def test_a_bare_name_the_script_or_the_target_holds_is_not_ambiguous(target_db, multi_schema_source):
+    _run(target_db, multi_schema_source,
+         "CREATE OR REPLACE TABLE target.out_rows AS "
+         "WITH transfers AS (SELECT 1 AS n UNION ALL SELECT 2) SELECT count(*) FROM transfers;")
+    assert _count(target_db) == 2
+    _run(target_db, multi_schema_source,
+         "CREATE TABLE transfers AS SELECT 7 AS n; "
+         "CREATE OR REPLACE TABLE target.out_rows AS SELECT count(*) FROM transfers;")
+    assert _count(target_db) == 1
+    _run(target_db, multi_schema_source,
+         "CREATE OR REPLACE TABLE target.out_rows AS SELECT sum(n) FROM transfers;")
+    assert _count(target_db) == 7
+
+
+def test_a_bare_name_one_schema_holds_still_resolves(target_db, multi_schema_source):
+    _run(target_db, multi_schema_source,
+         "CREATE OR REPLACE TABLE target.out_rows AS SELECT count(*) FROM patients;")
+    assert _count(target_db) == 3

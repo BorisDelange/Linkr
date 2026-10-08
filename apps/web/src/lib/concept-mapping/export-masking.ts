@@ -74,6 +74,11 @@ function isSmall(value: unknown, k: number): boolean {
   return Number.isFinite(n) && n > 0 && n < k
 }
 
+function isAtLeast(value: unknown, k: number): boolean {
+  const n = toNumber(value)
+  return Number.isInteger(n) && n >= k
+}
+
 /** A mapping's source frequency as it may leave the instance: a small one is
  *  unknown (null) — the field is a number, so it cannot read "<k". */
 export function maskFrequency<T>(value: T, k: number = exportMinCount): T | null {
@@ -160,9 +165,13 @@ function suppress(entries: unknown[], small: (e: Json) => boolean, mass: (e: Jso
   return kept
 }
 
-/** The profile as it may leave the instance, or null to withhold it. */
-export function maskProfile(profile: Json, k: number): Json | null {
+/** The profile as it may leave the instance, or null to withhold it. It leaves
+ *  only over a total known to reach k: `counted` (a count cell of its row does)
+ *  or its own `patients_count`/`rows_count` — a total that cannot be read could
+ *  be one patient's. */
+export function maskProfile(profile: Json, k: number, counted = false): Json | null {
   if (isSmall(profile.patients_count, k) || isSmall(profile.rows_count, k)) return null
+  if (!(counted || isAtLeast(profile.patients_count, k) || isAtLeast(profile.rows_count, k))) return null
   const out: Json = { ...profile }
   delete out.range
   for (const key of ['numeric_data', 'records_per_patient']) {
@@ -272,6 +281,7 @@ export function maskSourceConceptsCsv(
   let changed = false
   for (const cells of rows.slice(1)) {
     const withheld = countIdx.some((i) => i < cells.length && isSmall(cells[i], k))
+    const counted = countIdx.some((i) => i < cells.length && isAtLeast(cells[i], k))
     for (const i of countIdx) {
       if (i < cells.length && isSmall(cells[i], k)) {
         cells[i] = `<${k}`
@@ -285,7 +295,7 @@ export function maskSourceConceptsCsv(
       } catch {
         // Unreadable here may be readable elsewhere (Python takes NaN): withheld.
       }
-      const masked = withheld || !isObject(profile) || tooDeep(profile) ? null : maskProfile(profile, k)
+      const masked = withheld || !isObject(profile) || tooDeep(profile) ? null : maskProfile(profile, k, counted)
       const next = masked === null ? '' : JSON.stringify(masked)
       if (masked === null || next !== JSON.stringify(profile)) {
         cells[jsonIdx] = next

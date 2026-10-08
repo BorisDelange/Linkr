@@ -1143,13 +1143,14 @@ const pathLiteral = (path: string): string => `'${path.replace(/'/g, "''")}'`
  * The name a file is registered under in DuckDB's virtual filesystem: opaque, so
  * a `?`, `*` or `[` in the user's file name is never read as a glob by
  * `read_parquet` (`a?.parquet` would also read `ab.parquet`), and two sources
- * holding the same relative path never share one registration. The extension
- * picks the reader; the hive partition folders are kept so their columns still
- * come through as they do on the server.
+ * holding the same relative path never share one registration. The suffix chain
+ * (up to three, so `x.csv.zst` keeps its compression) picks the reader; the hive
+ * partition folders are kept so their columns still come through as they do on
+ * the server.
  */
 export function registeredFileName(schema: string, index: number, fileName: string): string {
   const parts = fileName.replace(/\\/g, '/').split('/').filter(Boolean)
-  const ext = /\.(parquet|pq|csv|tsv|txt|gz|duckdb|db|sqlite3?)$/i.exec(parts[parts.length - 1] ?? '')?.[0].toLowerCase() ?? ''
+  const ext = /(\.[a-z0-9]{1,8}){1,3}$/i.exec(parts[parts.length - 1] ?? '')?.[0].toLowerCase() ?? ''
   const hive = parts.slice(0, -1).filter((p) => isHiveSegment(p) && !/[*?[\]{}'\\]/.test(p))
   return [`linkr-${schema}`, String(index), ...hive, `f${ext}`].join('/')
 }

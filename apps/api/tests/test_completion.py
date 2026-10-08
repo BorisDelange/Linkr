@@ -4,6 +4,7 @@ import shutil
 
 import pytest
 
+from app.services.execution import completion
 from app.services.execution.completion import _r_items, _r_label
 
 API = "/api/v1"
@@ -51,6 +52,15 @@ async def test_static_completion_does_not_see_the_apis_own_environment(client):
     assert await _complete(client, headers, uid, "from app.services import ") == []
     assert await _complete(client, headers, uid, "import fasta") == []
     assert "json" in [i["label"] for i in await _complete(client, headers, uid, "import jso")]
+
+
+async def test_static_completion_returns_nothing_while_a_call_is_running():
+    assert completion._static_lock.acquire(blocking=False)
+    try:
+        assert await completion.complete(None, "python", "import os\nos.pa", 15) == []
+    finally:
+        completion._static_lock.release()
+    assert "path" in [i["label"] for i in await completion.complete(None, "python", "import os\nos.pa", 15)]
 
 
 async def test_completion_bounds_its_input(client):

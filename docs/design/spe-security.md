@@ -177,6 +177,11 @@ pass, `services/export_masking.py` and its byte-identical twin
   cell that is not a JSON object (`NaN`, single quotes) or that nests deeper than
   20 levels (`MAX_PROFILE_DEPTH`: Python's parser gives up near a thousand levels
   where `JSON.parse` does not, so both sides stop at the same depth);
+- a profile leaves only over a total known to reach k: a count cell of its row,
+  or its own `patients_count`/`rows_count`, must read as a plain non-negative
+  integer of at least k. A missing total, `"2e0"`, `-1` or an `n/a`/empty count
+  cell is no total, so the profile is withheld (fail closed) — otherwise the
+  mean, median and quartiles of one patient would leave;
 - other profiles lose their extremes (`min`, `max`, `range`, per-patient min/max,
   `temporal_distribution.start_date`/`end_date`) and `p1`/`p5`/`p95`/`p99` under
   100 values;

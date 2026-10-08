@@ -22,3 +22,6 @@ LOCAL,YEARS,One patient in a year,730,61,"{""rows_count"":730,""patients_count""
 LOCAL,HIST_PATIENTS,Histogram with patients,850,90,"{""rows_count"":850,""patients_count"":90,""histogram"":[{""x"":15,""count"":300},{""x"":35,""count"":400}]}"
 LOCAL,PCT_ONLY,Shares without counts,1000,100,"{""rows_count"":1000,""patients_count"":100,""categorical_data"":[]}"
 LOCAL,DEEP,Nested past the cap,500,50,
+LOCAL,NO_TOTAL,Totals unreadable,,,
+LOCAL,BAD_TOTAL,Totals not counts,n/a,-1,
+LOCAL,PROFILE_TOTAL,Totals in the profile only,,,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""median"":5}}"

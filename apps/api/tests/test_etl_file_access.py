@@ -140,3 +140,13 @@ def test_cannot_turn_external_access_back_on(target_db, parquet_role):
 ])
 def test_copy_direction(stmt, writes):
     assert db_connect._copies_to_a_file(stmt) is writes
+
+
+@pytest.mark.parametrize("stmt", [
+    "FORCE/**/INSTALL httpfs", "force--c\rINSTALL httpfs", "/* x */ FORCE /* y */ LOAD httpfs",
+])
+def test_a_comment_after_force_does_not_hide_the_extension_statement(stmt):
+    with pytest.raises(ValueError, match="not allowed in a pipeline script"):
+        db_connect._reject_forbidden_statements(stmt)
+    with pytest.raises(ValueError, match="not allowed in a query"):
+        db_connect._reject_session_statements(stmt)
