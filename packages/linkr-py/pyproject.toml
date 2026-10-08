@@ -3,7 +3,8 @@ name = "linkr"
 version = "0.1.0"
 description = "Reach the current Linkr project from a script running in its IDE"
 requires-python = ">=3.10"
-license = { text = "AGPL-3.0-or-later" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 dependencies = ["duckdb>=0.10"]
 
 [build-system]

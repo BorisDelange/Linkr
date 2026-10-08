@@ -2,7 +2,7 @@
 
 [![Try Linkr](https://img.shields.io/badge/Try%20Linkr-GitLab%20Pages-2ea44f?style=for-the-badge)](https://linkr-v2-b1800b.frama.io/)
 [![Documentation](https://img.shields.io/badge/Documentation-linkr.interhop.org-2ea44f?style=for-the-badge)](https://linkr.interhop.org/en/docs/)
-[![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0-blue?style=for-the-badge)](https://www.gnu.org/licenses/gpl-3.0)
+[![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge)](LICENSING.md)
 
 **A health data platform for the people who ask the clinical questions.**
 
@@ -257,3 +257,11 @@ code; **[CONTRIBUTING.md](CONTRIBUTING.md)** says how.
 
 The user documentation lives in a separate repository and is published at
 [linkr.interhop.org](https://linkr.interhop.org/en/docs/).
+
+## Licence
+
+Linkr is free software under the **AGPL-3.0-or-later** ([`LICENSE`](LICENSE)). The export
+format (`packages/linkr-format`) and the script client libraries (`packages/linkr-py`,
+`packages/linkr-r`) are under **Apache-2.0**, so other tools and analysis scripts can use
+them under any licence. Plugins you write are yours to license as you choose.
+[`LICENSING.md`](LICENSING.md) has the details.

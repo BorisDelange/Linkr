@@ -284,7 +284,7 @@ and there the alternative is an unreadable cell.
 ## 2. Licensing — can we ship these importers?
 
 **Reviewed. Verdict: no tool on this list legally blocks writing our own
-importer.** Linkr is GPL v3. *(Not legal advice; two items flagged for counsel
+importer.** Linkr is AGPL v3. *(Not legal advice; two items flagged for counsel
 at the end.)*
 
 The consistent pattern: vendors restrict **their software and their running

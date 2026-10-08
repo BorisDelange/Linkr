@@ -8,7 +8,7 @@ description: >-
   source codes onto a data dictionary (concept sets). Reads the source concepts
   and their metadata, searches the OMOP vocabulary, and leaves AI suggestions
   (or, on explicit confirmation, mappings) for review in Linkr.
-license: GPL-3.0
+license: AGPL-3.0-or-later
 compatibility: >-
   Needs the Linkr MCP server (packages/linkr-mcp) connected with the user's
   Linkr API key. Works with any model and any MCP client that loads Agent Skills.

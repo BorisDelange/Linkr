@@ -2,6 +2,7 @@
   "name": "@linkr/mcp",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "bin": {
     "linkr-mcp": "./bin/linkr-mcp.mjs"

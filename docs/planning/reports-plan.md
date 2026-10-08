@@ -46,12 +46,14 @@ reference implementation we studied. Three things we take from it:
 | `pptxgenjs` | MIT | 2.6 MB |
 
 The `xl-*` packages are dual-licensed: free under copyleft, paid for proprietary use.
-**Linkr is GPL-3.0**, so they are usable with no commercial license. This consciously
-**locks these modules to GPL** — acceptable since that is already the project license, but
-it must not be forgotten if the license is ever revisited.
+**Linkr is AGPL-3.0-or-later**, so they are usable with no commercial license (AGPLv3 §13
+explicitly allows combining with GPLv3 code; the `xl-*` modules themselves stay GPL). This
+consciously **locks the application to a GPL-family licence** — it must not be forgotten if
+the license is ever revisited. They must never be pulled into the Apache-2.0 packages
+(`linkr-format`, `linkr-py`, `linkr-r`).
 
-Also: porting `useSlides` / `useFitScale` logic from Docs is GPL→GPL, and requires
-attribution in the file header.
+Also: porting `useSlides` / `useFitScale` logic from Docs is GPL code combined into an
+AGPL work, and requires attribution in the file header.
 
 ## Data model
 

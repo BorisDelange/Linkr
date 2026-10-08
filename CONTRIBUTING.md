@@ -143,5 +143,7 @@ what you verified rather than what a tool claimed.
 
 ## Licence
 
-Linkr is free software under the **GPL-3.0**. By contributing, you agree that your
-contribution is licensed under the same terms.
+Linkr is free software under the **AGPL-3.0-or-later**, except `packages/linkr-format`,
+`packages/linkr-py` and `packages/linkr-r`, which are under **Apache-2.0** —
+[`LICENSING.md`](LICENSING.md) says which applies where. By contributing, you agree that
+your contribution is licensed under the terms of the part it touches.

@@ -11,7 +11,7 @@ Description: Client library for scripts running inside a Linkr IDE session.
     are resolved at call time from a private library (see R/zzz.R), so that
     installing this package does not put them on the kernel's .libPaths() and
     let a script load them without declaring them in its project environment.
-License: AGPL-3
+License: Apache License (== 2.0)
 Encoding: UTF-8
 Depends: R (>= 4.0)
 Imports: utils
