@@ -229,12 +229,16 @@ def _spc_is_event(cell, event_values):
         if number is not None:
             return number != 0
         return str(cell).strip().lower() in ("true", "yes", "oui")
-    text = str(cell)
+    return _spc_text(cell) in event_values
+
+
+def _spc_text(cell):
     # pandas renders a boolean "True" while the value picker (DuckDB, and the
     # client's String(v)) offers "true": a chosen boolean would never match.
+    text = str(cell)
     if text in ("True", "False") and not isinstance(cell, str):
         text = text.lower()
-    return text in event_values
+    return text
 
 
 def _spc_rows(dataset):
@@ -426,7 +430,7 @@ def _spc_aggregate(rows, spec, statistic_type):
         filter_col, filter_values = spec["deviceFilterColumn"], spec["deviceFilterValues"]
         if mode == "device-days" and filter_col and filter_values:
             interval_rows = [r for r in exposure_rows
-                             if not _spc_is_empty(r.get(filter_col)) and str(r.get(filter_col)) in filter_values]
+                             if not _spc_is_empty(r.get(filter_col)) and _spc_text(r.get(filter_col)) in filter_values]
         intervals = _spc_collect_intervals(interval_rows, start_col, end_col, spec["exposureEntity"])
         if not intervals:
             return []
@@ -566,11 +570,12 @@ def _spc_flag_runs(points, max_run, out):
     start = 0
     side = 0
 
+    # Points on the centre line neither break a run nor count towards it.
     def close(end):
-        if side != 0 and end - start > max_run:
-            for k in range(start, end):
-                if _spc_side(points[k]) != 0:
-                    out[k].append("shift")
+        on_side = [k for k in range(start, end) if _spc_side(points[k]) != 0]
+        if side != 0 and len(on_side) > max_run:
+            for k in on_side:
+                out[k].append("shift")
 
     for i, point in enumerate(points):
         s = _spc_side(point)

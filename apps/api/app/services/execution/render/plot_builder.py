@@ -197,15 +197,19 @@ def _linkr_num_series(col):
     # bin bounds), without a Python call and a to_datetime parse per row.
     import pandas as _pd
     if _pd.api.types.is_datetime64_any_dtype(col):
-        return col.astype("int64").where(col.notna()) // 1_000_000
+        return _linkr_epoch_ms(col)
     num = _pd.to_numeric(col, errors="coerce")
     if num.notna().any() or len(col) == 0:
         return num
     # All-unparseable as numbers: it may still be date strings.
     parsed = _pd.to_datetime(col, errors="coerce")
     if parsed.notna().any():
-        return parsed.astype("int64").where(parsed.notna()) // 1_000_000
+        return _linkr_epoch_ms(parsed)
     return num
+
+def _linkr_epoch_ms(col):
+    # Unit-safe: a Parquet timestamp reads as datetime64[us], not [ns].
+    return col.dt.as_unit("ms").astype("int64").where(col.notna())
 
 # Scatter/line draw one SVG element per point in the browser; past a few thousand
 # the chart stalls on every redraw. Mirror of plot-sampling.ts in
@@ -337,9 +341,9 @@ def _linkr_boxplot_stats(values):
         return None
     s = sorted(values)
     n = len(s)
-    q1 = s[int(_math.floor(n * 0.25))]
-    med = s[int(_math.floor(n * 0.5))]
-    q3 = s[int(_math.floor(n * 0.75))]
+    q1 = _linkr_percentile(s, 25)
+    med = _linkr_percentile(s, 50)
+    q3 = _linkr_percentile(s, 75)
     iqr = q3 - q1
     wlow = max(s[0], q1 - 1.5 * iqr)
     whigh = min(s[-1], q3 + 1.5 * iqr)
@@ -394,7 +398,9 @@ def _linkr_print_plot(dataset, spec):
                     # A column with no numeric values keeps its `first` (non-numeric);
                     # otherwise overlay the vectorised stat over numeric entries.
                     if nums.notna().any():
-                        stat = nums.groupby(df[up], sort=False).agg(fn)
+                        by = nums.groupby(df[up], sort=False)
+                        # min_count: an entity with no value stays missing, not 0.
+                        stat = by.sum(min_count=1) if fn == "sum" else by.agg(fn)
                         out[c] = out[up].map(stat).where(lambda s: s.notna(), out[c])
             df = out
 

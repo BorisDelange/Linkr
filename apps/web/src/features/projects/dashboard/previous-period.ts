@@ -2,6 +2,7 @@ import type { FilterValue } from '@/types'
 import { resolveRelativeWindow } from './date-presets'
 
 const DAY_MS = 86_400_000
+const END_OF_DAY = 'T23:59:59.999999'
 
 function parseDay(value: string): number | null {
   const ms = Date.parse(`${value.slice(0, 10)}T00:00:00Z`)
@@ -53,5 +54,8 @@ export function previousPeriodFilters(
     ? formatDay(Date.UTC(new Date(start).getUTCFullYear(), new Date(start).getUTCMonth() - months, 1))
     : formatDay(start - (end - start + DAY_MS))
   const to = formatDay(start - DAY_MS)
-  return { filters: { ...filters, [colId]: { type: 'date', from, to } }, from, to }
+  // A relative window matches on the date part (the whole end day); a plain
+  // `date` filter compares full strings, so close it on the last instant of `to`.
+  const filterTo = filter.type === 'date-relative' ? `${to}${END_OF_DAY}` : to
+  return { filters: { ...filters, [colId]: { type: 'date', from, to: filterTo } }, from, to }
 }

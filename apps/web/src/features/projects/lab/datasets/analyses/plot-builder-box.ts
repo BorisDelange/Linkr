@@ -1,3 +1,4 @@
+import { quantile } from '@/lib/stats/descriptive-table'
 import { orderCategories, type CategoryOrder } from './plot-category-order'
 
 /** Plot Builder boxplot/violin data: per-category stats, category ordering,
@@ -17,9 +18,9 @@ export interface BoxplotData {
 export function computeBoxplotStats(values: number[]): BoxStats | null {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
-  const q1 = sorted[Math.floor(sorted.length * 0.25)]
-  const median = sorted[Math.floor(sorted.length * 0.5)]
-  const q3 = sorted[Math.floor(sorted.length * 0.75)]
+  const q1 = quantile(sorted, 0.25)
+  const median = quantile(sorted, 0.5)
+  const q3 = quantile(sorted, 0.75)
   const iqr = q3 - q1
   const whiskerLow = Math.max(sorted[0], q1 - 1.5 * iqr)
   const whiskerHigh = Math.min(sorted[sorted.length - 1], q3 + 1.5 * iqr)

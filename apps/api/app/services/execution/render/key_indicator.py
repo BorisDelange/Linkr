@@ -184,6 +184,13 @@ def _linkr_freq(series):
     counts = _linkr_str(series).value_counts().head(10)
     return [{"name": str(k), "value": int(v)} for k, v in counts.items()]
 
+def _linkr_quantile(s, p):
+    # R type 7, like quantile() in apps/web/src/lib/stats/descriptive-table.ts.
+    pos = (len(s) - 1) * p
+    lo = int(_math.floor(pos))
+    hi = int(_math.ceil(pos))
+    return s[lo] if lo == hi else s[lo] + (pos - lo) * (s[hi] - s[lo])
+
 def _linkr_boxplot_stats(values):
     # Tukey whiskers (Q1-1.5*IQR / Q3+1.5*IQR, pulled back to real data), matching
     # computeBoxplotStats in PlotBuilderComponent.tsx so both plugins draw the same
@@ -193,9 +200,9 @@ def _linkr_boxplot_stats(values):
         return None
     s = sorted(values)
     n = len(s)
-    q1 = s[int(_math.floor(n * 0.25))]
-    med = s[int(_math.floor(n * 0.5))]
-    q3 = s[int(_math.floor(n * 0.75))]
+    q1 = _linkr_quantile(s, 0.25)
+    med = _linkr_quantile(s, 0.5)
+    q3 = _linkr_quantile(s, 0.75)
     iqr = q3 - q1
     return {
         "min": max(s[0], q1 - 1.5 * iqr),
@@ -266,15 +273,17 @@ def _linkr_print_kpi(dataset, spec):
         cols = [unique_per] + ([name] if name != unique_per and name in df.columns else [])
         df = df.loc[df[unique_per].notna(), cols]
         gb = df.groupby(unique_per, sort=False)
+        # Row-wise first/last, not pandas' first-non-null: a missing value stays missing.
         if unique_agg == "last":
-            out = gb.last().reset_index()
+            out = gb.tail(1).reset_index(drop=True)
         else:
-            out = gb.first().reset_index()
+            out = gb.head(1).reset_index(drop=True)
             if unique_agg != "first" and name != unique_per and name in df.columns:
                 nums = _pd.to_numeric(df[name], errors="coerce")
                 # Entities with no numeric value keep their first (non-numeric) one.
                 if nums.notna().any():
-                    stat = nums.groupby(df[unique_per], sort=False).agg(unique_agg)
+                    by = nums.groupby(df[unique_per], sort=False)
+                    stat = by.sum(min_count=1) if unique_agg == "sum" else by.agg(unique_agg)
                     out[name] = out[unique_per].map(stat).where(lambda s: s.notna(), out[name])
         df = out
 

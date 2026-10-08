@@ -58,9 +58,10 @@ function flagRuns(points: ChartPoint[], maxRun: number, out: SignalKind[][]): vo
   let start = 0
   let side = 0
   const closeRun = (end: number) => {
-    if (side !== 0 && end - start > maxRun) {
-      for (let k = start; k < end; k++) if (sideOf(points[k]) !== 0) out[k].push('shift')
-    }
+    if (side === 0) return
+    const onSide: number[] = []
+    for (let k = start; k < end; k++) if (sideOf(points[k]) !== 0) onSide.push(k)
+    if (onSide.length > maxRun) for (const k of onSide) out[k].push('shift')
   }
   for (let i = 0; i < points.length; i++) {
     const s = sideOf(points[i])

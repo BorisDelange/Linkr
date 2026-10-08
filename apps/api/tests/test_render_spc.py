@@ -340,3 +340,33 @@ def test_a_boolean_column_matches_the_values_the_picker_offers():
     rows = [{"date": "2024-01-05", "flag": True}, {"date": "2024-01-06", "flag": False}]
     result = run_spc(rows, {"statisticType": "proportion", "chartType": "p", "eventValues": ["true"]})
     assert result["points"][0]["numerator"] == 1
+
+
+def _points(values):
+    return [{"value": v, "centre": 0, "ucl": 1000, "lcl": -1000} for v in values]
+
+
+def test_shift_counts_only_points_on_the_run_side():
+    """Twin of the spc-rules.test.ts case: a point on the centre line neither breaks
+    a run nor counts towards it (NHS Making Data Count)."""
+    scope: dict = {}
+    exec(compile(spc._SPC_PY, "<render:spc>", "exec"), scope)  # noqa: S102 - the program under test
+    apply_rules = scope["_spc_apply_rules"]
+    no_shift = _points([1, 1, 1, 1, 1, 1, 0, -1])
+    apply_rules(no_shift, "fixed", 7)
+    assert not any("shift" in p["signals"] for p in no_shift)
+    shift = _points([1, 1, 1, 0, 1, 1, 1, 1, -1])
+    apply_rules(shift, "fixed", 7)
+    assert "shift" in shift[0]["signals"]
+    assert "shift" not in shift[3]["signals"]
+
+
+
+def test_device_days_filter_matches_a_boolean_column_as_the_picker_offers_it():
+    rows = [{**r, "kt": None if r["kt"] is None else r["kt"] in ("UVC", "UAC")} for r in LONG_ROWS]
+    result = run_spc(rows, {
+        "statisticType": "rate", "chartType": "u", "eventValues": ["Oui"], "denominatorMode": "device-days",
+        "deviceStart": "date", "deviceEnd": "end", "deviceFilterColumn": "kt",
+        "deviceFilterValues": ["true"], "exposureEntity": "pid",
+    })
+    assert result["points"][0]["denominator"] == 7

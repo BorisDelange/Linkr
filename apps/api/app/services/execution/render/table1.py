@@ -196,7 +196,9 @@ def _linkr_per_entity(dataset, entity, fn, numeric_names):
         nums = _pd.to_numeric(df[name], errors="coerce")
         if not nums.notna().any():
             continue
-        stat = nums.groupby(df[entity], sort=False).agg(fn)
+        by = nums.groupby(df[entity], sort=False)
+        # min_count: an entity with no value stays missing, not a sum of 0.
+        stat = by.sum(min_count=1) if fn == "sum" else by.agg(fn)
         out[name] = out[entity].map(stat).where(lambda v: v.notna(), out[name])
     return out
 

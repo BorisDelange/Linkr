@@ -46,7 +46,9 @@ export function orderCategories<T>(
     case 'alpha':
       return [...items].sort((a, b) => collator.compare(nameOf(a), nameOf(b)))
     case 'custom': {
-      const byName = new Map(items.map(item => [nameOf(item), item]))
+      // First item wins on a duplicate name, as in the server twin.
+      const byName = new Map<string, T>()
+      for (const item of items) if (!byName.has(nameOf(item))) byName.set(nameOf(item), item)
       const head: T[] = []
       const placed = new Set<string>()
       for (const name of custom) {

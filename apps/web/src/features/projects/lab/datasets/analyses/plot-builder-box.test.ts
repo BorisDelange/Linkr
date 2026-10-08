@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildBoxplotGroups, MAX_BOX_CATEGORIES } from './plot-builder-box'
+import { buildBoxplotGroups, computeBoxplotStats, MAX_BOX_CATEGORIES } from './plot-builder-box'
 
 /** Pinned against the server mirror (boxplot branch of _linkr_print_plot in
  *  apps/api/app/services/execution/render/plot_builder.py, tests in test_render.py). */
@@ -39,5 +39,25 @@ describe('buildBoxplotGroups', () => {
   it('caps unsorted charts at the first categories met', () => {
     const data = buildBoxplotGroups(groups(25), 'data')
     expect(data.map(d => d.name).slice(-1)).toEqual(['c19'])
+  })
+})
+
+describe('computeBoxplotStats', () => {
+  it('interpolates the quartiles between ranks', () => {
+    const s = computeBoxplotStats([4, 1, 3, 2])!
+    expect([s.q1, s.median, s.q3]).toEqual([1.75, 2.5, 3.25])
+    expect(s.mean).toBe(2.5)
+  })
+
+  it('pulls the whiskers back to 1.5x IQR', () => {
+    const s = computeBoxplotStats([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 500])!
+    expect([s.q1, s.median, s.q3]).toEqual([3.5, 6, 8.5])
+    expect(s.max).toBe(16)
+    expect(s.min).toBe(1)
+  })
+
+  it('handles a single value and an empty group', () => {
+    expect(computeBoxplotStats([7])).toMatchObject({ min: 7, q1: 7, median: 7, q3: 7, max: 7 })
+    expect(computeBoxplotStats([])).toBeNull()
   })
 })

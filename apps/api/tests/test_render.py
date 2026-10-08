@@ -277,7 +277,7 @@ def test_key_indicator_string_column_keeps_its_casing():
 
 def test_key_indicator_boxplot_uses_tukey_whiskers():
     """The whiskers pull back to 1.5*IQR, so one extreme value can't flatten the box.
-    Mirrors computeBoxStats in KeyIndicatorComponent.tsx (same nearest-rank quartiles)."""
+    Mirrors computeBoxStats in key-indicator-values.ts (same R type-7 quartiles)."""
     import pandas as pd
 
     df = pd.DataFrame({"v": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 500]})
@@ -286,8 +286,8 @@ def test_key_indicator_boxplot_uses_tukey_whiskers():
     stats = out["chart"]["stats"]
     assert out["chart"]["type"] == "boxplot"
     assert out["chart"]["data"] == []  # described by stats, not a series
-    assert (stats["q1"], stats["median"], stats["q3"]) == (3, 6, 9)
-    assert stats["max"] == 18.0  # q3 + 1.5*iqr, not the raw 500
+    assert (stats["q1"], stats["median"], stats["q3"]) == (3.5, 6, 8.5)
+    assert stats["max"] == 16.0  # q3 + 1.5*iqr, not the raw 500
     assert stats["min"] == 1
 
 
@@ -1086,7 +1086,6 @@ def test_cox_confidence_level_widens_the_interval():
 
 
 def test_cox_names_a_dummy_by_its_level():
-    import pandas as pd
 
     frame = _survival_frame()
     frame["arm"] = ["A" if i % 2 else "B" for i in range(len(frame))]
@@ -1364,3 +1363,80 @@ def test_map_without_optional_fields():
     assert out["rows"] == [{"lat": 1.0, "lon": 2.0, "colorCat": None, "sizeVal": None,
                             "label": None, "popup": None}]
     assert out["colorCats"] == []
+
+
+# ---------------------------------------------------------------------------
+# Per-entity reduction and unit parity (aggregateByEntity / computeBoxplotStats)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("unit", ["us", "ns"])
+def test_plot_builder_datetimes_are_epoch_milliseconds_whatever_the_parquet_unit(unit, tmp_path):
+    """pandas 2 reads a Parquet timestamp[us] as datetime64[us]: dividing its int64
+    by 10^6 as if it were ns gave seconds, and every date landed in January 1970."""
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    ns = pd.Timestamp("2024-01-01").value
+    raw = ns // 1000 if unit == "us" else ns
+    path = tmp_path / "d.parquet"
+    pq.write_table(pa.table({"d": pa.array([raw], pa.timestamp(unit)), "v": [1.0]}), path)
+    df = pd.read_parquet(path)
+
+    res = _run_plot({"plotType": "scatter", "x": "d", "y": "v"}, df)
+    assert res["series"][0]["data"][0]["x"] == 1704067200000.0
+
+
+def test_plot_builder_boxplot_interpolates_quartiles():
+    """Same quartiles as computeBoxplotStats (plot-builder-box.ts): linear
+    interpolation, so the median of [1, 2, 3, 4] is 2.5, not 3."""
+    import pandas as pd
+
+    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val"},
+                    pd.DataFrame({"cat": ["a"] * 4, "val": [4.0, 1.0, 3.0, 2.0]}))
+    stats = res["data"][0]["stats"]
+    assert (stats["q1"], stats["median"], stats["q3"]) == (1.75, 2.5, 3.25)
+
+
+def test_plot_builder_unique_per_sum_keeps_an_all_missing_entity_missing():
+    import pandas as pd
+
+    df = pd.DataFrame({"pid": [1, 1, 2], "cat": ["a", "a", "a"], "val": [None, None, 4.0]})
+    res = _run_plot({"plotType": "boxplot", "x": "cat", "y": "val",
+                     "uniquePer": "pid", "uniqueAggregation": "sum"}, df)
+    assert res["data"][0]["values"] == [4.0]
+
+
+def test_key_indicator_unique_per_sum_excludes_an_all_missing_entity():
+    """aggregateByEntity leaves an entity without any value missing, so it drops out
+    of n instead of counting as a sum of 0."""
+    import pandas as pd
+
+    df = pd.DataFrame({"pid": [1, 1, 2, 2], "x": [None, None, 3.0, 4.0]})
+    out = _run_kpi({"column": {"name": "x", "numeric": True}, "aggregate": "mean",
+                    "uniquePer": "pid", "uniqueAggregation": "sum"}, df)
+    assert out["nonNull"] == 1
+    assert out["result"] == pytest.approx(7.0)
+
+
+@pytest.mark.parametrize(("agg", "values"), [("first", [None, 3.0, 7.0]), ("last", [3.0, None, 7.0])])
+def test_key_indicator_unique_per_first_last_take_the_literal_row(agg, values):
+    """first/last pick the entity's first/last row, as aggregateByEntity does, not
+    pandas' first non-null value."""
+    import pandas as pd
+
+    df = pd.DataFrame({"pid": [1, 1, 2], "x": values})
+    out = _run_kpi({"column": {"name": "x", "numeric": True}, "aggregate": "mean",
+                    "uniquePer": "pid", "uniqueAggregation": agg}, df)
+    assert out["nonNull"] == 1
+    assert out["result"] == pytest.approx(7.0)
+
+
+def test_table1_unique_per_sum_keeps_an_all_missing_entity_missing():
+    import pandas as pd
+
+    df = pd.DataFrame({"pid": [1, 1, 2], "los": [None, None, 4.0]})
+    spec = _svc_spec(selected=[{"name": "los", "label": "LOS", "numeric": True}],
+                     uniquePer="pid", uniqueAggregation="sum")
+    assert _run_table1(df, spec)["rows"][0]["cells"][""]["text"].startswith("4")

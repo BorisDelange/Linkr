@@ -78,9 +78,13 @@ export function applyFilters(
           break
         }
         case 'date': {
-          const dateStr = String(value ?? '')
-          if (filter.from && dateStr < filter.from) return false
-          if (filter.to && dateStr > filter.to) return false
+          if (!filter.from && !filter.to) break
+          if (value == null || value === '') return false
+          // Cut to each bound's length so a day bound keeps the whole end day of a
+          // timestamp column, as the server filter does (injection.py).
+          const dateStr = String(value)
+          if (filter.from && dateStr.slice(0, filter.from.length) < filter.from) return false
+          if (filter.to && dateStr.slice(0, filter.to.length) > filter.to) return false
           break
         }
         case 'date-relative': {

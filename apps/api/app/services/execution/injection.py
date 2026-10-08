@@ -9,6 +9,7 @@ apps/web/src/features/projects/lab/datasets/analysis-executor.ts.
 """
 
 import json
+import math
 
 from app.models.dataset import DatasetFile
 from app.services import blob_store
@@ -71,7 +72,9 @@ def _python_filter_code(filters: list[dict]) -> str:
 
     Predicate: {colId, kind: 'string'|'number'|'date', alternatives: [
         {op: 'in', values: [...]} | {op: 'between', min?, max?}]}.
-    number → numeric compare; date → ISO-string compare (lexical works for ISO);
+    number → numeric compare (a non-finite bound matches nothing); date →
+    ISO-string compare (lexical works for ISO) on the value cut to the bound's
+    length, so a day bound keeps the whole end day, missing values never match;
     string/categorical → string equality via `in`."""
     lines: list[str] = []
     for f in filters:
@@ -85,11 +88,12 @@ def _python_filter_code(filters: list[dict]) -> str:
         # A boolean column stringifies as "True"/"False" in pandas, but the filter
         # values come from the UI as "true"/"false" — lower-case the boolean
         # literals so a boolean filter matches instead of silently excluding all.
-        series = (
-            f"_pd.to_numeric(dataset[{col_j}], errors='coerce')"
-            if kind == "number"
-            else f"dataset[{col_j}].astype(str).replace({{'True': 'true', 'False': 'false'}})"
-        )
+        if kind == "number":
+            series = f"_pd.to_numeric(dataset[{col_j}], errors='coerce')"
+        elif kind == "date":
+            series = f"dataset[{col_j}].astype(str).where(dataset[{col_j}].notna())"
+        else:
+            series = f"dataset[{col_j}].astype(str).replace({{'True': 'true', 'False': 'false'}})"
         clauses: list[str] = []
         for alt in alts:
             if alt.get("op") == "in":
@@ -97,10 +101,18 @@ def _python_filter_code(filters: list[dict]) -> str:
                 clauses.append(f"_col.isin({json.dumps(vals)})")
             elif alt.get("op") == "between":
                 parts = ["_col.notna()"]
-                if alt.get("min") is not None:
-                    parts.append(f"(_col >= {json.dumps(alt['min'])})")
-                if alt.get("max") is not None:
-                    parts.append(f"(_col <= {json.dumps(alt['max'])})")
+                for key, op in (("min", ">="), ("max", "<=")):
+                    bound = alt.get(key)
+                    if bound is None:
+                        continue
+                    if kind == "number":
+                        num = _finite_number(bound)
+                        parts.append("False" if num is None else f"(_col {op} {num!r})")
+                    elif kind == "date":
+                        b = str(bound)
+                        parts.append(f"(_col.str[:{len(b)}] {op} {json.dumps(b)})")
+                    else:
+                        parts.append(f"(_col {op} {json.dumps(str(bound))})")
                 clauses.append("(" + " & ".join(parts) + ")")
         if not clauses:
             continue
@@ -160,15 +172,14 @@ def _r_filter_code(filters: list[dict]) -> str:
         kind = f.get("kind", "string")
         # R renders logicals "TRUE"/"FALSE"; the UI sends "true"/"false" (see the
         # pandas branch above) — map the literals so boolean filters match.
-        series = (
-            f"suppressWarnings(as.numeric(dataset[[{col_r}]]))"
-            if kind == "number"
-            else (
-                f"ifelse(is.logical(dataset[[{col_r}]]), "
-                f"ifelse(dataset[[{col_r}]], 'true', 'false'), "
-                f"as.character(dataset[[{col_r}]]))"
+        if kind == "number":
+            series = f"suppressWarnings(as.numeric(dataset[[{col_r}]]))"
+        else:
+            series = (
+                f"if (is.logical(dataset[[{col_r}]])) "
+                f"ifelse(dataset[[{col_r}]], 'true', 'false') "
+                f"else as.character(dataset[[{col_r}]])"
             )
-        )
         clauses: list[str] = []
         for alt in alts:
             if alt.get("op") == "in":
@@ -176,12 +187,18 @@ def _r_filter_code(filters: list[dict]) -> str:
                 clauses.append(f"(.col %in% {vals})")
             elif alt.get("op") == "between":
                 parts = ["!is.na(.col)"]
-                if alt.get("min") is not None:
-                    lo = alt["min"] if kind == "number" else _r_str(str(alt["min"]))
-                    parts.append(f"(.col >= {lo})")
-                if alt.get("max") is not None:
-                    hi = alt["max"] if kind == "number" else _r_str(str(alt["max"]))
-                    parts.append(f"(.col <= {hi})")
+                for key, op in (("min", ">="), ("max", "<=")):
+                    bound = alt.get(key)
+                    if bound is None:
+                        continue
+                    if kind == "number":
+                        num = _finite_number(bound)
+                        parts.append("FALSE" if num is None else f"(.col {op} {num!r})")
+                    elif kind == "date":
+                        b = str(bound)
+                        parts.append(f"(substr(.col, 1, {len(b)}) {op} {_r_str(b)})")
+                    else:
+                        parts.append(f"(.col {op} {_r_str(str(bound))})")
                 clauses.append("(" + " & ".join(parts) + ")")
         if not clauses:
             continue
@@ -193,6 +210,18 @@ def _r_filter_code(filters: list[dict]) -> str:
             f"}}"
         )
     return "\n".join(lines)
+
+
+def _finite_number(value: object) -> float | None:
+    """The bound as a float literal safe to splice into code, or None when it is
+    not a finite number (the alternative then matches nothing)."""
+    if isinstance(value, bool):
+        return None
+    try:
+        num = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return num if math.isfinite(num) else None
 
 
 def _r_str(s: str) -> str:

@@ -121,6 +121,16 @@ describe('fixed rule set', () => {
   })
 })
 
+describe('centre-line points in a shift (twin: test_render_spc.py)', () => {
+  it('counts only the points on the run side', () => {
+    const noShift = applyRules(series([1, 1, 1, 1, 1, 1, 0, -1]), { ruleSet: 'fixed', runLength: 7 })
+    expect(noShift.some(p => p.signals.includes('shift'))).toBe(false)
+    const shift = applyRules(series([1, 1, 1, 0, 1, 1, 1, 1, -1]), { ruleSet: 'fixed', runLength: 7 })
+    expect(shift[0].signals).toContain('shift')
+    expect(shift[3].signals).not.toContain('shift')
+  })
+})
+
 describe('rule set selection', () => {
   it('none disables runs rules but keeps out-of-limit detection', () => {
     const values = [...Array(10).fill(1), ...Array(10).fill(-1)]

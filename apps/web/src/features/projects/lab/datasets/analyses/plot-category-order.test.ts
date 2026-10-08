@@ -68,3 +68,11 @@ describe('readCustomCategoryOrder', () => {
     expect(readCustomCategoryOrder({})).toEqual([])
   })
 })
+
+describe('orderCategories custom with a duplicate name', () => {
+  it('places the first item of that name, like the server', () => {
+    const items = [{ n: 'a', v: 1 }, { n: 'b', v: 2 }, { n: 'a', v: 3 }]
+    const out = orderCategories(items, i => i.n, i => i.v, 'custom', ['a'])
+    expect(out[0]).toBe(items[0])
+  })
+})
