@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { getApiBaseUrl, isServerMode } from '@/lib/api-client'
 import { setExportMinCount } from '@/lib/concept-mapping/export-masking'
 import { setPasswordMinLength } from '@/lib/password-policy'
+import { disposeAllLiveTerminals } from '@/lib/terminal-sessions'
+import { useFileStore } from '@/stores/file-store'
 
 export interface AuthUser {
   id: number
@@ -168,6 +170,13 @@ export const useAuthStore = create<AuthState>()((set, get) => {
       localStorage.removeItem('linkr-access-token')
       localStorage.removeItem('linkr-refresh-token')
       localStorage.removeItem('linkr-auth-user')
+      // Their sockets stay authenticated as this user: the next one to log in on
+      // this tab must not inherit their shells.
+      disposeAllLiveTerminals()
+      useFileStore.setState((s) => ({
+        terminalTabs: [],
+        selectedFileId: s.terminalTabs.some((tab) => tab.id === s.selectedFileId) ? null : s.selectedFileId,
+      }))
       set({ token: null, refreshToken: null, user: null })
     },
 

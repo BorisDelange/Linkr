@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button'
 import { Package, X } from 'lucide-react'
 import { TerminalSocket, terminalFailureMessage } from '@/lib/api/terminal-ws'
 import { useAppStore, isEditorThemeDark } from '@/stores/app-store'
+import { useAuthStore } from '@/stores/auth-store'
 import { getLiveTerminal, registerLiveTerminal, disposeLiveTerminal } from '@/lib/terminal-sessions'
 
 type TerminalType = 'bash' | 'python' | 'r'
@@ -135,6 +136,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
   // button for). Only meaningful for python/r REPLs in server mode.
   const [installOffer, setInstallOffer] = useState<{ language: 'python' | 'r'; packages: string[] } | null>(null)
   const requestInstall = useEnvironmentsUiStore((s) => s.requestInstall)
+  const userId = useAuthStore((s) => s.user?.id ?? null)
   const darkMode = useAppStore((s) => s.darkMode)
   const editorTheme = useAppStore((s) => s.editorSettings.theme)
   // The terminal uses the same font size the user set for the code editor, so the
@@ -173,7 +175,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
     const container = containerRef.current
     if (!container) return
 
-    const signature = `${terminalType}|${projectUid ?? ''}|${sessionId ?? ''}`
+    const signature = `${userId ?? ''}|${terminalType}|${projectUid ?? ''}|${sessionId ?? ''}`
     if (persistKey) {
       const existing = getLiveTerminal(persistKey)
       if (existing && existing.signature === signature) {
@@ -531,7 +533,7 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
     })
 
     return release
-  }, [terminalType, onData, projectUid, sessionId, persistKey, t])
+  }, [terminalType, onData, projectUid, sessionId, persistKey, userId, t])
 
   return (
     <div className="relative h-full w-full">

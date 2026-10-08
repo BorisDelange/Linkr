@@ -5,10 +5,12 @@ import type { FitAddon } from '@xterm/addon-fit'
  * Terminals that outlive their panel. Leaving the IDE page unmounts every
  * TerminalPanel; keeping the xterm (scrollback) and its socket (bash PTY, REPL
  * connection) here lets the panel re-attach to them on return instead of
- * starting a blank session. A terminal ends only when its tab is closed.
+ * starting a blank session. A terminal ends when its tab is closed, or at logout
+ * (`disposeAllLiveTerminals`): its socket is authenticated as the user who opened it.
  */
 export interface LiveTerminal {
-  /** What the session was opened for: a panel asking for something else starts anew. */
+  /** What the session was opened for, user included: a panel asking for something
+   *  else — or another user's panel — starts anew. */
   signature: string
   /** The element xterm rendered into, moved into whichever panel shows it. */
   host: HTMLDivElement
@@ -33,4 +35,9 @@ export function registerLiveTerminal(key: string, entry: LiveTerminal) {
 export function disposeLiveTerminal(key: string) {
   live.get(key)?.dispose()
   live.delete(key)
+}
+
+export function disposeAllLiveTerminals() {
+  for (const entry of live.values()) entry.dispose()
+  live.clear()
 }

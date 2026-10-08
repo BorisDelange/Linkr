@@ -7,6 +7,7 @@ import { setLocalized, toLocalized, isShellHtml } from '@/lib/localized'
 import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
 import { userToAuthorDetails } from '@/lib/user-identity'
 import { buildPointer } from '@/lib/import-identity'
+import { disposeAllLiveTerminals } from '@/lib/terminal-sessions'
 import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, AuthorDetails, Authored, Lineaged, EntityLicense } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
@@ -238,7 +239,10 @@ let nextUserId = 2
 export const useAppStore = create<AppState>((set, get) => ({
   user: { id: 1, username: 'admin', firstName: prefs.userFirstName ?? '', lastName: prefs.userLastName ?? '', role: 'admin', email: prefs.userEmail ?? '', affiliation: prefs.userAffiliation ?? '', profession: prefs.userProfession ?? '', orcid: prefs.userOrcid ?? '' },
   login: (user) => set({ user }),
-  logout: () => set({ user: null }),
+  logout: () => {
+    disposeAllLiveTerminals()
+    set({ user: null })
+  },
   updateUser: (changes) => {
     set((s) => (s.user ? { user: { ...s.user, ...changes } } : s))
     // Server mode: persist to the backend so the edit survives a reload (front-only
