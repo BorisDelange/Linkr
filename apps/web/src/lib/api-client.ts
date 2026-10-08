@@ -202,9 +202,10 @@ export async function apiRequest<T>(
   // would have sent, so every caller sees one ordinary request.
   if (res.status === 202) {
     const taskId = ((await res.clone().json().catch(() => null)) as { deferredTaskId?: string } | null)?.deferredTaskId
+    const signal = init?.signal ?? undefined
     while (taskId && res.status === 202) {
-      await new Promise((resolve) => setTimeout(resolve, DEFERRED_POLL_MS))
-      res = await apiFetch(`/api/v1/deferred/${encodeURIComponent(taskId)}`, {}, opts)
+      await abortableDelay(DEFERRED_POLL_MS, signal)
+      res = await apiFetch(`/api/v1/deferred/${encodeURIComponent(taskId)}`, { signal }, opts)
     }
   }
   if (!res.ok) {
@@ -214,3 +215,21 @@ export async function apiRequest<T>(
 }
 
 const DEFERRED_POLL_MS = 1500
+
+function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason)
+      return
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort)
+      resolve()
+    }, ms)
+    function onAbort() {
+      clearTimeout(timer)
+      reject(signal?.reason)
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}

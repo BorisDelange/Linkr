@@ -113,8 +113,9 @@ async def rebind_copy(
 # --- Project-scoped browsing for an import (dataset / IDE upload from the server)
 # Picking a file to COPY into the project answers to the permission of what it
 # lands in, not to project-settings:write — a member who may import a dataset need
-# not be allowed to re-bind the project's folders. Not behind `_guard()`, for the
-# same reason as the workspace routes below: copying a file in is not running code.
+# not be allowed to re-bind the project's folders. Not behind `_guard()` when browse
+# roots confine it; without roots it is gated like code execution (see
+# `fs_browser.import_list_dir`).
 
 _IMPORT_PERMISSION = {"datasets": "datasets:write", "ide": "ide:write"}
 
@@ -132,10 +133,11 @@ async def import_list_dir(
     if project is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Project not found")
     await check_project_permission(db, project, user, _IMPORT_PERMISSION[target])
+    whole_fs = await fs_browser.whole_fs_import_allowed(db, project, user)
     try:
-        return fs_browser.list_dir(path, True, _split_extensions(extensions))
+        return fs_browser.import_list_dir(path, _split_extensions(extensions), whole_fs_allowed=whole_fs)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc
 
 
 # --- Workspace-scoped browsing (databases pointing at server data) -------------

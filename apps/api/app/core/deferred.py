@@ -17,17 +17,24 @@ first response is sent. Check permissions before calling ``respond``.
 """
 
 import asyncio
+import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
+
+logger = logging.getLogger(__name__)
 
 WAIT_SECONDS = 20.0
 # A finished task nobody came back for is dropped after this long.
 _KEEP_SECONDS = 600.0
+# Work keeps running after its client gives up, so without a cap one user could
+# pile up any number of multi-minute imports.
+MAX_RUNNING_PER_USER = 4
 
 
 @dataclass
@@ -38,6 +45,7 @@ class _Entry:
 
 
 _tasks: dict[str, _Entry] = {}
+_running: dict[str, int] = {}
 
 
 def _pending_response(task_id: str) -> JSONResponse:
@@ -55,11 +63,33 @@ def _sweep() -> None:
                 _tasks.pop(task_id, None)
 
 
+def _on_done(user_id: str, task: asyncio.Task) -> None:
+    left = _running.get(user_id, 1) - 1
+    if left > 0:
+        _running[user_id] = left
+    else:
+        _running.pop(user_id, None)
+    if task.cancelled():
+        return
+    # Retrieved here so a client that disconnected before the task was registered
+    # (nobody will ever poll it) does not leave "exception never retrieved".
+    exc = task.exception()
+    if exc is not None and not any(e.task is task for e in _tasks.values()):
+        logger.warning("Deferred work failed with no client waiting: %r", exc)
+
+
 async def respond(user_id: str, work: Callable[[], Awaitable[Any]]) -> Any:
     """Run `work`; its result (or exception) if it ends within `WAIT_SECONDS`,
     else a 202 pointing at the task it keeps running as."""
     _sweep()
+    if _running.get(user_id, 0) >= MAX_RUNNING_PER_USER:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Too many long-running requests in progress; wait for one to finish.",
+        )
+    _running[user_id] = _running.get(user_id, 0) + 1
     task = asyncio.create_task(work())
+    task.add_done_callback(lambda t: _on_done(user_id, t))
     try:
         return await asyncio.wait_for(asyncio.shield(task), WAIT_SECONDS)
     except TimeoutError:

@@ -634,7 +634,7 @@
     "dictionary_manage": "Gérer les data dictionaries",
     "count_steps": "Lignes {{records}}/{{recordsTotal}} · patients {{patients}}/{{patientsTotal}}",
     "count_failed": "Le décompte des concepts a échoué : {{error}}",
-    "count_id_type_mismatch": "Les identifiants de concept de « {{event}} » ({{eventType}}) et de son dictionnaire ({{dictionaryType}}) ne sont pas comparables : l’un est du texte, l’autre un nombre. Dans le mapping du schéma, l’id de concept de l’événement doit être la colonne à laquelle renvoie l’id du dictionnaire — ou mappez la terminologie et le code des deux côtés pour joindre sur eux.",
+    "count_id_type_mismatch": "Les identifiants de concept de « {{event}} » ({{eventType}}) et de son dictionnaire ({{dictionaryType}}) ne sont pas comparables : l’un est du texte, l’autre un nombre, et le texte contient « {{code}} », qui n’est pas un nombre. Dans le mapping du schéma, l’id de concept de l’événement doit être la colonne à laquelle renvoie l’id du dictionnaire — ou mappez la terminologie et le code des deux côtés pour joindre sur eux.",
     "count_running": "Décompte des concepts en cours…",
     "count_none": "Concepts non décomptés : les colonnes Enregistrements et Patients restent vides.",
     "count_partial": "Décomptes incomplets",
@@ -2829,7 +2829,10 @@
     "path_not_found": "Ce dossier n'existe pas, ou est hors des dossiers autorisés.",
     "no_match": "Aucun résultat pour cette recherche.",
     "empty": "Ce dossier est vide.",
-    "start_missing": "{{path}} n'existe plus : affichage du dossier existant le plus proche."
+    "start_missing": "{{path}} n'existe plus : affichage du dossier existant le plus proche.",
+    "import_needs_execution": "Importer depuis n'importe où sur le serveur nécessite le droit d'exécuter du code dans ce projet. Un administrateur peut configurer des dossiers racines pour autoriser l'import sans ce droit.",
+    "import_system_path": "Les dossiers système (/proc, /sys, /dev) ne peuvent pas servir de source d'import.",
+    "import_data_dir": "Les fichiers du dossier de données de Linkr ne peuvent pas être importés."
   },
   "project_folders": {
     "title": "Dossiers",
@@ -3690,6 +3693,7 @@
     "invalid": "Doit contenir 2 à 50 caractères : lettres minuscules, chiffres et tirets uniquement."
   },
   "common": {
+    "label_separator": " : ",
     "collapse_all": "Tout replier",
     "expand_all": "Tout déplier",
     "move_down": "Descendre",

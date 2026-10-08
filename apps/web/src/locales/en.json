@@ -634,7 +634,7 @@
     "dictionary_manage": "Manage data dictionaries",
     "count_steps": "Rows {{records}}/{{recordsTotal}} · patients {{patients}}/{{patientsTotal}}",
     "count_failed": "Counting the concepts failed: {{error}}",
-    "count_id_type_mismatch": "The concept ids of “{{event}}” ({{eventType}}) and of its dictionary ({{dictionaryType}}) cannot be compared: one is text, the other a number. In the schema mapping, the event's concept id must be the column the dictionary's id refers to — or map the terminology and the code on both sides to join on them.",
+    "count_id_type_mismatch": "The concept ids of “{{event}}” ({{eventType}}) and of its dictionary ({{dictionaryType}}) cannot be compared: one is text, the other a number, and the text holds “{{code}}”, which is not a number. In the schema mapping, the event's concept id must be the column the dictionary's id refers to — or map the terminology and the code on both sides to join on them.",
     "count_running": "Counting the concepts…",
     "count_none": "Concepts not counted: the Records and Patients columns stay empty.",
     "count_partial": "The counts are incomplete",
@@ -2829,7 +2829,10 @@
     "path_not_found": "This folder does not exist, or is outside the allowed folders.",
     "no_match": "Nothing matches your search.",
     "empty": "This folder is empty.",
-    "start_missing": "{{path}} no longer exists: showing the nearest folder that does."
+    "start_missing": "{{path}} no longer exists: showing the nearest folder that does.",
+    "import_needs_execution": "Importing from anywhere on the server requires the right to run code in this project. An administrator can configure browse roots to allow imports without it.",
+    "import_system_path": "System folders (/proc, /sys, /dev) cannot be imported from.",
+    "import_data_dir": "Files inside Linkr's data folder cannot be imported."
   },
   "project_folders": {
     "title": "Folders",
@@ -3690,6 +3693,7 @@
     "invalid": "Must be 2–50 characters, lowercase letters, digits and hyphens only."
   },
   "common": {
+    "label_separator": ": ",
     "collapse_all": "Collapse all",
     "expand_all": "Expand all",
     "move_down": "Move down",

@@ -17,13 +17,25 @@ a convenience: the boundary is re-enforced wherever a path is persisted.
 With empty roots, anyone holding ``databases:write`` can create a ``.duckdb``
 wherever the server process can write (``check_new_database_file``), so a
 multi-user deployment should set the roots.
+
+An import never exceeds what its user could already read: with empty roots it
+needs code execution on the project (a script reads the same files), and the
+kernel-only system folders and Linkr's own data folder are always refused — the
+copy runs in the API process, which can read what kernels cannot.
 """
 
 import os
 import shutil
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from app.models.project import Project
+    from app.models.user import User
 
 
 def _browse_roots() -> list[Path]:
@@ -44,6 +56,27 @@ def _within_roots(target: Path) -> bool:
 
 class FsBrowseError(ValueError):
     """A browse/validate request that must surface as a 4xx (not a 500)."""
+
+    status_code = 400
+
+
+class FsImportForbidden(FsBrowseError):
+    status_code = 403
+
+
+class FsImportTooLarge(FsBrowseError):
+    status_code = 413
+
+
+# Pseudo-filesystems: /proc/self/environ alone would hand over the API's secrets.
+_SYSTEM_DIRS = (Path("/proc"), Path("/sys"), Path("/dev"))
+
+IMPORT_NEEDS_EXECUTION = (
+    "Importing from anywhere on the server requires code execution on this project. "
+    "Ask an administrator to configure browse roots to import without it."
+)
+IMPORT_SYSTEM_PATH = "System folders (/proc, /sys, /dev) cannot be imported from"
+IMPORT_DATA_DIR = "Files inside Linkr's data folder cannot be imported"
 
 
 def validate_binding_path(path: str) -> None:
@@ -219,27 +252,67 @@ def validate_source_path(path: str) -> None:
         raise FsBrowseError("Server path is not readable by the server")
 
 
-def validate_import_source(path: str) -> Path:
-    """Check a server file a user copies INTO a project — a dataset import or an
-    IDE upload — and return it resolved. Inside the browse roots, an existing
-    readable file, and outside Linkr's own data folder: that folder holds the
-    sealing key, the blob store and every other project's files, which a copy
-    would hand to anyone holding datasets/IDE write on *one* project.
+async def whole_fs_import_allowed(db: "AsyncSession", project: "Project", user: "User") -> bool:
+    """Whether `user` may import from anywhere when no browse roots are set: only
+    if they could already read the same files with a script on `project`."""
+    from app.core.permissions import has_project_permission
 
-    Not gated on `enable_code_execution`, like `validate_source_path`: copying a
-    file in is reading data, not running code. Raises FsBrowseError."""
+    return settings.enable_code_execution and await has_project_permission(db, project, user, "ide:execute")
+
+
+def _import_refusal(target: Path) -> str | None:
+    """Why `target` (resolved) may never be imported from or listed for an import."""
+    if any(target == d or d in target.parents for d in _SYSTEM_DIRS):
+        return IMPORT_SYSTEM_PATH
+    data_dir = settings.data_path.resolve()
+    if target == data_dir or data_dir in target.parents:
+        return IMPORT_DATA_DIR
+    return None
+
+
+def _check_import_scope(whole_fs_allowed: bool) -> None:
+    if not _browse_roots() and not whole_fs_allowed:
+        raise FsImportForbidden(IMPORT_NEEDS_EXECUTION)
+
+
+def import_list_dir(path: str, extensions: list[str] | None, *, whole_fs_allowed: bool) -> dict:
+    """`list_dir` for the import picker: the same boundary `validate_import_source`
+    enforces, so the picker never offers a folder or file it would then refuse."""
+    _check_import_scope(whole_fs_allowed)
+    if path:
+        reason = _import_refusal(Path(path).expanduser().resolve())
+        if reason:
+            raise FsImportForbidden(reason)
+    listing = list_dir(path, True, extensions)
+    listing["entries"] = [e for e in listing["entries"] if _import_refusal(Path(e["path"]).resolve()) is None]
+    return listing
+
+
+def validate_import_source(path: str, *, whole_fs_allowed: bool) -> Path:
+    """Check a server file a user copies INTO a project — a dataset import or an
+    IDE upload — and return it resolved. Inside the browse roots (or, with none
+    configured, only for a user allowed to run code: `whole_fs_allowed`), never a
+    system folder, an existing readable file within the upload size cap, and
+    outside Linkr's own data folder: that folder holds the sealing key, the blob
+    store and every other project's files, which a copy would hand to anyone
+    holding datasets/IDE write on *one* project.
+
+    Raises FsBrowseError, whose `status_code` the route answers with."""
     if not path:
         raise FsBrowseError("No server file chosen")
+    _check_import_scope(whole_fs_allowed)
     target = Path(path).expanduser().resolve()
     if not _within_roots(target):
         raise FsBrowseError("Path is outside the allowed browse roots")
-    data_dir = settings.data_path.resolve()
-    if target == data_dir or data_dir in target.parents:
-        raise FsBrowseError("Files inside Linkr's data folder cannot be imported")
+    reason = _import_refusal(target)
+    if reason:
+        raise FsImportForbidden(reason)
     if not target.is_file():
         raise FsBrowseError("Server path is not an existing file")
     if not os.access(target, os.R_OK):
         raise FsBrowseError("Server path is not readable by the server")
+    if target.stat().st_size > settings.max_upload_mb * 1024 * 1024:
+        raise FsImportTooLarge(f"File exceeds the {settings.max_upload_mb} MB upload limit.")
     return target
 
 

@@ -18,7 +18,7 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { fsBrowse, fsScopeKey, type FsEntry, type FsListing, type FsScope } from '@/lib/api/fs-browser'
+import { fsBrowse, fsImportRefusalKey, fsScopeKey, type FsEntry, type FsListing, type FsScope } from '@/lib/api/fs-browser'
 import { formatApiError } from '@/lib/api-client'
 import { cn } from '@/lib/utils'
 
@@ -144,7 +144,8 @@ export function ServerPathPickerDialog({
         // error, taking the ".." row with it and leaving nowhere to go back to.
         if (!quiet) {
           const fe = formatApiError(e)
-          setError(fe.summary ?? fe.detail ?? String(e))
+          const refusal = fsImportRefusalKey(e)
+          setError(refusal ? t(refusal) : (fe.summary ?? fe.detail ?? String(e)))
           setPathDraft(listingRef.current?.path ?? '')
         }
         return false
@@ -155,7 +156,7 @@ export function ServerPathPickerDialog({
     // `scope` is an inline object at every call site; keying on its parts keeps
     // this callback stable instead of reloading on every parent render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fsScopeKey(scope), extKey],
+    [fsScopeKey(scope), extKey, t],
   )
 
   // `initialPath` seeds the browse at each opening; it must not steer it while
@@ -210,8 +211,10 @@ export function ServerPathPickerDialog({
       setSearch('')
       setSelectedFile(null)
       setError(null)
-    } catch {
-      setPathError(true)
+    } catch (e) {
+      const refusal = fsImportRefusalKey(e)
+      if (refusal) setError(t(refusal))
+      else setPathError(true)
     }
   }
 

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission
@@ -134,25 +135,35 @@ async def copy_from_server(
     IDE tree. Bytes are copied as-is, so a binary file (an image, a workbook)
     arrives intact — unlike the text body the browser upload sends."""
     await _check_project(db, body.project_uid, user, "ide:write")
+    whole_fs = await fs_browser.whole_fs_import_allowed(db, await db.get(Project, body.project_uid), user)
     try:
-        src = fs_browser.validate_import_source(body.server_path)
+        src = fs_browser.validate_import_source(body.server_path, whole_fs_allowed=whole_fs)
+    except fs_browser.FsBrowseError as e:
+        raise HTTPException(e.status_code, str(e))
+    try:
         dst = project_fs.script_path(body.project_uid, body.path)
-    except (fs_browser.FsBrowseError, ValueError) as e:
+    except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     if dst.is_dir():
         raise HTTPException(status.HTTP_409_CONFLICT, "A folder already has this name")
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    await asyncio.to_thread(shutil.copyfile, src, dst)
+
+    async def work() -> IdeFileResponse:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        await asyncio.to_thread(shutil.copyfile, src, dst)
+        return IdeFileResponse(
+            id=project_fs.node_id("ide", body.path),
+            name=body.path.rsplit("/", 1)[-1],
+            type="file",
+            parent_id=(project_fs.node_id("ide", body.path.rsplit("/", 1)[0]) if "/" in body.path else None),
+            path=body.path,
+            language=project_fs.language_for(body.path),
+            order=0,
+        )
+
+    result = await deferred.respond(user.id, work)
+    # Here, not in `work`: the request's session is gone once a deferred answer is sent.
     await _notify(db, request, user, "created", body.project_uid, body.path)
-    return IdeFileResponse(
-        id=project_fs.node_id("ide", body.path),
-        name=body.path.rsplit("/", 1)[-1],
-        type="file",
-        parent_id=(project_fs.node_id("ide", body.path.rsplit("/", 1)[0]) if "/" in body.path else None),
-        path=body.path,
-        language=project_fs.language_for(body.path),
-        order=0,
-    )
+    return result
 
 
 @router.put("/content", status_code=status.HTTP_204_NO_CONTENT)

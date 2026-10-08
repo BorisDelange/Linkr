@@ -1,4 +1,4 @@
-import { apiRequest } from '@/lib/api-client'
+import { ApiError, apiRequest } from '@/lib/api-client'
 
 /** Server file-browser (project Folders settings). Server mode only — these hit
  * the backend's real filesystem, gated on project-settings:write. */
@@ -132,4 +132,25 @@ export function fsRebindCopy(
     method: 'POST',
     body: JSON.stringify({ src, dst, on_conflict: onConflict }),
   })
+}
+
+/** The server refuses an import picker or a server-file import with a fixed
+ *  sentence (`services/fs_browser.py`); this names the i18n key for it, or null
+ *  for any other error. */
+const IMPORT_REFUSALS: [prefix: string, key: string][] = [
+  ['Importing from anywhere on the server requires code execution', 'server_picker.import_needs_execution'],
+  ['System folders', 'server_picker.import_system_path'],
+  ["Files inside Linkr's data folder", 'server_picker.import_data_dir'],
+]
+
+export function fsImportRefusalKey(err: unknown): string | null {
+  if (!(err instanceof ApiError) || err.status !== 403) return null
+  let detail: unknown
+  try {
+    detail = (JSON.parse(err.message) as { detail?: unknown })?.detail
+  } catch {
+    return null
+  }
+  if (typeof detail !== 'string') return null
+  return IMPORT_REFUSALS.find(([prefix]) => detail.startsWith(prefix))?.[1] ?? null
 }

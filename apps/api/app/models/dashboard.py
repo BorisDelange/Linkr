@@ -20,7 +20,7 @@ class Dashboard(Base, TimestampMixin):
     description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
     filter_config: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
     show_widget_titles: Mapped[bool | None] = mapped_column(Boolean)
-    default_dataset_file_id: Mapped[str | None] = mapped_column(String(36))
+    default_dataset_file_id: Mapped[str | None] = mapped_column(String(1024))
     widget_spacing: Mapped[int | None] = mapped_column(Integer)
     reload_widgets_on_tab_switch: Mapped[bool | None] = mapped_column(Boolean)
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
@@ -64,6 +64,6 @@ class DashboardWidget(Base):
     )
     name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
     description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
-    dataset_file_id: Mapped[str | None] = mapped_column(String(36))
+    dataset_file_id: Mapped[str | None] = mapped_column(String(1024))
     layout: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
     source: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)

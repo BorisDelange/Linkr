@@ -1,5 +1,7 @@
 """IDE scripts/ — disk is the single source of truth (real filenames, scanned)."""
 
+import asyncio
+
 from app.config import settings
 from app.services import project_fs
 
@@ -164,4 +166,39 @@ async def test_copy_from_server_refuses_traversal_and_data_dir(client, seed_role
     leak = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
         "projectUid": uid, "serverPath": str(inside), "path": "db.sqlite",
     })
-    assert leak.status_code == 400
+    assert leak.status_code == 403
+
+
+async def test_copy_from_server_respects_upload_cap(client, seed_roles, tmp_path_factory, monkeypatch):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    src = tmp_path_factory.mktemp("server") / "big.bin"
+    src.write_bytes(b"x" * (1024 * 1024 + 1))
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    r = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
+        "projectUid": uid, "serverPath": str(src), "path": "big.bin",
+    })
+    assert r.status_code == 413
+
+
+async def test_slow_copy_from_server_defers_then_polls(client, seed_roles, tmp_path_factory, monkeypatch):
+    from app.core import deferred
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    src = tmp_path_factory.mktemp("server") / "a.py"
+    src.write_text("x = 1")
+    monkeypatch.setattr(deferred, "WAIT_SECONDS", 0)
+    r = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
+        "projectUid": uid, "serverPath": str(src), "path": "a.py",
+    })
+    assert r.status_code == 202
+    task_id = r.json()["deferredTaskId"]
+    for _ in range(100):
+        polled = await client.get(f"{API}/deferred/{task_id}", headers=h)
+        if polled.status_code != 202:
+            break
+        await asyncio.sleep(0.02)
+    assert polled.status_code == 200
+    assert polled.json()["path"] == "a.py"
+    assert (_scripts(uid) / "a.py").read_text() == "x = 1"

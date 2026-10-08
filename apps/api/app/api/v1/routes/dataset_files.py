@@ -218,10 +218,11 @@ async def stage_server_file(
     `/import` take it unchanged. The source is copied, never moved — it belongs to
     whoever put it there."""
     await _check_project(db, body.project_uid, user, "datasets:write")
+    whole_fs = await fs_browser.whole_fs_import_allowed(db, await db.get(Project, body.project_uid), user)
     try:
-        src = fs_browser.validate_import_source(body.server_path)
+        src = fs_browser.validate_import_source(body.server_path, whole_fs_allowed=whole_fs)
     except fs_browser.FsBrowseError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(e.status_code, str(e))
 
     async def work() -> DsStagedFile:
         sha, size = await blob_store.store_copy(src)
@@ -591,19 +592,30 @@ async def move_dataset(
         dst = project_fs.dataset_path(body.project_uid, body.new_path)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    if src.exists():
-        moves = _moved_files(body.project_uid, src, dst)
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        src.replace(dst)
-        dataset_fs.move_sidecars(body.project_uid, moves)
+    if not src.exists() or src == dst:
+        return
+    # samefile: a case-only rename on a case-insensitive disk "exists" already.
+    if dst.exists() and not dst.samefile(src):
+        raise HTTPException(status.HTTP_409_CONFLICT, "A dataset or folder already has this name")
+    moves = _moved_files(body.project_uid, src, dst)
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    src.replace(dst)
+    dataset_fs.move_sidecars(body.project_uid, moves)
+    try:
         await dataset_service.repoint_dataset_paths(db, body.project_uid, moves)
-        await _notify_dataset(db, request, user, "updated", body.project_uid, body.new_path)
+    except Exception:
+        # The DB still names the old paths: put the files back under them.
+        await db.rollback()
+        dst.replace(src)
+        dataset_fs.move_sidecars(body.project_uid, {new: old for old, new in moves.items()})
+        raise
+    await _notify_dataset(db, request, user, "updated", body.project_uid, body.new_path)
 
 
 def _moved_files(project_uid: str, src, dst) -> dict[str, str]:
     """Old → new relative path of every dataset file a move carries (one for a
     file, each file inside for a folder)."""
-    root = project_fs.datasets_dir(project_uid)
+    root = project_fs.datasets_dir(project_uid).resolve()
     files = [src] if src.is_file() else [p for p in src.rglob("*") if p.is_file()]
     return {
         f.relative_to(root).as_posix(): (dst / f.relative_to(src)).relative_to(root).as_posix()

@@ -507,7 +507,7 @@ async def test_stage_server_file_refuses_linkr_data_dir(client, seed_roles):
         f"{API}/dataset-files/stage-server-file", headers=h,
         json={"projectUid": uid, "serverPath": str(inside)},
     )
-    assert r.status_code == 400
+    assert r.status_code == 403
 
 
 async def test_slow_preview_defers_then_polls_to_the_same_body(client, seed_roles, monkeypatch):
@@ -615,3 +615,96 @@ async def test_move_repoints_dashboards(client, seed_roles):
     assert [f["datasetFileId"] for f in d["filterConfig"]] == ["c.csv", "b.csv"]
     widgets = (await client.get(f"{API}/dashboards/tabs/t1/widgets", headers=h)).json()
     assert {w["id"]: w["datasetFileId"] for w in widgets} == {"w1": "c.csv", "w2": "b.csv"}
+
+
+async def test_stage_server_file_without_roots_needs_code_execution(client, seed_roles, tmp_path_factory, monkeypatch):
+    """No browse roots = the whole filesystem: only for a user who could read the
+    file with a script anyway (code execution on, ide:execute on the project)."""
+    from app.core import permissions
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    server = tmp_path_factory.mktemp("server")
+    src = server / "vitals.csv"
+    src.write_text("hr\n80\n")
+    body = {"projectUid": uid, "serverPath": str(src)}
+
+    monkeypatch.setattr(settings, "enable_code_execution", False)
+    r = await client.post(f"{API}/dataset-files/stage-server-file", headers=h, json=body)
+    assert r.status_code == 403
+    listed = await client.get(f"{API}/projects/{uid}/fs/import/datasets/list-dir", headers=h, params={"path": str(server)})
+    assert listed.status_code == 403
+    # Roots confine the import, so it no longer depends on running code.
+    monkeypatch.setattr(settings, "fs_browse_roots", str(server))
+    assert (await client.post(f"{API}/dataset-files/stage-server-file", headers=h, json=body)).status_code == 200
+
+    monkeypatch.setattr(settings, "fs_browse_roots", "")
+    monkeypatch.setattr(settings, "enable_code_execution", True)
+    real = permissions.has_project_permission
+
+    async def no_ide_execute(db, project, user, permission):
+        return False if permission == "ide:execute" else await real(db, project, user, permission)
+
+    monkeypatch.setattr(permissions, "has_project_permission", no_ide_execute)
+    assert (await client.post(f"{API}/dataset-files/stage-server-file", headers=h, json=body)).status_code == 403
+
+
+async def test_stage_server_file_respects_upload_cap(client, seed_roles, tmp_path_factory, monkeypatch):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    src = tmp_path_factory.mktemp("server") / "big.csv"
+    src.write_bytes(b"x" * (1024 * 1024 + 1))
+    monkeypatch.setattr(settings, "max_upload_mb", 1)
+    r = await client.post(f"{API}/dataset-files/stage-server-file", headers=h,
+                          json={"projectUid": uid, "serverPath": str(src)})
+    assert r.status_code == 413
+
+
+async def test_move_onto_an_existing_dataset_is_refused(client, seed_roles):
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "a.csv").write_text("x\n1\n")
+    (_datasets(uid) / "b.csv").write_text("y\n2\n")
+    r = await client.post(f"{API}/dataset-files/move", headers=h, json={"projectUid": uid, "path": "a.csv", "newPath": "b.csv"})
+    assert r.status_code == 409
+    assert (_datasets(uid) / "a.csv").read_text() == "x\n1\n"
+    assert (_datasets(uid) / "b.csv").read_text() == "y\n2\n"
+
+
+async def test_move_to_a_long_path_repoints_dashboards(client, seed_roles):
+    # Dataset ids are paths in server mode; the columns were once sized for a uuid.
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "a.csv").write_text("x\n1\n")
+    await client.post(f"{API}/dashboards", headers=h, json={
+        "id": "d1", "projectUid": uid, "name": {"en": "D"}, "defaultDatasetFileId": "a.csv",
+    })
+    long_path = "a-folder-with-a-rather-long-name/and-a-dataset-name-just-as-long.csv"
+    r = await client.post(f"{API}/dataset-files/move", headers=h, json={"projectUid": uid, "path": "a.csv", "newPath": long_path})
+    assert r.status_code == 204
+    assert (await client.get(f"{API}/dashboards/d1", headers=h)).json()["defaultDatasetFileId"] == long_path
+
+
+async def test_move_is_rolled_back_when_the_repoint_fails(client, seed_roles, monkeypatch):
+    from app.services import dataset_service
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    (_datasets(uid) / "a.csv").write_text("age\n70\n")
+    await _meta(client, h, uid, "a.csv")
+    await client.post(f"{API}/dataset-files/columns/meta", headers=h, json={
+        "projectUid": uid, "path": "a.csv", "columns": {"col_age": {"label": {"en": "Age"}}},
+    })
+
+    async def broken(*_args, **_kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(dataset_service, "repoint_dataset_paths", broken)
+    try:
+        await client.post(f"{API}/dataset-files/move", headers=h, json={"projectUid": uid, "path": "a.csv", "newPath": "b.csv"})
+    except RuntimeError:
+        pass
+    assert (_datasets(uid) / "a.csv").is_file() and not (_datasets(uid) / "b.csv").exists()
+    monkeypatch.undo()
+    by_id = {c["id"]: c for c in (await _meta(client, h, uid, "a.csv"))["columns"]}
+    assert by_id["col_age"]["label"] == {"en": "Age"}
