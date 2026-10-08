@@ -4,6 +4,7 @@
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
 
 export interface ChartTooltipRow {
@@ -20,6 +21,7 @@ export interface ChartTooltipRow {
  * or category. Several series in one tooltip put their swatch on each row.
  */
 export function ChartTooltipCard({ title, color, rows }: { title?: ReactNode; color?: string; rows: ChartTooltipRow[] }) {
+  const { t } = useTranslation()
   const hasSwatch = rows.some((r) => r.color)
   return (
     <div style={{ ...TOOLTIP_STYLE.contentStyle, lineHeight: 1.5, maxWidth: 320 }}>
@@ -34,7 +36,7 @@ export function ChartTooltipCard({ title, color, rows }: { title?: ReactNode; co
           {/* A row without a swatch keeps its place, so the labels stay aligned. */}
           {hasSwatch && <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: r.color ?? 'transparent' }} />}
           <span>
-            {r.label != null && <>{r.label} : </>}
+            {r.label != null && <>{r.label}{t('common.label_separator')}</>}
             {r.value}
             {r.note != null && <span className="ml-2">{r.note}</span>}
           </span>

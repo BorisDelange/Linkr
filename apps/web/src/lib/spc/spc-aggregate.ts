@@ -166,15 +166,29 @@ function dedupe(rows: Record<string, unknown>[], key?: string): Record<string, u
   return out
 }
 
+// Spreading one argument per row into Math.min/max overflows the call stack
+// past ~100k rows, hence plain loops.
+function extent(...lists: readonly (readonly number[])[]): { min: number; max: number } {
+  let min = Infinity
+  let max = -Infinity
+  for (const list of lists) {
+    for (const v of list) {
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+  }
+  return { min, max }
+}
+
 function aggregateValues(values: number[], how: NonNullable<AggregateOptions['aggregation']>): number {
   if (values.length === 0) return 0
   switch (how) {
     case 'sum':
       return values.reduce((a, b) => a + b, 0)
     case 'min':
-      return Math.min(...values)
+      return extent(values).min
     case 'max':
-      return Math.max(...values)
+      return extent(values).max
     case 'mean':
       return values.reduce((a, b) => a + b, 0) / values.length
     case 'median': {
@@ -374,8 +388,8 @@ export function aggregate(opts: AggregateOptions): PeriodPoint[] {
     if (intervals.length === 0) return []
     const starts = intervals.map(i => i.start)
     const ends = intervals.map(i => i.end).filter((e): e is number => e !== null)
-    const openEnd = Math.max(...(ends.length ? ends : starts), ...dated.map(d => d.ms))
-    const grid = periodGrid(Math.min(...starts), openEnd, period)
+    const openEnd = extent(ends.length ? ends : starts, dated.map(d => d.ms)).max
+    const grid = periodGrid(extent(starts).min, openEnd, period)
     denominators = overlapDaysByPeriod(intervals, grid, period, openEnd)
   } else if (denominatorMode === 'exposure-column') {
     if (!exposureColumn) return []
@@ -428,8 +442,8 @@ function deviceUtilisation(
   const all = [...stays, ...devices]
   const starts = all.map(i => i.start)
   const ends = all.map(i => i.end).filter((e): e is number => e !== null)
-  const openEnd = Math.max(...ends, ...starts)
-  const grid = periodGrid(Math.min(...starts), openEnd, period)
+  const openEnd = extent(ends, starts).max
+  const grid = periodGrid(extent(starts).min, openEnd, period)
   const patientDays = overlapDaysByPeriod(stays, grid, period, openEnd)
   const deviceDays = overlapDaysByPeriod(devices, grid, period, openEnd)
   return grid

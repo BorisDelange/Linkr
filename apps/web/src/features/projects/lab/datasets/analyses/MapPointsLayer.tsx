@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { CircleMarker, Marker, Tooltip as LeafletTooltip, useMap, useMapEvents } from 'react-leaflet'
 import { divIcon, type Map as LeafletMap } from 'leaflet'
+import { DEFAULT_COLOR } from '@/lib/plugins/shared-styles'
 import { buildClusterIndex, clusterBackground, clusterDiameter, type MapPoint } from './map-clusters'
 
 const compactCount = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 })
@@ -61,7 +62,7 @@ function ClusteredPoints({ points, opacity }: { points: MapPoint[]; opacity: num
           return <PointMarker key={`p${i}`} point={points[i]} opacity={opacity} />
         }
         const count = props.point_count
-        const background = clusterBackground((props as unknown as { colors: Record<string, number> }).colors, points[0]?.color ?? '#3b82f6')
+        const background = clusterBackground((props as unknown as { colors: Record<string, number> }).colors, points[0]?.color ?? DEFAULT_COLOR.hex)
         const size = clusterDiameter(count)
         const icon = divIcon({
           className: '',

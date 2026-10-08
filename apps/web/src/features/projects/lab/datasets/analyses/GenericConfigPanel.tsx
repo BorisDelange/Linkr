@@ -38,6 +38,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { SearchInput } from '@/components/ui/search-input'
 import { firstMatchOnEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
@@ -53,13 +54,13 @@ import { questionColumns, questionChoices } from '@/lib/survey/survey-schema'
 import { availableCharts } from './survey-charts'
 import { questionKindLabel } from '@/lib/survey/question-kind-label'
 import { useBooleanLabels } from '@/hooks/use-boolean-labels'
-import { isServerMode } from '@/lib/api-client'
-import { fetchColumnDistinct } from '@/lib/api/datasets'
 import { ColorPickerPopover } from '@/components/ui/color-picker-popover'
 import { PaletteEditor } from '@/components/ui/palette-editor'
 import { CHART_PALETTES } from '@/lib/plugins/shared-styles'
 import type { DatasetColumn, LocalizedString } from '@/types'
-import type { PluginConfigField, VisibleCondition } from '@/types/plugin'
+import type { PluginConfigField } from '@/types/plugin'
+import { applyConfigDefaults, conditionsHold } from './config-conditions'
+import { useServerColumnDistinct } from './use-server-column-distinct'
 
 interface GenericConfigPanelProps {
   schema: Record<string, PluginConfigField>
@@ -79,18 +80,6 @@ interface GenericConfigPanelProps {
   renderDatasetField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
 }
 
-/** Every condition holds against `config`; `{ anyOf }` holds when one of its own does. */
-function conditionsHold(when: VisibleCondition | VisibleCondition[], config: Record<string, unknown>): boolean {
-  const holds = (cond: { field: string; value?: unknown; values?: unknown[]; notEmpty?: boolean }) => {
-    const depValue = config[cond.field]
-    if (cond.notEmpty) return depValue != null && depValue !== ''
-    if (cond.values) return cond.values.includes(depValue)
-    return depValue === cond.value
-  }
-  const conditions = Array.isArray(when) ? when : [when]
-  return conditions.every(cond => ('anyOf' in cond ? cond.anyOf.some(holds) : holds(cond)))
-}
-
 export function GenericConfigPanel({
   schema,
   config,
@@ -104,23 +93,7 @@ export function GenericConfigPanel({
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
 
-  const configWithDefaults = useMemo(() => {
-    const result = { ...config }
-    for (const [key, field] of Object.entries(schema)) {
-      if (result[key] === undefined && field.default !== undefined) {
-        result[key] = field.default
-      }
-    }
-    // Conditional defaults read the static ones (e.g. the default plot type), so
-    // they resolve in a second pass.
-    const base = { ...result }
-    for (const [key, field] of Object.entries(schema)) {
-      if (config[key] !== undefined || !field.defaultWhen) continue
-      const match = field.defaultWhen.find(d => conditionsHold(d.when, base))
-      if (match) result[key] = match.value
-    }
-    return result
-  }, [config, schema])
+  const configWithDefaults = useMemo(() => applyConfigDefaults(config, schema), [config, schema])
 
   const visibleEntries = Object.entries(schema).filter(([, field]) =>
     !field.visibleWhen || conditionsHold(field.visibleWhen, configWithDefaults))
@@ -554,27 +527,6 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
   }
 }
 
-const NO_VALUES: string[] = []
-
-/**
- * Server mode: the distinct values of a column, fetched because `rows` is empty
- * there (the browser never holds the dataset). Alphabetical, at most 500. Tagged
- * with the column id so a result for a previous column is never shown.
- */
-function useServerColumnDistinct(colId: string | undefined, rows: Record<string, unknown>[] | undefined, datasetFileId: string | undefined): string[] {
-  const [result, setResult] = useState<{ colId: string; values: string[] }>({ colId: '', values: [] })
-  const needsServer = isServerMode() && !!datasetFileId && !!colId && (!rows || rows.length === 0)
-  useEffect(() => {
-    if (!needsServer) return
-    let cancelled = false
-    fetchColumnDistinct(datasetFileId!, colId!, { limit: 500 })
-      .then((res) => { if (!cancelled) setResult({ colId: colId!, values: res.values }) })
-      .catch(() => { if (!cancelled) setResult({ colId: colId!, values: [] }) })
-    return () => { cancelled = true }
-  }, [needsServer, datasetFileId, colId])
-  return needsServer && result.colId === colId ? result.values : NO_VALUES
-}
-
 /**
  * Drag the ANSWERS of a survey question — or, with `choices: 'column-values'`,
  * the distinct values of a column — into an explicit order.
@@ -602,17 +554,17 @@ function ChoiceOrderField({
   const colId = columnKey ? (config[columnKey] as string | undefined) : undefined
   const fromColumn = field.choices === 'column-values'
 
-  // Most frequent first, as a count-ordered chart would draw them.
+  // Alphabetical, as the server's distinct endpoint returns them, so the list
+  // starts the same in both modes.
   const localValues = useMemo(() => {
     if (!fromColumn || !colId || !rows) return []
-    const counts = new Map<string, number>()
+    const seen = new Set<string>()
     for (const row of rows) {
       const raw = row[colId]
       if (raw == null || raw === '') continue
-      const key = String(raw)
-      counts.set(key, (counts.get(key) ?? 0) + 1)
+      seen.add(String(raw))
     }
-    return Array.from(counts).sort((a, b) => b[1] - a[1]).map(([name]) => name)
+    return Array.from(seen).sort()
   }, [fromColumn, colId, rows])
   const serverValues = useServerColumnDistinct(fromColumn ? colId : undefined, rows, datasetFileId)
 
@@ -729,7 +681,7 @@ function MultiColumnSelect({
     return filtered.filter(
       c => displayColumnName(c, lang).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
     )
-  }, [filtered, search])
+  }, [filtered, search, lang])
 
   const selectMatches = () => {
     const next = selectMatchesOnEnter(search, selected, searchFiltered.map(c => c.id))
@@ -972,7 +924,7 @@ function SingleColumnSelect({
     return filtered.filter(
       c => displayColumnName(c, lang).toLowerCase().includes(q) || c.name.toLowerCase().includes(q),
     )
-  }, [filtered, search])
+  }, [filtered, search, lang])
 
   return (
     <div className="space-y-1.5">
@@ -1451,9 +1403,9 @@ function StringField({
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <span className="shrink-0 cursor-help rounded bg-muted px-1 py-px text-[10px] font-medium uppercase leading-tight text-muted-foreground">
+                <Badge variant="secondary" className="cursor-help uppercase">
                   {lang}
-                </span>
+                </Badge>
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-56">
                 {lang === 'fr' ? t('analyses.localized_field_hint_fr') : t('analyses.localized_field_hint_en')}

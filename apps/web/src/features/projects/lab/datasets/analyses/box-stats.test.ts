@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { computeBoxStats } from './KeyIndicatorComponent'
+import { computeBoxStats } from './key-indicator-values'
 
 /**
  * These values are pinned against the server mirror, `_linkr_boxplot_stats` in
@@ -9,9 +9,9 @@ import { computeBoxStats } from './KeyIndicatorComponent'
 describe('computeBoxStats', () => {
   it('pulls the whiskers back to 1.5x IQR instead of the raw extremes', () => {
     const s = computeBoxStats([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 500])!
-    expect([s.q1, s.median, s.q3]).toEqual([3, 6, 9])
-    // q3 + 1.5*iqr = 9 + 9 = 18, so the 500 sits outside the whisker.
-    expect(s.max).toBe(18)
+    expect([s.q1, s.median, s.q3]).toEqual([3.5, 6, 8.5])
+    // q3 + 1.5*iqr = 8.5 + 7.5 = 16, so the 500 sits outside the whisker.
+    expect(s.max).toBe(16)
     expect(s.min).toBe(1)
   })
 
@@ -25,6 +25,11 @@ describe('computeBoxStats', () => {
     const s = computeBoxStats([5, 5, 5, 5])!
     expect([s.min, s.q1, s.median, s.q3, s.max]).toEqual([5, 5, 5, 5, 5])
     expect(s.mean).toBe(5)
+  })
+
+  it('interpolates the quartiles between ranks (R type 7)', () => {
+    const s = computeBoxStats([1, 2, 3, 4])!
+    expect([s.q1, s.median, s.q3]).toEqual([1.75, 2.5, 3.25])
   })
 
   it('handles a single value', () => {

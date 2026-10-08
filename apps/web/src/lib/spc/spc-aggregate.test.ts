@@ -428,3 +428,33 @@ describe('mergeIntervals', () => {
     ])
   })
 })
+
+describe('aggregate — large inputs', () => {
+  // 200k rows used to overflow the call stack through Math.max(...rows).
+  const N = 200_000
+  const rows = Array.from({ length: N }, (_, i) => {
+    const day = 1 + (i % 28)
+    const date = `2024-01-${String(day).padStart(2, '0')}`
+    return { id: i, adm: date, dis: date, start: date, end: date, date, kt: i % 2 ? 'UVC' : 'none', v: i % 100 }
+  })
+
+  it('builds a patient-days rate over 200k intervals', () => {
+    const pts = aggregate({
+      rows, statisticType: 'rate', dateColumn: 'date', period: 'month',
+      valueColumn: 'kt', eventValues: ['UVC'], denominatorMode: 'patient-days',
+      admissionColumn: 'adm', dischargeColumn: 'dis',
+    })
+    expect(pts).toHaveLength(1)
+    expect(pts[0]).toMatchObject({ date: '2024-01-01', y: N / 2 })
+  })
+
+  it('builds a device utilisation ratio over 200k intervals', () => {
+    const pts = aggregate({
+      rows, statisticType: 'proportion', dateColumn: 'date', period: 'month',
+      valueColumn: 'kt', eventValues: ['UVC'], denominatorMode: 'patient-days', numerator: 'device-days',
+      admissionColumn: 'adm', dischargeColumn: 'dis', deviceStartColumn: 'start', deviceEndColumn: 'end',
+    })
+    expect(pts).toHaveLength(1)
+    expect(pts[0].n).toBeGreaterThan(0)
+  })
+})

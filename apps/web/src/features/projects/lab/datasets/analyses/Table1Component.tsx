@@ -118,7 +118,7 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   )
 
   const [serverTable, setServerTable] = useState<DescriptiveTable | null>(null)
-  const [serverError, setServerError] = useState<string | null>(null)
+  const [serverFailure, setServerFailure] = useState<{ key: string | null; message: string } | null>(null)
   const spec = server && datasetFileId && columns.length > 0
     ? buildTable1Spec(columns, selectedIds, groupByColumn, {
         stat,
@@ -138,6 +138,8 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
   const { refreshing, settle } = useRenderRefresh(requestKey)
+  // Keyed to the request it answered, so a new render clears a stale failure.
+  const serverError = serverFailure?.key === requestKey ? serverFailure.message : null
   useEffect(() => {
     if (!server || !datasetFileId || !specKey) return
     let cancelled = false
@@ -145,11 +147,11 @@ export function Table1Component({ config, columns, rows, compact, datasetFileId,
       .then((out) => {
         if (cancelled) return
         settle(requestKey)
-        if (out.stderr) { setServerError(out.stderr); return }
-        try { setServerTable(JSON.parse(out.stdout.trim()) as DescriptiveTable); setServerError(null) }
-        catch { setServerError(out.stdout || 'Failed to parse result') }
+        if (out.stderr) { setServerFailure({ key: requestKey, message: out.stderr }); return }
+        try { setServerTable(JSON.parse(out.stdout.trim()) as DescriptiveTable); setServerFailure(null) }
+        catch { setServerFailure({ key: requestKey, message: out.stdout || 'Failed to parse result' }) }
       })
-      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
+      .catch((e) => { if (!cancelled) { settle(requestKey); setServerFailure({ key: requestKey, message: String(e) }) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 

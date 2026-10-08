@@ -38,7 +38,7 @@ export interface PluginConfigField {
   columnFieldWhen?: { when: VisibleCondition | VisibleCondition[]; columnField: string }[]
   /** For `choice-order`: what is ordered. `survey-answers` (default) are the answers
    *  of the survey question in `columnField`; `column-values` are the distinct values
-   *  of that column, most frequent first. */
+   *  of that column, in alphabetical order. */
   choices?: 'survey-answers' | 'column-values'
   default?: unknown
   /** A default that depends on other fields, first match winning over `default`

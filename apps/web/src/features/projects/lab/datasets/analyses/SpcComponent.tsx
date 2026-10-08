@@ -28,12 +28,12 @@ import type { SpcConfig } from '@/lib/spc/spc-compute'
 import type { ChartPoint, SpcResult, SpcWarning } from '@/lib/spc/spc-types'
 import { classifyVariation, hasFewCrossings } from '@/lib/spc/spc-variation'
 import type { ImprovementDirection, Variation } from '@/lib/spc/spc-variation'
+import { buildSpcSpec } from './spc-server'
+import { cn } from '@/lib/utils'
 
 /** How a special-cause period is marked on the line: a ringed dot, a tinted
  *  full-height column, or a tinted segment of the control band. */
 type SignalDisplay = 'points' | 'column' | 'band'
-import { buildSpcSpec } from './spc-server'
-import { cn } from '@/lib/utils'
 
 /** Read the config into the shape computeSpc expects, resolving ids to names. */
 function useSpcConfig(config: Record<string, unknown>, columnName: (id: unknown) => string): SpcConfig {
