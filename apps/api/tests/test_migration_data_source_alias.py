@@ -26,7 +26,7 @@ def test_duplicates_are_renamed_oldest_first_then_refused(alembic_at):  # noqa: 
                 "INSERT INTO data_sources (id, workspace_id, alias, name, source_type, connection_config, status, created_at, updated_at) "
                 "VALUES (:i, :w, :a, '{}', 'database', '{}', 'ok', :t, :t)"
             ), {"i": id_, "w": ws, "a": alias, "t": at})
-    upgrade("head")
+    upgrade("5e6f7a8b9c0d")
 
     with engine.connect() as c:
         aliases = dict(c.execute(sa.text("SELECT id, alias FROM data_sources")).all())
@@ -37,3 +37,23 @@ def test_duplicates_are_renamed_oldest_first_then_refused(alembic_at):  # noqa: 
         "1": "mimic", "2": "MIMIC_3", "3": "mimic_4", "4": "mimic_2",
         "5": "mimic", "6": "My-DB", "7": "my_db_2",
     }
+
+
+def test_alias_key_is_backfilled_then_unique(alembic_at):  # noqa: F811
+    upgrade, engine = alembic_at
+    upgrade("6a7b8c9d0e1f")
+    with engine.begin() as c:
+        c.execute(sa.text("INSERT INTO workspaces (id, name, description, origin) VALUES ('a', '{}', '{}', 'user')"))
+        c.execute(sa.text(
+            "INSERT INTO data_sources (id, workspace_id, alias, name, source_type, connection_config, status, created_at, updated_at) "
+            "VALUES ('1', 'a', 'My-DB', '{}', 'database', '{}', 'ok', '2026-01-01', '2026-01-01')"
+        ))
+    upgrade("head")
+
+    with engine.connect() as c:
+        assert c.execute(sa.text("SELECT alias_key FROM data_sources WHERE id = '1'")).scalar() == "my_db"
+        with pytest.raises(sa.exc.IntegrityError):
+            c.execute(sa.text(
+                "INSERT INTO data_sources (id, workspace_id, alias, alias_key, name, source_type, connection_config, status, created_at, updated_at) "
+                "VALUES ('2', 'a', 'my_db', 'my_db', '{}', 'database', '{}', 'ok', '2026-01-02', '2026-01-02')"
+            ))

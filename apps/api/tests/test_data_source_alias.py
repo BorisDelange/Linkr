@@ -78,3 +78,20 @@ async def test_the_database_refuses_a_duplicate_the_check_missed(client, monkeyp
     r = await _create(client, headers, ws_a, "mimic", name="Other")
     assert r.status_code == 409
     assert "mimic" in r.json()["detail"]
+
+
+async def test_the_database_refuses_a_normalised_duplicate_the_check_missed(client, monkeypatch):
+    # `My-DB` vs `my_db`: distinct raw aliases, one DuckDB catalog.
+    from app.services import data_source_service
+
+    headers, ws_a, _ = await _setup(client)
+    assert (await _create(client, headers, ws_a, "my_db")).status_code == 201
+
+    async def no_check(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(data_source_service, "ensure_alias_free", no_check)
+    assert (await _create(client, headers, ws_a, "My-DB", name="Other")).status_code == 409
+    other = (await _create(client, headers, ws_a, "omop")).json()
+    r = await client.patch(f"{API}/data-sources/{other['id']}", headers=headers, json={"alias": "MY.DB"})
+    assert r.status_code == 409

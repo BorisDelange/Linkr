@@ -1,7 +1,17 @@
+import re
+
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin, UUIDPKMixin
+
+
+def alias_key(alias: str) -> str:
+    """What two aliases are compared by: the catalog DuckDB mounts a database as
+    (`ds_` + the alias with every non-alphanumeric as `_`), case-insensitive as
+    DuckDB is — so `My-DB` and `my_db` collide. Twin of the frontend's `aliasKey`
+    (lib/alias.ts); frozen in migrations 5e6f7a8b9c0d and 7b8c9d0e1f2a."""
+    return re.sub(r"[^a-zA-Z0-9]", "_", alias).lower()
 
 
 class DataSource(Base, UUIDPKMixin, TimestampMixin):
@@ -14,10 +24,10 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     """
 
     __tablename__ = "data_sources"
-    # The service also refuses an alias that differs only by case or punctuation
-    # (`alias_key`); this catches the race between its check and the insert.
+    # The service refuses a taken `alias_key` with a readable 409; this catches
+    # the race between its check and the insert.
     __table_args__ = (
-        UniqueConstraint("workspace_id", "alias", name="uq_data_sources_workspace_alias"),
+        UniqueConstraint("workspace_id", "alias_key", name="uq_data_sources_workspace_alias_key"),
     )
 
     workspace_id: Mapped[str | None] = mapped_column(
@@ -26,6 +36,8 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     # Human-readable, URL-safe id set once at creation (folder name in exports).
     entity_id: Mapped[str | None] = mapped_column(String(255))
     alias: Mapped[str] = mapped_column(String(255))
+    # Derived from `alias` on every assignment (see `_sync_alias_key`); never set directly.
+    alias_key: Mapped[str] = mapped_column(String(255))
     # LocalizedString. LocalizedText (not JSONB_or_JSON) because these columns
     # already hold plain strings from before databases were multilingual: it
     # reads a legacy "Demo Hospital" back unchanged instead of failing to decode.
@@ -92,6 +104,11 @@ class DataSource(Base, UUIDPKMixin, TimestampMixin):
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(String(255))
     created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+
+    @validates("alias")
+    def _sync_alias_key(self, _key: str, value: str) -> str:
+        self.alias_key = alias_key(value or "")
+        return value
 
 
 class DataSourceFile(Base, UUIDPKMixin, TimestampMixin):

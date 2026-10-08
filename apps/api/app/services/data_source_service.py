@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.models.cohort import Cohort
-from app.models.data_source import DataSource, DataSourceFile
+from app.models.data_source import DataSource, DataSourceFile, alias_key
 from app.models.user import User
 from app.schemas.data_source import (
     DatabaseConnectionInfo,
@@ -247,14 +247,6 @@ async def get(db: AsyncSession, source_id: str) -> DataSource | None:
 
 class AliasTaken(ValueError):
     """Another database of the same workspace already has this alias."""
-
-
-def alias_key(alias: str) -> str:
-    """What two aliases are compared by: the catalog DuckDB mounts a database as
-    (`ds_` + the alias with every non-alphanumeric as `_`), case-insensitive as
-    DuckDB is — so `My-DB` and `my_db` collide. Twin of the frontend's `aliasKey`
-    (lib/alias.ts); frozen in migration 5e6f7a8b9c0d."""
-    return re.sub(r"[^a-zA-Z0-9]", "_", alias).lower()
 
 
 async def _aliases_in_workspace(
