@@ -612,7 +612,10 @@ export function FilesPage() {
         timestamp: start,
         duration: 0,
         success: true,
-        output: language === 'python' ? t('runtime.loading_python') : t('runtime.loading_r'),
+        // Server mode loads no runtime: it opens a socket to the project's kernel.
+        output: isServerMode()
+          ? t(language === 'python' ? 'runtime.connecting_python' : 'runtime.connecting_r')
+          : t(language === 'python' ? 'runtime.loading_python' : 'runtime.loading_r'),
         code,
         running: true,
       })

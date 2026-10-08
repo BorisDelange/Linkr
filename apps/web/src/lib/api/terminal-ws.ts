@@ -13,6 +13,7 @@
  * an auth close (code 4401) we surface an error and do NOT reconnect.
  */
 import { getApiBaseUrl } from '@/lib/api-client'
+import i18n from '@/lib/i18n'
 
 export type TerminalLanguage = 'python' | 'r' | 'bash'
 
@@ -31,11 +32,24 @@ export interface TerminalMessage {
   failed?: boolean
 }
 
+/** How long the handshake may stay pending before we give up on it. */
+export const WS_OPEN_TIMEOUT_MS = 15_000
+
+export interface TerminalCloseInfo {
+  /** Code 4401. */
+  authFailed: boolean
+  clean: boolean
+  /** The handshake never completed: the socket closed before `open`. */
+  neverOpened: boolean
+  /** The handshake hung for WS_OPEN_TIMEOUT_MS and we closed it ourselves. */
+  timedOut: boolean
+}
+
 export interface TerminalSocketHandlers {
   onMessage: (msg: TerminalMessage) => void
   onOpen?: () => void
-  /** Called once when the socket closes. `authFailed` is true on code 4401. */
-  onClose?: (info: { authFailed: boolean; clean: boolean }) => void
+  /** Called once when the socket closes. */
+  onClose?: (info: TerminalCloseInfo) => void
 }
 
 export function wsBaseUrl(): string {
@@ -43,6 +57,18 @@ export function wsBaseUrl(): string {
   // (dev proxy) falls back to the current page origin.
   const base = getApiBaseUrl() || window.location.origin
   return base.replace(/^http/, 'ws')
+}
+
+/**
+ * Why a socket that closed before doing its job failed, worded for the person
+ * who has to fix it — or null for an ordinary close after a working session.
+ */
+export function terminalFailureMessage(info: TerminalCloseInfo): string | null {
+  const url = `${wsBaseUrl()}/api/v1/execute/terminal`
+  if (info.authFailed) return i18n.t('terminal.authFailed')
+  if (info.timedOut) return i18n.t('terminal.wsTimeout', { url, seconds: WS_OPEN_TIMEOUT_MS / 1000 })
+  if (info.neverOpened) return i18n.t('terminal.wsRefused', { url })
+  return null
 }
 
 export interface TerminalSocketOptions {
@@ -75,7 +101,21 @@ export class TerminalSocket {
     const ws = new WebSocket(`${wsBaseUrl()}/api/v1/execute/terminal?${params}`)
     this.ws = ws
 
-    ws.onopen = () => this.handlers.onOpen?.()
+    // A reverse proxy that does not forward WebSocket upgrades can hold the
+    // handshake open indefinitely: no open, no close, no console error, and the
+    // request never reaches the API. Without a deadline the caller waits forever.
+    let opened = false
+    let timedOut = false
+    const openTimer = setTimeout(() => {
+      timedOut = true
+      ws.close()
+    }, WS_OPEN_TIMEOUT_MS)
+
+    ws.onopen = () => {
+      opened = true
+      clearTimeout(openTimer)
+      this.handlers.onOpen?.()
+    }
     ws.onmessage = (ev) => {
       try {
         this.handlers.onMessage(JSON.parse(ev.data) as TerminalMessage)
@@ -84,7 +124,13 @@ export class TerminalSocket {
       }
     }
     ws.onclose = (ev) => {
-      this.handlers.onClose?.({ authFailed: ev.code === WS_AUTH_FAILED, clean: ev.wasClean })
+      clearTimeout(openTimer)
+      this.handlers.onClose?.({
+        authFailed: ev.code === WS_AUTH_FAILED,
+        clean: ev.wasClean,
+        neverOpened: !opened,
+        timedOut,
+      })
     }
   }
 

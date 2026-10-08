@@ -3851,7 +3851,9 @@
   },
   "runtime": {
     "loading_python": "Loading Python runtime",
-    "loading_r": "Loading R runtime"
+    "loading_r": "Loading R runtime",
+    "connecting_python": "Connecting to the Python kernel…",
+    "connecting_r": "Connecting to the R kernel…"
   },
   "catalog": {
     "title": "Catalog",
@@ -5866,7 +5868,9 @@
     "serverKernel": "server session",
     "wasm": "WASM",
     "bashLimited": "Note: limited shell — use Python or R terminals for code execution",
-    "noProjectContext": "No project context — open this terminal from a project to reach its server session."
+    "noProjectContext": "No project context — open this terminal from a project to reach its server session.",
+    "wsTimeout": "Could not reach the server kernel: the WebSocket connection to {{url}} did not open within {{seconds}} s. A reverse proxy in front of Linkr is most likely not forwarding WebSocket upgrades on this route — its administrators need to enable them (HTTP/1.1, Upgrade and Connection headers).",
+    "wsRefused": "Could not reach the server kernel: the WebSocket connection to {{url}} was closed before it opened. If the server logs show no request, a reverse proxy in front of Linkr is blocking WebSockets; otherwise sign in again."
   },
   "authoring": {
     "author": "Author",

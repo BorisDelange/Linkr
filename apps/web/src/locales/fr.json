@@ -3851,7 +3851,9 @@
   },
   "runtime": {
     "loading_python": "Chargement de l'environnement Python",
-    "loading_r": "Chargement de l'environnement R"
+    "loading_r": "Chargement de l'environnement R",
+    "connecting_python": "Connexion au kernel Python…",
+    "connecting_r": "Connexion au kernel R…"
   },
   "catalog": {
     "title": "Catalogue",
@@ -5866,7 +5868,9 @@
     "serverKernel": "session serveur",
     "wasm": "WASM",
     "bashLimited": "Note : shell limité — utilisez les terminaux Python ou R pour exécuter du code",
-    "noProjectContext": "Aucun contexte projet — ouvrez ce terminal depuis un projet pour accéder à sa session serveur."
+    "noProjectContext": "Aucun contexte projet — ouvrez ce terminal depuis un projet pour accéder à sa session serveur.",
+    "wsTimeout": "Impossible de joindre le kernel serveur : la connexion WebSocket vers {{url}} ne s’est pas ouverte en {{seconds}} s. Un reverse proxy placé devant Linkr ne relaie très probablement pas les WebSockets sur cette route — ses administrateurs doivent les activer (HTTP/1.1, en-têtes Upgrade et Connection).",
+    "wsRefused": "Impossible de joindre le kernel serveur : la connexion WebSocket vers {{url}} a été fermée avant de s’ouvrir. Si les logs du serveur ne montrent aucune requête, un reverse proxy placé devant Linkr bloque les WebSockets ; sinon, reconnectez-vous."
   },
   "authoring": {
     "author": "Auteur",

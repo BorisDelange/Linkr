@@ -1,7 +1,7 @@
 import { apiRequest } from '@/lib/api-client'
 import { useAppStore } from '@/stores/app-store'
 import { useSessionStore } from '@/stores/session-store'
-import { TerminalSocket } from '@/lib/api/terminal-ws'
+import { TerminalSocket, terminalFailureMessage } from '@/lib/api/terminal-ws'
 import type { RuntimeLanguage, RuntimeOutput, RuntimeFigure, RuntimeTable, CodeCompletionItem } from '@/lib/runtimes/types'
 import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import type { Job } from '@/lib/api/environments'
@@ -177,8 +177,8 @@ export function streamOnServer(
             }))
           }
         },
-        onClose: ({ authFailed }) => {
-          if (!settled) finish(() => reject(new Error(authFailed ? 'Authentication failed' : 'Connection closed')))
+        onClose: (info) => {
+          if (!settled) finish(() => reject(new Error(terminalFailureMessage(info) ?? 'Connection closed')))
         },
       },
     )

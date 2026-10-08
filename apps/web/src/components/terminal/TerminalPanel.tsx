@@ -10,7 +10,7 @@ import { isServerMode } from '@/lib/api-client'
 import { useEnvironmentsUiStore } from '@/stores/environments-ui-store'
 import { Button } from '@/components/ui/button'
 import { Package, X } from 'lucide-react'
-import { TerminalSocket } from '@/lib/api/terminal-ws'
+import { TerminalSocket, terminalFailureMessage } from '@/lib/api/terminal-ws'
 import { useAppStore, isEditorThemeDark } from '@/stores/app-store'
 import { getLiveTerminal, registerLiveTerminal, disposeLiveTerminal } from '@/lib/terminal-sessions'
 
@@ -303,10 +303,11 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
             }
             else if (msg.type === 'exit') terminal.writeln(`\r\n\x1b[2m${t('terminal.shellExited')}\x1b[0m`)
           },
-          onClose: ({ authFailed }) => {
+          onClose: (info) => {
+            const failure = terminalFailureMessage(info)
             terminal.writeln(
-              authFailed
-                ? `\r\n\x1b[31m${t('terminal.authFailed')}\x1b[0m`
+              failure
+                ? `\r\n\x1b[31m${failure}\x1b[0m`
                 : `\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`
             )
           },
@@ -343,9 +344,13 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
               terminal.write(config.prompt)
             }
           },
-          onClose: ({ authFailed }) => {
-            if (authFailed) terminal.writeln(`\r\n\x1b[31m${t('terminal.authFailed')}\x1b[0m`)
-            else terminal.writeln(`\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`)
+          onClose: (info) => {
+            const failure = terminalFailureMessage(info)
+            terminal.writeln(
+              failure
+                ? `\r\n\x1b[31m${failure}\x1b[0m`
+                : `\r\n\x1b[2m${t('terminal.disconnected')}\x1b[0m`
+            )
           },
         }
       )
