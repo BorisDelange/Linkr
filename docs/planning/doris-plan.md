@@ -115,8 +115,9 @@ Décisions prises en chemin (anciennes questions du §5) : compte en lecture seu
 
 ### 3.2 Ouvert 🤔
 
-1. **Image Docker** : installer l'extra `doris` (+ ≈ 24 Mo) pour que Flight marche
-   sans rien faire, ou non. Pas fait : à décider.
+1. **Image Docker** : extra `doris` installé dans `Dockerfile.api` (+ ≈ 24 Mo) et
+   `host.docker.internal` défini dans `docker-compose.yml`. Les images du Hub ne
+   l'auront qu'à la prochaine release.
 2. **Postgres** : traduit mais non déporté (`PUSHDOWN_ENGINES`). À mesurer sur un vrai
    Postgres distant (réseau) avant de l'activer, éventuellement par type de requête.
 3. **SQL écrit par l'utilisateur** : la liste blanche le rendrait sûr et identique ;

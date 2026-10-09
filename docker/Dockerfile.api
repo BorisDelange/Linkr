@@ -37,13 +37,15 @@ RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arro
 
 # Python deps in a venv (Ubuntu 24.04 blocks system pip via PEP 668).
 # Execution extras: matplotlib, scipy, statsmodels, lifelines (pandas + pyarrow are core).
+# Doris extra: the Arrow Flight SQL driver, which carries large results from an
+# Apache Doris database (without it they fall back to the slower MySQL protocol).
 ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # The full source is needed for the editable install (hatchling packages `app`).
 COPY apps/api/ ./
-RUN pip install --no-cache-dir -e ".[execution]"
+RUN pip install --no-cache-dir -e ".[execution,doris]"
 
 # Export-format version: in the repo it lives at the monorepo root, above the
 # copied apps/api tree, so ship it explicitly and point export_version.py at it.
