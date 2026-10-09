@@ -74,7 +74,8 @@ def _python_filter_code(filters: list[dict]) -> str:
         {op: 'in', values: [...]} | {op: 'between', min?, max?}]}.
     number → numeric compare (a non-finite bound matches nothing); date →
     ISO-string compare (lexical works for ISO) on the value cut to the bound's
-    length, so a day bound keeps the whole end day, missing values never match;
+    length, so a day bound keeps the whole end day, missing or empty values never
+    match;
     string/categorical → string equality via `in`."""
     lines: list[str] = []
     for f in filters:
@@ -100,7 +101,7 @@ def _python_filter_code(filters: list[dict]) -> str:
                 vals = [str(v) for v in alt.get("values", [])]
                 clauses.append(f"_col.isin({json.dumps(vals)})")
             elif alt.get("op") == "between":
-                parts = ["_col.notna()"]
+                parts = ["_col.notna()", '(_col != "")'] if kind == "date" else ["_col.notna()"]
                 for key, op in (("min", ">="), ("max", "<=")):
                     bound = alt.get(key)
                     if bound is None:
@@ -135,7 +136,8 @@ def r_preamble_from(
     path: str, columns: list[dict], filters: list[dict] | None = None, native: bool = False
 ) -> str:
     """R code that loads a Parquet file at `path` as a `dataset` data.frame.
-    Same `filters` / `native` contract as python_preamble_from."""
+    Same `filters` / `native` contract as python_preamble_from. Date columns come
+    out as UTC POSIXct, naive values read as UTC like pandas, whatever the host TZ."""
     filters = _keyed_by_raw_column(filters or [], columns, native)
     # Build named vector for renaming: c("col-1" = "age", ...)
     rename_pairs = ", ".join(
@@ -155,7 +157,13 @@ dataset <- {read}
 .have <- intersect(names(.rename), colnames(dataset))
 if (length(.have) > 0) names(dataset)[match(.have, colnames(dataset))] <- .rename[.have]
 for (.c in {number_cols}) if (.c %in% colnames(dataset)) dataset[[.c]] <- as.numeric(dataset[[.c]])
-for (.c in {date_cols}) if (.c %in% colnames(dataset)) dataset[[.c]] <- as.POSIXct(dataset[[.c]], tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"))
+.linkr_as_utc <- function(x) {{
+  if (!inherits(x, "POSIXct")) return(as.POSIXct(x, tz = "UTC", tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d")))
+  if (is.null(attr(x, "tzone")) || !nzchar(attr(x, "tzone")[1])) attr(x, "tzone") <- "UTC"
+  x
+}}
+for (.c in {date_cols}) if (.c %in% colnames(dataset)) dataset[[.c]] <- .linkr_as_utc(dataset[[.c]])
+rm(.linkr_as_utc)
 """
 
 
@@ -172,12 +180,19 @@ def _r_filter_code(filters: list[dict]) -> str:
         kind = f.get("kind", "string")
         # R renders logicals "TRUE"/"FALSE"; the UI sends "true"/"false" (see the
         # pandas branch above) — map the literals so boolean filters match.
+        # A POSIXct prints in the host TZ (child_env passes TZ) unless it carries
+        # its own; arrow reads a naive Parquet timestamp with an empty tzone, so
+        # format it as UTC wall-clock like pandas and the client do.
         if kind == "number":
             series = f"suppressWarnings(as.numeric(dataset[[{col_r}]]))"
         else:
             series = (
                 f"if (is.logical(dataset[[{col_r}]])) "
                 f"ifelse(dataset[[{col_r}]], 'true', 'false') "
+                f"else if (inherits(dataset[[{col_r}]], 'POSIXt')) "
+                f"format(dataset[[{col_r}]], '%Y-%m-%d %H:%M:%S', "
+                f"tz = {{ .tz <- attr(dataset[[{col_r}]], 'tzone'); "
+                f"if (is.null(.tz) || !nzchar(.tz[1])) 'UTC' else .tz[1] }}) "
                 f"else as.character(dataset[[{col_r}]])"
             )
         clauses: list[str] = []
@@ -186,7 +201,7 @@ def _r_filter_code(filters: list[dict]) -> str:
                 vals = _r_char_vector([str(v) for v in alt.get("values", [])])
                 clauses.append(f"(.col %in% {vals})")
             elif alt.get("op") == "between":
-                parts = ["!is.na(.col)"]
+                parts = ["!is.na(.col)", "nzchar(.col)"] if kind == "date" else ["!is.na(.col)"]
                 for key, op in (("min", ">="), ("max", "<=")):
                     bound = alt.get(key)
                     if bound is None:

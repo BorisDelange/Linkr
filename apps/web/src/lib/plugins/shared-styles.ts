@@ -1,5 +1,6 @@
 import * as LucideIcons from 'lucide-react'
 import { Puzzle } from 'lucide-react'
+import { extent } from '@/lib/numeric-extent'
 
 // ---------------------------------------------------------------------------
 // Color mapping — shared by KeyIndicator, PlotBuilder (card mode), etc.
@@ -164,7 +165,7 @@ export function aggregateByEntity(
       const nums: number[] = []
       for (const row of group) {
         const v = row[col]
-        if (v == null) continue
+        if (v == null || (typeof v === 'string' && v.trim() === '')) continue
         const n = typeof v === 'number' ? v : Number(v)
         if (!isNaN(n)) nums.push(n)
       }
@@ -190,9 +191,9 @@ function aggregateNumbers(nums: number[], fn: string): number {
       return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
     }
     case 'min':
-      return Math.min(...nums)
+      return extent(nums).min
     case 'max':
-      return Math.max(...nums)
+      return extent(nums).max
     case 'sum':
       return nums.reduce((s, v) => s + v, 0)
     default:

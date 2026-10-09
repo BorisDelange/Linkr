@@ -151,7 +151,7 @@ export function buildRInjectionCode(columns: DatasetColumn[]): string {
       if (c.type === 'number')
         return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.numeric(dataset[[${name}]])`
       if (c.type === 'date')
-        return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.POSIXct(dataset[[${name}]], tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"))`
+        return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.POSIXct(dataset[[${name}]], tz = "UTC", tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"))`
       return null
     })
     .filter(Boolean)

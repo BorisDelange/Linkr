@@ -201,8 +201,10 @@ def _linkr_num_series(col):
     num = _pd.to_numeric(col, errors="coerce")
     if num.notna().any() or len(col) == 0:
         return num
-    # All-unparseable as numbers: it may still be date strings.
-    parsed = _pd.to_datetime(col, errors="coerce")
+    # All-unparseable as numbers: it may still be date strings. utc=True keeps
+    # mixed offsets (a DST change) in one dtype, naive strings reading as UTC as
+    # before; ISO8601 parses each value on its own instead of the first one's format.
+    parsed = _pd.to_datetime(col, errors="coerce", utc=True, format="ISO8601")
     if parsed.notna().any():
         return _linkr_epoch_ms(parsed)
     return num

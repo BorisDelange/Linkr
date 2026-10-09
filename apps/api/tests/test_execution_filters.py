@@ -2,6 +2,7 @@
 _r_filter_code): both twins must keep the same rows as the client's applyFilters."""
 
 import json
+import os
 import shutil
 import subprocess
 
@@ -12,11 +13,23 @@ from app.services.execution import injection
 
 requires_r = pytest.mark.skipif(shutil.which("Rscript") is None, reason="Rscript not installed")
 
+
+def _r_has_arrow() -> bool:
+    if shutil.which("Rscript") is None:
+        return False
+    probe = subprocess.run(
+        ["Rscript", "--vanilla", "-e", "library(arrow)"], capture_output=True, text=True
+    )
+    return probe.returncode == 0
+
+
+requires_r_arrow = pytest.mark.skipif(not _r_has_arrow(), reason="Rscript or R arrow not installed")
+
 ROWS = {
-    "grp": ["a", "b", "a", None],
-    "flag": [True, False, True, False],
-    "at": ["2024-06-29T08:00:00", "2024-06-30T18:30:00", None, "2024-07-01T00:00:00"],
-    "n": [1.0, 2.0, 3.0, 4.0],
+    "grp": ["a", "b", "a", None, "b"],
+    "flag": [True, False, True, False, False],
+    "at": ["2024-06-29T08:00:00", "2024-06-30T18:30:00", None, "2024-07-01T00:00:00", ""],
+    "n": [1.0, 2.0, 3.0, 4.0, 5.0],
 }
 
 
@@ -46,6 +59,8 @@ CASES = [
     # A day bound keeps the whole end day; a missing date never matches a from-only filter.
     ([{"colId": "at", "kind": "date", "alternatives": [{"op": "between", "min": "2024-06-29", "max": "2024-06-30"}]}], [1.0, 2.0]),
     ([{"colId": "at", "kind": "date", "alternatives": [{"op": "between", "min": "2024-06-30"}]}], [2.0, 4.0]),
+    # An empty string is a missing date, as on the client, even under a to-only bound.
+    ([{"colId": "at", "kind": "date", "alternatives": [{"op": "between", "max": "2024-06-30"}]}], [1.0, 2.0]),
     ([{"colId": "n", "kind": "number", "alternatives": [{"op": "between", "min": 2, "max": 3.5}]}], [2.0, 3.0]),
     ([{"colId": "n", "kind": "number", "alternatives": [{"op": "between", "min": "1); stop('x'"}]}], []),
     ([{"colId": "n", "kind": "number", "alternatives": [{"op": "between", "max": float("nan")}]}], []),
@@ -78,3 +93,54 @@ def test_datetime_column_filters_on_its_date_part():
         [{"colId": "at", "kind": "date", "alternatives": [{"op": "between", "max": "2024-06-30"}]}]
     ), ns)
     assert ns["dataset"]["n"].tolist() == [1]
+
+
+@requires_r_arrow
+def test_r_naive_parquet_timestamp_filters_on_its_utc_wall_clock(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    path = tmp_path / "ts.parquet"
+    at = pd.to_datetime(pd.Series(["2024-06-30 23:30", "2024-07-01 00:30"])).astype("datetime64[us]")
+    pq.write_table(
+        pa.table({"at": pa.array(at, type=pa.timestamp("us")), "n": [1.0, 2.0]}), path
+    )
+    columns = [{"id": "at", "name": "at", "type": "date"}, {"id": "n", "name": "n", "type": "number"}]
+    filters = [{"colId": "at", "kind": "date", "alternatives": [{"op": "between", "max": "2024-06-30"}]}]
+    script = tmp_path / "f.R"
+    script.write_text(injection.r_preamble_from(path.as_posix(), columns, filters) + "cat(dataset$n, sep = ',')\n")
+    out = subprocess.run(
+        ["Rscript", "--vanilla", str(script)],
+        capture_output=True, text=True, check=True, env={**os.environ, "TZ": "Europe/Paris"},
+    )
+    assert out.stdout.strip() == "1"
+
+
+@requires_r_arrow
+def test_r_date_columns_read_as_utc_whatever_the_host_tz(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    path = tmp_path / "dates.parquet"
+    naive = pd.to_datetime(pd.Series(["2024-06-30 23:30"])).astype("datetime64[us]")
+    pq.write_table(pa.table({
+        "iso": ["2024-06-30T23:30:00"],
+        "spaced": ["2024-06-30 23:30:00"],
+        "day": ["2024-06-30"],
+        "ts": pa.array(naive, type=pa.timestamp("us")),
+    }), path)
+    columns = [{"id": c, "name": c, "type": "date"} for c in ("iso", "spaced", "day", "ts")]
+    script = tmp_path / "d.R"
+    script.write_text(
+        injection.r_preamble_from(path.as_posix(), columns)
+        + "for (.c in colnames(dataset)) cat(format(dataset[[.c]], '%Y-%m-%d %H:%M:%S %Z'), "
+        "as.numeric(dataset[[.c]]), sep = '|', fill = TRUE)\n"
+    )
+    out = subprocess.run(
+        ["Rscript", "--vanilla", str(script)],
+        capture_output=True, text=True, check=True, env={**os.environ, "TZ": "Europe/Paris"},
+    )
+    assert out.stdout.split() == [
+        "2024-06-30", "23:30:00", "UTC|1719790200",
+        "2024-06-30", "23:30:00", "UTC|1719790200",
+        "2024-06-30", "00:00:00", "UTC|1719705600",
+        "2024-06-30", "23:30:00", "UTC|1719790200",
+    ]

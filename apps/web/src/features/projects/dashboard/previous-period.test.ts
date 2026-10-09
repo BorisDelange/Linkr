@@ -39,13 +39,9 @@ describe('previousPeriodFilters', () => {
     expect(out).not.toBeNull()
     expect(out!.filters.col_date.type).toBe('date')
   })
-  it('keeps the whole last day of a previous window taken from a relative one', () => {
+  it('bounds a previous window taken from a relative one by day', () => {
     const out = previousPeriodFilters({ col_date: { type: 'date-relative', count: 7, unit: 'day' } })!
-    const prev = out.filters.col_date as { type: 'date'; from: string; to: string }
-    const lastDay = `${out.to}T18:30:00`
-    expect(lastDay <= prev.to).toBe(true)
-    expect(`${out.to} 18:30:00` <= prev.to).toBe(true)
-    const dayAfter = new Date(Date.parse(`${out.to}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
-    expect(dayAfter <= prev.to).toBe(false)
+    expect(out.filters.col_date).toEqual({ type: 'date', from: out.from, to: out.to })
+    expect(out.to).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })

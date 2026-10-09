@@ -23,4 +23,14 @@ describe('aggregateByEntity', () => {
     const [first] = aggregateByEntity(ROWS, 'pid', 'max', new Set(['los']))
     expect(first).toMatchObject({ pid: 1, los: 4, dead: false, svc: 'ICU' })
   })
+
+  it('treats an empty or blank string as missing, not as 0', () => {
+    const rows = [
+      { pid: 1, los: '' },
+      { pid: 1, los: ' ' },
+      { pid: 1, los: '5' },
+    ]
+    expect(aggregateByEntity(rows, 'pid', 'min')[0].los).toBe(5)
+    expect(aggregateByEntity(rows, 'pid', 'mean')[0].los).toBe(5)
+  })
 })
