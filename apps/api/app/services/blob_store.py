@@ -16,6 +16,7 @@ import re
 import shutil
 import uuid
 from pathlib import Path
+from typing import BinaryIO
 
 from app.config import settings
 
@@ -99,15 +100,15 @@ async def store_file(src: Path) -> tuple[str, int]:
     return await asyncio.to_thread(_store_file_sync, src)
 
 
-def _store_copy_sync(src: Path) -> tuple[str, int]:
-    """Copy `src` into the store, hashing in the same pass. The copy lands in a
-    temp file inside the store first, so a reader never sees a half-written blob
-    and the final rename stays on one filesystem."""
+def _store_copy_sync(fin: BinaryIO) -> tuple[str, int]:
+    """Copy the open file `fin` into the store, hashing in the same pass. The copy
+    lands in a temp file inside the store first, so a reader never sees a
+    half-written blob and the final rename stays on one filesystem."""
     h = hashlib.sha256()
     size = 0
     tmp = _files_dir() / f"{uuid.uuid4().hex}.tmp"
     try:
-        with src.open("rb") as fin, tmp.open("wb") as fout:
+        with tmp.open("wb") as fout:
             while chunk := fin.read(_CHUNK):
                 h.update(chunk)
                 size += len(chunk)
@@ -123,10 +124,11 @@ def _store_copy_sync(src: Path) -> tuple[str, int]:
     return h.hexdigest(), size
 
 
-async def store_copy(src: Path) -> tuple[str, int]:
-    """Copy a file that is NOT ours to move (e.g. one picked on the server) into
-    the store, leaving the source untouched."""
-    return await asyncio.to_thread(_store_copy_sync, src)
+async def store_copy(fin: BinaryIO) -> tuple[str, int]:
+    """Copy a file that is NOT ours to move (e.g. one picked on the server, opened
+    once so what was checked is what gets copied) into the store, leaving the
+    source untouched. The caller closes `fin`."""
+    return await asyncio.to_thread(_store_copy_sync, fin)
 
 
 def _store_bytes_sync(data: bytes) -> tuple[str, int]:

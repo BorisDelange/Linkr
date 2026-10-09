@@ -89,6 +89,19 @@ def _static_jedi():
 # call never holds one of the default executor's (shared with count units).
 _static_lock = threading.Lock()
 _static_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="jedi-static")
+# The first call indexes the standard library, so allow for a cold start.
+_STATIC_TIMEOUT_SECONDS = 10.0
+
+
+def _kill_static_jedi() -> None:
+    """End a hung jedi subprocess: the blocked call then fails (and returns
+    nothing), and the next one starts a fresh subprocess. Reaches into jedi's
+    private API, so any mismatch just leaves the call to finish on its own."""
+    setup = _static_jedi()
+    subprocess = getattr(setup[0], "_subprocess", None) if setup else None
+    kill = getattr(subprocess, "_kill", None)
+    if callable(kill):
+        kill()
 
 
 # Twins: `_complete` in kernel.py (live kernel) and completePython in
@@ -113,22 +126,22 @@ def _python_static(code: str, cursor: int) -> list[dict]:
     ]
 
 
-def _python_static_then_release(code: str, cursor: int) -> list[dict]:
-    try:
-        return _python_static(code, cursor)
-    finally:
-        _static_lock.release()
-
-
 async def _python_static_if_idle(code: str, cursor: int) -> list[dict]:
     if not _static_lock.acquire(blocking=False):
         return []
     try:
-        future = _static_executor.submit(_python_static_then_release, code, cursor)
+        future = _static_executor.submit(_python_static, code, cursor)
     except BaseException:
         _static_lock.release()
         raise
-    return await asyncio.wrap_future(future)
+    # A done callback, not a `finally` in the worker: a call cancelled before the
+    # worker starts never runs it, and would keep the lock forever.
+    future.add_done_callback(lambda _: _static_lock.release())
+    try:
+        return await asyncio.wait_for(asyncio.wrap_future(future), _STATIC_TIMEOUT_SECONDS)
+    except TimeoutError:
+        _kill_static_jedi()
+        return []
 
 
 async def complete(kernel: Kernel | None, language: str, code: str, cursor: int) -> list[dict]:

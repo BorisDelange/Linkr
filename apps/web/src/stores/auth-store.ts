@@ -254,3 +254,13 @@ export const useAuthStore = create<AuthState>()((set, get) => {
     },
   }
 })
+
+// Another tab logging out (or failing to refresh) removes the shared tokens. This
+// tab's terminals are still authenticated as that user, so they end with it.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if ((event.key === 'linkr-access-token' || event.key === null) && localStorage.getItem('linkr-access-token') === null) {
+      disposeAllLiveTerminals()
+    }
+  })
+}

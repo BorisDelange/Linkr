@@ -1502,11 +1502,9 @@ def _ambiguous_role_tables(con: duckdb.DuckDBPyConnection) -> dict[str, dict[str
     return out
 
 
-def _script_defined_names(tokens: list[tuple[str, "duckdb.token_type"]]) -> set[str]:
-    """Lower-cased names a script creates (`CREATE … TABLE|VIEW [x.]name`) or binds
-    as a CTE (`name AS (`): a bare reference to one reads that, not a role."""
-    texts = [text.strip('"').lower() for text, _ in tokens]
-    out: set[str] = set()
+def _created_name_positions(texts: list[str]) -> list[int]:
+    """Where `CREATE … TABLE|VIEW [x.]name` puts `name`, `texts` lower-cased."""
+    out = []
     for i, text in enumerate(texts):
         if text in ("table", "view") and i > 0:
             j = i + 1
@@ -1515,10 +1513,53 @@ def _script_defined_names(tokens: list[tuple[str, "duckdb.token_type"]]) -> set[
             while j + 2 < len(texts) and texts[j + 1] == ".":
                 j += 2
             if j < len(texts):
-                out.add(texts[j])
-        elif text == "as" and i > 0 and i + 1 < len(texts) and texts[i + 1] in ("(", "materialized"):
-            out.add(texts[i - 1])
+                out.append(j)
     return out
+
+
+def _created_names(tokens: list[tuple[str, "duckdb.token_type"]]) -> set[str]:
+    """Lower-cased names a statement creates: a bare reference to one in a LATER
+    statement reads that, not a role."""
+    texts = [text.strip('"').lower() for text, _ in tokens]
+    return {texts[j] for j in _created_name_positions(texts)}
+
+
+def _cte_names(tokens: list[tuple[str, "duckdb.token_type"]]) -> set[str]:
+    """Lower-cased names a statement binds as a CTE (`name AS (`), which only that
+    statement sees. `CREATE TABLE name AS (` binds nothing yet."""
+    texts = [text.strip('"').lower() for text, _ in tokens]
+    created = set(_created_name_positions(texts))
+    return {
+        texts[i - 1]
+        for i, text in enumerate(texts)
+        if text == "as" and i > 0 and i - 1 not in created
+        and i + 1 < len(texts) and texts[i + 1] in ("(", "materialized")
+    }
+
+
+# Functions whose arguments use FROM as a separator, not as a table clause.
+_FROM_ARGUMENT_FUNCTIONS = frozenset({"EXTRACT", "SUBSTRING", "TRIM", "OVERLAY", "POSITION"})
+
+
+def _table_clause_positions(texts: list[str]) -> list[int]:
+    """Indexes of the tokens right after a FROM or JOIN that opens a table clause:
+    not `IS [NOT] DISTINCT FROM`, nor the FROM inside `EXTRACT(… FROM …)` and its
+    kin."""
+    out = []
+    openers: list[str] = []
+    for i, text in enumerate(texts):
+        if text == "(":
+            openers.append(texts[i - 1] if i > 0 else "")
+        elif text == ")":
+            if openers:
+                openers.pop()
+        elif text == "JOIN" or (
+            text == "FROM"
+            and not (i > 0 and texts[i - 1] == "DISTINCT")
+            and not (openers and openers[-1] in _FROM_ARGUMENT_FUNCTIONS)
+        ):
+            out.append(i + 1)
+    return [i for i in out if i < len(texts)]
 
 
 def _shadowing_tables(con: duckdb.DuckDBPyConnection) -> frozenset[str]:
@@ -1536,7 +1577,8 @@ def _reject_ambiguous_role_refs(
     """Refuse a two-part `role.table` whose table two schemas of that role hold,
     and a bare `FROM|JOIN table` that two schemas of one role hold, unless a table
     of that name sits ahead of the roles on the search path (`shadowed`: the
-    target's and memory's) or the script defines it.
+    target's and memory's), an earlier statement creates it or a CTE of the
+    statement binds it.
 
     The search path would resolve it to whichever schema comes first, reading one
     module's table where the author may have meant the other's. The script has to
@@ -1544,14 +1586,13 @@ def _reject_ambiguous_role_refs(
     if not ambiguous:
         return
     names = (duckdb.token_type.identifier, duckdb.token_type.keyword)
-    statements = [_token_texts(stmt) for stmt in _split_statements(sql)]
-    defined = set(shadowed)
-    for tokens in statements:
-        defined |= _script_defined_names(tokens)
-    for tokens in statements:
+    created = set(shadowed)
+    for tokens in (_token_texts(stmt) for stmt in _split_statements(sql)):
         texts = [text for text, _ in tokens]
-        for i in range(1, len(tokens)):
-            if texts[i - 1] not in ("FROM", "JOIN") or tokens[i][1] not in names:
+        defined = created | _cte_names(tokens)
+        created |= _created_names(tokens)
+        for i in _table_clause_positions(texts):
+            if tokens[i][1] not in names:
                 continue
             if i + 1 < len(tokens) and texts[i + 1] in (".", "("):
                 continue

@@ -181,3 +181,33 @@ def test_a_bare_name_one_schema_holds_still_resolves(target_db, multi_schema_sou
     _run(target_db, multi_schema_source,
          "CREATE OR REPLACE TABLE target.out_rows AS SELECT count(*) FROM patients;")
     assert _count(target_db) == 3
+
+
+_AMBIGUOUS = {"source": {"transfers": ["hosp", "icu"]}}
+
+
+@pytest.mark.parametrize("sql", [
+    "WITH transfers AS (SELECT 1) SELECT 1; SELECT count(*) FROM transfers;",
+    "SELECT count(*) FROM transfers; CREATE TABLE transfers AS SELECT 1;",
+    "CREATE TABLE transfers AS (SELECT * FROM transfers);",
+])
+def test_a_definition_covers_only_the_statements_that_see_it(sql):
+    with pytest.raises(ValueError, match="transfers is ambiguous"):
+        db_connect._reject_ambiguous_role_refs(sql, _AMBIGUOUS)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT extract(year FROM transfers) FROM target.t;",
+    "SELECT substring(name FROM 2 FOR 3), trim(BOTH ' ' FROM transfers) FROM target.t;",
+    "SELECT * FROM target.t WHERE a IS DISTINCT FROM transfers OR b IS NOT DISTINCT FROM transfers;",
+    "CREATE TABLE transfers AS SELECT 1; SELECT * FROM transfers;",
+])
+def test_a_from_that_is_not_a_table_clause_is_not_a_reference(sql):
+    db_connect._reject_ambiguous_role_refs(sql, _AMBIGUOUS)
+
+
+def test_a_subquery_inside_a_from_argument_function_is_still_checked():
+    with pytest.raises(ValueError, match="transfers is ambiguous"):
+        db_connect._reject_ambiguous_role_refs(
+            "SELECT substring((SELECT max(x) FROM transfers) FROM 2) FROM target.t;", _AMBIGUOUS,
+        )

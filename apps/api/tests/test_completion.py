@@ -1,6 +1,8 @@
 """IDE code completion (POST /execute/complete): live-kernel and static paths."""
 
+import asyncio
 import shutil
+import threading
 
 import pytest
 
@@ -61,6 +63,38 @@ async def test_static_completion_returns_nothing_while_a_call_is_running():
     finally:
         completion._static_lock.release()
     assert "path" in [i["label"] for i in await completion.complete(None, "python", "import os\nos.pa", 15)]
+
+
+async def test_a_call_cancelled_before_its_worker_starts_leaves_the_lock_free():
+    started, unblock = threading.Event(), threading.Event()
+    busy = completion._static_executor.submit(lambda: (started.set(), unblock.wait(5)))
+    started.wait(5)
+    try:
+        call = asyncio.create_task(completion.complete(None, "python", "import os\nos.pa", 15))
+        await asyncio.sleep(0.05)
+        call.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await call
+    finally:
+        unblock.set()
+        busy.result(5)
+    assert completion._static_lock.acquire(blocking=False)
+    completion._static_lock.release()
+
+
+async def test_a_hung_static_call_times_out_and_frees_the_lock(monkeypatch):
+    unblock = threading.Event()
+    monkeypatch.setattr(completion, "_python_static", lambda code, cursor: unblock.wait(5) and [])
+    monkeypatch.setattr(completion, "_kill_static_jedi", unblock.set)
+    monkeypatch.setattr(completion, "_STATIC_TIMEOUT_SECONDS", 0.05)
+    assert await completion.complete(None, "python", "x", 1) == []
+    for _ in range(100):
+        if completion._static_lock.acquire(blocking=False):
+            completion._static_lock.release()
+            break
+        await asyncio.sleep(0.01)
+    else:
+        pytest.fail("the lock stayed held")
 
 
 async def test_completion_bounds_its_input(client):

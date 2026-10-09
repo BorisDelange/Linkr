@@ -10,9 +10,14 @@ class _FakeSocket:
     def __init__(self, query: dict | None = None, headers: dict | None = None):
         self.query_params = query or {}
         self.headers = headers or {}
+        self.accepted = False
         self.closed_with: int | None = None
 
+    async def accept(self) -> None:
+        self.accepted = True
+
     async def close(self, code: int) -> None:
+        assert self.accepted, "closed during the handshake: the browser would read 1006"
         self.closed_with = code
 
 

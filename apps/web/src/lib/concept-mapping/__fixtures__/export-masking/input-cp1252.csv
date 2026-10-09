@@ -25,3 +25,6 @@ LOCAL,DEEP,Nested past the cap,500,50,"{""rows_count"":500,""patients_count"":50
 LOCAL,NO_TOTAL,Totals unreadable,,,"{""rows_count"":""2e0"",""numeric_data"":{""mean"":37.21,""median"":37.21,""p25"":37.21,""p75"":37.21,""max"":37.21}}"
 LOCAL,BAD_TOTAL,Totals not counts,n/a,-1,"{""patients_count"":-1,""numeric_data"":{""mean"":37.21,""sd"":0}}"
 LOCAL,PROFILE_TOTAL,Totals in the profile only,,,"{""rows_count"":500,""patients_count"":50,""numeric_data"":{""median"":5}}"
+LOCAL,PATIENTS_UNREADABLE,Patient cell unreadable,500,2e0,"{""rows_count"":500,""numeric_data"":{""median"":5}}"
+LOCAL,PATIENTS_KEY_UNREADABLE,Patient key unreadable,500,,"{""rows_count"":500,""patients_count"":""n/a"",""numeric_data"":{""median"":5}}"
+LOCAL,RECORDS_ONLY,No patient total at all,500,,"{""rows_count"":500,""numeric_data"":{""median"":5}}"

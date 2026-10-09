@@ -57,3 +57,20 @@ def test_alias_key_is_backfilled_then_unique(alembic_at):  # noqa: F811
                 "INSERT INTO data_sources (id, workspace_id, alias, alias_key, name, source_type, connection_config, status, created_at, updated_at) "
                 "VALUES ('2', 'a', 'my_db', 'my_db', '{}', 'database', '{}', 'ok', '2026-01-02', '2026-01-02')"
             ))
+
+
+def test_a_collision_created_after_the_first_renaming_does_not_block_the_upgrade(alembic_at):  # noqa: F811
+    upgrade, engine = alembic_at
+    upgrade("6a7b8c9d0e1f")
+    with engine.begin() as c:
+        c.execute(sa.text("INSERT INTO workspaces (id, name, description, origin) VALUES ('a', '{}', '{}', 'user')"))
+        for id_, alias, at in [("1", "My-DB", "2026-01-01"), ("2", "my_db", "2026-01-02")]:
+            c.execute(sa.text(
+                "INSERT INTO data_sources (id, workspace_id, alias, name, source_type, connection_config, status, created_at, updated_at) "
+                "VALUES (:i, 'a', :a, '{}', 'database', '{}', 'ok', :t, :t)"
+            ), {"i": id_, "a": alias, "t": at})
+    upgrade("head")
+
+    with engine.connect() as c:
+        rows = dict(c.execute(sa.text("SELECT alias, alias_key FROM data_sources")).all())
+    assert rows == {"My-DB": "my_db", "my_db_2": "my_db_2"}

@@ -165,13 +165,23 @@ function suppress(entries: unknown[], small: (e: Json) => boolean, mass: (e: Jso
   return kept
 }
 
+/** Whether the totals known for a concept reach k. Every patient total given
+ *  must read as at least k; records vouch only when no patient total is given at
+ *  all — many records can still be one patient's. */
+function vouched(patients: unknown[], records: unknown[], k: number): boolean {
+  const given = patients.filter((v) => v !== undefined && v !== null)
+  if (given.length > 0) return given.every((v) => isAtLeast(v, k))
+  return records.some((v) => v !== undefined && v !== null && isAtLeast(v, k))
+}
+
 /** The profile as it may leave the instance, or null to withhold it. It leaves
- *  only over a total known to reach k: `counted` (a count cell of its row does)
- *  or its own `patients_count`/`rows_count` — a total that cannot be read could
- *  be one patient's. */
-export function maskProfile(profile: Json, k: number, counted = false): Json | null {
+ *  only over totals known to reach k (see `vouched`): the count cells of its row
+ *  (`rowPatients`, `rowRecords`; null when absent) and its own
+ *  `patients_count`/`rows_count` — a total that cannot be read could be one
+ *  patient's. */
+export function maskProfile(profile: Json, k: number, rowPatients: string | null = null, rowRecords: string | null = null): Json | null {
   if (isSmall(profile.patients_count, k) || isSmall(profile.rows_count, k)) return null
-  if (!(counted || isAtLeast(profile.patients_count, k) || isAtLeast(profile.rows_count, k))) return null
+  if (!vouched([rowPatients, profile.patients_count], [rowRecords, profile.rows_count], k)) return null
   const out: Json = { ...profile }
   delete out.range
   for (const key of ['numeric_data', 'records_per_patient']) {
@@ -281,7 +291,8 @@ export function maskSourceConceptsCsv(
   let changed = false
   for (const cells of rows.slice(1)) {
     const withheld = countIdx.some((i) => i < cells.length && isSmall(cells[i], k))
-    const counted = countIdx.some((i) => i < cells.length && isAtLeast(cells[i], k))
+    const [rowPatients, rowRecords] = [patientIdx, recordIdx].map((i) =>
+      i >= 0 && i < cells.length && cells[i].trim() ? cells[i] : null)
     for (const i of countIdx) {
       if (i < cells.length && isSmall(cells[i], k)) {
         cells[i] = `<${k}`
@@ -295,7 +306,7 @@ export function maskSourceConceptsCsv(
       } catch {
         // Unreadable here may be readable elsewhere (Python takes NaN): withheld.
       }
-      const masked = withheld || !isObject(profile) || tooDeep(profile) ? null : maskProfile(profile, k, counted)
+      const masked = withheld || !isObject(profile) || tooDeep(profile) ? null : maskProfile(profile, k, rowPatients, rowRecords)
       const next = masked === null ? '' : JSON.stringify(masked)
       if (masked === null || next !== JSON.stringify(profile)) {
         cells[jsonIdx] = next

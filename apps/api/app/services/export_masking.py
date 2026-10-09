@@ -10,9 +10,11 @@ front-only and a server client pushing the same repo would fight over the file.
 The rule, with k the threshold:
 - a count column cell in 1..k-1 becomes "<k" (a count is plain decimal text);
 - the profile JSON of a concept under k patients (or records) is withheld, and
-  so is a cell that is not a JSON object, and one with no total — a count cell
-  of its row, or the profile's `patients_count`/`rows_count` — reading as an
-  integer of at least k (missing, "2e0", -1, "n/a" all fail closed);
+  so is a cell that is not a JSON object, and one whose totals do not reach k:
+  every patient total given — the patients cell of its row, the profile's
+  `patients_count` — must read as an integer of at least k, and records (the
+  records cell, `rows_count`) vouch only when no patient total is given at all
+  (missing, "2e0", -1, "n/a" all fail closed);
 - otherwise the profile loses its extremes (min/max, per-patient min/max,
   range, first and last event dates), p1/p5/p95/p99 under 100 values, and
   every histogram bin, category, hospital unit or year whose `count` (records)
@@ -194,14 +196,27 @@ def _suppress(entries: list, small: Callable[[dict], bool], mass: Callable[[dict
     return kept
 
 
-def mask_profile(profile: dict, k: int, counted: bool = False) -> dict | None:
+def _vouched(patients: list[object], records: list[object], k: int) -> bool:
+    """Whether the totals known for a concept reach k. Every patient total given
+    must read as at least k; records vouch only when no patient total is given at
+    all — many records can still be one patient's."""
+    given = [v for v in patients if v is not None]
+    if given:
+        return all(_at_least(v, k) for v in given)
+    return any(_at_least(v, k) for v in records if v is not None)
+
+
+def mask_profile(
+    profile: dict, k: int, row_patients: object = None, row_records: object = None,
+) -> dict | None:
     """The profile as it may leave the instance, or None to withhold it. It leaves
-    only over a total known to reach k: `counted` (a count cell of its row does)
-    or its own `patients_count`/`rows_count` — a total that cannot be read could
-    be one patient's."""
+    only over totals known to reach k (see `_vouched`): the count cells of its row
+    (`row_patients`, `row_records`; None when absent) and its own
+    `patients_count`/`rows_count` — a total that cannot be read could be one
+    patient's."""
     if _small(profile.get("patients_count"), k) or _small(profile.get("rows_count"), k):
         return None
-    if not (counted or _at_least(profile.get("patients_count"), k) or _at_least(profile.get("rows_count"), k)):
+    if not _vouched([row_patients, profile.get("patients_count")], [row_records, profile.get("rows_count")], k):
         return None
     out = dict(profile)
     out.pop("range", None)
@@ -367,14 +382,16 @@ def mask_source_concepts_csv(text: str, column_mapping: dict | None = None, k: i
     changed = False
     for cells in rows[1:]:
         withheld = any(i < len(cells) and _small(cells[i], k) for i in count_idx)
-        counted = any(i < len(cells) and _at_least(cells[i], k) for i in count_idx)
+        row_patients, row_records = (
+            cells[i] if 0 <= i < len(cells) and cells[i].strip() else None for i in (patient_idx, record_idx)
+        )
         for i in count_idx:
             if i < len(cells) and _small(cells[i], k):
                 cells[i] = f"<{k}"
                 changed = True
         if 0 <= json_idx < len(cells) and cells[json_idx].strip():
             profile = _parse_profile(cells[json_idx])
-            masked = None if withheld or not isinstance(profile, dict) else mask_profile(profile, k, counted)
+            masked = None if withheld or not isinstance(profile, dict) else mask_profile(profile, k, row_patients, row_records)
             new = "" if masked is None else _js_json(masked)
             if masked != profile or masked is None:
                 cells[json_idx] = new

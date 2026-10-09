@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import deferred
-from app.core.database import get_db
+from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission
 from app.models.project import Project
@@ -135,9 +135,9 @@ async def copy_from_server(
     IDE tree. Bytes are copied as-is, so a binary file (an image, a workbook)
     arrives intact — unlike the text body the browser upload sends."""
     await _check_project(db, body.project_uid, user, "ide:write")
-    whole_fs = await fs_browser.whole_fs_import_allowed(db, await db.get(Project, body.project_uid), user)
+    scope = await fs_browser.import_scope(db, await db.get(Project, body.project_uid), user)
     try:
-        src = fs_browser.validate_import_source(body.server_path, whole_fs_allowed=whole_fs)
+        src = fs_browser.validate_import_source(body.server_path, scope)
     except fs_browser.FsBrowseError as e:
         raise HTTPException(e.status_code, str(e))
     try:
@@ -147,9 +147,25 @@ async def copy_from_server(
     if dst.is_dir():
         raise HTTPException(status.HTTP_409_CONFLICT, "A folder already has this name")
 
+    def copy() -> None:
+        with fs_browser.open_import_source(str(src), scope) as fin:
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            with dst.open("wb") as fout:
+                shutil.copyfileobj(fin, fout)
+
+    # The notification must follow the file: with a 202 answer the copy is still
+    # running, and the request's session is gone by the time it ends. Whichever of
+    # the two sides finishes second sends it, from a session of its own.
+    state = {"copied": False, "answered_deferred": False}
+
     async def work() -> IdeFileResponse:
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        await asyncio.to_thread(shutil.copyfile, src, dst)
+        try:
+            await asyncio.to_thread(copy)
+        except fs_browser.FsBrowseError as e:
+            raise HTTPException(e.status_code, str(e))
+        state["copied"] = True
+        if state["answered_deferred"]:
+            _notify_in_background(request, user, body.project_uid, body.path)
         return IdeFileResponse(
             id=project_fs.node_id("ide", body.path),
             name=body.path.rsplit("/", 1)[-1],
@@ -161,9 +177,26 @@ async def copy_from_server(
         )
 
     result = await deferred.respond(user.id, work)
-    # Here, not in `work`: the request's session is gone once a deferred answer is sent.
-    await _notify(db, request, user, "created", body.project_uid, body.path)
+    if isinstance(result, IdeFileResponse):
+        await _notify(db, request, user, "created", body.project_uid, body.path)
+        return result
+    state["answered_deferred"] = True
+    if state["copied"]:
+        _notify_in_background(request, user, body.project_uid, body.path)
     return result
+
+
+_background: set[asyncio.Task] = set()
+
+
+def _notify_in_background(request: Request, user: User, project_uid: str, path: str) -> None:
+    async def notify() -> None:
+        async with async_session() as db:
+            await _notify(db, request, user, "created", project_uid, path)
+
+    task = asyncio.create_task(notify())
+    _background.add(task)
+    task.add_done_callback(_background.discard)
 
 
 @router.put("/content", status_code=status.HTTP_204_NO_CONTENT)

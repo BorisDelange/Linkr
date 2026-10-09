@@ -202,3 +202,59 @@ async def test_slow_copy_from_server_defers_then_polls(client, seed_roles, tmp_p
     assert polled.status_code == 200
     assert polled.json()["path"] == "a.py"
     assert (_scripts(uid) / "a.py").read_text() == "x = 1"
+
+
+async def test_copy_from_server_refuses_another_projects_bound_folder(client, seed_roles, db, tmp_path_factory):
+    from app.models.project import Project
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    other = await _project(client, h)
+    theirs = tmp_path_factory.mktemp("theirs")
+    ours = tmp_path_factory.mktemp("ours")
+    for folder in (theirs, ours):
+        (folder / "data.csv").write_text("a\n1\n")
+    (await db.get(Project, other)).datasets_path = str(theirs)
+    (await db.get(Project, uid)).ide_path = str(ours)
+    await db.commit()
+
+    leak = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
+        "projectUid": uid, "serverPath": str(theirs / "data.csv"), "path": "data.csv",
+    })
+    assert leak.status_code == 403
+    own = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
+        "projectUid": uid, "serverPath": str(ours / "data.csv"), "path": "copy.csv",
+    })
+    assert own.status_code == 201
+
+
+async def test_deferred_copy_from_server_notifies_once_the_file_exists(
+    client, seed_roles, engine, tmp_path_factory, monkeypatch,
+):
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from app.api.v1.routes import ide_files as ide_files_route
+    from app.core import deferred
+    from app.services import notification_service
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    src = tmp_path_factory.mktemp("server") / "a.py"
+    src.write_text("x = 1")
+    seen: list[bool] = []
+
+    async def record_change(db, **kw):
+        seen.append((_scripts(uid) / "a.py").is_file())
+
+    monkeypatch.setattr(notification_service, "record_change", record_change)
+    monkeypatch.setattr(ide_files_route, "async_session", async_sessionmaker(engine, class_=AsyncSession))
+    monkeypatch.setattr(deferred, "WAIT_SECONDS", 0)
+    r = await client.post(f"{API}/ide-files/copy-from-server", headers={**h, "X-Linkr-Client": "mcp"}, json={
+        "projectUid": uid, "serverPath": str(src), "path": "a.py",
+    })
+    assert r.status_code == 202
+    for _ in range(100):
+        if seen:
+            break
+        await asyncio.sleep(0.02)
+    assert seen == [True]

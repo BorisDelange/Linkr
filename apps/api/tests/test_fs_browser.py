@@ -285,7 +285,7 @@ def test_validate_source_path_ignores_code_execution_flag(monkeypatch, tmp_path)
 def test_import_source_accepts_readable_file(tmp_path_factory):
     f = tmp_path_factory.mktemp("server") / "data.csv"
     f.write_text("a\n1\n")
-    assert fs_browser.validate_import_source(str(f), whole_fs_allowed=True) == f.resolve()
+    assert fs_browser.validate_import_source(str(f), fs_browser.ImportScope(whole_fs_allowed=True)) == f.resolve()
 
 
 def test_import_source_refuses_linkr_data_dir(tmp_path):
@@ -294,21 +294,21 @@ def test_import_source_refuses_linkr_data_dir(tmp_path):
     key = tmp_path / "secret.key"
     key.write_text("k")
     with pytest.raises(fs_browser.FsBrowseError):
-        fs_browser.validate_import_source(str(key), whole_fs_allowed=True)
+        fs_browser.validate_import_source(str(key), fs_browser.ImportScope(whole_fs_allowed=True))
 
 
 def test_import_source_refuses_outside_roots_folders_and_missing(monkeypatch, tmp_path_factory):
     server = tmp_path_factory.mktemp("server")
     (server / "sub").mkdir()
     with pytest.raises(fs_browser.FsBrowseError):
-        fs_browser.validate_import_source(str(server / "sub"), whole_fs_allowed=True)
+        fs_browser.validate_import_source(str(server / "sub"), fs_browser.ImportScope(whole_fs_allowed=True))
     with pytest.raises(fs_browser.FsBrowseError):
-        fs_browser.validate_import_source(str(server / "missing.csv"), whole_fs_allowed=True)
+        fs_browser.validate_import_source(str(server / "missing.csv"), fs_browser.ImportScope(whole_fs_allowed=True))
     outside = tmp_path_factory.mktemp("outside") / "x.csv"
     outside.write_text("a")
     _set_roots(monkeypatch, str(server))
     with pytest.raises(fs_browser.FsBrowseError):
-        fs_browser.validate_import_source(str(outside), whole_fs_allowed=True)
+        fs_browser.validate_import_source(str(outside), fs_browser.ImportScope(whole_fs_allowed=True))
 
 
 def test_import_source_without_roots_needs_code_execution_rights(tmp_path_factory):
@@ -316,7 +316,7 @@ def test_import_source_without_roots_needs_code_execution_rights(tmp_path_factor
     f = tmp_path_factory.mktemp("server") / "data.csv"
     f.write_text("a\n1\n")
     with pytest.raises(fs_browser.FsImportForbidden):
-        fs_browser.validate_import_source(str(f), whole_fs_allowed=False)
+        fs_browser.validate_import_source(str(f), fs_browser.ImportScope(whole_fs_allowed=False))
 
 
 def test_import_source_with_roots_ignores_code_execution_rights(monkeypatch, tmp_path_factory):
@@ -324,7 +324,7 @@ def test_import_source_with_roots_ignores_code_execution_rights(monkeypatch, tmp
     f = server / "data.csv"
     f.write_text("a\n1\n")
     _set_roots(monkeypatch, str(server))
-    assert fs_browser.validate_import_source(str(f), whole_fs_allowed=False) == f.resolve()
+    assert fs_browser.validate_import_source(str(f), fs_browser.ImportScope(whole_fs_allowed=False)) == f.resolve()
 
 
 @pytest.mark.parametrize("system_path", ["/proc/self/environ", "/dev/null", "/sys/kernel/hostname"])
@@ -332,7 +332,7 @@ def test_import_source_always_refuses_system_folders(monkeypatch, system_path):
     # The copy runs in the API process: /proc/self/environ would leak its secrets.
     _set_roots(monkeypatch, "/")
     with pytest.raises(fs_browser.FsImportForbidden):
-        fs_browser.validate_import_source(system_path, whole_fs_allowed=True)
+        fs_browser.validate_import_source(system_path, fs_browser.ImportScope(whole_fs_allowed=True))
 
 
 def test_import_source_respects_the_upload_cap(monkeypatch, tmp_path_factory):
@@ -342,19 +342,98 @@ def test_import_source_respects_the_upload_cap(monkeypatch, tmp_path_factory):
     f.write_bytes(b"x" * (1024 * 1024 + 1))
     monkeypatch.setattr(settings, "max_upload_mb", 1)
     with pytest.raises(fs_browser.FsImportTooLarge):
-        fs_browser.validate_import_source(str(f), whole_fs_allowed=True)
+        fs_browser.validate_import_source(str(f), fs_browser.ImportScope(whole_fs_allowed=True))
 
 
 def test_import_list_dir_follows_the_import_boundary(monkeypatch, tmp_path):
     # tmp_path is the tests' data_dir: listing its parent must hide it.
     parent = tmp_path.parent
     with pytest.raises(fs_browser.FsImportForbidden):
-        fs_browser.import_list_dir(str(parent), None, whole_fs_allowed=False)
-    names = [e["name"] for e in fs_browser.import_list_dir(str(parent), None, whole_fs_allowed=True)["entries"]]
+        fs_browser.import_list_dir(str(parent), None, fs_browser.ImportScope(whole_fs_allowed=False))
+    names = [e["name"] for e in fs_browser.import_list_dir(str(parent), None, fs_browser.ImportScope(whole_fs_allowed=True))["entries"]]
     assert tmp_path.name not in names
     with pytest.raises(fs_browser.FsImportForbidden):
-        fs_browser.import_list_dir(str(tmp_path), None, whole_fs_allowed=True)
+        fs_browser.import_list_dir(str(tmp_path), None, fs_browser.ImportScope(whole_fs_allowed=True))
     with pytest.raises(fs_browser.FsImportForbidden):
-        fs_browser.import_list_dir("/dev", None, whole_fs_allowed=True)
-    root = [e["name"] for e in fs_browser.import_list_dir("/", None, whole_fs_allowed=True)["entries"]]
+        fs_browser.import_list_dir("/dev", None, fs_browser.ImportScope(whole_fs_allowed=True))
+    root = [e["name"] for e in fs_browser.import_list_dir("/", None, fs_browser.ImportScope(whole_fs_allowed=True))["entries"]]
     assert "dev" not in root
+
+
+def test_import_refuses_another_projects_bound_folder_but_not_its_own(tmp_path_factory):
+    theirs = tmp_path_factory.mktemp("theirs")
+    ours = tmp_path_factory.mktemp("ours")
+    for folder in (theirs, ours):
+        (folder / "data.csv").write_text("a\n1\n")
+    scope = fs_browser.ImportScope(
+        whole_fs_allowed=True, foreign_bound=frozenset({str(theirs)}), own_bound=frozenset({str(ours)}),
+    )
+    with pytest.raises(fs_browser.FsImportForbidden):
+        fs_browser.validate_import_source(str(theirs / "data.csv"), scope)
+    assert fs_browser.validate_import_source(str(ours / "data.csv"), scope) == (ours / "data.csv").resolve()
+    listed = [e["name"] for e in fs_browser.import_list_dir(str(theirs.parent), None, scope)["entries"]]
+    assert theirs.name not in listed and ours.name in listed
+    with pytest.raises(fs_browser.FsImportForbidden):
+        fs_browser.import_list_dir(str(theirs), None, scope)
+
+
+def test_import_allows_a_folder_both_projects_are_bound_to(tmp_path_factory):
+    shared = tmp_path_factory.mktemp("shared")
+    (shared / "data.csv").write_text("a\n1\n")
+    scope = fs_browser.ImportScope(
+        whole_fs_allowed=True, foreign_bound=frozenset({str(shared)}), own_bound=frozenset({str(shared)}),
+    )
+    assert fs_browser.validate_import_source(str(shared / "data.csv"), scope)
+
+
+def test_import_refuses_the_data_dir_under_another_spelling(tmp_path):
+    # On a case-insensitive filesystem the same folder has many spellings; the
+    # refusal must follow the folder, not the string.
+    key = tmp_path / "secret.key"
+    key.write_text("k")
+    respelled = tmp_path.parent / tmp_path.name.swapcase() / "secret.key"
+    if not respelled.exists():
+        pytest.skip("case-sensitive filesystem")
+    with pytest.raises(fs_browser.FsImportForbidden):
+        fs_browser.validate_import_source(str(respelled), fs_browser.ImportScope(whole_fs_allowed=True))
+
+
+def test_open_import_source_refuses_a_file_swapped_after_the_check(monkeypatch, tmp_path, tmp_path_factory):
+    server = tmp_path_factory.mktemp("server")
+    f = server / "data.csv"
+    f.write_text("a\n1\n")
+    secret = tmp_path / "secret.key"
+    secret.write_text("k")
+    scope = fs_browser.ImportScope(whole_fs_allowed=True)
+    checked = fs_browser.validate_import_source
+
+    def check_then_swap(path, scope):
+        target = checked(path, scope)
+        f.unlink()
+        f.symlink_to(secret)
+        return target
+
+    monkeypatch.setattr(fs_browser, "validate_import_source", check_then_swap)
+    with pytest.raises(fs_browser.FsBrowseError):
+        fs_browser.open_import_source(str(f), scope)
+
+
+def test_open_import_source_reads_the_checked_file(tmp_path_factory):
+    f = tmp_path_factory.mktemp("server") / "data.csv"
+    f.write_bytes(b"a\n1\n")
+    with fs_browser.open_import_source(str(f), fs_browser.ImportScope(whole_fs_allowed=True)) as fin:
+        assert fin.read() == b"a\n1\n"
+
+
+def test_a_broad_own_binding_does_not_open_another_projects_nested_folder(tmp_path_factory):
+    ours = tmp_path_factory.mktemp("ours")
+    theirs = ours / "theirs"
+    theirs.mkdir()
+    (theirs / "data.csv").write_text("a\n1\n")
+    (ours / "mine.csv").write_text("a\n1\n")
+    scope = fs_browser.ImportScope(
+        whole_fs_allowed=True, foreign_bound=frozenset({str(theirs)}), own_bound=frozenset({str(ours)}),
+    )
+    with pytest.raises(fs_browser.FsImportForbidden):
+        fs_browser.validate_import_source(str(theirs / "data.csv"), scope)
+    assert fs_browser.validate_import_source(str(ours / "mine.csv"), scope)

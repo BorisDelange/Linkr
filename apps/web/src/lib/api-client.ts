@@ -3,6 +3,7 @@
  * Wraps fetch with JWT auth headers and automatic token refresh.
  */
 
+import { disposeAllLiveTerminals } from '@/lib/terminal-sessions'
 import { credentialRequiredDetail, requestDatabaseLogin } from '@/stores/database-login-prompt'
 
 let refreshPromise: Promise<boolean> | null = null
@@ -32,6 +33,8 @@ function clearStoredTokens(): void {
   localStorage.removeItem('linkr-access-token')
   localStorage.removeItem('linkr-refresh-token')
   localStorage.removeItem('linkr-auth-user')
+  // Their sockets stay authenticated as the user whose session just ended.
+  disposeAllLiveTerminals()
 }
 
 function setStoredTokens(accessToken: string, refreshToken: string): void {

@@ -12,7 +12,7 @@ from app.core import audit
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user, get_session_user
 from app.core.permissions import check_workspace_permission
-from app.core.ws_auth import authenticate_ws
+from app.core.ws_auth import authenticate_ws, refuse
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.user import User
@@ -578,12 +578,12 @@ async def etl_run_stream(websocket: WebSocket, source_id: str):
     except HTTPException:
         # Unknown source or no permission — the client asked for something it may
         # not have, which is a policy violation.
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        await refuse(websocket, status.WS_1008_POLICY_VIOLATION)
         return
     except Exception:
         # Anything else is our fault, not the client's; say so rather than
         # reporting a server fault as a permission denial.
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
+        await refuse(websocket, status.WS_1011_INTERNAL_ERROR)
         return
 
     await websocket.accept()

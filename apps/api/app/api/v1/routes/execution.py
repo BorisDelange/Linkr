@@ -16,7 +16,7 @@ from app.core.permissions import (
     check_workspace_permission,
     has_project_permission,
 )
-from app.core.ws_auth import authenticate_ws
+from app.core.ws_auth import WS_AUTH_FAILED, WS_FORBIDDEN, authenticate_ws, refuse, watch_credentials
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.execution import (
@@ -47,6 +47,9 @@ from app.services.execution import completion, environments, injection, kernel, 
 logger = structlog.get_logger()
 
 router = APIRouter(prefix="/execute", tags=["execution"])
+
+# How often an open terminal re-checks the session that opened it.
+TERMINAL_AUTH_RECHECK_SECONDS = 30.0
 
 
 async def _require_project_access(
@@ -694,10 +697,10 @@ async def terminal_ws(websocket: WebSocket):
     project_uid = websocket.query_params.get("projectUid")
     language = websocket.query_params.get("language", "python")
     if not project_uid or language not in ("python", "r", "bash"):
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        await refuse(websocket, status.WS_1008_POLICY_VIOLATION)
         return
     if not settings.enable_code_execution:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        await refuse(websocket, WS_FORBIDDEN)
         return
 
     # A terminal opens an arbitrary shell/kernel in the project's working dir, so
@@ -707,21 +710,28 @@ async def terminal_ws(websocket: WebSocket):
         async with async_session() as db:
             await _require_code_execution(db, project_uid, user)
     except HTTPException:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        await refuse(websocket, WS_FORBIDDEN)
         return
 
     await websocket.accept()
+    if language == "bash":
+        loop = _terminal_pty_loop(websocket, project_uid, session_id=uuid.uuid4().hex, user=user)
+    else:
+        loop = _terminal_kernel_loop(
+            websocket, project_uid, language,
+            websocket.query_params.get("sessionId", "default"),
+            websocket.query_params.get("connectionId"), user,
+        )
+    session = asyncio.create_task(loop)
+    watch = asyncio.create_task(watch_credentials(websocket, TERMINAL_AUTH_RECHECK_SECONDS))
     try:
-        if language == "bash":
-            await _terminal_pty_loop(
-                websocket, project_uid, session_id=uuid.uuid4().hex, user=user
-            )
-        else:
-            session_id = websocket.query_params.get("sessionId", "default")
-            connection_id = websocket.query_params.get("connectionId")
-            await _terminal_kernel_loop(
-                websocket, project_uid, language, session_id, connection_id, user
-            )
+        await asyncio.wait({session, watch}, return_when=asyncio.FIRST_COMPLETED)
+        if not session.done():
+            session.cancel()
+            await asyncio.gather(session, return_exceptions=True)
+            await websocket.close(code=WS_AUTH_FAILED)
+            return
+        session.result()
     except WebSocketDisconnect:
         pass
     except Exception:  # noqa: BLE001 — a broken terminal must not crash the worker
@@ -730,3 +740,7 @@ async def terminal_ws(websocket: WebSocket):
             await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
         except RuntimeError:
             pass
+    finally:
+        watch.cancel()
+        if not session.done():
+            session.cancel()

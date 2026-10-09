@@ -942,9 +942,15 @@ class _FakeWebSocket:
     def __init__(self, params: dict[str, str]):
         self.query_params = params
         self.headers: dict[str, str] = {}
+        self.accepted = False
         self.closed_code: int | None = None
 
+    async def accept(self) -> None:
+        self.accepted = True
+
     async def close(self, code: int) -> None:
+        # Closed during the handshake, the browser would read 1006 whatever the code.
+        assert self.accepted
         self.closed_code = code
 
 
@@ -985,6 +991,41 @@ async def test_ws_auth_rejects_garbage_token(client):
     ws = _FakeWebSocket({"token": "not-a-jwt"})
     assert await authenticate_ws(ws) is None
     assert ws.closed_code == WS_AUTH_FAILED
+
+
+async def _admin_token(client) -> str:
+    await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    login = await client.post(f"{API}/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
+    return login.json()["access_token"]
+
+
+async def test_terminal_refused_for_lack_of_rights_says_so(client, monkeypatch):
+    from app.api.v1.routes.execution import terminal_ws
+    from app.config import settings
+    from app.core.ws_auth import WS_FORBIDDEN
+
+    token = await _admin_token(client)
+    monkeypatch.setattr(settings, "enable_code_execution", False)
+    ws = _FakeWebSocket({"token": token, "projectUid": "p", "language": "bash"})
+    await terminal_ws(ws)
+    assert ws.closed_code == WS_FORBIDDEN
+
+
+async def test_ws_credentials_watch_ends_when_the_account_is_disabled(client, engine):
+    from sqlalchemy import update
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from app.core.ws_auth import watch_credentials
+    from app.models.user import User
+
+    ws = _FakeWebSocket({"token": await _admin_token(client)})
+    watch = asyncio.create_task(watch_credentials(ws, 0.01))
+    await asyncio.sleep(0.05)
+    assert not watch.done()
+    async with async_sessionmaker(engine, class_=AsyncSession)() as db:
+        await db.execute(update(User).values(is_active=False))
+        await db.commit()
+    await asyncio.wait_for(watch, 1)
 
 
 async def test_pty_manager_caps_sessions_per_user(monkeypatch):

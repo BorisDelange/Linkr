@@ -19,6 +19,9 @@ export type TerminalLanguage = 'python' | 'r' | 'bash'
 
 /** Close code the backend uses for an auth failure (ws_auth.WS_AUTH_FAILED). */
 export const WS_AUTH_FAILED = 4401
+/** Close code for a user who may not open one (ws_auth.WS_FORBIDDEN): code
+ *  execution is off, or no `ide:execute` on the project. */
+export const WS_FORBIDDEN = 4403
 
 export interface TerminalMessage {
   type: 'stdout' | 'stderr' | 'output' | 'done' | 'exit' | 'error'
@@ -38,6 +41,8 @@ export const WS_OPEN_TIMEOUT_MS = 15_000
 export interface TerminalCloseInfo {
   /** Code 4401. */
   authFailed: boolean
+  /** Code 4403. */
+  forbidden: boolean
   clean: boolean
   /** The handshake never completed: the socket closed before `open`. */
   neverOpened: boolean
@@ -66,6 +71,7 @@ export function wsBaseUrl(): string {
 export function terminalFailureMessage(info: TerminalCloseInfo): string | null {
   const url = `${wsBaseUrl()}/api/v1/execute/terminal`
   if (info.authFailed) return i18n.t('terminal.authFailed')
+  if (info.forbidden) return i18n.t('terminal.forbidden')
   if (info.timedOut) return i18n.t('terminal.wsTimeout', { url, seconds: WS_OPEN_TIMEOUT_MS / 1000 })
   if (info.neverOpened) return i18n.t('terminal.wsRefused', { url })
   return null
@@ -127,6 +133,7 @@ export class TerminalSocket {
       clearTimeout(openTimer)
       this.handlers.onClose?.({
         authFailed: ev.code === WS_AUTH_FAILED,
+        forbidden: ev.code === WS_FORBIDDEN,
         clean: ev.wasClean,
         neverOpened: !opened,
         timedOut,

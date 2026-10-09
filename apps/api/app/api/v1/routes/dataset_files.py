@@ -218,14 +218,19 @@ async def stage_server_file(
     `/import` take it unchanged. The source is copied, never moved — it belongs to
     whoever put it there."""
     await _check_project(db, body.project_uid, user, "datasets:write")
-    whole_fs = await fs_browser.whole_fs_import_allowed(db, await db.get(Project, body.project_uid), user)
+    scope = await fs_browser.import_scope(db, await db.get(Project, body.project_uid), user)
     try:
-        src = fs_browser.validate_import_source(body.server_path, whole_fs_allowed=whole_fs)
+        src = fs_browser.validate_import_source(body.server_path, scope)
     except fs_browser.FsBrowseError as e:
         raise HTTPException(e.status_code, str(e))
 
     async def work() -> DsStagedFile:
-        sha, size = await blob_store.store_copy(src)
+        try:
+            opened = await asyncio.to_thread(fs_browser.open_import_source, str(src), scope)
+        except fs_browser.FsBrowseError as e:
+            raise HTTPException(e.status_code, str(e))
+        with opened:
+            sha, size = await blob_store.store_copy(opened)
         return DsStagedFile(sha=sha, size=size, file_name=src.name)
 
     return await deferred.respond(user.id, work)
