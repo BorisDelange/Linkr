@@ -1,5 +1,6 @@
 /** What every tool module shares: the API client, result helpers, annotations. */
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { createHash } from 'node:crypto'
 import type { CallToolResult, McpServer } from '@modelcontextprotocol/server'
 import type { SchemaMapping, User } from '@/types'
 import { userDisplayName, userToAuthorDetails } from '@/lib/user-identity'
@@ -8,15 +9,21 @@ import { ApiError, LinkrApi, type DataSource } from './api.js'
 export type Server = McpServer
 
 const envApi = new LinkrApi()
-const requestApi = new AsyncLocalStorage<LinkrApi>()
+const requestApi = new AsyncLocalStorage<{ client: LinkrApi; caller: string }>()
 
 /** Run `fn` with the API acting as the owner of a personal key (`lnk_…`): the
  *  HTTP entry serves each client as its own user. */
 export const withApiToken = <T>(token: string, fn: () => T): T =>
-  requestApi.run(new LinkrApi({ LINKR_API_URL: process.env.LINKR_API_URL, LINKR_TOKEN: token }), fn)
+  requestApi.run({
+    client: new LinkrApi({ LINKR_API_URL: process.env.LINKR_API_URL, LINKR_TOKEN: token }),
+    caller: createHash('sha256').update(token).digest('hex'),
+  }, fn)
 
-/** The client behind `api` for the current call — one per user, so a per-user cache can key on it. */
-export const currentApi = (): LinkrApi => requestApi.getStore() ?? envApi
+/** Who the current call acts as, for a per-user cache: a hash of the request's key
+ *  (the key itself is never kept), or "env" for the environment's credentials. */
+export const currentCaller = (): string => requestApi.getStore()?.caller ?? 'env'
+
+const currentApi = (): LinkrApi => requestApi.getStore()?.client ?? envApi
 
 /** The Linkr API for the current call: the request's user over HTTP, else the
  *  credentials of the environment (stdio). */

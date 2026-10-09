@@ -1,4 +1,6 @@
 from app.core.security import hash_password
+from app.models.project_member import ProjectMember
+from app.models.role import Role
 from app.models.user import User
 
 API = "/api/v1"
@@ -227,3 +229,61 @@ async def test_database_tree_carries_its_cohorts_without_patient_ids(client, db)
     for leaked in ("materialization", "resultCount", "attrition", "id", "ownerDataSourceId",
                    "dataSourceId", "dataSourceRef", "projectUid"):
         assert leaked not in exported
+
+
+# --- The app-wide listing (no filter) follows the per-cohort checks ----------
+
+
+async def _listed(client, headers) -> list[str]:
+    return [c["id"] for c in (await client.get(f"{API}/cohorts", headers=headers)).json()]
+
+
+async def test_listing_includes_a_project_shared_by_grant_alone(client, db):
+    admin = await _admin_headers(client)
+    proj = await _project(client, admin)
+    await _cohort(client, admin, proj)
+    bob_id, bob = await _user(db, client, "bob")
+    assert await _listed(client, bob) == []
+
+    await client.put(f"{API}/projects/{proj}/members", headers=admin, json={"userId": bob_id, "role": "viewer"})
+    assert await _listed(client, bob) == ["c1"]
+
+
+async def test_listing_includes_projects_reached_by_the_all_projects_grant(client, db):
+    admin = await _admin_headers(client)
+    proj = await _project(client, admin)
+    await _cohort(client, admin, proj)
+    await client.post(f"{API}/roles", headers=admin, json={
+        "name": "cross-viewer", "scope": "global", "permissions": ["all-projects:read"],
+    })
+    db.add(User(username="carol", password_hash=hash_password("pw-for-tests-only"), role="cross-viewer"))
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": "carol", "password": "pw-for-tests-only"})
+    assert await _listed(client, {"Authorization": f"Bearer {r.json()['access_token']}"}) == ["c1"]
+
+
+async def test_listing_hides_a_project_overridden_to_none(client, db):
+    admin = await _admin_headers(client)
+    proj = await _project(client, admin)
+    await _cohort(client, admin, proj)
+    ws = (await client.get(f"{API}/projects/{proj}", headers=admin)).json()["workspaceId"]
+    bob_id, bob = await _user(db, client, "bob")
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": bob_id, "role": "viewer"})
+    assert await _listed(client, bob) == ["c1"]
+
+    await client.put(f"{API}/projects/{proj}/members", headers=admin, json={"userId": bob_id, "role": "none"})
+    assert await _listed(client, bob) == []
+
+
+async def test_listing_hides_cohorts_without_cohorts_read(client, db):
+    admin = await _admin_headers(client)
+    proj = await _project(client, admin)
+    await _cohort(client, admin, proj)
+    bob_id, bob = await _user(db, client, "bob")
+    db.add(Role(name="no-cohorts", scope="workspace", permissions=["projects:read"]))
+    db.add(ProjectMember(project_uid=proj, user_id=bob_id, role="no-cohorts"))
+    await db.commit()
+
+    assert any(p["uid"] == proj for p in (await client.get(f"{API}/projects", headers=bob)).json())
+    assert (await client.get(f"{API}/cohorts/c1", headers=bob)).status_code == 403
+    assert await _listed(client, bob) == []

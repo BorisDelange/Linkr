@@ -3,12 +3,12 @@ from datetime import datetime
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import has_permission, has_project_permission
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
-from app.models.project import Project
 from app.models.user import User
-from app.models.workspace_member import WorkspaceMember
 from app.schemas.cohort import CohortCreate, CohortUpdate
+from app.services import project_service
 
 
 async def list_for_project(db: AsyncSession, project_uid: str) -> list[Cohort]:
@@ -22,23 +22,32 @@ async def list_for_database(db: AsyncSession, data_source_id: str) -> list[Cohor
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Cohort]:
-    """Cohorts the user can reach — in their workspaces' projects and databases
-    (admins see all). The store loads everything then filters by owner
-    client-side."""
+    """Cohorts the user may read: those of the projects they see (project_service's
+    visibility: workspace role, per-project grant, all-projects grant, "none"
+    override) where they hold `cohorts:read`, and those of the databases whose
+    workspace grants them `databases:read` — the checks `cohort_access` applies to
+    one cohort (admins see all)."""
     if user.role == "admin":
         result = await db.execute(select(Cohort))
         return list(result.scalars().all())
 
-    member_workspaces = select(WorkspaceMember.workspace_id).where(WorkspaceMember.user_id == user.id)
-    in_projects = (
-        select(Cohort)
-        .join(Project, Project.uid == Cohort.project_uid)
-        .where(Project.workspace_id.in_(member_workspaces))
-    )
+    readable_projects = [
+        p.uid for p in await project_service.list_for_user(db, user)
+        if await has_project_permission(db, p, user, "cohorts:read")
+    ]
+    database_workspaces = (
+        await db.execute(
+            select(DataSource.workspace_id).where(DataSource.workspace_id.is_not(None)).distinct()
+        )
+    ).scalars().all()
+    readable_workspaces = [
+        ws for ws in database_workspaces if await has_permission(db, ws, user, "databases:read")
+    ]
+    in_projects = select(Cohort).where(Cohort.project_uid.in_(readable_projects))
     in_databases = (
         select(Cohort)
         .join(DataSource, DataSource.id == Cohort.owner_data_source_id)
-        .where(DataSource.workspace_id.in_(member_workspaces))
+        .where(DataSource.workspace_id.in_(readable_workspaces))
     )
     projects = (await db.execute(in_projects)).scalars().all()
     databases = (await db.execute(in_databases)).scalars().all()

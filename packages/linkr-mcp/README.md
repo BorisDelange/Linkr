@@ -249,10 +249,11 @@ address (`0.0.0.0` when LibreChat runs in Docker, then reached at
 - **stdout is the JSON-RPC channel** — never write to it. Diagnostics go to stderr.
 - Input schemas are declared as plain **JSON Schema** through the SDK's `fromJsonSchema`.
 - A parameter that designates a project, workspace, database, cohort or mapping project by id also
-  takes its **name** (exact, then ignoring case, spaces, dashes and underscores), among the objects the
-  user can see; an unknown or ambiguous one fails with the candidates listed. A read tool that requires
-  `database_id` defaults it to the only database available. One layer does it for every tool:
-  `src/live/references.ts`.
+  takes its **name** (exact, then ignoring case, then also spaces, dashes and underscores), among the
+  objects the user can see; an unknown or ambiguous one fails with the candidates listed. So do the git
+  tools' `id` and the README tools' `entity_id` when their entity is one of those kinds. A uuid is
+  passed on as an id, for the server to check. A read tool that requires `database_id` defaults it to
+  the only database available. One layer does it for every tool: `src/live/references.ts`.
 
 ## Testing
 
