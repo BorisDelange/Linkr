@@ -1,10 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import func, make_url, select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core import trusted_header
-from app.core.database import get_db
+from app.core.database import describe_app_database, get_db
 from app.core.deps import get_current_admin, get_current_user_optional
 from app.core.security import hash_password, password_policy_error
 from app.models.user import User
@@ -46,13 +46,7 @@ async def db_info(
     count = await db.scalar(select(func.count(User.id)))
     if count and count > 0 and (user is None or user.role != "admin"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Admin access required")
-    url = make_url(settings.resolved_database_url)
-    engine = url.get_backend_name()  # "sqlite", "postgresql", ...
-    if engine == "sqlite":
-        location = url.database or ":memory:"
-    else:
-        host = f"{url.host or ''}:{url.port}" if url.port else (url.host or "")
-        location = f"{host}/{url.database}" if url.database else host
+    engine, location = describe_app_database()
     return DbInfoResponse(engine=engine, location=location)
 
 

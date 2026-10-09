@@ -19,9 +19,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.database import get_db
+from app.core.database import describe_app_database, get_db
 from app.core.permissions import require_global_permission
 from app.models.user import User
+from app.schemas.auth import DbInfoResponse
 from app.schemas.data_source import (
     IntrospectedColumn,
     IntrospectedTable,
@@ -86,6 +87,15 @@ def _jsonable(value):
     if isinstance(value, (bytes, bytearray)):
         return value.hex()
     return value
+
+
+@router.get("/info", response_model=DbInfoResponse)
+async def app_database_info(
+    _user: User = Depends(require_global_permission("app-database:read")),
+):
+    """Engine and location of the app database, as set by LINKR_DATABASE_URL / LINKR_DATA_DIR."""
+    engine, location = describe_app_database()
+    return DbInfoResponse(engine=engine, location=location)
 
 
 @router.post("/query", response_model=QueryResult)

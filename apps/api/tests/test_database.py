@@ -77,6 +77,24 @@ async def test_schema_lists_tables_and_columns(client):
     assert {"id", "username", "role"} <= cols
 
 
+async def test_info_reports_the_database_in_use(client):
+    from app.core.database import describe_app_database
+
+    headers = await _admin_headers(client)
+    r = await client.get(f"{API}/database/info", headers=headers)
+    assert r.status_code == 200
+    engine, location = describe_app_database()
+    assert r.json() == {"engine": engine, "location": location}
+
+
+def test_describe_never_includes_the_password(monkeypatch):
+    from app.config import settings
+    from app.core.database import describe_app_database
+
+    monkeypatch.setattr(settings, "database_url", "postgresql+asyncpg://linkr:s3cret@db.local:5432/linkr")
+    assert describe_app_database() == ("postgresql", "db.local:5432/linkr")
+
+
 async def test_requires_admin(client):
     admin = await _admin_headers(client)
     await client.post(f"{API}/users", headers=admin,
@@ -86,6 +104,7 @@ async def test_requires_admin(client):
     assert (await client.post(f"{API}/database/query", headers=bob,
             json={"sql": "SELECT 1"})).status_code == 403
     assert (await client.get(f"{API}/database/schema", headers=bob)).status_code == 403
+    assert (await client.get(f"{API}/database/info", headers=bob)).status_code == 403
 
 
 async def test_requires_auth(client):

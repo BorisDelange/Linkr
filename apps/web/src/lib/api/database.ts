@@ -18,3 +18,13 @@ export async function queryAppDatabase(sql: string): Promise<Record<string, unkn
 export function fetchAppDatabaseSchema(): Promise<IntrospectedTable[]> {
   return apiRequest<IntrospectedTable[]>('/database/schema')
 }
+
+export interface AppDatabaseInfo {
+  engine: string
+  /** Absolute file path (SQLite) or host:port/db (otherwise), never the password. */
+  location: string
+}
+
+export function fetchAppDatabaseInfo(): Promise<AppDatabaseInfo> {
+  return apiRequest<AppDatabaseInfo>('/database/info')
+}
