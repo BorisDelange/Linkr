@@ -204,6 +204,19 @@ async def test_slow_copy_from_server_defers_then_polls(client, seed_roles, tmp_p
     assert (_scripts(uid) / "a.py").read_text() == "x = 1"
 
 
+async def _user_with_global_role(client, db, admin, username: str, permissions: list[str]) -> dict:
+    from app.core.security import hash_password
+    from app.models.user import User
+
+    await client.post(f"{API}/roles", headers=admin, json={
+        "name": f"{username}-role", "scope": "global", "permissions": permissions,
+    })
+    db.add(User(username=username, password_hash=hash_password("pw-for-tests-only"), role=f"{username}-role"))
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"})
+    return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
 async def test_copy_from_server_refuses_another_projects_bound_folder(client, seed_roles, db, tmp_path_factory):
     from app.models.project import Project
 
@@ -218,14 +231,18 @@ async def test_copy_from_server_refuses_another_projects_bound_folder(client, se
     (await db.get(Project, uid)).ide_path = str(ours)
     await db.commit()
 
-    leak = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
-        "projectUid": uid, "serverPath": str(theirs / "data.csv"), "path": "data.csv",
-    })
-    assert leak.status_code == 403
-    own = await client.post(f"{API}/ide-files/copy-from-server", headers=h, json={
-        "projectUid": uid, "serverPath": str(ours / "data.csv"), "path": "copy.csv",
-    })
-    assert own.status_code == 201
+    def copy(headers, src, dest):
+        return client.post(f"{API}/ide-files/copy-from-server", headers=headers, json={
+            "projectUid": uid, "serverPath": str(src), "path": dest,
+        })
+
+    member = await _user_with_global_role(client, db, h, "bob", ["all-projects:write"])
+    assert (await copy(member, theirs / "data.csv", "leak.csv")).status_code == 403
+    assert (await copy(member, ours / "data.csv", "copy.csv")).status_code == 201
+
+    granted = await _user_with_global_role(client, db, h, "carol", ["all-projects:write", "project-folders:read"])
+    assert (await copy(granted, theirs / "data.csv", "carol.csv")).status_code == 201
+    assert (await copy(h, theirs / "data.csv", "admin.csv")).status_code == 201
 
 
 async def test_deferred_copy_from_server_notifies_once_the_file_exists(

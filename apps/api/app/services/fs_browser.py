@@ -324,7 +324,12 @@ class ImportScope:
 async def import_scope(db: "AsyncSession", project: "Project", user: "User") -> ImportScope:
     from sqlalchemy import select
 
+    from app.core.permissions import has_global_permission
     from app.models.project import Project as ProjectModel
+
+    whole_fs_allowed = await whole_fs_import_allowed(db, project, user)
+    if await has_global_permission(db, user, "project-folders:read"):
+        return ImportScope(whole_fs_allowed=whole_fs_allowed)
 
     rows = await db.execute(
         select(ProjectModel.uid, ProjectModel.ide_path, ProjectModel.scripts_path, ProjectModel.datasets_path)
@@ -334,7 +339,7 @@ async def import_scope(db: "AsyncSession", project: "Project", user: "User") -> 
     for uid, *paths in rows.all():
         (own if uid == project.uid else foreign).update(p for p in paths if p)
     return ImportScope(
-        whole_fs_allowed=await whole_fs_import_allowed(db, project, user),
+        whole_fs_allowed=whole_fs_allowed,
         foreign_bound=frozenset(foreign),
         own_bound=frozenset(own),
     )

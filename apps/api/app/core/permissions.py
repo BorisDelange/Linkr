@@ -94,6 +94,10 @@ GLOBAL_CATALOGUE: dict[str, list[str]] = {
     # satisfies any workspace-tier check on any project. See global_grant_role.
     "all-workspaces": RWD,
     "all-projects": RWD,
+    # Import a server file from a folder bound to a project other than the one
+    # importing it (fs_browser.import_scope). Without it, another project's bound
+    # folders are refused even inside the browse roots.
+    "project-folders": ["read"],
     # The access log (core/audit.py): who read which database, ran which code.
     # Its entries hold SQL and code, which can name patients.
     "audit-log": ["read"],

@@ -72,6 +72,7 @@ const GLOBAL_RESOURCES = new Set([
   'roles',
   'organizations',
   'app-database',
+  'project-folders',
   'audit-log',
   'all-workspaces',
   'all-projects',
@@ -81,7 +82,7 @@ const resourceOf = (permission: Permission) => permission.split(':')[0]
 const isGlobalPermission = (permission: Permission) => GLOBAL_RESOURCES.has(resourceOf(permission))
 
 /** Resources that carry an explanatory tooltip (settings.resource_hint_<r>). */
-const RESOURCE_HINTS = new Set(['all-workspaces', 'all-projects', 'workspaces'])
+const RESOURCE_HINTS = new Set(['all-workspaces', 'all-projects', 'workspaces', 'project-folders'])
 
 /** Per-resource icon + color, mirroring the sidebar so a resource is easy to
  *  place. Icons/colors match the corresponding sidebar nav item. */
@@ -119,6 +120,7 @@ const RESOURCE_META: Record<string, { icon: LucideIcon; color: string }> = {
   roles: { icon: ShieldHalf, color: 'text-slate-500' },
   organizations: { icon: Building, color: 'text-amber-500' },
   'app-database': { icon: Database, color: 'text-slate-500' },
+  'project-folders': { icon: FolderOpen, color: 'text-blue-700' },
   'audit-log': { icon: ScrollText, color: 'text-slate-500' },
   'all-workspaces': { icon: Building2, color: 'text-amber-500' },
   'all-projects': { icon: Layers, color: 'text-blue-700' },
