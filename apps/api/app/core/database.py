@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from sqlalchemy import event, make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -29,7 +31,10 @@ def describe_app_database() -> tuple[str, str]:
     url = make_url(settings.resolved_database_url)
     backend = url.get_backend_name()
     if backend == "sqlite":
-        return backend, url.database or ":memory:"
+        if not url.database or url.database == ":memory:":
+            return backend, ":memory:"
+        # A relative path in LINKR_DATABASE_URL is opened from the server's cwd.
+        return backend, str(Path(url.database).expanduser().resolve())
     host = f"{url.host or ''}:{url.port}" if url.port else (url.host or "")
     return backend, f"{host}/{url.database}" if url.database else host
 

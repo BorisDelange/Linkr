@@ -95,6 +95,15 @@ def test_describe_never_includes_the_password(monkeypatch):
     assert describe_app_database() == ("postgresql", "db.local:5432/linkr")
 
 
+def test_describe_resolves_a_relative_sqlite_path(monkeypatch, tmp_path):
+    from app.config import settings
+    from app.core.database import describe_app_database
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(settings, "database_url", "sqlite+aiosqlite:///./linkr.db")
+    assert describe_app_database() == ("sqlite", str((tmp_path / "linkr.db").resolve()))
+
+
 async def test_requires_admin(client):
     admin = await _admin_headers(client)
     await client.post(f"{API}/users", headers=admin,
