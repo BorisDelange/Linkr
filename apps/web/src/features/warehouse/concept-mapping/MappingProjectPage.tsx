@@ -243,7 +243,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
           )}
         </TabsContent>
         <TabsContent value="progress" className="flex-1 overflow-hidden">
-          {activeTab === 'progress' && <ProgressTab project={project} dataSource={dataSource} />}
+          {activeTab === 'progress' && <ProgressTab project={project} />}
         </TabsContent>
         <TabsContent value="source-concepts" className="flex-1 overflow-hidden">
           {activeTab === 'source-concepts' && isDatabaseSource && (
@@ -259,17 +259,17 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         <TabsContent value="editor" forceMount className={`flex-1 overflow-hidden ${activeTab === 'editor' ? '' : 'hidden'}`}>
           {/* eslint-disable-next-line react-hooks/refs -- monotonic "sticky mount" latch: once true it never flips back, and it is set in an activeTab effect that already re-renders this component, so reading it here keeps the editor mounted without going stale */}
           {(activeTab === 'editor' || editorEverOpened.current) && (
-            <MappingEditorTab project={project} dataSource={dataSource} onGoToConceptSets={() => setActiveTab('concept-sets')} />
+            <MappingEditorTab project={project} onGoToConceptSets={() => setActiveTab('concept-sets')} onGoToSourceConcepts={() => setActiveTab('source-concepts')} />
           )}
         </TabsContent>
         <TabsContent value="mappings" forceMount className={`flex-1 overflow-hidden ${activeTab === 'mappings' ? '' : 'hidden'}`}>
           {/* eslint-disable-next-line react-hooks/refs -- monotonic "sticky mount" latch: once true it never flips back, and it is set in an activeTab effect that already re-renders this component, so reading it here keeps the table mounted without going stale */}
           {(activeTab === 'mappings' || mappingsEverOpened.current) && (
-            <MappingsTab project={project} dataSource={dataSource} />
+            <MappingsTab project={project} />
           )}
         </TabsContent>
         <TabsContent value="export" className="flex-1 overflow-hidden">
-          {activeTab === 'export' && <ExportTab project={project} dataSource={dataSource} />}
+          {activeTab === 'export' && <ExportTab project={project} />}
         </TabsContent>
         <TabsContent value="readme" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'readme' && (

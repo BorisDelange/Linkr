@@ -168,6 +168,10 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   )
   const [options, setOptions] = useState<ProfileOptions>(saved?.options ?? DEFAULT_PROFILE_OPTIONS)
   const [sort, setSort] = useState<ExtractionSort>(saved?.sort ?? DEFAULT_EXTRACTION_SORT)
+  // On by default: a dictionary is often far larger than what the warehouse
+  // uses (OMOP's is the whole vocabulary), and a concept no record names has
+  // nothing to map. A stored run that predates the option walked everything.
+  const [onlyWithRecords, setOnlyWithRecords] = useState(saved ? !!saved.onlyWithRecords : true)
 
   // Re-adopt the stored settings whenever a different run turns up: the state
   // above is seeded once at mount, so a project that finished loading after the
@@ -184,6 +188,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     setDictionaryKeys(saved.dictionaryKeys)
     setOptions(saved.options)
     setSort(saved.sort ?? DEFAULT_EXTRACTION_SORT)
+    setOnlyWithRecords(!!saved.onlyWithRecords)
   }, [saved])
 
   // The default above is computed at mount, when the schema may not have loaded
@@ -349,6 +354,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           total: 0,
           options,
           sort: computesMetadata(options) ? sort : DICTIONARY_ORDER,
+          onlyWithRecords,
           updatedAt: new Date().toISOString(),
         },
         extractionCsvHeader(), 0, true,
@@ -368,6 +374,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       sort: !restart && saved
         ? (saved.sort ?? DEFAULT_EXTRACTION_SORT)
         : computesMetadata(options) ? sort : DICTIONARY_ORDER,
+      onlyWithRecords: !restart && saved ? !!saved.onlyWithRecords : onlyWithRecords,
       // A restart re-counts: the dictionaries may have grown since the last run,
       // and resuming against a stale total would stop short of the new rows.
       resumeFrom: restart
@@ -385,7 +392,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     })
   }, [
     mapping, sources, dataSource, ensureMounted, saved, project, options,
-    persist, updateMappingProject, sort, t,
+    persist, updateMappingProject, sort, onlyWithRecords, t,
   ])
 
   const stop = useCallback(() => pauseRun(project.id), [project.id])
@@ -525,6 +532,28 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             </TooltipTrigger>
             <TooltipContent side="right" className="max-w-xs text-xs">
               {t('concept_mapping.extract_metadata_hint')}
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        <div className="flex items-center">
+          <label className={cn('flex items-center gap-2', locked && 'pointer-events-none opacity-50')}>
+            <Switch
+              size="sm"
+              checked={onlyWithRecords}
+              disabled={locked}
+              onCheckedChange={setOnlyWithRecords}
+            />
+            <span className="text-xs">{t('concept_mapping.extract_only_with_records')}</span>
+          </label>
+          <Tooltip delayDuration={0}>
+            <TooltipTrigger asChild>
+              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label="Info">
+                <Info size={12} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-xs text-xs">
+              {t('concept_mapping.extract_only_with_records_hint')}
             </TooltipContent>
           </Tooltip>
         </div>

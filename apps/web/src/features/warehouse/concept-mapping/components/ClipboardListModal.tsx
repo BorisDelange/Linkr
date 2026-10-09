@@ -33,10 +33,9 @@ interface ClipboardListModalProps {
   items: SourceConceptRow[]
   onRemove: (conceptId: number) => void
   onClear: () => void
-  isFileSource?: boolean
 }
 
-export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClear, isFileSource }: ClipboardListModalProps) {
+export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClear }: ClipboardListModalProps) {
   const { t } = useTranslation()
   const [format, setFormat] = useState<ClipboardCopyFormat>('sql')
   const [copied, setCopied] = useState(false)
@@ -79,17 +78,15 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
         minSize: 100,
       },
     ]
-    if (isFileSource) {
-      cols.push({
-        id: 'concept_code',
-        header: t('concept_mapping.col_concept_code'),
-        accessor: (r) => r.concept_code ?? '',
-        filter: 'text',
-        tooltip: 'font-mono',
-        size: 120,
-        minSize: 60,
-      })
-    }
+    cols.push({
+      id: 'concept_code',
+      header: t('concept_mapping.col_concept_code'),
+      accessor: (r) => r.concept_code ?? '',
+      filter: 'text',
+      tooltip: 'font-mono',
+      size: 120,
+      minSize: 60,
+    })
     cols.push({
       id: '_remove',
       header: '',
@@ -111,7 +108,7 @@ export function ClipboardListModal({ open, onOpenChange, items, onRemove, onClea
       minSize: 32,
     })
     return cols
-  }, [t, isFileSource, onRemove])
+  }, [t, onRemove])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

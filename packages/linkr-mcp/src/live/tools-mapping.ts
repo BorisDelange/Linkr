@@ -12,10 +12,10 @@ import {
   buildConceptRelationsQuery, buildConceptSynonymsQuery,
 } from '@/lib/concept-mapping/concept-detail-queries'
 import {
-  buildFileSourceConceptsCountQuery, buildFileSourceConceptsQuery, buildSourceConceptsRelation, buildStandardConceptSearchQuery,
+  buildFileSourceConceptsCountQuery, buildFileSourceConceptsQuery, buildStandardConceptSearchQuery,
   type SourceConceptFilters,
 } from '@/lib/concept-mapping/mapping-queries'
-import { effectiveMappingStatus, getTotalSourceConcepts, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
+import { effectiveMappingStatus, getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
 import { isOmopConceptTable, resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
 import {
   checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, groupSuggestions,
@@ -24,7 +24,6 @@ import {
   type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
 import type { DataSource } from './api.js'
-import { conceptRelations, has } from '@/lib/schema-classes/relations'
 import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
 
 export const MAX_WRITE = 200
@@ -35,58 +34,42 @@ async function vocabularyOf(project: MappingProject): Promise<Vocabulary> {
   // The workspace vocabulary library first (resolveVocabularyTarget), so the
   // workspace's databases are needed, not just the project's two.
   const all = await api.listDataSources().catch(() => [] as DataSource[])
-  const sourceDs = all.find((d) => d.id === project.dataSourceId) ?? null
-  const target = resolveVocabularyTarget(project, sourceDs, all)
+  const target = resolveVocabularyTarget(project, all)
   if (!target || !target.mapping.concepts?.[0] || !isOmopConceptTable(target.mapping.concepts[0])) {
-    throw new Error('This workspace has no OMOP vocabulary, and the project\'s source database '
-      + `${sourceDs ? `"${loc(sourceDs.name)}" ` : ''}has no OMOP concept table. Ask the user to import an ATHENA `
-      + 'export in Linkr: workspace settings › Vocabularies.')
+    throw new Error('This workspace has no OMOP vocabulary. Ask the user to import an ATHENA export in Linkr: '
+      + 'workspace settings › Vocabularies.')
   }
   return { databaseId: target.dsId, mapping: target.mapping, table: target.conceptTable }
 }
 
 /**
- * Where a project's source concepts are read. Every tool queries a relation
- * named `source_concepts`: the server's view over the flat source (an imported
- * file, or a database project once extracted), or — for a database project not
- * extracted yet — the database's dictionaries unioned into the same shape, with
- * no counts and no metadata.
+ * Where a project's source concepts are read: the server's `source_concepts`
+ * view over its flat source — an imported file, or a database project's
+ * extraction. A database project is never read live (its counts would scan every
+ * event table), so one not extracted yet has nothing to read.
  */
 interface Source {
   query: (sql: string) => Promise<Record<string, unknown>[]>
-  extracted: boolean
   columns: { vocabulary: boolean; category: boolean; subcategory: boolean; records: boolean; patients: boolean; info: boolean }
 }
 
+export const NOT_EXTRACTED_ERROR = 'This database project has not been extracted yet, so it has no source concepts to read. '
+  + 'Ask the user to run the extraction in Linkr: mapping project › Source concepts tab (it can be paused, and the '
+  + 'concepts extracted so far are readable at once).'
+
 async function sourceOf(project: MappingProject): Promise<Source> {
-  if (readsFromFlatSource(project)) {
-    const cm = project.fileSourceData?.columnMapping ?? {}
-    return {
-      query: (sql) => api.queryMappingSource(project.id, sql),
-      extracted: true,
-      columns: {
-        vocabulary: !!cm.terminologyColumn, category: !!cm.categoryColumn, subcategory: !!cm.subcategoryColumn,
-        records: !!cm.recordCountColumn, patients: !!cm.patientCountColumn, info: !!cm.infoJsonColumn,
-      },
-    }
+  if (!project.fileSourceData) {
+    throw new Error(project.sourceType === 'database' ? NOT_EXTRACTED_ERROR : 'This mapping project has no source file imported yet.')
   }
-  if (!project.dataSourceId) throw new Error('This mapping project has no source database.')
-  const ds = await api.getDataSource(project.dataSourceId)
-  const dicts = ds.schemaMapping ? conceptRelations(ds.schemaMapping) : []
-  const relation = ds.schemaMapping ? buildSourceConceptsRelation(ds.schemaMapping) : ''
-  if (!relation) throw new Error(`The source database "${loc(ds.name)}" has no concept dictionary in its schema mapping.`)
+  const cm = project.fileSourceData.columnMapping ?? {}
   return {
-    query: (sql) => api.query(ds.id, `WITH source_concepts AS (${relation}) ${sql}`),
-    extracted: false,
+    query: (sql) => api.queryMappingSource(project.id, sql),
     columns: {
-      vocabulary: true, category: dicts.some((d) => has(d, 'category')), subcategory: dicts.some((d) => has(d, 'subcategory')),
-      records: false, patients: false, info: false,
+      vocabulary: !!cm.terminologyColumn, category: !!cm.categoryColumn, subcategory: !!cm.subcategoryColumn,
+      records: !!cm.recordCountColumn, patients: !!cm.patientCountColumn, info: !!cm.infoJsonColumn,
     },
   }
 }
-
-const NOT_EXTRACTED_NOTE = 'This database project has not been extracted: no record counts and no metadata (units, '
-  + 'distributions). The extraction (mapping project → Source concepts tab in Linkr) would add them.'
 
 async function conceptsById(v: Vocabulary, ids: number[]): Promise<Map<number, VocabConcept>> {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))]
@@ -191,7 +174,6 @@ export function registerMappingTools(server: Server) {
     }
     const src = await sourceOf(p)
     const cm = src.columns
-    if (!src.extracted) lines.push('', NOT_EXTRACTED_NOTE)
     lines.push('', `Source columns available: code, name${cm.vocabulary ? ', vocabulary_id' : ''}${cm.category ? ', category' : ''}`
       + `${cm.subcategory ? ', subcategory' : ''}${cm.records ? ', record_count' : ''}${cm.patients ? ', patient_count' : ''}`
       + `${cm.info ? ', info_json (metadata)' : ''}.`)
@@ -272,7 +254,7 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     })
     const end = offset + rows.length
     return text(`${total} source concept(s) match; showing ${offset + 1}–${end}.${end < total ? ` Next page: offset ${end}.` : ''}`
-      + `${src.extracted ? '' : `\n${NOT_EXTRACTED_NOTE}`}\n\n${body.join('\n')}`)
+      + `\n\n${body.join('\n')}`)
   }))
 
   server.registerTool('get_source_concept', {
@@ -297,7 +279,6 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
     const vocab = String(found.vocabulary_id ?? '')
     const lines = [describeSourceRow(found).replace(/^- /, 'Source concept: ')]
     if (found.info_json != null) lines.push('', 'Metadata (info_json):', describeInfo(found.info_json, 4000, full_metadata))
-    if (!src.extracted) lines.push('', NOT_EXTRACTED_NOTE)
     const extra = Object.entries(found).filter(([k, v]) =>
       v != null && v !== '' && !['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'info_json', 'category',
         'subcategory', 'record_count', 'patient_count', 'terminology_name'].includes(k))

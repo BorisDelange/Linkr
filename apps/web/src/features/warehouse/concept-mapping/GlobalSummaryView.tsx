@@ -67,13 +67,11 @@ import {
   type OhdsiFormat,
 } from '@/lib/concept-mapping/export-formats'
 import { downloadBlob } from '@/lib/entity-io'
-import { buildSourceConceptsAllQuery, buildSourceConceptsCountQuery } from '@/lib/concept-mapping/mapping-queries'
 import { effectiveMappingStatus } from '@/lib/concept-mapping/mapping-status'
 import { localized } from '@/lib/localized'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
-import { queryDataSource, queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
+import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
 import {
   populateFlatTable,
   populateDedupTable,
@@ -168,11 +166,15 @@ function effectiveStatus(m: ConceptMapping): MappingStatus {
   return eff === 'disputed' ? 'unchecked' : eff
 }
 
+/** A project's source-concept count, read off its flat table (imported or extracted). */
+function flatSourceTotal(p: MappingProject): number {
+  return p.fileSourceData?.totalRowCount ?? p.fileSourceData?.rows.length ?? 0
+}
+
 function computeGroupStats(
   mappings: ConceptMapping[],
   projects: MappingProject[],
   groupMode: 'project' | 'badge',
-  dbProjectTotals: Map<string, number>,
 ): Map<string, GroupStat> {
   const raw = new Map<string, GroupStat>()
 
@@ -208,9 +210,7 @@ function computeGroupStats(
   // project with source concepts but no mappings yet still appears in the table
   // (mappings-only iteration would drop it entirely — empty Summary table).
   for (const p of projects) {
-    const projectTotal = p.sourceType === 'file'
-      ? (p.fileSourceData?.totalRowCount ?? p.fileSourceData?.rows.length ?? 0)
-      : (dbProjectTotals.get(p.id) ?? 0)
+    const projectTotal = flatSourceTotal(p)
     for (const key of projectKeys(p)) {
       const g = ensure(key)
       g.projectIds.add(p.id)
@@ -341,12 +341,9 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const { t } = useTranslation()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects } = useConceptMappingStore()
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-  const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const [allMappings, setAllMappings] = useState<ConceptMapping[]>([])
   const [loadingMappings, setLoadingMappings] = useState(true)
-  const [dbProjectTotals, setDbProjectTotals] = useState<Map<string, number>>(new Map())
   // All source concepts per project: projectId → SourceConceptRaw[]
   const [allSourceConceptsByProject, setAllSourceConceptsByProject] = useState<Map<string, SourceConceptRaw[]>>(new Map())
   const [registryEntries, setRegistryEntries] = useState<SourceConceptIdEntry[]>([])
@@ -419,32 +416,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       projects.map((p) => getStorage().conceptMappings.getByProject(p.id)),
     )
     setAllMappings(perProject.flat())
-
-    // Summary needs only per-project source-concept COUNTS (cheap aggregate),
-    // not every source row. The heavy all-rows fetch is deferred to the Table/
-    // Export tabs (loadSourceConcepts). Counts run in parallel too.
-    const dbProjects = projects.filter(
-      (p) => p.sourceType !== 'file' && !p.fileSourceData,
-    )
-    const counts = await Promise.all(
-      dbProjects.map(async (p) => {
-        const ds = dataSources.find((d) => d.id === p.dataSourceId)
-        if (!ds?.schemaMapping) return [p.id, 0] as const
-        try {
-          await ensureMounted(ds.id)
-          const countSql = buildSourceConceptsCountQuery(ds.schemaMapping, {})
-          if (!countSql) return [p.id, 0] as const
-          const [row] = await queryDataSource(ds.id, countSql)
-          return [p.id, Number(row?.total ?? 0)] as const
-        } catch {
-          return [p.id, 0] as const
-        }
-      }),
-    )
-    setDbProjectTotals(new Map(counts))
-
     setLoadingMappings(false)
-  }, [projects, dataSources, ensureMounted])
+  }, [projects])
 
   // Heavy: all source-concept ROWS for every project (used only by the Table /
   // Export tabs). Deferred until one of those tabs is opened; runs in parallel.
@@ -457,54 +430,36 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
     try {
     await Promise.all(
       projects.map(async (p) => {
-        const isFile = p.sourceType === 'file' || !!p.fileSourceData
-        if (isFile) {
-          if (!p.fileSourceData) return
-          try {
-            await mountFileSourceIntoDuckDB(p.id, p.fileSourceData.rows, p.fileSourceData.columnMapping, p.fileSourceData.rawFileBuffer)
-            const dsId = fileSourceDataSourceId(p.id)
-            // SELECT * (not a hard-coded column list): the source_concepts view only
-            // exposes vocabulary_id when a terminology column was mapped, so naming
-            // it explicitly threw a Binder error that was silently swallowed here —
-            // leaving the table empty. Read whatever columns exist, with fallbacks.
-            // queryDataSourceAll, not queryDataSource: the server caps a single
-            // response at MAX_QUERY_ROWS (10k), which capped the whole table at
-            // "10k total". Page through to load every source concept.
-            const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
-            const seen = new Map<string, SourceConceptRaw>()
-            for (const row of rows) {
-              const code = String(row.concept_code ?? '')
-              const name = String(row.concept_name ?? '')
-              const vocab = String(row.vocabulary_id ?? localized(p.name, 'en'))
-              const id = Number(row.concept_id ?? 0)
-              const key = `${vocab}__${code}`
-              if (!seen.has(key)) seen.set(key, { concept_id: id, concept_name: name, concept_code: code, vocabulary_id: vocab })
-            }
-            sourceConceptsMap.set(p.id, Array.from(seen.values()))
-          } catch { /* skip on mount/query failure */ }
-          return
-        }
-        const ds = dataSources.find((d) => d.id === p.dataSourceId)
-        if (!ds?.schemaMapping) return
+        if (!p.fileSourceData) return
         try {
-          await ensureMounted(ds.id)
-          const allSql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
-          if (!allSql) return
-          const rows = await queryDataSourceAll(ds.id, allSql)
-          sourceConceptsMap.set(p.id, rows.map((row) => ({
-            concept_id: Number(row.concept_id ?? 0),
-            concept_name: String(row.concept_name ?? ''),
-            concept_code: String(row.concept_code || row.concept_id || ''),
-            vocabulary_id: String(row.vocabulary_id ?? ds.id),
-          })))
-        } catch { /* skip if DuckDB unavailable */ }
+          await mountFileSourceIntoDuckDB(p.id, p.fileSourceData.rows, p.fileSourceData.columnMapping, p.fileSourceData.rawFileBuffer)
+          const dsId = fileSourceDataSourceId(p.id)
+          // SELECT * (not a hard-coded column list): the source_concepts view only
+          // exposes vocabulary_id when a terminology column was mapped, so naming
+          // it explicitly threw a Binder error that was silently swallowed here —
+          // leaving the table empty. Read whatever columns exist, with fallbacks.
+          // queryDataSourceAll, not queryDataSource: the server caps a single
+          // response at MAX_QUERY_ROWS (10k), which capped the whole table at
+          // "10k total". Page through to load every source concept.
+          const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
+          const seen = new Map<string, SourceConceptRaw>()
+          for (const row of rows) {
+            const code = String(row.concept_code ?? '')
+            const name = String(row.concept_name ?? '')
+            const vocab = String(row.vocabulary_id ?? localized(p.name, 'en'))
+            const id = Number(row.concept_id ?? 0)
+            const key = `${vocab}__${code}`
+            if (!seen.has(key)) seen.set(key, { concept_id: id, concept_name: name, concept_code: code, vocabulary_id: vocab })
+          }
+          sourceConceptsMap.set(p.id, Array.from(seen.values()))
+        } catch { /* skip on mount/query failure */ }
       }),
     )
     setAllSourceConceptsByProject(sourceConceptsMap)
     } finally {
       setLoadingSourceConcepts(false)
     }
-  }, [projects, dataSources, ensureMounted])
+  }, [projects])
 
   // Load registry entries for this workspace (used in table + export)
   const loadRegistry = useCallback(async () => {
@@ -707,8 +662,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   }, [tableLoading, tableTotalPages])
 
   const groupStats = useMemo(
-    () => computeGroupStats(allMappings, projects, groupMode, dbProjectTotals),
-    [allMappings, projects, groupMode, dbProjectTotals],
+    () => computeGroupStats(allMappings, projects, groupMode),
+    [allMappings, projects, groupMode],
   )
 
   const groupNames = useMemo(() => {
@@ -752,19 +707,12 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       unchecked += g.unchecked
       ignored += g.ignored
     }
-    // Total source concepts: file → rows.length; DB → DuckDB count query result
     let totalSourceConcepts = 0
-    for (const p of projects) {
-      if (p.sourceType === 'file') {
-        totalSourceConcepts += p.fileSourceData?.totalRowCount ?? p.fileSourceData?.rows.length ?? 0
-      } else {
-        totalSourceConcepts += dbProjectTotals.get(p.id) ?? 0
-      }
-    }
+    for (const p of projects) totalSourceConcepts += flatSourceTotal(p)
     const uniqueMapped = allSourceKeys.size
     const unmapped = totalSourceConcepts > 0 ? Math.max(0, totalSourceConcepts - uniqueMapped) : 0
     return { total: totalSourceConcepts || uniqueMapped, totalSourceConcepts, uniqueMapped, approved, flagged, rejected, unchecked, ignored, unmapped }
-  }, [groupStats, projects, dbProjectTotals])
+  }, [groupStats, projects])
 
   const chartData = useMemo(() => groupNames.map((name) => {
     const g = groupStats.get(name)!
@@ -920,42 +868,26 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
 
     const out: { vocabularyId: string; conceptCode: string; conceptName: string }[] = []
     for (const proj of filteredProjects) {
-      if (proj.sourceType === 'file') {
-        if (proj.fileSourceData?.columnMapping?.conceptIdColumn) continue
-        if (proj.fileSourceData) {
-          try {
-            await mountFileSourceIntoDuckDB(proj.id, proj.fileSourceData.rows, proj.fileSourceData.columnMapping, proj.fileSourceData.rawFileBuffer)
-            const dsId = fileSourceDataSourceId(proj.id)
-            // queryDataSourceAll + SELECT *: page past the 10k server cap, and
-            // vocabulary_id may be absent from the view (see loadSourceConcepts).
-            const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
-            for (const r of rows) {
-              const code = String(r.concept_code ?? '')
-              const vocab = String(r.vocabulary_id ?? proj.name)
-              const name = String(r.concept_name ?? '')
-              if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
-            }
-          } catch { /* skip if mount/query fails */ }
+      if (!proj.fileSourceData) continue
+      // A file whose author mapped OMOP concept ids is skipped; an extracted
+      // database project always carries its own ids and is kept.
+      if (proj.sourceType === 'file' && proj.fileSourceData.columnMapping?.conceptIdColumn) continue
+      try {
+        await mountFileSourceIntoDuckDB(proj.id, proj.fileSourceData.rows, proj.fileSourceData.columnMapping, proj.fileSourceData.rawFileBuffer)
+        const dsId = fileSourceDataSourceId(proj.id)
+        // queryDataSourceAll + SELECT *: page past the 10k server cap, and
+        // vocabulary_id may be absent from the view (see loadSourceConcepts).
+        const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
+        for (const r of rows) {
+          const code = String(r.concept_code ?? '')
+          const vocab = String(r.vocabulary_id ?? localized(proj.name, 'en'))
+          const name = String(r.concept_name ?? '')
+          if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
         }
-      } else {
-        const ds = dataSources.find((s) => s.id === proj.dataSourceId)
-        if (!ds?.schemaMapping) continue
-        try {
-          await ensureMounted(ds.id)
-          const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
-          if (!sql) continue
-          const rows = await queryDataSourceAll(ds.id, sql)
-          for (const r of rows) {
-            const code = String(r.concept_code ?? '')
-            const vocab = String(r.vocabulary_id ?? ds.id)
-            const name = String(r.concept_name ?? '')
-            if (code) out.push({ vocabularyId: vocab, conceptCode: code, conceptName: name })
-          }
-        } catch { /* skip if unavailable */ }
-      }
+      } catch { /* skip if mount/query fails */ }
     }
     return out
-  }, [projects, exportGroupFilter, groupMode, dataSources, ensureMounted])
+  }, [projects, exportGroupFilter, groupMode])
 
   const handleExportDownload = async (format: 'sssom' | OhdsiFormat) => {
     if (format === 'sssom') {

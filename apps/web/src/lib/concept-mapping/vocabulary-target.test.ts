@@ -10,19 +10,25 @@ const athena = { id: 'athena', schemaMapping: mapping([{ table: 'concept', extra
 const mixed = { id: 'mixed', schemaMapping: mapping([{ table: 'd_items' }, { table: 'vocab', extraColumns: { standard_concept: 'std' } }]) }
 
 describe('resolveVocabularyTarget', () => {
-  it('uses the vocabulary database over the source database', () => {
-    const target = resolveVocabularyTarget({ vocabularyDataSourceId: 'athena' }, mimic, [mimic, athena])
+  it('uses the vocabulary database', () => {
+    const target = resolveVocabularyTarget({ vocabularyDataSourceId: 'athena' }, [mimic, athena])
     expect([target?.dsId, target?.conceptTable, target?.dictionary.tables[0]?.table]).toEqual(['athena', 'concept', 'concept'])
   })
 
-  it('puts the OMOP concept table first in a database that lists its own dictionaries before it', () => {
-    const target = resolveVocabularyTarget({}, mixed, [mixed])
+  it('puts the OMOP concept table first in a vocabulary database that lists other dictionaries before it', () => {
+    const target = resolveVocabularyTarget({ vocabularyDataSourceId: 'mixed' }, [mixed])
     expect(target?.conceptTable).toBe('vocab')
     expect(target?.mapping.concepts?.map((t) => t.from?.table)).toEqual(['vocab', 'd_items'])
   })
 
-  it('keeps the first dictionary when there is no OMOP table, and gives up without one', () => {
-    expect(resolveVocabularyTarget({}, mimic, [mimic])?.conceptTable).toBe('d_items')
-    expect(resolveVocabularyTarget({ vocabularyDataSourceId: 'gone' }, null, [mimic])).toBeNull()
+  it('keeps the first dictionary of a vocabulary database with no OMOP table', () => {
+    expect(resolveVocabularyTarget({ vocabularyDataSourceId: 'mimic' }, [mimic])?.conceptTable).toBe('d_items')
+  })
+
+  it('never falls back on the source database', () => {
+    // No vocabulary: no target, rather than the warehouse's own concept table
+    // searched live, or a native dictionary offered as a target vocabulary.
+    expect(resolveVocabularyTarget({}, [mimic, athena])).toBeNull()
+    expect(resolveVocabularyTarget({ vocabularyDataSourceId: 'gone' }, [mimic])).toBeNull()
   })
 })

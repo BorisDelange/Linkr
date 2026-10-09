@@ -28,20 +28,21 @@ export function isOmopConceptTable(spec: ConceptSpec): boolean {
 
 /**
  * Where a mapping project's target concepts live: the workspace vocabulary
- * library (or the project's own older vocabulary database), else the source
- * database. In that database the OMOP concept table comes first — a
- * source database such as MIMIC lists its own dictionaries (`d_items`) before
- * any vocabulary, and querying those as targets finds nothing. A database with
- * no OMOP table keeps its first dictionary (a custom target vocabulary).
+ * library, or the project's own older vocabulary database. Never the source
+ * database: its OMOP concept table would be searched live, on the warehouse, at
+ * every keystroke, and a native schema offered its own dictionary (`d_items`)
+ * as a target vocabulary. With neither, there is no target and the panel says
+ * to import one.
+ *
+ * In the vocabulary database the OMOP concept table comes first; one with no
+ * OMOP table keeps its first dictionary (a custom target vocabulary).
  */
 export function resolveVocabularyTarget(
   project: { workspaceId?: string | null; vocabularyDataSourceId?: string | null },
-  sourceDataSource: DataSourceLike | null | undefined,
   dataSources: DataSourceLike[],
 ): VocabularyTarget | null {
   const vocabId = vocabularyDataSourceIdFor(project, dataSources)
-  const vocabDs = vocabId ? dataSources.find((ds) => ds.id === vocabId) : null
-  const ds = vocabDs ?? sourceDataSource
+  const ds = vocabId ? dataSources.find((d) => d.id === vocabId) : null
   const mapping = ds?.schemaMapping
   const concepts = mapping?.concepts ?? []
   if (!ds || !mapping || concepts.length === 0) return null

@@ -77,10 +77,8 @@ import { useConceptMappingStore, type ExternalMappingInfo } from '@/stores/conce
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { useAppStore } from '@/stores/app-store'
 import { queryDataSource, fileSourceDataSourceId, isFileSourceMounted, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
-import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, MappingEquivalence, EffectiveMappingStatus, DataSource } from '@/types'
-import { useDataSourceStore } from '@/stores/data-source-store'
-import { buildAllConceptCountsQuery } from '@/lib/concept-mapping/mapping-queries'
-import { effectiveMappingStatus, isMappingLocked, readsFromFlatSource, resolveDisplayedSourceConceptId } from '@/lib/concept-mapping/mapping-status'
+import type { MappingProject, ConceptMapping, MappingComment, MappingReview, MappingStatus, MappingEquivalence, EffectiveMappingStatus } from '@/types'
+import { effectiveMappingStatus, isMappingLocked, resolveDisplayedSourceConceptId } from '@/lib/concept-mapping/mapping-status'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { EquivalenceMenuItems } from './components/EquivalenceMenuItems'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
@@ -91,7 +89,6 @@ import { localized } from '@/lib/localized'
 
 interface MappingsTabProps {
   project: MappingProject
-  dataSource?: DataSource
 }
 
 const PAGE_SIZE = 50
@@ -938,7 +935,7 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
   )
 })
 
-export function MappingsTab({ project, dataSource }: MappingsTabProps) {
+export function MappingsTab({ project }: MappingsTabProps) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
   // Memos depend on `mappingsStructureVersion` (set membership / aggregations)
@@ -959,7 +956,6 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const otherProjectsMappings = useConceptMappingStore((s) => s.otherProjectsMappings)
   const getUserDisplayName = useAppStore((s) => s.getUserDisplayName)
   const getAuthorDetails = useAppStore((s) => s.getAuthorDetails)
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const currentUser = getUserDisplayName()
   const { requireIdentity, dialog: identityDialog } = useRequireIdentity()
 
@@ -1004,16 +1000,9 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
   const [detailSource, setDetailSource] = useState<SourceDetail>({ counts: null, infoJson: undefined })
   const savedScrollTop = useRef(0)
 
-  // Cache concept counts from DuckDB (computed once per data source)
-  const countsCache = useRef<Map<number, SourceCounts>>(new Map())
-  const countsCacheDs = useRef<string | null>(null)
-
-  // "Read from the flat table", not "was imported from a file": an extracted
-  // database project has one too, and is read exactly the same way.
-  const isFileSource = readsFromFlatSource(project)
   /** True when source is a file with no conceptIdColumn — `m.sourceConceptId` is then an
    *  artificial row-number index, not a real OMOP concept_id. The registry is authoritative. */
-  const useRegistryForId = isFileSource && !project.fileSourceData?.columnMapping?.conceptIdColumn
+  const useRegistryForId = !!project.fileSourceData && !project.fileSourceData.columnMapping?.conceptIdColumn
 
   /** The source concept id as displayed: registry-assigned, or the row's own.
    *  Shares `resolveDisplayedSourceConceptId` with the Mapping editor so the two
@@ -1040,12 +1029,12 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
     return null
   }
 
-  /** Fetch source concept detail (counts + info_json) from DuckDB. */
+  /** Fetch source concept detail (counts + info_json) from the project's flat source table. */
   const fetchSourceDetail = useCallback(async (mapping: ConceptMapping): Promise<SourceDetail> => {
     const detail: SourceDetail = { counts: null, infoJson: null }
 
     try {
-      if (isFileSource && project.fileSourceData) {
+      if (project.fileSourceData) {
         const dsId = fileSourceDataSourceId(project.id)
         if (!isFileSourceMounted(project.id)) {
           await mountFileSourceIntoDuckDB(
@@ -1063,39 +1052,16 @@ export function MappingsTab({ project, dataSource }: MappingsTabProps) {
         if (rows.length > 0) {
           const r = rows[0] as Record<string, unknown>
           detail.counts = { record_count: Number(r.record_count ?? 0), patient_count: Number(r.patient_count ?? 0) }
-          countsCache.current.set(mapping.sourceConceptId, detail.counts)
           if ('info_json' in r) {
             detail.infoJson = parseInfoJson(r.info_json)
           }
         }
-      } else if (dataSource) {
-        // Database source: build counts query if not already cached for this DS
-        const dsId = dataSource.id
-        if (countsCacheDs.current !== dsId) {
-          await ensureMounted(dsId)
-          const schemaMapping = dataSource.schemaMapping
-          if (schemaMapping) {
-            const countsSql = buildAllConceptCountsQuery(schemaMapping)
-            if (countsSql) {
-              const rows = await queryDataSource(dsId, countsSql)
-              countsCache.current.clear()
-              for (const r of rows as Record<string, unknown>[]) {
-                countsCache.current.set(Number(r.concept_id), {
-                  record_count: Number(r.record_count ?? 0),
-                  patient_count: Number(r.patient_count ?? 0),
-                })
-              }
-            }
-          }
-          countsCacheDs.current = dsId
-        }
-        detail.counts = countsCache.current.get(mapping.sourceConceptId) ?? null
       }
     } catch (err) {
       console.warn('Failed to fetch source detail:', err)
     }
     return detail
-  }, [isFileSource, project, dataSource, ensureMounted])
+  }, [project])
 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)

@@ -32,7 +32,8 @@ import {
   extractBatch,
   extractionCsvHeader,
   extractionCsvRows,
-  rankConceptIds,
+  mergeTableCounts,
+  planConceptWalk,
   sortNeedsCounts,
   type ConceptCounts,
   type ExtractionSort,
@@ -55,9 +56,10 @@ const SAVE_EVERY = 500
  * offset nor the total is known — and a restart that shows the previous run's
  * numbers while it waits looks like a button that did nothing.
  *
- * `ranking` only happens for a sort by volume, and is the longer wait of the
- * two: a GROUP BY over the whole event table. It is named separately so the user
- * knows the extraction is paying for the priority they asked for.
+ * `ranking` happens for a sort by volume, a run keeping only the concepts with
+ * records, or a dictionary spread over several event tables, and is the longer
+ * wait of the two: a GROUP BY over each event table. It is named separately so
+ * the user knows what the extraction is paying for.
  */
 export type RunPhase = 'counting' | 'ranking' | 'extracting'
 
@@ -202,6 +204,8 @@ export interface StartRunInput {
   options: ProfileOptions
   /** Which end of each dictionary to walk from. */
   sort: ExtractionSort
+  /** Walk only the concepts the event table has records for. */
+  onlyWithRecords: boolean
   /**
    * Where a resume picks up, what it is counting towards, and the per-dictionary
    * sizes the interrupted run measured. `sizes` is absent on a run stored before
@@ -309,11 +313,16 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       }
     }
 
-    // A volume sort needs the counts before anything can be profiled: one
-    // GROUP BY per dictionary over its event table. Skipped entirely for the
-    // sorts the dictionary can order by on its own.
+    // The counts are needed before anything can be profiled for a volume sort,
+    // for keeping only the concepts with records, and for a dictionary spread
+    // over several event tables — there they say which table each concept is
+    // profiled in. One GROUP BY per event table. Skipped entirely otherwise: the
+    // dictionary then orders itself, page by page.
+    const { onlyWithRecords } = input
+    const needsCounts = sortNeedsCounts(sort) || onlyWithRecords || sources.some((s) => s.events.length > 1)
     let rankings: (number[] | undefined)[] = sources.map(() => undefined)
-    if (sortNeedsCounts(sort)) {
+    const homes: (Map<number, number> | undefined)[] = sources.map(() => undefined)
+    if (needsCounts) {
       emit(projectId, { phase: 'ranking' })
       rankings = []
       for (const [i, source] of sources.entries()) {
@@ -321,17 +330,24 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         // queryAll, not query: both return one row per concept, so on a real
         // vocabulary the server's row cap would truncate them and the ranking
         // would silently cover only the first page (see StartRunInput.queryAll).
-        const [counts, ids] = await Promise.all([
-          queryAll(buildConceptCountsQuery(source)),
-          queryAll(buildDictionaryIdsQuery(source)),
-        ])
-        // Ranked over the WHOLE dictionary, not just the concepts the event
-        // table mentions: one with no records still belongs in the CSV, with a
+        // The event tables one after another: a warehouse answers one big scan
+        // faster than several competing ones.
+        const perTable: ConceptCounts[][] = []
+        for (const event of source.events) {
+          if (controller.signal.aborted) return
+          perTable.push(await queryAll(buildConceptCountsQuery(source, event)) as unknown as ConceptCounts[])
+        }
+        const ids = await queryAll(buildDictionaryIdsQuery(source, sort))
+        const merged = mergeTableCounts(perTable)
+        homes[i] = merged.homes
+        // Ranked over the WHOLE dictionary unless asked otherwise: a concept with
+        // no records is still a source concept, and belongs in the CSV with a
         // zero count. It simply sorts last.
-        const ranked = rankConceptIds(
-          counts as unknown as ConceptCounts[],
+        const ranked = planConceptWalk(
+          merged.counts,
           sort,
           ids.map((r) => Number(r.concept_id)),
+          onlyWithRecords,
         )
         rankings.push(ranked)
         // A resume keeps the boundaries its run walked (see above); only a fresh
@@ -374,7 +390,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         Math.min(SAVE_EVERY, sizes[index] - local),
         runTotal, query, controller.signal,
         (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
-        sort, rankings[index],
+        sort, rankings[index], homes[index],
       )
       // A batch that yields nothing and is not done would spin forever.
       if (batch.rows.length === 0 && !batch.done) break
@@ -395,7 +411,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       await persist(
         {
           dictionaryKeys: keys, extracted: offset, total: runTotal, sizes,
-          options: { ...options, sections }, sort,
+          options: { ...options, sections }, sort, onlyWithRecords,
           updatedAt: new Date().toISOString(),
         },
         chunk, offset, firstWrite,

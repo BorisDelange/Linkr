@@ -173,43 +173,122 @@ function conceptIdExpr(source: ProfileSource): string {
 }
 
 /**
- * Records and patients per concept, for the whole dictionary at once.
+ * Records and patients per concept in one event table, for the whole dictionary
+ * at once.
  *
  * One GROUP BY over the event table instead of one COUNT per concept: the same
- * scan either way, but paid once. Only run when the chosen sort needs it —
- * ordering by code costs nothing, and making every extraction wait for a full
- * table scan to start would be a poor trade.
+ * scan either way, but paid once. Only run when the run needs it — a volume
+ * sort, keeping only concepts with records, or a dictionary spread over several
+ * event tables — since ordering by code costs nothing, and making every
+ * extraction wait for a full table scan to start would be a poor trade.
  *
  * Concepts absent from the event table do not appear here; the caller ranks them
  * last, since a concept with no records is exactly what a volume sort defers.
  */
-export function buildConceptCountsQuery(source: ProfileSource): string {
-  const event = source.event
-  // Both OMOP concept columns name the same concept, so a row reached through
-  // either must count once — hence the coalesce rather than two groupings.
-  const key = has(event, 'source_concept_id') ? 'COALESCE(e.concept_id, e.source_concept_id)' : 'e.concept_id'
-  return `SELECT ${key} AS concept_id,
+export function buildConceptCountsQuery(source: ProfileSource, event = source.event): string {
+  const patient = has(event, 'patient_id') ? 'COUNT(DISTINCT patient_id)' : 'NULL'
+  const patientCol = has(event, 'patient_id') ? ', e.patient_id' : ''
+  // A row counts for every concept it names — what the profile's
+  // `concept_id = X OR source_concept_id = X` match counts — and once for a
+  // concept named by both columns. Not a coalesce: an unmapped OMOP row carries
+  // concept_id 0, not NULL, so its source concept, the very one to map, got
+  // none of its records. One scan, unnested, rather than a UNION of two.
+  const ids = has(event, 'source_concept_id')
+    ? 'UNNEST(CASE WHEN e.source_concept_id IS DISTINCT FROM e.concept_id '
+      + 'THEN [e.concept_id, e.source_concept_id] ELSE [e.concept_id] END)'
+    : 'e.concept_id'
+  return `SELECT concept_id,
     COUNT(*) AS record_count,
-    ${has(event, 'patient_id') ? 'COUNT(DISTINCT e.patient_id)' : 'NULL'} AS patient_count
-  FROM ${event.name} e
-  WHERE ${key} IS NOT NULL
-  GROUP BY ${key}`
+    ${patient} AS patient_count
+  FROM (SELECT ${ids} AS concept_id${patientCol} FROM ${event.name} e) AS named
+  WHERE concept_id IS NOT NULL
+  GROUP BY concept_id`
 }
 
 /**
  * Every concept id in the dictionary, so a ranking can cover all of them.
  *
  * The counting pass only sees concepts the event table mentions; this is what
- * tells the ranking about the rest.
+ * tells the ranking about the rest. Given a sort the dictionary orders by on its
+ * own (code, name, id), the ids come back in that order, ready to walk.
  */
-export function buildDictionaryIdsQuery(source: ProfileSource): string {
+export function buildDictionaryIdsQuery(source: ProfileSource, sort?: ExtractionSort): string {
   const idExpr = conceptIdExpr(source)
-  // DISTINCT because the id is not always the dictionary's own key: with no key
-  // column it is a hash of the code, and two rows can share one (the same code
-  // under two vocabulary versions, or a plain collision). A duplicate would make
-  // `sizes[i]` count a concept the page query — which fetches by `IN (ids)` —
-  // returns only once, so the run could never reach that dictionary's end.
-  return `SELECT DISTINCT ${idExpr} AS concept_id FROM ${source.dict.name} d`
+  // One row per id because the id is not always the dictionary's own key: with
+  // no key column it is a hash of the code, and two rows can share one (the same
+  // code under two vocabulary versions, or a plain collision). A duplicate would
+  // make `sizes[i]` count a concept the page query — which fetches by `IN (ids)`
+  // — returns only once, so the run could never reach that dictionary's end.
+  // A row with no id is no concept: read back as a number it became 0, which on
+  // OMOP is every unmapped record's id, so a phantom concept led the ranking and
+  // its missing page row made the run stop early, thinking itself done.
+  const where = `WHERE ${idExpr} IS NOT NULL`
+  if (!sort || sortNeedsCounts(sort)) {
+    return `SELECT DISTINCT ${idExpr} AS concept_id FROM ${source.dict.name} d ${where}`
+  }
+  // Same order as buildDictionaryPageQuery's, the id breaking ties.
+  const direction = sort.direction === 'desc' ? 'DESC' : 'ASC'
+  const column = sort.key === 'name'
+    ? 'd.concept_name'
+    : sort.key === 'code' && source.dictionary.hasCode ? 'd.concept_code' : null
+  const order = column ? `MIN(${column}) ${direction}, 1 ASC` : `1 ${direction}`
+  return `SELECT ${idExpr} AS concept_id FROM ${source.dict.name} d ${where} GROUP BY 1 ORDER BY ${order}`
+}
+
+/**
+ * Each concept's counts in its home table — the event table holding most of
+ * its records — and which table that is, as an index into `source.events`.
+ *
+ * `perTable` is one counting pass per event table, in `events` order. The home
+ * table is where the concept is profiled, so its counts there are the ones the
+ * CSV records; taking them for the ranking too keeps the order and the written
+ * counts consistent. Adding tables up would also count a patient once per table.
+ * A tie goes to the richer table, which comes first.
+ */
+export function mergeTableCounts(perTable: ConceptCounts[][]): {
+  counts: ConceptCounts[]
+  homes: Map<number, number>
+} {
+  const best = new Map<number, { row: ConceptCounts; table: number }>()
+  perTable.forEach((rows, table) => {
+    for (const row of rows) {
+      const id = Number(row.concept_id)
+      const current = best.get(id)
+      if (!current || Number(row.record_count ?? 0) > Number(current.row.record_count ?? 0)) {
+        best.set(id, { row, table })
+      }
+    }
+  })
+  const counts: ConceptCounts[] = []
+  const homes = new Map<number, number>()
+  for (const [id, { row, table }] of best) {
+    counts.push(row)
+    homes.set(id, table)
+  }
+  return { counts, homes }
+}
+
+/**
+ * The concept ids a run walks, in order.
+ *
+ * A volume sort ranks the dictionary on the counts; any other sort keeps the
+ * order `dictionaryIds` came back in (see buildDictionaryIdsQuery).
+ * `onlyWithRecords` then drops every concept the event table never mentions —
+ * on an OMOP warehouse whose dictionary is the whole vocabulary, nearly all of
+ * them — so the run ends after the last concept that has data.
+ */
+export function planConceptWalk(
+  counts: ConceptCounts[],
+  sort: ExtractionSort,
+  dictionaryIds: number[],
+  onlyWithRecords: boolean,
+): number[] {
+  const ordered = sortNeedsCounts(sort) ? rankConceptIds(counts, sort, dictionaryIds) : dictionaryIds
+  if (!onlyWithRecords) return ordered
+  const withRecords = new Set(
+    counts.filter((row) => Number(row.record_count ?? 0) > 0).map((row) => Number(row.concept_id)),
+  )
+  return ordered.filter((id) => withRecords.has(id))
 }
 
 /** One concept's counts, as the counting pass returns them. */
@@ -263,8 +342,8 @@ export function rankConceptIds(
  * swap between pages — one extracted twice, another never.
  *
  * The id expression falls back to a hash of the code when the dictionary has no
- * key column, the same expression `buildConceptUnionParts` uses, so a concept
- * keeps one id across the source view and the extraction.
+ * key column, the same expression `sourceConceptKeyExprs` (mapping-queries) uses,
+ * so a concept keeps one id across the generated ETL and the extraction.
  *
  * `orderedIds` carries a ranking computed elsewhere (the volume sorts); the page
  * is then the slice of that list, fetched by id.
@@ -383,6 +462,8 @@ export async function extractBatch(
   // the one that needs no ranking and is guaranteed total.
   sort: ExtractionSort = KEY_ORDER,
   orderedIds?: number[],
+  /** Concept id → index into `source.events` of the table to profile it in. */
+  homes?: Map<number, number>,
 ): Promise<BatchResult> {
   const sql = buildDictionaryPageQuery(source, batchSize, offset, sort, orderedIds)
   // An empty ranking slice means the ranked list is exhausted — there is no
@@ -406,9 +487,10 @@ export async function extractBatch(
     const conceptId = Number(concept.concept_id)
     const conceptName = concept.concept_name == null ? '' : String(concept.concept_name)
 
+    const home = source.events[homes?.get(conceptId) ?? 0] ?? source.event
     const profile = metadata
       ? await buildConceptProfile(
-        mapping, source,
+        mapping, home === source.event ? source : { ...source, event: home },
         { conceptId, conceptName, category: concept.category ?? undefined },
         options, query,
       )

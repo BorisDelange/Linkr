@@ -8,7 +8,10 @@ import {
   type ColumnDef,
   type VisibilityState,
 } from '@tanstack/react-table'
-import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, EyeOff, Info, Sparkles, Upload, Trash2 } from 'lucide-react'
+import { Search, Plus, Check, ArrowLeft, Loader2, ChevronLeft, ChevronRight, ChevronDown, Settings2, SlidersHorizontal, MessageSquare, EyeOff, Info, Sparkles, Upload, Trash2, BookOpen } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { EmptyState } from '@/components/ui/empty-state'
+import { paths } from '@/lib/paths'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
@@ -83,13 +86,12 @@ import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { useRequireIdentity } from './IdentityRequiredDialog'
-import type { MappingProject, DataSource, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
+import type { MappingProject, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import { resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
 
 interface TargetConceptPanelProps {
   project: MappingProject
-  dataSource?: DataSource
   sourceConcept: SourceConceptRow | null
   /** Set of source concept IDs marked as ignored (derived from mappings). */
   ignoredConceptIds: Set<number>
@@ -293,7 +295,8 @@ function MapWithCommentDialog({
   )
 }
 
-export function TargetConceptPanel({ project, dataSource, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
+export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
+  const navigate = useNavigate()
   const { t, i18n } = useTranslation()
   const lang = i18n.language
   // Per-field selectors, not the whole store: subscribing to the object re-rendered
@@ -423,9 +426,9 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
 
   // Active vocabulary data source + concept table name (shared for detail sheet)
   const vocabTarget = useMemo(
-    () => resolveVocabularyTarget(project, dataSource, allDataSources),
+    () => resolveVocabularyTarget(project, allDataSources),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only the project's vocabulary fields matter
-    [project.workspaceId, project.vocabularyDataSourceId, allDataSources, dataSource],
+    [project.workspaceId, project.vocabularyDataSourceId, allDataSources],
   )
   const vocabDsInfo = useMemo(
     () => ({ dsId: vocabTarget?.dsId, conceptTable: vocabTarget?.conceptTable ?? 'concept' }),
@@ -2163,22 +2166,22 @@ export function TargetConceptPanel({ project, dataSource, sourceConcept, ignored
       {/* Results table */}
       <div className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         {searchResults.length === 0 ? (
-          <div className="flex h-40 flex-col items-center justify-center gap-2 px-4">
+          <div className="flex min-h-40 flex-col items-center justify-center gap-2 px-4">
             {searching ? (
               <p className="text-xs text-muted-foreground">{t('common.loading')}</p>
             ) : noVocabAvailable ? (
-              <>
-                <p className="text-center text-xs text-muted-foreground">{t('concept_mapping.no_vocab_for_search_hint')}</p>
-                {onGoToConceptSets && (
-                  <button
-                    type="button"
-                    onClick={onGoToConceptSets}
-                    className="text-xs text-primary underline-offset-2 hover:underline"
-                  >
-                    {t('concept_mapping.go_to_concept_sets')}
-                  </button>
+              // Same words as the OHDSI Vocabularies tab: the fix is the same place.
+              <EmptyState
+                icon={BookOpen}
+                title={t('concept_mapping.vocab_library_empty_title')}
+                description={t('concept_mapping.vocab_library_empty_hint')}
+                action={(
+                  <Button size="sm" variant="outline" onClick={() => navigate(paths.workspaceSettings(project.workspaceId, 'vocabularies'))}>
+                    <Settings2 size={14} />
+                    {t('concept_mapping.vocab_library_manage')}
+                  </Button>
                 )}
-              </>
+              />
             ) : (
               <p className="text-xs text-muted-foreground">{t('concept_mapping.search_hint')}</p>
             )}

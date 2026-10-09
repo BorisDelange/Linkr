@@ -7,23 +7,19 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import { queryDataSource, isFileSourceMounted, fileSourceDataSourceId, mountFileSourceIntoDuckDB } from '@/lib/duckdb/engine'
 import {
-  buildSourceConceptsCountQuery,
   buildFileSourceConceptsCountQuery,
-  buildSourceConceptsGroupCountQuery,
   buildFileSourceConceptsGroupCountQuery,
   type BreakdownDimension,
 } from '@/lib/concept-mapping/mapping-queries'
-import { effectiveMappingStatus, readsFromFlatSource, sourceKey } from '@/lib/concept-mapping/mapping-status'
+import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { STATUS_COLORS, UNMAPPED_COLOR, STATUS_FALLBACK_COLOR } from '@/lib/concept-mapping/status-colors'
 import { StatusBar, type StatusSegment } from './components/StatusBar'
-import type { MappingProject, MappingStatus, EffectiveMappingStatus, DataSource } from '@/types'
+import type { MappingProject, MappingStatus, EffectiveMappingStatus } from '@/types'
 
 interface ProgressTabProps {
   project: MappingProject
-  dataSource?: DataSource
 }
 
 /**
@@ -48,14 +44,9 @@ const BREAKDOWN_PREVIEW_ROWS = 5
 /** Work sessions listed under recent activity. */
 const RECENT_SESSIONS = 5
 
-export function ProgressTab({ project, dataSource }: ProgressTabProps) {
+export function ProgressTab({ project }: ProgressTabProps) {
   const { t } = useTranslation()
   const { mappings } = useConceptMappingStore()
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-
-  // "Read from the flat table", not "was imported from a file": an extracted
-  // database project has one too, and is read exactly the same way.
-  const isFileSource = readsFromFlatSource(project)
 
   // Breakdown card state. `breakdownDim` is the urgent value (tab highlight, painted
   // instantly); `deferredDim` drives the potentially heavy row recompute/render and is
@@ -79,7 +70,7 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
     return () => clearTimeout(id)
   }, [breakdownSearch])
 
-  // Total source concept count from the database or file
+  // Total source concept count, from the flat source (imported or extracted)
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
   // Per-group source-concept totals (full source, mapped + unmapped), keyed by group name.
   const [groupTotals, setGroupTotals] = useState<Record<BreakdownDimension, Map<string, number> | null>>({
@@ -102,44 +93,27 @@ export function ProgressTab({ project, dataSource }: ProgressTabProps) {
       return m
     }
     try {
-      if (isFileSource) {
-        if (!project.fileSourceData) return
-        if (!isFileSourceMounted(project.id)) {
-          await mountFileSourceIntoDuckDB(project.id, project.fileSourceData.rows, project.fileSourceData.columnMapping, project.fileSourceData.rawFileBuffer)
-        }
-        const dsId = fileSourceDataSourceId(project.id)
-        const [row] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery({}))
-
-        const cm = project.fileSourceData.columnMapping
-        const present = { vocabulary: !!cm.terminologyColumn, category: !!cm.categoryColumn }
-        const next: Record<BreakdownDimension, Map<string, number>> = { vocabulary_id: new Map(), category: new Map() }
-        for (const dim of ['vocabulary_id', 'category'] as BreakdownDimension[]) {
-          const sql = buildFileSourceConceptsGroupCountQuery(dim, present)
-          next[dim] = sql ? toGroupMap(await queryDataSource(dsId, sql)) : new Map()
-        }
-        if (gen !== loadGen.current) return
-        setTotalSourceConcepts(Number(row?.total ?? 0))
-        setGroupTotals(next)
-      } else {
-        if (!dataSource?.id || !dataSource.schemaMapping) return
-        await ensureMounted(dataSource.id)
-        const totalSql = buildSourceConceptsCountQuery(dataSource.schemaMapping, {})
-        if (!totalSql) return
-        const [row] = await queryDataSource(dataSource.id, totalSql)
-
-        const next: Record<BreakdownDimension, Map<string, number>> = { vocabulary_id: new Map(), category: new Map() }
-        for (const dim of ['vocabulary_id', 'category'] as BreakdownDimension[]) {
-          const sql = buildSourceConceptsGroupCountQuery(dataSource.schemaMapping, dim)
-          next[dim] = sql ? toGroupMap(await queryDataSource(dataSource.id, sql)) : new Map()
-        }
-        if (gen !== loadGen.current) return
-        setTotalSourceConcepts(Number(row?.total ?? 0))
-        setGroupTotals(next)
+      if (!project.fileSourceData) return
+      if (!isFileSourceMounted(project.id)) {
+        await mountFileSourceIntoDuckDB(project.id, project.fileSourceData.rows, project.fileSourceData.columnMapping, project.fileSourceData.rawFileBuffer)
       }
+      const dsId = fileSourceDataSourceId(project.id)
+      const [row] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery({}))
+
+      const cm = project.fileSourceData.columnMapping
+      const present = { vocabulary: !!cm.terminologyColumn, category: !!cm.categoryColumn }
+      const next: Record<BreakdownDimension, Map<string, number>> = { vocabulary_id: new Map(), category: new Map() }
+      for (const dim of ['vocabulary_id', 'category'] as BreakdownDimension[]) {
+        const sql = buildFileSourceConceptsGroupCountQuery(dim, present)
+        next[dim] = sql ? toGroupMap(await queryDataSource(dsId, sql)) : new Map()
+      }
+      if (gen !== loadGen.current) return
+      setTotalSourceConcepts(Number(row?.total ?? 0))
+      setGroupTotals(next)
     } catch {
       // silently fail
     }
-  }, [isFileSource, project.id, project.fileSourceData, dataSource?.id, dataSource?.schemaMapping, ensureMounted, t])
+  }, [project.id, project.fileSourceData, t])
 
   useEffect(() => { void loadStats() }, [loadStats])
   // Refresh on modal open so totals reflect any mappings changed since last load.

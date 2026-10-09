@@ -1,6 +1,5 @@
 import type { ConceptMapping, ConceptSet, MappingProject, FileColumnMapping, SourceConceptIdEntry } from '@/types'
 import { ENTITY_MANIFEST } from '@linkr/format'
-import { readsFromFlatSource } from './mapping-status'
 import { localized } from '@/lib/localized'
 import { stripInstanceFields, attachEntityOrganization, licenseMeta, orderProvenance, versionStamp, writeReadmeFiles, writeLicenseFile, writeAttachmentFiles } from '@/lib/entity-io'
 import { mappingKey } from '@/lib/concept-mapping/merge'
@@ -145,25 +144,6 @@ export function restoreFileSourceDataFromCsv(project: MappingProject, csvText: s
   const extras = csvColumns.filter(c => !mappedCols.has(c))
   if (extras.length > 0) mapping.extraColumns = extras as unknown as string | undefined
   project.fileSourceData.columnMapping = mapping as FileColumnMapping
-}
-
-/** Preferred column order for source concept CSV exports. */
-const SOURCE_CONCEPT_PREFERRED_COLUMNS = ['vocabulary_id', 'terminology_name', 'category', 'subcategory', 'concept_id', 'concept_code', 'concept_name']
-
-/**
- * Build a CSV string from DuckDB rows with preferred column ordering.
- * Preferred columns appear first, then remaining columns in original order.
- */
-export function buildSourceConceptsCsvFromRows(rows: Record<string, unknown>[]): string {
-  if (rows.length === 0) return ''
-  const rawColumns = Object.keys(rows[0])
-  const columns = [
-    ...SOURCE_CONCEPT_PREFERRED_COLUMNS.filter((c) => rawColumns.includes(c)),
-    ...rawColumns.filter((c) => !SOURCE_CONCEPT_PREFERRED_COLUMNS.includes(c)),
-  ]
-  const header = columns.map((c) => csvEscape(c)).join(',')
-  const lines = rows.map((row) => columns.map((c) => csvEscape(row[c] as string | number | null | undefined)).join(','))
-  return [header, ...lines].join('\n')
 }
 
 function tsvEscape(value: string | number | undefined | null): string {
@@ -675,15 +655,6 @@ import type JSZip from 'jszip'
 import type { Storage } from '@/lib/storage'
 
 interface BuildMappingProjectFolderOptions {
-  /** DuckDB query function — needed for DB-based source concepts export.
-   *  Pass a paging query (queryDataSourceAll): in server mode a single response
-   *  is capped at MAX_QUERY_ROWS (~10k), which would silently truncate a large
-   *  source concept set. */
-  queryDataSource?: (dsId: string, sql: string) => Promise<Record<string, unknown>[]>
-  /** Ensure data source is mounted before querying. */
-  ensureMounted?: (dsId: string) => Promise<void>
-  /** Data sources list — needed to resolve the source DB schema. */
-  dataSources?: import('@/types').DataSource[]
   /**
    * Skip adding source-concepts.csv to the ZIP.
    * Use when the caller will download it separately (e.g. large file-based sources).
@@ -847,10 +818,9 @@ export async function buildMappingProjectFolder(
   // were dropped from the project ZIP to keep it lean. Use the dedicated buttons in
   // the Export tab when the user actually wants those formatted files.
 
-  // Source concepts. Keyed on having a flat source rather than on sourceType: a
-  // database project whose Source concepts tab has run carries the same CSV, and
-  // it must travel or the re-imported project has no concepts at all.
-  if (!options.skipSourceConcepts && readsFromFlatSource(project) && project.fileSourceData) {
+  // Source concepts: the flat table only — an imported file, or a database
+  // project's extraction. A database project not extracted has none to carry.
+  if (!options.skipSourceConcepts && project.fileSourceData) {
     if (project.fileSourceData.rawFileBuffer && project.fileSourceData.rawFileBuffer.byteLength > 0) {
       const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
         ? project.fileSourceData.rawFileBuffer
@@ -882,24 +852,6 @@ export async function buildMappingProjectFolder(
       } catch (err) {
         if (err instanceof SourceConceptsUnreadableError) throw err
         // Source file fetch failed — continue without it
-      }
-    }
-  }
-  if (!options.skipSourceConcepts && project.sourceType !== 'file' && project.dataSourceId && options.queryDataSource) {
-    const ds = options.dataSources?.find(d => d.id === project.dataSourceId)
-    if (ds?.schemaMapping) {
-      try {
-        if (options.ensureMounted) await options.ensureMounted(ds.id)
-        const { buildSourceConceptsAllQuery } = await import('@/lib/concept-mapping/mapping-queries')
-        const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
-        if (sql) {
-          const rows = await options.queryDataSource(ds.id, sql)
-          if (rows.length > 0) {
-            zip.file(`${prefix}source-concepts.csv`, options.unmasked ? buildSourceConceptsCsvFromRows(rows) : maskSourceConceptsCsv(buildSourceConceptsCsvFromRows(rows)))
-          }
-        }
-      } catch {
-        // Source concepts export failed — continue without it
       }
     }
   }

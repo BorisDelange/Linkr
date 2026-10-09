@@ -326,6 +326,13 @@ export interface SourceExtraction {
    * read as the key order they used.
    */
   sort?: import('@/lib/concept-mapping/source-extraction').ExtractionSort
+  /**
+   * Whether the run walks only the concepts the event tables have records for.
+   * Persisted for the same reason as `sort`: a resume is an offset into the
+   * list it filters. Absent on runs started before it existed, which walked
+   * the whole dictionary.
+   */
+  onlyWithRecords?: boolean
   /** ISO 8601, when the last batch finished. */
   updatedAt: string
   /** Set when the last batch failed, so the UI can say why it stopped. */

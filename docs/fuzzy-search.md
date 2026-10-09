@@ -27,7 +27,7 @@ Per-token JW (matching individual words against individual words) produced bad f
 
 ## Where It's Used
 
-- Source-concept search bar in `MappingEditorTab` → `buildSourceConceptsQuery`, `buildFileSourceConceptsQuery`
+- Source-concept search bar in `MappingEditorTab` → `buildFileSourceConceptsQuery`
 - OHDSI target/browse search → `buildStandardConceptSearchQuery`, `buildStandardConceptSearchCountQuery`
 
 If you add a new fuzzy search anywhere in the app, route it through this helper so the UX stays consistent.

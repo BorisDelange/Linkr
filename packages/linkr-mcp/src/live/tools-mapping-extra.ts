@@ -9,7 +9,6 @@ import type {
   ConceptMapping, MappingEquivalence, MappingProject, MappingProjectStatus, ProjectBadge, SourceConceptIdEntry,
   SourceConceptIdRange, User,
 } from '@/types'
-import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import { isMappingLocked, readsFromFlatSource } from '@/lib/concept-mapping/mapping-status'
 import { sourceConceptPairKey } from '@/lib/concept-mapping/source-concept-ids-io'
 import { clampNextId } from '@/features/warehouse/concept-mapping/source-id-range'
@@ -17,7 +16,7 @@ import { setLocalized } from '@/lib/localized'
 import { userDisplayName, userToAuthorDetails } from '@/lib/user-identity'
 import type { DataSource } from './api.js'
 import { pointerRows } from './helpers.js'
-import { MAX_WRITE, refreshStats } from './tools-mapping.js'
+import { MAX_WRITE, NOT_EXTRACTED_ERROR, refreshStats } from './tools-mapping.js'
 import { entityIdError } from './workspace.js'
 import { EQUIVALENCES } from './mapping.js'
 import {
@@ -103,17 +102,7 @@ async function sourcePairs(project: MappingProject): Promise<[string, string][] 
     )
     return pairs
   }
-  if (!project.dataSourceId) throw new Error('no source database')
-  const ds = await api.getDataSource(project.dataSourceId)
-  const inner = ds.schemaMapping ? buildSourceConceptsAllQuery(ds.schemaMapping, {}) : ''
-  if (!inner) throw new Error('its database has no concept dictionary')
-  await pages(
-    (limit, offset) => api.query(ds.id,
-      `SELECT DISTINCT CAST(concept_code AS VARCHAR) AS code, CAST(concept_id AS VARCHAR) AS cid, `
-      + `CAST(vocabulary_id AS VARCHAR) AS vocab FROM (${inner}) AS s ORDER BY 1, 2, 3 LIMIT ${limit} OFFSET ${offset}`),
-    (r) => pairs.push([String(r.vocab ?? ds.id), String(r.code || r.cid || '')]),
-  )
-  return pairs
+  throw new Error(NOT_EXTRACTED_ERROR)
 }
 
 const statusSchema = { type: 'string', enum: PROJECT_STATUSES, description: 'in_progress (default), on_hold or completed.' }

@@ -19,10 +19,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { getStorage } from '@/lib/storage'
 import { localized } from '@/lib/localized'
-import { useDataSourceStore } from '@/stores/data-source-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { queryDataSourceAll, mountFileSourceIntoDuckDB, fileSourceDataSourceId } from '@/lib/duckdb/engine'
-import { buildSourceConceptsAllQuery } from '@/lib/concept-mapping/mapping-queries'
 import {
   OMOP_CUSTOM_MAX,
   OMOP_CUSTOM_MIN,
@@ -82,8 +80,6 @@ const rangeCache = new Map<string, RangeRow[]>()
 export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
   const { t, i18n } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-  const dataSources = useDataSourceStore((s) => s.dataSources)
 
   const [ranges, setRanges] = useState<RangeRow[]>(() => rangeCache.get(workspaceId) ?? [])
   // No spinner when we already have cached rows — refresh happens in the background.
@@ -285,25 +281,8 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
             }
           }
         } else {
-          // Database project: query all source concepts
-          const ds = dataSources.find((s) => s.id === proj.dataSourceId)
-          if (!ds?.schemaMapping) {
-            unreadable.push({ name: localized(proj.name, i18n.language), error: t('concept_mapping.source_id_assign_no_source') })
-            continue
-          }
-          try {
-            await ensureMounted(ds.id)
-            const sql = buildSourceConceptsAllQuery(ds.schemaMapping, {})
-            if (!sql) continue
-            const rows = await queryDataSourceAll(ds.id, sql)
-            for (const row of rows) {
-              const code = String(row.concept_code || row.concept_id || '')
-              const vocab = String(row.vocabulary_id ?? ds.id)
-              if (code) pairsToAssign.add(sourceConceptPairKey(vocab, code))
-            }
-          } catch (err) {
-            unreadable.push({ name: localized(proj.name, i18n.language), error: err instanceof Error ? err.message : String(err) })
-          }
+          // A database project is read from its extraction only.
+          unreadable.push({ name: localized(proj.name, i18n.language), error: t('concept_mapping.source_id_assign_not_extracted') })
         }
       }
 

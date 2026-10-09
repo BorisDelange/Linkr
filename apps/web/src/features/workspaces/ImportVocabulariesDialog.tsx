@@ -165,6 +165,9 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
             <button type="button" className="hover:text-foreground" onClick={() => setSelected(new Set(vocabularies.map((v) => v.vocabularyId)))}>
               {t('common.select_all')}
             </button>
+            <button type="button" className="hover:text-foreground" onClick={() => setSelected(new Set())}>
+              {t('common.deselect_all')}
+            </button>
             <button type="button" className="hover:text-foreground" onClick={() => setSelected(defaultSelection(vocabularies))}>
               {t('vocabulary_library.select_changed')}
             </button>

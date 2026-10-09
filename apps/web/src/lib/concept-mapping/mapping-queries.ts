@@ -2,7 +2,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
-import { conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { conceptRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
 /** A mapped dictionary with its relation. The mapping is still read for what
  *  makes a source concept's identity (id column present? table name as the
@@ -132,166 +132,10 @@ export interface SourceConceptSorting {
   desc: boolean
 }
 
-// ---------------------------------------------------------------------------
-// Source concepts (from the clinical database being mapped)
-// ---------------------------------------------------------------------------
-
-/**
- * Build a SQL query to load source concepts from a data source's concept table(s).
- * Does NOT include record/patient counts (those are computed once via buildAllConceptCountsQuery).
- *
- * Tables are referenced without schema prefix — the caller (queryDataSource)
- * sets the DuckDB search_path before executing.
- */
-export function buildSourceConceptsQuery(
-  mapping: SchemaMapping,
-  filters: SourceConceptFilters,
-  sorting: SourceConceptSorting | null,
-  limit: number,
-  offset: number,
-): string {
-  const unionParts = buildConceptUnionParts(dictSources(mapping))
-  if (unionParts.length === 0) return ''
-  const isSortingByCount = sorting?.columnId === 'record_count' || sorting?.columnId === 'patient_count'
-  const fuzzy = filters.searchTextFuzzy ? fuzzySearchClauses(filters.searchTextFuzzy) : null
-
-  const srcSql = unionParts.length === 1
-    ? `(${unionParts[0]})`
-    : `(${unionParts.join(' UNION ALL ')})`
-
-  // When sorting by counts, JOIN the counts sub-query so ORDER BY works in SQL
-  let sql: string
-  if (isSortingByCount) {
-    const countsSql = buildAllConceptCountsQuery(mapping)
-    if (countsSql) {
-      sql = `SELECT src.*, COALESCE(cnt.record_count, 0) AS record_count, COALESCE(cnt.patient_count, 0) AS patient_count FROM ${srcSql} AS src LEFT JOIN (${countsSql}) AS cnt ON src.concept_id = cnt.concept_id`
-    } else {
-      sql = `SELECT src.*, 0 AS record_count, 0 AS patient_count FROM ${srcSql} AS src`
-    }
-  } else {
-    sql = `SELECT * FROM ${srcSql} AS src`
-  }
-
-  sql += buildWhereClause(filters)
-
-  // Sorting precedence: explicit user sort > fuzzy relevance > default (concept_name).
-  // This lets the user override the fuzzy ranking by clicking a column header.
-  // Every branch ends on concept_id: see the note in buildFileSourceConceptsQuery
-  // — without a unique tiebreaker, LIMIT/OFFSET is not a stable window and rows
-  // reappear on the next page.
-  if (sorting) {
-    sql += ` ORDER BY ${sorting.columnId} ${sorting.desc ? 'DESC' : 'ASC'} NULLS LAST, concept_id ASC`
-  } else if (fuzzy) {
-    sql += ` ORDER BY ${fuzzy.rankExpr} ASC, concept_name ASC, concept_id ASC`
-  } else {
-    sql += ' ORDER BY concept_name ASC, concept_id ASC'
-  }
-
-  sql += ` LIMIT ${limit} OFFSET ${offset}`
-  return sql
-}
-
-/**
- * A database's concept dictionaries as one relation shaped like a flat
- * source's `source_concepts` view — concept_id, concept_name, concept_code,
- * vocabulary_id and the optional category / subcategory / extra columns, but no
- * counts and no info_json. Lets a caller run the file-source builders against a
- * database project that has not been extracted
- * (`WITH source_concepts AS (…) <builder SQL>`). Empty when the mapping has no
- * concept dictionary.
- */
-export function buildSourceConceptsRelation(mapping: SchemaMapping): string {
-  return buildConceptUnionParts(dictSources(mapping)).join(' UNION ALL ')
-}
-
-/**
- * Build a single query that computes record_count and patient_count for ALL
- * concepts in the data source in one pass (using GROUP BY). This should be
- * called once and cached — never on every page change.
- *
- * Returns rows: { concept_id, record_count, patient_count }
- */
-export function buildAllConceptCountsQuery(
-  mapping: SchemaMapping,
-): string {
-  // For each dictionary, a UNION ALL of its event records grouped by concept id,
-  // through the concept and the source-concept column alike.
-  const allParts: string[] = []
-  for (const { rel } of dictSources(mapping)) {
-    for (const event of eventRelations(mapping).filter((e) => e.dictionary === rel.name)) {
-      const idCols = has(event, 'source_concept_id') ? ['concept_id', 'source_concept_id'] : ['concept_id']
-      for (const col of idCols) {
-        allParts.push(
-          `SELECT evt.${col} AS concept_id, COUNT(*) AS record_count, COUNT(DISTINCT evt.patient_id) AS patient_count FROM ${event.name} evt WHERE evt.${col} IS NOT NULL GROUP BY evt.${col}`,
-        )
-      }
-    }
-  }
-
-  if (allParts.length === 0) return ''
-
-  // Aggregate across all event tables
-  return `SELECT concept_id, SUM(record_count) AS record_count, SUM(patient_count) AS patient_count FROM (${allParts.join(' UNION ALL ')}) GROUP BY concept_id`
-}
-
-/**
- * Build a SQL query to export ALL source concepts (no pagination).
- */
-export function buildSourceConceptsAllQuery(
-  mapping: SchemaMapping,
-  filters: SourceConceptFilters,
-): string {
-  const unionParts = buildConceptUnionParts(dictSources(mapping))
-  if (unionParts.length === 0) return ''
-
-  let sql = unionParts.length === 1
-    ? `SELECT * FROM (${unionParts[0]}) AS src`
-    : `SELECT * FROM (${unionParts.join(' UNION ALL ')}) AS src`
-
-  sql += buildWhereClause(filters)
-  sql += ' ORDER BY concept_name ASC'
-  return sql
-}
-
-/**
- * Count query for pagination.
- */
-export function buildSourceConceptsCountQuery(
-  mapping: SchemaMapping,
-  filters: SourceConceptFilters,
-): string {
-  const unionParts = buildConceptUnionParts(dictSources(mapping))
-  if (unionParts.length === 0) return ''
-
-  let sql = unionParts.length === 1
-    ? `SELECT COUNT(*) AS total FROM (${unionParts[0]}) AS src`
-    : `SELECT COUNT(*) AS total FROM (${unionParts.join(' UNION ALL ')}) AS src`
-
-  sql += buildWhereClause(filters)
-  return sql
-}
-
 /** Breakdown dimension for the progress-tab per-group totals. */
 export type BreakdownDimension = 'vocabulary_id' | 'category'
 
-/** Total source-concept count per group (vocabulary or category), covering the
- *  full source table (mapped AND unmapped concepts). Returns `''` when the source
- *  has no column backing the requested dimension (e.g. no category column). */
-export function buildSourceConceptsGroupCountQuery(
-  mapping: SchemaMapping,
-  dimension: BreakdownDimension,
-): string {
-  const sources = dictSources(mapping)
-  if (sources.length === 0) return ''
-  // vocabulary_id is always projected (falls back to the table name); category is
-  // only present when at least one dictionary maps a category column.
-  if (dimension === 'category' && !sources.some((d) => has(d.rel, 'category'))) return ''
-  const unionParts = buildConceptUnionParts(sources)
-  const inner = unionParts.length === 1 ? unionParts[0] : unionParts.join(' UNION ALL ')
-  return `SELECT ${dimension} AS group_key, COUNT(*) AS total FROM (${inner}) AS src GROUP BY ${dimension}`
-}
-
-/** File-source variant of buildSourceConceptsGroupCountQuery. The flat
+/** Total source-concept count per group (vocabulary or category). The flat
  *  `source_concepts` view only projects `vocabulary_id` / `category` columns when
  *  the import mapped the corresponding source column, so the caller must tell us
  *  which are present to avoid a Binder Error on a missing column. */
@@ -308,41 +152,6 @@ export function buildFileSourceConceptsGroupCountQuery(
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/** Build SELECT parts for concept dictionaries (no counts). */
-function buildConceptUnionParts(sources: DictSource[]): string[] {
-  // Optional columns must be emitted by EVERY branch (NULL when the dictionary
-  // lacks them) or the UNION ALL has heterogeneous column sets and DuckDB throws.
-  const hasTermName = sources.some((s) => has(s.rel, 'terminology_name'))
-  const hasCategory = sources.some((s) => has(s.rel, 'category'))
-  const hasSubcategory = sources.some((s) => has(s.rel, 'subcategory'))
-  const extraAliases = [...new Set(sources.flatMap((s) => Object.keys(s.rel.extras ?? {})))]
-  return sources.map((source) => {
-    const idValue = sourceIdExpr(source)
-    const optional = (alias: string, present: boolean) =>
-      present ? `, ${sourceColumn(source, alias) ? `d.${sourceColumn(source, alias)}` : 'NULL'} AS ${alias}` : ''
-    // Without a code column the id is the code, as the extraction writes it
-    // (buildDictionaryPageQuery): an empty code gave every concept of the table
-    // the same (vocabulary, code) key, so one mapping marked them all mapped.
-    const code = source.dict.hasCode ? 'd.concept_code' : `CAST(${idValue} AS VARCHAR)`
-    const extraCols = extraAliases.map((alias) => {
-      const col = source.rel.extras?.[alias]
-      return `, ${col ? `d."${col}"` : 'NULL'} AS ${alias}`
-    })
-
-    return `SELECT
-      ${idValue} AS concept_id,
-      d.concept_name AS concept_name,
-      ${code} AS concept_code,
-      ${sourceVocabExpr(source)} AS vocabulary_id
-      ${optional('terminology_name', hasTermName)}
-      ${optional('category', hasCategory)}
-      ${optional('subcategory', hasSubcategory)}
-      ${extraCols.join('')}
-    FROM ${source.rel.name} d`
-  })
-}
-
-/** Build WHERE clause from filters. */
 /** Build a `(vocabulary_id, concept_code) IN ((...),(...))` predicate from
  *  `vocab\0code` keys. DuckDB supports tuple IN. Returns null when empty.
  *
@@ -654,39 +463,4 @@ export function buildStandardConceptSearchCountQuery(
 export interface FilterOptionsVocabScope {
   column: 'vocabulary_id' | 'terminology_name'
   values: string[]
-}
-
-export function buildFilterOptionsQuery(
-  mapping: SchemaMapping,
-  columnAlias: string,
-  vocabScope?: FilterOptionsVocabScope,
-): string {
-  const scoped = vocabScope && vocabScope.values.length > 0 ? vocabScope : undefined
-
-  const unionParts = dictSources(mapping).map((source) => {
-    const col = sourceColumn(source, columnAlias)
-    // When no column exists for vocabulary_id, use the table name as a static value
-    if (!col) {
-      if (columnAlias === 'vocabulary_id') {
-        // Static vocabulary_id = table name: honour the scope by dropping tables
-        // whose implicit vocabulary isn't in the selected set.
-        if (scoped?.column === 'vocabulary_id' && !scoped.values.includes(source.dict.table)) return null
-        return `SELECT '${esc(source.dict.table)}' AS val`
-      }
-      return null
-    }
-
-    const where = [`${col} IS NOT NULL`]
-    if (scoped) {
-      const scopeCol = sourceColumn(source, scoped.column)
-      // No matching vocabulary column on this dictionary → it can't satisfy the
-      // scope, so exclude it entirely rather than returning unscoped values.
-      if (!scopeCol) return null
-      where.push(inListClause(scopeCol, scoped.values))
-    }
-    return `SELECT DISTINCT ${col} AS val FROM ${source.rel.name} WHERE ${where.join(' AND ')}`
-  }).filter(Boolean)
-
-  if (unionParts.length === 0) return ''
-  return `SELECT DISTINCT val FROM (${unionParts.join(' UNION ALL ')}) ORDER BY val`
 }

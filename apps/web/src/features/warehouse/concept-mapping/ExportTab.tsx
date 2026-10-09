@@ -15,8 +15,6 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { isServerMode } from '@/lib/api-client'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
-import { useDataSourceStore } from '@/stores/data-source-store'
-import { queryDataSource, queryDataSourceAll } from '@/lib/duckdb/engine'
 import {
   exportToUsagiCsv,
   exportToSourceToConceptMap,
@@ -51,12 +49,11 @@ import { localized } from '@/lib/localized'
 import { loadAllSourceConcepts, countAllSourceConcepts } from '@/lib/concept-mapping/source-concepts-loader'
 import { effectiveMappingStatus, sourceKey } from '@/lib/concept-mapping/mapping-status'
 import { getStorage } from '@/lib/storage'
-import type { MappingProject, EffectiveMappingStatus, DataSource } from '@/types'
+import type { MappingProject, EffectiveMappingStatus } from '@/types'
 import { foldAccents } from '@/lib/fold-accents'
 
 interface ExportTabProps {
   project: MappingProject
-  dataSource?: DataSource
 }
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
@@ -69,11 +66,9 @@ function outOfMemory(err: unknown): boolean {
   return err instanceof RangeError || (err instanceof Error && /memory|allocation/i.test(err.message))
 }
 
-export function ExportTab({ project, dataSource }: ExportTabProps) {
+export function ExportTab({ project }: ExportTabProps) {
   const { t } = useTranslation()
   const { mappings } = useConceptMappingStore()
-  const dataSources = useDataSourceStore((s) => s.dataSources)
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const [zipExporting, setZipExporting] = useState(false)
   // Id of the format currently generating (SSSOM/STCM/Usagi) — drives its button spinner.
   const [downloadingFormat, setDownloadingFormat] = useState<string | null>(null)
@@ -100,12 +95,9 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
   const [totalSourceConcepts, setTotalSourceConcepts] = useState<number | null>(null)
 
   useEffect(() => {
-    let cancelled = false
-    countAllSourceConcepts(project, dataSource, ensureMounted).then((total) => {
-      if (!cancelled && total !== null) setTotalSourceConcepts(total)
-    })
-    return () => { cancelled = true }
-  }, [project, dataSource, ensureMounted])
+    const total = countAllSourceConcepts(project)
+    if (total !== null) setTotalSourceConcepts(total)
+  }, [project])
 
   const toggleStatus = (status: EffectiveMappingStatus) => {
     setIncludedStatuses((prev) => {
@@ -189,7 +181,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     extraIsCsvWithHeader = false,
   ): Promise<string> => {
     if (!includeAllSourceConcepts) return mappedContent
-    const allSourceConcepts = await loadAllSourceConcepts(project, dataSource, ensureMounted)
+    const allSourceConcepts = await loadAllSourceConcepts(project)
     const excludeKeys = buildExcludeKeys()
     const extra = appendFn(allSourceConcepts, excludeKeys)
     if (!mappedContent) return extra
@@ -197,7 +189,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     // STCM extra has its own header line — strip it before appending.
     const extraBody = extraIsCsvWithHeader ? extra.split('\n').slice(1).join('\n') : extra
     return extraBody ? `${mappedContent}\n${extraBody}` : mappedContent
-  }, [includeAllSourceConcepts, project, dataSource, ensureMounted, buildExcludeKeys])
+  }, [includeAllSourceConcepts, project, buildExcludeKeys])
 
   const formats = [
     {
@@ -303,12 +295,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
         // Fall through to the client build if the server couldn't produce it.
       }
       const zip = new JSZip()
-      await buildMappingProjectFolder(zip, '', project, getStorage(), {
-        queryDataSource: queryDataSourceAll,
-        ensureMounted,
-        dataSources,
-        scores,
-      })
+      await buildMappingProjectFolder(zip, '', project, getStorage(), { scores })
       await attachEntityOrganization(zip, ENTITY_MANIFEST, project, getStorage())
       const blob = await zip.generateAsync({ type: 'blob' })
       downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
@@ -325,13 +312,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
       // it, then the source CSV on its own
       try {
         const zip = new JSZip()
-        await buildMappingProjectFolder(zip, '', project, getStorage(), {
-          queryDataSource,
-          ensureMounted,
-          dataSources,
-          scores,
-          skipSourceConcepts: true,
-        })
+        await buildMappingProjectFolder(zip, '', project, getStorage(), { scores, skipSourceConcepts: true })
         await attachEntityOrganization(zip, ENTITY_MANIFEST, project, getStorage())
         const blob = await zip.generateAsync({ type: 'blob' })
         downloadBlob(blob, `${slugify(localized(project.name, 'en'))}.zip`)
@@ -359,7 +340,7 @@ export function ExportTab({ project, dataSource }: ExportTabProps) {
     } finally {
       setZipExporting(false)
     }
-  }, [project, dataSources, ensureMounted, t])
+  }, [project, t])
 
   const versionedMethods = useMemo(() => new Set(project.versionedScoreMethods ?? []), [project.versionedScoreMethods])
 

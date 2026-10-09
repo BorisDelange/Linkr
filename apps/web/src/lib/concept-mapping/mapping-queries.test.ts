@@ -1,74 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
-import { buildFileSourceConceptsQuery, buildFilterOptionsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildSourceConceptsGroupCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery, buildSourceConceptsRelation } from './mapping-queries'
-
-const mapping_V1: SchemaMappingV1 = {
-  presetId: 'test',
-  presetLabel: { en: 'Test' },
-  eventTables: {},
-  conceptTables: [
-    {
-      key: 'd_items',
-      table: 'd_items',
-      nameColumn: 'label',
-      terminologyIdColumn: 'vocabulary_id',
-      terminologyNameColumn: 'terminology_name',
-      categoryColumn: 'category',
-      subcategoryColumn: 'subcategory',
-    },
-  ],
-}
-const mapping = mappingV1ToV2(mapping_V1)
-
-describe('buildFilterOptionsQuery — vocabulary scoping', () => {
-  it('returns unscoped DISTINCT when no scope is given', () => {
-    const sql = buildFilterOptionsQuery(mapping, 'category')
-    expect(sql).toContain('SELECT DISTINCT category AS val FROM linkr_concept_d_items')
-    expect(sql).not.toContain(' IN (')
-  })
-
-  it('scopes categories to the selected vocabulary via IN (...)', () => {
-    const sql = buildFilterOptionsQuery(mapping, 'category', {
-      column: 'vocabulary_id',
-      values: ['LOINC', 'SNOMED'],
-    })
-    expect(sql).toContain("terminology_id IN ('LOINC','SNOMED')")
-    expect(sql).toContain('category AS val')
-  })
-
-  it('scopes by terminology_name when that column drives the filter', () => {
-    const sql = buildFilterOptionsQuery(mapping, 'subcategory', {
-      column: 'terminology_name',
-      values: ['Lab tests'],
-    })
-    expect(sql).toContain("terminology_name IN ('Lab tests')")
-  })
-
-  it('treats an empty scope as no scope', () => {
-    const sql = buildFilterOptionsQuery(mapping, 'category', { column: 'vocabulary_id', values: [] })
-    expect(sql).not.toContain(' IN (')
-  })
-
-  it('escapes single quotes in scope values', () => {
-    const sql = buildFilterOptionsQuery(mapping, 'category', {
-      column: 'vocabulary_id',
-      values: ["O'Brien"],
-    })
-    expect(sql).toContain("'O''Brien'")
-  })
-
-  it('excludes a dictionary that has no column for the scoped vocabulary', () => {
-    const noVocab = mappingV1ToV2({
-      eventTables: [],
-      conceptTables: [
-        { key: 'plain', table: 'plain', nameColumn: 'label', categoryColumn: 'category' },
-      ],
-    } as never)
-    // Scoping by vocabulary_id, but the only dictionary has no vocab column → no rows.
-    const sql = buildFilterOptionsQuery(noVocab, 'category', { column: 'vocabulary_id', values: ['X'] })
-    expect(sql).toBe('')
-  })
-})
+import { buildFileSourceConceptsQuery, buildFileSourceFilterOptionsQuery, buildFileSourceConceptsCountQuery, buildFileSourceDuplicateCountQuery, buildFileSourceConceptsGroupCountQuery, buildStandardConceptSearchQuery } from './mapping-queries'
 
 describe('buildFileSourceFilterOptionsQuery — vocabulary scoping', () => {
   it('is unscoped by default', () => {
@@ -157,38 +89,6 @@ describe('buildFileSourceDuplicateCountQuery', () => {
     expect(sql).toContain('FROM source_concepts_raw')
     expect(sql).toContain('FROM source_concepts')
     expect(sql).toContain('AS removed')
-  })
-})
-
-describe('buildSourceConceptsGroupCountQuery — per-group totals over the DB source', () => {
-  it('groups totals by vocabulary_id', () => {
-    const sql = buildSourceConceptsGroupCountQuery(mapping, 'vocabulary_id')
-    expect(sql).toContain('vocabulary_id AS group_key')
-    expect(sql).toContain('COUNT(*) AS total')
-    expect(sql).toContain('GROUP BY vocabulary_id')
-  })
-
-  it('groups totals by category when a category column is mapped', () => {
-    const sql = buildSourceConceptsGroupCountQuery(mapping, 'category')
-    expect(sql).toContain('category AS group_key')
-    expect(sql).toContain('GROUP BY category')
-  })
-
-  it('returns empty string for category when no dictionary maps a category column', () => {
-    const noCategory = mappingV1ToV2({
-      eventTables: [],
-      conceptTables: [
-        { key: 'd', table: 'd', nameColumn: 'label', terminologyIdColumn: 'vocabulary_id' },
-      ],
-    } as never)
-    expect(buildSourceConceptsGroupCountQuery(noCategory, 'category')).toBe('')
-    // vocabulary_id is always projected, so it still produces a query.
-    expect(buildSourceConceptsGroupCountQuery(noCategory, 'vocabulary_id')).not.toBe('')
-  })
-
-  it('returns empty string when there are no concept tables', () => {
-    const empty = mappingV1ToV2({ eventTables: [], conceptTables: [] } as never)
-    expect(buildSourceConceptsGroupCountQuery(empty, 'vocabulary_id')).toBe('')
   })
 })
 
@@ -327,18 +227,5 @@ describe('buildFileSourceConceptsQuery — pagination is a stable window', () =>
 
   it('still applies the window after the tiebreaker', () => {
     expect(q({}, { columnId: 'record_count', desc: true })).toContain('LIMIT 50 OFFSET 50')
-  })
-})
-
-describe('buildSourceConceptsRelation', () => {
-  it('unions every dictionary with the source_concepts columns, and is empty without one', () => {
-    const two = mappingV1ToV2({ ...mapping_V1, conceptTables: [...mapping_V1.conceptTables!, { key: 'd_labitems', table: 'd_labitems', idColumn: 'itemid', nameColumn: 'label' }] } as never)
-    const sql = buildSourceConceptsRelation(two)
-    expect(sql.split('UNION ALL')).toHaveLength(2)
-    expect(sql).toContain('AS concept_name')
-    expect(sql).toContain('AS vocabulary_id')
-    // No code column (MIMIC d_items): the id stands in, as the extraction writes it.
-    expect(sql).toContain('CAST(d.concept_id AS VARCHAR) AS concept_code')
-    expect(buildSourceConceptsRelation(mappingV1ToV2({ eventTables: [], conceptTables: [] } as never))).toBe('')
   })
 })

@@ -7,11 +7,14 @@ import {
   EXTRACTION_COLUMNS,
   EXTRACTION_COLUMN_MAPPING,
   buildConceptCountsQuery,
+  buildDictionaryIdsQuery,
   buildDictionaryPageQuery,
   extractBatch,
   extractionColumnMapping,
   extractionCsvHeader,
   extractionCsvRows,
+  mergeTableCounts,
+  planConceptWalk,
   rankConceptIds,
   sortNeedsCounts,
   type ExtractedConcept,
@@ -317,8 +320,33 @@ describe('extraction ordering', () => {
       },
     } as never)
     const sql = buildConceptCountsQuery(source(withSource))
-    expect(sql).toContain('COALESCE(e.concept_id, e.source_concept_id)')
-    expect(sql).toContain('COUNT(DISTINCT e.patient_id)')
+    expect(sql).toContain('CASE WHEN e.source_concept_id IS DISTINCT FROM e.concept_id')
+    expect(sql).toContain('ELSE [e.concept_id]')
+    expect(sql).toContain('COUNT(DISTINCT patient_id)')
+  })
+
+  it('credits the source concept of an unmapped OMOP row', () => {
+    // An unmapped row has concept_id 0, not NULL: a coalesce kept 0 and left the
+    // source concept — the one a mapping project exists for — with no records,
+    // so a volume-ranked extraction reached it last.
+    const withSource = mappingV1ToV2({
+      ...OMOP_V1,
+      eventTables: {
+        Measurements: {
+          ...OMOP_V1.eventTables.Measurements,
+          sourceConceptIdColumn: 'measurement_source_concept_id',
+        },
+      },
+    } as never)
+    const sql = buildConceptCountsQuery(source(withSource))
+    expect(sql).not.toContain('COALESCE')
+    expect(sql).toContain('THEN [e.concept_id, e.source_concept_id]')
+  })
+
+  it('groups on the concept column alone when there is no source column', () => {
+    const sql = buildConceptCountsQuery(source())
+    expect(sql).toContain('SELECT e.concept_id AS concept_id, e.patient_id FROM')
+    expect(sql).not.toContain('UNNEST')
   })
 
   it('ranks by the chosen column, breaking ties on the id', () => {
@@ -346,6 +374,42 @@ describe('extraction ordering', () => {
     expect(rankConceptIds(counts, { key: 'records', direction: 'asc' }, all)).toEqual([1, 3, 2])
   })
 
+  it('keeps only the concepts with records when asked, in the walk order', () => {
+    // OMOP's dictionary is the whole vocabulary: walking it all extracts
+    // hundreds of thousands of concepts no record uses.
+    const counts = [
+      { concept_id: 2, record_count: 40, patient_count: 4 },
+      { concept_id: 3, record_count: 5, patient_count: 1 },
+      { concept_id: 9, record_count: 0, patient_count: 0 },
+      // Counted but absent from the dictionary (an unmapped OMOP row's 0): not walked.
+      { concept_id: 0, record_count: 99, patient_count: 9 },
+    ]
+    const dictionary = [1, 2, 3, 9]
+    const byVolume = { key: 'records', direction: 'desc' } as const
+    expect(planConceptWalk(counts, byVolume, dictionary, true)).toEqual([2, 3])
+    expect(planConceptWalk(counts, byVolume, dictionary, false)).toEqual([2, 3, 1, 9])
+    // A dictionary order is kept as the ids came back, filtered.
+    const byName = { key: 'name', direction: 'asc' } as const
+    expect(planConceptWalk(counts, byName, [9, 3, 1, 2], true)).toEqual([3, 2])
+  })
+
+  it('returns the dictionary ids in the page order for a dictionary sort', () => {
+    const byName = buildDictionaryIdsQuery(source(), { key: 'name', direction: 'desc' })
+    expect(byName).toContain('GROUP BY 1 ORDER BY MIN(d.concept_name) DESC, 1 ASC')
+    const byId = buildDictionaryIdsQuery(source(), { key: 'id', direction: 'asc' })
+    expect(byId).toContain('ORDER BY 1 ASC')
+    // A volume sort is ranked on the counts: the ids need no order.
+    expect(buildDictionaryIdsQuery(source(), { key: 'records', direction: 'desc' })).toContain('SELECT DISTINCT')
+  })
+
+  it('leaves out dictionary rows with no id', () => {
+    // Read back as a number, a NULL id became 0 — OMOP's id for every unmapped
+    // record — and walked as the busiest concept of all.
+    for (const sort of [undefined, { key: 'records', direction: 'desc' }, { key: 'name', direction: 'asc' }] as const) {
+      expect(buildDictionaryIdsQuery(source(), sort)).toContain('WHERE d.concept_id IS NOT NULL')
+    }
+  })
+
   it('fetches a ranked page in the ranking order, not the id order', () => {
     // An IN list does not preserve order, so the ranking would be lost exactly
     // where it matters: the first page would not hold the busiest concepts.
@@ -370,5 +434,64 @@ describe('extraction ordering', () => {
     // Two concepts sharing a name would otherwise swap between pages.
     const sql = buildDictionaryPageQuery(source(), 10, 0, { key: 'name', direction: 'asc' })
     expect(sql).toContain('ORDER BY d.concept_name ASC, d.concept_id ASC')
+  })
+})
+
+describe('a dictionary spread over several event tables', () => {
+  // OMOP's concept table is referenced by measurement AND drug_exposure (and
+  // more): a drug's records are not in measurement.
+  const twoTables = mappingV1ToV2({
+    ...OMOP_V1,
+    eventTables: {
+      ...OMOP_V1.eventTables,
+      Observations: {
+        table: 'observation',
+        conceptIdColumn: 'observation_concept_id',
+        patientIdColumn: 'person_id',
+      },
+    },
+  } as never)
+
+  it('keeps every event table, richest first', () => {
+    const s = source(twoTables)
+    expect(s.events).toHaveLength(2)
+    // measurement carries a numeric value, so it leads and stays the default.
+    expect(s.event).toBe(s.events[0])
+    expect(buildConceptCountsQuery(s, s.events[1])).toContain(s.events[1].name)
+  })
+
+  it("counts each concept in the table holding most of its records", () => {
+    const { counts, homes } = mergeTableCounts([
+      [{ concept_id: 1, record_count: 10, patient_count: 3 }, { concept_id: 2, record_count: 5, patient_count: 5 }],
+      [{ concept_id: 2, record_count: 50, patient_count: 7 }, { concept_id: 3, record_count: 4, patient_count: 2 }],
+    ])
+    expect(homes).toEqual(new Map([[1, 0], [2, 1], [3, 1]]))
+    // The home table's counts, never a sum: a patient present in both tables
+    // would otherwise be counted twice.
+    expect(counts.find((c) => c.concept_id === 2)).toEqual({ concept_id: 2, record_count: 50, patient_count: 7 })
+  })
+
+  it('a tie goes to the richer table', () => {
+    const { homes } = mergeTableCounts([
+      [{ concept_id: 1, record_count: 10, patient_count: 1 }],
+      [{ concept_id: 1, record_count: 10, patient_count: 1 }],
+    ])
+    expect(homes.get(1)).toBe(0)
+  })
+
+  it('profiles a concept in its home table', async () => {
+    const s = source(twoTables)
+    const { query, seen } = engine([
+      { match: 'LIMIT 10 OFFSET 0', rows: page(2) },
+      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 8, patients_count: 4 }] },
+    ])
+    await extractBatch(
+      twoTables, s, { ...DEFAULT_PROFILE_OPTIONS, minPatients: 0 }, 0, 10, 2, query,
+      undefined, undefined, undefined, undefined, new Map([[2, 1]]),
+    )
+    const profiles = seen.filter((sql) => sql.includes('COUNT(*) AS rows_count'))
+    expect(profiles[0]).toContain(s.events[0].name)
+    expect(profiles[1]).toContain(s.events[1].name)
+    expect(profiles[1]).not.toContain(s.events[0].name)
   })
 })

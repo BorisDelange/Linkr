@@ -233,7 +233,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   const { etlPipelines, updatePipeline, files, filesLoaded, activePipelineId, deleteFile } = useEtlStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects, loadProjectMappings, mappings, updateMapping } = useConceptMappingStore()
   const dataSources = useDataSourceStore((s) => s.dataSources)
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
 
   const pipeline = etlPipelines.find((p) => p.id === pipelineId)
 
@@ -452,14 +451,6 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     () => mappingProjects.find((p) => p.id === selectedProjectId),
     [mappingProjects, selectedProjectId],
   )
-  /** The clinical database a database-sourced project reads its dictionary from.
-   *  A file project has none — its concepts come from the imported file. */
-  const sourceDataSource = useMemo(
-    () => (selectedProject?.sourceType === 'database'
-      ? dataSources.find((ds) => ds.id === selectedProject.dataSourceId)
-      : undefined),
-    [dataSources, selectedProject?.sourceType, selectedProject?.dataSourceId],
-  )
 
   /**
    * The project's whole dictionary, loaded only when "include all source
@@ -473,12 +464,8 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       setTotalSourceConcepts(null)
       return
     }
-    let cancelled = false
-    countAllSourceConcepts(selectedProject, sourceDataSource, ensureMounted).then((total) => {
-      if (!cancelled) setTotalSourceConcepts(total)
-    })
-    return () => { cancelled = true }
-  }, [selectedProject, sourceDataSource, ensureMounted])
+    setTotalSourceConcepts(countAllSourceConcepts(selectedProject))
+  }, [selectedProject])
 
   useEffect(() => {
     if (!selectedProject || !includeAllSourceConcepts) {
@@ -486,11 +473,11 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       return
     }
     let cancelled = false
-    loadAllSourceConcepts(selectedProject, sourceDataSource, ensureMounted).then((rows) => {
+    loadAllSourceConcepts(selectedProject).then((rows) => {
       if (!cancelled) setAllSourceConcepts(rows)
     })
     return () => { cancelled = true }
-  }, [selectedProject, sourceDataSource, ensureMounted, includeAllSourceConcepts])
+  }, [selectedProject, includeAllSourceConcepts])
 
   /** "Include all" is on but the dictionary has yet to arrive: every artefact
    *  comparison below would judge a partial set, so they wait. */

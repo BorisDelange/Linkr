@@ -59,7 +59,6 @@ import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import type { SourceConceptFilters, SourceConceptSorting } from '@/lib/concept-mapping/mapping-queries'
 import { SUGGESTION_CATEGORIES, type SuggestionCategory } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
-import { has, type ClassRelation } from '@/lib/schema-classes/relations'
 import type { ConceptMapping } from '@/types'
 import type { ExternalMappingInfo } from '@/stores/concept-mapping-store'
 
@@ -83,7 +82,6 @@ interface SourceConceptTableProps {
   filters: SourceConceptFilters
   sorting: SourceConceptSorting | null
   filterOptions: Record<string, string[]>
-  conceptDicts: readonly ClassRelation[]
   mappingStatusMap: Map<number, string>
   /** Set of source concept IDs that are mapped in another project. */
   mappedElsewhereIds: Set<number>
@@ -111,8 +109,6 @@ interface SourceConceptTableProps {
   onOpenList: () => void
   /** Number of concepts currently in the copy list (shown as a badge). */
   listCount: number
-  /** True when source is a file import. */
-  isFileSource?: boolean
   /** True when file source has record count column mapped. */
   hasRecordCount?: boolean
   /** True when file source has patient count column mapped. */
@@ -161,7 +157,6 @@ export function SourceConceptTable({
   filters,
   sorting,
   filterOptions,
-  conceptDicts,
   mappingStatusMap,
   mappedElsewhereIds,
   projectMappings,
@@ -176,7 +171,6 @@ export function SourceConceptTable({
   onAddSelectionToList,
   onOpenList,
   listCount,
-  isFileSource,
   hasRecordCount,
   hasPatientCount,
   hasInfoJson,
@@ -306,28 +300,16 @@ export function SourceConceptTable({
 
   const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'mapped_elsewhere']
 
-  // Determine which optional columns are available based on the schema dicts
-  const hasCategory = conceptDicts.some((d) => has(d, 'category')) || (isFileSource && (filterOptions.category?.length ?? 0) > 0)
-  const hasSubcategory = conceptDicts.some((d) => has(d, 'subcategory')) || (isFileSource && (filterOptions.subcategory?.length ?? 0) > 0)
-  const hasExtraColumns = conceptDicts.some((d) => d.extras && Object.keys(d.extras).length > 0)
-  // For file sources, check if terminology/domain/class columns exist in data
-  const fileHasTerminology = isFileSource && filterOptions.terminology_name?.length > 0
-  const fileHasDomain = isFileSource && filterOptions.domain_id?.length > 0
-  const fileHasClass = isFileSource && filterOptions.concept_class_id?.length > 0
+  // Optional columns are shown when the source table has values for them
+  const hasCategory = (filterOptions.category?.length ?? 0) > 0
+  const hasSubcategory = (filterOptions.subcategory?.length ?? 0) > 0
+  const hasTerminology = (filterOptions.terminology_name?.length ?? 0) > 0
+  const hasDomain = (filterOptions.domain_id?.length ?? 0) > 0
+  const hasClass = (filterOptions.concept_class_id?.length ?? 0) > 0
 
   // Initial column visibility: hide extra OMOP columns by default
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(() => {
-    const hidden: VisibilityState = {
-      // Source concept ID is hidden by default — toggleable via the Columns menu.
-      concept_id: false,
-    }
-    if (hasExtraColumns) {
-      // domain_id and concept_class_id are hidden by default (available via toggle)
-      hidden['domain_id'] = false
-      hidden['concept_class_id'] = false
-    }
-    return hidden
-  })
+  // Source concept ID is hidden by default — toggleable via the Columns menu.
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({ concept_id: false })
 
   /** Render inline column filter for a given column. */
   const renderColumnFilter = (columnId: string) => {
@@ -609,7 +591,7 @@ export function SourceConceptTable({
     ]
 
     // Terminology/vocabulary column (first data column)
-    if (!isFileSource || fileHasTerminology) {
+    if (hasTerminology) {
       cols.push({
         id: 'terminology_name',
         header: () => t('concept_mapping.col_terminology'),
@@ -685,20 +667,16 @@ export function SourceConceptTable({
       minSize: 100,
     })
 
-    // Concept code column
-    if (isFileSource) {
-      cols.push({
-        id: 'concept_code',
-        header: () => t('concept_mapping.col_concept_code'),
-        accessorFn: (row) => row.concept_code,
-        cell: ({ row }) => <span className="font-mono">{row.original.concept_code ?? ''}</span>,
-        size: 100,
-        minSize: 60,
-      })
-    }
+    cols.push({
+      id: 'concept_code',
+      header: () => t('concept_mapping.col_concept_code'),
+      accessorFn: (row) => row.concept_code,
+      cell: ({ row }) => <span className="font-mono">{row.original.concept_code ?? ''}</span>,
+      size: 100,
+      minSize: 60,
+    })
 
-    // Count columns: always for database source, or when mapped in file source
-    if (!isFileSource || hasPatientCount) {
+    if (hasPatientCount) {
       cols.push({
         id: 'patient_count',
         header: () => t('concept_mapping.col_patients'),
@@ -710,7 +688,7 @@ export function SourceConceptTable({
         minSize: 50,
       })
     }
-    if (!isFileSource || hasRecordCount) {
+    if (hasRecordCount) {
       cols.push({
         id: 'record_count',
         header: () => t('concept_mapping.col_records'),
@@ -723,8 +701,7 @@ export function SourceConceptTable({
       })
     }
 
-    // Extra OMOP-specific columns (domain_id, concept_class_id) — hidden by default
-    if (hasExtraColumns || fileHasDomain) {
+    if (hasDomain) {
       cols.push({
         id: 'domain_id',
         header: () => t('concept_mapping.col_domain_id'),
@@ -734,7 +711,7 @@ export function SourceConceptTable({
         minSize: 60,
       })
     }
-    if (hasExtraColumns || fileHasClass) {
+    if (hasClass) {
       cols.push({
         id: 'concept_class_id',
         header: () => t('concept_mapping.col_concept_class'),
@@ -775,7 +752,7 @@ export function SourceConceptTable({
     }
 
     return cols
-  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, sourceConceptIdMap, isFileSourceWithoutConceptId, hasNativeOmopConceptId, hasCategory, hasSubcategory, hasExtraColumns, isFileSource, hasRecordCount, hasPatientCount, fileHasTerminology, fileHasDomain, fileHasClass, hasInfoJson, onShowDetail, onImportExternal, importingInfoIds])
+  }, [t, mappingStatusMap, mappedElsewhereIds, ignoredConceptIds, projectMappings, externalMappingsByKey, sourceConceptIdMap, isFileSourceWithoutConceptId, hasNativeOmopConceptId, hasCategory, hasSubcategory, hasRecordCount, hasPatientCount, hasTerminology, hasDomain, hasClass, hasInfoJson, onShowDetail, onImportExternal, importingInfoIds])
 
   // The mapping-status filter is now applied SQL-side by the parent. The rows
   // arriving here are already filtered, so we can hand them straight to TanStack.

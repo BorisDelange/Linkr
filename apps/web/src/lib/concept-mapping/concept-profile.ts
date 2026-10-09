@@ -130,19 +130,25 @@ export const DEFAULT_PROFILE_OPTIONS: ProfileOptions = {
 // ---------------------------------------------------------------------------
 
 /**
- * The one event table a concept's records live in, and the columns it exposes.
+ * A dictionary and the event tables its concepts' records live in.
  *
- * A dictionary can be referenced by several event tables (OMOP splits values
- * across measurement/observation, MIMIC across chartevents/labevents). Rather
- * than union them — which would mix incomparable value columns — the richest
- * one is picked: the table that actually carries a numeric value ranks above one
- * that carries only a code, since that is what a profile is mostly about.
+ * A dictionary can be referenced by several event tables (OMOP's concept table
+ * by measurement, drug_exposure, condition_occurrence…; MIMIC's d_items by
+ * chartevents and labevents). They are never unioned — that would mix
+ * incomparable value columns — so a concept is profiled in ONE of them: the
+ * extraction picks, per concept, the table holding most of its records
+ * (see `mergeTableCounts`) and profiles it there, through `event`.
  */
 export interface ProfileSource {
   label: string
   dictionary: ConceptIdentity
-  /** The event table's relation (`linkr_event_*`). */
+  /** The event table a profile reads (`linkr_event_*`). The richest of
+   *  `events` until the extraction points it at a concept's own table. */
   event: ClassRelation
+  /** Every event table referencing the dictionary, richest first: the table
+   *  carrying a numeric value ranks above one carrying only a code, since that
+   *  is what a profile is mostly about. */
+  events: ClassRelation[]
   /** The dictionary's relation (`linkr_concept_*`). */
   dict: ClassRelation
 }
@@ -161,10 +167,12 @@ export function resolveProfileSource(
   const dictionary = conceptIdentity(mapping, dictionaryKey)
   const dict = conceptRelation(mapping, dictionaryKey)
   if (!dictionary || !dict) return null
-  const candidates = eventRelations(mapping).filter((e) => e.dictionary === dict.name)
-  if (candidates.length === 0) return null
-  const best = candidates.reduce((a, b) => (sourceRichness(b) > sourceRichness(a) ? b : a))
-  return { label: best.key ?? '', dictionary, event: best, dict }
+  // A stable sort: among equally rich tables, the schema's own order decides.
+  const events = eventRelations(mapping)
+    .filter((e) => e.dictionary === dict.name)
+    .sort((a, b) => sourceRichness(b) - sourceRichness(a))
+  if (events.length === 0) return null
+  return { label: events[0].key ?? '', dictionary, event: events[0], events, dict }
 }
 
 /**
