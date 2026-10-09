@@ -2300,7 +2300,6 @@
     "file_desc_catalog_site": "A file of the published catalog page, deployed with GitLab/GitHub Pages.",
     "file_cat_site": "Published site",
     "title": "Versioning & export",
-    "description": "Version control and export your project.",
     "content_not_imported": "Content not imported",
     "content_not_imported_hint": "This git-linked element was imported as a pointer, but its content could not be reconstituted from the linked repository.",
     "content_not_imported_hint_clientonly": "This git-linked element was imported as a pointer only — its content wasn't downloaded.\nCloning from Git isn't available in client-only mode; run Linkr in server mode, or download the linked repository as a ZIP and import it here to load its content.",
@@ -2895,7 +2894,6 @@
   },
   "settings": {
     "title": "Settings",
-    "description": "Manage users and platform configuration.",
     "users": "Users",
     "users_title": "User management",
     "users_description": "Manage users and their roles.",
@@ -4383,7 +4381,6 @@
   },
   "app_versioning": {
     "title": "Versioning & export",
-    "description": "Version control for your workspace: wiki pages, configuration, and plugins.",
     "history_title": "History",
     "no_commits": "No commits yet.",
     "no_commits_description": "Changes to wiki pages, plugins, schema presets, and databases are automatically versioned.",

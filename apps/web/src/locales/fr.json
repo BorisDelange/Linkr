@@ -2300,7 +2300,6 @@
     "file_desc_catalog_site": "Un fichier de la page du catalogue publiée, déployée avec GitLab/GitHub Pages.",
     "file_cat_site": "Site publié",
     "title": "Versioning et export",
-    "description": "Contrôle de version et export de votre projet.",
     "content_not_imported": "Contenu non importé",
     "content_not_imported_hint": "Cet élément lié par Git a été importé sous forme de pointeur, mais son contenu n'a pas pu être reconstitué depuis le dépôt lié.",
     "content_not_imported_hint_clientonly": "Cet élément lié à Git a été importé comme pointeur uniquement — son contenu n'a pas été téléchargé.\nLe clonage Git n'est pas disponible en mode client seul ; lancez Linkr en mode serveur, ou téléchargez le dépôt lié en ZIP et importez-le ici pour charger son contenu.",
@@ -2895,7 +2894,6 @@
   },
   "settings": {
     "title": "Paramètres",
-    "description": "Gérez les utilisateurs et la configuration de la plateforme.",
     "users": "Utilisateurs",
     "users_title": "Gestion des utilisateurs",
     "users_description": "Gérez les utilisateurs et leurs rôles.",
@@ -4383,7 +4381,6 @@
   },
   "app_versioning": {
     "title": "Versioning et export",
-    "description": "Contrôle de version du workspace : pages wiki, configuration et plugins.",
     "history_title": "Historique",
     "no_commits": "Aucun commit.",
     "no_commits_description": "Les modifications des pages wiki, plugins, schémas et bases de données sont automatiquement versionnées.",

@@ -60,7 +60,6 @@ export function VersioningPage() {
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-6 pt-6 pb-2 text-center">
         <h1 className="text-2xl font-bold text-foreground">{t('versioning.title')}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{t('versioning.description')}</p>
       </div>
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">

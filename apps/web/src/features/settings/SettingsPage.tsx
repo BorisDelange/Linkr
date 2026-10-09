@@ -43,13 +43,13 @@ export function SettingsPage() {
   const available = TABS.filter((id) => serverMode || !serverOnly.includes(id))
   const activeTab = available.includes(requestedTab) ? requestedTab : 'general'
 
-  // Same shell as workspace / project settings: title on the left, tabs centered,
-  // each tab's content in its own scroll area. The access log is a large table
-  // and takes the full width, scrolling inside rather than the page.
+  // Tabs centered, each tab's content in its own scroll area. The access log is
+  // a large table: full width, scrolling inside rather than the page, and close
+  // to the bottom edge.
   const pane = (id: string, content: ReactNode) => (
     <TabsContent
       value={id}
-      className={cn('min-h-0 flex-1 pb-6', id === 'access-log' ? 'flex flex-col' : 'overflow-auto')}
+      className={cn('min-h-0 flex-1', id === 'access-log' ? 'flex flex-col pb-2' : 'overflow-auto pb-6')}
     >
       {id === 'access-log' ? content : <div className="mx-auto max-w-5xl">{content}</div>}
     </TabsContent>
@@ -60,19 +60,10 @@ export function SettingsPage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="shrink-0 px-6 pt-6 pb-2">
-        <h1 className="text-2xl font-bold text-foreground">
-          {t('settings.title')}
-        </h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('settings.description')}
-        </p>
-      </div>
-
       <Tabs
         value={activeTab}
         onValueChange={(v) => navigate(`/settings/${v}`, { replace: true })}
-        className="flex min-h-0 flex-1 flex-col px-6"
+        className="flex min-h-0 flex-1 flex-col px-6 pt-6"
       >
         {/* Two groups so the app's own database (General) is never confused
             with moving accounts in and out (Import / Export / Versioning). */}
