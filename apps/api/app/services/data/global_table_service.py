@@ -569,7 +569,7 @@ def distinct_filter_values(path: Path, mode: str) -> dict[str, list[str]]:
     return out
 
 
-# --- Source concepts per project (file source only) --------------------------
+# --- Source concepts per project (flat source only) --------------------------
 
 _SOURCE_CONCEPTS_SQL = (
     "SELECT concept_id, concept_name, concept_code, "
@@ -578,14 +578,17 @@ _SOURCE_CONCEPTS_SQL = (
 
 
 def load_file_source_concepts(project: dict) -> list[dict]:
-    """All source concepts of a file-source project, read server-side via DuckDB
-    (no WASM). Database-source projects return [] — the server has no
-    schemaMapping query builder, so only their mappings show (unmapped rows are
-    omitted, matching the pre-existing degraded behavior)."""
+    """All source concepts of a project read from a flat source, server-side via
+    DuckDB (no WASM): an imported file, or a database project whose Source
+    concepts tab has extracted its dictionary into the same CSV. Keyed on HAVING
+    that source, not on where it came from — the twin of ``readsFromFlatSource``
+    (mapping-status.ts), as in ``mapping_project_export``. A database project not
+    extracted yet returns [], so only its mappings show."""
     from app.services import blob_store  # local import: avoid cycle at module load
 
     sha = project.get("raw_file_sha")
-    if project.get("source_type") != "file" or not sha or not blob_store.exists(sha):
+    flat = project.get("source_type") == "file" or bool(project.get("file_source_data"))
+    if not flat or not sha or not blob_store.exists(sha):
         return []
     fsd = project.get("file_source_data") or {}
     column_mapping = fsd.get("columnMapping", {})

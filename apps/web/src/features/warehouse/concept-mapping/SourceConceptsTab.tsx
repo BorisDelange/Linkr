@@ -170,7 +170,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const [sort, setSort] = useState<ExtractionSort>(saved?.sort ?? DEFAULT_EXTRACTION_SORT)
   // On by default: a dictionary is often far larger than what the warehouse
   // uses (OMOP's is the whole vocabulary), and a concept no record names has
-  // nothing to map. A stored run that predates the option walked everything.
+  // nothing to map. It follows the metadata switch, since it costs the scan of
+  // the clinical tables that metadata off promises to skip. A stored run that
+  // predates the option walked everything.
   const [onlyWithRecords, setOnlyWithRecords] = useState(saved ? !!saved.onlyWithRecords : true)
 
   // Re-adopt the stored settings whenever a different run turns up: the state
@@ -379,9 +381,10 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       // and resuming against a stale total would stop short of the new rows.
       resumeFrom: restart
         ? null
-        : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes },
+        : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes, walked: saved?.walked },
       query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal }),
       queryAll: (sql, signal) => queryDataSourceAll(dataSource.id, sql, { signal }),
+      queryAggregate: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, allRows: true }),
       persist,
       persistError: async (message) => {
         if (!saved) return
@@ -488,7 +491,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           <SectionLabel as="h3">{t('concept_mapping.extract_title')}</SectionLabel>
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
-              <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
+              <button type="button" className="text-muted-foreground hover:text-foreground" aria-label={t('concept_mapping.extract_info_aria')}>
                 <Info size={12} />
               </button>
             </TooltipTrigger>
@@ -520,13 +523,16 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
               size="sm"
               checked={metadata}
               disabled={locked}
-              onCheckedChange={(on) => setOptions((o) => ({ ...o, metadata: on }))}
+              onCheckedChange={(on) => {
+                setOptions((o) => ({ ...o, metadata: on }))
+                setOnlyWithRecords(on)
+              }}
             />
             <span className="text-xs">{t('concept_mapping.extract_metadata')}</span>
           </label>
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
-              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label="Info">
+              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label={t('concept_mapping.extract_info_aria')}>
                 <Info size={12} />
               </button>
             </TooltipTrigger>
@@ -548,7 +554,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           </label>
           <Tooltip delayDuration={0}>
             <TooltipTrigger asChild>
-              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label="Info">
+              <button type="button" className="ml-1.5 text-muted-foreground hover:text-foreground" aria-label={t('concept_mapping.extract_info_aria')}>
                 <Info size={12} />
               </button>
             </TooltipTrigger>
@@ -904,6 +910,7 @@ function LabelWithHint({
   label: string
   hint: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex items-center gap-1.5">
       <Label htmlFor={htmlFor}>{label}</Label>
@@ -911,7 +918,7 @@ function LabelWithHint({
           whose tooltips need a beat so crossing the list does not flash them. */}
       <Tooltip delayDuration={0}>
         <TooltipTrigger asChild>
-          <button type="button" className="text-muted-foreground hover:text-foreground" aria-label="Info">
+          <button type="button" className="text-muted-foreground hover:text-foreground" aria-label={t('concept_mapping.extract_info_aria')}>
             <Info size={12} />
           </button>
         </TooltipTrigger>

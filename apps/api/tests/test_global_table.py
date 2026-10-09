@@ -124,3 +124,28 @@ def test_cached_path_or_raise_treats_bad_signature_as_miss():
 
     with pytest.raises(gts.CacheMissing):
         gts.cached_path_or_raise("ws1", "flat", "../escape")
+
+
+async def test_an_extracted_database_project_lists_its_unmapped_concepts():
+    """A database project whose Source concepts tab ran carries the same CSV as a
+    file project: the Global summary must list its concepts, mapped or not."""
+    from app.services import blob_store
+
+    csv = (
+        b"terminology,concept_code,concept_id,concept_name,category,record_count,patient_count,info_json\n"
+        b"V,C1,1,Heart rate,,10,3,\nV,C2,2,Sodium,,4,2,\n"
+    )
+    sha, _ = await blob_store.store_bytes(csv)
+    project = {
+        "id": "p1", "name": {"en": "Warehouse"}, "source_type": "database",
+        "raw_file_sha": sha, "raw_file_name": "source-concepts.csv",
+        "file_source_data": {"columnMapping": {
+            "terminologyColumn": "terminology", "conceptCodeColumn": "concept_code",
+            "conceptIdColumn": "concept_id", "conceptNameColumn": "concept_name",
+        }},
+    }
+    concepts = gts.load_file_source_concepts(project)
+    assert sorted(c["concept_code"] for c in concepts) == ["C1", "C2"]
+
+    # Not extracted yet: nothing to read, only its mappings show.
+    assert gts.load_file_source_concepts({**project, "file_source_data": None}) == []

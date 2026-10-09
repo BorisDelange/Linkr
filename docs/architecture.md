@@ -412,10 +412,17 @@ decisions: `docs/design/schema-classes-plan.md`.
   "concept id" is the code). Its relation looks the id up in the dictionary on
   (terminology, code) (`resolveConceptId`), so `concept_id` is the dictionary's
   id for every consumer — counts, cohorts, catalogs, DQ; the native-SQL
-  rewrite writes the same lookup on the source tables. The concept count
-  refuses to start when an event's id and its dictionary's are text vs number
-  (`buildConceptIdTypesSql`), and its resume signature hashes each unit with the
-  relations it reads, so a mapping edit restarts the run.
+  rewrite writes the same lookup on the source tables. A dictionary repeating
+  a (terminology, code) pair under several ids is reduced to the smallest id
+  before the join, so rows never multiply — but the larger ids of that pair
+  then match no event and show **zero counts**, silently: a duplicate pair in
+  a dictionary is a data issue to fix at the source, not something the counts
+  reveal. The concept count refuses to start when an event's id and its
+  dictionary's are text vs number and the text side holds an id that is not a
+  number (`findConceptIdTypeMismatches`: types read from one row first, the
+  full scan only for a pair whose types differ), and its resume signature
+  hashes each unit with the relations it reads, so a mapping edit restarts
+  the run.
 - **Concept identity untouched**: a dictionary with no id column still gets
   `hash(code) % 2147483647` in the concept-mapping builders, and a missing
   vocabulary still falls back to the table name — mapping projects store both.
@@ -564,6 +571,40 @@ one already holding an STCM export, or a `00_vocabulary.sql` that reads it, stay
 the bundled MIMIC-IV scripts join `source_to_concept_map`, and converting them is
 separate work. Export tabs offer the three OHDSI formats behind one picker
 (`lib/concept-mapping/export-formats.ts`), C/CR by default.
+
+### Source concepts of a database project: the extraction (as-built)
+
+A database mapping project is never read live: the mapping editor, Mappings,
+Progress, the Global summary (client and `global_table_service.py`), Source IDs,
+the export, ETL Vocabulary and MCP all read the flat source, and a project not
+extracted yet points to its *Source concepts* tab. That tab writes the
+dictionary into `source-concepts.csv` (the file-import columns,
+`EXTRACTION_COLUMNS`), after which `readsFromFlatSource` is true and the two
+kinds of project are read by one path.
+
+- **Runner** (`lib/concept-mapping/extraction-runner.ts`) — one run per project
+  in a module registry, so leaving the tab does not stop it; batches of 500 are
+  appended (server: `appendRawFileOnServer`), and `SourceExtraction` on the
+  project records the global offset, per-dictionary `sizes`, the options, the
+  sort, `onlyWithRecords` and, for a ranked walk, `walked` (a fingerprint of the
+  concepts already written in the dictionary in progress).
+- **Counting pass** (`buildConceptCountsQuery`, one GROUP BY per event table,
+  read in one `allRows` request) — run only for a volume sort, "only concepts
+  present in the data", or a dictionary spread over several event tables, and
+  never with metadata off unless "only concepts present" is on. A row counts
+  for every concept it names (`concept_id` and `source_concept_id`); concept 0
+  and NULL are never concepts; a code-only dictionary's counts and profile match
+  events on the same `hash(code)` as its ids (`eventConceptKey`). `mergeTableCounts` sums records across tables
+  and takes patients from the home table (most records), where the concept is
+  profiled.
+- **Walk order** — a volume sort is ranked client-side; a dictionary sort
+  (`id`/`code`/`name`) numbers the ids `row_number() … AS ord`, because server
+  mode pages through `queryDataSourceAll`'s `ORDER BY ALL`, which discards an
+  outer ORDER BY. `dictionaryWalkIds` restores the order.
+- **Resume** — dictionaries already written keep their sizes; the one in
+  progress continues only if its re-computed ranking starts with the concepts
+  `walked` records, otherwise the run restarts (the CSV can be replaced, not
+  truncated); a dictionary that ends short of its size is closed where it ended.
 
 ## Data / Caching Patterns
 
@@ -728,7 +769,7 @@ Every versionable entity carries its own documentation — workspace, project, m
 Linkr has no assistant of its own and configures no language model. Agents run in external clients (Claude Code, LibreChat) and act on the app through the `linkr` MCP server (`packages/linkr-mcp`, see `docs/design/ai-agents-plan.md`); the model, its keys and whether it is remote are the client's configuration, not Linkr's.
 
 - **Removed**: the in-app dashboard assistant, its model bench and saved conversations (migration `0d1f42d46e99`), then the workspace LLM providers, their proxy, the `llm-config` permission and `LINKR_ALLOW_REMOTE_LLM` (migration `bd2a370a8c3a`), which had no caller left.
-- **Concept mapping**: `tools-mapping.ts` reads a mapping project's flat source (`POST /mapping-projects/{id}/query`), searches the workspace vocabulary library with the app's own builders (`mapping-queries.ts`, `concept-detail-queries.ts`; `resolveVocabularyTarget`: the library, else a project's older vocabulary database, else its source database's first OMOP `concept` table), and writes either AI suggestions — `POST /mapping-projects/{id}/scores/append` merges `ai/<model>` rows into the project's scores parquet server-side (DuckDB, key `(vocabulary, code, concept_id, method)`, existing rows kept, file created when absent) — or mappings through `/concept-mappings/batch`, then refreshes the project's `stats` as the app does. Both writes notify (`entity_type` `mapping_project`); the front refresher reloads the open project's mappings and re-indexes its scores.
+- **Concept mapping**: `tools-mapping.ts` reads a mapping project's flat source (`POST /mapping-projects/{id}/query`), searches the workspace vocabulary library with the app's own builders (`mapping-queries.ts`, `concept-detail-queries.ts`; `resolveVocabularyTarget`: the library, else a project's older vocabulary database — never the source database; with neither, the search tools say to import a vocabulary; a database project is read from its extraction only, and until it has one the source-concept tools throw `NOT_EXTRACTED_ERROR`), and writes either AI suggestions — `POST /mapping-projects/{id}/scores/append` merges `ai/<model>` rows into the project's scores parquet server-side (DuckDB, key `(vocabulary, code, concept_id, method)`, existing rows kept, file created when absent) — or mappings through `/concept-mappings/batch`, then refreshes the project's `stats` as the app does. Both writes notify (`entity_type` `mapping_project`); the front refresher reloads the open project's mappings and re-indexes its scores.
 - **Cohort freeze & ATLAS import** (`tools-cohorts-extra.ts`): freezing a project cohort is server-side in server mode — the client (app store or MCP) builds the membership query with `buildCohortMembershipSql` and `POST /cohorts/{id}/materialize` runs it whole (Arrow, no 10k row cap) on the cohort's database and stores the materialization (`cohort_service.build_materialization`, mirror of the WASM path's `lib/cohort-materialization.ts`); `DELETE /cohorts/{id}/materialization` unfreezes. Event-level and database-owned cohorts are refused, as in the UI. Both notify with a `materialization` detail and are undoable. `import_atlas_cohort` runs the Import ATLAS dialog's converter (`cohorts/atlas/atlas-converter.ts`, pure) and returns its warnings — every ATLAS feature the tree does not carry — plus a check of the tree against the database's mapping.
 - **Derived databases**: `tools-derive.ts` runs the app's *Derive* flow. The request is the app's own (`lib/cohort-derive`: `derivationRequest` builds the membership SQL and provenance, `derivedDatabaseRow` the row of the new managed database, `lib/cohort-key` the cohort's export key), then, as `deriveIntoNewDatabase` does, `POST /data-sources` creates the target (deleted again if the derivation is refused) and `POST /data-sources/{id}/derive` queues the job. The tool returns the job id at once; `get_job_status` reads `GET /jobs/{id}` (owner only). A project cohort derives from the database it runs on, without `cohortId` (unrecorded on the cohort). For an external client the derive route notifies (`entity_type` `database`, `detail.part` `derivation`) when the job starts, ends and fails, from the job's own session; the front refresher re-reads the database list (`applyRemoteChange`).
 - **Skills**: the procedures agents follow live in `packages/linkr-mcp/skills/` in the open Agent Skills format, not in `.claude/` — any model in any client that loads skills uses them (LibreChat imports the zip from `npm run skill:pack`; `.claude/skills/concept-mapping` is a link for Claude Code). The concept-mapping skill is versioned for citation (`metadata.version` + `CHANGELOG.md`).

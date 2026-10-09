@@ -86,6 +86,16 @@ describe('getTotalSourceConcepts', () => {
     expect(getTotalSourceConcepts(midRun)).toBe(1622)
   })
 
+  it('reads a run in flight from its file, not from a stat an older version wrote', () => {
+    const midRun = {
+      sourceType: 'database',
+      fileSourceData: { totalRowCount: 900, rows: [] },
+      sourceExtraction: { extracted: 900, total: 5636 },
+      stats: { totalSourceConcepts: 412_000 },
+    } as unknown as Parameters<typeof getTotalSourceConcepts>[0]
+    expect(getTotalSourceConcepts(midRun)).toBe(900)
+  })
+
   it('prefers the persisted stat when it is populated', () => {
     expect(getTotalSourceConcepts(fileProject({ totalRowCount: 10, rows: [] }, { totalSourceConcepts: 9912 }))).toBe(9912)
   })

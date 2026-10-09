@@ -64,8 +64,8 @@ export function resolveDisplayedSourceConceptId(
 }
 
 /**
- * Total source concepts: the persisted stat when populated, else the row count
- * of the flat source.
+ * Total source concepts: an extraction's own count when there is one, else the
+ * persisted stat when populated, else the row count of the flat source.
  *
  * The fallback matters because an export empties `fileSourceData.rows` and keeps
  * only `totalRowCount` — reading `rows.length` alone yields 0 on every git-linked
@@ -82,6 +82,13 @@ export function getTotalSourceConcepts(
   const extraction = project.sourceExtraction
   if (extraction && extraction.total > 0 && extraction.extracted >= extraction.total) {
     return extraction.extracted
+  }
+  // Mid-run, the file holds what is extracted so far, and that is what every
+  // view of the project reads. A stored stat may predate the extraction — the
+  // live dictionary count an older version wrote — and would stand in for it
+  // until the run ends.
+  if (extraction && project.fileSourceData) {
+    return project.fileSourceData.totalRowCount ?? project.fileSourceData.rows?.length ?? extraction.extracted
   }
   const fromStats = project.stats?.totalSourceConcepts ?? 0
   if (fromStats > 0) return fromStats

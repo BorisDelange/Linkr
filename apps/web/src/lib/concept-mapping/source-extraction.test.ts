@@ -7,8 +7,12 @@ import {
   EXTRACTION_COLUMNS,
   EXTRACTION_COLUMN_MAPPING,
   buildConceptCountsQuery,
+  EMPTY_WALK,
+  buildDictionaryCountQuery,
   buildDictionaryIdsQuery,
   buildDictionaryPageQuery,
+  dictionaryWalkIds,
+  extendWalk,
   extractBatch,
   extractionColumnMapping,
   extractionCsvHeader,
@@ -17,6 +21,7 @@ import {
   planConceptWalk,
   rankConceptIds,
   sortNeedsCounts,
+  walkKey,
   type ExtractedConcept,
 } from './source-extraction'
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -381,25 +386,74 @@ describe('extraction ordering', () => {
       { concept_id: 2, record_count: 40, patient_count: 4 },
       { concept_id: 3, record_count: 5, patient_count: 1 },
       { concept_id: 9, record_count: 0, patient_count: 0 },
-      // Counted but absent from the dictionary (an unmapped OMOP row's 0): not walked.
+      // OMOP's "No matching concept" is IN the concept table, and every unmapped
+      // row names it: never walked, however many records it has.
       { concept_id: 0, record_count: 99, patient_count: 9 },
     ]
-    const dictionary = [1, 2, 3, 9]
+    const dictionary = [0, 1, 2, 3, 9]
     const byVolume = { key: 'records', direction: 'desc' } as const
     expect(planConceptWalk(counts, byVolume, dictionary, true)).toEqual([2, 3])
     expect(planConceptWalk(counts, byVolume, dictionary, false)).toEqual([2, 3, 1, 9])
     // A dictionary order is kept as the ids came back, filtered.
     const byName = { key: 'name', direction: 'asc' } as const
     expect(planConceptWalk(counts, byName, [9, 3, 1, 2], true)).toEqual([3, 2])
+    expect(planConceptWalk(counts, byName, [0, 9, 3], false)).toEqual([9, 3])
   })
 
-  it('returns the dictionary ids in the page order for a dictionary sort', () => {
+  it('never counts OMOP concept 0, the id of every unmapped record', () => {
+    // It topped the ranking and was profiled with the largest scan of the run.
+    expect(buildConceptCountsQuery(source())).toContain('TRY_CAST(named.concept_id AS BIGINT) IS DISTINCT FROM 0')
+    for (const sort of [undefined, { key: 'records', direction: 'desc' }, { key: 'name', direction: 'asc' }] as const) {
+      expect(buildDictionaryIdsQuery(source(), sort)).toContain('TRY_CAST(d.concept_id AS BIGINT) IS DISTINCT FROM 0')
+    }
+    expect(mergeTableCounts([[{ concept_id: 0, record_count: 99, patient_count: 9 }]]).counts).toEqual([])
+  })
+
+  it('sizes and pages an unranked walk over the same concepts a ranked one keeps', () => {
+    // A NULL id read back as 0; the count must match the rows the pages return.
+    const where = 'WHERE d.concept_id IS NOT NULL AND TRY_CAST(d.concept_id AS BIGINT) IS DISTINCT FROM 0'
+    expect(buildDictionaryCountQuery(source())).toContain(where)
+    expect(buildDictionaryPageQuery(source(), 10, 0, { key: 'name', direction: 'asc' })).toContain(where)
+  })
+
+  it('keys a code-only dictionary\'s counts on the same hash as its ids', () => {
+    // The event table names such a concept by its code, the walk by a hash of
+    // it: keyed on the raw code, no count met its concept, and "only concepts
+    // with records" dropped the whole dictionary.
+    const codeOnly = mappingV1ToV2({
+      ...OMOP_V1,
+      conceptTables: [{ key: 'd', table: 'd_icd', nameColumn: 'long_title', codeColumn: 'icd_code' }],
+    } as never)
+    expect(buildConceptCountsQuery(source(codeOnly, 'd'))).toContain('SELECT (hash(named.concept_id) % 2147483647)::INTEGER AS concept_id')
+    expect(buildDictionaryIdsQuery(source(codeOnly, 'd'), { key: 'records', direction: 'desc' }))
+      .toContain('(hash(d.concept_code) % 2147483647)::INTEGER AS concept_id')
+    expect(buildConceptCountsQuery(source())).toContain('SELECT named.concept_id AS concept_id')
+  })
+
+  it('numbers the dictionary ids in the page order for a dictionary sort', () => {
     const byName = buildDictionaryIdsQuery(source(), { key: 'name', direction: 'desc' })
-    expect(byName).toContain('GROUP BY 1 ORDER BY MIN(d.concept_name) DESC, 1 ASC')
-    const byId = buildDictionaryIdsQuery(source(), { key: 'id', direction: 'asc' })
-    expect(byId).toContain('ORDER BY 1 ASC')
+    expect(byName).toContain('row_number() OVER (ORDER BY sort_key DESC, concept_id ASC) AS ord')
+    expect(byName).toContain('MIN(d.concept_name) AS sort_key')
+    const byId = buildDictionaryIdsQuery(source(), { key: 'id', direction: 'desc' })
+    expect(byId).toContain('row_number() OVER (ORDER BY concept_id DESC) AS ord')
     // A volume sort is ranked on the counts: the ids need no order.
-    expect(buildDictionaryIdsQuery(source(), { key: 'records', direction: 'desc' })).toContain('SELECT DISTINCT')
+    const byVolume = buildDictionaryIdsQuery(source(), { key: 'records', direction: 'desc' })
+    expect(byVolume).toContain('SELECT DISTINCT')
+    expect(byVolume).not.toContain('ord')
+  })
+
+  it('walks the dictionary order even when the server pager re-sorts the rows', () => {
+    // queryDataSourceAll pages `SELECT * FROM (…) ORDER BY ALL LIMIT … OFFSET …`:
+    // the rows arrive id-ascending whatever the query ordered by. Read as they
+    // came, a name sort was walked by id.
+    const serverWrapped = [
+      { concept_id: 1, ord: 3 },
+      { concept_id: 2, ord: 1 },
+      { concept_id: 3, ord: 2 },
+    ]
+    expect(dictionaryWalkIds(serverWrapped)).toEqual([2, 3, 1])
+    // A volume sort's ids carry no ord: their order is the ranking's business.
+    expect(dictionaryWalkIds([{ concept_id: 5 }, { concept_id: 4 }, { concept_id: 0 }])).toEqual([5, 4])
   })
 
   it('leaves out dictionary rows with no id', () => {
@@ -466,9 +520,22 @@ describe('a dictionary spread over several event tables', () => {
       [{ concept_id: 2, record_count: 50, patient_count: 7 }, { concept_id: 3, record_count: 4, patient_count: 2 }],
     ])
     expect(homes).toEqual(new Map([[1, 0], [2, 1], [3, 1]]))
-    // The home table's counts, never a sum: a patient present in both tables
-    // would otherwise be counted twice.
-    expect(counts.find((c) => c.concept_id === 2)).toEqual({ concept_id: 2, record_count: 50, patient_count: 7 })
+    // Records add up across tables; patients are the home table's, since a
+    // patient present in both would otherwise be counted twice.
+    expect(counts.find((c) => c.concept_id === 2)).toEqual({ concept_id: 2, record_count: 55, patient_count: 7 })
+  })
+
+  it('writes the records of every table, the patients of the home one', async () => {
+    const s = source(twoTables)
+    const { query } = engine([
+      { match: 'LIMIT 10 OFFSET 0', rows: page(2) },
+      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 50, patients_count: 7 }] },
+    ])
+    const result = await extractBatch(
+      twoTables, s, { ...DEFAULT_PROFILE_OPTIONS, minPatients: 0 }, 0, 10, 2, query,
+      undefined, undefined, undefined, undefined, new Map([[2, 1]]), new Map([[2, 55]]),
+    )
+    expect(result.rows.map((r) => [r.concept_id, r.record_count, r.patient_count])).toEqual([[1, 50, 7], [2, 55, 7]])
   })
 
   it('a tie goes to the richer table', () => {
@@ -493,5 +560,18 @@ describe('a dictionary spread over several event tables', () => {
     expect(profiles[0]).toContain(s.events[0].name)
     expect(profiles[1]).toContain(s.events[1].name)
     expect(profiles[1]).not.toContain(s.events[0].name)
+  })
+})
+
+describe('the record of a ranked walk', () => {
+  it('tells the same concepts apart from different ones, whatever their order', () => {
+    const key = (ids: number[]) => walkKey(extendWalk(EMPTY_WALK, ids))
+    expect(key([3, 1, 2])).toBe(key([1, 2, 3]))
+    expect(key([1, 2, 3])).not.toBe(key([1, 2, 4]))
+    expect(key([1, 2])).not.toBe(key([1, 2, 3]))
+    // Built batch by batch, it is the same record as built at once on resume.
+    expect(walkKey(extendWalk(extendWalk(EMPTY_WALK, [7, 8]), [9]))).toBe(key([7, 8, 9]))
+    // Ids past 2^32 keep their high half.
+    expect(key([2_000_000_001])).not.toBe(key([2_000_000_001 + 2 ** 32]))
   })
 })

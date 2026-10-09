@@ -61,6 +61,7 @@ import { SUGGESTION_CATEGORIES, type SuggestionCategory } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import type { ConceptMapping } from '@/types'
 import type { ExternalMappingInfo } from '@/stores/concept-mapping-store'
+import { ExternalMappingsTip } from './ExternalMappingsTip'
 
 export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewhere'
 
@@ -427,7 +428,9 @@ export function SourceConceptTable({
 
           // Tooltip content
           let tooltipContent: ReactNode = (
-            <span className="text-xs">{t(`concept_mapping.status_tip_${status}`)}</span>
+            <span className="text-xs">
+              {t(status === 'mapped_elsewhere' ? 'concept_mapping.status_tip_mapped_elsewhere_loading' : `concept_mapping.status_tip_${status}`)}
+            </span>
           )
 
           if (status === 'mapped' && projectMappings) {
@@ -484,11 +487,18 @@ export function SourceConceptTable({
               const localSourceConceptId = row.original.concept_id
               return (
                 <Popover>
-                  <PopoverTrigger asChild>
-                    <button type="button" className="flex w-full justify-center" onClick={(e) => e.stopPropagation()}>
-                      {dot}
-                    </button>
-                  </PopoverTrigger>
+                  <Tooltip delayDuration={300}>
+                    <TooltipTrigger asChild>
+                      <PopoverTrigger asChild>
+                        <button type="button" className="flex w-full justify-center" onClick={(e) => e.stopPropagation()}>
+                          {dot}
+                        </button>
+                      </PopoverTrigger>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <ExternalMappingsTip list={list} canImport={!!onImportExternal} />
+                    </TooltipContent>
+                  </Tooltip>
                   <PopoverContent
                     side="right"
                     align="start"
@@ -496,7 +506,7 @@ export function SourceConceptTable({
                     onClick={(e) => e.stopPropagation()}
                   >
                     <p className="text-[10px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                      {t('concept_mapping.status_tip_mapped_elsewhere_plural', { count: list.length })}
+                      {t('concept_mapping.status_tip_mapped_elsewhere', { count: list.length })}
                     </p>
                     <div className="mt-2 space-y-2">
                       {list.slice(0, 5).map((info) => {

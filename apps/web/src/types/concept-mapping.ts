@@ -333,6 +333,14 @@ export interface SourceExtraction {
    * the whole dictionary.
    */
   onlyWithRecords?: boolean
+  /**
+   * For a ranked walk, which concepts of the dictionary in progress are already
+   * written (`walkKey`). A resume re-ranks, and continues at the offset only if
+   * the new ranking starts with those same concepts; otherwise it restarts
+   * rather than skip some and write others twice. Absent on runs stored before
+   * it existed, whose ranking scheme differed: a ranked one of those restarts.
+   */
+  walked?: string
   /** ISO 8601, when the last batch finished. */
   updatedAt: string
   /** Set when the last batch failed, so the UI can say why it stopped. */

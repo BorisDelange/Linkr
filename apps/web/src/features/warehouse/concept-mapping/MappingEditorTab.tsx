@@ -46,6 +46,12 @@ interface MappingEditorTabProps {
   project: MappingProject
   onGoToConceptSets?: () => void
   onGoToSourceConcepts?: () => void
+  /**
+   * Whether the tab is on screen. The editor stays mounted when hidden, so a
+   * source that changes meanwhile (an extraction saving batches) is reloaded
+   * once on return rather than on every save.
+   */
+  active?: boolean
 }
 
 const PAGE_SIZE = 50
@@ -59,7 +65,7 @@ const PAGE_SIZE = 50
  * resumably, into the same flat table an imported file gives — until then this
  * tab only points there.
  */
-export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConcepts }: MappingEditorTabProps) {
+export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConcepts, active = true }: MappingEditorTabProps) {
   const { t } = useTranslation()
   const { selectedSourceConceptId, setSelectedSourceConcept, mappings, loadOtherProjectsMappedKeys, loadOtherProjectsDetails, importExternalMapping } = useConceptMappingStore()
 
@@ -106,6 +112,14 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
   const fileSourceData = project.fileSourceData
   /** The displayed source concept id comes from the badge registry, not the data. */
   const isFileSourceWithoutConceptId = !!fileSourceData && !fileSourceData.columnMapping?.conceptIdColumn
+  const sourceSignature = fileSourceData
+    ? [
+        fileSourceData.totalRowCount ?? fileSourceData.rows.length,
+        fileSourceData.rawFileBuffer?.byteLength ?? 0,
+        JSON.stringify(fileSourceData.columnMapping),
+        project.sourceExtraction?.updatedAt ?? '',
+      ].join('|')
+    : null
 
   const [rows, setRows] = useState<SourceConceptRow[]>([])
   const [totalCount, setTotalCount] = useState(0)
@@ -134,6 +148,9 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
   )
   const [detailConcept, setDetailConcept] = useState<SourceConceptRow | null>(null)
   const [fileSourceReady, setFileSourceReady] = useState(false)
+  /** Bumped each time the source is reloaded after it changed under the open editor. */
+  const [sourceVersion, setSourceVersion] = useState(0)
+  const loadedSignatureRef = useRef<string | null>(null)
   const [suggestionCategories, setSuggestionCategories] = useState<Set<SuggestionCategory>>(
     () => new Set(savedFilters?.suggestionCategories ?? []),
   )
@@ -227,8 +244,14 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
   // DuckDB Binder Error. Populated by the initial file-source options load.
   const fileSourceColsRef = useRef<Set<string>>(new Set())
 
+  // A source that changes after the first load (an extraction run from the
+  // Source concepts tab) is mounted again and the list reloaded in place —
+  // deferred while the tab is hidden, so a run does not remount on every batch.
   useEffect(() => {
-    if (!fileSourceData) return
+    if (!fileSourceData || !sourceSignature) return
+    if (loadedSignatureRef.current === sourceSignature) return
+    const isRefresh = loadedSignatureRef.current !== null
+    if (isRefresh && !active) return
     let cancelled = false
     const mount = async () => {
       try {
@@ -238,7 +261,10 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
           fileSourceData.columnMapping,
           fileSourceData.rawFileBuffer,
         )
-        if (!cancelled) setFileSourceReady(true)
+        if (cancelled) return
+        loadedSignatureRef.current = sourceSignature
+        if (isRefresh) setSourceVersion((v) => v + 1)
+        else setFileSourceReady(true)
       } catch (err) {
         console.error('Failed to mount file source into DuckDB:', err)
         if (!cancelled) setQueryError(err instanceof Error ? err.message : String(err))
@@ -246,7 +272,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
     }
     mount()
     return () => { cancelled = true }
-  }, [project.id, fileSourceData])
+  }, [project.id, fileSourceData, sourceSignature, active])
 
   // Filter options via DuckDB DISTINCT queries
   useEffect(() => {
@@ -277,7 +303,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
       setFilterOptions(opts)
     }
     loadOptions()
-  }, [fileSourceReady, project.id])
+  }, [fileSourceReady, project.id, sourceVersion])
 
   // Re-scope category/subcategory options to the selected vocabulary. With ~3700
   // categories across all vocabularies, narrowing to the picked vocabulary keeps
@@ -331,9 +357,9 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
     return () => { cancelled = true }
     // vocabScopeKey captures the selected-vocabulary identity; other deps gate readiness.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vocabScopeKey, fileSourceReady, project.id])
+  }, [vocabScopeKey, fileSourceReady, project.id, sourceVersion])
 
-  const loadConcepts = useCallback(async (pageToLoad: number) => {
+  const loadConcepts = useCallback(async (pageToLoad: number, { recount = false }: { recount?: boolean } = {}) => {
     if (!fileSourceReady) return
     // Generate a fresh request id; any prior in-flight load becomes stale.
     const reqId = ++requestIdRef.current
@@ -393,14 +419,20 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
         filtersWithStatus.suggestionCategoryKeys = suggestionCategoryKeysRef.current
       }
 
-      // Count (only on first page load)
-      if (pageToLoad === 0) {
+      // Count on the first page, and again when the source itself changed.
+      // A source that shrank (an extraction restarted) can leave the page past
+      // its end: fall back to the last one.
+      let targetPage = pageToLoad
+      if (pageToLoad === 0 || recount) {
         const [countResult] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery(filtersWithStatus))
         if (isStale()) return
-        setTotalCount(Number(countResult?.total ?? 0))
+        const total = Number(countResult?.total ?? 0)
+        setTotalCount(total)
+        targetPage = Math.min(pageToLoad, Math.max(0, Math.ceil(total / PAGE_SIZE) - 1))
+        if (targetPage !== pageToLoad) setPage(targetPage)
       }
 
-      const dataSql = buildFileSourceConceptsQuery(filtersWithStatus, sorting, PAGE_SIZE, pageToLoad * PAGE_SIZE)
+      const dataSql = buildFileSourceConceptsQuery(filtersWithStatus, sorting, PAGE_SIZE, targetPage * PAGE_SIZE)
       const result = await queryDataSource(dsId, dataSql)
       if (isStale()) return
 
@@ -453,6 +485,13 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
     // through it: the registry loads asynchronously, so a search typed (or
     // restored from saved filters) before it arrived would otherwise stay empty.
   }, [isFileSourceWithoutConceptId, fileSourceReady, filters, sorting, mappingStatusFilter, suggestionCategoryKeys, sourceConceptIdMap])
+
+  const pageRef = useRef(page)
+  pageRef.current = page
+  useEffect(() => {
+    if (sourceVersion === 0) return
+    loadConceptsRef.current(pageRef.current, { recount: true })
+  }, [sourceVersion])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   // The fetch is driven from the click, not from an effect on `page`. An effect

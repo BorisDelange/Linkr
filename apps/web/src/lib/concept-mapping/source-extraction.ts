@@ -22,6 +22,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import type { FileColumnMapping } from '@/types'
 import {
   buildConceptProfile,
+  eventConceptKey,
   type ProfileOptions,
   type ProfileSource,
 } from './concept-profile'
@@ -124,7 +125,9 @@ export interface ExtractedConcept {
  * make "3000 of 40000" meaningless.
  */
 export function buildDictionaryCountQuery(source: ProfileSource): string {
-  return `SELECT COUNT(*) AS total FROM ${source.dict.name}`
+  // The same rows the unranked page query walks, or the run would count towards
+  // concepts it never reaches.
+  return `SELECT COUNT(*) AS total FROM ${source.dict.name} d WHERE ${namesAConcept(conceptIdExpr(source))}`
 }
 
 /**
@@ -173,6 +176,18 @@ function conceptIdExpr(source: ProfileSource): string {
 }
 
 /**
+ * Whether an id expression names a concept.
+ *
+ * NULL is no concept, and neither is 0: OMOP's "No matching concept", the id of
+ * every unmapped record, which a volume ranking put first and profiled with the
+ * largest scan of the run. TRY_CAST so a text id column is compared as text
+ * would be, rather than failing the run on its first non-numeric code.
+ */
+function namesAConcept(idExpr: string): string {
+  return `${idExpr} IS NOT NULL AND TRY_CAST(${idExpr} AS BIGINT) IS DISTINCT FROM 0`
+}
+
+/**
  * Records and patients per concept in one event table, for the whole dictionary
  * at once.
  *
@@ -197,12 +212,18 @@ export function buildConceptCountsQuery(source: ProfileSource, event = source.ev
     ? 'UNNEST(CASE WHEN e.source_concept_id IS DISTINCT FROM e.concept_id '
       + 'THEN [e.concept_id, e.source_concept_id] ELSE [e.concept_id] END)'
     : 'e.concept_id'
-  return `SELECT concept_id,
+  // A code-only dictionary's id is a hash of its code (conceptIdExpr), and the
+  // event table names the concept by that code: hashed the same way, or no count
+  // would ever meet its concept and "only with records" dropped the dictionary.
+  const raw = 'named.concept_id'
+  const key = eventConceptKey(source.dictionary, raw)
+  const where = source.dictionary.ownId ? namesAConcept(raw) : `${raw} IS NOT NULL`
+  return `SELECT ${key} AS concept_id,
     COUNT(*) AS record_count,
     ${patient} AS patient_count
   FROM (SELECT ${ids} AS concept_id${patientCol} FROM ${event.name} e) AS named
-  WHERE concept_id IS NOT NULL
-  GROUP BY concept_id`
+  WHERE ${where}
+  GROUP BY 1`
 }
 
 /**
@@ -210,7 +231,10 @@ export function buildConceptCountsQuery(source: ProfileSource, event = source.ev
  *
  * The counting pass only sees concepts the event table mentions; this is what
  * tells the ranking about the rest. Given a sort the dictionary orders by on its
- * own (code, name, id), the ids come back in that order, ready to walk.
+ * own (code, name, id), each id carries its position in that order as `ord`:
+ * server mode reads this through a pager that re-sorts every page `ORDER BY
+ * ALL` (it needs a total order to page stably), so an outer ORDER BY would come
+ * back id-ascending whatever the user picked. Read it with `dictionaryWalkIds`.
  */
 export function buildDictionaryIdsQuery(source: ProfileSource, sort?: ExtractionSort): string {
   const idExpr = conceptIdExpr(source)
@@ -222,7 +246,7 @@ export function buildDictionaryIdsQuery(source: ProfileSource, sort?: Extraction
   // A row with no id is no concept: read back as a number it became 0, which on
   // OMOP is every unmapped record's id, so a phantom concept led the ranking and
   // its missing page row made the run stop early, thinking itself done.
-  const where = `WHERE ${idExpr} IS NOT NULL`
+  const where = `WHERE ${namesAConcept(idExpr)}`
   if (!sort || sortNeedsCounts(sort)) {
     return `SELECT DISTINCT ${idExpr} AS concept_id FROM ${source.dict.name} d ${where}`
   }
@@ -231,38 +255,66 @@ export function buildDictionaryIdsQuery(source: ProfileSource, sort?: Extraction
   const column = sort.key === 'name'
     ? 'd.concept_name'
     : sort.key === 'code' && source.dictionary.hasCode ? 'd.concept_code' : null
-  const order = column ? `MIN(${column}) ${direction}, 1 ASC` : `1 ${direction}`
-  return `SELECT ${idExpr} AS concept_id FROM ${source.dict.name} d ${where} GROUP BY 1 ORDER BY ${order}`
+  if (!column) {
+    return `SELECT concept_id, row_number() OVER (ORDER BY concept_id ${direction}) AS ord
+  FROM (SELECT DISTINCT ${idExpr} AS concept_id FROM ${source.dict.name} d ${where}) AS ids`
+  }
+  return `SELECT concept_id, row_number() OVER (ORDER BY sort_key ${direction}, concept_id ASC) AS ord
+  FROM (SELECT ${idExpr} AS concept_id, MIN(${column}) AS sort_key
+    FROM ${source.dict.name} d ${where} GROUP BY 1) AS ids`
 }
 
 /**
- * Each concept's counts in its home table — the event table holding most of
- * its records — and which table that is, as an index into `source.events`.
+ * The ids `buildDictionaryIdsQuery` returned, in walk order: by `ord` when the
+ * query carried one, whatever order the rows arrived in.
+ */
+export function dictionaryWalkIds(rows: Record<string, unknown>[]): number[] {
+  const ordered = rows.some((r) => r.ord != null)
+    ? [...rows].sort((a, b) => Number(a.ord) - Number(b.ord))
+    : rows
+  return ordered
+    .map((r) => Number(r.concept_id))
+    .filter((id) => Number.isFinite(id) && id !== 0)
+}
+
+/**
+ * Each concept's counts over all its event tables, and its home table — the one
+ * holding most of its records, where it is profiled — as an index into
+ * `source.events`.
  *
- * `perTable` is one counting pass per event table, in `events` order. The home
- * table is where the concept is profiled, so its counts there are the ones the
- * CSV records; taking them for the ranking too keeps the order and the written
- * counts consistent. Adding tables up would also count a patient once per table.
- * A tie goes to the richer table, which comes first.
+ * `perTable` is one counting pass per event table, in `events` order. Records
+ * add up across tables: a row is one record wherever it lives, and the sum is
+ * what the CSV writes (see extractBatch's `recordTotals`) and the ranking sorts
+ * on. Patients do not — a patient present in two tables would be counted twice —
+ * so `patient_count` is the home table's, a lower bound. A tie on records goes to
+ * the richer table, which comes first.
  */
 export function mergeTableCounts(perTable: ConceptCounts[][]): {
   counts: ConceptCounts[]
   homes: Map<number, number>
 } {
-  const best = new Map<number, { row: ConceptCounts; table: number }>()
+  const best = new Map<number, { row: ConceptCounts; table: number; records: number }>()
   perTable.forEach((rows, table) => {
     for (const row of rows) {
       const id = Number(row.concept_id)
+      if (!Number.isFinite(id) || id === 0) continue
+      const records = Number(row.record_count ?? 0)
       const current = best.get(id)
-      if (!current || Number(row.record_count ?? 0) > Number(current.row.record_count ?? 0)) {
-        best.set(id, { row, table })
+      if (!current) {
+        best.set(id, { row, table, records })
+        continue
+      }
+      current.records += records
+      if (records > Number(current.row.record_count ?? 0)) {
+        current.row = row
+        current.table = table
       }
     }
   })
   const counts: ConceptCounts[] = []
   const homes = new Map<number, number>()
-  for (const [id, { row, table }] of best) {
-    counts.push(row)
+  for (const [id, { row, table, records }] of best) {
+    counts.push({ concept_id: id, record_count: records, patient_count: row.patient_count })
     homes.set(id, table)
   }
   return { counts, homes }
@@ -283,12 +335,54 @@ export function planConceptWalk(
   dictionaryIds: number[],
   onlyWithRecords: boolean,
 ): number[] {
-  const ordered = sortNeedsCounts(sort) ? rankConceptIds(counts, sort, dictionaryIds) : dictionaryIds
+  const ids = dictionaryIds.filter((id) => id !== 0)
+  const ordered = sortNeedsCounts(sort) ? rankConceptIds(counts, sort, ids) : ids
   if (!onlyWithRecords) return ordered
   const withRecords = new Set(
     counts.filter((row) => Number(row.record_count ?? 0) > 0).map((row) => Number(row.concept_id)),
   )
   return ordered.filter((id) => withRecords.has(id))
+}
+
+/**
+ * Which concepts of a ranked walk are behind it, independent of their order.
+ *
+ * A resume is an offset into a ranking it recomputes, and the warehouse may
+ * have changed in between: concepts gain records, the ranking scheme itself
+ * changes with a release. Continuing at the offset is only safe when the first
+ * `n` concepts of the new ranking are the ones already written; this is what
+ * the stored run compares to tell. A sum and a xor of mixed ids, so it extends
+ * batch by batch without keeping the list.
+ */
+export interface WalkFingerprint {
+  n: number
+  sum: number
+  xor: number
+}
+
+export const EMPTY_WALK: WalkFingerprint = { n: 0, sum: 0, xor: 0 }
+
+/** murmur3's 32-bit finaliser over both halves of the id. */
+function mixId(id: number): number {
+  let h = (Math.trunc(id) ^ Math.floor(id / 4294967296)) >>> 0
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b)
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
+  return (h ^ (h >>> 16)) >>> 0
+}
+
+export function extendWalk(walk: WalkFingerprint, ids: readonly number[]): WalkFingerprint {
+  let { n, sum, xor } = walk
+  for (const id of ids) {
+    const h = mixId(id)
+    n++
+    sum = (sum + h) >>> 0
+    xor = (xor ^ h) >>> 0
+  }
+  return { n, sum, xor }
+}
+
+export function walkKey(walk: WalkFingerprint): string {
+  return `${walk.n}:${walk.sum.toString(16)}:${walk.xor.toString(16)}`
 }
 
 /** One concept's counts, as the counting pass returns them. */
@@ -393,7 +487,9 @@ export function buildDictionaryPageQuery(
   const order = column === idExpr
     ? `${idExpr} ${direction}`
     : `${column} ${direction}, ${idExpr} ASC`
+  // The rows buildDictionaryCountQuery sized, and the ones a ranked walk keeps.
   return `${select}
+  WHERE ${namesAConcept(idExpr)}
   ORDER BY ${order}
   LIMIT ${Math.trunc(limit)} OFFSET ${Math.trunc(offset)}`
 }
@@ -464,6 +560,12 @@ export async function extractBatch(
   orderedIds?: number[],
   /** Concept id → index into `source.events` of the table to profile it in. */
   homes?: Map<number, number>,
+  /**
+   * Concept id → its records over every event table (mergeTableCounts). The
+   * profile counts only the home table, which understates a concept spread
+   * over several; patients stay the profile's, since they do not add up.
+   */
+  recordTotals?: Map<number, number>,
 ): Promise<BatchResult> {
   const sql = buildDictionaryPageQuery(source, batchSize, offset, sort, orderedIds)
   // An empty ranking slice means the ranked list is exhausted — there is no
@@ -506,7 +608,7 @@ export async function extractBatch(
       concept_id: conceptId,
       concept_name: conceptName,
       category: concept.category ?? '',
-      record_count: counts && profile ? profile.rowsCount : null,
+      record_count: counts && profile ? (recordTotals?.get(conceptId) ?? profile.rowsCount) : null,
       patient_count: counts && profile ? profile.patientsCount : null,
       // An empty cell, not "null": the source view parses this column as JSON and
       // treats anything unparseable as absent, which is what a withheld profile is.

@@ -248,19 +248,35 @@ function resolveWardExpr(mapping: SchemaMapping, event: ClassRelation): WardJoin
 // ---------------------------------------------------------------------------
 
 /**
- * `conceptId` is the dictionary's own key. OMOP rows can name a concept through
+ * The id an event column names a concept by, as the dictionary keys it.
+ *
+ * A dictionary with an id of its own is referenced by that id. A code-only one
+ * (MIMIC d_icd_diagnoses) is keyed on a hash of its code (conceptIdentity), and
+ * its event table names the concept by that code: the column is hashed the same
+ * way, or `e.concept_id = <hash>` meets no record and the profile comes back
+ * empty. Shared with the extraction's counts query (buildConceptCountsQuery).
+ */
+export function eventConceptKey(dictionary: ConceptIdentity, column: string): string {
+  return dictionary.ownId ? column : `(hash(${column}) % 2147483647)::INTEGER`
+}
+
+/**
+ * `conceptId` is the dictionary's key. OMOP rows can name a concept through
  * either `*_concept_id` or `*_source_concept_id`, which is why the match is a
  * disjunction rather than an equality — shared with the counts query so both
  * agree on what "this concept's records" means.
  */
-function conceptMatch(event: ClassRelation, conceptId: number): string {
+function conceptMatch(source: ProfileSource, conceptId: number): string {
   const id = Math.trunc(conceptId)
-  return has(event, 'source_concept_id') ? `e.concept_id = ${id} OR e.source_concept_id = ${id}` : `e.concept_id = ${id}`
+  const key = (column: string) => `${eventConceptKey(source.dictionary, column)} = ${id}`
+  return has(source.event, 'source_concept_id')
+    ? `${key('e.concept_id')} OR ${key('e.source_concept_id')}`
+    : key('e.concept_id')
 }
 
 /** The FROM + WHERE that isolates one concept's records in its event table. */
-function eventScope(event: ClassRelation, conceptId: number): string {
-  return `FROM ${event.name} e WHERE (${conceptMatch(event, conceptId)})`
+function eventScope(source: ProfileSource, conceptId: number): string {
+  return `FROM ${source.event.name} e WHERE (${conceptMatch(source, conceptId)})`
 }
 
 const patientsExpr = (event: ClassRelation) => (has(event, 'patient_id') ? 'COUNT(DISTINCT e.patient_id)' : 'NULL')
@@ -292,7 +308,7 @@ export function buildProfileBaseQuery(
   conceptId: number,
 ): string {
   return `SELECT COUNT(*) AS rows_count, ${patientsExpr(source.event)} AS patients_count
-  ${eventScope(source.event, conceptId)}`
+  ${eventScope(source, conceptId)}`
 }
 
 /**
@@ -310,7 +326,7 @@ export function buildMissingRateQuery(
   return `SELECT ROUND(
     SUM(CASE WHEN ${empty} THEN 1 ELSE 0 END) * 100.0 / NULLIF(COUNT(*), 0), 1
   ) AS missing_rate
-  ${eventScope(source.event, conceptId)}`
+  ${eventScope(source, conceptId)}`
 }
 
 /**
@@ -332,7 +348,7 @@ export function buildPercentileQuery(
     PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY e.value_number) AS p75,
     PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY e.value_number) AS p99,
     COUNT(e.value_number) AS numeric_count
-  ${eventScope(source.event, conceptId)} AND e.value_number IS NOT NULL`
+  ${eventScope(source, conceptId)} AND e.value_number IS NOT NULL`
 }
 
 /**
@@ -388,7 +404,7 @@ export function buildCombinedScalarQuery(
     parts.push(`mode(${u}) FILTER (WHERE ${u} IS NOT NULL AND TRIM(${u}) <> '') AS unit`)
   }
 
-  const scope = eventScope(event, conceptId)
+  const scope = eventScope(source, conceptId)
 
   // Per-patient counts and inter-record delays are aggregates over GROUPS, so
   // they cannot sit beside the row-level ones — they ride as scalar subqueries
@@ -492,7 +508,7 @@ export function buildNumericStatsQuery(
     ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${v}), 1) AS p75,
     ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${v}), 1) AS p95,
     COUNT(${v}) AS numeric_count
-  ${eventScope(source.event, conceptId)} AND ${v} IS NOT NULL${withinBounds(bounds)}`
+  ${eventScope(source, conceptId)} AND ${v} IS NOT NULL${withinBounds(bounds)}`
 }
 
 /**
@@ -525,7 +541,7 @@ export function buildHistogramQuery(
   const withPatient = has(source.event, 'patient_id')
   return `WITH filtered AS (
     SELECT e.value_number AS value${withPatient ? ', e.patient_id AS patient_id' : ''}
-    ${eventScope(source.event, conceptId)} AND e.value_number IS NOT NULL${withinBounds(bounds)}
+    ${eventScope(source, conceptId)} AND e.value_number IS NOT NULL${withinBounds(bounds)}
   ),
   spread AS (
     SELECT (MAX(value) - MIN(value)) / ${bins} AS width FROM filtered
@@ -570,7 +586,7 @@ export function buildCategoricalQuery(
   const v = 'CAST(e.value_string AS VARCHAR)'
   return `SELECT category, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (), 1) AS percentage FROM (
     SELECT ${v} AS category, COUNT(*) AS count, ${patientsExpr(source.event)} AS patients_count
-    ${eventScope(source.event, conceptId)} AND ${v} IS NOT NULL AND TRIM(${v}) <> ''
+    ${eventScope(source, conceptId)} AND ${v} IS NOT NULL AND TRIM(${v}) <> ''
     GROUP BY ${v}
     HAVING COUNT(*) >= ${Math.trunc(options.minCategoryCount)}
   ) ORDER BY count DESC, category ASC LIMIT ${Math.trunc(options.topN)}`
@@ -581,7 +597,7 @@ export function buildUnitQuery(source: ProfileSource, conceptId: number): string
   if (!has(source.event, 'unit')) return ''
   const u = 'CAST(e.unit AS VARCHAR)'
   return `SELECT ${u} AS unit, COUNT(*) AS count
-  ${eventScope(source.event, conceptId)} AND ${u} IS NOT NULL AND TRIM(${u}) <> ''
+  ${eventScope(source, conceptId)} AND ${u} IS NOT NULL AND TRIM(${u}) <> ''
   GROUP BY ${u} ORDER BY count DESC, unit ASC LIMIT 1`
 }
 
@@ -600,7 +616,7 @@ export function buildFrequencyQuery(
   if (!has(event, 'start_datetime') || !has(event, 'patient_id')) return ''
   return `WITH times AS (
     SELECT e.patient_id AS patient_id, CAST(e.start_datetime AS TIMESTAMP) AS ts
-    ${eventScope(event, conceptId)} AND e.start_datetime IS NOT NULL
+    ${eventScope(source, conceptId)} AND e.start_datetime IS NOT NULL
   ),
   intervals AS (
     SELECT EXTRACT(EPOCH FROM (ts - LAG(ts) OVER (PARTITION BY patient_id ORDER BY ts))) / 3600.0 AS hours
@@ -625,7 +641,7 @@ export function buildPerPatientQuery(
   if (!has(source.event, 'patient_id')) return ''
   return `WITH per_patient AS (
     SELECT COUNT(*) AS n
-    ${eventScope(source.event, conceptId)}
+    ${eventScope(source, conceptId)}
     GROUP BY e.patient_id
   )
   SELECT ROUND(AVG(n), 1) AS mean, MEDIAN(n) AS median, MIN(n) AS min, MAX(n) AS max
@@ -638,7 +654,7 @@ export function buildTemporalQuery(source: ProfileSource, conceptId: number): st
   const withPatient = has(source.event, 'patient_id')
   return `WITH times AS (
     SELECT CAST(e.start_datetime AS TIMESTAMP) AS ts${withPatient ? ', e.patient_id AS patient_id' : ''}
-    ${eventScope(source.event, conceptId)} AND e.start_datetime IS NOT NULL
+    ${eventScope(source, conceptId)} AND e.start_datetime IS NOT NULL
   )
   SELECT EXTRACT(YEAR FROM ts) AS year, COUNT(*) AS count,
          ${withPatient ? 'COUNT(DISTINCT patient_id)' : 'NULL'} AS patients_count,
@@ -661,7 +677,7 @@ export function buildHospitalUnitsQuery(
     SELECT ${ward.expr} AS unit, COUNT(*) AS count, COUNT(DISTINCT e.patient_id) AS patients_count
     FROM ${source.event.name} e
     ${ward.joins}
-    WHERE (${conceptMatch(source.event, conceptId)}) AND ${ward.expr} IS NOT NULL
+    WHERE (${conceptMatch(source, conceptId)}) AND ${ward.expr} IS NOT NULL
     GROUP BY ${ward.expr}
   ) ORDER BY count DESC, unit ASC LIMIT ${Math.trunc(topN)}`
 }

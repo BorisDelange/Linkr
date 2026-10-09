@@ -1300,11 +1300,24 @@ export async function mountDataSourceFromHandles(
 
 // --- File source → DuckDB in-memory table ---
 
-/** Track mounted file source projects so we skip re-mounting. */
-const mountedFileSources = new Set<string>()
+/**
+ * Mounted file source projects, with the signature of what was mounted: the
+ * same source is never mounted twice, a changed one (an extraction that grew,
+ * a re-import) is mounted again instead of being served stale.
+ */
+const mountedFileSources = new Map<string, string>()
 
-/** In-flight mount promises to prevent concurrent mounts for the same project. */
-const mountingPromises = new Map<string, Promise<void>>()
+/** In-flight mounts, so concurrent callers for the same source share one. */
+const mountingPromises = new Map<string, { signature: string; promise: Promise<void> }>()
+
+function fileSourceSignature(
+  rows: Record<string, unknown>[],
+  columnMapping: FileColumnMapping,
+  rawFileBuffer?: Uint8Array | ArrayBuffer,
+): string {
+  const size = rawFileBuffer && rawFileBuffer.byteLength > 0 ? `csv:${rawFileBuffer.byteLength}` : `rows:${rows.length}`
+  return `${size}|${JSON.stringify(columnMapping)}`
+}
 
 /** Check if a file source project is already mounted in DuckDB. */
 export function isFileSourceMounted(projectId: string): boolean {
@@ -1338,15 +1351,20 @@ export function mountFileSourceIntoDuckDB(
   // (queryDataSource routes `filesrc_<id>` to the mapping-projects endpoint).
   // Nothing is mounted in the browser — the raw bytes never come down.
   if (isServerMode()) return Promise.resolve()
-  // If already mounted, skip
-  if (mountedFileSources.has(projectId)) return Promise.resolve()
-  // If a mount is already in flight for this project, return the same promise
+  const signature = fileSourceSignature(rows, columnMapping, rawFileBuffer)
+  if (mountedFileSources.get(projectId) === signature) return Promise.resolve()
   const existing = mountingPromises.get(projectId)
-  if (existing) return existing
+  if (existing) {
+    if (existing.signature === signature) return existing.promise
+    return existing.promise
+      .catch(() => {})
+      .then(() => mountFileSourceIntoDuckDB(projectId, rows, columnMapping, rawFileBuffer))
+  }
 
   const promise = doMountFileSource(projectId, rows, columnMapping, rawFileBuffer)
+    .then(() => { mountedFileSources.set(projectId, signature) })
     .finally(() => mountingPromises.delete(projectId))
-  mountingPromises.set(projectId, promise)
+  mountingPromises.set(projectId, { signature, promise })
   return promise
 }
 
@@ -1522,10 +1540,9 @@ async function doMountFileSource(
         await conn.query(`INSERT INTO "${schema}"."source_concepts" VALUES ${valueParts.join(', ')}`)
       }
     }
-
-    mountedFileSources.add(projectId)
   } catch (err) {
     // Clean up on failure
+    mountedFileSources.delete(projectId)
     try { await conn.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`) } catch { /* ignore */ }
     throw err
   } finally {

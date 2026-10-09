@@ -8,6 +8,15 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `metadata.version` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
+## Unreleased
+
+### Fixed
+- Step 1 no longer says a database project not extracted yet still works
+  without counts: the source-concept tools refuse it ("not been extracted
+  yet") since Linkr reads such a project from its extraction only. The skill
+  now relays that and stops, and notes that a run with metadata off carries no
+  counts or metadata.
+
 ## 2.1.0 — 2026-09-27
 
 ### Added

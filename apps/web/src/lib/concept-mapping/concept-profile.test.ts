@@ -184,6 +184,20 @@ describe('query builders', () => {
     expect(full).toContain('e."person_id" AS patient_id')
   })
 
+  it('matches a code-only dictionary\'s concept on the hash of the code its records name', () => {
+    // Its id is hash(code); the event table holds the code itself, so a plain
+    // `e.concept_id = <hash>` met no record and every profile came back empty.
+    const codeOnly = mappingV1ToV2({
+      ...OMOP_V1,
+      conceptTables: [{ key: 'icd', table: 'd_icd', codeColumn: 'icd_code', nameColumn: 'long_title' }],
+      eventTables: { Diagnoses: { table: 'diagnoses_icd', conceptIdColumn: 'icd_code', patientIdColumn: 'subject_id' } },
+    })
+    const sql = buildProfileBaseQuery(codeOnly, source(codeOnly, 'icd'), 610472820)
+    expect(sql).toContain('(hash(e.concept_id) % 2147483647)::INTEGER = 610472820')
+    // A dictionary with its own id is matched on it, unhashed.
+    expect(buildProfileBaseQuery(OMOP, source(), 42)).not.toContain('hash(')
+  })
+
   it('never interpolates a concept id as text', () => {
     // The id is the only caller-supplied value reaching the SQL; it is coerced to
     // an integer rather than escaped, so an injection attempt cannot survive.

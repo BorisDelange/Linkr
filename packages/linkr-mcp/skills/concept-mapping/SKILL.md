@@ -59,9 +59,12 @@ gateway: call them by name with `run_linkr_read_tool` (the `list_`, `get_`,
 2. If the vocabulary database is reported unusable, stop and relay the fix to
    the user (import an ATHENA export in Linkr: workspace settings › Vocabularies —
    the vocabularies are shared by every mapping project of the workspace).
-   A database project not yet extracted still works, without counts or
-   metadata: say so, and suggest the extraction (Source concepts tab) when the
-   metadata would decide between targets.
+   A database project is read from its extraction only: until the user has run
+   it (mapping project › Source concepts tab), the source-concept tools refuse
+   with "not been extracted yet". Relay that and stop. An extraction can be
+   paused, and what it has extracted so far is readable at once; one run with
+   metadata off has no counts or metadata — suggest a run with metadata when it
+   would decide between targets.
 3. Ask, once per session, and keep the answers:
    - **Output** — *suggestions* (default: `add_ai_suggestions`, a reviewer
      accepts or rejects them in Linkr) or *mappings* (`create_mappings`, every

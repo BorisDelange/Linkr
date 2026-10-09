@@ -259,7 +259,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         <TabsContent value="editor" forceMount className={`flex-1 overflow-hidden ${activeTab === 'editor' ? '' : 'hidden'}`}>
           {/* eslint-disable-next-line react-hooks/refs -- monotonic "sticky mount" latch: once true it never flips back, and it is set in an activeTab effect that already re-renders this component, so reading it here keeps the editor mounted without going stale */}
           {(activeTab === 'editor' || editorEverOpened.current) && (
-            <MappingEditorTab project={project} onGoToConceptSets={() => setActiveTab('concept-sets')} onGoToSourceConcepts={() => setActiveTab('source-concepts')} />
+            <MappingEditorTab project={project} active={activeTab === 'editor'} onGoToConceptSets={() => setActiveTab('concept-sets')} onGoToSourceConcepts={() => setActiveTab('source-concepts')} />
           )}
         </TabsContent>
         <TabsContent value="mappings" forceMount className={`flex-1 overflow-hidden ${activeTab === 'mappings' ? '' : 'hidden'}`}>
