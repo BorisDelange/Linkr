@@ -29,6 +29,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { classRelation, conceptRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { binCentre } from '@/lib/concept-mapping/export-masking'
+import { hashedConceptId } from './hashed-concept-id'
 
 // ---------------------------------------------------------------------------
 // Options
@@ -257,7 +258,7 @@ function resolveWardExpr(mapping: SchemaMapping, event: ClassRelation): WardJoin
  * empty. Shared with the extraction's counts query (buildConceptCountsQuery).
  */
 export function eventConceptKey(dictionary: ConceptIdentity, column: string): string {
-  return dictionary.ownId ? column : `(hash(${column}) % 2147483647)::INTEGER`
+  return dictionary.ownId ? column : hashedConceptId(column)
 }
 
 /**

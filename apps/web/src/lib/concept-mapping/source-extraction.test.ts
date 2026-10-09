@@ -17,6 +17,7 @@ import {
   extractionColumnMapping,
   extractionCsvHeader,
   extractionCsvRows,
+  extractedConceptIds,
   mergeTableCounts,
   planConceptWalk,
   rankConceptIds,
@@ -80,6 +81,15 @@ function page(n: number, from = 0) {
 }
 
 describe('the CSV contract', () => {
+  it('reads back the concept ids it wrote, whatever the other cells hold', () => {
+    const row = (id: number, name: string): ExtractedConcept => ({
+      terminology: 'V', concept_code: `C${id}`, concept_id: id, concept_name: name, category: '',
+      record_count: null, patient_count: null, info_json: '{"a":1,"b":"x,\ny"}',
+    })
+    const csv = `${extractionCsvHeader()}\n${extractionCsvRows([row(7, 'a, "b"'), row(3, 'line\nbreak')])}`
+    expect(extractedConceptIds(csv)).toEqual([7, 3])
+  })
+
   // These names are what restoreFileSourceDataFromCsv recognises on re-import;
   // renaming one silently breaks the git round trip of every extracted project.
   it('names its columns the way the importer expects to find them', () => {
@@ -142,6 +152,23 @@ describe('buildDictionaryPageQuery', () => {
     expect(withClassRelations(sql, codeOnly)).toContain('d."icd_code" AS concept_code')
   })
 
+  it('returns one row per id, a hashed one as a key one', () => {
+    // A code shared by two vocabularies, or two colliding codes, hash to one id.
+    const codeOnly = mappingV1ToV2({
+      ...OMOP_V1,
+      conceptTables: [{ key: 'd', table: 'd_icd', nameColumn: 'long_title', codeColumn: 'icd_code' }],
+    } as never)
+    const hashed = '(hash(d.concept_code) % 2147483647)::INTEGER'
+    const onePerId = `QUALIFY row_number() OVER (PARTITION BY ${hashed} ORDER BY d.concept_code, d.concept_name) = 1`
+    expect(buildDictionaryPageQuery(source(codeOnly, 'd'), 10, 0)).toContain(onePerId)
+    expect(buildDictionaryPageQuery(source(codeOnly, 'd'), 10, 0, { key: 'records', direction: 'desc' }, [5])).toContain(onePerId)
+    expect(buildDictionaryCountQuery(source(codeOnly, 'd'))).toContain(`COUNT(DISTINCT ${hashed})`)
+    expect(buildDictionaryPageQuery(source(), 10, 0, { key: 'records', direction: 'desc' }, [5])).toContain('QUALIFY')
+    // A key id is unique already, and the window would cost a whole-table pass per page.
+    expect(buildDictionaryPageQuery(source(), 10, 0)).not.toContain('QUALIFY')
+    expect(buildDictionaryCountQuery(source())).toContain('COUNT(*)')
+  })
+
   it('falls back to the table name when the dictionary names no vocabulary', () => {
     const noVocab = mappingV1ToV2({
       ...OMOP_V1,
@@ -153,6 +180,24 @@ describe('buildDictionaryPageQuery', () => {
 
 describe('extractBatch', () => {
   const opts = { ...DEFAULT_PROFILE_OPTIONS, minPatients: 0 }
+  const noMetadata = { ...opts, metadata: false }
+
+  it('reports the ranked ids its page no longer finds, and writes a repeated one once', async () => {
+    const [one, , three] = page(3)
+    const { query } = engine([{ match: 'IN (1, 2, 3, 4)', rows: [one, one, three] }])
+    const sort = { key: 'records', direction: 'desc' } as const
+    const result = await extractBatch(OMOP, source(), noMetadata, 0, 10, 4, query, undefined, undefined, sort, [1, 2, 3, 4])
+    expect(result.rows.map((r) => r.concept_id)).toEqual([1, 3])
+    expect(result.gone).toEqual([2, 4])
+    expect(result.done).toBe(true)
+  })
+
+  it('keeps walking a ranking whose whole slice is gone', async () => {
+    const { query } = engine([])
+    const sort = { key: 'records', direction: 'desc' } as const
+    const result = await extractBatch(OMOP, source(), noMetadata, 0, 2, 4, query, undefined, undefined, sort, [1, 2, 3, 4])
+    expect(result).toEqual({ rows: [], nextOffset: 0, done: false, gone: [1, 2] })
+  })
 
   it('turns a dictionary page into rows carrying their profile', async () => {
     const { query } = engine([

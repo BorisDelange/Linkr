@@ -1,6 +1,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { escSql as esc } from '@/lib/format-helpers'
+import { hashedConceptId } from './hashed-concept-id'
 import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
 import { conceptRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
@@ -28,7 +29,7 @@ function dictSources(mapping: SchemaMapping): DictSource[] {
  */
 function sourceIdExpr({ dict }: DictSource, alias = 'd'): string {
   if (dict.ownId) return `${alias}.concept_id`
-  return `(hash(${alias}.${dict.hasCode ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
+  return hashedConceptId(`${alias}.${dict.hasCode ? 'concept_code' : 'concept_name'}`)
 }
 
 /** A source concept's vocabulary: its terminology column, else the table name —

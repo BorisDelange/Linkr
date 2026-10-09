@@ -39,6 +39,10 @@ interface Warehouse {
   dictionary: Record<number, string>
   /** Records per concept, as the counting pass returns them. */
   records: Record<number, number>
+  /** Ids the dictionary holds twice, whatever the query asks. */
+  duplicated?: number[]
+  /** Ids the ids query lists but a page no longer finds. */
+  gone?: number[]
 }
 
 /**
@@ -46,7 +50,7 @@ interface Warehouse {
  * re-sorts like the server pager (`ORDER BY ALL`), so a walk that trusted the
  * row order would come out id-ascending.
  */
-function fakeSource({ dictionary, records }: Warehouse) {
+function fakeSource({ dictionary, records, duplicated = [], gone = [] }: Warehouse) {
   const seen: string[] = []
   const answer = async (sql: string): Promise<Record<string, unknown>[]> => {
     seen.push(sql)
@@ -61,10 +65,18 @@ function fakeSource({ dictionary, records }: Warehouse) {
     }
     if (sql.includes('SELECT DISTINCT')) return ids.map((id) => ({ concept_id: id }))
     const inList = sql.match(/IN \(([^)]*)\)/)
+    const row = (id: number) => ({
+      concept_id: id, concept_code: `C${id}`, concept_name: dictionary[id], vocabulary_id: 'V', category: null,
+    })
+    const withDuplicates = (found: number[]) =>
+      found.flatMap((id) => (duplicated.includes(id) ? [row(id), row(id)] : [row(id)]))
     if (inList) {
-      return inList[1].split(',').map(Number).filter((id) => id in dictionary).map((id) => ({
-        concept_id: id, concept_code: `C${id}`, concept_name: dictionary[id], vocabulary_id: 'V', category: null,
-      }))
+      return withDuplicates(inList[1].split(',').map(Number).filter((id) => id in dictionary && !gone.includes(id)))
+    }
+    const window = sql.match(/LIMIT (\d+) OFFSET (\d+)/)
+    if (window) {
+      const [limit, offset] = [Number(window[1]), Number(window[2])]
+      return withDuplicates([...ids].sort((a, b) => a - b).slice(offset, offset + limit))
     }
     return []
   }
@@ -161,6 +173,35 @@ describe('resuming a ranked extraction', () => {
     expect(writtenIds(writes)).toEqual([3, 1, 2])
   })
 
+  it('continues over a changed ranking, minus the concepts the CSV already holds', async () => {
+    const { answer } = fakeSource({
+      dictionary: { 1: 'a', 2: 'b', 3: 'c', 4: 'd' },
+      records: { 3: 90, 1: 50, 4: 45, 2: 40 },
+    })
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA, sort: BY_RECORDS, onlyWithRecords: true,
+      resumeFrom: { extracted: 2, total: 3, sizes: [3], walked: walked([1, 2]) },
+      query: answer, queryAll: answer,
+      readWritten: async () => [1, 2],
+    })
+    expect(writes.some((w) => w.reset)).toBe(false)
+    expect(writtenIds(writes)).toEqual([3, 4])
+    const last = writes.at(-1)!.state
+    expect([last.extracted, last.total, last.sizes]).toEqual([4, 4, [4]])
+  })
+
+  it('starts over when the CSV holds fewer concepts than the run says it wrote', async () => {
+    const { answer } = fakeSource({ dictionary: { 1: 'a', 2: 'b', 3: 'c' }, records: { 3: 90, 1: 50, 2: 40 } })
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA, sort: BY_RECORDS, onlyWithRecords: true,
+      resumeFrom: { extracted: 2, total: 3, sizes: [3], walked: walked([1, 2]) },
+      query: answer, queryAll: answer,
+      readWritten: async () => [1],
+    })
+    expect(writes[0].reset).toBe(true)
+    expect(writtenIds(writes)).toEqual([3, 1, 2])
+  })
+
   it('starts over a ranked run stored before the walk was recorded', async () => {
     // Its ranking scheme was another (concept 0 first, home-table records): the
     // offset into it means nothing in the new one.
@@ -172,6 +213,51 @@ describe('resuming a ranked extraction', () => {
     })
     expect(writes[0].reset).toBe(true)
     expect(writtenIds(writes)).toEqual([1, 2, 3])
+  })
+})
+
+describe('a ranked page that does not match its slice', () => {
+  const source = resolveProfileSource(OMOP, 'concept')!
+
+  it('writes a concept the dictionary holds twice once, and still reaches the end', async () => {
+    const { answer } = fakeSource({
+      dictionary: { 1: 'a', 2: 'b', 3: 'c' }, records: { 1: 50, 2: 40, 3: 30 }, duplicated: [1, 2],
+    })
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA, sort: BY_RECORDS, onlyWithRecords: true,
+      resumeFrom: null, query: answer, queryAll: answer,
+    })
+    expect(writtenIds(writes)).toEqual([1, 2, 3])
+    const last = writes.at(-1)!.state
+    expect([last.extracted, last.total]).toEqual([3, 3])
+  })
+
+  it('steps over a ranked concept the page no longer finds instead of ending there', async () => {
+    const { answer } = fakeSource({
+      dictionary: { 1: 'a', 2: 'b', 3: 'c' }, records: { 1: 50, 2: 40, 3: 30 }, gone: [2],
+    })
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA, sort: BY_RECORDS, onlyWithRecords: true,
+      resumeFrom: null, query: answer, queryAll: answer,
+    })
+    expect(writtenIds(writes)).toEqual([1, 3])
+    const last = writes.at(-1)!.state
+    expect([last.extracted, last.total, last.sizes]).toEqual([2, 2, [2]])
+  })
+})
+
+describe('resuming an unranked extraction', () => {
+  it('measures again a dictionary that grew since the run was stored', async () => {
+    const source = resolveProfileSource(OMOP, 'concept')!
+    const { answer } = fakeSource({ dictionary: { 1: 'a', 2: 'b', 3: 'c', 4: 'd' }, records: {} })
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA,
+      sort: { key: 'id', direction: 'asc' }, onlyWithRecords: false,
+      resumeFrom: { extracted: 2, total: 2, sizes: [2] },
+      query: answer, queryAll: answer,
+    })
+    expect(writtenIds(writes)).toEqual([3, 4])
+    expect(writes.at(-1)!.state.total).toBe(4)
   })
 })
 

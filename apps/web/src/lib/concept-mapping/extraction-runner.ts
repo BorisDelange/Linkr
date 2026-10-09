@@ -249,11 +249,8 @@ export interface StartRunInput {
    */
   queryAll: (sql: string, signal?: AbortSignal) => Promise<Record<string, unknown>[]>
   /**
-   * Every row of an aggregate in ONE request, when the engine can (server mode's
-   * `allRows`). The counting pass is a GROUP BY over a whole event table, and
-   * `queryAll` pages by re-running it once per 10k rows — on OMOP, seven full
-   * scans times the pages. Its result is small, so it is read here whole; a
-   * reply at the server's ceiling is read again through `queryAll`.
+   * Every row of an aggregate in one request (server mode's `allRows`):
+   * `queryAll` pages by re-running the whole GROUP BY once per page.
    */
   queryAggregate?: (sql: string, signal?: AbortSignal) => Promise<Record<string, unknown>[]>
   /**
@@ -272,6 +269,11 @@ export interface StartRunInput {
   ) => Promise<void>
   /** Record a failure on the stored run, so a reload shows it. */
   persistError: (message: string) => Promise<void>
+  /**
+   * The concept ids of the CSV written so far, in row order, or null when it
+   * cannot be read. Lets a ranked resume continue over a changed ranking.
+   */
+  readWritten?: () => Promise<number[] | null>
 }
 
 /**
@@ -329,26 +331,6 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
 
     const sort = input.sort ?? DEFAULT_EXTRACTION_SORT
 
-    // Per-dictionary sizes, so a global offset can be mapped onto the right one.
-    //
-    // A resume REUSES the sizes its run measured rather than recounting: the
-    // offset is an index into those boundaries, so a dictionary that changed
-    // size in between would move them and land the resume in the wrong
-    // dictionary. Only a fresh run (or one stored before sizes were recorded)
-    // counts.
-    const storedSizes = input.resumeFrom?.sizes
-    const reuseSizes = !!storedSizes && storedSizes.length === sources.length
-    let sizes: number[] = []
-    if (reuseSizes) {
-      sizes.push(...storedSizes)
-    } else {
-      for (const source of sources) {
-        if (signal.aborted) return
-        const rows = await query(buildDictionaryCountQuery(source))
-        sizes.push(Number(rows[0]?.total ?? 0))
-      }
-    }
-
     // The counts are needed before anything can be profiled for a volume sort,
     // for keeping only the concepts with records, and for a dictionary spread
     // over several event tables — there they say which table each concept is
@@ -362,6 +344,29 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     const metadata = computesMetadata(options)
     const needsCounts = onlyWithRecords
       || (metadata && (sortNeedsCounts(sort) || sources.some((s) => s.events.length > 1)))
+
+    // Per-dictionary sizes, so a global offset can be mapped onto the right one.
+    // A resume keeps the sizes of the dictionaries already written: the offset
+    // is an index into those boundaries. The others are measured again, by the
+    // ranking below or, for an unranked walk, here.
+    const storedSizes = input.resumeFrom?.sizes
+    const reuseSizes = !!storedSizes && storedSizes.length === sources.length
+    let sizes: number[] = reuseSizes ? [...storedSizes] : sources.map(() => 0)
+    if (!needsCounts) {
+      // From the dictionary holding the last concept written: one written to
+      // its end can have grown too, and the ones after it are not started.
+      const last = reuseSizes && offset > 0 ? locate(offset - 1, sizes) : { index: 0, local: -1 }
+      const { index } = last
+      const local = last.local + 1
+      for (let j = index; j < sources.length; j++) {
+        if (signal.aborted) return
+        const rows = await query(buildDictionaryCountQuery(sources[j]))
+        const counted = Number(rows[0]?.total ?? 0)
+        // Never below what is already written: the boundary would move behind
+        // the offset and land the resume in the next dictionary.
+        sizes[j] = j === index ? Math.max(counted, local) : counted
+      }
+    }
     let rankings: (number[] | undefined)[] = sources.map(() => undefined)
     const homes: (Map<number, number> | undefined)[] = sources.map(() => undefined)
     const recordTotals: (Map<number, number> | undefined)[] = sources.map(() => undefined)
@@ -389,39 +394,42 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         // zero count. It simply sorts last.
         const ranked = planConceptWalk(merged.counts, sort, dictionaryWalkIds(ids), onlyWithRecords)
         rankings.push(ranked)
-        // A resume keeps the boundaries its run walked (see below); only a fresh
-        // run adopts the ranking's length as this dictionary's size.
         if (!reuseSizes) sizes[i] = ranked.length
       }
 
-      // A resume is an offset into a ranking just recomputed. The dictionaries
-      // before the one in progress are written and keep their sizes; the one in
-      // progress continues only if its new ranking starts with exactly the
-      // concepts already written — else, rather than skip some and write others
-      // twice, the run starts over (the CSV can be replaced, not cut). A run
-      // stored without that record predates the current ranking scheme. Those
-      // not started yet simply take their new length.
+      // A resume is an offset into a ranking just recomputed. The dictionary in
+      // progress must lead its new ranking with the concepts already written, in
+      // the order written: when the fingerprint says it does not, those are read
+      // back from the CSV and moved to the front. Only when they cannot be read
+      // does the run start over.
       if (input.resumeFrom && offset > 0) {
         const { index, local } = locate(offset, sizes)
         if (index < sources.length) {
-          const prefix = rankings[index]!.slice(0, local)
+          const ranking = rankings[index]!
+          const prefix = ranking.slice(0, local)
           const same = local === 0 || (
             prefix.length === local && input.resumeFrom.walked === walkKey(extendWalk(EMPTY_WALK, prefix))
           )
-          if (same) {
+          // Without stored sizes, the boundaries between several dictionaries
+          // are unknown and so is which rows belong to this one.
+          const readable = reuseSizes || sources.length === 1
+          const written = same ? prefix : readable ? await writtenRange(input, offset - local, offset) : null
+          if (signal.aborted) return
+          if (written) {
+            const behind = new Set(written)
+            rankings[index] = [...written, ...ranking.filter((id) => !behind.has(id))]
             for (let j = index; j < sources.length; j++) sizes[j] = rankings[j]!.length
           } else {
             offset = 0
             sizes = rankings.map((r) => r!.length)
           }
         }
+      } else {
+        sizes = rankings.map((r) => r!.length)
       }
     }
 
-    // A run stored before its sizes were kept walks towards the total it stored.
-    let runTotal = !needsCounts && !reuseSizes && input.resumeFrom?.total
-      ? input.resumeFrom.total
-      : sum(sizes)
+    let runTotal = sum(sizes)
 
     // A fresh run writes the header and replaces the file; a resume appends to
     // what is already stored. The rows themselves are never held here — only the
@@ -458,12 +466,19 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
         sort, ranking, homes[index], recordTotals[index],
       )
+      if (ranking && batch.gone) {
+        const gone = new Set(batch.gone)
+        rankings[index] = ranking.filter((id, i) => i < local || !gone.has(id))
+        sizes[index] -= ranking.length - rankings[index]!.length
+        runTotal = sum(sizes)
+        emitNow(projectId, { total: runTotal })
+      }
       // A batch that yields nothing and is not done would spin forever.
-      if (batch.rows.length === 0 && !batch.done) break
+      if (batch.rows.length === 0 && !batch.done && !batch.gone) break
       offset += batch.rows.length
-      if (ranking) walked = extendWalk(walked, ranking.slice(local, local + batch.rows.length))
-      // The dictionary ended before the size it was given (it shrank, or ranked
-      // ids are gone from it): close it where it ended, so the next one starts
+      if (ranking) walked = extendWalk(walked, rankings[index]!.slice(local, local + batch.rows.length))
+      // The dictionary ended before the size it was given (it shrank): close it
+      // where it ended, so the next one starts
       // there and the total stays what was written. Left as it was, the offset
       // never reached the boundary and the same empty page was asked forever.
       if (batch.done) {
@@ -528,6 +543,17 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
       if (run.watchers.size === 0 && !error) runs.delete(projectId)
     }
   }
+}
+
+/**
+ * The concept ids written at rows [from, to) of the CSV, or null when the CSV
+ * cannot be read or holds fewer rows.
+ */
+async function writtenRange(input: StartRunInput, from: number, to: number): Promise<number[] | null> {
+  if (!input.readWritten) return null
+  const ids = await input.readWritten()
+  if (!ids || ids.length < to) return null
+  return ids.slice(from, to)
 }
 
 /** Forget a finished run's error, so the next start renders clean. */

@@ -147,10 +147,13 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
     savedFilters?.mappingStatusFilter ?? 'all',
   )
   const [detailConcept, setDetailConcept] = useState<SourceConceptRow | null>(null)
-  const [fileSourceReady, setFileSourceReady] = useState(false)
+  // Per project: the page is not keyed by it, so a switch must not inherit the
+  // previous project's mount.
+  const [readyProjectId, setReadyProjectId] = useState<string | null>(null)
+  const fileSourceReady = readyProjectId === project.id
   /** Bumped each time the source is reloaded after it changed under the open editor. */
   const [sourceVersion, setSourceVersion] = useState(0)
-  const loadedSignatureRef = useRef<string | null>(null)
+  const loadedSignatureRef = useRef<{ projectId: string; signature: string } | null>(null)
   const [suggestionCategories, setSuggestionCategories] = useState<Set<SuggestionCategory>>(
     () => new Set(savedFilters?.suggestionCategories ?? []),
   )
@@ -249,8 +252,9 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
   // deferred while the tab is hidden, so a run does not remount on every batch.
   useEffect(() => {
     if (!fileSourceData || !sourceSignature) return
-    if (loadedSignatureRef.current === sourceSignature) return
-    const isRefresh = loadedSignatureRef.current !== null
+    const loaded = loadedSignatureRef.current?.projectId === project.id ? loadedSignatureRef.current.signature : null
+    if (loaded === sourceSignature) return
+    const isRefresh = loaded !== null
     if (isRefresh && !active) return
     let cancelled = false
     const mount = async () => {
@@ -262,9 +266,9 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
           fileSourceData.rawFileBuffer,
         )
         if (cancelled) return
-        loadedSignatureRef.current = sourceSignature
+        loadedSignatureRef.current = { projectId: project.id, signature: sourceSignature }
         if (isRefresh) setSourceVersion((v) => v + 1)
-        else setFileSourceReady(true)
+        else setReadyProjectId(project.id)
       } catch (err) {
         console.error('Failed to mount file source into DuckDB:', err)
         if (!cancelled) setQueryError(err instanceof Error ? err.message : String(err))

@@ -1315,8 +1315,24 @@ function fileSourceSignature(
   columnMapping: FileColumnMapping,
   rawFileBuffer?: Uint8Array | ArrayBuffer,
 ): string {
-  const size = rawFileBuffer && rawFileBuffer.byteLength > 0 ? `csv:${rawFileBuffer.byteLength}` : `rows:${rows.length}`
+  const size = rawFileBuffer && rawFileBuffer.byteLength > 0
+    ? `csv:${rawFileBuffer.byteLength}:${sampleHash(new Uint8Array(rawFileBuffer))}`
+    : `rows:${rows.length}`
   return `${size}|${JSON.stringify(columnMapping)}`
+}
+
+/** FNV-1a over the head, the tail and a strided sample: constant cost whatever the file's size. */
+function sampleHash(bytes: Uint8Array): string {
+  const SPAN = 4096
+  let h = 0x811c9dc5
+  const add = (i: number) => { h = Math.imul(h ^ bytes[i], 0x01000193) }
+  const n = bytes.length
+  const head = Math.min(n, SPAN)
+  for (let i = 0; i < head; i++) add(i)
+  for (let i = Math.max(head, n - SPAN); i < n; i++) add(i)
+  const stride = Math.max(1, Math.floor(n / SPAN))
+  for (let i = 0; i < n; i += stride) add(i)
+  return (h >>> 0).toString(16)
 }
 
 /** Check if a file source project is already mounted in DuckDB. */

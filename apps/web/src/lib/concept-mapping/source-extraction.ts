@@ -18,6 +18,7 @@
  * imports. The tab owns persistence, this owns what to ask and in what order.
  */
 
+import Papa from 'papaparse'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { FileColumnMapping } from '@/types'
 import {
@@ -27,6 +28,7 @@ import {
   type ProfileSource,
 } from './concept-profile'
 import { csvEscape } from './export'
+import { hashedConceptId } from './hashed-concept-id'
 import { escSql } from '@/lib/format-helpers'
 import { has } from '@/lib/schema-classes/relations'
 
@@ -127,7 +129,9 @@ export interface ExtractedConcept {
 export function buildDictionaryCountQuery(source: ProfileSource): string {
   // The same rows the unranked page query walks, or the run would count towards
   // concepts it never reaches.
-  return `SELECT COUNT(*) AS total FROM ${source.dict.name} d WHERE ${namesAConcept(conceptIdExpr(source))}`
+  const idExpr = conceptIdExpr(source)
+  const count = source.dictionary.ownId ? 'COUNT(*)' : `COUNT(DISTINCT ${idExpr})`
+  return `SELECT ${count} AS total FROM ${source.dict.name} d WHERE ${namesAConcept(idExpr)}`
 }
 
 /**
@@ -172,19 +176,25 @@ function conceptIdExpr(source: ProfileSource): string {
   const dict = source.dictionary
   return dict.ownId
     ? 'd.concept_id'
-    : `(hash(d.${dict.hasCode ? 'concept_code' : 'concept_name'}) % 2147483647)::INTEGER`
+    : hashedConceptId(`d.${dict.hasCode ? 'concept_code' : 'concept_name'}`)
 }
 
 /**
- * Whether an id expression names a concept.
- *
- * NULL is no concept, and neither is 0: OMOP's "No matching concept", the id of
- * every unmapped record, which a volume ranking put first and profiled with the
- * largest scan of the run. TRY_CAST so a text id column is compared as text
- * would be, rather than failing the run on its first non-numeric code.
+ * NULL and 0 (OMOP's "No matching concept") name no concept. TRY_CAST so a text
+ * id column does not fail the run on its first non-numeric code.
  */
 function namesAConcept(idExpr: string): string {
   return `${idExpr} IS NOT NULL AND TRY_CAST(${idExpr} AS BIGINT) IS DISTINCT FROM 0`
+}
+
+/**
+ * One row per id: a hashed id repeats when a code is shared by two vocabularies
+ * or two codes collide (MIMIC's d_icd_diagnoses has both). The first by code
+ * then name is kept, so the same row wins on every read.
+ */
+function onePerId(source: ProfileSource, idExpr: string): string {
+  const order = source.dictionary.hasCode ? 'd.concept_code, d.concept_name' : 'd.concept_name'
+  return `QUALIFY row_number() OVER (PARTITION BY ${idExpr} ORDER BY ${order}) = 1`
 }
 
 /**
@@ -238,14 +248,7 @@ export function buildConceptCountsQuery(source: ProfileSource, event = source.ev
  */
 export function buildDictionaryIdsQuery(source: ProfileSource, sort?: ExtractionSort): string {
   const idExpr = conceptIdExpr(source)
-  // One row per id because the id is not always the dictionary's own key: with
-  // no key column it is a hash of the code, and two rows can share one (the same
-  // code under two vocabulary versions, or a plain collision). A duplicate would
-  // make `sizes[i]` count a concept the page query — which fetches by `IN (ids)`
-  // — returns only once, so the run could never reach that dictionary's end.
-  // A row with no id is no concept: read back as a number it became 0, which on
-  // OMOP is every unmapped record's id, so a phantom concept led the ranking and
-  // its missing page row made the run stop early, thinking itself done.
+  // DISTINCT: a hashed id repeats (onePerId), and the ranking must hold each once.
   const where = `WHERE ${namesAConcept(idExpr)}`
   if (!sort || sortNeedsCounts(sort)) {
     return `SELECT DISTINCT ${idExpr} AS concept_id FROM ${source.dict.name} d ${where}`
@@ -475,6 +478,7 @@ export function buildDictionaryPageQuery(
       .join(' ')
     return `${select}
   WHERE ${idExpr} IN (${ids})
+  ${onePerId(source, idExpr)}
   ORDER BY CASE ${idExpr} ${positions} END`
   }
 
@@ -488,8 +492,10 @@ export function buildDictionaryPageQuery(
     ? `${idExpr} ${direction}`
     : `${column} ${direction}, ${idExpr} ASC`
   // The rows buildDictionaryCountQuery sized, and the ones a ranked walk keeps.
+  // An own id is the dictionary's key: deduplicating it would cost a window over
+  // the whole table (OMOP's concept) on every page.
   return `${select}
-  WHERE ${namesAConcept(idExpr)}
+  WHERE ${namesAConcept(idExpr)}${dict.ownId ? '' : `\n  ${onePerId(source, idExpr)}`}
   ORDER BY ${order}
   LIMIT ${Math.trunc(limit)} OFFSET ${Math.trunc(offset)}`
 }
@@ -509,6 +515,12 @@ export function extractionCsvRows(rows: ExtractedConcept[]): string {
   return rows.map(toCsvLine).join('\n')
 }
 
+/** The concept ids of an extracted CSV, in row order. */
+export function extractedConceptIds(csv: string): number[] {
+  const { data } = Papa.parse<Record<string, string>>(csv, { header: true, skipEmptyLines: true })
+  return data.map((row) => Number(row.concept_id))
+}
+
 /** What one batch produced, and whether there is more to do. */
 export interface BatchResult {
   rows: ExtractedConcept[]
@@ -516,6 +528,12 @@ export interface BatchResult {
   nextOffset: number
   /** True when the dictionary has been walked to the end. */
   done: boolean
+  /**
+   * Ranked walk only: ids of the slice behind the batch that the dictionary no
+   * longer holds. The caller drops them from its ranking, so ranking positions
+   * keep matching the rows written.
+   */
+  gone?: number[]
 }
 
 /**
@@ -578,15 +596,18 @@ export async function extractBatch(
     if (signal?.aborted) return { rows: [], nextOffset: offset, done: false }
     throw err
   }
-  if (page.length === 0) return { rows: [], nextOffset: offset, done: true }
+  if (page.length === 0 && !orderedIds) return { rows: [], nextOffset: offset, done: true }
 
   const metadata = computesMetadata(options)
   const counts = computesCounts(options)
   const rows: ExtractedConcept[] = []
+  const seen = new Set<number>()
   for (const raw of page) {
     if (signal?.aborted) break
     const concept = raw as unknown as DictionaryConcept
     const conceptId = Number(concept.concept_id)
+    if (seen.has(conceptId)) continue
+    seen.add(conceptId)
     const conceptName = concept.concept_name == null ? '' : String(concept.concept_name)
 
     const home = source.events[homes?.get(conceptId) ?? 0] ?? source.event
@@ -618,16 +639,18 @@ export async function extractBatch(
   }
 
   const nextOffset = offset + rows.length
+  if (orderedIds) {
+    const slice = orderedIds.slice(offset, offset + Math.trunc(batchSize))
+    const last = rows.length > 0 ? slice.indexOf(rows[rows.length - 1].concept_id) : -1
+    const behind = signal?.aborted ? slice.slice(0, last + 1) : slice
+    const written = new Set(rows.map((r) => r.concept_id))
+    const gone = behind.filter((id) => !written.has(id))
+    const done = !signal?.aborted && offset + slice.length >= orderedIds.length
+    return { rows, nextOffset, done, ...(gone.length > 0 ? { gone } : {}) }
+  }
   // Short page means the dictionary is exhausted — but only if the batch ran to
   // completion. An aborted batch is short for a different reason, and calling it
   // done would strand the rest of the dictionary.
-  //
-  // A ranked run compares against the slice it asked for, not the batch size:
-  // the ranking can hold fewer concepts than the dictionary (a concept with no
-  // records never appears in the counts), so a full slice can still be short.
-  const asked = orderedIds
-    ? Math.min(batchSize, Math.max(0, orderedIds.length - offset))
-    : batchSize
-  const done = !signal?.aborted && page.length < asked
+  const done = !signal?.aborted && page.length < batchSize
   return { rows, nextOffset, done }
 }

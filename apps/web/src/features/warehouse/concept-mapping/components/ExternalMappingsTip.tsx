@@ -19,14 +19,14 @@ export function ExternalMappingsTip({ list, canImport }: { list: ExternalMapping
 
   return (
     <div className="max-w-xs space-y-2">
-      <SectionLabel as="p" className="font-semibold tracking-wide">
+      <SectionLabel as="p" className="font-semibold tracking-wide text-background/70">
         {t('concept_mapping.status_tip_aligned_in_projects', { count: summary.projectCount })}
       </SectionLabel>
       {summary.projects.map((group) => (
         <div key={group.projectId} className="space-y-1">
           <p className="truncate text-xs font-semibold">{projectName(group.projectId, group.projectName)}</p>
           {group.mappings.map((m) => (
-            <div key={m.id} className="min-w-0 border-l-2 border-blue-400/60 pl-2">
+            <div key={m.id} className="min-w-0 border-l-2 border-background/30 pl-2">
               <p className="truncate text-xs">→ {m.targetConceptName || `#${m.targetConceptId}`}</p>
               <p className="truncate text-[10px] opacity-70">
                 {[

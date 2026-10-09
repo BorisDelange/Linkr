@@ -36,6 +36,7 @@ import {
   computesMetadata,
   extractionColumnMapping,
   extractionCsvHeader,
+  extractedConceptIds,
   sortNeedsCounts,
   type ExtractionSort,
   type ExtractionSortKey,
@@ -391,6 +392,10 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         await updateMappingProject(project.id, {
           sourceExtraction: { ...saved, error: message, updatedAt: new Date().toISOString() },
         })
+      },
+      readWritten: async () => {
+        const csv = localCsv.current ?? await readExistingCsv(project)
+        return csv == null ? null : extractedConceptIds(csv)
       },
     })
   }, [

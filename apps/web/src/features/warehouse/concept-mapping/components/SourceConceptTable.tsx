@@ -429,7 +429,7 @@ export function SourceConceptTable({
           // Tooltip content
           let tooltipContent: ReactNode = (
             <span className="text-xs">
-              {t(status === 'mapped_elsewhere' ? 'concept_mapping.status_tip_mapped_elsewhere_loading' : `concept_mapping.status_tip_${status}`)}
+              {t(status === 'mapped_elsewhere' ? 'concept_mapping.status_tip_mapped_elsewhere_in_workspace' : `concept_mapping.status_tip_${status}`)}
             </span>
           )
 
@@ -445,7 +445,7 @@ export function SourceConceptTable({
             if (local.length > 0) {
               tooltipContent = (
                 <div className="max-w-xs space-y-1.5">
-                  <SectionLabel as="p" className="font-semibold tracking-wide">
+                  <SectionLabel as="p" className="font-semibold tracking-wide text-background/70">
                     {t('concept_mapping.status_tip_mapped')}
                   </SectionLabel>
                   {local.map((m) => {
@@ -457,7 +457,7 @@ export function SourceConceptTable({
                         <p className="truncate text-xs font-medium" title={m.targetConceptName}>
                           → {m.targetConceptName || `#${m.targetConceptId}`}
                         </p>
-                        <p className="text-[10px] text-muted-foreground">
+                        <p className="text-[10px] opacity-70">
                           {m.targetVocabularyId} · {m.equivalence?.replace('skos:', '') ?? ''}
                         </p>
                         {(a + r + f) > 0 && (
@@ -490,7 +490,12 @@ export function SourceConceptTable({
                   <Tooltip delayDuration={300}>
                     <TooltipTrigger asChild>
                       <PopoverTrigger asChild>
-                        <button type="button" className="flex w-full justify-center" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          className="flex w-full justify-center"
+                          aria-label={t('concept_mapping.status_tip_mapped_elsewhere', { count: list.length })}
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           {dot}
                         </button>
                       </PopoverTrigger>
