@@ -34,13 +34,15 @@ def test_column_is_matched_whatever_its_case_and_absent_is_empty(tmp_path):
     assert column_layout([str(tmp_path / "t.parquet")], "nope") == {"row_groups": 0, "scan_fraction": None}
 
 
-async def test_route_reports_each_table_of_a_parquet_folder(client, monkeypatch, tmp_path):
+async def test_route_reports_each_table_of_a_parquet_folder(client, monkeypatch, tmp_path_factory):
     from app.config import settings
 
     from tests.test_concept_stats_cache import _admin_headers, _workspace
 
-    monkeypatch.setattr(settings, "fs_browse_roots", str(tmp_path))
-    folder = tmp_path / "omop"
+    # Not tmp_path: that is the tests' data dir, which a serverPath may never touch.
+    server_dir = tmp_path_factory.mktemp("server")
+    monkeypatch.setattr(settings, "fs_browse_roots", str(server_dir))
+    folder = server_dir / "omop"
     folder.mkdir()
     _write(folder / "measurement.parquet", "v")
     _write(folder / "person.parquet", "person_id")
@@ -73,13 +75,15 @@ def test_a_path_read_parquet_would_glob_is_left_out(tmp_path):
     assert column_layout([str(tmp_path / "a?.parquet")], "person_id") == {"row_groups": 0, "scan_fraction": None}
 
 
-async def test_route_dedupes_checks_and_never_borrows_another_schemas_table(client, monkeypatch, tmp_path):
+async def test_route_dedupes_checks_and_never_borrows_another_schemas_table(client, monkeypatch, tmp_path_factory):
     from app.config import settings
 
     from tests.test_concept_stats_cache import _admin_headers, _workspace
 
-    monkeypatch.setattr(settings, "fs_browse_roots", str(tmp_path))
-    folder = tmp_path / "wh"
+    # Not tmp_path: that is the tests' data dir, which a serverPath may never touch.
+    server_dir = tmp_path_factory.mktemp("server")
+    monkeypatch.setattr(settings, "fs_browse_roots", str(server_dir))
+    folder = server_dir / "wh"
     (folder / "hosp").mkdir(parents=True)
     (folder / "icu").mkdir()
     _write(folder / "hosp" / "person.parquet", "v")

@@ -2893,7 +2893,6 @@
     "publishing": "Publication"
   },
   "settings": {
-    "title": "Paramètres",
     "users": "Utilisateurs",
     "users_title": "Gestion des utilisateurs",
     "users_description": "Gérez les utilisateurs et leurs rôles.",
@@ -4940,7 +4939,7 @@
     "status_tip_unchecked": "En attente de revue",
     "status_tip_invalid": "Invalide",
     "status_tip_more": "de plus",
-    "status_tip_mapped_elsewhere_loading": "Aligné dans d'autres projets de cet espace de travail",
+    "status_tip_mapped_elsewhere_in_workspace": "Aligné dans d'autres projets de cet espace de travail",
     "status_tip_aligned_in_projects_one": "Aligné dans {{count}} autre projet",
     "status_tip_aligned_in_projects_other": "Aligné dans {{count}} autres projets",
     "status_tip_more_alignments_one": "+{{count}} autre alignement",
@@ -5873,6 +5872,7 @@
     "forbidden": "Vous n’êtes pas autorisé à ouvrir un terminal sur ce projet : l’exécution de code est désactivée sur ce serveur, ou votre rôle n’a pas le droit d’exécuter du code.",
     "shellExited": "[shell terminé]",
     "disconnected": "[déconnecté]",
+    "renewedShell": "[session renouvelée — nouveau shell]",
     "serverKernel": "session serveur",
     "wasm": "WASM",
     "bashLimited": "Note : shell limité — utilisez les terminaux Python ou R pour exécuter du code",

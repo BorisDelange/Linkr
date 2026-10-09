@@ -73,13 +73,13 @@ async def _export_files(db: AsyncSession, workspace_id: str, user: User, source:
         return out
     if source.server_path:
         try:
-            fs_browser.validate_source_path(source.server_path)
-        except Exception as e:  # noqa: BLE001 — outside the browse roots
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+            fs_browser.validate_source_path(source.server_path, await fs_browser.import_scope(db, None, user))
+        except fs_browser.FsBrowseError as e:
+            raise HTTPException(e.status_code, str(e)) from e
         root = Path(source.server_path)
         if not root.is_dir():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not a folder")
-        return [(str(p.relative_to(root)), str(p)) for p in sorted(root.rglob("*")) if p.is_file()]
+        return [(str(p.relative_to(root)), str(p)) for p in fs_browser.files_under(root)]
     if source.data_source_id:
         ds = await data_source_service.get(db, source.data_source_id)
         if ds is None or ds.workspace_id != workspace_id:

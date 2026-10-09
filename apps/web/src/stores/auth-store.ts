@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { getApiBaseUrl, isServerMode } from '@/lib/api-client'
 import { setExportMinCount } from '@/lib/concept-mapping/export-masking'
+import { jwtSubject } from '@/lib/jwt'
 import { setPasswordMinLength } from '@/lib/password-policy'
 import { disposeAllLiveTerminals } from '@/lib/terminal-sessions'
 import { useFileStore } from '@/stores/file-store'
@@ -255,11 +256,15 @@ export const useAuthStore = create<AuthState>()((set, get) => {
   }
 })
 
-// Another tab logging out (or failing to refresh) removes the shared tokens. This
-// tab's terminals are still authenticated as that user, so they end with it.
+// Another tab logging out (or failing to refresh) removes the shared tokens, and
+// one logging in as someone else replaces them. This tab's terminals are still
+// authenticated as the previous user, so they end with that session; a refresh
+// of the same user's token leaves them be.
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (event) => {
-    if ((event.key === 'linkr-access-token' || event.key === null) && localStorage.getItem('linkr-access-token') === null) {
+    if (event.key !== 'linkr-access-token' && event.key !== null) return
+    const current = localStorage.getItem('linkr-access-token')
+    if (current === null || (event.key !== null && jwtSubject(event.oldValue) !== jwtSubject(current))) {
       disposeAllLiveTerminals()
     }
   })

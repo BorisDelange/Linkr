@@ -5,6 +5,7 @@ any means (terminal, git) appear in the IDE. No DB table backs these files."""
 import asyncio
 import mimetypes
 import shutil
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
@@ -150,8 +151,15 @@ async def copy_from_server(
     def copy() -> None:
         with fs_browser.open_import_source(str(src), scope) as fin:
             dst.parent.mkdir(parents=True, exist_ok=True)
-            with dst.open("wb") as fout:
-                shutil.copyfileobj(fin, fout)
+            # A copy refused halfway (the file grew past the cap) must leave the
+            # file it would have replaced intact.
+            part = dst.with_name(f".{dst.name}.{uuid.uuid4().hex}.part")
+            try:
+                with part.open("wb") as fout:
+                    shutil.copyfileobj(fin, fout)
+                part.replace(dst)
+            finally:
+                part.unlink(missing_ok=True)
 
     # The notification must follow the file: with a 202 answer the copy is still
     # running, and the request's session is gone by the time it ends. Whichever of

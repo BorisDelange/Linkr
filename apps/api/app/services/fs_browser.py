@@ -22,7 +22,9 @@ An import never exceeds what its user could already read: with empty roots it
 needs code execution on the project (a script reads the same files), and the
 kernel-only system folders, Linkr's own data folder and the folders other projects
 are bound to are always refused — the copy runs in the API process, which can read
-what kernels cannot.
+what kernels cannot. A binding and a database's `serverPath` answer to the same
+refusal (``FolderScope``): either one would otherwise re-expose those folders
+through the IDE file routes or the query route.
 """
 
 import os
@@ -33,7 +35,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
-from typing import TYPE_CHECKING, BinaryIO
+from typing import TYPE_CHECKING, BinaryIO, cast
 
 from app.config import settings
 
@@ -81,20 +83,26 @@ IMPORT_NEEDS_EXECUTION = (
     "Importing from anywhere on the server requires code execution on this project. "
     "Ask an administrator to configure browse roots to import without it."
 )
-IMPORT_SYSTEM_PATH = "System folders (/proc, /sys, /dev) cannot be imported from"
-IMPORT_DATA_DIR = "Files inside Linkr's data folder cannot be imported"
-IMPORT_OTHER_PROJECT = "Files inside another project's folders cannot be imported"
+SYSTEM_PATH_REFUSED = "System folders (/proc, /sys, /dev) cannot be used"
+DATA_DIR_REFUSED = "Linkr's data folder cannot be used"
+OTHER_PROJECT_REFUSED = "Another project's folders cannot be used"
+BROWSE_ROOT_REFUSED = "A whole browse root cannot be bound to a single project"
 
 
-def validate_binding_path(path: str) -> None:
+def validate_binding_path(path: str, scope: "FolderScope") -> None:
     """Enforce the SAME boundary the browse routes enforce, at the point a path
     is actually PERSISTED as a project's ide/scripts/datasets binding. The picker
     validates client-side, but the bind is a plain project PATCH — so without this
     an authorized user could set an arbitrary absolute path (e.g. /root, ~/.ssh)
     that the browse-root confinement never sees, yielding arbitrary server file
     read/write via the IDE/dataset file routes. Empty/None clears the binding
-    (falls back to the default dir) and is always allowed. Raises FsBrowseError
-    (surfaced as 400) on rejection."""
+    (falls back to the default dir) and is always allowed.
+
+    A bound folder counts as the project's own for imports, so it must not
+    overlap Linkr's data folder, a system folder, or (without
+    `project-folders:read`) another project's binding — nor claim a whole browse
+    root, which would make every file in it another project's for everyone else.
+    Raises FsBrowseError, whose `status_code` the route answers with."""
     if not path:
         return
     if not settings.enable_code_execution:
@@ -104,6 +112,11 @@ def validate_binding_path(path: str) -> None:
         raise FsBrowseError("Path is outside the allowed browse roots")
     if not target.is_dir():
         raise FsBrowseError("Bound path is not an existing folder")
+    reason = _overlap_refusal(target, scope)
+    if reason is None and not scope.sees_project_folders and _identity(target) in scope._root_ancestry:
+        reason = BROWSE_ROOT_REFUSED
+    if reason:
+        raise FsImportForbidden(reason)
 
 
 def _resolve(path: str) -> Path:
@@ -232,7 +245,7 @@ def validate_readable_dir(path: str) -> dict:
     return {"ok": True, "path": str(target)}
 
 
-def validate_source_path(path: str) -> None:
+def validate_source_path(path: str, scope: "FolderScope") -> None:
     """Enforce the browse-root boundary where a database's `serverPath` is
     PERSISTED (create and update alike). The picker's validation is a convenience,
     not a control: the config is written by a plain create/PATCH, so without this
@@ -245,18 +258,46 @@ def validate_source_path(path: str) -> None:
     whereas attaching a database read-only is not — a deployment that turned the
     IDE off must still be able to point Linkr at its own data.
 
-    Raises FsBrowseError (surfaced as 400) on rejection."""
+    The query route reads whatever the source points at, so it must not overlap
+    Linkr's data folder (its own database holds every password hash), a system
+    folder, or — without `project-folders:read` — a folder bound to a project.
+
+    Raises FsBrowseError, whose `status_code` the route answers with."""
     if not path:
         return
     target = Path(path).expanduser().resolve()
     if not _within_roots(target):
         raise FsBrowseError("Path is outside the allowed browse roots")
+    reason = _overlap_refusal(target, scope)
+    if reason:
+        raise FsImportForbidden(reason)
     if not target.exists():
         raise FsBrowseError("Server path does not exist")
     if not (target.is_file() or target.is_dir()):
         raise FsBrowseError("Server path is neither a file nor a folder")
     if not os.access(target, os.R_OK):
         raise FsBrowseError("Server path is not readable by the server")
+
+
+def reserved_refusal(path: str | Path) -> str | None:
+    """Why `path` may never be read on anyone's behalf, whoever asks: it is, is
+    inside or contains Linkr's data folder or a system folder. The check a
+    `serverPath` persisted before the rule existed still gets when it is attached."""
+    return _reserved_refusal(Path(path).expanduser().resolve(), FolderScope(whole_fs_allowed=False))
+
+
+def files_under(root: Path, suffixes: tuple[str, ...] | None = None) -> list[Path]:
+    """The files below `root`, recursively, sorted case-insensitively, minus any
+    symlink leading into a reserved place (`reserved_refusal`). `rglob` does not
+    descend into symlinked folders, so only symlinked files can leave `root`."""
+    found = (
+        p
+        for p in root.rglob("*")
+        if p.is_file()
+        and (suffixes is None or p.suffix.lower() in suffixes)
+        and not (p.is_symlink() and reserved_refusal(p))
+    )
+    return sorted(found, key=lambda p: str(p).lower())
 
 
 async def whole_fs_import_allowed(db: "AsyncSession", project: "Project", user: "User") -> bool:
@@ -292,21 +333,41 @@ def _lineage(target: Path) -> list[tuple[int, int]]:
 
 
 @dataclass(frozen=True)
-class ImportScope:
-    """What an import into one project may read. `whole_fs_allowed`: no browse
-    roots needed (the user could read the file with a script). `foreign_bound`:
-    the folders other projects are bound to; `own_bound`: the importing project's.
-    The nearest bound folder above a file decides, so a folder both projects are
-    bound to stays readable, and a broad own binding does not open another
-    project's folder nested in it."""
+class FolderScope:
+    """What one user may read on the server for one project (an import, a
+    binding) or for none (a database). `whole_fs_allowed`: no browse roots needed
+    (the user could read the file with a script). `foreign_bound`: the folders
+    other projects are bound to; `own_bound`: the project's. For an import the
+    nearest bound folder above a file decides, so a folder both projects are bound
+    to (only an administrator can set that up) stays readable, and a broad own
+    binding does not open another project's folder nested in it.
+
+    A foreign binding at or above a browse root is not treated as private: a
+    project cannot own a whole root (`validate_binding_path`), and one bound
+    before that rule would otherwise make every file in the root another
+    project's for everyone else."""
 
     whole_fs_allowed: bool
     foreign_bound: frozenset[str] = frozenset()
     own_bound: frozenset[str] = frozenset()
+    sees_project_folders: bool = False
+
+    @cached_property
+    def _root_ancestry(self) -> set[tuple[int, int]]:
+        return {ident for root in _browse_roots() for ident in _lineage(root)}
 
     @cached_property
     def _foreign_ids(self) -> set[tuple[int, int]]:
-        return _identities(self.foreign_bound)
+        return _identities(self.foreign_bound) - self._root_ancestry
+
+    @cached_property
+    def _foreign_ancestry(self) -> set[tuple[int, int]]:
+        return {
+            ident
+            for p in self.foreign_bound
+            if _identity(Path(p).expanduser()) in self._foreign_ids
+            for ident in _lineage(Path(p).expanduser().resolve())
+        }
 
     @cached_property
     def _own_ids(self) -> set[tuple[int, int]]:
@@ -317,57 +378,98 @@ class ImportScope:
         return _identities([settings.data_path])
 
     @cached_property
+    def _data_dir_ancestry(self) -> set[tuple[int, int]]:
+        return set(_lineage(Path(settings.data_path).expanduser().resolve()))
+
+    @cached_property
     def _system_ids(self) -> set[tuple[int, int]]:
         return _identities(_SYSTEM_DIRS)
 
+    @cached_property
+    def _system_ancestry(self) -> set[tuple[int, int]]:
+        return {ident for d in _SYSTEM_DIRS for ident in _lineage(d)}
 
-async def import_scope(db: "AsyncSession", project: "Project", user: "User") -> ImportScope:
+
+async def import_scope(db: "AsyncSession", project: "Project | None", user: "User") -> FolderScope:
+    """`user`'s scope for `project`, or for a database (`project` None: every
+    binding is another project's, and the whole filesystem is never open)."""
     from sqlalchemy import select
 
     from app.core.permissions import has_global_permission
     from app.models.project import Project as ProjectModel
 
-    whole_fs_allowed = await whole_fs_import_allowed(db, project, user)
+    whole_fs_allowed = project is not None and await whole_fs_import_allowed(db, project, user)
     if await has_global_permission(db, user, "project-folders:read"):
-        return ImportScope(whole_fs_allowed=whole_fs_allowed)
+        return FolderScope(whole_fs_allowed=whole_fs_allowed, sees_project_folders=True)
 
     rows = await db.execute(
         select(ProjectModel.uid, ProjectModel.ide_path, ProjectModel.scripts_path, ProjectModel.datasets_path)
     )
+    own_uid = project.uid if project is not None else None
     foreign: set[str] = set()
     own: set[str] = set()
     for uid, *paths in rows.all():
-        (own if uid == project.uid else foreign).update(p for p in paths if p)
-    return ImportScope(
+        (own if uid == own_uid else foreign).update(p for p in paths if p)
+    return FolderScope(
         whole_fs_allowed=whole_fs_allowed,
         foreign_bound=frozenset(foreign),
         own_bound=frozenset(own),
     )
 
 
-def _import_refusal(target: Path, scope: ImportScope) -> str | None:
+def _reserved_refusal(target: Path, scope: FolderScope, lineage: list[tuple[int, int]] | None = None) -> str | None:
+    """`target` is, is inside or contains a system folder or Linkr's data folder."""
+    lineage = _lineage(target) if lineage is None else lineage
+    if any(target == d or d in target.parents for d in _SYSTEM_DIRS) or scope._system_ids.intersection(lineage):
+        return SYSTEM_PATH_REFUSED
+    if scope._data_dir_ids.intersection(lineage):
+        return DATA_DIR_REFUSED
+    ident = _identity(target)
+    if ident is None:
+        return None
+    if ident in scope._system_ancestry:
+        return SYSTEM_PATH_REFUSED
+    if ident in scope._data_dir_ancestry:
+        return DATA_DIR_REFUSED
+    return None
+
+
+def _overlap_refusal(target: Path, scope: FolderScope) -> str | None:
+    """Why `target` (resolved) may not be persisted as a binding or a source: the
+    reserved places, then — unless the user sees every project's folders — a
+    foreign binding it is, is inside or contains."""
+    lineage = _lineage(target)
+    reason = _reserved_refusal(target, scope, lineage)
+    if reason or scope.sees_project_folders:
+        return reason
+    if scope._foreign_ids.intersection(lineage) or _identity(target) in scope._foreign_ancestry:
+        return OTHER_PROJECT_REFUSED
+    return None
+
+
+def _import_refusal(target: Path, scope: FolderScope) -> str | None:
     """Why `target` (resolved) may never be imported from or listed for an import."""
     if any(target == d or d in target.parents for d in _SYSTEM_DIRS):
-        return IMPORT_SYSTEM_PATH
+        return SYSTEM_PATH_REFUSED
     lineage = _lineage(target)
     if scope._system_ids.intersection(lineage):
-        return IMPORT_SYSTEM_PATH
+        return SYSTEM_PATH_REFUSED
     if scope._data_dir_ids.intersection(lineage):
-        return IMPORT_DATA_DIR
+        return DATA_DIR_REFUSED
     for ident in lineage:
         if ident in scope._own_ids:
             return None
         if ident in scope._foreign_ids:
-            return IMPORT_OTHER_PROJECT
+            return OTHER_PROJECT_REFUSED
     return None
 
 
-def _check_import_scope(scope: ImportScope) -> None:
+def _check_import_scope(scope: FolderScope) -> None:
     if not _browse_roots() and not scope.whole_fs_allowed:
         raise FsImportForbidden(IMPORT_NEEDS_EXECUTION)
 
 
-def import_list_dir(path: str, extensions: list[str] | None, scope: ImportScope) -> dict:
+def import_list_dir(path: str, extensions: list[str] | None, scope: FolderScope) -> dict:
     """`list_dir` for the import picker: the same boundary `validate_import_source`
     enforces, so the picker never offers a folder or file it would then refuse."""
     _check_import_scope(scope)
@@ -380,7 +482,7 @@ def import_list_dir(path: str, extensions: list[str] | None, scope: ImportScope)
     return listing
 
 
-def validate_import_source(path: str, scope: ImportScope) -> Path:
+def validate_import_source(path: str, scope: FolderScope) -> Path:
     """Check a server file a user copies INTO a project — a dataset import or an
     IDE upload — and return it resolved. Inside the browse roots (or, with none
     configured, only for a user allowed to run code: `scope.whole_fs_allowed`),
@@ -425,14 +527,46 @@ def _fd_path(fd: int) -> Path | None:
         return None
 
 
-def open_import_source(path: str, scope: ImportScope) -> BinaryIO:
+class _CappedReader:
+    """A file that raises FsImportTooLarge once more than `limit` bytes were read:
+    the size checked before the copy says nothing of a file still growing."""
+
+    def __init__(self, f: BinaryIO, limit: int) -> None:
+        self._f = f
+        self._limit = limit
+        self._read = 0
+
+    def read(self, size: int | None = -1) -> bytes:
+        room = self._limit - self._read + 1
+        chunk = self._f.read(room if size is None or size < 0 else min(size, room))
+        self._read += len(chunk)
+        if self._read > self._limit:
+            raise FsImportTooLarge(f"File exceeds the {settings.max_upload_mb} MB upload limit.")
+        return chunk
+
+    def fileno(self) -> int:
+        return self._f.fileno()
+
+    def close(self) -> None:
+        self._f.close()
+
+    def __enter__(self) -> "_CappedReader":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+def open_import_source(path: str, scope: FolderScope) -> BinaryIO:
     """`validate_import_source`, then open the file and check what was OPENED: a
     path swapped for a symlink between the check and the open must not slip a
-    refused file through. The caller copies from (and closes) the returned file."""
+    refused file through, nor a FIFO (opened non-blocking, then refused) hang the
+    worker. Reading past the upload cap raises FsImportTooLarge. The caller copies
+    from (and closes) the returned file."""
     target = validate_import_source(path, scope)
     checked = _identity(target)
     try:
-        fd = os.open(target, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        fd = os.open(target, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
     except OSError as exc:
         raise FsBrowseError("Server file changed while it was being imported") from exc
     f = os.fdopen(fd, "rb")
@@ -452,7 +586,7 @@ def open_import_source(path: str, scope: ImportScope) -> BinaryIO:
     except BaseException:
         f.close()
         raise
-    return f
+    return cast(BinaryIO, _CappedReader(f, settings.max_upload_mb * 1024 * 1024))
 
 
 DATABASE_FILE_SUFFIX = ".duckdb"

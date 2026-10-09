@@ -9,10 +9,12 @@
  *   { type: 'output', data } raw terminal bytes, then { type: 'exit' } on close.
  *
  * The browser cannot set an Authorization header on a WS handshake, so the JWT
- * travels as ?token=. There is no WS equivalent of the fetch token-refresh; on
- * an auth close (code 4401) we surface an error and do NOT reconnect.
+ * travels as ?token=, and the server re-checks that token while the socket lives.
+ * When it expires under a working session (code 4401 after open), a socket made
+ * with `renewOnExpiry` renews the token and reopens once per expiry; any other
+ * auth close surfaces an error and does NOT reconnect.
  */
-import { getApiBaseUrl } from '@/lib/api-client'
+import { apiFetch, getApiBaseUrl } from '@/lib/api-client'
 import i18n from '@/lib/i18n'
 
 export type TerminalLanguage = 'python' | 'r' | 'bash'
@@ -53,6 +55,9 @@ export interface TerminalCloseInfo {
 export interface TerminalSocketHandlers {
   onMessage: (msg: TerminalMessage) => void
   onOpen?: () => void
+  /** The socket reopened with a renewed token (`renewOnExpiry`); `onOpen` is not
+   *  called again. */
+  onRenewed?: () => void
   /** Called once when the socket closes. */
   onClose?: (info: TerminalCloseInfo) => void
 }
@@ -82,10 +87,15 @@ export interface TerminalSocketOptions {
   language: TerminalLanguage
   sessionId?: string
   connectionId?: string
+  /** Reopen with a renewed token when the server ends a working session because
+   *  its token expired. Only for a socket that may restart its session: Bash gets
+   *  a new shell, python/r the same kernel. */
+  renewOnExpiry?: boolean
 }
 
 export class TerminalSocket {
   private ws: WebSocket | null = null
+  private closed = false
   private readonly opts: TerminalSocketOptions
   private readonly handlers: TerminalSocketHandlers
 
@@ -94,7 +104,7 @@ export class TerminalSocket {
     this.handlers = handlers
   }
 
-  connect(): void {
+  connect(renewal = false): void {
     const token = localStorage.getItem('linkr-access-token') ?? ''
     const params = new URLSearchParams({
       token,
@@ -120,7 +130,8 @@ export class TerminalSocket {
     ws.onopen = () => {
       opened = true
       clearTimeout(openTimer)
-      this.handlers.onOpen?.()
+      if (renewal) this.handlers.onRenewed?.()
+      else this.handlers.onOpen?.()
     }
     ws.onmessage = (ev) => {
       try {
@@ -131,14 +142,29 @@ export class TerminalSocket {
     }
     ws.onclose = (ev) => {
       clearTimeout(openTimer)
-      this.handlers.onClose?.({
+      const info: TerminalCloseInfo = {
         authFailed: ev.code === WS_AUTH_FAILED,
         forbidden: ev.code === WS_FORBIDDEN,
         clean: ev.wasClean,
         neverOpened: !opened,
         timedOut,
-      })
+      }
+      if (info.authFailed && opened && this.opts.renewOnExpiry && !this.closed) {
+        void this.renew(token, info)
+      } else {
+        this.handlers.onClose?.(info)
+      }
     }
+  }
+
+  /** Any authenticated request refreshes an expired token; reopen only if that
+   *  produced a different one, so a revoked session ends instead of looping. */
+  private async renew(expired: string, info: TerminalCloseInfo): Promise<void> {
+    const res = await apiFetch('/api/v1/auth/me', {}, { promptLogin: false }).catch(() => null)
+    const token = localStorage.getItem('linkr-access-token')
+    if (this.closed) return
+    if (res?.ok && token && token !== expired) this.connect(true)
+    else this.handlers.onClose?.(info)
   }
 
   get ready(): boolean {
@@ -170,6 +196,7 @@ export class TerminalSocket {
   }
 
   close(): void {
+    this.closed = true
     this.ws?.close()
     this.ws = null
   }

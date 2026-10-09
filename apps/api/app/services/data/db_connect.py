@@ -1541,25 +1541,62 @@ def _cte_names(tokens: list[tuple[str, "duckdb.token_type"]]) -> set[str]:
 _FROM_ARGUMENT_FUNCTIONS = frozenset({"EXTRACT", "SUBSTRING", "TRIM", "OVERLAY", "POSITION"})
 
 
+# Keywords that open a query rather than name a table, right after a `(`.
+_SUBQUERY_STARTS = frozenset({"SELECT", "WITH", "VALUES", "FROM", "TABLE", "PIVOT", "UNPIVOT"})
+# Keywords that end a FROM list at its own nesting level.
+_FROM_LIST_ENDS = frozenset({
+    "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "QUALIFY", "WINDOW", "UNION",
+    "EXCEPT", "INTERSECT", "JOIN", "ON", "USING", "RETURNING", "SET", "SELECT",
+})
+
+
+def _table_list_positions(texts: list[str], start: int) -> list[int]:
+    """The table names of the FROM list opening at `start`: the first item, the
+    item after each comma of the list, and the same inside `FROM (a, b)`. Commas
+    nested deeper (function arguments, column aliases, subqueries) are not items."""
+    inner = 1 if texts[start] == "(" and start + 1 < len(texts) and texts[start + 1] not in _SUBQUERY_STARTS else 0
+    first = start + inner
+    out = [first]
+    depth = inner
+    for j in range(first + 1, len(texts)):
+        text = texts[j]
+        if text == "(":
+            depth += 1
+        elif text == ")":
+            depth -= 1
+            if depth < 0:
+                break
+        elif depth == 0 and text in _FROM_LIST_ENDS:
+            break
+        elif text == "," and depth <= inner and j + 1 < len(texts):
+            out.append(j + 1)
+    return out
+
+
 def _table_clause_positions(texts: list[str]) -> list[int]:
-    """Indexes of the tokens right after a FROM or JOIN that opens a table clause:
-    not `IS [NOT] DISTINCT FROM`, nor the FROM inside `EXTRACT(… FROM …)` and its
+    """Indexes of the tokens naming a table in a FROM or JOIN clause — after the
+    keyword, after each comma of a FROM list, inside `FROM (t)` — but not after
+    `IS [NOT] DISTINCT FROM`, nor the FROM inside `EXTRACT(… FROM …)` and its
     kin."""
-    out = []
+    out: set[int] = set()
     openers: list[str] = []
     for i, text in enumerate(texts):
+        if i + 1 >= len(texts):
+            break
         if text == "(":
             openers.append(texts[i - 1] if i > 0 else "")
         elif text == ")":
             if openers:
                 openers.pop()
-        elif text == "JOIN" or (
+        elif text == "JOIN":
+            out.add(i + 1)
+        elif (
             text == "FROM"
             and not (i > 0 and texts[i - 1] == "DISTINCT")
             and not (openers and openers[-1] in _FROM_ARGUMENT_FUNCTIONS)
         ):
-            out.append(i + 1)
-    return [i for i in out if i < len(texts)]
+            out.update(_table_list_positions(texts, i + 1))
+    return sorted(out)
 
 
 def _shadowing_tables(con: duckdb.DuckDBPyConnection) -> frozenset[str]:

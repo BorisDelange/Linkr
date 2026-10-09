@@ -211,3 +211,29 @@ def test_a_subquery_inside_a_from_argument_function_is_still_checked():
         db_connect._reject_ambiguous_role_refs(
             "SELECT substring((SELECT max(x) FROM transfers) FROM 2) FROM target.t;", _AMBIGUOUS,
         )
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM target.t, transfers;",
+    "SELECT * FROM target.t AS a, transfers AS b WHERE a.id = b.id;",
+    "SELECT * FROM (transfers);",
+    "SELECT * FROM (target.t, transfers);",
+    "SELECT * FROM (target.t), transfers;",
+    "SELECT * FROM target.t x(a, b), transfers;",
+    "UPDATE target.t SET n = 1 FROM target.u, transfers WHERE target.t.id = transfers.id;",
+])
+def test_every_table_of_a_from_list_is_checked(sql):
+    with pytest.raises(ValueError, match="transfers is ambiguous"):
+        db_connect._reject_ambiguous_role_refs(sql, _AMBIGUOUS)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT * FROM target.t WHERE a IN (1, 2) AND b = 'transfers';",
+    "SELECT coalesce(x, transfers) FROM target.t, target.u;",
+    "SELECT * FROM target.t ORDER BY a, transfers;",
+    "SELECT * FROM target.t GROUP BY a, transfers;",
+    "SELECT * FROM read_csv('a.csv', header = true), target.u;",
+    "SELECT * FROM (SELECT a, transfers FROM target.t);",
+])
+def test_a_comma_outside_the_from_list_is_not_a_table(sql):
+    db_connect._reject_ambiguous_role_refs(sql, _AMBIGUOUS)

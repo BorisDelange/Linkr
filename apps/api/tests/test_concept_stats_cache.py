@@ -85,15 +85,17 @@ async def test_cache_status_empty(client):
     assert r.json()["exists"] is False
 
 
-async def test_counting_run_routes(client, monkeypatch, tmp_path):
+async def test_counting_run_routes(client, monkeypatch, tmp_path_factory):
     """Start a run, write a unit, assemble: the status reports the unit, and the
     page query reads the assembled list."""
     import duckdb
 
     from app.config import settings
 
-    monkeypatch.setattr(settings, "fs_browse_roots", str(tmp_path))
-    db = tmp_path / "src.duckdb"
+    # Not tmp_path: that is the tests' data dir, which a serverPath may never touch.
+    server_dir = tmp_path_factory.mktemp("server")
+    monkeypatch.setattr(settings, "fs_browse_roots", str(server_dir))
+    db = server_dir / "src.duckdb"
     con = duckdb.connect(str(db))
     con.execute("CREATE TABLE concept AS SELECT * FROM (VALUES (1, 'Sodium'), (2, 'Urea')) t(concept_id, concept_name)")
     con.execute("CREATE TABLE measurement AS SELECT * FROM (VALUES (1, 1), (2, 1)) t(person_id, concept_id)")

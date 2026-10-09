@@ -96,14 +96,14 @@ async def update_project(
     # boundary at the point of persistence, not just in the picker (client-side
     # validation is not a security control). Rejects an out-of-roots / non-existent
     # bind before it reaches the IDE/dataset file routes.
-    for key in ("ide_path", "scripts_path", "datasets_path"):
-        if key in fields and fields[key]:
+    bindings = [fields[key] for key in ("ide_path", "scripts_path", "datasets_path") if fields.get(key)]
+    if bindings:
+        scope = await fs_browser.import_scope(db, project, user)
+        for path in bindings:
             try:
-                fs_browser.validate_binding_path(fields[key])
+                fs_browser.validate_binding_path(path, scope)
             except fs_browser.FsBrowseError as exc:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
-                ) from exc
+                raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return await project_service.update(db, project, body)
 
 

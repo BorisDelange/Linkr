@@ -2893,7 +2893,6 @@
     "publishing": "Publishing"
   },
   "settings": {
-    "title": "Settings",
     "users": "Users",
     "users_title": "User management",
     "users_description": "Manage users and their roles.",
@@ -4940,7 +4939,7 @@
     "status_tip_unchecked": "Pending review",
     "status_tip_invalid": "Invalid",
     "status_tip_more": "more",
-    "status_tip_mapped_elsewhere_loading": "Mapped in other projects of this workspace",
+    "status_tip_mapped_elsewhere_in_workspace": "Mapped in other projects of this workspace",
     "status_tip_aligned_in_projects_one": "Aligned in {{count}} other project",
     "status_tip_aligned_in_projects_other": "Aligned in {{count}} other projects",
     "status_tip_more_alignments_one": "+{{count}} more alignment",
@@ -5873,6 +5872,7 @@
     "forbidden": "You are not allowed to open a terminal on this project: code execution is turned off on this server, or your role lacks the right to run code.",
     "shellExited": "[shell exited]",
     "disconnected": "[disconnected]",
+    "renewedShell": "[session renewed — new shell]",
     "serverKernel": "server session",
     "wasm": "WASM",
     "bashLimited": "Note: limited shell — use Python or R terminals for code execution",

@@ -58,14 +58,15 @@ def _server_path_files(path: str) -> list[tuple[str, str]]:
     carry their true extension and `_is_parquet_folder` / `group_parquet_tables`
     classify them exactly as they do an upload."""
     target = Path(path)
+    # A config persisted before `serverPath` was refused inside Linkr's data
+    # folder still sits in the database: never attach it.
+    if fs_browser.reserved_refusal(target):
+        return []
     if target.is_file():
         return [(target.name, str(target))]
     if not target.is_dir():
         return []
-    found = sorted(
-        (p for p in target.rglob("*") if p.is_file() and p.suffix.lower() in _PARQUET_SUFFIXES),
-        key=lambda p: str(p).lower(),
-    )
+    found = fs_browser.files_under(target, _PARQUET_SUFFIXES)
     # Relative names so a nested layout groups by table the way an upload's
     # webkitRelativePath does.
     return [(str(p.relative_to(target)), str(p)) for p in found]
@@ -206,15 +207,23 @@ def server_path(source_or_config) -> str | None:
     return str(raw) if raw else None
 
 
-def enforce_server_path(config: dict | None) -> None:
+async def enforce_server_path(db: AsyncSession, config: dict | None, user: User | None) -> None:
     """Re-enforce the browse-root boundary wherever a config is PERSISTED. The
     picker validates client-side, but create/update take a plain JSON config — so
     without this a hand-made request could point a source at any file the server
-    can read (/etc/passwd, another tenant's data) and read it back through the
-    query route. Raises FsBrowseError, surfaced as 400 by the routes."""
+    can read (/etc/passwd, Linkr's own database, another project's folder) and
+    read it back through the query route. Without a `user` (an internal update
+    re-saving a stored config) only the reserved places are refused. Raises
+    FsBrowseError."""
     path = server_path(config or {})
-    if path:
-        fs_browser.validate_source_path(path)
+    if not path:
+        return
+    scope = (
+        await fs_browser.import_scope(db, None, user)
+        if user is not None
+        else fs_browser.FolderScope(whole_fs_allowed=False)
+    )
+    fs_browser.validate_source_path(path, scope)
 
 
 def _extract_secret(config: dict | None) -> str | None:
@@ -299,7 +308,7 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     # stamp_creator derives the right local id (ORCID/email match, or NULL).
     payload.pop("created_by_id", None)
     config = payload.get("connection_config")
-    enforce_server_path(config)
+    await enforce_server_path(db, config, owner)
     if config is not None:
         config = _keep_managed_path(config, None)
     payload["connection_config"], login = _split_login(config)
@@ -335,7 +344,8 @@ async def update(
     login = None
     before = dict(source.connection_config or {})
     if "connection_config" in changes:
-        enforce_server_path(changes["connection_config"])
+        editor = await db.get(User, editor_id) if editor_id is not None else None
+        await enforce_server_path(db, changes["connection_config"], editor)
         changes["connection_config"] = _keep_managed_path(
             changes["connection_config"] or {}, source.connection_config
         )

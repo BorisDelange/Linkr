@@ -285,12 +285,16 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
       terminal.writeln(`\x1b[2m${t('terminal.connecting')}\x1b[0m`)
       let firstOutput = true
       socket = new TerminalSocket(
-        { projectUid: projectUid!, language: 'bash' },
+        { projectUid: projectUid!, language: 'bash', renewOnExpiry: true },
         {
           onOpen: () => {
             terminal.clear()
             const { rows, cols } = terminal
             socket?.resize(rows, cols)
+          },
+          onRenewed: () => {
+            terminal.writeln(`\r\n\x1b[2m${t('terminal.renewedShell')}\x1b[0m`)
+            socket?.resize(terminal.rows, terminal.cols)
           },
           onMessage: (msg) => {
             if (msg.type === 'output' && msg.data) {
@@ -330,8 +334,13 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
     // WASM engines below are the front-only path. Chunks stream in live.
     if (serverMode && (terminalType === 'python' || terminalType === 'r')) {
       socket = new TerminalSocket(
-        { projectUid: projectUid!, language: terminalType, sessionId },
+        { projectUid: projectUid!, language: terminalType, sessionId, renewOnExpiry: true },
         {
+          onRenewed: () => {
+            if (!executing) return
+            executing = false
+            terminal.write(config.prompt)
+          },
           onMessage: (msg) => {
             if ((msg.type === 'stdout' || msg.type === 'output') && msg.data) {
               terminal.write(msg.data.replace(/\n/g, '\r\n'))

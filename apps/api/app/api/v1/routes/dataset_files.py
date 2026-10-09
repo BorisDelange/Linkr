@@ -226,11 +226,9 @@ async def stage_server_file(
 
     async def work() -> DsStagedFile:
         try:
-            opened = await asyncio.to_thread(fs_browser.open_import_source, str(src), scope)
+            sha, size = await blob_store.store_copy(lambda: fs_browser.open_import_source(str(src), scope))
         except fs_browser.FsBrowseError as e:
             raise HTTPException(e.status_code, str(e))
-        with opened:
-            sha, size = await blob_store.store_copy(opened)
         return DsStagedFile(sha=sha, size=size, file_name=src.name)
 
     return await deferred.respond(user.id, work)

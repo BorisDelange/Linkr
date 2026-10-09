@@ -15,6 +15,7 @@ import os
 import re
 import shutil
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import BinaryIO
 
@@ -124,11 +125,18 @@ def _store_copy_sync(fin: BinaryIO) -> tuple[str, int]:
     return h.hexdigest(), size
 
 
-async def store_copy(fin: BinaryIO) -> tuple[str, int]:
+async def store_copy(open_source: Callable[[], BinaryIO]) -> tuple[str, int]:
     """Copy a file that is NOT ours to move (e.g. one picked on the server, opened
     once so what was checked is what gets copied) into the store, leaving the
-    source untouched. The caller closes `fin`."""
-    return await asyncio.to_thread(_store_copy_sync, fin)
+    source untouched. `open_source` runs in the same worker as the copy, which
+    closes it: a request cancelled between an open and a copy awaited apart would
+    leak the descriptor."""
+
+    def run() -> tuple[str, int]:
+        with open_source() as fin:
+            return _store_copy_sync(fin)
+
+    return await asyncio.to_thread(run)
 
 
 def _store_bytes_sync(data: bytes) -> tuple[str, int]:
