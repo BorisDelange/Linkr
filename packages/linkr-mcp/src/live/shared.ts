@@ -15,11 +15,14 @@ const requestApi = new AsyncLocalStorage<LinkrApi>()
 export const withApiToken = <T>(token: string, fn: () => T): T =>
   requestApi.run(new LinkrApi({ LINKR_API_URL: process.env.LINKR_API_URL, LINKR_TOKEN: token }), fn)
 
+/** The client behind `api` for the current call — one per user, so a per-user cache can key on it. */
+export const currentApi = (): LinkrApi => requestApi.getStore() ?? envApi
+
 /** The Linkr API for the current call: the request's user over HTTP, else the
  *  credentials of the environment (stdio). */
 export const api: LinkrApi = new Proxy({} as LinkrApi, {
   get: (_, key) => {
-    const target = requestApi.getStore() ?? envApi
+    const target = currentApi()
     const value = Reflect.get(target, key)
     // Bound, or a prototype method would run with the proxy as `this` and store
     // the login tokens on it instead of the client.

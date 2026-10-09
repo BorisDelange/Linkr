@@ -1,6 +1,7 @@
 /** The `linkr` server with all its tools — one definition behind both transports. */
 import { McpServer } from '@modelcontextprotocol/server'
 import { captureTools, type CatalogTool } from './gateway.js'
+import { withReferences } from './references.js'
 import { registerCohortExtraTools } from './tools-cohorts-extra.js'
 import { registerConceptTools } from './tools-concepts.js'
 import { registerContextTools } from './tools-context.js'
@@ -55,7 +56,10 @@ export const CORE_TOOLS = [
   'get_job_status',
 ]
 
-export const CATALOG: CatalogTool[] = Object.entries(TOOLSETS).flatMap(([name, registers]) => captureTools(name, registers))
+/** Every tool, taking an object's name wherever it takes its id (see references.ts). */
+export const CATALOG: CatalogTool[] = Object.entries(TOOLSETS)
+  .flatMap(([name, registers]) => captureTools(name, registers))
+  .map((tool) => withReferences(tool))
 
 /** Families exposed directly on top of the core (`LINKR_MCP_TOOLSETS`, comma-separated;
  *  `all` = every tool, no gateway). Unset: the core only. */
