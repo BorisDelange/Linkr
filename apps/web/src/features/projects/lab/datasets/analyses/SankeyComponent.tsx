@@ -201,23 +201,21 @@ export function SankeyComponent({ config, columns, rows, compact, datasetFileId,
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<SankeyServerData | null>(null)
-  const [serverError, setServerError] = useState<string | null>(null)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
-  const { refreshing, settle } = useRenderRefresh(requestKey)
+  const { refreshing, settle, failure: serverError } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('sankey', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
-        settle(requestKey)
-        if (out.stderr) { setServerError(out.stderr); return }
+        if (out.stderr) { settle(requestKey, out.stderr); return }
         try {
           setServerData(JSON.parse(out.stdout.trim()) as SankeyServerData)
-          setServerError(null)
-        } catch { setServerError(out.stdout || 'Failed to parse result') }
+          settle(requestKey)
+        } catch { settle(requestKey, out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
+      .catch((e) => { if (!cancelled) settle(requestKey, String(e)) })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 

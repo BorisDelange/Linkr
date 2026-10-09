@@ -22,3 +22,28 @@ def test_mixed_iso_formats_each_parse_and_naive_strings_read_as_utc():
     out = _num_series(["2024-06-30", "2024-06-30 10:00:00", "not a date", None])
     assert out[:2] == [1719705600000, 1719741600000]
     assert all(pd.isna(v) for v in out[2:])
+
+
+def _program():
+    ns: dict = {}
+    exec(plot_builder._PLOT_PY, ns)  # noqa: S102 — server-owned program, test-only
+    return ns
+
+
+def test_scalar_parser_agrees_with_the_series_one():
+    to_num = _program()["_linkr_to_num"]
+    assert to_num("2024-06-30T10:00:00") == 1719741600000
+    assert to_num(" 2024-06-30T12:00:00+02:00 ") == 1719741600000
+    for blank_or_foreign in ("", "  ", "30/06/2024", "06/30/2024"):
+        assert pd.isna(to_num(blank_or_foreign))
+
+
+def test_a_non_iso_date_column_falls_back_to_categorical():
+    ns = _program()
+    df = pd.DataFrame({"d": ["30/06/2024", "01/07/2024", "02/07/2024"]})
+    assert ns["_linkr_is_categorical"](df, "d") is True
+    assert ns["_linkr_categorical"](df, "d", None, []) == [
+        {"bin": "30/06/2024", "count": 1},
+        {"bin": "01/07/2024", "count": 1},
+        {"bin": "02/07/2024", "count": 1},
+    ]

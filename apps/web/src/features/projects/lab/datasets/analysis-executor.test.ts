@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildRColumnData, buildRInjectionCode, resolveRColumnNames } from './analysis-executor'
+import { buildRColumnData, buildRInjectionCode, R_AS_UTC, resolveRColumnNames } from './analysis-executor'
 import type { DatasetColumn } from '@/types'
 
 const col = (id: string, name: string, type: DatasetColumn['type'] = 'string'): DatasetColumn =>
@@ -124,7 +124,16 @@ describe('buildRInjectionCode', () => {
   it('emits a date coercion under the resolved name too', () => {
     const columns = [col('col_a', 'when', 'date'), col('col_b', 'when', 'date')]
     const r = buildRInjectionCode(columns)
-    expect(r).toContain('dataset[["when"]] <- as.POSIXct')
-    expect(r).toContain('dataset[["when.2"]] <- as.POSIXct')
+    expect(r).toContain('dataset[["when"]] <- .linkr_as_utc(dataset[["when"]])')
+    expect(r).toContain('dataset[["when.2"]] <- .linkr_as_utc(dataset[["when.2"]])')
+  })
+
+  // tryFormats made a single blank date abort the whole run, and its first
+  // matching format (strptime ignores trailing text) cut every time to midnight.
+  it('parses dates with the shared per-value parser, defined before use', () => {
+    const r = buildRInjectionCode([col('col_a', 'when', 'date')])
+    expect(r).not.toContain('tryFormats')
+    expect(r.indexOf(R_AS_UTC)).toBeGreaterThan(-1)
+    expect(r.indexOf(R_AS_UTC)).toBeLessThan(r.indexOf('<- .linkr_as_utc(dataset'))
   })
 })

@@ -403,6 +403,9 @@ function ConceptQualityView({
       if (isQualityCacheUsable(cached, targetId, fingerprint)) {
         setRows((cached!.rows ?? []) as QualityConceptRow[])
         setComputedAt(cached!.computedAt)
+        // A forced load this one superseded skips its own reset (stale ticket).
+        setLoading(false)
+        setError(undefined)
         return
       }
     }

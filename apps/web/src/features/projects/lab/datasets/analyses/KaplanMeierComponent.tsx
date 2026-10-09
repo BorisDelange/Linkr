@@ -882,25 +882,23 @@ export function KaplanMeierComponent({ config, columns, rows, compact, datasetFi
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResult, setServerResult] = useState<KMResult | null>(null)
-  const [serverError, setServerError] = useState<string | null>(null)
   const [serverLoaded, setServerLoaded] = useState(false)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
-  const { refreshing, settle } = useRenderRefresh(requestKey)
+  const { refreshing, settle, failure: serverError } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('kaplan-meier', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
-        settle(requestKey)
         setServerLoaded(true)
-        if (out.stderr) { setServerError(out.stderr); return }
+        if (out.stderr) { settle(requestKey, out.stderr); return }
         try {
           const parsed = out.stdout.trim() === 'null' ? null : (JSON.parse(out.stdout.trim()) as KMResult)
-          setServerResult(parsed); setServerError(null)
-        } catch { setServerError(out.stdout || 'Failed to parse result') }
+          setServerResult(parsed); settle(requestKey)
+        } catch { settle(requestKey, out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) { settle(requestKey); setServerLoaded(true); setServerError(String(e)) } })
+      .catch((e) => { if (!cancelled) { setServerLoaded(true); settle(requestKey, String(e)) } })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 

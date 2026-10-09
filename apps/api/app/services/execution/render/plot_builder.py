@@ -115,7 +115,9 @@ def _linkr_to_num(v):
     except Exception:
         pass
     import pandas as _pd
-    ts = _pd.to_datetime(s, errors="coerce")
+    # The same parser as _linkr_num_series, so a column both judge alike: a
+    # non-ISO date ("30/06/2024") is categorical rather than an empty axis.
+    ts = _pd.to_datetime(s, errors="coerce", utc=True, format="ISO8601")
     if _pd.isna(ts):
         return float("nan")
     return float(ts.value // 1_000_000)
@@ -204,7 +206,8 @@ def _linkr_num_series(col):
     # All-unparseable as numbers: it may still be date strings. utc=True keeps
     # mixed offsets (a DST change) in one dtype, naive strings reading as UTC as
     # before; ISO8601 parses each value on its own instead of the first one's format.
-    parsed = _pd.to_datetime(col, errors="coerce", utc=True, format="ISO8601")
+    stripped = col.map(lambda v: v.strip() if isinstance(v, str) else v)
+    parsed = _pd.to_datetime(stripped, errors="coerce", utc=True, format="ISO8601")
     if parsed.notna().any():
         return _linkr_epoch_ms(parsed)
     return num

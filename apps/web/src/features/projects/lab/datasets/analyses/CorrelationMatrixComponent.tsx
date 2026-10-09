@@ -291,21 +291,19 @@ export function CorrelationMatrixComponent({ config, columns, rows, compact, dat
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResult, setServerResult] = useState<CorrelationResult | null>(null)
-  const [serverError, setServerError] = useState<string | null>(null)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
-  const { refreshing, settle } = useRenderRefresh(requestKey)
+  const { refreshing, settle, failure: serverError } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('correlation-matrix', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
-        settle(requestKey)
-        if (out.stderr) { setServerError(out.stderr); return }
-        try { setServerResult(JSON.parse(out.stdout.trim()) as CorrelationResult); setServerError(null) }
-        catch { setServerError(out.stdout || 'Failed to parse result') }
+        if (out.stderr) { settle(requestKey, out.stderr); return }
+        try { setServerResult(JSON.parse(out.stdout.trim()) as CorrelationResult); settle(requestKey) }
+        catch { settle(requestKey, out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) { settle(requestKey); setServerError(String(e)) } })
+      .catch((e) => { if (!cancelled) settle(requestKey, String(e)) })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 

@@ -104,10 +104,9 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverResult, setServerResult] = useState<SpcResult | null>(null)
-  const [serverError, setServerError] = useState<string | null>(null)
   const [serverLoaded, setServerLoaded] = useState(false)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
-  const { refreshing, settle } = useRenderRefresh(requestKey)
+  const { refreshing, settle, failure: serverError } = useRenderRefresh(requestKey)
 
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
@@ -115,25 +114,23 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
     renderOnServer('spc', spec, { datasetFileId, datasetFilters })
       .then(out => {
         if (cancelled) return
-        settle(requestKey)
         setServerLoaded(true)
         if (out.stderr) {
-          setServerError(out.stderr)
+          settle(requestKey, out.stderr)
           return
         }
         try {
           const parsed = out.stdout.trim() === 'null' ? null : (JSON.parse(out.stdout.trim()) as SpcResult)
           setServerResult(parsed)
-          setServerError(null)
+          settle(requestKey)
         } catch {
-          setServerError(out.stdout || 'Failed to parse result')
+          settle(requestKey, out.stdout || 'Failed to parse result')
         }
       })
       .catch(e => {
         if (!cancelled) {
-          settle(requestKey)
           setServerLoaded(true)
-          setServerError(String(e))
+          settle(requestKey, String(e))
         }
       })
     return () => {

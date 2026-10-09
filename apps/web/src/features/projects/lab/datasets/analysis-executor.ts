@@ -31,7 +31,7 @@ function buildInjectionCode(columns: DatasetColumn[], jsonDataB64: string): stri
       if (c.type === 'number')
         return `dataset[${JSON.stringify(c.name)}] = pd.to_numeric(dataset[${JSON.stringify(c.name)}], errors='coerce')`
       if (c.type === 'date')
-        return `dataset[${JSON.stringify(c.name)}] = pd.to_datetime(dataset[${JSON.stringify(c.name)}], errors='coerce')`
+        return `dataset[${JSON.stringify(c.name)}] = pd.to_datetime(dataset[${JSON.stringify(c.name)}], errors='coerce', utc=True, format=None if pd.api.types.is_numeric_dtype(dataset[${JSON.stringify(c.name)}]) else 'ISO8601').dt.tz_convert(None)`
       return null
     })
     .filter(Boolean)
@@ -136,6 +136,36 @@ export function buildRColumnData(
 }
 
 /**
+ * R twin of pandas `to_datetime(format="ISO8601", utc=True)`: blank or malformed
+ * values become NA instead of failing the whole run, each value must match the full
+ * pattern (strptime alone ignores trailing text, cutting every time to midnight),
+ * and a Z / ±HH:MM offset lands on its UTC instant. Verbatim copy of `R_AS_UTC` in
+ * apps/api/app/services/execution/injection.py.
+ */
+export const R_AS_UTC = String.raw`.linkr_as_utc <- function(x) {
+  if (inherits(x, "POSIXct")) {
+    if (is.null(attr(x, "tzone")) || !nzchar(attr(x, "tzone")[1])) attr(x, "tzone") <- "UTC"
+    return(x)
+  }
+  if (inherits(x, "Date")) return(.POSIXct(unclass(x) * 86400, tz = "UTC"))
+  if (is.numeric(x)) return(.POSIXct(x, tz = "UTC"))
+  s <- as.character(x)
+  iso <- "^([0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?)(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$"
+  s[!grepl(iso, s)] <- NA
+  body <- sub(iso, "\\1", s)
+  off <- sub(iso, "\\5", s)
+  secs <- rep(NA_real_, length(s))
+  for (fmt in c("%Y-%m-%dT%H:%M:%OS", "%Y-%m-%d %H:%M:%OS", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d")) {
+    todo <- is.na(secs) & !is.na(body)
+    if (any(todo)) secs[todo] <- as.numeric(as.POSIXct(body[todo], format = fmt, tz = "UTC"))
+  }
+  off[is.na(off) | off %in% c("", "Z")] <- "+0000"
+  hhmm <- substr(paste0(gsub("[^0-9]", "", off), "00"), 1, 4)
+  shift <- ifelse(startsWith(off, "-"), -1, 1) * (as.numeric(substr(hhmm, 1, 2)) * 3600 + as.numeric(substr(hhmm, 3, 4)) * 60)
+  .POSIXct(secs - shift, tz = "UTC")
+}`
+
+/**
  * Build the R preamble that creates the `dataset` data.frame.
  *
  * Reads the column-oriented JSON written by executeAnalysisCodeR with
@@ -151,7 +181,7 @@ export function buildRInjectionCode(columns: DatasetColumn[]): string {
       if (c.type === 'number')
         return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.numeric(dataset[[${name}]])`
       if (c.type === 'date')
-        return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- as.POSIXct(dataset[[${name}]], tz = "UTC", tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"))`
+        return `if (${name} %in% colnames(dataset)) dataset[[${name}]] <- .linkr_as_utc(dataset[[${name}]])`
       return null
     })
     .filter(Boolean)
@@ -171,7 +201,9 @@ dataset <- if (length(.linkr_cols) == 0) data.frame() else as.data.frame(
   check.names = FALSE
 )
 rm(.linkr_cols, .linkr_n)
+${R_AS_UTC}
 ${coercions}
+rm(.linkr_as_utc)
 `
 }
 

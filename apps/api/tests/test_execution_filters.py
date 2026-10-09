@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -144,3 +145,65 @@ def test_r_date_columns_read_as_utc_whatever_the_host_tz(tmp_path):
         "2024-06-30", "00:00:00", "UTC|1719705600",
         "2024-06-30", "23:30:00", "UTC|1719790200",
     ]
+
+
+MIXED_DATES = [
+    "2024-06-29",
+    "2024-06-29T08:00:00",
+    "2024-06-29 08:15",
+    "",
+    None,
+    "2024-06-29T08:00:00+02:00",
+    "2024-06-29T08:00:00.250Z",
+    "30/06/2024",
+    "2024-06-29T08:00:00junk",
+]
+# Epoch seconds pandas format="ISO8601" gives; blank and non-ISO values are missing.
+MIXED_EPOCHS = [
+    1719619200.0, 1719648000.0, 1719648900.0, None, None,
+    1719640800.0, 1719648000.25, None, None,
+]
+
+
+def _mixed_dates_parquet(tmp_path):
+    pa = pytest.importorskip("pyarrow")
+    pq = pytest.importorskip("pyarrow.parquet")
+    path = tmp_path / "mixed.parquet"
+    pq.write_table(pa.table({"at": pa.array(MIXED_DATES, type=pa.string())}), path)
+    return path
+
+
+def test_python_date_columns_parse_each_iso_value_to_naive_utc(tmp_path):
+    path = _mixed_dates_parquet(tmp_path)
+    ns: dict = {}
+    exec(injection.python_preamble_from(path.as_posix(), [{"id": "at", "name": "at", "type": "date"}]), ns)  # noqa: S102
+    at = ns["dataset"]["at"]
+    assert at.dt.tz is None
+    got = [None if pd.isna(v) else v.timestamp() for v in at.dt.tz_localize("UTC")]
+    assert got == MIXED_EPOCHS
+
+
+@requires_r_arrow
+def test_r_date_columns_parse_like_pandas(tmp_path):
+    path = _mixed_dates_parquet(tmp_path)
+    script = tmp_path / "m.R"
+    script.write_text(
+        injection.r_preamble_from(path.as_posix(), [{"id": "at", "name": "at", "type": "date"}])
+        + "cat(attr(dataset$at, 'tzone'), ifelse(is.na(dataset$at), 'NA', format(as.numeric(dataset$at), nsmall = 2)), sep = '|')\n"
+    )
+    out = subprocess.run(
+        ["Rscript", "--vanilla", str(script)],
+        capture_output=True, text=True, check=True, env={**os.environ, "TZ": "Europe/Paris"},
+    )
+    tz, *values = out.stdout.strip().split("|")
+    assert tz == "UTC"
+    assert [None if v == "NA" else float(v) for v in values] == MIXED_EPOCHS
+
+
+def test_browser_r_date_parser_is_the_server_one():
+    ts = (
+        Path(__file__).resolve().parents[2]
+        / "web/src/features/projects/lab/datasets/analysis-executor.ts"
+    ).read_text()
+    browser = ts.split("export const R_AS_UTC = String.raw`", 1)[1].split("`", 1)[0]
+    assert browser == injection.R_AS_UTC

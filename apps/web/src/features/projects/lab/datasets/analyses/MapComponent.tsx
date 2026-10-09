@@ -55,8 +55,8 @@ const TILE_LAYERS: Record<string, { url: string; attribution: string }> = {
 function toNumeric(val: unknown): number {
   if (val == null) return NaN
   if (typeof val === 'number') return val
-  const n = Number(String(val).trim())
-  return isNaN(n) ? NaN : n
+  const s = String(val).trim()
+  return s === '' ? NaN : Number(s)
 }
 
 /**

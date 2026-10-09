@@ -136,13 +136,16 @@ function typeCheckedPairs(mapping: SchemaMapping): { event: ClassRelation; dict:
 export function buildConceptIdTypesSql(mapping: SchemaMapping): string | null {
   const firstType = (relation: string) => `(SELECT typeof(concept_id) FROM ${relation} WHERE concept_id IS NOT NULL LIMIT 1)`
   const parts = typeCheckedPairs(mapping).map(({ event, dict }) =>
-    `SELECT '${esc(event.key ?? event.name)}' AS event, ${firstType(event.name)} AS event_type, ${firstType(dict.name)} AS dictionary_type`,
+    `SELECT '${esc(event.key ?? event.name)}' AS event, '${esc(event.name)}' AS relation, ${firstType(event.name)} AS event_type, ${firstType(dict.name)} AS dictionary_type`,
   )
   return parts.length ? parts.join('\nUNION ALL\n') : null
 }
 
 export interface ConceptIdTypeConflict {
   event: string
+  /** The event relation: what rows are matched on, `event` being a display label
+   *  two relations can share. */
+  relation: string
   eventType: string
   dictionaryType: string
   /** The relation of the text side, the one whose ids DuckDB casts in the join. */
@@ -153,14 +156,14 @@ const isTextType = (type: string) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR)/i.test(
 
 /** The rows of `buildConceptIdTypesSql` pairing a text id with a numeric one. */
 export function conceptIdTypeConflicts(mapping: SchemaMapping, rows: readonly Record<string, unknown>[]): ConceptIdTypeConflict[] {
-  const pairs = new Map(typeCheckedPairs(mapping).map((p) => [p.event.key ?? p.event.name, p]))
+  const pairs = new Map(typeCheckedPairs(mapping).map((p) => [p.event.name, p]))
   return rows.flatMap((r) => {
-    const pair = pairs.get(String(r.event))
+    const pair = pairs.get(String(r.relation))
     const eventType = r.event_type == null ? null : String(r.event_type)
     const dictionaryType = r.dictionary_type == null ? null : String(r.dictionary_type)
     if (!pair || !eventType || !dictionaryType || isTextType(eventType) === isTextType(dictionaryType)) return []
     const textRelation = isTextType(eventType) ? pair.event.name : pair.dict.name
-    return [{ event: String(r.event), eventType, dictionaryType, textRelation }]
+    return [{ event: String(r.event), relation: pair.event.name, eventType, dictionaryType, textRelation }]
   })
 }
 
@@ -172,7 +175,7 @@ export function conceptIdTypeConflicts(mapping: SchemaMapping, rows: readonly Re
  */
 export function buildNonNumericIdSql(conflicts: readonly ConceptIdTypeConflict[]): string | null {
   const parts = conflicts.map((c) =>
-    `SELECT '${esc(c.event)}' AS event, (SELECT CAST(concept_id AS VARCHAR) FROM ${c.textRelation} WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS code`,
+    `SELECT '${esc(c.relation)}' AS relation, (SELECT CAST(concept_id AS VARCHAR) FROM ${c.textRelation} WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS code`,
   )
   return parts.length ? parts.join('\nUNION ALL\n') : null
 }
@@ -191,9 +194,9 @@ export function conceptIdTypeMismatches(
   conflicts: readonly ConceptIdTypeConflict[],
   codeRows: readonly Record<string, unknown>[],
 ): ConceptIdTypeMismatch[] {
-  const codes = new Map(codeRows.map((r) => [String(r.event), r.code]))
-  return conflicts.flatMap(({ event, eventType, dictionaryType }) => {
-    const code = codes.get(event)
+  const codes = new Map(codeRows.map((r) => [String(r.relation), r.code]))
+  return conflicts.flatMap(({ event, relation, eventType, dictionaryType }) => {
+    const code = codes.get(relation)
     return code == null ? [] : [{ event, eventType, dictionaryType, code: String(code) }]
   })
 }

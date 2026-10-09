@@ -63,7 +63,6 @@ export function SurveyQuestionComponent({
   // the backend from a validated spec (never client-supplied code — a render is
   // something a plain viewer can trigger).
   const [serverSummary, setServerSummary] = useState<QuestionSummary | null>(null)
-  const [serverError, setServerError] = useState<string | null>(null)
 
   const spec =
     server && datasetFileId && question
@@ -74,7 +73,7 @@ export function SurveyQuestionComponent({
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
-  const { refreshing, settle } = useRenderRefresh(requestKey)
+  const { refreshing, settle, failure: serverError } = useRenderRefresh(requestKey)
 
   useEffect(() => {
     if (!server || !datasetFileId || !specKey) return
@@ -82,27 +81,24 @@ export function SurveyQuestionComponent({
     renderOnServer('survey-question', JSON.parse(specKey), { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
-        settle(requestKey)
         if (out.stderr) {
-          setServerError(out.stderr)
+          settle(requestKey, out.stderr)
           return
         }
         try {
           const parsed = JSON.parse(out.stdout.trim()) as QuestionSummary & { error?: string }
           if (parsed.error) {
-            setServerError(parsed.error)
+            settle(requestKey, parsed.error)
             return
           }
           setServerSummary(parsed)
-          setServerError(null)
+          settle(requestKey)
         } catch {
-          setServerError(out.stdout || 'Failed to parse result')
+          settle(requestKey, out.stdout || 'Failed to parse result')
         }
       })
       .catch((e) => {
-        if (cancelled) return
-        settle(requestKey)
-        setServerError(String(e))
+        if (!cancelled) settle(requestKey, String(e))
       })
     return () => {
       cancelled = true

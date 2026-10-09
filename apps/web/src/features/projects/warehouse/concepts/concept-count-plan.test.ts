@@ -192,7 +192,7 @@ describe('concept id types', () => {
   it('reads one id type per counted event and its dictionary', () => {
     const sql = buildConceptIdTypesSql(mapping)!
     expect(sql.match(/UNION ALL/g)).toHaveLength(1)
-    expect(sql).toContain("SELECT 'Measurement' AS event, (SELECT typeof(concept_id) FROM linkr_event_measurement WHERE concept_id IS NOT NULL LIMIT 1) AS event_type")
+    expect(sql).toContain("SELECT 'Measurement' AS event, 'linkr_event_measurement' AS relation, (SELECT typeof(concept_id) FROM linkr_event_measurement WHERE concept_id IS NOT NULL LIMIT 1) AS event_type")
     expect(sql).toContain('(SELECT typeof(concept_id) FROM linkr_concept_concept WHERE concept_id IS NOT NULL LIMIT 1) AS dictionary_type')
   })
 
@@ -202,19 +202,30 @@ describe('concept id types', () => {
 
   it('keeps only the pairs of a text id and a numeric one, with the text side', () => {
     expect(conceptIdTypeConflicts(mapping, [
-      { event: 'Measurement', event_type: 'VARCHAR', dictionary_type: 'BIGINT' },
-      { event: 'Condition', event_type: 'BIGINT', dictionary_type: 'BIGINT' },
-    ])).toEqual([{ event: 'Measurement', eventType: 'VARCHAR', dictionaryType: 'BIGINT', textRelation: 'linkr_event_measurement' }])
+      { event: 'Measurement', relation: 'linkr_event_measurement', event_type: 'VARCHAR', dictionary_type: 'BIGINT' },
+      { event: 'Condition', relation: 'linkr_event_condition', event_type: 'BIGINT', dictionary_type: 'BIGINT' },
+    ])).toEqual([{ event: 'Measurement', relation: 'linkr_event_measurement', eventType: 'VARCHAR', dictionaryType: 'BIGINT', textRelation: 'linkr_event_measurement' }])
     expect(conceptIdTypeConflicts(mapping, [
-      { event: 'Condition', event_type: 'INTEGER', dictionary_type: 'VARCHAR' },
-      { event: 'Measurement', event_type: null, dictionary_type: 'BIGINT' },
-    ])).toEqual([{ event: 'Condition', eventType: 'INTEGER', dictionaryType: 'VARCHAR', textRelation: 'linkr_concept_concept' }])
+      { event: 'Condition', relation: 'linkr_event_condition', event_type: 'INTEGER', dictionary_type: 'VARCHAR' },
+      { event: 'Measurement', relation: 'linkr_event_measurement', event_type: null, dictionary_type: 'BIGINT' },
+    ])).toEqual([{ event: 'Condition', relation: 'linkr_event_condition', eventType: 'INTEGER', dictionaryType: 'VARCHAR', textRelation: 'linkr_concept_concept' }])
+  })
+
+  // Two relations can carry the same label; matching on it paired a row with
+  // the wrong relation, or dropped the second one.
+  it('matches the rows on the event relation, not on its label', () => {
+    expect(conceptIdTypeConflicts(mapping, [
+      { event: 'Measurement', relation: 'linkr_event_condition', event_type: 'VARCHAR', dictionary_type: 'BIGINT' },
+    ])).toEqual([{ event: 'Measurement', relation: 'linkr_event_condition', eventType: 'VARCHAR', dictionaryType: 'BIGINT', textRelation: 'linkr_event_condition' }])
+    expect(conceptIdTypeConflicts(mapping, [
+      { event: 'Measurement', relation: 'linkr_event_unknown', event_type: 'VARCHAR', dictionary_type: 'BIGINT' },
+    ])).toEqual([])
   })
 
   it('probes the text side of a conflict for its first non-numeric id', () => {
-    const sql = buildNonNumericIdSql([{ event: "O'Codes", eventType: 'VARCHAR', dictionaryType: 'BIGINT', textRelation: 'linkr_event_measurement' }])
+    const sql = buildNonNumericIdSql([{ event: 'Codes', relation: "linkr_event_o'codes", eventType: 'VARCHAR', dictionaryType: 'BIGINT', textRelation: 'linkr_event_measurement' }])
     expect(sql).toBe(
-      "SELECT 'O''Codes' AS event, (SELECT CAST(concept_id AS VARCHAR) FROM linkr_event_measurement WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS code",
+      "SELECT 'linkr_event_o''codes' AS relation, (SELECT CAST(concept_id AS VARCHAR) FROM linkr_event_measurement WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS code",
     )
     expect(buildNonNumericIdSql([])).toBeNull()
   })
@@ -230,8 +241,8 @@ describe('concept id types', () => {
 
   it('issues no probe when every pair has matching types', async () => {
     const { issued, mismatches } = await runCheck([
-      { event: 'Measurement', event_type: 'BIGINT', dictionary_type: 'INTEGER' },
-      { event: 'Condition', event_type: 'VARCHAR', dictionary_type: 'VARCHAR' },
+      { event: 'Measurement', relation: 'linkr_event_measurement', event_type: 'BIGINT', dictionary_type: 'INTEGER' },
+      { event: 'Condition', relation: 'linkr_event_condition', event_type: 'VARCHAR', dictionary_type: 'VARCHAR' },
     ])
     expect(issued).toHaveLength(1)
     expect(mismatches).toEqual([])
@@ -239,8 +250,8 @@ describe('concept id types', () => {
 
   it('lets a VARCHAR of digits join a BIGINT id', async () => {
     const { issued, mismatches } = await runCheck(
-      [{ event: 'Measurement', event_type: 'VARCHAR', dictionary_type: 'BIGINT' }],
-      [{ event: 'Measurement', code: null }],
+      [{ event: 'Measurement', relation: 'linkr_event_measurement', event_type: 'VARCHAR', dictionary_type: 'BIGINT' }],
+      [{ relation: 'linkr_event_measurement', code: null }],
     )
     expect(issued).toHaveLength(2)
     expect(mismatches).toEqual([])
@@ -248,8 +259,8 @@ describe('concept id types', () => {
 
   it('refuses a text code that is not a number joined to a number, with that code', async () => {
     const { mismatches } = await runCheck(
-      [{ event: 'Measurement', event_type: 'VARCHAR', dictionary_type: 'DOUBLE' }],
-      [{ event: 'Measurement', code: 'Y831' }],
+      [{ event: 'Measurement', relation: 'linkr_event_measurement', event_type: 'VARCHAR', dictionary_type: 'DOUBLE' }],
+      [{ relation: 'linkr_event_measurement', code: 'Y831' }],
     )
     expect(mismatches).toEqual([{ event: 'Measurement', eventType: 'VARCHAR', dictionaryType: 'DOUBLE', code: 'Y831' }])
   })

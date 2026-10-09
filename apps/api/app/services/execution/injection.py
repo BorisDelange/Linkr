@@ -14,6 +14,34 @@ import math
 from app.models.dataset import DatasetFile
 from app.services import blob_store
 
+# Parity with R_AS_UTC in apps/web/src/features/projects/lab/datasets/analysis-executor.ts.
+# Reads ISO date strings as pandas format="ISO8601" does: a blank or malformed value
+# is NA rather than an error, each value is matched against the whole pattern (strptime
+# alone ignores trailing text, so a date-only format would cut every time to
+# midnight), and a Z / ±HH:MM offset is applied to land on the UTC instant.
+R_AS_UTC = r""".linkr_as_utc <- function(x) {
+  if (inherits(x, "POSIXct")) {
+    if (is.null(attr(x, "tzone")) || !nzchar(attr(x, "tzone")[1])) attr(x, "tzone") <- "UTC"
+    return(x)
+  }
+  if (inherits(x, "Date")) return(.POSIXct(unclass(x) * 86400, tz = "UTC"))
+  if (is.numeric(x)) return(.POSIXct(x, tz = "UTC"))
+  s <- as.character(x)
+  iso <- "^([0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]+)?)?)?)(Z|[+-][0-9]{2}(:?[0-9]{2})?)?$"
+  s[!grepl(iso, s)] <- NA
+  body <- sub(iso, "\\1", s)
+  off <- sub(iso, "\\5", s)
+  secs <- rep(NA_real_, length(s))
+  for (fmt in c("%Y-%m-%dT%H:%M:%OS", "%Y-%m-%d %H:%M:%OS", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%d")) {
+    todo <- is.na(secs) & !is.na(body)
+    if (any(todo)) secs[todo] <- as.numeric(as.POSIXct(body[todo], format = fmt, tz = "UTC"))
+  }
+  off[is.na(off) | off %in% c("", "Z")] <- "+0000"
+  hhmm <- substr(paste0(gsub("[^0-9]", "", off), "00"), 1, 4)
+  shift <- ifelse(startsWith(off, "-"), -1, 1) * (as.numeric(substr(hhmm, 1, 2)) * 3600 + as.numeric(substr(hhmm, 3, 4)) * 60)
+  .POSIXct(secs - shift, tz = "UTC")
+}"""
+
 
 def python_preamble(node: DatasetFile, filters: list[dict] | None = None) -> str:
     """Python `dataset` injection for a DB-backed dataset (legacy blob path)."""
@@ -44,7 +72,9 @@ dataset = {read}
 {filter_code}
 dataset = dataset.rename(columns={json.dumps(rename)})
 _linkr_conv = {{_c: _pd.to_numeric(dataset[_c], errors="coerce") for _c in {json.dumps(number_cols)} if _c in dataset.columns}}
-_linkr_conv.update({{_c: _pd.to_datetime(dataset[_c], errors="coerce") for _c in {json.dumps(date_cols)} if _c in dataset.columns}})
+# ISO8601 parses each value on its own format; offsets are applied, then the zone
+# dropped: naive UTC wall-clock, the instant R's UTC POSIXct holds.
+_linkr_conv.update({{_c: _pd.to_datetime(dataset[_c], errors="coerce", utc=True, format=None if _pd.api.types.is_numeric_dtype(dataset[_c]) else "ISO8601").dt.tz_convert(None) for _c in {json.dumps(date_cols)} if _c in dataset.columns}})
 # Swapped in with one concat: assigning ~50 columns one by one fragments the frame,
 # and pandas then warns (on stderr) at the next groupby.
 if _linkr_conv:
@@ -74,9 +104,8 @@ def _python_filter_code(filters: list[dict]) -> str:
         {op: 'in', values: [...]} | {op: 'between', min?, max?}]}.
     number → numeric compare (a non-finite bound matches nothing); date →
     ISO-string compare (lexical works for ISO) on the value cut to the bound's
-    length, so a day bound keeps the whole end day, missing or empty values never
-    match;
-    string/categorical → string equality via `in`."""
+    length, so a day bound keeps the whole end day, missing or empty values
+    never match; string/categorical → string equality via `in`."""
     lines: list[str] = []
     for f in filters:
         col = f.get("colId")
@@ -157,11 +186,7 @@ dataset <- {read}
 .have <- intersect(names(.rename), colnames(dataset))
 if (length(.have) > 0) names(dataset)[match(.have, colnames(dataset))] <- .rename[.have]
 for (.c in {number_cols}) if (.c %in% colnames(dataset)) dataset[[.c]] <- as.numeric(dataset[[.c]])
-.linkr_as_utc <- function(x) {{
-  if (!inherits(x, "POSIXct")) return(as.POSIXct(x, tz = "UTC", tryFormats = c("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d")))
-  if (is.null(attr(x, "tzone")) || !nzchar(attr(x, "tzone")[1])) attr(x, "tzone") <- "UTC"
-  x
-}}
+{R_AS_UTC}
 for (.c in {date_cols}) if (.c %in% colnames(dataset)) dataset[[.c]] <- .linkr_as_utc(dataset[[.c]])
 rm(.linkr_as_utc)
 """

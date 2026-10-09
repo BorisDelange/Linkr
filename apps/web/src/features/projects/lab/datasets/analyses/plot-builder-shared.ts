@@ -16,15 +16,33 @@ export interface PlotServerData {
   pointsTotal?: number
 }
 
+/** `val` as a number: numeric strings as such, ISO dates as epoch ms (naive ones
+ *  read as UTC), anything else — blank included — NaN. Parity with the server's
+ *  `_linkr_to_num` (pandas `format="ISO8601"`), so both sides call the same
+ *  column numeric or categorical. */
 export function toNumeric(val: unknown): number {
   if (val == null) return NaN
   if (typeof val === 'number') return val
   const s = String(val).trim()
+  if (s === '') return NaN
   const n = Number(s)
   if (!isNaN(n)) return n
-  const ts = Date.parse(s)
-  if (!isNaN(ts)) return ts
-  return NaN
+  return parseIsoUtc(s)
+}
+
+const ISO_DATE = /^(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?))?(Z|[+-]\d{2}(?::?\d{2})?)?$/
+
+function parseIsoUtc(s: string): number {
+  const m = ISO_DATE.exec(s)
+  if (!m) return NaN
+  const [, day, time = '00:00', offset] = m
+  const wallClock = Date.parse(`${day}T${time}Z`)
+  // Date.parse rolls an impossible day over (Feb 30 → Mar 1); pandas rejects it.
+  if (isNaN(wallClock) || !new Date(wallClock).toISOString().startsWith(day)) return NaN
+  if (!offset || offset === 'Z') return wallClock
+  const digits = offset.slice(1).replace(':', '')
+  const minutes = Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2) || '0')
+  return wallClock - (offset[0] === '-' ? -1 : 1) * minutes * 60_000
 }
 
 export function formatNumericTick(decimals: number) {
