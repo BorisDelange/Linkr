@@ -29,17 +29,17 @@ run like the catalog (browser-driven units, pause/resume), order below.
 
 ### Apache Doris + remote compute — [doris-plan.md](doris-plan.md)
 
-Doris as an external database (server mode). Measured 2026-10-09: DuckDB never
-pushes aggregates to an attached DB, so a `GROUP BY` over 3.4M rows takes 24 s via
-ATTACH vs 0.16 s computed by Doris — already true for Postgres. Flight SQL only
-pays off for bulk extracts (100 s → 2.6 s), as an optional extra.
+Built on `feature/doris` (2026-10-09): `doris` engine (read-only login enforced),
+heavy app queries translated and computed by Doris (437/555 real queries, 0
+different; ×3 to ×30), remote `KILL QUERY` on cancel, Arrow Flight SQL for bulk
+results as the optional `doris` extra with a warning banner.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | Arbitrate plan §5 (passthrough security, cancellation, order, R/Py libs, derive fix, Docker extra) | S |
-| 🔜 | 1. `doris` engine on the MySQL ATTACH path, without `READ_ONLY` | S |
-| 🔜 | 2. Remote compute: portable aggregate units in passthrough + local DuckDB finishing (concept counts first, then catalog, mapping extraction, DQ…) | L |
-| 💤 | 3. Flight SQL for bulk extracts (optional `doris` extra, MySQL fallback with a warning) | M |
+| 🔜 | **[TO TEST]** In the app against the local Doris (plan §3.1) | S |
+| 🤔 | Docker image: ship the `doris` extra? Postgres pushdown: measure on a remote server first. User SQL pushdown? (plan §3.2) | S |
+| 💤 | Still slow on Doris: concept-list assemble (whole dictionary over MySQL), `mode()` profiles, ETL source / cohort derive / R-Py libs (plan §3.3) | M |
+| 🔜 | User docs (linkr-website): connecting a Doris database | S |
 
 ## To test manually in the app
 

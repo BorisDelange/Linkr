@@ -119,7 +119,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
     const sql = buildPatientListQuery(selectedSourceMapping, null, 200, 0)
     if (!sql) { setPatients([]); return }
     ensureMounted(testDataSourceId)
-      .then(() => queryDataSource(testDataSourceId, sql))
+      .then(() => queryDataSource(testDataSourceId, sql, { pushdown: false }))
       .then((rows) => {
         if (!cancelled) {
           setPatients(rows.map((r) => ({ id: String(r.patient_id), label: String(r.patient_id) })))
@@ -138,7 +138,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
     const sql = buildVisitListQuery(selectedSourceMapping, testPersonId)
     if (!sql) { setVisits([]); return }
     ensureMounted(testDataSourceId)
-      .then(() => queryDataSource(testDataSourceId, sql))
+      .then(() => queryDataSource(testDataSourceId, sql, { pushdown: false }))
       .then((rows) => {
         if (!cancelled) {
           setVisits(rows.map((r) => {
@@ -161,7 +161,7 @@ export function PluginTestConfig({ scope = 'lab', manifestLanguages, readOnly }:
     const sql = buildVisitDetailListQuery(selectedSourceMapping, testVisitId)
     if (!sql) { setVisitDetails([]); return }
     ensureMounted(testDataSourceId)
-      .then(() => queryDataSource(testDataSourceId, sql))
+      .then(() => queryDataSource(testDataSourceId, sql, { pushdown: false }))
       .then((rows) => {
         if (!cancelled) {
           setVisitDetails(rows.map((r) => {

@@ -192,7 +192,7 @@ export function databaseKind(db: Pick<DataSource, 'sourceType' | 'connectionConf
   if (db.sourceType === 'fhir') return { kind: 'fhir' }
   const c = (db.connectionConfig ?? {}) as DatabaseConnectionConfig
   const engine = c.engine
-  if (engine === 'postgresql' || engine === 'mysql' || engine === 'sqlserver' || engine === 'oracle') return { kind: 'external', engine }
+  if (engine === 'postgresql' || engine === 'mysql' || engine === 'doris' || engine === 'sqlserver' || engine === 'oracle') return { kind: 'external', engine }
   if (c.managed) return { kind: 'managed', engine }
   if (c.serverPath) return { kind: /\.(duckdb|sqlite|db)$/i.test(c.serverPath) ? 'server-file' : 'server-folder', engine }
   if (c.fileIds?.length) return { kind: 'uploaded-folder', engine }
@@ -303,7 +303,7 @@ export type NewDatabase =
   | { kind: 'empty-from-schema'; preset: CustomSchemaPreset; path?: string }
   | { kind: 'server-path'; engine: 'duckdb' | 'sqlite'; path: string; preset?: CustomSchemaPreset }
   | {
-      kind: 'external'; engine: 'postgresql' | 'mysql'; host: string; port?: number; database: string; schema?: string
+      kind: 'external'; engine: 'postgresql' | 'mysql' | 'doris'; host: string; port?: number; database: string; schema?: string
       allowWrites?: boolean; requireSessionOnly?: boolean; preset?: CustomSchemaPreset
     }
 

@@ -278,7 +278,7 @@ async function runPipeline(p: Pipeline, scripts: EtlNode[], files: EtlNode[], sh
       const resolved = resolveRolePrefixes(file.content, serverRoleSchemas(ids, managed, dsId))
       const rows = managed
         ? (await etl.run(target!.id, { sql: resolved, roles, mappingData })).rows
-        : await api.query(dsId, resolved)
+        : await api.query(dsId, resolved, { pushdown: false })
       const durationMs = Date.now() - start
       const output = rowsOutput(rows.length, durationMs)
       await record({
@@ -861,7 +861,7 @@ export function registerEtlTools(server: Server): void {
     const dbId = database_id ?? c.defaultDataSourceId
     if (!dbId) return failure('The collection has no default database: pass database_id, or set one with update_sql_collection.')
     const start = Date.now()
-    const rows = await api.query(dbId, node.content)
+    const rows = await api.query(dbId, node.content, { pushdown: false })
     return text(`${rowsOutput(rows.length, Date.now() - start)} on database ${dbId}.\n`
       + formatRows(rows, Math.min(Math.max(max_rows ?? 50, 1), 500)))
   }))

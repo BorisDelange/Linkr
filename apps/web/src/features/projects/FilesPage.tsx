@@ -554,7 +554,7 @@ export function FilesPage() {
       const start = Date.now()
 
       try {
-        const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql)
+        const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql, { pushdown: false })
         const duration = Date.now() - start
 
         addExecutionResult({

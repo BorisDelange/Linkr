@@ -169,7 +169,8 @@ async def materialize_cohort(
     login = await database_credential_service.resolve_login(db, source, user.id)
 
     try:
-        table = await data_source_service.query(db, source, login, body.membership_sql, arrow=True)
+        # The app's own membership query: an external database may compute it, and stream it over Flight.
+        table = await data_source_service.query(db, source, login, body.membership_sql, arrow=True, pushdown=True)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client

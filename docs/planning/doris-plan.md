@@ -1,9 +1,9 @@
 # Apache Doris comme database externe — et calcul déporté sur la base distante
 
 **Objectif.** Brancher un entrepôt Apache Doris comme database Linkr (mode serveur),
-avec des calculs lourds aussi rapides que Doris le permet. Le travail profite aussi
-aux databases Postgres et MySQL existantes : le problème de fond (§1.2) les touche
-déjà.
+avec des calculs lourds aussi rapides que Doris le permet. Le problème de fond
+(§1.2) touche aussi Postgres et MySQL ; seul Doris est déporté pour l'instant
+(§1.4, §3.2).
 
 Mode serveur uniquement : le navigateur (WASM) ne peut ouvrir ni connexion MySQL
 ni gRPC.
@@ -61,142 +61,88 @@ Linkr doit joindre les BE, ou les BE doivent annoncer une adresse joignable
 (`public_host` + `arrow_flight_sql_proxy_port` dans `be.conf`). Sinon, attente
 de 20 s puis échec.
 
-### 1.4 La traduction automatique du SQL DuckDB ne suffit pas
+### 1.4 Traduire, oui — mais typé, vérifié, et en liste blanche
 
-sqlglot (DuckDB → Doris), 6 requêtes types de l'app : 3 passent (`MEDIAN`,
-`QUANTILE_CONT`, `STRFTIME`, `TRY_CAST`, `ILIKE`), 3 échouent (`FILTER (WHERE)`,
-`GROUP BY ALL`, listes `[a,b]` + `UNNEST`). Tout le SQL généré par l'app est en
-dialecte DuckDB (`::`, `FILTER`, `GROUP BY ALL`, `quantile_disc(x,[…])`,
-`md5_number_lower`, `EPOCH`, `AGE()`…) : traduire l'ensemble serait fragile.
+sqlglot seul (DuckDB → Doris) : 3 requêtes types sur 6. Avec les règles de
+`remote_sql.py` (types lus dans l'`information_schema` distant, liste blanche,
+réécritures `FILTER`/`GROUP BY ALL`/`BY NAME`/`UNNEST`/`AGE`/`md5_number_lower`/
+percentiles), sur 555 requêtes réelles de l'app (mapping OMOP 5.4, démo MIMIC-IV) :
+**437 calculées par Doris, 0 résultat différent** de l'`ATTACH`, les autres restant
+sur l'`ATTACH`. Banc de comparaison : annexe B.
 
----
-
-## 2. Décisions
-
-1. **Moteur `doris`** = chemin `mysql` existant (`TYPE mysql`, port 9030 par
-   défaut), `ATTACH` **sans** `READ_ONLY`. Le connecteur reste la base de toutes
-   les requêtes légères.
-2. **Calcul déporté pour les calculs lourds**, en deux étages :
-   - *agrégation distante* : un SQL volontairement portable (`GROUP BY`, `COUNT`,
-     `COUNT(DISTINCT)`, `SUM(CASE …)`, `CAST`, `MIN`/`MAX`), exécuté en
-     passthrough (`mysql_query` pour Doris/MySQL, `postgres_query` pour Postgres),
-     qui ne renvoie que des agrégats ;
-   - *finition locale* dans DuckDB sur ce petit résultat (quantiles, fusions entre
-     tables, jointures aux dictionnaires) : le SQL DuckDB actuel reste là.
-
-   Pas de traduction automatique générale (§1.4). Un seul SQL portable par unité,
-   pas un par moteur ; les rares fonctions non portables (percentiles) passent par
-   une petite table de correspondance par moteur, ou par un histogramme distant
-   (`FLOOR` + `COUNT`) dont on tire les quantiles localement.
-3. **Flight SQL = dépendance facultative**, réservée aux gros extraits, en phase 2.
-   - Extra `doris` dans `apps/api/pyproject.toml` (`adbc_driver_manager` +
-     `adbc_driver_flightsql`, ≈ 24 Mo installés), importé seulement à l'usage.
-   - Absent ou injoignable → **repli sur MySQL, et l'utilisateur est prévenu**
-     (message visible là où l'extrait est lancé, et sur la page de la database :
-     « Flight indisponible : transferts lents »).
-4. **Aucun changement de format d'export.** L'export d'une database ne garde que
-   `engine` (`EXPORTED_CONNECTION_KEYS`, `entity-io.ts:4295`) ; le port Flight
-   reste local à la machine, comme hôte et identifiants. `packages/linkr-format`
-   n'énumère pas les moteurs : `engine: "doris"` passe tel quel.
-
----
-
-## 3. Inventaire des chemins lourds
-
-Tous passent aujourd'hui par `POST /data-sources/{id}/query` → `query_external`
-(`ATTACH`), sauf mention. Seul `introspect_external` utilise déjà le passthrough.
-
-### 3.1 Agrégats sur les tables cliniques → calcul déporté (§2.2)
-
-| Chemin | Entrée | Lots / pause |
+| Sur 3,4 M lignes, Doris | `ATTACH` | Calcul déporté |
 |---|---|---|
-| Comptage des concepts | `concept-count-plan.ts:77,87` (unités), serveur `materialize_parquet` | ✅ unités reprenables |
-| Data catalog | `catalog-compute.ts:238,355`, `catalog-queries.ts` ; MCP `compute_data_catalog` | ✅ tranches |
-| Extraction du concept mapping : passe de classement + profils par concept | `source-extraction.ts:127,203` ; `concept-profile.ts:305-668` | ✅ pause/reprise |
-| Contrôles DQ | `data-quality.ts:59`, `dq-templates.ts` ; MCP `run_dq_rule_set` | ⚠️ par contrôle, sans reprise |
-| Statistiques de la database | `database-stats.ts:34`, `table-counts.ts:110` | ❌ |
-| Liste des patients (`GROUP BY` sur toute la population à chaque page/filtre) | `patient-data-queries.ts:30,50` | ❌ |
-| Comptages/attrition des cohortes, rapport de cohorte | `cohort-store.ts:460`, `cohort-report/queries.ts` | ❌ |
-| Statistiques de colonnes du SchemaBrowser | `SchemaBrowser.tsx:325-476` | ❌ |
+| Unité « records » du comptage des concepts | 14,7 s | **0,48 s** |
+| Unité « patients » | 3,3 s | 0,79 s |
 
-### 3.2 Gros extraits → Flight (§2.3)
-
-| Chemin | Entrée |
-|---|---|
-| Datasets du Lab depuis une requête | `routes/dataset_files.py:389` (MCP `create_dataset_from_query`) |
-| Figer une cohorte | `routes/cohorts.py:143` |
-| Dériver une database depuis une cohorte | `cohort_derive.py:330,467` |
-| ETL dont la source est la base externe | `db_connect.run_etl_sql` → `_attach_role` |
-| Librairies R / Python | `client_recipe` → `ATTACH` côté client (`linkr-py/_databases.py:140`) |
+Postgres local, mêmes unités : 0,65 → 0,37 s pour « records », mais 0,48 → **3,16 s**
+pour « patients » (`COUNT(DISTINCT)` mono-cœur) — d'où Postgres non déporté (§3.2).
 
 ---
 
-## 4. Étapes
+## 2. Construit (2026-10-09, branche `feature/doris`)
 
-### Phase 1 — moteur `doris` (S)
+Le détail est dans `docs/architecture.md` § Fullstack Storage & Compute
+(« External databases & compute pushdown »). En bref :
 
-1. Backend : `_ENGINES["doris"]` (extension et type `mysql`, `read_only=False`) ;
-   `_dsn` / `_scope` traitent `doris` comme `mysql` ; ajouter `doris` aux listes
-   codées en dur (`data_source_service.py:44`, `database_credential_service.py:33`,
-   `db_connect.py:1052`).
-2. Frontend : `DatabaseEngine` (`types/index.ts:272`), `AddConnectionDialog.tsx:348`,
-   `data-source-store.ts:580`, `DatabaseDetailPage.tsx:162` ; port 9030 par défaut ;
-   texte d'aide sur le compte en lecture seule. i18n EN/FR.
-3. MCP : `tools-databases.ts:229`, `live/workspace.ts:306`.
-4. Tests : `_dsn`/`_scope`/`attach` pour `doris` (pas de `READ_ONLY`).
-5. Doc utilisateur (linkr-website) : connecter un Doris, compte en lecture seule.
+- moteur `doris` (MySQL, port 9030), `ATTACH` sans `READ_ONLY`, **compte en lecture
+  seule exigé** (vérifié par `SHOW GRANTS` à chaque connexion) ;
+- calcul déporté par traduction typée côté serveur, activé par défaut pour le SQL de
+  l'app, jamais pour le SQL d'un utilisateur ou du modèle ; repli `ATTACH` pour ce qui
+  n'est pas portable ou que Doris refuse de préparer, jamais pour une erreur
+  d'exécution ;
+- annulation réelle : `KILL QUERY` envoyé à Doris (Pause/Stop) ;
+- Flight SQL (extra `doris`, facultatif) pour les résultats volumineux, sondé, avec
+  bandeau d'avertissement sur la page de la database quand il manque ou est
+  injoignable ; port Flight local à la machine, son changement oublie les logins ;
+- générateurs réécrits en SQL standard : bornes des tranches de patients, pyramide
+  des âges.
 
-### Phase 2 — calcul déporté (L)
-
-1. Serveur : un mode « requête distante » sur `/query` (ou une route dédiée) qui
-   exécute un SQL portable en passthrough et renvoie le résultat, avec les
-   garde-fous du §5.1 et l'annulation du §5.2.
-2. Comptage des concepts : chaque unité porte une variante distante ; la finition
-   (`buildConceptsAssembleQuery`) reste locale. Premier cas, pour valider le
-   principe sur Doris **et** Postgres.
-3. Data catalog : même découpage par unité.
-4. Passe de classement de l'extraction du concept mapping ; profils par concept
-   (percentiles : table de correspondance ou histogramme distant).
-5. Contrôles DQ (les modèles `dq-templates.ts` ; le SQL libre de l'utilisateur reste
-   en `ATTACH`).
-6. Statistiques de la database, liste des patients, cohortes.
-
-### Phase 3 — Flight pour les gros extraits (M)
-
-1. Extra `doris` ; champ « port Flight » (défaut 8070) dans la configuration locale
-   de la database ; test de joignabilité FE **et** BE au « Tester la connexion ».
-2. Lecteur Flight → `RecordBatchReader` → DuckDB, branché sur les chemins du §3.2
-   côté serveur.
-3. Repli MySQL + avertissement (§2.3).
+Décisions prises en chemin (anciennes questions du §5) : compte en lecture seule
+**exigé** ; passthrough limité au SQL de l'app ; `KILL QUERY` pour l'annulation.
 
 ---
 
-## 5. À trancher 🤔
+## 3. Reste à faire
 
-1. **Sécurité du passthrough.** Les garde-fous actuels analysent le SQL avec DuckDB
-   (`_reject_forbidden_statements`, `_reject_copy_to_file`), et `READ_ONLY` sert de
-   filet. Ni l'un ni l'autre ne couvrent une chaîne envoyée brute à Doris.
-   Proposition : passthrough réservé au SQL généré par l'app (jamais au SQL libre),
-   vérifié côté serveur comme un unique `SELECT` dans le dialecte cible. Faut-il en
-   plus **exiger** un compte en lecture seule pour `doris` (test à la connexion :
-   un `CREATE TABLE` doit échouer), ou seulement avertir ?
-2. **Annulation.** Interrompre DuckDB ne tue pas forcément la requête côté Doris.
-   À vérifier ; sinon `KILL QUERY` (Doris/MySQL) ou `pg_cancel_backend` (Postgres)
-   à l'arrêt et à la pause.
-3. **Ordre de la phase 2** : proposé comptage des concepts → catalog → extraction du
-   mapping → DQ → statistiques/patients/cohortes.
-4. **Librairies R / Python** : leur ajouter un `remote_query()` dans ce chantier, ou
-   plus tard ?
-5. **Dériver une database depuis une cohorte** : le filtre
-   `IN (SELECT … FROM _members)` porte sur une table temporaire locale, donc n'est
-   pas poussé ; chaque table source est rapatriée en entier, **déjà aujourd'hui
-   avec Postgres**. Corriger ici ou à part ?
-6. **Image Docker** : y installer l'extra `doris` (+ ≈ 24 Mo) pour que les
-   installations Docker aient Flight sans rien faire, ou non ?
-7. **Incohérence trouvée en passant** (hors Doris) : le validateur de
-   `linkr-format` refuse tout `connectionConfig` dans un manifeste de database
-   (`validate/entities.ts:248-254`), alors que l'app en exporte un réduit à
-   `{engine, …}`. À traiter à part.
+### 3.1 À tester dans l'app (Doris de l'annexe A)
+
+- Ajouter une database Doris : compte `linkr_ro` accepté, `root` refusé avec le motif.
+- Comptage des concepts, catalog, extraction du mapping, DQ, statistiques, liste des
+  patients, cohorte figée : résultats identiques à une copie Parquet de la même base.
+- Pause/Stop pendant une unité longue : la requête disparaît de `SHOW PROCESSLIST`.
+- Bandeau Flight : extra absent, puis port Flight faux, puis correct.
+
+### 3.2 Ouvert 🤔
+
+1. **Image Docker** : installer l'extra `doris` (+ ≈ 24 Mo) pour que Flight marche
+   sans rien faire, ou non. Pas fait : à décider.
+2. **Postgres** : traduit mais non déporté (`PUSHDOWN_ENGINES`). À mesurer sur un vrai
+   Postgres distant (réseau) avant de l'activer, éventuellement par type de requête.
+3. **SQL écrit par l'utilisateur** : la liste blanche le rendrait sûr et identique ;
+   le déporter aussi (éditeurs SQL, `create_dataset_from_query`) ?
+4. **Librairies R / Python** : `remote_query()` ?
+5. **Dériver une database depuis une cohorte** : `IN (SELECT … FROM _members)` sur
+   une table locale n'est pas poussé ; chaque table source est rapatriée en entier,
+   **déjà avec Postgres**. À corriger à part.
+6. **Incohérence hors Doris** : le validateur de `linkr-format` refuse tout
+   `connectionConfig` dans un manifeste de database (`validate/entities.ts:248-254`),
+   alors que l'app en exporte un réduit à `{engine, …}`.
+
+### 3.3 Chemins encore lents sur Doris
+
+| Chemin | Pourquoi | Piste |
+|---|---|---|
+| Assemblage de la liste des concepts | `LEFT JOIN` du dictionnaire entier sur une vue locale (les unités) : non portable, tout le dictionnaire passe par MySQL | lire le dictionnaire seul en calcul déporté (Flight), joindre localement |
+| `MIN(ts)::VARCHAR` des statistiques | DuckDB n'écrit les fractions de seconde que non nulles | renvoyer le timestamp, le formater côté client |
+| Profils de l'extraction (`mode()`) | départage des égalités propre à chaque moteur | `mode` portable par `GROUP BY … ORDER BY count DESC, valeur LIMIT 1` |
+| Une colonne NULL comblée puis `CAST` | type inconnu après comblement | typer le `NULL` d'après la colonne attendue |
+| ETL source Doris, dérivation de cohorte, librairies R/Python | `ATTACH` direct | Flight / calcul déporté par table |
+
+### 3.4 Documentation utilisateur (linkr-website)
+
+Connecter un Doris : compte en lecture seule, port Flight, BE joignables
+(`public_host`), ce que dit le bandeau.
 
 ---
 
@@ -236,3 +182,13 @@ volumes: { fe-meta: {}, be-storage: {} }
 networks:
   doris: { ipam: { config: [{ subnet: 172.30.80.0/24 }] } }
 ```
+
+## Annexe B — Banc de comparaison calcul déporté / `ATTACH`
+
+Échantillonner le SQL réel de l'app (comptage des concepts, catalog, extraction,
+DQ, statistiques, patients) avec un test Vitest temporaire qui enregistre les
+requêtes des générateurs sur le mapping OMOP 5.4, puis exécuter chacune deux fois
+sur Doris — telle quelle (`ATTACH`) et via `db_connect._pushed_down` — et comparer
+noms de colonnes et lignes (ensembles, flottants arrondis à 1e-6, booléens typés).
+Toute différence est un bug de `remote_sql.py` : la règle fautive doit refuser la
+construction (`NotPortable`), pas l'approcher.

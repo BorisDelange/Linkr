@@ -590,7 +590,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
               failed: true,
             }
           } else {
-            const rows = await duckdbEngine.queryDataSource(activeConnectionId, cell.content)
+            const rows = await duckdbEngine.queryDataSource(activeConnectionId, cell.content, { pushdown: false })
             const headers = rows.length > 0 ? Object.keys(rows[0]) : []
             const tableRows = rows.slice(0, 1000).map((r) =>
               headers.map((h) => String(r[h] ?? '')),

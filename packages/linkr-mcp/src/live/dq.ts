@@ -188,7 +188,7 @@ export function errorResult(check: DqCheck, err: unknown, executionTimeMs: numbe
 
 /** Every check's result, in the checks' order, `concurrency` queries at a time; a failed query is an error result. */
 export async function runChecks(
-  query: (sql: string) => Promise<Record<string, unknown>[]>, checks: DqCheck[], concurrency = 4,
+  query: (sql: string, pushdown?: boolean) => Promise<Record<string, unknown>[]>, checks: DqCheck[], concurrency = 4,
 ): Promise<DqCheckResult[]> {
   const results: DqCheckResult[] = new Array(checks.length)
   let next = 0
@@ -197,7 +197,7 @@ export async function runChecks(
       const i = next++
       const start = performance.now()
       try {
-        results[i] = evaluateRows(checks[i], await query(checks[i].sql), Math.round(performance.now() - start))
+        results[i] = evaluateRows(checks[i], await query(checks[i].sql, checks[i].origin !== 'manual'), Math.round(performance.now() - start))
       } catch (e) {
         results[i] = errorResult(checks[i], e, Math.round(performance.now() - start))
       }

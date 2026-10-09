@@ -196,7 +196,7 @@ async function serverRoles(
 function statementRunner(
   dataSourceId: string,
 ): (sql: string) => Promise<Record<string, unknown>[]> {
-  return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt)
+  return (stmt) => duckdbEngine.queryDataSource(dataSourceId, stmt, { pushdown: false })
 }
 
 /**

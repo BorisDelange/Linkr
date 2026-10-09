@@ -226,7 +226,7 @@ export function registerDatabaseTools(server: Server): void {
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       kind: 'empty_from_schema' | 'server_path' | 'external'; workspace_id?: string; name: string; description?: string
-      alias?: string; preset_id?: string; path?: string; engine?: 'duckdb' | 'sqlite' | 'postgresql' | 'mysql'
+      alias?: string; preset_id?: string; path?: string; engine?: 'duckdb' | 'sqlite' | 'postgresql' | 'mysql' | 'doris'
       host?: string; port?: number; database?: string; schema?: string; allow_writes?: boolean
       require_session_only?: boolean; badges?: BadgeInput[]; version?: string; link_to_project_uid?: string
       language?: Language
@@ -247,7 +247,7 @@ export function registerDatabaseTools(server: Server): void {
           description: 'Absolute server path. server_path: the file or Parquet folder (inside the folders the server allows). '
             + 'empty_from_schema: a NEW .duckdb to create there instead of Linkr\'s data folder.',
         },
-        engine: { type: 'string', enum: ['duckdb', 'sqlite', 'postgresql', 'mysql'], description: 'server_path: duckdb (default, also Parquet) or sqlite. external: postgresql (default) or mysql.' },
+        engine: { type: 'string', enum: ['duckdb', 'sqlite', 'postgresql', 'mysql', 'doris'], description: 'server_path: duckdb (default, also Parquet) or sqlite. external: postgresql (default), mysql or doris (Apache Doris over its MySQL port, 9030; each user\'s login must be read-only).' },
         host: { type: 'string', description: 'external.' },
         port: { type: 'number', description: 'external.' },
         database: { type: 'string', description: 'external: the database name on the server.' },
@@ -294,7 +294,7 @@ export function registerDatabaseTools(server: Server): void {
       spec = { kind: 'server-path', engine, path: args.path, preset }
     } else {
       const engine = args.engine ?? 'postgresql'
-      if (engine !== 'postgresql' && engine !== 'mysql') return failure('external takes engine postgresql or mysql.')
+      if (engine !== 'postgresql' && engine !== 'mysql' && engine !== 'doris') return failure('external takes engine postgresql, mysql or doris.')
       if (!args.host || !args.database) return failure('external needs host and database.')
       spec = {
         kind: 'external', engine, host: args.host, port: args.port, database: args.database, schema: args.schema,

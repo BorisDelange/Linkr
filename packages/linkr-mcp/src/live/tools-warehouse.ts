@@ -153,7 +153,7 @@ export function registerWarehouseTools(server: Server): void {
       required: ['database_id', 'sql'],
     }),
   }, guard(async ({ database_id, sql, max_rows }) => {
-    const rows = await api.query(database_id, sql)
+    const rows = await api.query(database_id, sql, { pushdown: false })
     return text(formatRows(rows, Math.min(max_rows ?? 50, 500)))
   }))
 

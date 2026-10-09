@@ -399,7 +399,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
     setTestResult(null)
     try {
       await ensureMounted(dataSourceId)
-      const rows = await queryDataSource(dataSourceId, selectedCheck.sql)
+      const rows = await queryDataSource(dataSourceId, selectedCheck.sql, { pushdown: selectedCheck.origin !== 'manual' })
       if (!rows.length) {
         setTestResult({ success: false, lines: [t('data_quality.test_result_no_rows'), t('data_quality.test_expected_shape')] })
         return

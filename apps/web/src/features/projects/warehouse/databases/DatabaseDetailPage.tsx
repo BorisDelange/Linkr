@@ -89,6 +89,8 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
+import { isExternalEngine } from '@/lib/database-engines'
+import { useFlightStatus } from './use-flight-status'
 
 const DATABASE_TAB_IDS = ['overview', 'statistics', 'concepts', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
@@ -158,8 +160,9 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const canReinstall = useMyWorkspaceRole().atLeast('owner') && !readOnly
   // The concept counts are a cache: shared for a file database (an edit), the
   // user's own for an external one — the server's `_cache_write_permission`.
+  const flightStatus = useFlightStatus(source)
   const canCountConcepts = useMyWorkspaceRole().can('databases:write')
-    || ['postgresql', 'mysql'].includes(String((source?.connectionConfig as DatabaseConnectionConfig | undefined)?.engine))
+    || isExternalEngine((source?.connectionConfig as DatabaseConnectionConfig | undefined)?.engine)
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,
@@ -293,6 +296,16 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
                 {t('databases.location_missing_change')}
               </Button>
             )}
+          />
+        )}
+        {flightStatus && (flightStatus.status === 'unreachable' || flightStatus.status === 'not_installed') && (
+          <NoticeBanner
+            tone="warning"
+            className="mx-6 mb-3"
+            title={t('databases.flight_slow_title')}
+            description={flightStatus.status === 'not_installed'
+              ? t('databases.flight_not_installed')
+              : t('databases.flight_unreachable', { port: flightStatus.port, detail: flightStatus.detail ?? '' })}
           />
         )}
         {!source.schemaMapping && (

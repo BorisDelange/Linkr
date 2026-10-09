@@ -189,7 +189,8 @@ def write_unit(
     staged = run / "units" / f"{key}.parquet.tmp-{os.getpid()}-{uuid.uuid4().hex}"
     try:
         try:
-            db_connect.materialize_parquet(config, password, files, known, select_sql, str(staged))
+            # A unit is the app's own aggregate: an external database computes it.
+            db_connect.materialize_parquet(config, password, files, known, select_sql, str(staged), pushdown=True)
         except Exception as e:
             # An invalidation removing the folder mid-COPY fails the rename.
             if _current_run_id(run) != run_id:

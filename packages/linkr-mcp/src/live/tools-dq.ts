@@ -116,14 +116,15 @@ async function translator(language: ReportLanguage = 'en') {
 }
 
 /** The server runs SQL as sent: `linkr_*` relations are resolved here, with the
- *  database's mapping read once per call. */
+ *  database's mapping read once per call. A generated check may be computed by
+ *  an external database itself (`pushdown`); a hand-written one is run as written. */
 async function querier(databaseId: string) {
   const ds = await api.getDataSource(databaseId)
   if (ds.status && ds.status !== 'connected') throw new Error(`Database ${ds.id} is ${ds.status}: it cannot be queried.`)
   const mapping: SchemaMapping | null | undefined = ds.schemaMapping
-  return async (sql: string) => (await api.request<{ rows: Record<string, unknown>[] }>(
+  return async (sql: string, pushdown = false) => (await api.request<{ rows: Record<string, unknown>[] }>(
     'POST', `/data-sources/${enc(ds.id)}/query`,
-    { sql: sql.toLowerCase().includes(RELATION_PREFIX) ? injectClassRelations(sql, mapping) : sql },
+    { sql: sql.toLowerCase().includes(RELATION_PREFIX) ? injectClassRelations(sql, mapping) : sql, pushdown },
   )).rows
 }
 
@@ -840,7 +841,7 @@ export function registerDqTools(server: Server): void {
     const out = [describeCheck(check)]
     const start = performance.now()
     try {
-      const r = evaluateRows(runnableChecks([{ ...check, disabled: false }])[0], await query(check.sql), Math.round(performance.now() - start))
+      const r = evaluateRows(runnableChecks([{ ...check, disabled: false }])[0], await query(check.sql, check.origin !== 'manual'), Math.round(performance.now() - start))
       out.push(`Now: ${r.status} — ${r.violatedRows}/${r.totalRows} violated (${r.pctViolated.toFixed(2)}%, threshold ${check.threshold}%).`)
     } catch (e) {
       out.push(`The check's SQL fails: ${(e as Error).message}`)

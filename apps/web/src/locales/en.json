@@ -904,7 +904,13 @@
     "layout_unsorted_title_other": "{{count}} tables are not stored in patient order",
     "import_alias_renamed_title": "Imported under another alias",
     "import_alias_renamed": "The alias {{from}} is already used here, so the database was imported as {{to}}. Scripts imported with it that query ds_{{from}} must now query ds_{{to}}.",
-    "layout_unsorted_description": "Reading one patient goes through most of the table: {{tables}}. Writing the Parquet files sorted by patient (then date) lets every patient view, and the concept counts, skip the rest."
+    "layout_unsorted_description": "Reading one patient goes through most of the table: {{tables}}. Writing the Parquet files sorted by patient (then date) lets every patient view, and the concept counts, skip the rest.",
+    "doris_read_only_hint": "Doris cannot open a connection read-only, so Linkr requires a login that can only read (SELECT): a login holding any other privilege is refused.",
+    "field_flight_port": "Arrow Flight SQL port",
+    "doris_flight_hint": "Large results go over Arrow Flight SQL (the FE's arrow_flight_sql_port, 8070 by default): every BE must be reachable from the Linkr server, or announce an address that is (public_host).",
+    "flight_slow_title": "Large results from this database will be slow",
+    "flight_not_installed": "Linkr's server cannot use Arrow Flight SQL (its \"doris\" extra is not installed), so large results go over the much slower MySQL protocol. Counts and statistics are not affected.",
+    "flight_unreachable": "Arrow Flight SQL (port {{port}}) could not be reached, so large results go over the much slower MySQL protocol. Counts and statistics are not affected. Check that the port is open and that every BE is reachable from Linkr's server. Error: {{detail}}"
   },
   "reports": {
     "title": "Reports",

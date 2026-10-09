@@ -126,9 +126,11 @@ linkr_connect <- function(alias, read_only = TRUE) {
   .linkr_use_server_extensions(con)
   .linkr_exec(con, sprintf("INSTALL %s", db$attachType))
   .linkr_exec(con, sprintf("LOAD %s", db$attachType))
+  # Doris refuses a READ_ONLY attach; its login is read-only instead.
+  read_only <- if (isFALSE(db$attachReadOnly)) "" else ", READ_ONLY"
   .linkr_exec(con, sprintf(
-    "ATTACH %s AS ext (TYPE %s, READ_ONLY)",
-    .linkr_quote(con, db$attachDsn), db$attachType
+    "ATTACH %s AS ext (TYPE %s%s)",
+    .linkr_quote(con, db$attachDsn), db$attachType, read_only
   ))
   # The source's schema goes on the search path so bare table names resolve the
   # way they do in the app's SQL editor.

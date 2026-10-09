@@ -168,6 +168,9 @@ class QueryRequest(CamelModel):
     query_id: str | None = None
     # Every row, up to db_connect.MAX_QUERY_ROWS_ALL, instead of the usual cap.
     all_rows: bool = False
+    # The app's own query: an external database may compute it itself when it is
+    # portable (services/data/remote_sql.py). Never set for SQL a user wrote.
+    pushdown: bool = False
 
 
 class QueryCancelRequest(CamelModel):
@@ -180,6 +183,15 @@ class QueryCancelResult(CamelModel):
 
 class QueryResult(CamelModel):
     rows: list[dict]
+
+
+class FlightStatus(CamelModel):
+    """Whether Arrow Flight carries this database's large results (services/data/flight.py).
+    `not_applicable`: the engine has no Flight; `not_installed`: the server lacks
+    the `doris` extra; `unreachable`: Flight answered with an error (`detail`)."""
+    status: str
+    port: int | None = None
+    detail: str | None = None
 
 
 class MoveFileRequest(CamelModel):
@@ -309,11 +321,13 @@ class ClientDatabase(CamelModel):
     path: str | None = None
     # kind="parquet-folder": table name → blob path(s), registered as views.
     tables: list[ParquetTablePath] = []
-    # kind="external": the DuckDB ATTACH type ("postgres"/"mysql"), the DSN, and
-    # the schema whose tables land on the search path.
+    # kind="external": the DuckDB ATTACH type ("postgres"/"mysql"), the DSN, the
+    # schema whose tables land on the search path, and whether to ATTACH it
+    # READ_ONLY (Doris refuses it; its login is read-only instead).
     attach_type: str | None = None
     attach_dsn: str | None = None
     attach_scope: str | None = None
+    attach_read_only: bool = True
 
     @field_validator("name", mode="before")
     @classmethod

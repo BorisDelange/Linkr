@@ -225,9 +225,12 @@ export class LinkrApi {
     withV2Mapping(await this.request<DataSource>('GET', `/data-sources/${encodeURIComponent(id)}`))
   getSchema = (id: string) =>
     this.request<IntrospectedTable[]>('GET', `/data-sources/${encodeURIComponent(id)}/schema`)
-  query = async (id: string, sql: string) =>
+  /** `pushdown`: an external database may compute the query itself when the
+   *  server finds it portable. On for the builders' SQL; pass `false` for SQL
+   *  the model or a user wrote. */
+  query = async (id: string, sql: string, { pushdown = true }: { pushdown?: boolean } = {}) =>
     (await this.request<{ rows: Record<string, unknown>[] }>(
-      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql) },
+      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql), pushdown },
     )).rows
 
   /**

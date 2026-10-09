@@ -262,7 +262,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
       await testConnection(activeDbId)
       const start = Date.now()
       try {
-        const rows = await duckdbEngine.queryDataSource(activeDbId, sql)
+        const rows = await duckdbEngine.queryDataSource(activeDbId, sql, { pushdown: false })
         const duration = Date.now() - start
         addExecutionResult({
           id: `exec-${Date.now()}`,

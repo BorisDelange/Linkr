@@ -35,13 +35,14 @@ from app.services.data import (
     concept_cache_fs,
     connection_pool,
     db_connect,
+    flight,
     managed_db,
 )
 from app.services.data import parquet_layout as parquet_layout_fs
 from app.services.data.db_host_guard import DbHostNotAllowed
 
 # External network databases reached via DuckDB's ATTACH extensions.
-_EXTERNAL_ENGINES = ("postgresql", "mysql")
+_EXTERNAL_ENGINES = db_connect.EXTERNAL_ENGINES
 # File databases uploaded to the blob store and attached from disk server-side.
 _FILE_ENGINES = ("duckdb", "sqlite")
 
@@ -977,6 +978,7 @@ async def client_recipe(db: AsyncSession, source: DataSource, login: Login | Non
             "attach_type": recipe["type"],
             "attach_dsn": recipe["dsn"],
             "attach_scope": recipe["scope"],
+            "attach_read_only": recipe["readOnly"],
         }
 
     if is_managed(source):
@@ -1017,6 +1019,19 @@ async def client_recipe(db: AsyncSession, source: DataSource, login: Login | Non
     return {"engine": engine, "kind": None, "connectable": False}
 
 
+async def flight_status(source: DataSource, login: Login | None) -> dict:
+    """See schemas.FlightStatus."""
+    config = dict(source.connection_config or {})
+    if flight.port(config) is None:
+        return {"status": "not_applicable"}
+    if login is None:
+        raise database_credential_service.CredentialRequired(source)
+    found = await asyncio.to_thread(db_connect.flight_problem, with_login(config, login), login.password)
+    if found is None:
+        return {"status": "ok", "port": flight.port(config)}
+    return {"status": found[0], "port": flight.port(config), "detail": found[1]}
+
+
 # --- Live connection test (external databases) -----------------------------
 
 def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
@@ -1025,14 +1040,16 @@ def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
 
 async def query(
     db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool = False,
+    pushdown: bool = False,
 ):
     """Run read-only SQL server-side: ATTACH a network DB with the caller's own
     `login` (see database_credential_service.resolve_login) or a local
     DuckDB/SQLite file from the blob store. JSON-ready rows, capped; or, with
-    `arrow`, the whole result as an Arrow table. Logged (core/audit)."""
+    `arrow`, the whole result as an Arrow table. Logged (core/audit).
+    `pushdown`: see db_connect.query_external."""
     _audit(source, "query", sql)
     try:
-        result = await _query(db, source, login, sql, arrow)
+        result = await _query(db, source, login, sql, arrow, pushdown)
     except Exception as exc:
         audit.bind(error=str(exc))
         raise
@@ -1040,7 +1057,7 @@ async def query(
     return result
 
 
-async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool):
+async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool, pushdown: bool = False):
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:
@@ -1048,7 +1065,7 @@ async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql:
             raise database_credential_service.CredentialRequired(source)
         return await asyncio.to_thread(
             db_connect.query_external, with_login(config, login), login.password, sql,
-            pool_key(source, login), arrow,
+            pool_key(source, login), arrow, pushdown,
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, read it where it lives.

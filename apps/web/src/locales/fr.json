@@ -904,7 +904,13 @@
     "layout_unsorted_title_other": "{{count}} tables ne sont pas rangées par patient",
     "import_alias_renamed_title": "Importée sous un autre alias",
     "import_alias_renamed": "L'alias {{from}} est déjà utilisé ici : la base a été importée sous {{to}}. Les scripts importés avec elle qui interrogent ds_{{from}} doivent désormais interroger ds_{{to}}.",
-    "layout_unsorted_description": "Lire un patient y parcourt l'essentiel de la table : {{tables}}. Écrire les fichiers Parquet triés par patient (puis par date) permet à toutes les vues patient, et au décompte des concepts, de sauter le reste."
+    "layout_unsorted_description": "Lire un patient y parcourt l'essentiel de la table : {{tables}}. Écrire les fichiers Parquet triés par patient (puis par date) permet à toutes les vues patient, et au décompte des concepts, de sauter le reste.",
+    "doris_read_only_hint": "Doris ne peut pas ouvrir une connexion en lecture seule : Linkr exige donc un compte qui ne peut que lire (SELECT). Un compte disposant d'un autre droit est refusé.",
+    "field_flight_port": "Port Arrow Flight SQL",
+    "doris_flight_hint": "Les résultats volumineux passent par Arrow Flight SQL (l'arrow_flight_sql_port du FE, 8070 par défaut) : chaque BE doit être joignable depuis le serveur Linkr, ou annoncer une adresse qui l'est (public_host).",
+    "flight_slow_title": "Les résultats volumineux de cette base seront lents",
+    "flight_not_installed": "Le serveur Linkr ne peut pas utiliser Arrow Flight SQL (son extra « doris » n'est pas installé) : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés.",
+    "flight_unreachable": "Arrow Flight SQL (port {{port}}) est injoignable : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Vérifiez que le port est ouvert et que chaque BE est joignable depuis le serveur Linkr. Erreur : {{detail}}"
   },
   "reports": {
     "title": "Rapports",

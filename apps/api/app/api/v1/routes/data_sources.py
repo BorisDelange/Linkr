@@ -42,6 +42,7 @@ from app.schemas.data_source import (
     DatabaseLoginStatus,
     DerivePlanRequest,
     DeriveRequest,
+    FlightStatus,
     EtlRunRequest,
     IntrospectedTable,
     QueryCancelRequest,
@@ -289,7 +290,7 @@ async def query_data_source(
     tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
     cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
     try:
-        rows = await data_source_service.query(db, source, login, body.sql)
+        rows = await data_source_service.query(db, source, login, body.sql, pushdown=body.pushdown)
     except (query_cancel.QueryCancelled, duckdb.InterruptException):
         raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
     except ValueError as e:
@@ -699,6 +700,25 @@ def _reaches_the_network(source) -> bool:
         not data_source_service.is_managed(source)
         and data_source_service.is_external_engine((source.connection_config or {}).get("engine"))
     )
+
+
+@router.get("/{source_id}/flight", response_model=FlightStatus)
+async def get_flight_status(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Whether Arrow Flight carries this database's large results, and if not why:
+    the database page warns that they go over the slower MySQL protocol."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    login = await _login(db, source, user)
+    try:
+        return await data_source_service.flight_status(source, login)
+    except database_credential_service.CredentialRequired:
+        raise
+    except Exception as e:  # noqa: BLE001 — the database itself is unreachable: the page says so elsewhere
+        logger.info("flight status of %s failed: %s", source.id, e)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Connection failed") from e
 
 
 @router.get("/{source_id}/schema", response_model=list[IntrospectedTable])

@@ -29,7 +29,7 @@ describe('planSlices', () => {
   })
 
   it('cuts a large one into patient ranges with open ends', async () => {
-    const query: CatalogQuery = async (sql) => (sql.includes('quantile_disc') ? [{ b: 100n }, { b: 200 }] : [{ event_rows: SLICE_EVENT_ROWS * 2.5 }])
+    const query: CatalogQuery = async (sql) => (sql.includes('ROW_NUMBER()') ? [{ b: 100n }, { b: 200 }] : [{ event_rows: SLICE_EVENT_ROWS * 2.5 }])
     expect(await planSlices(mapping, query)).toEqual([{ hi: 100 }, { lo: 100, hi: 200 }, { lo: 200 }])
   })
 })
@@ -90,7 +90,7 @@ describe('catalog run', () => {
     signal?.throwIfAborted()
     const second = sql.includes('>= 5')
     if (sql.includes('event_rows')) return [{ event_rows: SLICE_EVENT_ROWS * 1.5 }]
-    if (sql.includes('quantile_disc')) return [{ b: 5 }]
+    if (sql.includes('ROW_NUMBER()')) return [{ b: 5 }]
     if (sql.includes('total_patients')) return [{ total_patients: second ? 3 : 4, total_visits: 10, total_records: 100 }]
     if (sql.includes('per_concept')) return [{ concept_id: 1, concept_name: 'HR', dictionary_key: 'concept', patient_count: 2, record_count: 7, visit_count: 3 }]
     if (sql.includes('AS v_age')) return [{ v_period: '2024', v_age: '[0;10[', patients: second ? 1 : 2, stays: 3 }]
