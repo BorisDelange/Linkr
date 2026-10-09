@@ -713,7 +713,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                   {renderField(t('concept_mapping.col_concept_class_id'), mapping.targetConceptClassId)}
                   <tr>
                     <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">{t('concept_mapping.col_std')}</td>
-                    <td className="py-1 text-xs"><StandardConceptBadge value={mapping.targetStandardConcept ?? null} /></td>
+                    <td className="py-1 text-xs"><StandardConceptBadge value={mapping.targetStandardConcept ?? null} align="start" /></td>
                   </tr>
                 </tbody>
               </table>

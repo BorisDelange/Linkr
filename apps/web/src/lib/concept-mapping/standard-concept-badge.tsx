@@ -14,7 +14,11 @@ const LABELS: Record<string, { short: string; long: string; cls: string }> = {
   },
 }
 
-export function StandardConceptBadge({ value }: { value: string | null | undefined }) {
+export function StandardConceptBadge({ value, align = 'center' }: {
+  value: string | null | undefined
+  /** `center` for a table column, `start` in a label/value list. */
+  align?: 'center' | 'start'
+}) {
   const entry = value ? LABELS[value] : null
   const badge = entry ? (
     <Badge variant="default" className={`px-1 py-0.5 text-[8px] leading-none ${entry.cls}`}>
@@ -29,7 +33,7 @@ export function StandardConceptBadge({ value }: { value: string | null | undefin
   const label = entry ? entry.long : 'Non-standard'
 
   return (
-    <div className="flex justify-center">
+    <div className={align === 'center' ? 'flex justify-center' : 'flex'}>
       <Tooltip>
         <TooltipTrigger asChild>{badge}</TooltipTrigger>
         <TooltipContent side="top">{label}</TooltipContent>
