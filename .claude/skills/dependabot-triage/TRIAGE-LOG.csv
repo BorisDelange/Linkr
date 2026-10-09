@@ -4,6 +4,7 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,@hono/node-server,GHSA-frvp-7c67-39w9,medium,113,false-positive,dismissed,not_used,"Windows-only, transitive dev tooling"
 2026-08-01,@hono/node-server,GHSA-wc8c-qw6v-h7f6,high,21,resolved-in-lockfile,pending-merge,,installed 1.19.17 >= patched 1.19.10
 2026-09-18,@humanfs/node,GHSA-p498-v437-472g,medium,160,resolved-in-lockfile,pending-rescan,,"lockfile 0.16.7 -> 0.16.8; verified on main 2026-09-18, awaiting Dependabot re-scan"
+2026-10-09,@modelcontextprotocol/sdk,GHSA-6qxp-vccf-f47h,high,197,resolved-in-lockfile,pending-merge,,"lockfile 1.26.0 -> 1.32.1 (dev, via shadcn CLI); on feature/fastapi-backend, uncommitted, closes once on main"
 2026-09-16,@vitest/mocker,GHSA-82fw-gwwq-j7x9,medium,169,false-positive,dismissed,not_used,dev-only; mockerPlugin/interceptorPlugin unused; no browser mode; fix needs vitest 4.x major
 2026-08-01,ajv,GHSA-2g4f-4pwh-qvx6,medium,"6,7",resolved-in-lockfile,pending-merge,,installed 6.15.0/8.20.0 >= patched 6.14.0
 2026-09-18,baseline-browser-mapping,GHSA-w5vr-8v7q-w6rv,medium,170,resolved-in-lockfile,pending-rescan,,"lockfile 2.9.19 -> 2.11.24; verified on main 2026-09-18, awaiting Dependabot re-scan"
@@ -12,9 +13,11 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,brace-expansion,GHSA-f886-m6hf-6m8v,medium,"31,32,33",open,none,,transitive (build/lint tooling); a residual copy still < patched 1.1.13
 2026-08-01,brace-expansion,GHSA-jxxr-4gwj-5jf2,medium,70,open,none,,transitive (build/lint tooling); a residual copy still < patched 5.0.6
 2026-08-01,brace-expansion,GHSA-mh99-v99m-4gvg,high,128,open,none,,transitive (build/lint tooling); a residual copy still < patched 5.0.8
+2026-10-09,brace-expansion,GHSA-q2hr-2g5m-vwhr,medium,"186,187",resolved-in-lockfile,pending-merge,,"lockfile 2.1.4/5.0.9 -> 2.1.7/5.0.12; on feature/fastapi-backend, uncommitted, closes once on main"
 2026-09-18,browserslist,GHSA-73wf-gq98-2v4g,high,164,resolved-in-lockfile,pending-rescan,,"lockfile 4.28.1 -> 4.29.0; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-08-01,dompurify,GHSA-39q2-94rc-95cp,medium,51,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-09-16,dompurify,GHSA-55q2-fjhq-7xh7,medium,141,blocked-upstream,dismissed,tolerable_risk,monaco 0.56.0 ships dompurify 3.4.8 < patched 3.4.13; mermaid path fixed via 11.17.2
+2026-10-09,dompurify,GHSA-6688-9rhm-gjv2,low,196,false-positive,dismissed,not_used,"IN_PLACE never enabled (Linkr, monaco 3.2.7, mermaid); mermaid copy bumped to 3.4.16"
 2026-08-01,dompurify,GHSA-76mc-f452-cxcm,medium,93,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-08-01,dompurify,GHSA-c2j3-45gr-mqc4,low,118,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-08-01,dompurify,GHSA-cj63-jhhr-wcxv,medium,39,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
@@ -25,6 +28,7 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,dompurify,GHSA-h7mw-gpvr-xq4m,medium,53,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-08-01,dompurify,GHSA-h8r8-wccr-v5f2,medium,34,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-08-01,dompurify,GHSA-hpcv-96wg-7vj8,medium,90,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
+2026-10-09,dompurify,GHSA-p98j-92pf-mc4p,low,177,resolved-in-lockfile,pending-merge,,"lockfile mermaid copy 3.4.15 -> 3.4.16; on feature/fastapi-backend, uncommitted, closes once on main"
 2026-08-01,dompurify,GHSA-r47g-fvhr-h676,medium,91,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-08-01,dompurify,GHSA-rp9w-3fw7-7cwq,medium,94,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-08-01,dompurify,GHSA-v2wj-7wpq-c8vv,medium,22,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
@@ -32,7 +36,7 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,dompurify,GHSA-vxr8-fq34-vvx9,low,95,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-08-01,dompurify,GHSA-x4vx-rjvf-j5p4,low,92,blocked-upstream,dismissed,tolerable_risk,monaco-editor pins vulnerable dompurify; no published monaco has >=3.4.12
 2026-09-16,ecdsa,GHSA-wj6h-64fc-37mp,high,152,false-positive,dismissed,not_used,"JWTs signed HS256 not ECDSA; python-jose transitive; upstream declined fix, no patch will exist"
-2026-08-01,esbuild,GHSA-g7r4-m6w7-qqqr,low,86,false-positive,dismissed,not_used,"dev-server Windows-only, transitive via vite"
+2026-10-09,esbuild,GHSA-g7r4-m6w7-qqqr,low,"86,198",false-positive,dismissed,not_used,"Windows-only dev-server; transitive via vite (86) + devDependency of packages/linkr-mcp (198)"
 2026-08-01,express-rate-limit,GHSA-46wh-pxpv-q5gq,high,23,resolved-in-lockfile,pending-merge,,installed 8.6.1 >= patched 8.2.2
 2026-08-01,fast-uri,GHSA-4c8g-83qw-93j6,high,117,resolved-in-lockfile,pending-merge,,installed 3.1.5 >= patched 3.1.3
 2026-09-18,fast-uri,GHSA-5jgf-p345-68v8,high,157,resolved-in-lockfile,pending-rescan,,"lockfile 3.1.5 -> 3.1.8; verified on main 2026-09-18, awaiting Dependabot re-scan"
@@ -77,12 +81,17 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,hono,GHSA-xgm2-5f3f-mvvc,medium,114,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.27
 2026-08-01,hono,GHSA-xpcf-pg52-r92g,medium,48,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.12
 2026-08-01,hono,GHSA-xrhx-7g5j-rcj5,medium,83,resolved-in-lockfile,pending-merge,,installed 4.12.33 >= patched 4.12.21
+2026-10-09,ip-address,GHSA-2vr4-cq9g-pvrc,medium,176,resolved-in-lockfile,pending-merge,,"lockfile 10.4.0 -> 10.7.3; on feature/fastapi-backend, uncommitted, closes once on main"
+2026-10-09,ip-address,GHSA-j6r3-76f7-8jcv,medium,179,resolved-in-lockfile,pending-merge,,"lockfile 10.4.0 -> 10.7.3; on feature/fastapi-backend, uncommitted, closes once on main"
+2026-10-09,ip-address,GHSA-rpw4-54j3-4h4q,medium,182,resolved-in-lockfile,pending-merge,,"lockfile 10.4.0 -> 10.7.3; on feature/fastapi-backend, uncommitted, closes once on main"
 2026-08-01,ip-address,GHSA-v2v4-37r5-5v8g,medium,57,resolved-in-lockfile,pending-merge,,installed 10.4.0 >= patched 10.1.1
 2026-09-18,js-yaml,GHSA-2883-xcg3-v3hh,high,175,resolved-in-lockfile,pending-rescan,,"lockfile 4.3.1 -> 4.3.2; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-08-01,js-yaml,GHSA-52cp-r559-cp3m,high,112,resolved-in-lockfile,pending-merge,,installed 4.3.1 >= patched 4.3.0
 2026-08-01,js-yaml,GHSA-h67p-54hq-rp68,medium,107,resolved-in-lockfile,pending-merge,,installed 4.3.1 >= patched 4.2.0
+2026-10-09,katex,GHSA-238p-pmpm-9mq7,low,195,blocked-upstream,dismissed,tolerable_risk,needs pre-existing prototype pollution; fix 0.18.2 outside ^0.16 of mermaid + rehype-katex; revisit
 2026-08-01,lodash-es,GHSA-f23m-r3pf-42rh,medium,37,resolved-in-lockfile,pending-merge,,installed 4.18.1 >= patched 4.18.0
 2026-08-01,lodash-es,GHSA-r5fr-rjxr-66jc,high,38,resolved-in-lockfile,pending-merge,,installed 4.18.1 >= patched 4.18.0
+2026-10-09,Mako,GHSA-5639-2j2p-m4mx,medium,181,resolved-in-lockfile,pending-merge,,"apps/api/uv.lock 1.4.1 -> 1.4.3 (Windows-only vector); uncommitted, closes once on main"
 2026-09-18,mermaid,GHSA-2v8p-3f2j-5mp7,medium,139,resolved-in-lockfile,pending-rescan,,"lockfile 11.16.0 -> 11.17.2; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-09-18,mermaid,GHSA-3rrr-jr9j-h3q3,medium,135,resolved-in-lockfile,pending-rescan,,"lockfile 11.16.0 -> 11.17.2; verified on main 2026-09-18, awaiting Dependabot re-scan"
 2026-08-01,mermaid,GHSA-6m6c-36f7-fhxh,medium,68,resolved-in-lockfile,pending-merge,,installed 11.16.0 >= patched 11.15.0
@@ -103,7 +112,10 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,postcss,GHSA-6g55-p6wh-862q,high,127,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.12
 2026-08-01,postcss,GHSA-qx2v-qp2m-jg93,medium,69,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.10
 2026-08-01,postcss,GHSA-r28c-9q8g-f849,high,129,resolved-in-lockfile,pending-merge,,installed 8.5.25 >= patched 8.5.18
+2026-10-09,postcss-selector-parser,GHSA-rj75-hqrm-r3gf,medium,192,false-positive,dismissed,not_used,6.0.10 pinned by @tailwindcss/typography (latest too); build-time on own CSS only
 2026-09-18,postcss-selector-parser,GHSA-w9m9-85wc-3x92,low,156,resolved-in-lockfile,pending-rescan,,"lockfile 7.1.1 -> 7.1.6; verified on main 2026-09-18, awaiting Dependabot re-scan"
+2026-10-09,proxy-addr,GHSA-jqcg-44mw-7w3h,critical,193,resolved-in-lockfile,pending-merge,,"lockfile 2.0.7 -> 2.0.8 (dev, via shadcn CLI); on feature/fastapi-backend, uncommitted, closes once on main"
+2026-10-09,python-jose,GHSA-3qf3-8w2g-rqmx,critical,180,false-positive,dismissed,not_used,"HS256 only, algorithms=[HS256] on decode; no patch exists; consider PyJWT migration"
 2026-08-01,qs,GHSA-q8mj-m7cp-5q26,medium,71,resolved-in-lockfile,pending-merge,,installed 6.15.3 >= patched 6.15.2
 2026-08-01,react-router,GHSA-2j2x-hqr9-3h42,medium,79,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.14.1
 2026-08-01,react-router,GHSA-337j-9hxr-rhxg,medium,124,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.18.0
@@ -118,6 +130,9 @@ date,package,ghsa_id,severity,alert_number,bucket,action,dismissed_reason,notes
 2026-08-01,react-router,GHSA-rxv8-25v2-qmq8,high,85,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.14.0
 2026-08-01,react-router,GHSA-wrjc-x8rr-h8h6,medium,125,resolved-in-lockfile,pending-merge,,installed 7.18.2 >= patched 7.18.0
 2026-08-01,rollup,GHSA-mw96-cpmx-2vgc,high,11,resolved-in-lockfile,pending-merge,,installed 4.62.3 >= patched 4.59.0
+2026-10-09,source-map-js,GHSA-68fv-2mgg-jv7q,high,194,resolved-in-lockfile,pending-merge,,"lockfile 1.2.1 -> 1.2.2; on feature/fastapi-backend, uncommitted, closes once on main"
+2026-10-09,tinypool,GHSA-5gmw-xhrv-c9v3,critical,191,false-positive,dismissed,not_used,"dev-only vitest runner, options never untrusted; fix needs vitest major"
+2026-10-09,tinypool,GHSA-85c8-ppgw-ccpr,critical,190,false-positive,dismissed,not_used,"dev-only vitest runner, options never untrusted; fix needs vitest major"
 2026-08-01,turbo,GHSA-3qcw-2rhx-2726,low,73,resolved-in-lockfile,pending-merge,,installed 2.10.8 >= patched 2.9.14
 2026-08-01,turbo,GHSA-hcf7-66rw-9f5r,medium,74,resolved-in-lockfile,pending-merge,,installed 2.10.8 >= patched 2.9.14
 2026-08-01,uuid,GHSA-w5hq-g745-h8pq,medium,72,resolved-in-lockfile,pending-merge,,installed 14.0.1 >= patched 11.1.1
