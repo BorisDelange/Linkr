@@ -11,6 +11,7 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { localized } from '@/lib/localized'
+import { extent } from '@/lib/numeric-extent'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { LocalizedString } from '@/types'
 import { buildMapSpec } from './map-server'
@@ -167,25 +168,21 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<MapServerData | null>(null)
-  const [serverFailure, setServerFailure] = useState<{ key: string | null; message: string } | null>(null)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
-  const { refreshing, settle } = useRenderRefresh(requestKey)
-  // Keyed to the request it answered, so a new render clears a stale failure.
-  const serverError = serverFailure?.key === requestKey ? serverFailure.message : null
+  const { refreshing, settle, failure: serverError } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('map', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
-        settle(requestKey)
-        if (out.stderr) { setServerFailure({ key: requestKey, message: out.stderr }); return }
+        if (out.stderr) { settle(requestKey, out.stderr); return }
         try {
           setServerData(JSON.parse(out.stdout.trim()) as MapServerData)
-          setServerFailure(null)
-        } catch { setServerFailure({ key: requestKey, message: out.stdout || 'Failed to parse result' }) }
+          settle(requestKey)
+        } catch { settle(requestKey, out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) { settle(requestKey); setServerFailure({ key: requestKey, message: String(e) }) } })
+      .catch((e) => { if (!cancelled) settle(requestKey, String(e)) })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -209,9 +206,7 @@ export function MapComponent({ config, columns, rows, compact, datasetFileId, da
     }
     const vals = rows.map(r => toNumeric(r[sizeCol])).filter(v => !isNaN(v))
     if (vals.length === 0) return null
-    const min = Math.min(...vals)
-    const max = Math.max(...vals)
-    return { min, max }
+    return extent(vals)
   }, [server, serverData, sizeCol, rows])
 
   const points = useMemo<MapPoint[]>(() => {

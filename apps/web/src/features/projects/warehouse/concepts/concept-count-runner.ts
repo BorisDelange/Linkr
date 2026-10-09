@@ -26,9 +26,8 @@ import { buildConceptsAssembleQuery, computeAvailableColumns } from './concept-q
 import {
   CONCEPT_COUNT_VERSION,
   CONCEPT_SLICE_ROWS,
-  buildConceptIdTypesSql,
   conceptCountSignature,
-  conceptIdTypeMismatches,
+  findConceptIdTypeMismatches,
   planConceptCountUnits,
   type ConceptCountManifest,
   type ConceptCountStepProgress,
@@ -88,9 +87,7 @@ async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortS
 /** Refuses a mapping whose event and dictionary ids cannot be joined, before
  *  any unit runs — rather than fail on DuckDB's cast deep into the run. */
 async function checkConceptIdTypes(dataSourceId: string, mapping: SchemaMapping, signal: AbortSignal): Promise<void> {
-  const sql = buildConceptIdTypesSql(mapping)
-  if (!sql) return
-  const mismatches = conceptIdTypeMismatches(await queryDataSource(dataSourceId, sql, { signal }))
+  const mismatches = await findConceptIdTypeMismatches(mapping, (sql) => queryDataSource(dataSourceId, sql, { signal }))
   if (!mismatches.length) return
   throw new Error(mismatches.map((m) => i18n.t('concepts.count_id_type_mismatch', { ...m })).join(' '))
 }

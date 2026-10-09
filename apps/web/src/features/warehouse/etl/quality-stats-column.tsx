@@ -132,7 +132,7 @@ function TableCountList({ counts }: { counts: TableRowCount[] }) {
       </div>
 
       {shown.length === 0 ? (
-        <p className="px-1 py-2 text-[10px] text-muted-foreground">{t('etl.quality_stats_no_table_match')}</p>
+        <p className="px-1 py-2 text-xs text-muted-foreground">{t('etl.quality_stats_no_table_match')}</p>
       ) : (
         <div className="space-y-0.5">
           {shown.map((tc) => (

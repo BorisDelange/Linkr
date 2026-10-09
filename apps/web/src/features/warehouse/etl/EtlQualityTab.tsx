@@ -393,10 +393,13 @@ function ConceptQualityView({
 
   const fingerprint = useMemo(() => qualityFingerprint(runHistory), [runHistory])
 
+  const request = useRef(0)
   const load = useCallback(async (force: boolean) => {
     if (!targetId) return
+    const ticket = ++request.current
     if (!force) {
       const cached = await getStorage().etlQualityCache.get(pipelineId).catch(() => undefined)
+      if (ticket !== request.current) return
       if (isQualityCacheUsable(cached, targetId, fingerprint)) {
         setRows((cached!.rows ?? []) as QualityConceptRow[])
         setComputedAt(cached!.computedAt)
@@ -407,6 +410,7 @@ function ConceptQualityView({
     setError(undefined)
     try {
       const loaded = await loadConceptQuality(targetId)
+      if (ticket !== request.current) return
       const at = new Date().toISOString()
       setRows(loaded)
       setComputedAt(at)
@@ -418,10 +422,11 @@ function ConceptQualityView({
         rows: loaded,
       }).catch(() => {})
     } catch (e) {
+      if (ticket !== request.current) return
       setRows([])
       setError(errorText(e))
     } finally {
-      setLoading(false)
+      if (ticket === request.current) setLoading(false)
     }
   }, [pipelineId, targetId, fingerprint])
 

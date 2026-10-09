@@ -1,3 +1,5 @@
+import { extent } from '@/lib/numeric-extent'
+
 /** Round a rough step up to the nearest "nice" value (1, 2, 5 × 10ⁿ). */
 export function niceStep(rough: number): number {
   if (rough <= 0 || !isFinite(rough)) return 1
@@ -19,8 +21,7 @@ export function niceTicks(
 ): { domain: [number, number]; ticks: number[] } | null {
   const finite = values.filter((v) => isFinite(v))
   if (finite.length === 0) return null
-  let lo = Math.min(...finite)
-  let hi = Math.max(...finite)
+  let { min: lo, max: hi } = extent(finite)
   if (startAtZero && lo > 0) lo = 0
   if (startAtZero && hi < 0) hi = 0
   if (lo === hi) { lo -= 1; hi += 1 }
@@ -50,8 +51,7 @@ export function zeroAnchoredHistogramScale(
   if (!base) return null
   const finite = xs.filter((v) => isFinite(v))
   if (finite.length < 2) return base
-  const min = Math.min(...finite)
-  const max = Math.max(...finite)
+  const { min, max } = extent(finite)
   const half = (max - min) / (finite.length - 1) / 2
   if (!(half > 0)) return base
   return { domain: [base.domain[0] - half, base.domain[1] + half], ticks: base.ticks }
@@ -67,8 +67,7 @@ export function tightHistogramScale(
 ): { domain: [number, number]; ticks: number[] } | null {
   const finite = xs.filter((v) => isFinite(v))
   if (finite.length === 0) return null
-  const min = Math.min(...finite)
-  const max = Math.max(...finite)
+  const { min, max } = extent(finite)
   if (min === max) return niceTicks(finite)
   const binWidth = finite.length > 1 ? (max - min) / (finite.length - 1) : 1
   const lo = min - binWidth / 2

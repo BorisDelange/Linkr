@@ -22,6 +22,7 @@ import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
 import { useRenderRefresh } from '@/hooks/use-render-refresh'
 import { localized } from '@/lib/localized'
+import { extent } from '@/lib/numeric-extent'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
 import type { LocalizedString } from '@/types'
 import { buildKeyIndicatorSpec } from './key-indicator-server'
@@ -112,8 +113,9 @@ function niceStep(rawStep: number): number {
 
 function buildHistogramData(values: number[], bins: number, startAtZero = false, decimals = 1) {
   if (values.length === 0) return []
-  let min = Math.min(...values)
-  const max = Math.max(...values)
+  const bounds = extent(values)
+  let min = bounds.min
+  const max = bounds.max
   if (min === max) return [{ label: formatNumber(min, decimals), count: values.length }]
 
   if (startAtZero && min > 0) min = 0
@@ -231,23 +233,19 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
   const specKey = spec ? JSON.stringify(spec) : null
   const filtersKey = JSON.stringify(datasetFilters ?? null)
   const [serverData, setServerData] = useState<KpiServerData | null>(null)
-  const [serverFailure, setServerFailure] = useState<{ key: string | null; message: string } | null>(null)
   const requestKey = server && datasetFileId && specKey ? `${specKey}|${filtersKey}` : null
-  const { refreshing, settle } = useRenderRefresh(requestKey)
-  // Keyed to the request it answered, so a new render clears a stale failure.
-  const serverError = serverFailure?.key === requestKey ? serverFailure.message : null
+  const { refreshing, settle, failure: serverError } = useRenderRefresh(requestKey)
   useEffect(() => {
     if (!server || !datasetFileId || !spec) return
     let cancelled = false
     renderOnServer('key-indicator', spec, { datasetFileId, datasetFilters })
       .then((out) => {
         if (cancelled) return
-        settle(requestKey)
-        if (out.stderr) { setServerFailure({ key: requestKey, message: out.stderr }); return }
-        try { setServerData(JSON.parse(out.stdout.trim()) as KpiServerData); setServerFailure(null) }
-        catch { setServerFailure({ key: requestKey, message: out.stdout || 'Failed to parse result' }) }
+        if (out.stderr) { settle(requestKey, out.stderr); return }
+        try { setServerData(JSON.parse(out.stdout.trim()) as KpiServerData); settle(requestKey) }
+        catch { settle(requestKey, out.stdout || 'Failed to parse result') }
       })
-      .catch((e) => { if (!cancelled) { settle(requestKey); setServerFailure({ key: requestKey, message: String(e) }) } })
+      .catch((e) => { if (!cancelled) settle(requestKey, String(e)) })
     return () => { cancelled = true }
   }, [server, datasetFileId, specKey, filtersKey]) // eslint-disable-line react-hooks/exhaustive-deps
 

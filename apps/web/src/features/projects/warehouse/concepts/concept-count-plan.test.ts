@@ -3,7 +3,9 @@ import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import {
   buildConceptIdTypesSql,
   buildPatientUnitSql,
-  conceptIdTypeMismatches,
+  buildNonNumericIdSql,
+  conceptIdTypeConflicts,
+  findConceptIdTypeMismatches,
   conceptCountProgress,
   conceptCountSignature,
   planConceptCountUnits,
@@ -194,30 +196,61 @@ describe('concept id types', () => {
     expect(sql).toContain('(SELECT typeof(concept_id) FROM linkr_concept_concept WHERE concept_id IS NOT NULL LIMIT 1) AS dictionary_type')
   })
 
-  it('reads the first id of each side that is not a whole number', () => {
-    const sql = buildConceptIdTypesSql(mapping)!
-    expect(sql).toContain(
-      '(SELECT CAST(concept_id AS VARCHAR) FROM linkr_event_measurement WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS event_code',
+  it('reads the types only, never scanning for a non-numeric id', () => {
+    expect(buildConceptIdTypesSql(mapping)).not.toContain('TRY_CAST')
+  })
+
+  it('keeps only the pairs of a text id and a numeric one, with the text side', () => {
+    expect(conceptIdTypeConflicts(mapping, [
+      { event: 'Measurement', event_type: 'VARCHAR', dictionary_type: 'BIGINT' },
+      { event: 'Condition', event_type: 'BIGINT', dictionary_type: 'BIGINT' },
+    ])).toEqual([{ event: 'Measurement', eventType: 'VARCHAR', dictionaryType: 'BIGINT', textRelation: 'linkr_event_measurement' }])
+    expect(conceptIdTypeConflicts(mapping, [
+      { event: 'Condition', event_type: 'INTEGER', dictionary_type: 'VARCHAR' },
+      { event: 'Measurement', event_type: null, dictionary_type: 'BIGINT' },
+    ])).toEqual([{ event: 'Condition', eventType: 'INTEGER', dictionaryType: 'VARCHAR', textRelation: 'linkr_concept_concept' }])
+  })
+
+  it('probes the text side of a conflict for its first non-numeric id', () => {
+    const sql = buildNonNumericIdSql([{ event: "O'Codes", eventType: 'VARCHAR', dictionaryType: 'BIGINT', textRelation: 'linkr_event_measurement' }])
+    expect(sql).toBe(
+      "SELECT 'O''Codes' AS event, (SELECT CAST(concept_id AS VARCHAR) FROM linkr_event_measurement WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS code",
     )
-    expect(sql).toContain('FROM linkr_concept_concept WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS dictionary_code')
+    expect(buildNonNumericIdSql([])).toBeNull()
   })
 
-  it('flags a text code that is not a number joined to a number, with that code', () => {
-    expect(conceptIdTypeMismatches([
-      { event: 'Codes', event_type: 'VARCHAR', dictionary_type: 'DOUBLE', event_code: 'Y831', dictionary_code: null },
-      { event: 'DictCodes', event_type: 'BIGINT', dictionary_type: 'VARCHAR', event_code: null, dictionary_code: "O'12" },
-      { event: 'Ids', event_type: 'BIGINT', dictionary_type: 'DOUBLE', event_code: null, dictionary_code: null },
-      { event: 'Texts', event_type: 'VARCHAR', dictionary_type: 'VARCHAR', event_code: 'A', dictionary_code: 'B' },
-      { event: 'Empty', event_type: null, dictionary_type: 'BIGINT', event_code: null, dictionary_code: null },
-    ])).toEqual([
-      { event: 'Codes', eventType: 'VARCHAR', dictionaryType: 'DOUBLE', code: 'Y831' },
-      { event: 'DictCodes', eventType: 'BIGINT', dictionaryType: 'VARCHAR', code: "O'12" },
+  const runCheck = async (types: Record<string, unknown>[], codes: Record<string, unknown>[] = []) => {
+    const issued: string[] = []
+    const mismatches = await findConceptIdTypeMismatches(mapping, async (sql) => {
+      issued.push(sql)
+      return issued.length === 1 ? types : codes
+    })
+    return { issued, mismatches }
+  }
+
+  it('issues no probe when every pair has matching types', async () => {
+    const { issued, mismatches } = await runCheck([
+      { event: 'Measurement', event_type: 'BIGINT', dictionary_type: 'INTEGER' },
+      { event: 'Condition', event_type: 'VARCHAR', dictionary_type: 'VARCHAR' },
     ])
+    expect(issued).toHaveLength(1)
+    expect(mismatches).toEqual([])
   })
 
-  it('lets a VARCHAR of digits join a BIGINT id', () => {
-    expect(conceptIdTypeMismatches([
-      { event: 'Digits', event_type: 'VARCHAR', dictionary_type: 'BIGINT', event_code: null, dictionary_code: null },
-    ])).toEqual([])
+  it('lets a VARCHAR of digits join a BIGINT id', async () => {
+    const { issued, mismatches } = await runCheck(
+      [{ event: 'Measurement', event_type: 'VARCHAR', dictionary_type: 'BIGINT' }],
+      [{ event: 'Measurement', code: null }],
+    )
+    expect(issued).toHaveLength(2)
+    expect(mismatches).toEqual([])
+  })
+
+  it('refuses a text code that is not a number joined to a number, with that code', async () => {
+    const { mismatches } = await runCheck(
+      [{ event: 'Measurement', event_type: 'VARCHAR', dictionary_type: 'DOUBLE' }],
+      [{ event: 'Measurement', code: 'Y831' }],
+    )
+    expect(mismatches).toEqual([{ event: 'Measurement', eventType: 'VARCHAR', dictionaryType: 'DOUBLE', code: 'Y831' }])
   })
 })

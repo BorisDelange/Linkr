@@ -119,27 +119,61 @@ export function planConceptCountUnits(mapping: SchemaMapping, slices: readonly S
   return units
 }
 
+/** The counted event relations, each once, with their dictionary. */
+function typeCheckedPairs(mapping: SchemaMapping): { event: ClassRelation; dict: ClassRelation }[] {
+  const seen = new Set<string>()
+  return [...countedEvents(mapping, 'record_count'), ...countedEvents(mapping, 'patient_count')].filter(({ event }) => {
+    if (seen.has(event.name)) return false
+    seen.add(event.name)
+    return true
+  })
+}
+
 /**
  * The type of `concept_id` in each counted event relation and in its
- * dictionary, from one non-NULL row of each, with the first id of each side
- * that is not a whole number. DuckDB joins text digits to a number fine, but
- * fails on the first text code that is not one (`'Y831'`): typically an event
- * mapping a code column as its concept id while the dictionary's id is a number.
+ * dictionary, from one non-NULL row of each — cheap, it stops at the first row.
  */
 export function buildConceptIdTypesSql(mapping: SchemaMapping): string | null {
   const firstType = (relation: string) => `(SELECT typeof(concept_id) FROM ${relation} WHERE concept_id IS NOT NULL LIMIT 1)`
-  const firstNonNumeric = (relation: string) =>
-    `(SELECT CAST(concept_id AS VARCHAR) FROM ${relation} WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1)`
-  const seen = new Set<string>()
-  const parts: string[] = []
-  for (const { event, dict } of [...countedEvents(mapping, 'record_count'), ...countedEvents(mapping, 'patient_count')]) {
-    if (seen.has(event.name)) continue
-    seen.add(event.name)
-    parts.push(
-      `SELECT '${esc(event.key ?? event.name)}' AS event, ${firstType(event.name)} AS event_type, ${firstType(dict.name)} AS dictionary_type, ` +
-        `${firstNonNumeric(event.name)} AS event_code, ${firstNonNumeric(dict.name)} AS dictionary_code`,
-    )
-  }
+  const parts = typeCheckedPairs(mapping).map(({ event, dict }) =>
+    `SELECT '${esc(event.key ?? event.name)}' AS event, ${firstType(event.name)} AS event_type, ${firstType(dict.name)} AS dictionary_type`,
+  )
+  return parts.length ? parts.join('\nUNION ALL\n') : null
+}
+
+export interface ConceptIdTypeConflict {
+  event: string
+  eventType: string
+  dictionaryType: string
+  /** The relation of the text side, the one whose ids DuckDB casts in the join. */
+  textRelation: string
+}
+
+const isTextType = (type: string) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR)/i.test(type)
+
+/** The rows of `buildConceptIdTypesSql` pairing a text id with a numeric one. */
+export function conceptIdTypeConflicts(mapping: SchemaMapping, rows: readonly Record<string, unknown>[]): ConceptIdTypeConflict[] {
+  const pairs = new Map(typeCheckedPairs(mapping).map((p) => [p.event.key ?? p.event.name, p]))
+  return rows.flatMap((r) => {
+    const pair = pairs.get(String(r.event))
+    const eventType = r.event_type == null ? null : String(r.event_type)
+    const dictionaryType = r.dictionary_type == null ? null : String(r.dictionary_type)
+    if (!pair || !eventType || !dictionaryType || isTextType(eventType) === isTextType(dictionaryType)) return []
+    const textRelation = isTextType(eventType) ? pair.event.name : pair.dict.name
+    return [{ event: String(r.event), eventType, dictionaryType, textRelation }]
+  })
+}
+
+/**
+ * The first id of each conflict's text side that is not a whole number. DuckDB
+ * joins text digits to a number fine, but fails on the first text code that is
+ * not one (`'Y831'`). This scans the whole relation when every id is a number,
+ * so it runs only for the pairs whose types differ.
+ */
+export function buildNonNumericIdSql(conflicts: readonly ConceptIdTypeConflict[]): string | null {
+  const parts = conflicts.map((c) =>
+    `SELECT '${esc(c.event)}' AS event, (SELECT CAST(concept_id AS VARCHAR) FROM ${c.textRelation} WHERE concept_id IS NOT NULL AND TRY_CAST(concept_id AS BIGINT) IS NULL LIMIT 1) AS code`,
+  )
   return parts.length ? parts.join('\nUNION ALL\n') : null
 }
 
@@ -151,19 +185,34 @@ export interface ConceptIdTypeMismatch {
   code: string
 }
 
-const isTextType = (type: string) => /^(VARCHAR|TEXT|STRING|CHAR|BPCHAR)/i.test(type)
-
-/** The rows of `buildConceptIdTypesSql` whose two ids cannot be compared: a
- *  text side holding an id that is not a number, against a numeric side. */
-export function conceptIdTypeMismatches(rows: readonly Record<string, unknown>[]): ConceptIdTypeMismatch[] {
-  return rows.flatMap((r) => {
-    const eventType = r.event_type == null ? null : String(r.event_type)
-    const dictionaryType = r.dictionary_type == null ? null : String(r.dictionary_type)
-    if (!eventType || !dictionaryType || isTextType(eventType) === isTextType(dictionaryType)) return []
-    const code = isTextType(eventType) ? r.event_code : r.dictionary_code
-    if (code == null) return []
-    return [{ event: String(r.event), eventType, dictionaryType, code: String(code) }]
+/** The conflicts whose text side holds an id that is not a number, from the
+ *  rows of `buildNonNumericIdSql`. */
+export function conceptIdTypeMismatches(
+  conflicts: readonly ConceptIdTypeConflict[],
+  codeRows: readonly Record<string, unknown>[],
+): ConceptIdTypeMismatch[] {
+  const codes = new Map(codeRows.map((r) => [String(r.event), r.code]))
+  return conflicts.flatMap(({ event, eventType, dictionaryType }) => {
+    const code = codes.get(event)
+    return code == null ? [] : [{ event, eventType, dictionaryType, code: String(code) }]
   })
+}
+
+/**
+ * The counted events whose ids cannot be joined to their dictionary's. Types
+ * first, from one row of each side; the full scan for a non-numeric id only on
+ * the text side of a pair whose types differ.
+ */
+export async function findConceptIdTypeMismatches(
+  mapping: SchemaMapping,
+  query: (sql: string) => Promise<Record<string, unknown>[]>,
+): Promise<ConceptIdTypeMismatch[]> {
+  const typesSql = buildConceptIdTypesSql(mapping)
+  if (!typesSql) return []
+  const conflicts = conceptIdTypeConflicts(mapping, await query(typesSql))
+  const codesSql = buildNonNumericIdSql(conflicts)
+  if (!codesSql) return []
+  return conceptIdTypeMismatches(conflicts, await query(codesSql))
 }
 
 /**

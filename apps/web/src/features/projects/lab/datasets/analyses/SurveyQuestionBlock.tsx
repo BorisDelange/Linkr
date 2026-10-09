@@ -24,6 +24,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { localized } from '@/lib/localized'
+import { extent } from '@/lib/numeric-extent'
 import {
   Bar,
   BarChart,
@@ -718,8 +719,7 @@ function Histogram({
 
   const { data, width } = useMemo(() => {
     if (values.length === 0) return { data: [], width: 1 }
-    const min = Math.min(...values)
-    const max = Math.max(...values)
+    const { min, max } = extent(values)
     if (min === max) return { data: [{ center: min, start: min, end: min, value: values.length }], width: 1 }
     // Sturges' rule when the caller does not pick a bin count.
     const count = bins > 0 ? bins : Math.min(20, Math.ceil(Math.log2(values.length) + 1))

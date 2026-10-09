@@ -17,6 +17,7 @@
  *   filtered; the denominator must not be.
  */
 
+import { extent } from '@/lib/numeric-extent'
 import type { DenominatorMode, Period, PeriodPoint, StatisticType } from './spc-types'
 
 /** Parse a date-ish cell to a UTC midnight timestamp, or null. */
@@ -164,20 +165,6 @@ function dedupe(rows: Record<string, unknown>[], key?: string): Record<string, u
     out.push(row)
   }
   return out
-}
-
-// Spreading one argument per row into Math.min/max overflows the call stack
-// past ~100k rows, hence plain loops.
-function extent(...lists: readonly (readonly number[])[]): { min: number; max: number } {
-  let min = Infinity
-  let max = -Infinity
-  for (const list of lists) {
-    for (const v of list) {
-      if (v < min) min = v
-      if (v > max) max = v
-    }
-  }
-  return { min, max }
 }
 
 function aggregateValues(values: number[], how: NonNullable<AggregateOptions['aggregation']>): number {
