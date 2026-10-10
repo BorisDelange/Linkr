@@ -165,14 +165,13 @@ export function notFoundMessage(
   return `${param} "${value}" matches no ${noun} (by id or name). ${known}`
 }
 
-async function defaultDatabase(dir: Directory): Promise<{ id: string } | { error: string }> {
-  const candidates = await dir.list('database')
-  if (candidates.length === 1) return { id: candidates[0].id }
-  if (candidates.length === 0) return { error: 'database_id is missing, and you can access no database.' }
-  return {
-    error: `database_id is missing, and you can access ${candidates.length} databases: ${listing(candidates, 'database')}. `
-      + 'Give database_id (an id or a name).',
-  }
+/** A required `database_id` left out: lists the databases, never picks one for the user. */
+async function missingDatabase(dir: Directory): Promise<string> {
+  const candidates = await dir.list('database').catch(() => null)
+  if (!candidates) return 'database_id is missing. Give database_id (an id or a name).'
+  if (candidates.length === 0) return 'database_id is missing, and you can access no database.'
+  return `database_id is missing. Databases you can access: ${listing(candidates, 'database')}. `
+    + 'Give database_id (an id or a name).'
 }
 
 const kindOfParam = (param: string, args: Record<string, unknown>): RefKind | undefined => {
@@ -183,7 +182,7 @@ const kindOfParam = (param: string, args: Record<string, unknown>): RefKind | un
 
 /** The arguments with every reference turned into an id, or the error to give the model. */
 export async function resolveArguments(
-  args: Record<string, unknown>, params: string[], defaultsDatabase: boolean, dir: Directory = liveDirectory,
+  args: Record<string, unknown>, params: string[], requiresDatabase: boolean, dir: Directory = liveDirectory,
 ): Promise<{ args: Record<string, unknown> } | { error: string }> {
   const started = Date.now()
   const out = { ...args }
@@ -220,20 +219,13 @@ export async function resolveArguments(
     if ('error' in found) return found
     out[param] = found.id
   }
-  if (defaultsDatabase && (out.database_id == null || out.database_id === '')) {
-    try {
-      const found = await defaultDatabase(dir)
-      if ('error' in found) return found
-      out.database_id = found.id
-    } catch (e) {
-      return { error: (e as Error).message }
-    }
+  if (requiresDatabase && (out.database_id == null || out.database_id === '')) {
+    return { error: await missingDatabase(dir) }
   }
   return { args: out }
 }
 
 const ID_OR_NAME = 'Id or name.'
-const ID_OR_NAME_DEFAULT = 'Id or name; may be left out when only one database is available.'
 
 type Props = Record<string, { type?: string; enum?: unknown[]; description?: string }>
 
@@ -251,11 +243,19 @@ function referenceParams(props: Props): Record<string, string> {
   return found
 }
 
+/** The schema as advertised, `database_id` required; its validation lets a missing one
+ *  through, so the handler can answer with the databases instead of a bare schema error. */
+function toleratingMissingDatabase(schema: { required?: string[] }) {
+  const advertised = fromJsonSchema(schema)
+  const lenient = fromJsonSchema({ ...schema, required: schema.required!.filter((p) => p !== 'database_id') })
+  return { '~standard': { ...advertised['~standard'], validate: lenient['~standard'].validate } }
+}
+
 /**
- * The tool taking names wherever it takes an id. A read tool that requires `database_id`
- * gets it optional, defaulting to the only database available; a tool that writes keeps
- * it required, so it never acts on a database the model did not name. After a tool that
- * writes, the user's listings are dropped, so a name never resolves to a deleted object.
+ * The tool taking names wherever it takes an id. A required `database_id` stays required
+ * on every tool: making it optional led models to leave it out, and there is no database
+ * to default to once the user sees several. After a tool that writes, the user's
+ * listings are dropped, so a name never resolves to a deleted object.
  */
 export function withReferences(tool: CatalogTool, dir: Directory = liveDirectory): CatalogTool {
   const writes = kindOf(tool.config.annotations) !== 'read'
@@ -273,18 +273,16 @@ export function withReferences(tool: CatalogTool, dir: Directory = liveDirectory
     }
   }
 
-  const defaultsDatabase = !writes && !!schema.required?.includes('database_id')
+  const requiresDatabase = !!schema.required?.includes('database_id')
   for (const p of params) {
-    const note = p === 'database_id' && defaultsDatabase ? ID_OR_NAME_DEFAULT : notes[p]
-    props[p].description = props[p].description ? `${props[p].description} ${note}` : note
+    props[p].description = props[p].description ? `${props[p].description} ${notes[p]}` : notes[p]
   }
-  if (defaultsDatabase) schema.required = schema.required!.filter((p) => p !== 'database_id')
 
   return {
     ...tool,
-    config: { ...tool.config, inputSchema: fromJsonSchema(schema) },
+    config: { ...tool.config, inputSchema: requiresDatabase ? toleratingMissingDatabase(schema) : fromJsonSchema(schema) },
     handler: async (args) => {
-      const resolved = await resolveArguments((args ?? {}) as Record<string, unknown>, params, defaultsDatabase, dir)
+      const resolved = await resolveArguments((args ?? {}) as Record<string, unknown>, params, requiresDatabase, dir)
       if ('error' in resolved) return failure(resolved.error)
       try { return await tool.handler(resolved.args) } finally { if (writes) dir.forget?.() }
     },

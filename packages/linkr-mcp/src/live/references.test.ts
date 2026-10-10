@@ -186,20 +186,18 @@ describe('objects the user cannot see', () => {
 })
 
 describe('database_id left out', () => {
-  it('uses the only database the user can access', async () => {
-    expect(await resolve({ sql: 'x' }, directory({ database: [DB_A] }), ['database_id'], true))
-      .toEqual({ args: { sql: 'x', database_id: DB_A.id } })
-  })
-
-  it('lists the databases when there are several', async () => {
-    const result = await resolve({ sql: 'x' }, directory({ database: [DB_A, DB_B] }), ['database_id'], true)
-    expect(result).toEqual({
-      error: `database_id is missing, and you can access 2 databases: MIMIC-IV demo (${DB_A.id}), Synthetic ICU (b2). `
+  it('lists the databases without picking one, even when there is only one', async () => {
+    expect(await resolve({ sql: 'x' }, directory({ database: [DB_A] }), ['database_id'], true)).toEqual({
+      error: `database_id is missing. Databases you can access: MIMIC-IV demo (${DB_A.id}). `
+        + 'Give database_id (an id or a name).',
+    })
+    expect(await resolve({ sql: 'x' }, directory({ database: [DB_A, DB_B] }), ['database_id'], true)).toEqual({
+      error: `database_id is missing. Databases you can access: MIMIC-IV demo (${DB_A.id}), Synthetic ICU (b2). `
         + 'Give database_id (an id or a name).',
     })
   })
 
-  it('is left to the tool when the tool does not default it', async () => {
+  it('is left to the tool when the tool does not require it', async () => {
     expect(await resolve({ sql: 'x' }, directory({ database: [DB_A] }), ['database_id'], false))
       .toEqual({ args: { sql: 'x' } })
   })
@@ -222,25 +220,29 @@ function fakeTool(annotations: typeof READ | typeof WRITE): CatalogTool & { call
 }
 
 describe('withReferences', () => {
-  it('makes database_id optional on a read tool, and resolves before the call', async () => {
-    const raw = fakeTool(READ)
-    const tool = withReferences(raw, directory({ database: [DB_A] }))
-    const schema = inputJsonSchema(tool) as { required: string[]; properties: Record<string, { description?: string }> }
-    expect(schema.required).toEqual(['sql'])
-    expect(schema.properties.database_id.description).toMatch(/^Id or name; may be left out/)
-    expect(schema.properties.sql.description).toBe('The query.')
-    expect('value' in await checkArguments(tool, { sql: 'x' })).toBe(true)
+  it('keeps database_id required, read or write, and resolves its name before the call', async () => {
+    for (const annotations of [READ, WRITE]) {
+      const raw = fakeTool(annotations)
+      const tool = withReferences(raw, directory({ database: [DB_A] }))
+      const schema = inputJsonSchema(tool) as { required: string[]; properties: Record<string, { description?: string }> }
+      expect(schema.required).toEqual(['database_id', 'sql'])
+      expect(schema.properties.database_id.description).toBe('Id or name.')
+      expect(schema.properties.sql.description).toBe('The query.')
 
-    await tool.handler({ sql: 'x' })
-    await tool.handler({ database_id: 'mimic-iv-demo', sql: 'y' })
-    expect(raw.calls).toEqual([{ sql: 'x', database_id: DB_A.id }, { database_id: DB_A.id, sql: 'y' }])
+      await tool.handler({ database_id: 'mimic-iv-demo', sql: 'y' })
+      expect(raw.calls).toEqual([{ database_id: DB_A.id, sql: 'y' }])
+    }
   })
 
-  it('keeps database_id required on a tool that writes', () => {
-    const tool = withReferences(fakeTool(WRITE), directory({ database: [DB_A] }))
-    const schema = inputJsonSchema(tool) as { required: string[]; properties: Record<string, { description?: string }> }
-    expect(schema.required).toEqual(['database_id', 'sql'])
-    expect(schema.properties.database_id.description).toBe('Id or name.')
+  it('answers a missing database_id with the databases, never calling the tool', async () => {
+    const raw = fakeTool(READ)
+    const tool = withReferences(raw, directory({ database: [DB_A] }))
+    // Validation lets it through, so the model gets the listing rather than a bare schema error.
+    expect('value' in await checkArguments(tool, { sql: 'x' })).toBe(true)
+    const result = await tool.handler({ sql: 'x' })
+    expect(result.isError).toBe(true)
+    expect(JSON.stringify(result.content)).toContain(`database_id is missing. Databases you can access: MIMIC-IV demo (${DB_A.id}).`)
+    expect(raw.calls).toEqual([])
   })
 
   it('drops the listings after a tool that writes, not after a read', async () => {
@@ -264,11 +266,16 @@ describe('catalog', () => {
   const schemaOf = (name: string) =>
     inputJsonSchema(CATALOG.find((t) => t.name === name)!) as { required?: string[]; properties: Record<string, { description?: string }> }
 
-  it('says "id or name" on the reference parameters and defaults database_id on read tools only', () => {
-    for (const name of ['run_sql', 'search_concepts', 'describe_database']) {
-      expect(schemaOf(name).required ?? []).not.toContain('database_id')
+  it('says "id or name" on the reference parameters and keeps database_id required everywhere', () => {
+    for (const name of ['run_sql', 'search_concepts', 'describe_database', 'create_dataset_from_query']) {
+      expect(schemaOf(name).required).toContain('database_id')
+      expect(schemaOf(name).properties.database_id.description).toBe('Id or name.')
     }
-    expect(schemaOf('create_dataset_from_query').required).toContain('database_id')
+    for (const tool of CATALOG) {
+      const schema = inputJsonSchema(tool) as { properties?: Record<string, { description?: string }> }
+      const description = schema.properties?.database_id?.description
+      if (description) expect(description).toMatch(/(^| )Id or name\.$/)
+    }
     expect(schemaOf('list_cohorts').properties.project_uid.description).toBe('Id or name.')
     expect(schemaOf('get_cohort').properties.cohort_id.description).toBe('Id or name.')
     expect(schemaOf('get_git_status').properties.id.description)
