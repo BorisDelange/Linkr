@@ -115,7 +115,7 @@ export function registerWarehouseTools(server: Server): void {
       properties: {
         database_id: { type: 'string' },
         query: { type: 'string', description: 'Words to search, e.g. "lactate" or "heart rate".' },
-        dictionary: { type: 'string', description: 'Restrict to one dictionary key (see get_project_context).' },
+        dictionary: { type: 'string', description: 'Restrict to one dictionary key (see get_project_context); omit to search them all.' },
         limit: { type: 'number', description: 'Max results, default 20.' },
       },
       required: ['database_id', 'query'],
@@ -124,8 +124,19 @@ export function registerWarehouseTools(server: Server): void {
     const mapping = await mappingOf(database_id)
     const dicts = conceptRelations(mapping)
     if (dicts.length === 0) return failure('This database has no concept dictionary in its mapping.')
+    let dictKey: string | undefined
+    if (dictionary) {
+      const wanted = dictionary.toLowerCase()
+      const dict = dicts.find((d) => d.key?.toLowerCase() === wanted || d.name.toLowerCase() === wanted)
+      if (!dict?.key) {
+        const valid = dicts.map((d) => (d.key === d.name ? d.key : `${d.key} (table ${d.name})`)).join(', ')
+        return failure(`No dictionary "${dictionary}" in this database. Valid dictionaries: ${valid}. `
+          + 'Or omit `dictionary` to search them all.')
+      }
+      dictKey = dict.key
+    }
     const columns = computeAvailableColumns(dicts)
-    const filters = { _searchFuzzy: query, ...(dictionary ? { _dict_key: [dictionary] } : {}) }
+    const filters = { _searchFuzzy: query, ...(dictKey ? { _dict_key: [dictKey] } : {}) }
     const sql = buildConceptsQuery(mapping, filters, columns, 0, Math.min(limit ?? 20, 100),
       { columnId: 'patient_count', desc: true })
     if (!sql) return failure('Could not build a concept search for this mapping.')
