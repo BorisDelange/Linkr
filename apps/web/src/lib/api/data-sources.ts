@@ -1,4 +1,4 @@
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { ApiError, apiFetch, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import { notifyJobsChanged, type Job } from '@/lib/api/environments'
 import type { DataSourceStorage, FileStorage } from '@/lib/storage'
@@ -204,6 +204,32 @@ export async function runEtlOnServer(
     { method: 'POST', body: JSON.stringify({ sql, roles, mappingData }) },
   )
   return res.rows
+}
+
+/** Stop the ETL run writing to this database, whoever started it. Resolves at
+ *  once; the run then rolls back and frees the file. */
+export function stopEtlRunOnServer(dataSourceId: string): Promise<void> {
+  return apiRequest(`/data-sources/${dataSourceId}/etl-run/stop`, { method: 'POST' })
+}
+
+/** The server's 409 when an ETL run holds the database file: DuckDB cannot open
+ *  it for anything else, reads included, until the run lets go. */
+export interface EtlRunningDetail {
+  code: 'database_etl_running'
+  dataSourceId: string
+  /** The run was stopped and is rolling back; it still holds the file. */
+  stopping: boolean
+  startedAt: string
+}
+
+export function etlRunningDetail(err: unknown): EtlRunningDetail | null {
+  if (!(err instanceof ApiError) || err.status !== 409) return null
+  try {
+    const detail = JSON.parse(err.message)?.detail
+    return detail?.code === 'database_etl_running' ? (detail as EtlRunningDetail) : null
+  } catch {
+    return null
+  }
 }
 
 /** Register an already-uploaded blob (by sha) as a file of a data source. */

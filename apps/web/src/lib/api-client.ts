@@ -184,6 +184,8 @@ export function formatApiError(err: unknown): FormattedError {
       }
     }
     if (typeof detail === 'string') return { summary: withStatus(detail), detail: null }
+    // A coded refusal (`{code, message, …}`) carries its own readable sentence.
+    if (typeof detail?.message === 'string') return { summary: withStatus(detail.message), detail: null }
   } catch {
     // not JSON — fall through to the raw message
   }

@@ -294,6 +294,8 @@ async def query_data_source(
         raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     finally:
@@ -548,9 +550,26 @@ async def etl_run(
         # is nobody to answer. Not an error: re-raised as a cancellation so it is
         # not reported as a failed script.
         raise
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001 — surface SQL errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return QueryResult(rows=rows)
+
+
+@router.post("/{source_id}/etl-run/stop", status_code=status.HTTP_204_NO_CONTENT)
+async def stop_etl_run(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Stop the ETL run writing to this database, whoever started it — the way to
+    get a database back when the page that launched the run is gone. Gated like
+    starting one. Returns at once; the run then rolls back and frees the file."""
+    source = await _load_source(db, source_id, user, "databases:write")
+    audit.bind(action="etl_stop", data_source_id=source.id, workspace_id=source.workspace_id)
+    if not data_source_service.stop_etl_run(source.id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no ETL run is writing to this database")
 
 
 @router.websocket("/{source_id}/etl-run-stream")
@@ -713,7 +732,7 @@ async def get_data_source_schema(
     login = await _login(db, source, user)
     try:
         return await data_source_service.introspect(db, source, login)
-    except database_credential_service.CredentialRequired:
+    except HTTPException:  # no login, or an ETL run holding the file
         raise
     except Exception as e:  # noqa: BLE001 — the driver's message is the diagnosis
         # Reaching the database is the one thing this route does, so a driver
@@ -873,6 +892,8 @@ async def write_concept_unit(
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     finally:
@@ -896,6 +917,8 @@ async def assemble_concept_cache(
         mtime = await data_source_service.assemble_concept_cache(db, source, login, body.select_sql)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    except HTTPException:
+        raise
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     principal = _principal(source, user)

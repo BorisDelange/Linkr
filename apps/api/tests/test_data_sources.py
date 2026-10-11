@@ -542,6 +542,55 @@ async def test_create_from_ddl_materialises_the_database(client, tmp_path, monke
     assert {t["name"] for t in schema} == {"person", "concept"}
 
 
+async def test_an_etl_run_holding_the_database_is_a_409_and_can_be_stopped(client, tmp_path, monkeypatch):
+    """Reads of a database an ETL run is writing say so, rather than passing on
+    DuckDB's "Unique file handle conflict", and any page can stop the run."""
+    from app.config import settings
+    from app.services import data_source_service
+    from app.services.data import db_connect
+
+    monkeypatch.setattr(type(settings), "data_path", property(lambda _: tmp_path))
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    source_id = (
+        await client.post(
+            f"{API}/data-sources",
+            headers=headers,
+            json={"workspaceId": ws, "alias": "omop", "name": "OMOP",
+                  "sourceType": "database", "connectionConfig": {"engine": "duckdb"}},
+        )
+    ).json()["id"]
+    r = await client.post(
+        f"{API}/data-sources/{source_id}/create-from-ddl",
+        headers=headers, json={"ddl": "CREATE TABLE person (person_id BIGINT);"},
+    )
+    assert r.status_code == 200, r.text
+
+    handle = db_connect.EtlRunHandle()
+    data_source_service._claim_for_etl(source_id, handle)
+    try:
+        for r in (
+            await client.get(f"{API}/data-sources/{source_id}/schema", headers=headers),
+            await client.post(f"{API}/data-sources/{source_id}/query", headers=headers,
+                              json={"sql": "SELECT 1"}),
+        ):
+            assert r.status_code == 409, r.text
+            assert r.json()["detail"]["code"] == "database_etl_running"
+
+        r = await client.post(f"{API}/data-sources/{source_id}/etl-run/stop", headers=headers)
+        assert r.status_code == 204, r.text
+        assert handle.cancelled
+        r = await client.get(f"{API}/data-sources/{source_id}/schema", headers=headers)
+        assert r.json()["detail"]["stopping"] is True
+    finally:
+        data_source_service._release_from_etl(source_id, handle)
+
+    r = await client.get(f"{API}/data-sources/{source_id}/schema", headers=headers)
+    assert r.status_code == 200, r.text
+    r = await client.post(f"{API}/data-sources/{source_id}/etl-run/stop", headers=headers)
+    assert r.status_code == 404
+
+
 async def test_managed_database_exposes_its_file_path(client, tmp_path, monkeypatch):
     """The user attaches the same .duckdb from an R/Python script outside Linkr,
     so the sidebar needs the real disk path."""

@@ -9,7 +9,9 @@ import { Button } from '@/components/ui/button'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getStorage } from '@/lib/storage'
-import { isServerMode } from '@/lib/api-client'
+import { formatApiError, isServerMode } from '@/lib/api-client'
+import { etlRunningDetail, stopEtlRunOnServer } from '@/lib/api/data-sources'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import { ParquetLayoutNotice } from './ParquetLayoutNotice'
 import { computeDatabaseStats, streamTableCounts } from '@/lib/duckdb/database-stats'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -38,6 +40,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [isStopping, setIsStopping] = useState(false)
+  const [error, setError] = useState<unknown>(null)
   const [cacheLoaded, setCacheLoaded] = useState(false)
   const cacheRef = useRef<DatabaseStatsCache | null>(null)
   cacheRef.current = cache
@@ -72,6 +75,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
 
   const refresh = useCallback(async () => {
     setIsLoading(true)
+    setError(null)
     try {
       // Dedupe across the sheet's two hook instances: only one compute runs per
       // source. The owner streams live updates into its own state; a concurrent
@@ -124,6 +128,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
         console.error('Failed to compute database stats:', err)
+        setError(err)
       }
     } finally {
       setIsLoading(false)
@@ -155,7 +160,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
 
   // `cacheLoaded`: the stored statistics have been looked up — until then an
   // empty `cache` means "not read yet", not "never computed".
-  return { cache, isLoading, isStopping, refresh, stop, cacheLoaded }
+  return { cache, isLoading, isStopping, error, refresh, stop, cacheLoaded }
 }
 
 export function DatabaseStatsDashboard({
@@ -165,7 +170,7 @@ export function DatabaseStatsDashboard({
   hasMappedSchema = true,
 }: DatabaseStatsDashboardProps) {
   const { t, i18n } = useTranslation()
-  const { cache, isLoading, isStopping, refresh, stop } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
+  const { cache, isLoading, isStopping, error, refresh, stop } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleString(i18n.language, {
@@ -211,6 +216,10 @@ export function DatabaseStatsDashboard({
             </Button>
           )}
         </div>
+      )}
+
+      {error != null && !isLoading && (
+        <StatsErrorBanner dataSourceId={dataSourceId} error={error} onRetry={refresh} />
       )}
 
       {/* Nothing computed yet: offer the same explicit trigger the overview tab
@@ -770,5 +779,60 @@ function AdmissionTimelineChart({ data }: { data: AdmissionTimelineBucket[] }) {
         />
       </LineChart>
     </ResponsiveContainer>
+  )
+}
+
+/** Why the statistics could not be computed. An ETL run holding the database
+ *  gets its own band, with a way to stop the run: DuckDB lets nothing else open
+ *  the file — reads included — until the run has let go of it. */
+function StatsErrorBanner({ dataSourceId, error, onRetry }: { dataSourceId: string; error: unknown; onRetry: () => void }) {
+  const { t } = useTranslation()
+  const [stopRequested, setStopRequested] = useState(false)
+  const [stopError, setStopError] = useState<unknown>(null)
+  const etl = etlRunningDetail(error)
+
+  if (!etl) {
+    return (
+      <NoticeBanner
+        tone="danger"
+        title={t('databases.stats_failed')}
+        description={formatApiError(error).summary}
+        action={<Button variant="outline" size="sm" onClick={onRetry} className="text-xs">{t('databases.stats_retry')}</Button>}
+      />
+    )
+  }
+
+  const stopping = etl.stopping || stopRequested
+  const stopRun = async () => {
+    setStopError(null)
+    try {
+      await stopEtlRunOnServer(dataSourceId)
+      setStopRequested(true)
+    } catch (err) {
+      setStopError(err)
+    }
+  }
+  return (
+    <NoticeBanner
+      tone="progress"
+      title={stopping ? t('databases.stats_etl_stopping_title') : t('databases.stats_etl_running_title')}
+      description={stopError != null
+        ? formatApiError(stopError).summary
+        : stopping ? t('databases.stats_etl_stopping_description') : t('databases.stats_etl_running_description')}
+      action={(
+        <div className="flex gap-2">
+          {!stopping && (
+            <Button variant="outline" size="sm" onClick={() => void stopRun()} className="gap-1.5 text-xs">
+              <Square size={12} />
+              {t('databases.stats_etl_stop_run')}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={onRetry} className="gap-1.5 text-xs">
+            <RefreshCw size={12} />
+            {t('databases.stats_retry')}
+          </Button>
+        </div>
+      )}
+    />
   )
 }

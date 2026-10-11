@@ -415,6 +415,8 @@ async def create_dataset_from_query(
     login = await database_credential_service.resolve_login(db, source, user.id)
     try:
         table = await data_source_service.query(db, source, login, body.sql, arrow=True)
+    except HTTPException:  # an ETL run holding the file
+        raise
     except Exception as e:  # noqa: BLE001 — surface SQL errors to the caller
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 

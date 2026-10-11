@@ -4,8 +4,10 @@ import re
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
+from fastapi import HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -682,6 +684,7 @@ async def start_compaction(source: DataSource) -> CompactionState:
     if not is_managed(source):
         raise ValueError("only a server-owned database can be compacted")
 
+    _require_no_etl_run(source)
     source_id = source.id
     path = managed_path(source)
     if not path.exists():
@@ -879,6 +882,91 @@ async def role_attachments(
     return out
 
 
+# --- Databases held by an ETL run ---------------------------------------------
+
+@dataclass
+class EtlRunState:
+    handle: db_connect.EtlRunHandle
+    started_at: datetime
+
+
+# In memory: a run lives in this process's worker thread, so a restart ends both.
+_etl_runs: dict[str, EtlRunState] = {}
+_etl_runs_lock = threading.Lock()
+
+
+class DatabaseBusy(HTTPException):
+    """An ETL run holds this database's file.
+
+    DuckDB opens a file once per process and the run holds it writable with an
+    exclusive lock, so nothing else can attach it — READ_ONLY included — until
+    the run has closed its connection. Without this check a read failed with
+    DuckDB's "Unique file handle conflict ... already attached by database
+    'target'", which names neither the run nor the way out. 409 with a
+    machine-readable code: the front says so and offers to stop the run."""
+
+    def __init__(self, source_id: str, run: EtlRunState):
+        stopping = run.handle.cancelled
+        message = (
+            "An ETL run that was stopped still holds this database while it rolls back; "
+            "it can be read again once that is done."
+            if stopping
+            else "An ETL run is writing to this database; it can be read once the run ends or is stopped."
+        )
+        super().__init__(
+            status.HTTP_409_CONFLICT,
+            {
+                "code": "database_etl_running",
+                "dataSourceId": source_id,
+                "stopping": stopping,
+                "startedAt": run.started_at.isoformat(),
+                "message": message,
+            },
+        )
+
+    def __str__(self) -> str:
+        # Routes that fold every error into a 422 still pass on a readable reason.
+        return self.detail["message"]
+
+
+def _require_no_etl_run(source: DataSource) -> None:
+    if not is_managed(source):
+        return
+    with _etl_runs_lock:
+        run = _etl_runs.get(source.id)
+    if run is not None:
+        raise DatabaseBusy(source.id, run)
+
+
+def _claim_for_etl(source_id: str, handle: db_connect.EtlRunHandle) -> None:
+    """Register the run on its target; checked and set under one acquisition so
+    two runs started together cannot both pass."""
+    with _etl_runs_lock:
+        run = _etl_runs.get(source_id)
+        if run is None:
+            _etl_runs[source_id] = EtlRunState(handle, datetime.now(timezone.utc))
+            return
+    raise DatabaseBusy(source_id, run)
+
+
+def _release_from_etl(source_id: str, handle: db_connect.EtlRunHandle) -> None:
+    with _etl_runs_lock:
+        run = _etl_runs.get(source_id)
+        if run is not None and run.handle is handle:
+            del _etl_runs[source_id]
+
+
+def stop_etl_run(source_id: str) -> bool:
+    """Interrupt the run writing to this database, whoever started it. The run
+    rolls its statement back and releases the file; False when none is running."""
+    with _etl_runs_lock:
+        run = _etl_runs.get(source_id)
+    if run is None:
+        return False
+    run.handle.cancel()
+    return True
+
+
 async def run_etl(
     db: AsyncSession,
     target: DataSource,
@@ -911,6 +999,8 @@ async def run_etl(
     # in-flight query on that connection, so nothing is closed mid-statement; the
     # next browse simply re-establishes a warm connection.
     for source in (target, *roles.values()):
+        _require_no_etl_run(source)
+    for source in (target, *roles.values()):
         connection_pool.invalidate(source.id)
     _audit(target, "etl_run", sql)
 
@@ -924,6 +1014,7 @@ async def run_etl(
     # the file. Shielded so the cancellation reaches us here rather than tearing
     # down the await while the thread is still bound to the connection.
     handle = db_connect.EtlRunHandle()
+    _claim_for_etl(target.id, handle)
     task = asyncio.create_task(
         asyncio.to_thread(
             db_connect.run_etl_sql,
@@ -935,6 +1026,9 @@ async def run_etl(
             on_statement,
         )
     )
+    # Released when the THREAD ends, not when this await does: a cancelled run
+    # keeps the file until its rollback is over, and reads must wait for that.
+    task.add_done_callback(lambda _: _release_from_etl(target.id, handle))
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
@@ -1052,6 +1146,7 @@ async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql:
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, read it where it lives.
+        _require_no_etl_run(source)
         path = managed_path(source)
         if not path.exists():
             raise ValueError("the database file is missing; recreate it")
@@ -1094,6 +1189,7 @@ async def _materialize_inputs(
     if is_managed(source):
         # Server-owned file: nothing in the blob store, so hand the materializer
         # the path where it lives — same single-DuckDB-file shape as an upload.
+        _require_no_etl_run(source)
         path = managed_path(source)
         if not path.exists():
             raise ValueError("the database file is missing; recreate it")
@@ -1191,6 +1287,7 @@ async def introspect(db: AsyncSession, source: DataSource, login: Login | None) 
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, introspect it in place.
+        _require_no_etl_run(source)
         path = managed_path(source)
         if not path.exists():
             return []
@@ -1216,6 +1313,7 @@ async def test_connection_stored(
     # once — a held lock, a run interrupted mid-write — stayed `error` forever,
     # its only offered way out being the rebuild that empties it.
     if is_managed(source):
+        _require_no_etl_run(source)
         path = managed_path(source)
         if not path.exists():
             return False, f"database file not found: {path}", []

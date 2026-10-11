@@ -172,6 +172,8 @@ async def materialize_cohort(
         table = await data_source_service.query(db, source, login, body.membership_sql, arrow=True)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+    except HTTPException:  # an ETL run holding the file
+        raise
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
     if not {"id", "patient_id"} <= set(table.column_names):

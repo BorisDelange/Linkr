@@ -7,12 +7,15 @@ Browsing a managed database leaves a pooled connection holding it READ_ONLY as
 server restarted, because the pool kept the handle warm.
 """
 
+import asyncio
 import threading
 import time
+from types import SimpleNamespace
 
 import duckdb
 import pytest
 
+from app.services import data_source_service
 from app.services.data import connection_pool, db_connect
 
 
@@ -238,3 +241,73 @@ def test_the_alias_is_read_only(managed_db):
             "INSERT INTO source.concept VALUES (3);",
             {"source": {"kind": "file", "engine": "duckdb", "path": managed_db}},
         )
+
+
+# --- Reading a database while a run holds it ---------------------------------
+#
+# Reads hit the same wall from the other side: `Cannot attach "ext" ... already
+# attached by database "target"`. DuckDB cannot let a reader in while the run
+# holds the file, so the fix is to say so (DatabaseBusy, a 409) and to let the
+# user stop the run from wherever they are.
+
+
+@pytest.fixture
+def managed_source(slow_db):
+    return SimpleNamespace(
+        id="etl-busy-target",
+        workspace_id=None,
+        connection_config={"engine": "duckdb", "managed": True, "managedPath": slow_db},
+    )
+
+
+async def _until(predicate, timeout: float = 10) -> None:
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        assert time.monotonic() < deadline, "condition never held"
+        await asyncio.sleep(0.05)
+
+
+def _running(source_id: str) -> bool:
+    with data_source_service._etl_runs_lock:
+        return source_id in data_source_service._etl_runs
+
+
+async def test_a_read_during_a_run_says_a_run_holds_the_database(managed_source):
+    run = asyncio.create_task(
+        data_source_service.run_etl(None, managed_source, SLOW_SQL, {}, user_id=1)
+    )
+    await _until(lambda: _running(managed_source.id))
+
+    with pytest.raises(data_source_service.DatabaseBusy) as busy:
+        await data_source_service.query(None, managed_source, None, "SELECT 1")
+    assert busy.value.status_code == 409
+    assert busy.value.detail["code"] == "database_etl_running"
+    assert busy.value.detail["stopping"] is False
+    with pytest.raises(data_source_service.DatabaseBusy):
+        await data_source_service.introspect(None, managed_source, None)
+
+    assert data_source_service.stop_etl_run(managed_source.id)
+    with pytest.raises(db_connect.EtlRunCancelled):
+        await run
+    await _until(lambda: not _running(managed_source.id))
+    assert await data_source_service.introspect(None, managed_source, None)
+
+
+async def test_a_second_run_on_the_same_target_is_refused(managed_source):
+    first = asyncio.create_task(
+        data_source_service.run_etl(None, managed_source, SLOW_SQL, {}, user_id=1)
+    )
+    await _until(lambda: _running(managed_source.id))
+    with pytest.raises(data_source_service.DatabaseBusy):
+        await data_source_service.run_etl(None, managed_source, "SELECT 1;", {}, user_id=1)
+
+    data_source_service.stop_etl_run(managed_source.id)
+    with pytest.raises(db_connect.EtlRunCancelled):
+        await first
+
+
+async def test_a_finished_run_frees_the_database(managed_source):
+    await data_source_service.run_etl(None, managed_source, "SELECT 1 AS x;", {}, user_id=1)
+    await _until(lambda: not _running(managed_source.id))
+    assert not data_source_service.stop_etl_run(managed_source.id)
+    await data_source_service.query(None, managed_source, None, "SELECT 1 AS x")
