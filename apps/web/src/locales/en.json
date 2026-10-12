@@ -405,6 +405,7 @@
     "configure_filters": "Configure filters",
     "filter_title": "Filters",
     "filter_clear_all": "Clear all",
+    "filter_reset": "Reset filter",
     "filter_no_columns": "No filters configured. Add a filter to start filtering widget data.",
     "filter_add": "Add a filter",
     "filter_add_title": "Add a filter",

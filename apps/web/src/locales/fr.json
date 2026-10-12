@@ -405,6 +405,7 @@
     "configure_filters": "Configurer les filtres",
     "filter_title": "Filtres",
     "filter_clear_all": "Tout effacer",
+    "filter_reset": "Réinitialiser le filtre",
     "filter_no_columns": "Aucun filtre configuré. Ajoutez un filtre pour filtrer les données des widgets.",
     "filter_add": "Ajouter un filtre",
     "filter_add_title": "Ajouter un filtre",

@@ -1,7 +1,5 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { DatePickerField, fromIsoDay } from '@/components/ui/date-picker-field'
 import { Slider } from '@/components/ui/slider'
@@ -160,7 +158,6 @@ export function DateFilter({
   const isRelative = value?.type === 'date-relative'
   const from = value?.type === 'date' ? value.from : null
   const to = value?.type === 'date' ? value.to : null
-  const hasValue = isRelative || !!(from || to)
 
   // Calendars open on, and are limited to, the range the data actually covers —
   // picking a day with no rows behind it can only ever return nothing.
@@ -247,17 +244,6 @@ export function DateFilter({
             />
           </div>
         </div>
-      )}
-      {hasValue && (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="h-5 gap-1 text-[10px] text-muted-foreground"
-          onClick={() => onChange({ type: 'date', from: null, to: null })}
-        >
-          <X size={10} />
-          {t('common.clear', 'Clear')}
-        </Button>
       )}
     </div>
   )

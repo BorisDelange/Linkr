@@ -259,6 +259,7 @@ export function DashboardFilterSidebar({ dashboard, widgets, tabs, editMode, onC
                     open={isOpen}
                     onToggle={() => toggleExpanded(fc.id)}
                     active={!!activeFilters[fc.id]}
+                    onReset={() => clearFilter(fc.id)}
                     tabs={tabs}
                     widgets={widgets}
                     actions={editMode && (

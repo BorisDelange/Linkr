@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { parseBounds, toDayBound, type DateBounds } from './date-slider'
 import {
@@ -29,6 +29,7 @@ export function FilterCard({
   tabs,
   widgets,
   actions,
+  onReset,
   children,
 }: {
   fc: DashboardFilter
@@ -38,9 +39,11 @@ export function FilterCard({
   tabs: DashboardTab[]
   widgets: DashboardWidget[]
   actions?: React.ReactNode
+  /** Clears the filter's value; the button shows only while the filter is active. */
+  onReset?: () => void
   children: React.ReactNode
 }) {
-  const { i18n } = useTranslation()
+  const { t, i18n } = useTranslation()
   return (
     <div className={cn('rounded-lg border transition-colors', active && 'border-green-500/40 bg-green-500/5')}>
       <div className="flex h-9 items-center gap-1.5 px-2.5">
@@ -52,6 +55,11 @@ export function FilterCard({
           <ChevronRight size={13} className={cn('shrink-0 text-muted-foreground transition-transform', open && 'rotate-90')} />
           <span className="truncate text-xs font-medium">{localized(fc.label, i18n.language) || fc.columnName}</span>
         </button>
+        {active && onReset && (
+          <IconAction label={t('dashboard.filter_reset')} onClick={onReset}>
+            <RotateCcw size={12} />
+          </IconAction>
+        )}
         <FilterScopeBadge scope={fc.scope ?? { type: 'all' }} tabs={tabs} widgets={widgets} />
         {actions}
       </div>
@@ -97,7 +105,15 @@ export function FilterPreview({
   const [value, setValue] = useState<FilterValue | undefined>(undefined)
   const [open, setOpen] = useState(true)
   return (
-    <FilterCard fc={fc} open={open} onToggle={() => setOpen((o) => !o)} active={!!value} tabs={tabs} widgets={widgets}>
+    <FilterCard
+      fc={fc}
+      open={open}
+      onToggle={() => setOpen((o) => !o)}
+      active={!!value}
+      onReset={() => setValue(undefined)}
+      tabs={tabs}
+      widgets={widgets}
+    >
       <FilterControlWithData
         fc={fc}
         value={value}
