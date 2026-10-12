@@ -6,6 +6,7 @@ import {
   parseBounds,
   valueToSlider,
   sliderToValue,
+  closeWindow,
 } from './date-slider'
 
 describe('daysBetween', () => {
@@ -74,6 +75,20 @@ describe('parseBounds', () => {
   })
 })
 
+describe('closeWindow', () => {
+  const bounds = { min: '2024-01-01', max: '2024-01-31' }
+
+  it('fills the unset end with the column bound', () => {
+    expect(closeWindow(bounds, '2024-01-10', null)).toEqual({ from: '2024-01-10', to: '2024-01-31' })
+    expect(closeWindow(bounds, null, '2024-01-20')).toEqual({ from: '2024-01-01', to: '2024-01-20' })
+  })
+
+  it('leaves an inactive filter, or unknown bounds, alone', () => {
+    expect(closeWindow(bounds, null, null)).toEqual({ from: null, to: null })
+    expect(closeWindow(null, '2024-01-10', null)).toEqual({ from: '2024-01-10', to: null })
+  })
+})
+
 describe('valueToSlider / sliderToValue', () => {
   const bounds = { min: '2024-01-01', max: '2024-01-31' } // span = 30
 
@@ -99,9 +114,10 @@ describe('valueToSlider / sliderToValue', () => {
       .toEqual({ from: '2024-01-11', to: '2024-01-21' })
   })
 
-  it('keeps a half-open window half-open', () => {
-    expect(sliderToValue(bounds, [5, 30])).toEqual({ from: '2024-01-06', to: null })
-    expect(sliderToValue(bounds, [0, 25])).toEqual({ from: null, to: '2024-01-26' })
+  it('closes a window moved at one end only', () => {
+    // An open end would leave no window length to compare with the period before.
+    expect(sliderToValue(bounds, [5, 30])).toEqual({ from: '2024-01-06', to: '2024-01-31' })
+    expect(sliderToValue(bounds, [0, 25])).toEqual({ from: '2024-01-01', to: '2024-01-26' })
   })
 
   it('round-trips a bounded window', () => {

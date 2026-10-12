@@ -69,6 +69,20 @@ export function valueToSlider(
 }
 
 /**
+ * A window with one end set gets the column's bound as its other end, so it reads
+ * as the closed window the reader sees (needed to compare it with the period
+ * before it). Both ends unset stay unset: the filter is inactive.
+ */
+export function closeWindow(
+  bounds: DateBounds | null | undefined,
+  from: string | null,
+  to: string | null,
+): { from: string | null; to: string | null } {
+  if (!bounds || (!from && !to)) return { from, to }
+  return { from: from ?? bounds.min, to: to ?? bounds.max }
+}
+
+/**
  * Slider positions back to a filter value. A range covering the whole span means
  * "no restriction", so both ends come back null and the filter reads as inactive
  * rather than as a redundant window over all the data.
@@ -78,8 +92,6 @@ export function sliderToValue(
   [start, end]: [number, number],
 ): { from: string | null; to: string | null } {
   const span = daysBetween(bounds.min, bounds.max)
-  return {
-    from: start <= 0 ? null : addDays(bounds.min, start),
-    to: end >= span ? null : addDays(bounds.min, end),
-  }
+  if (start <= 0 && end >= span) return { from: null, to: null }
+  return { from: addDays(bounds.min, Math.max(0, start)), to: addDays(bounds.min, Math.min(span, end)) }
 }

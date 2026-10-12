@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { DatePickerField, fromIsoDay } from '@/components/ui/date-picker-field'
 import { Slider } from '@/components/ui/slider'
 import { formatDate } from '@/lib/format-helpers'
-import { daysBetween, valueToSlider, sliderToValue, type DateBounds } from './date-slider'
+import { closeWindow, daysBetween, valueToSlider, sliderToValue, type DateBounds } from './date-slider'
 import { cn } from '@/lib/utils'
 import type { DatePreset, DatePresetUnit, FilterValue } from '@/types'
 import { presetLabel, resolveRelativeWindow } from './date-presets'
@@ -228,7 +228,7 @@ export function DateFilter({
             <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_from', 'From')}</span>
             <DatePickerField
               value={from ?? undefined}
-              onChange={(v) => onChange({ type: 'date', from: v ?? null, to })}
+              onChange={(v) => onChange({ type: 'date', ...closeWindow(bounds, v ?? null, to) })}
               // Unset means "from the beginning of the data", so show that day rather
               // than an empty box the reader has to interpret.
               placeholder={bounds ? formatDate(bounds.min, lang) : undefined}
@@ -240,7 +240,7 @@ export function DateFilter({
             <span className="text-[10px] font-medium text-muted-foreground">{t('dashboard.filter_date_to', 'To')}</span>
             <DatePickerField
               value={to ?? undefined}
-              onChange={(v) => onChange({ type: 'date', from, to: v ?? null })}
+              onChange={(v) => onChange({ type: 'date', ...closeWindow(bounds, from, v ?? null) })}
               placeholder={bounds ? formatDate(bounds.max, lang) : undefined}
               defaultMonth={maxDate}
               disabledDays={pickerBounds}
