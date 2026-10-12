@@ -76,8 +76,10 @@ export const markdownComponents: Record<string, any> = {
     const type = props['data-callout']
     const style = calloutStyles[type]
     if (!style) return <div {...props}>{children}</div>
+    // `mt-4!`: Typography zeroes the top margin of whatever follows a heading
+    // (`h3 + *`), which glued the callout to the title above it.
     return (
-      <div className={`my-3 rounded-lg border-l-4 ${style.border} ${style.bg} px-4 py-3`}>
+      <div className={`mt-4! mb-3 rounded-lg border-l-4 ${style.border} ${style.bg} px-4 py-3`}>
         {/* SectionLabel carries the uppercase treatment; the accent colour and
             the step up to text-xs are the callout's own — the label has to read
             as the alert's severity beside a 15px icon, not as muted chrome. */}
