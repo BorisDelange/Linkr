@@ -112,6 +112,17 @@ export function datasetSeriesKeyId(datasetFileId: string, seriesKey: string): nu
   return -((hash >>> 0) + 1)
 }
 
+/**
+ * The column that tells one variable of a dataset from another, for its series id.
+ *
+ * The value column when there is one, else the text column, else the date: mappings
+ * that share a date column (one start time, one column per category) are still
+ * distinct variables.
+ */
+export function datasetSeriesKey(mapping: Partial<DatasetTimelineMapping>): string {
+  return mapping.valueColumn || mapping.textValueColumn || mapping.dateColumn || ''
+}
+
 /** Whether a series id was minted here rather than coming from the vocabulary. */
 export function isDatasetSeriesId(conceptId: number): boolean {
   return conceptId < 0
@@ -136,7 +147,7 @@ export function datasetRowsToTimeline(
   // than read per row: the variable is the COLUMN, and every row of it is the same
   // series by construction.
   const name = mapping.seriesName?.trim() || fallbackName
-  const seriesId = datasetSeriesKeyId(mapping.datasetFileId, mapping.valueColumn ?? mapping.dateColumn)
+  const seriesId = datasetSeriesKeyId(mapping.datasetFileId, datasetSeriesKey(mapping))
 
   const out: DatasetTimelineRow[] = []
 
@@ -157,6 +168,9 @@ export function datasetRowsToTimeline(
     const rawValue = mapping.valueColumn ? row[mapping.valueColumn] : undefined
     const numeric = toNumber(rawValue)
     const rawText = mapping.textValueColumn ? row[mapping.textValueColumn] : undefined
+    // A mapping that names a value or text column is that variable: a row where both
+    // are empty holds another variable of a wide dataset, not this one.
+    if ((mapping.valueColumn || mapping.textValueColumn) && isEmpty(rawValue) && isEmpty(rawText)) continue
 
     out.push({
       concept_id: seriesId,
@@ -199,6 +213,10 @@ function normaliseDate(cell: unknown): Date | null {
   if (typeof cell === 'number') return new Date(cell)
   const parsed = new Date(String(cell))
   return Number.isNaN(parsed.getTime()) ? null : parsed
+}
+
+function isEmpty(cell: unknown): boolean {
+  return cell == null || cell === ''
 }
 
 function toNumber(cell: unknown): number | null {

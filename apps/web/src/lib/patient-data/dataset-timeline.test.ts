@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   datasetRowsToTimeline,
   datasetSeriesId,
+  datasetSeriesKey,
   datasetSeriesKeyId,
   isDatasetSeriesId,
   timelineDatasets,
@@ -193,6 +194,37 @@ describe('datasetRowsToTimeline — one mapping is one named variable', () => {
     const rows = [{ col_person_id: 'p1', col_hr_datetime: '2026-01-04', col_hr_value: 80 }]
     expect(datasetRowsToTimeline(rows, unnamed, patient, 'labs.csv')[0].concept_name)
       .toBe('labs.csv')
+  })
+
+  it('separates two text variables that share a date column', () => {
+    // One start time, one column per category (a culture, an antibiotic): without
+    // the text column in the key, every series would get the same id and merge.
+    const base = { datasetFileId: 'ds1', personColumn: 'col_person_id', dateColumn: 'col_start' }
+    const culture = { ...base, textValueColumn: 'col_culture', seriesName: 'Cultures' }
+    const antibiotic = { ...base, textValueColumn: 'col_atb', seriesName: 'Antibiotics' }
+    const rows = [
+      { col_person_id: 'p1', col_start: '2026-01-04', col_culture: 'Blood: E. coli', col_atb: null },
+      { col_person_id: 'p1', col_start: '2026-01-05', col_culture: null, col_atb: 'Gentamicin' },
+    ]
+    const c = datasetRowsToTimeline(rows, culture, patient, '')
+    const a = datasetRowsToTimeline(rows, antibiotic, patient, '')
+    expect(c[0].concept_id).not.toBe(a[0].concept_id)
+    expect(datasetSeriesKeyId('ds1', datasetSeriesKey(culture))).toBe(c[0].concept_id)
+  })
+
+  it('drops rows where the variable it plots is empty', () => {
+    // A wide dataset: the row holding an antibiotic is not a culture.
+    const culture = {
+      datasetFileId: 'ds1', personColumn: 'col_person_id', dateColumn: 'col_start',
+      textValueColumn: 'col_culture',
+    }
+    const rows = [
+      { col_person_id: 'p1', col_start: '2026-01-04', col_culture: 'Blood: E. coli' },
+      { col_person_id: 'p1', col_start: '2026-01-05', col_culture: null },
+      { col_person_id: 'p1', col_start: '2026-01-06', col_culture: '' },
+    ]
+    expect(datasetRowsToTimeline(rows, culture, patient, '').map((r) => r.value_string))
+      .toEqual(['Blood: E. coli'])
   })
 
   it('drops rows whose own date column is empty', () => {

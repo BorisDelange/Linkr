@@ -14,7 +14,7 @@ import {
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
 import { isPlottable, useDatasetSeries } from './use-dataset-series'
-import { datasetSeriesKeyId, timelineDatasets } from '@/lib/patient-data/dataset-timeline'
+import { datasetSeriesKey, datasetSeriesKeyId, timelineDatasets } from '@/lib/patient-data/dataset-timeline'
 import { conceptColorHex } from '@/lib/concept-colors'
 import {
   subscribeTimelineSync,
@@ -233,7 +233,7 @@ export function TimelineWidget({
     const out: DatasetColorMap = {}
     datasetMappings.forEach((m, i) => {
       if (!m.datasetFileId) return
-      const id = datasetSeriesKeyId(m.datasetFileId, m.valueColumn ?? m.dateColumn ?? '')
+      const id = datasetSeriesKeyId(m.datasetFileId, datasetSeriesKey(m))
       out[String(id)] = { color: m.color, index: conceptIds.length + i }
     })
     return out
