@@ -1,12 +1,20 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { withResponsiveSvg } from '@/lib/svg-responsive'
-import { cn } from '@/lib/utils'
 
 const MIN_SCALE = 0.2
 const MAX_SCALE = 8
+// Zoom per unit of wheel delta, applied exponentially so a pinch (many small
+// deltas) and a mouse notch (one large delta) both feel proportionate.
+const WHEEL_ZOOM_RATE = 0.002
+const PINCH_ZOOM_RATE = 0.01
+
+/** Safari's trackpad pinch: non-standard, so not in the DOM typings. */
+interface GestureEvent extends UIEvent {
+  scale: number
+}
 
 /** Renders a figure (inline SVG or data-image) that fills the available output
  *  area by default, and is zoomable (wheel / buttons) and pannable (drag). The SVG
@@ -16,6 +24,11 @@ export function FigureViewer({ content, label }: { content: string; label?: stri
   const [scale, setScale] = useState(1)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const dragRef = useRef<{ x: number; y: number } | null>(null)
+  const surfaceRef = useRef<HTMLDivElement>(null)
+  const scaleRef = useRef(scale)
+  useEffect(() => {
+    scaleRef.current = scale
+  }, [scale])
 
   const isSvg = /^\s*(<\?xml|<svg)/.test(content)
   const isImage = content.startsWith('data:image')
@@ -29,11 +42,34 @@ export function FigureViewer({ content, label }: { content: string; label?: stri
     setScale((s) => clamp(s * factor, MIN_SCALE, MAX_SCALE))
   }, [])
 
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    // Ctrl/Cmd+wheel or plain wheel zooms toward the cursor is nice-to-have; keep it
-    // simple: wheel zooms centred. preventDefault so the panel doesn't scroll.
-    e.preventDefault()
-    setScale((s) => clamp(s * (e.deltaY < 0 ? 1.1 : 1 / 1.1), MIN_SCALE, MAX_SCALE))
+  // Native, non-passive listeners: React registers wheel as passive, so its
+  // preventDefault is ignored and a trackpad pinch (Chrome/Firefox: wheel with
+  // ctrlKey; Safari: gesture events) zooms the whole page instead of the figure.
+  useEffect(() => {
+    const el = surfaceRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const rate = e.ctrlKey ? PINCH_ZOOM_RATE : WHEEL_ZOOM_RATE
+      setScale((s) => clamp(s * Math.exp(-e.deltaY * rate), MIN_SCALE, MAX_SCALE))
+    }
+    let gestureStartScale = 1
+    const onGestureStart = (e: Event) => {
+      e.preventDefault()
+      gestureStartScale = scaleRef.current
+    }
+    const onGestureChange = (e: Event) => {
+      e.preventDefault()
+      setScale(clamp(gestureStartScale * (e as GestureEvent).scale, MIN_SCALE, MAX_SCALE))
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    el.addEventListener('gesturestart', onGestureStart)
+    el.addEventListener('gesturechange', onGestureChange)
+    return () => {
+      el.removeEventListener('wheel', onWheel)
+      el.removeEventListener('gesturestart', onGestureStart)
+      el.removeEventListener('gesturechange', onGestureChange)
+    }
   }, [])
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -54,8 +90,11 @@ export function FigureViewer({ content, label }: { content: string; label?: stri
   return (
     <div className="relative h-full w-full overflow-hidden bg-white dark:invert dark:hue-rotate-180">
       <div
-        className={cn('h-full w-full touch-none', scale > 1 ? 'cursor-grab active:cursor-grabbing' : 'cursor-default')}
-        onWheel={onWheel}
+        ref={surfaceRef}
+        className="h-full w-full cursor-grab touch-none select-none active:cursor-grabbing"
+        // The browser's own image drag (the translucent ghost) would take over the
+        // pointer and stop the pan; panning is ours alone.
+        onDragStart={(e) => e.preventDefault()}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
@@ -72,7 +111,7 @@ export function FigureViewer({ content, label }: { content: string; label?: stri
               dangerouslySetInnerHTML={{ __html: sanitizeHtml(withResponsiveSvg(content)) }}
             />
           ) : isImage ? (
-            <img src={content} alt={label} className="max-h-full max-w-full object-contain" />
+            <img src={content} alt={label} draggable={false} className="max-h-full max-w-full object-contain" />
           ) : (
             <p className="text-xs text-muted-foreground">{content || 'Figure'}</p>
           )}
