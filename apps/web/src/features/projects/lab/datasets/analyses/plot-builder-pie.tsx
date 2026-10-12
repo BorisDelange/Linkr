@@ -4,7 +4,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import type { PieLabelRenderProps, TooltipContentProps } from 'recharts'
 import { CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { truncateLabel } from './chart-axis-helpers'
-import { ChartTooltipCard } from './chart-tooltip'
+import { ChartTooltipCard, FloatingChartTooltip } from './chart-tooltip'
 import type { CategoryOrder } from './plot-category-order'
 import { buildCategoricalData, NO_CUSTOM_ORDER, sharePct, type PlotServerData } from './plot-builder-shared'
 
@@ -56,6 +56,19 @@ export function PiePlot({
     if (!monochrome || data.length < 2) return opacity
     return opacity * (1 - 0.75 * (i / (data.length - 1)))
   }
+  const sliceColor = (i: number) => (monochrome ? colors[0] : colors[i % colors.length])
+
+  // Recharts only answers a hover on the sectors, so the outside labels drive
+  // their own tooltip, drawn with the same card.
+  const [labelHover, setLabelHover] = useState<{ index: number; x: number; y: number } | null>(null)
+
+  const sliceCard = useCallback((name: string, value: number, color: string | undefined) => (
+    <ChartTooltipCard
+      title={name}
+      color={color}
+      rows={[{ label: countLabel, value: value.toLocaleString(), note: `(${sharePct(value, total)} %)` }]}
+    />
+  ), [countLabel, total])
 
   const renderLabel = useCallback((props: PieLabelRenderProps) => {
     const { cx, cy, midAngle, innerRadius, outerRadius, percent, index } = props as {
@@ -68,10 +81,15 @@ export function PiePlot({
       // Shift the two-line block so it grows away from the ring at the top and bottom.
       const nameY = y - 4 + 10 * Math.sin(-midAngle * RADIAN)
       sliceLabel = (
-        <text x={x} y={nameY} textAnchor={x >= cx ? 'start' : 'end'}>
+        <text
+          x={x}
+          y={nameY}
+          textAnchor={x >= cx ? 'start' : 'end'}
+          onMouseMove={(e) => setLabelHover({ index, x: e.clientX, y: e.clientY })}
+          onMouseLeave={() => setLabelHover(null)}
+        >
           <tspan x={x} fontSize={11} fill="var(--color-foreground)">
             {truncateLabel(name, labelMaxLen)}
-            <title>{name}</title>
           </tspan>
           <tspan x={x} dy={13} fontSize={10} fill="var(--color-muted-foreground)" className="tabular-nums">
             {(percent * 100).toFixed(1)} %
@@ -109,14 +127,8 @@ export function PiePlot({
     const p = payload[0]
     const value = typeof p.value === 'number' ? p.value : 0
     const fill = p.color || (p.payload as { fill?: string } | undefined)?.fill
-    return (
-      <ChartTooltipCard
-        title={p.name}
-        color={fill}
-        rows={[{ label: countLabel, value: value.toLocaleString(), note: `(${sharePct(value, total)} %)` }]}
-      />
-    )
-  }, [total, countLabel])
+    return sliceCard(String(p.name ?? ''), value, fill)
+  }, [sliceCard])
 
   // The ring gives way to its outside labels: a percentage radius sized on the
   // smaller side clipped the left/right labels of a narrow widget.
@@ -132,7 +144,9 @@ export function PiePlot({
     <div ref={containerRef} className="h-full w-full">
     <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
       <PieChart margin={{ top: 12, right: 12, bottom: 12, left: 12 }}>
-        <Tooltip content={renderTooltip} />
+        {/* No transform transition: the wrapper starts at the chart's top-left
+            corner before its first measure, so the card slid in from there. */}
+        <Tooltip content={renderTooltip} isAnimationActive={false} />
         <Pie
           data={data}
           dataKey="count"
@@ -149,11 +163,14 @@ export function PiePlot({
           labelLine={renderLabelLine}
         >
           {data.map((d, i) => (
-            <Cell key={d.bin} fill={monochrome ? colors[0] : colors[i % colors.length]} fillOpacity={sliceOpacity(i)} />
+            <Cell key={d.bin} fill={sliceColor(i)} fillOpacity={sliceOpacity(i)} />
           ))}
         </Pie>
       </PieChart>
     </ResponsiveContainer>
+    <FloatingChartTooltip point={labelHover}>
+      {labelHover && data[labelHover.index] && sliceCard(String(data[labelHover.index].bin), data[labelHover.index].count, sliceColor(labelHover.index))}
+    </FloatingChartTooltip>
     </div>
   )
 }
