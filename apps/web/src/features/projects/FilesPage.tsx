@@ -86,6 +86,7 @@ import { executePython } from '@/lib/runtimes/pyodide-engine'
 import { executeR } from '@/lib/runtimes/webr-engine'
 import { isImperativeInstall, extractInstallPackages } from '@/lib/runtimes/install-detect'
 import { FileTree } from './files/FileTree'
+import { IdeDirContext } from './files/ide-dir-context'
 import { FolderPathBar } from './files/FolderPathBar'
 import { OutputPanel, getTabIcon } from './files/OutputPanel'
 import { CreateFileDialog } from './files/CreateFileDialog'
@@ -1415,7 +1416,9 @@ export function FilesPage() {
                 />
               )}
               {resolvedDirs && <FolderPathBar path={resolvedDirs.ide} />}
-              <FileTree onNewChild={openCreate} search={fileSearch.query} />
+              <IdeDirContext.Provider value={resolvedDirs?.ide ?? null}>
+                <FileTree onNewChild={openCreate} search={fileSearch.query} />
+              </IdeDirContext.Provider>
             </div>
           </Allotment.Pane>
 

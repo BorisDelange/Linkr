@@ -1,6 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useContext } from 'react'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
@@ -10,6 +10,7 @@ import { FileTypeIcon } from '@/components/ui/file-type-icon'
 import { isImageFileName } from '@/lib/image-file'
 import type { TreeNode, DatasetBridgeNode } from '@/hooks/use-project-tree'
 import { openImageInOutput } from './open-image-output'
+import { IdeDirContext } from './ide-dir-context'
 import {
   FileCode,
   ChevronRight,
@@ -98,6 +99,7 @@ export function FileTreeItem({
   const canWrite = useMyProjectRole().can('ide:write')
   const canDelete = useMyProjectRole().can('ide:delete')
   const { files, selectFile, toggleFolder, deleteNode, duplicateFile, moveNode, openInEditorMode, renameNode, selection, clickFile, clearSelection } = useFileStore()
+  const ideDir = useContext(IdeDirContext)
   const datasetStore = useDatasetStore()
   // Per-file versioning. Key = the export tree path `scripts/<idePath>` (same
   // namespace the Datasets sidebar uses and the .gitignore exception matches).
@@ -545,15 +547,17 @@ export function FileTreeItem({
               {!bulk && (
                 <>
                   <ContextMenuSeparator />
-                  <ContextMenuItem
-                    onClick={() => {
-                      const path = getNodePath(files as TreeNode[], node.id)
-                      void copyText(`/project/files/${path}`)
-                    }}
-                  >
-                    <Clipboard size={14} />
-                    {t('files.copy_path')}
-                  </ContextMenuItem>
+                  {ideDir && (
+                    <ContextMenuItem
+                      onClick={() => {
+                        const path = getNodePath(files as TreeNode[], node.id)
+                        void copyText(`${ideDir}/${path}`)
+                      }}
+                    >
+                      <Clipboard size={14} />
+                      {t('files.copy_path')}
+                    </ContextMenuItem>
+                  )}
                   <ContextMenuItem
                     onClick={() => {
                       const path = getNodePath(files as TreeNode[], node.id)
