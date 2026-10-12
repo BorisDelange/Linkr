@@ -2304,6 +2304,14 @@
     "description": "Build and manage interactive dashboards."
   },
   "versioning": {
+    "confirm_data_title_one": "Version this data file?",
+    "confirm_data_title_other": "Version these {{count}} data files?",
+    "confirm_data_warning_one": "Warning: the following file will be pushed to the git repository",
+    "confirm_data_warning_other": "Warning: the following {{count}} files will be pushed to the git repository",
+    "confirm_data_hint": "Data files are kept out of git by default. Once marked, they are committed with the project and sent to the remote repository on the next push, where anyone with access to it can read them.",
+    "confirm_data_checkbox": "I confirm that these data files may be pushed to the remote git repository.",
+    "confirm_data_action_one": "Version the file",
+    "confirm_data_action_other": "Version {{count}} files",
     "file_desc_pages_ci": "The CI file that deploys the published catalog page with GitLab/GitHub Pages.",
     "file_desc_catalog_site": "A file of the published catalog page, deployed with GitLab/GitHub Pages.",
     "file_cat_site": "Published site",

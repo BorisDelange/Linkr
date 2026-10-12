@@ -37,6 +37,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { DialogShell } from '@/components/ui/dialog-shell'
+import { useConfirmDataVersioning } from '@/components/versioning/ConfirmDataVersioningDialog'
 import { cn } from '@/lib/utils'
 import { contentSize } from '@/lib/file-tree-sort'
 import { actionableTargets, isRowInBulkSelection } from '@/lib/tree-selection'
@@ -160,10 +161,16 @@ export function FileTreeItem({
   )
   // Will this file be versioned? data → only if included; code → unless excluded.
   const willBeVersioned = isDataFile ? includedSet.has(markKey) : isRealFile && !excludedSet.has(markKey)
+  const { requestMark, dialog: confirmVersioningDialog } = useConfirmDataVersioning()
   const toggleVersioning = () => {
     if (!activeProjectUid) return
-    if (isDataFile) void toggleVersionedDataFile(activeProjectUid, markKey)
-    else void toggleExcludedFile(activeProjectUid, markKey)
+    if (!isDataFile) {
+      void toggleExcludedFile(activeProjectUid, markKey)
+      return
+    }
+    const apply = () => void toggleVersionedDataFile(activeProjectUid, markKey)
+    if (willBeVersioned) apply()
+    else requestMark([markKey], apply)
   }
 
   const handleClick = (e: React.MouseEvent) => {
@@ -321,12 +328,21 @@ export function FileTreeItem({
     // Forced to ONE state rather than toggled file by file: a mixed selection
     // would otherwise invert each one and stay mixed.
     const shouldVersion = !targetNodes.every(isVersionedFor)
-    for (const n of targetNodes) {
-      if (isVersionedFor(n) === shouldVersion) continue
-      const key = markKeyFor(n)
-      if (isDataExtension(n.name)) void toggleVersionedDataFile(activeProjectUid, key)
-      else void toggleExcludedFile(activeProjectUid, key)
+    const changing = targetNodes.filter((n) => isVersionedFor(n) !== shouldVersion)
+    const apply = () => {
+      for (const n of changing) {
+        const key = markKeyFor(n)
+        if (isDataExtension(n.name)) void toggleVersionedDataFile(activeProjectUid, key)
+        else void toggleExcludedFile(activeProjectUid, key)
+      }
     }
+    if (!shouldVersion) {
+      apply()
+      return
+    }
+    // Only data files need the acknowledgement: code files are versioned by
+    // default, so re-including one restores the expected state.
+    requestMark(changing.filter((n) => isDataExtension(n.name)).map(markKeyFor), apply)
   }
 
   const allTargetsVersioned = targetNodes.length > 0 && targetNodes.every(isVersionedFor)
@@ -618,6 +634,8 @@ export function FileTreeItem({
             onNewChild={onNewChild}
           />
         ))}
+
+      {confirmVersioningDialog}
 
       {/* Delete confirmation dialog */}
       <DialogShell

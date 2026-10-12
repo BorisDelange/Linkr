@@ -61,6 +61,7 @@ import { fetchDatasetMeta, queryDatasetRows } from '@/lib/api/datasets'
 import { rawFileRepresentsDataset } from '@/lib/dataset-download-source'
 import { useResolvedDirs } from '@/hooks/use-resolved-dirs'
 import { ImportSettingsDialog } from './ImportSettingsDialog'
+import { useConfirmDataVersioning } from '@/components/versioning/ConfirmDataVersioningDialog'
 import type { DatasetFile } from '@/types'
 import { copyText } from '@/lib/clipboard'
 
@@ -592,19 +593,37 @@ export function DatasetFileTree({ search = '' }: DatasetFileTreeProps) {
     setSelection((prev) => selectOnClick(prev, id, visibleIds, modifiers))
   }, [visibleIds])
 
+  const { requestMark, dialog: confirmVersioningDialog } = useConfirmDataVersioning()
+
   /** Mark or unmark every selected FILE (folders carry no versioning state). */
   const handleBulkVersioning = useCallback((ids: string[], versioned: boolean) => {
     if (!activeProjectUid) return
+    // toggleVersionedDataFile flips; only call it where the current state differs,
+    // so a mixed selection ends up all-marked (or all-unmarked) rather than
+    // inverted file by file.
+    const keys: string[] = []
     for (const id of ids) {
       const node = files.find((f) => f.id === id)
       if (!node || node.type !== 'file') continue
       const key = `datasets/${getNodePath(files, id)}`
-      // toggleVersionedDataFile flips; only call it where the current state differs,
-      // so a mixed selection ends up all-marked (or all-unmarked) rather than
-      // inverted file by file.
-      if (markedPaths.has(key) !== versioned) toggleVersionedDataFile(activeProjectUid, key)
+      if (markedPaths.has(key) !== versioned) keys.push(key)
     }
-  }, [activeProjectUid, files, markedPaths, toggleVersionedDataFile])
+    const apply = () => { for (const key of keys) void toggleVersionedDataFile(activeProjectUid, key) }
+    if (versioned) requestMark(keys, apply)
+    else apply()
+  }, [activeProjectUid, files, markedPaths, toggleVersionedDataFile, requestMark])
+
+  const versioningValue = useMemo(() => {
+    if (!activeProjectUid) return null
+    return {
+      marked: markedPaths,
+      toggle: (p: string) => {
+        const apply = () => void toggleVersionedDataFile(activeProjectUid, p)
+        if (markedPaths.has(p)) apply()
+        else requestMark([p], apply)
+      },
+    }
+  }, [activeProjectUid, markedPaths, toggleVersionedDataFile, requestMark])
 
   const handleBulkDelete = () => {
     for (const id of bulkDeleteIds ?? []) deleteNode(id)
@@ -644,7 +663,7 @@ export function DatasetFileTree({ search = '' }: DatasetFileTreeProps) {
       value={resolved ? { ideDir: resolved.ide, datasetsDir: resolved.datasets } : null}
     >
      <VersioningContext.Provider
-      value={activeProjectUid ? { marked: markedPaths, toggle: (p) => void toggleVersionedDataFile(activeProjectUid, p) } : null}
+      value={versioningValue}
      >
       <div className="flex h-full min-h-0 flex-col">
       {resolved && <FolderPathBar path={resolved.datasets} />}
@@ -722,6 +741,8 @@ export function DatasetFileTree({ search = '' }: DatasetFileTreeProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {confirmVersioningDialog}
 
       {importSettingsTarget && (
         <ImportSettingsDialog

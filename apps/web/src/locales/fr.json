@@ -2304,6 +2304,14 @@
     "description": "Créer et gérer des tableaux de bord interactifs."
   },
   "versioning": {
+    "confirm_data_title_one": "Versionner ce fichier de données ?",
+    "confirm_data_title_other": "Versionner ces {{count}} fichiers de données ?",
+    "confirm_data_warning_one": "Attention : le fichier suivant sera poussé sur le dépôt git",
+    "confirm_data_warning_other": "Attention : les {{count}} fichiers suivants seront poussés sur le dépôt git",
+    "confirm_data_hint": "Les fichiers de données sont exclus de git par défaut. Une fois marqués, ils sont commités avec le projet et envoyés au dépôt distant lors du prochain push : toute personne ayant accès à ce dépôt pourra les lire.",
+    "confirm_data_checkbox": "Je confirme que ces fichiers de données peuvent être poussés sur le dépôt git distant.",
+    "confirm_data_action_one": "Versionner le fichier",
+    "confirm_data_action_other": "Versionner {{count}} fichiers",
     "file_desc_pages_ci": "Le fichier de CI qui déploie la page du catalogue publiée avec GitLab/GitHub Pages.",
     "file_desc_catalog_site": "Un fichier de la page du catalogue publiée, déployée avec GitLab/GitHub Pages.",
     "file_cat_site": "Site publié",
