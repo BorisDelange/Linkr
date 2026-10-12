@@ -15,6 +15,7 @@ import {
   useSortable,
   arrayMove,
 } from '@dnd-kit/sortable'
+import { restrictToFirstScrollableAncestor, restrictToHorizontalAxis } from '@dnd-kit/modifiers'
 import { CSS } from '@dnd-kit/utilities'
 import { Plus, Pencil, Trash2, Layers, FolderPlus, ChevronRight, Home } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -42,6 +43,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+
+// A translated child counts toward its scroll container's scrollWidth, and each auto-scroll
+// step pushes the dragged tab further by the scrolled amount — so a tab dragged past the end
+// kept growing the overflow and auto-scroll never reached the end. Clamping the tab inside the
+// row's visible box keeps scrollWidth at the real content width.
+const TAB_DRAG_MODIFIERS = [restrictToHorizontalAxis, restrictToFirstScrollableAncestor]
 
 interface DashboardTabBarProps {
   dashboardId: string
@@ -88,7 +95,7 @@ function SortableTab({
   } = useSortable({ id: tab.id, disabled: !editMode })
 
   const style = {
-    transform: CSS.Transform.toString(transform),
+    transform: CSS.Translate.toString(transform),
     transition,
     zIndex: isDragging ? 50 : undefined,
     opacity: isDragging ? 0.5 : 1,
@@ -313,6 +320,7 @@ export function DashboardTabBar({ dashboardId, editMode }: DashboardTabBarProps)
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
+              modifiers={TAB_DRAG_MODIFIERS}
               onDragEnd={handleDragEnd}
             >
               <SortableContext
