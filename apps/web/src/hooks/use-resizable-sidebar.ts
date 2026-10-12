@@ -33,7 +33,8 @@ export const RESIZE_HANDLE_ACTIVE = 'after:bg-primary hover:after:bg-primary'
  *
  * `maxWidth` is raised by panels holding prose rather than form fields, where
  * the dashboard sidebars' 640px would force an uncomfortably narrow measure.
- * `storageKey` remembers the chosen width across sessions.
+ * `storageKey` remembers the chosen width across sessions. A double click on the
+ * edge returns to the default width.
  */
 export function useResizableSidebar(
   defaultWidth: number = SIDEBAR_DEFAULT_WIDTH,
@@ -68,12 +69,19 @@ export function useResizableSidebar(
       dragRef.current = null
       ;(e.target as HTMLElement).releasePointerCapture(e.pointerId)
       setResizing(false)
-      if (storageKey) {
-        // Wrapped: a private window or blocked site data throws, and a sidebar that
-        // cannot remember its width should still work.
-        try { localStorage.setItem(storageKey, String(widthRef.current)) } catch { /* not persisted */ }
-      }
+      persist(widthRef.current)
     },
+    onDoubleClick: () => {
+      setWidth(defaultWidth)
+      persist(defaultWidth)
+    },
+  }
+
+  function persist(value: number) {
+    if (!storageKey) return
+    // Wrapped: a private window or blocked site data throws, and a sidebar that
+    // cannot remember its width should still work.
+    try { localStorage.setItem(storageKey, String(value)) } catch { /* not persisted */ }
   }
 
   return { width, handleProps, resizing }
