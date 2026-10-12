@@ -8,6 +8,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Skeleton } from '@/components/ui/skeleton'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { getStorage } from '@/lib/storage'
 import { formatApiError, isServerMode } from '@/lib/api-client'
 import { etlRunningDetail, stopEtlRunOnServer } from '@/lib/api/data-sources'
@@ -35,6 +36,7 @@ interface DatabaseStatsDashboardProps {
 const _inFlight = new Map<string, Promise<void>>()
 /** The stop of each in-flight refresh, shared the same way. */
 const _controllers = new Map<string, AbortController>()
+const BUSY_DELAY_MS = 400
 
 export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
@@ -75,7 +77,8 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
 
   const refresh = useCallback(async () => {
     setIsLoading(true)
-    setError(null)
+    // The error stays up through the retry and goes only once it succeeds: a
+    // retry refused at once would otherwise flash the band away and back.
     try {
       // Dedupe across the sheet's two hook instances: only one compute runs per
       // source. The owner streams live updates into its own state; a concurrent
@@ -85,6 +88,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
         await existing
         const cached = await getStorage().databaseStatsCache.get(dataSourceId)
         if (cached) setCache(cached)
+        setError(null)
         return
       }
 
@@ -99,6 +103,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
         // this panel) reloads from cache instead of recomputing from zero.
         const stats = await computeDatabaseStats(dataSourceId, schemaMapping, signal)
         setCache(stats)
+        setError(null)
         await getStorage().databaseStatsCache.save(stats)
         keepCounts(stats)
 
@@ -160,7 +165,10 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
 
   // `cacheLoaded`: the stored statistics have been looked up — until then an
   // empty `cache` means "not read yet", not "never computed".
-  return { cache, isLoading, isStopping, error, refresh, stop, cacheLoaded }
+  // Shown busy only once a run has lasted a moment: one that fails at once (an
+  // ETL run holding the database) flipped Refresh to Stop and back in a blink.
+  const settledLoading = useDebouncedValue(isLoading, BUSY_DELAY_MS)
+  return { cache, isLoading: isLoading && settledLoading, isStopping, error, refresh, stop, cacheLoaded }
 }
 
 export function DatabaseStatsDashboard({
@@ -218,8 +226,8 @@ export function DatabaseStatsDashboard({
         </div>
       )}
 
-      {error != null && !isLoading && (
-        <StatsErrorBanner dataSourceId={dataSourceId} error={error} onRetry={refresh} />
+      {error != null && (
+        <StatsErrorBanner dataSourceId={dataSourceId} error={error} onRetry={refresh} retrying={isLoading} />
       )}
 
       {/* Nothing computed yet: offer the same explicit trigger the overview tab
@@ -785,7 +793,13 @@ function AdmissionTimelineChart({ data }: { data: AdmissionTimelineBucket[] }) {
 /** Why the statistics could not be computed. An ETL run holding the database
  *  gets its own band, with a way to stop the run: DuckDB lets nothing else open
  *  the file — reads included — until the run has let go of it. */
-function StatsErrorBanner({ dataSourceId, error, onRetry }: { dataSourceId: string; error: unknown; onRetry: () => void }) {
+export function StatsErrorBanner({ dataSourceId, error, onRetry, retrying = false, className }: {
+  dataSourceId: string
+  error: unknown
+  onRetry: () => void
+  retrying?: boolean
+  className?: string
+}) {
   const { t } = useTranslation()
   const [stopRequested, setStopRequested] = useState(false)
   const [stopError, setStopError] = useState<unknown>(null)
@@ -795,9 +809,10 @@ function StatsErrorBanner({ dataSourceId, error, onRetry }: { dataSourceId: stri
     return (
       <NoticeBanner
         tone="danger"
+        className={className}
         title={t('databases.stats_failed')}
         description={formatApiError(error).summary}
-        action={<Button variant="outline" size="sm" onClick={onRetry} className="text-xs">{t('databases.stats_retry')}</Button>}
+        action={<RetryButton onRetry={onRetry} retrying={retrying} />}
       />
     )
   }
@@ -814,7 +829,8 @@ function StatsErrorBanner({ dataSourceId, error, onRetry }: { dataSourceId: stri
   }
   return (
     <NoticeBanner
-      tone="progress"
+      tone="warning"
+      className={className}
       title={stopping ? t('databases.stats_etl_stopping_title') : t('databases.stats_etl_running_title')}
       description={stopError != null
         ? formatApiError(stopError).summary
@@ -827,12 +843,36 @@ function StatsErrorBanner({ dataSourceId, error, onRetry }: { dataSourceId: stri
               {t('databases.stats_etl_stop_run')}
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={onRetry} className="gap-1.5 text-xs">
-            <RefreshCw size={12} />
-            {t('databases.stats_retry')}
-          </Button>
+          <RetryButton onRetry={onRetry} retrying={retrying} />
         </div>
       )}
     />
+  )
+}
+
+/** Least time the Retry spinner shows after a click. A retry refused at once
+ *  would otherwise change nothing on screen, and read as a dead button. */
+const RETRY_FEEDBACK_MS = 700
+
+function RetryButton({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) {
+  const { t } = useTranslation()
+  const [pressed, setPressed] = useState(false)
+  useEffect(() => {
+    if (!pressed) return
+    const timer = setTimeout(() => setPressed(false), RETRY_FEEDBACK_MS)
+    return () => clearTimeout(timer)
+  }, [pressed])
+  const busy = retrying || pressed
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => { setPressed(true); onRetry() }}
+      disabled={busy}
+      className="gap-1.5 text-xs"
+    >
+      {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+      {t('databases.stats_retry')}
+    </Button>
   )
 }

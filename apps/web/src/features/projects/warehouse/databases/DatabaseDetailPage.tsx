@@ -64,6 +64,7 @@ import {
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import {
   DatabaseStatsDashboard,
+  StatsErrorBanner,
   useDatabaseStats,
 } from './DatabaseStatsDashboard'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
@@ -871,7 +872,7 @@ function OverviewTab({
   // Mounted here rather than inside the cards: the "not computed yet" banner sits
   // above them as a sibling in this grid, and both need the same state. One
   // instance, so the cards keep reading the very numbers the banner speaks for.
-  const { cache, isLoading: statsLoading, refresh: refreshStats, cacheLoaded } = useDatabaseStats(
+  const { cache, isLoading: statsLoading, error: statsError, refresh: refreshStats, cacheLoaded } = useDatabaseStats(
     source.id, statsMapping, source.status,
   )
   // A rebuildable database is one that is not working and still holds the DDL it
@@ -890,6 +891,9 @@ function OverviewTab({
   // Only once the stored statistics have been looked up: before that the banner
   // flashed on every visit to a database that does have them.
   const showStatsBanner = cacheLoaded && !cache && !statsLoading && !showStatusBanner
+  // A failed computation says why in place of the "not computed" prompt, which
+  // otherwise came back as if nothing had been tried.
+  const showStatsError = statsError != null && !showStatusBanner
 
   const handleRetest = async () => {
     setRetesting(true)
@@ -938,7 +942,7 @@ function OverviewTab({
       // row. Each banner is another full-width child when shown, so a fixed
       // two-track template left it on an implicit row that `overflow-hidden`
       // then clipped — it rendered behind the cards instead of pushing them down.
-      BAND_ROWS[Number(showStatusBanner) + Number(showStatsBanner)],
+      BAND_ROWS[Number(showStatusBanner) + Number(showStatsBanner || showStatsError)],
     )}>
       {/* Shown for any non-working state that carries a reason, not just 'error':
           a database left disconnected by a data-free import has something to say
@@ -1025,21 +1029,27 @@ function OverviewTab({
       {/* The counts below are COUNT(*) over what may be billions of rows, so
           server mode never runs them unasked — the cards then read "—" with
           nothing saying why, or that one click fixes it. */}
-      {showStatsBanner && (
-        <div className="col-span-full shrink-0 rounded-lg border border-amber-500/30 bg-amber-500/5 px-4 py-3">
-          <p className="text-xs font-medium text-amber-700 dark:text-amber-400">
-            {t('databases.stats_not_computed')}
-          </p>
-          <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-400/80">
-            {t('databases.stats_not_computed_hint')}
-          </p>
-          <div className="mt-2">
+      {showStatsError ? (
+        <StatsErrorBanner
+          dataSourceId={source.id}
+          error={statsError}
+          onRetry={refreshStats}
+          retrying={statsLoading}
+          className="col-span-full"
+        />
+      ) : showStatsBanner && (
+        <NoticeBanner
+          tone="warning"
+          className="col-span-full"
+          title={t('databases.stats_not_computed')}
+          description={t('databases.stats_not_computed_hint')}
+          action={(
             <Button size="sm" onClick={refreshStats} disabled={statsLoading}>
               <BarChart3 size={14} className="mr-1.5" />
               {t('databases.load_statistics')}
             </Button>
-          </div>
-        </div>
+          )}
+        />
       )}
 
       <DatabaseStatCards
