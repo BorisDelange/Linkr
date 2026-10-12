@@ -5,6 +5,7 @@ import 'allotment/dist/style.css'
 import { Settings, Code2, X, Check, RotateCcw, Copy, AlertTriangle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { PluginNameBadge } from '@/components/PluginNameBadge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
@@ -99,9 +100,6 @@ function EditorContent({
 
   const plugin = getPlugin(widget.pluginId)
   const configSchema = (plugin?.manifest.configSchema ?? {}) as Record<string, PluginConfigField>
-  const pluginName = plugin
-    ? (plugin.manifest.name?.[lang] ?? plugin.manifest.name?.en ?? plugin.manifest.id)
-    : widget.pluginId
 
   // --- Draft state: nothing reaches the store until Save ---
   const [draftConfig, setDraftConfig] = useState<Record<string, unknown>>(widget.config ?? {})
@@ -240,9 +238,15 @@ function EditorContent({
   return (
     <div className="flex h-full flex-col">
       <SheetHeader className="flex-row items-center gap-2 border-b px-3 py-2 space-y-0">
-        <SheetTitle className="truncate">{localized(widget.name, lang)}</SheetTitle>
-        <Badge variant="secondary" >{pluginName}</Badge>
+        <SheetTitle className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-normal">
+          {localized(widget.name, lang)}
+        </SheetTitle>
         <div className="flex-1" />
+        {plugin ? (
+          <PluginNameBadge plugin={plugin} lang={lang} />
+        ) : (
+          <Badge variant="secondary">{widget.pluginId}</Badge>
+        )}
         <Button variant="ghost" size="xs" onClick={onClose}>
           {t('common.cancel')}
         </Button>

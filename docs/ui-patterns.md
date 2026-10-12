@@ -687,6 +687,7 @@ Check this table before writing any form field.
 | `ExecuteNotPermitted` | Placeholder in place of a code-backed widget the user can't execute. |
 | `ServerModeNotice` | The single "not available in client-only mode" notice. Don't write that sentence yourself. |
 | `EditableBadge` / `BadgeEditor` / `BadgeColorButton` | Badge chips, the badge editor (offers badges already used on sibling entities), and the colour swatch. |
+| `PluginNameBadge` | A plugin's name as a badge in its manifest `iconColor`, with its `icon` — the header of every widget editor (dashboard *Configure widget*, patient board widget). Pass the registry `Plugin`; don't rebuild it from the manifest. |
 | `ColorPickerPopover` / `IconPicker` | Colour and icon selection. |
 | `FileTypeIcon` / `LanguageIcon` / `FileTreeHeader` | File-tree chrome: per-extension icon, language brand logo, sortable column header. |
 | `copyText` (`lib/clipboard`) | **Every clipboard write.** Resolves to whether it worked and never throws: `navigator.clipboard` is undefined on a server reached over plain HTTP and rejects when permission is refused, so it falls back to a hidden textarea + `execCommand('copy')`. Show the "copied" tick only when it resolves `true`. Never call `navigator.clipboard.writeText` directly. |

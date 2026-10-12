@@ -27,8 +27,7 @@ import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/Ge
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
-import { getLucideIcon } from '@/lib/plugins/shared-styles'
-import { getBadgeClasses, getBadgeStyle } from '@/features/projects/ProjectSettingsPage'
+import { PluginNameBadge } from '@/components/PluginNameBadge'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardDataProvider, useDashboardData } from './DashboardDataProvider'
@@ -384,7 +383,7 @@ function WidgetEditorBody({
           {localized(widget.name, i18n.language)}
         </SheetTitle>
         <div className="flex-1" />
-        {plugin && <PluginBadge plugin={plugin} lang={i18n.language as 'en' | 'fr'} />}
+        {plugin && <PluginNameBadge plugin={plugin} lang={i18n.language} />}
         <Select
           value={draftDatasetFileId ?? '__none__'}
           onValueChange={(v) => setDraftDatasetFileId(v === '__none__' ? null : v)}
@@ -599,27 +598,6 @@ function ConsolePane({ result, isExecuting }: { result: RuntimeOutput | null; is
         )}
       </div>
     </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Plugin name badge (mirrors the project/workspace badge style)
-// ---------------------------------------------------------------------------
-
-function PluginBadge({ plugin, lang }: { plugin: NonNullable<ReturnType<typeof getPlugin>>; lang: 'en' | 'fr' }) {
-  const color = plugin.manifest.iconColor
-  const Icon = getLucideIcon(plugin.manifest.icon)
-  const name = plugin.manifest.name[lang] ?? plugin.manifest.name.en
-  return (
-    <Badge
-      variant="outline"
-      className={cn('gap-1 py-0 text-[11px]', color ? getBadgeClasses(color) : undefined)}
-      style={color ? getBadgeStyle(color) : undefined}
-    >
-      {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
-      <Icon size={10} />
-      {name}
-    </Badge>
   )
 }
 
