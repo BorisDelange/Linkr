@@ -272,6 +272,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 | Component | Use for |
 |---|---|
 | `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter adds every match to the selection. |
+| `SelectionTriggerLabel` | **What a closed multi-select shows.** The chosen values as badges while they fit the trigger (measured, so a resized panel re-decides), "N selected" / "All selected" once they overflow. `MultiSelectFilter`, the analysis config multi-selects and the dashboard categorical filter use it — never write a trigger that says "All selected" for a single option or "2 selected" when both names fit. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `DataTable` uses it, so you only reach for it directly in a bespoke table. |
 | `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page; the copy button copies all of it. |
 | `OverflowBadgeList` | A badge row too narrow for its items. Keeps whole badges, folds the rest into `+N` with the full list as bullets on hover. Never clip a badge row with `overflow-hidden`. |

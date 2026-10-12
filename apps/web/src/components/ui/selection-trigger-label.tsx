@@ -1,26 +1,26 @@
 import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
+import { Badge } from '@/components/ui/badge'
 import { useFittedSelectionLabel } from '@/hooks/use-fitted-selection-label'
 
 /**
- * Above this many chosen options, the trigger counts instead of naming.
- *
- * Naming beats counting only while the list is short enough to take in at a
- * glance: "Age, Sex" is more useful than "2 selected", but eight column names
- * run together are less readable than "8 selected" AND force the control wider
- * than its neighbours. Three is where the trade turns.
+ * Above this many chosen options, the trigger counts without measuring: so many
+ * names could never fit the trigger, and joining them is wasted layout work.
  */
-const MAX_NAMED = 3
+const MAX_NAMED = 20
 
 /**
  * What a multi-select trigger reads when some options are chosen.
  *
- * Names a short selection, counts a long one, and says the empty and
- * everything-selected cases in words rather than making the reader do
- * arithmetic on "0 selected" / "7 selected".
+ * Names the selection whenever it fits the trigger, whatever its size, and
+ * counts it once it would overflow: "Protocol" says more than "All selected"
+ * when there is a single option, and a list clipped mid-word is worse than a
+ * count. Nothing and everything chosen are said in words rather than making
+ * the reader do arithmetic on "0 selected" / "7 selected".
  *
- * The measurement exists for the middle case: two long column names can still
- * overflow a narrow panel, and a list clipped mid-word is worse than a count.
+ * Each value is a badge, so "Late, onset unknown" cannot read as one value or
+ * two; `badges={false}` joins them with commas instead.
+ *
  * Measuring beats guessing from string length because the panel is resizable
  * and character widths vary by an order of magnitude between `i` and `M`.
  */
@@ -28,12 +28,17 @@ export function SelectionTriggerLabel({
   labels,
   total,
   className,
+  badges = true,
+  badgeSize = 'default',
 }: {
   /** The chosen options, already localized and in display order. */
   labels: string[]
   /** How many options exist, to recognize the everything-selected case. */
   total: number
   className?: string
+  badges?: boolean
+  /** `xs` for the `h-6` inline filters of a table header. */
+  badgeSize?: 'default' | 'xs'
 }) {
   const { t } = useTranslation()
   const { containerRef, probeRef, joined, fits } = useFittedSelectionLabel(labels)
@@ -45,12 +50,23 @@ export function SelectionTriggerLabel({
         ? t('common.all_selected')
         : t('common.n_selected', { count: labels.length })
 
-  const canName = labels.length > 0 && labels.length <= MAX_NAMED && labels.length < total
+  const canName = labels.length > 0 && labels.length <= MAX_NAMED
+
+  const named = badges ? (
+    <span className="flex items-center gap-1">
+      {labels.map((label, i) => (
+        <Badge key={`${i}-${label}`} variant="secondary" size={badgeSize} className="font-normal">
+          {label}
+        </Badge>
+      ))}
+    </span>
+  ) : joined
 
   return (
-    // min-w-0 is load-bearing: without it the flex item sizes to its content,
-    // pushing the whole control wider than the panel instead of truncating.
-    <span ref={containerRef} className={cn('relative min-w-0 flex-1 overflow-hidden text-left', className)}>
+    // `w-0 flex-1` is load-bearing: the width comes from the trigger, never from
+    // the content. Sized by its content, a row of badges widens the trigger and
+    // every ancestor up to the panel, and the measurement then always "fits".
+    <span ref={containerRef} className={cn('relative w-0 min-w-0 flex-1 overflow-hidden text-left', className)}>
       {/* Measured off-screen at its natural width; `fits` is derived from it.
           Only mounted while naming is a candidate, so a long selection does no
           layout work at all. */}
@@ -60,10 +76,14 @@ export function SelectionTriggerLabel({
           aria-hidden
           className="pointer-events-none invisible absolute left-0 top-0 whitespace-nowrap"
         >
-          {joined}
+          {named}
         </span>
       )}
-      <span className="block truncate">{canName && fits ? joined : summary}</span>
+      {canName && fits ? (
+        <span className={cn('block', !badges && 'truncate')}>{named}</span>
+      ) : (
+        <span className="block truncate">{summary}</span>
+      )}
     </span>
   )
 }

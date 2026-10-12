@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
+import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { isSearchEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
 
 /** Cap the number of option rows rendered at once. With very large option sets
@@ -95,11 +96,10 @@ export function MultiSelectFilter({
   const valueSet = useMemo(() => new Set(value), [value])
   const isActive = value.length > 0
 
-  const triggerLabel = (() => {
-    if (value.length === 0) return placeholder
-    if (value.length === 1) return normalized.find((o) => o.value === value[0])?.label ?? value[0]
-    return t('common.n_selected', { count: value.length, defaultValue: '{{count}} selected' })
-  })()
+  const selectedLabels = useMemo(() => {
+    const byValue = new Map(normalized.map((o) => [o.value, o.label]))
+    return value.map((v) => byValue.get(v) ?? v)
+  }, [normalized, value])
 
   const toggle = (val: string) => {
     if (valueSet.has(val)) onChange(value.filter((v) => v !== val))
@@ -131,9 +131,15 @@ export function MultiSelectFilter({
           )}
           onClick={(e) => e.stopPropagation()}
         >
-          <span className={cn('truncate', !isActive && 'text-muted-foreground')}>
-            {triggerLabel}
-          </span>
+          {isActive ? (
+            <SelectionTriggerLabel
+              labels={selectedLabels}
+              total={normalized.length}
+              badgeSize={showChevron ? 'default' : 'xs'}
+            />
+          ) : (
+            <span className="truncate text-muted-foreground">{placeholder}</span>
+          )}
           {showChevron && (
             <ChevronDown size={14} className="ml-auto shrink-0 opacity-50" />
           )}

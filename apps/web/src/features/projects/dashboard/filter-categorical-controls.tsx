@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, ChevronsUpDown, TriangleAlert } from 'lucide-react'
+import { ChevronsUpDown, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { FilterValue } from '@/types'
+import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { FILTER_NONE } from './DashboardDataProvider'
 
 // --- Categorical: Checkbox list ---
@@ -95,17 +96,6 @@ export function CategoricalCheckbox({
           <p className="text-[10px] text-muted-foreground italic">No values</p>
         )}
       </div>
-      {isActive && (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-xs h-5"
-          onClick={() => onChange({ type: 'categorical', selected: [] })}
-        >
-          <X size={10} />
-          Clear
-        </Button>
-      )}
     </div>
   )
 }
@@ -169,13 +159,8 @@ export function CategoricalMultiSelect({
     onChange(categoricalValue(base, uniqueValues))
   }
 
-  const label = !isActive
-    ? t('dashboard.filter_all')
-    : selected.size === 0
-      ? t('dashboard.filter_none', 'None')
-      : selected.size === 1
-        ? Array.from(selected)[0]
-        : `${selected.size} selected`
+  // In the column's order, not the order the values were ticked in.
+  const selectedLabels = uniqueValues.filter((v) => selected.has(v))
 
   return (
     <div className="space-y-1">
@@ -190,7 +175,13 @@ export function CategoricalMultiSelect({
       <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
         <PopoverTrigger asChild>
           <Button variant="outline" size="xs" className="w-full justify-between text-xs font-normal h-7">
-            <span className="truncate">{label}</span>
+            {!isActive ? (
+              <span className="truncate">{t('dashboard.filter_all')}</span>
+            ) : selected.size === 0 ? (
+              <span className="truncate">{t('dashboard.filter_none', 'None')}</span>
+            ) : (
+              <SelectionTriggerLabel labels={selectedLabels} total={uniqueValues.length} />
+            )}
             <ChevronsUpDown size={10} className="shrink-0 opacity-50" />
           </Button>
         </PopoverTrigger>
@@ -240,17 +231,6 @@ export function CategoricalMultiSelect({
           </TooltipProvider>
         </PopoverContent>
       </Popover>
-      {isActive && (
-        <Button
-          variant="ghost"
-          size="xs"
-          className="text-xs h-5"
-          onClick={() => onChange({ type: 'categorical', selected: [] })}
-        >
-          <X size={10} />
-          Clear
-        </Button>
-      )}
     </div>
   )
 }
