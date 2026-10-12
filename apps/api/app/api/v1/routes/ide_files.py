@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core import deferred
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
@@ -95,6 +96,47 @@ async def read_raw(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     media_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
     return FileResponse(p, media_type=media_type)
+
+
+@router.put("/raw", status_code=status.HTTP_204_NO_CONTENT)
+async def write_raw(
+    request: Request,
+    project_uid: str = Query(alias="projectUid"),
+    path: str = Query(...),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Write the request body to the file as-is — how a browser upload of a binary
+    file (an image, a workbook) lands intact, where the JSON text body of create
+    would turn every non-UTF-8 byte into U+FFFD."""
+    await _check_project(db, project_uid, user, "ide:write")
+    try:
+        dst = project_fs.script_path(project_uid, path)
+    except ValueError as e:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    if dst.is_dir():
+        raise HTTPException(status.HTTP_409_CONFLICT, "A folder already has this name")
+    existed = dst.exists()
+    limit = settings.max_upload_mb * 1024 * 1024
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    # Written beside the target and swapped in, so an upload refused halfway leaves
+    # the file it would have replaced intact.
+    part = dst.with_name(f".{dst.name}.{uuid.uuid4().hex}.part")
+    written = 0
+    try:
+        with part.open("wb") as f:
+            async for piece in request.stream():
+                written += len(piece)
+                if written > limit:
+                    raise HTTPException(
+                        status.HTTP_413_CONTENT_TOO_LARGE,
+                        f"Upload exceeds the {settings.max_upload_mb} MB limit.",
+                    )
+                f.write(piece)
+        part.replace(dst)
+    finally:
+        part.unlink(missing_ok=True)
+    await _notify(db, request, user, "updated" if existed else "created", project_uid, path)
 
 
 @router.post("", response_model=IdeFileResponse, status_code=status.HTTP_201_CREATED)

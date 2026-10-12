@@ -36,11 +36,12 @@ export function safeUploadFileName(
 /** How to resolve every clash in one upload. */
 export type ConflictResolution = 'keep-both' | 'replace'
 
-export interface UploadCandidate {
+/** `C` is the content as read: text by default, or bytes for a binary file the
+ *  caller writes through another route. The plan only carries it along. */
+export interface UploadCandidate<C = string> {
   /** The sanitised name the file would take. */
   name: string
-  /** Text content, already read. */
-  content: string
+  content: C
 }
 
 /** A file already in the pipeline, at the same parent. */
@@ -49,18 +50,18 @@ export interface ExistingFile {
   name: string
 }
 
-export interface PlannedUpload {
+export interface PlannedUpload<C = string> {
   /** The name to actually create it under (may differ under 'keep-both'). */
   name: string
-  content: string
+  content: C
   /** Set when an existing file must be overwritten rather than added. */
   replacesId?: string
 }
 
-export interface UploadPlan {
-  creates: PlannedUpload[]
+export interface UploadPlan<C = string> {
+  creates: PlannedUpload<C>[]
   /** Files to update in place (content only, keeping id/order/versioning marks). */
-  replaces: { id: string; name: string; content: string }[]
+  replaces: { id: string; name: string; content: C }[]
 }
 
 /**
@@ -70,7 +71,7 @@ export interface UploadPlan {
  * macOS and Windows, and the export tree could not hold both.
  */
 export function findConflicts(
-  candidates: UploadCandidate[],
+  candidates: UploadCandidate<unknown>[],
   existing: ExistingFile[],
 ): string[] {
   const taken = new Set(existing.map((f) => f.name.toLowerCase()))
@@ -84,15 +85,15 @@ export function findConflicts(
  * its id survives — and with it the versioning marks (keyed by path), the run
  * history that points at it, and its place in the execution order.
  */
-export function planUpload(
-  candidates: UploadCandidate[],
+export function planUpload<C>(
+  candidates: UploadCandidate<C>[],
   existing: ExistingFile[],
   resolution: ConflictResolution,
-): UploadPlan {
+): UploadPlan<C> {
   const byName = new Map(existing.map((f) => [f.name.toLowerCase(), f]))
   // Reserved as we go, so two files in ONE drop cannot claim the same name.
   const taken = new Set(existing.map((f) => f.name.toLowerCase()))
-  const plan: UploadPlan = { creates: [], replaces: [] }
+  const plan: UploadPlan<C> = { creates: [], replaces: [] }
 
   for (const candidate of candidates) {
     const clash = byName.get(candidate.name.toLowerCase())

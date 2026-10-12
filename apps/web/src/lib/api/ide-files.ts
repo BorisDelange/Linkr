@@ -145,6 +145,23 @@ export async function copyIdeFileFromServer(params: {
   })
 }
 
+/** Writes a browser file's bytes as-is under `parentId` — the upload path for a
+ *  binary file, which the JSON text body of `create` would corrupt. Overwrites a
+ *  file already at that path. */
+export async function writeIdeFileBytes(params: {
+  projectUid: string
+  parentId: string | null
+  name: string
+  bytes: Blob
+}): Promise<void> {
+  const q = new URLSearchParams({ projectUid: params.projectUid, path: childPath(params.parentId, params.name) })
+  await apiRequest(`${BASE}/raw?${q}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: params.bytes,
+  })
+}
+
 /** A file's raw bytes as a data URL — the tree scan only carries text, so this is
  *  how a binary file (an image) reaches the browser. `path` is relative to the IDE
  *  root, as the scan returns it. Null when the read fails. */

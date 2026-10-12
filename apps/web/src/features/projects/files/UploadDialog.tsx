@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { FileSource } from '@/components/ui/file-source'
-import { copyIdeFileFromServer } from '@/lib/api/ide-files'
+import { copyIdeFileFromServer, writeIdeFileBytes } from '@/lib/api/ide-files'
+import { isServerMode } from '@/lib/api-client'
+import { readTextUnlessBinary } from '@/lib/binary-file'
 import { Upload, Loader2 } from 'lucide-react'
 import {
   findConflicts,
@@ -26,8 +28,12 @@ interface UploadDialogProps {
 /** Files read and waiting on the user's answer about clashing names. A server
  *  pick has no content to read: the server copies its bytes once the name is
  *  settled. */
+/** A local file's content as read: its text, or its bytes when it is binary —
+ *  those are written as-is by the server instead of going through the editor. */
+type LocalContent = string | Blob
+
 type Pending =
-  | { kind: 'local'; candidates: UploadCandidate[]; conflicts: string[] }
+  | { kind: 'local'; candidates: UploadCandidate<LocalContent>[]; conflicts: string[] }
   | { kind: 'server'; serverPath: string; candidate: UploadCandidate; conflicts: string[] }
 
 export function UploadDialog({
@@ -36,7 +42,7 @@ export function UploadDialog({
   parentId,
 }: UploadDialogProps) {
   const { t } = useTranslation()
-  const { createFileWithContent, updateFileContent, saveFile, selectFile, reloadFromDisk, activeProjectUid } = useFileStore()
+  const { createFileWithContent, updateFileContent, saveFile, reloadFromDisk, activeProjectUid } = useFileStore()
   const inputRef = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -49,33 +55,45 @@ export function UploadDialog({
       .filter((f) => f.parentId === parentId && f.type === 'file')
       .map((f) => ({ id: f.id, name: f.name }))
 
-  const finish = (lastId: string | null) => {
-    if (lastId) selectFile(lastId)
+  // An import only adds files to the tree; it does not open them — a binary one
+  // would land in the editor as if it were a script.
+  const finish = () => {
     setPending(null)
     onOpenChange(false)
   }
 
-  const apply = async (candidates: UploadCandidate[], resolution: ConflictResolution) => {
+  const apply = async (candidates: UploadCandidate<LocalContent>[], resolution: ConflictResolution) => {
     setBusy(true)
     setError(null)
     try {
       const plan = planUpload(candidates, siblings(), resolution)
-      let lastId: string | null = null
+      const projectUid = activeProjectUid ?? ''
+      let wroteBytes = false
 
       // Replacing UPDATES the existing file, so its id survives — and with it the
       // versioning mark (keyed by path), its open tab and any undo pointing at it.
+      // Bytes overwrite the same path, which keeps the id just the same.
       for (const r of plan.replaces) {
-        updateFileContent(r.id, r.content)
-        await saveFile(r.id)
-        lastId = r.id
+        if (typeof r.content === 'string') {
+          updateFileContent(r.id, r.content)
+          await saveFile(r.id)
+        } else {
+          await writeIdeFileBytes({ projectUid, parentId, name: r.name, bytes: r.content })
+          wroteBytes = true
+        }
       }
       // Sequential, not Promise.all: in server mode each create re-scans the disk,
       // and concurrent re-scans race over the ids they return.
       for (const c of plan.creates) {
-        const id = await createFileWithContent(c.name, parentId, c.content)
-        if (id) lastId = id
+        if (typeof c.content === 'string') {
+          await createFileWithContent(c.name, parentId, c.content)
+        } else {
+          await writeIdeFileBytes({ projectUid, parentId, name: c.name, bytes: c.content })
+          wroteBytes = true
+        }
       }
-      finish(lastId)
+      if (wroteBytes) await reloadFromDisk(projectUid)
+      finish()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -95,8 +113,7 @@ export function UploadDialog({
       const projectUid = activeProjectUid ?? ''
       await copyIdeFileFromServer({ projectUid, serverPath, parentId, name })
       await reloadFromDisk(projectUid)
-      const match = useFileStore.getState().files.find((f) => f.name === name && f.parentId === parentId)
-      finish(match?.id ?? null)
+      finish()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -109,8 +126,9 @@ export function UploadDialog({
     setBusy(true)
     setError(null)
     try {
-      const candidates: UploadCandidate[] = []
+      const candidates: UploadCandidate<LocalContent>[] = []
       const rejected: string[] = []
+      const binaryRejected: string[] = []
       for (const file of files) {
         // Upload was the one entry point taking the browser's name verbatim: a
         // directory drop could nest via `sub/file.sql`, and README.md/LICENSE.md/
@@ -121,10 +139,23 @@ export function UploadDialog({
           rejected.push(file.name)
           continue
         }
-        candidates.push({ name: safe, content: await file.text() })
+        const text = await readTextUnlessBinary(file)
+        if (text !== null) {
+          candidates.push({ name: safe, content: text })
+        } else if (isServerMode()) {
+          candidates.push({ name: safe, content: file })
+        } else {
+          // Front-only files are stored as text: a binary one would be saved
+          // corrupted, so it is refused rather than accepted and broken.
+          binaryRejected.push(file.name)
+        }
       }
       if (rejected.length > 0) {
         setError(t('files.upload_rejected', { names: rejected.join(', ') }))
+        return
+      }
+      if (binaryRejected.length > 0) {
+        setError(t('files.upload_binary_unsupported', { names: binaryRejected.join(', ') }))
         return
       }
       const conflicts = findConflicts(candidates, siblings())

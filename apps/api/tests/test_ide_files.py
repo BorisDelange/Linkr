@@ -137,6 +137,31 @@ async def test_raw_serves_binary_bytes_with_image_type(client, seed_roles):
     assert r.status_code == 404
 
 
+async def test_put_raw_writes_binary_bytes_intact(client, seed_roles, monkeypatch):
+    """A browser upload of a binary file goes through PUT /raw: the bytes land as
+    sent, where the JSON text body would replace every non-UTF-8 byte."""
+    from app.config import settings
+
+    h = await _admin_headers(client)
+    uid = await _project(client, h)
+    payload = bytes(range(256))
+    params = {"projectUid": uid, "path": "figures/plot.png"}
+
+    r = await client.put(f"{API}/ide-files/raw", headers=h, params=params, content=payload)
+    assert r.status_code == 204
+    assert (_scripts(uid) / "figures" / "plot.png").read_bytes() == payload
+
+    r = await client.put(f"{API}/ide-files/raw", headers=h, params={**params, "path": "../../x.png"}, content=b"x")
+    assert r.status_code == 400
+
+    # Past the cap: refused, and the file it would have replaced is left as it was.
+    monkeypatch.setattr(settings, "max_upload_mb", 0)
+    r = await client.put(f"{API}/ide-files/raw", headers=h, params=params, content=b"other")
+    assert r.status_code == 413
+    assert (_scripts(uid) / "figures" / "plot.png").read_bytes() == payload
+    assert not list((_scripts(uid) / "figures").glob("*.part"))
+
+
 async def test_copy_from_server_copies_bytes_into_folder(client, seed_roles, tmp_path_factory):
     h = await _admin_headers(client)
     uid = await _project(client, h)
