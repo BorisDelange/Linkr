@@ -247,6 +247,8 @@ Built: personal accounts, per-user pools and caches, session-only passwords, acc
 | St | Item | Effort |
 |----|------|--------|
 | 💤 | ETL `source.` / `target.` role aliases in generated SQL instead of `ds_<alias>`, so scripts survive a round trip. Needs cross-schema support in server mode | L |
+| 💤 | MCP skills (patient board, dashboard, cohort builders) from the layout and pitfall notes in [mcp-skills-advice.md](mcp-skills-advice.md) | M |
+| 🔜 | Kernel `sql_query` truncates at 10,000 rows without a warning; cohort `id_list` misses ids stored as doubles ([mcp-skills-advice.md](mcp-skills-advice.md) § Linkr issues) | S |
 
 ## User documentation — [website-docs.md](website-docs.md)
 
