@@ -15,6 +15,7 @@ import type { ContentType } from 'recharts/types/component/Tooltip'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'
 import { Gauge } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { resolveColor, getLucideIcon, resolvePalette, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { TruncatedTick } from './chart-axis-helpers'
@@ -441,12 +442,12 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
         {/* eslint-disable-next-line react-hooks/static-components -- dynamic component resolved from data */}
         <Icon size={iconSize} className={iconColor.text} style={iconColor.isCustom ? { color: iconColor.hex } : undefined} />
         {title && (
-          <span
-            className={cn('font-medium truncate', titleColor ? titleColor.text : 'text-muted-foreground')}
+          <div
+            className={cn('min-w-0', titleColor ? titleColor.text : 'text-muted-foreground')}
             style={{ fontSize: titleSize, ...(titleColor?.isCustom ? { color: titleColor.hex } : {}) }}
           >
-            {title}
-          </span>
+            <TruncatedText text={title} readOnly className="font-medium" />
+          </div>
         )}
       </div>
 
