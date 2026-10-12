@@ -68,6 +68,23 @@ actions (and any other MCP: GitLab, Jira…) would run unconfirmed. Reopen when 
 |----|------|--------|
 | 💤 | Embedded chat — reopen when LibreChat's Agents API supports approval pause/resume (plan §9) | L |
 
+## Skills — [skills-plan.md](skills-plan.md)
+
+Product skills (tool procedures) ship with the MCP; method skills (statistics, EDA) and
+local ones (a warehouse's querying rules) become a workspace **Skill entity**, shared
+through the catalog. Agents get all of them through MCP tools (`list_skills`,
+`get_skill`), so LibreChat needs no import. Local warehouse skills point to wiki pages
+rather than copying them.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🤔 | Arbitrate plan §7.0: wiki `context` list, project-level skills | S |
+| 🔜 | 1. Skill tools over the MCP's bundled skills, zip dropped from the LibreChat setup | S |
+| 🔜 | 2. Product skills: dashboard, patient board, cohort (from [mcp-skills-advice.md](mcp-skills-advice.md)) | M |
+| 🔜 | 3–5. Skill entity (model, export, `linkr-format`, catalog), editor, MCP reads it | L |
+| 🔜 | 6. Method skills: statistics, EDA with the plotting theme, in `linkr-public-content` | M |
+| 💤 | 7. Sync to LibreChat native skills | M |
+
 ## IDE — web apps — [web-apps-plan.md](web-apps-plan.md)
 
 Run a **long-lived web server** from project code (Shiny, Streamlit, Dash, Gradio, plumber,
@@ -247,7 +264,6 @@ Built: personal accounts, per-user pools and caches, session-only passwords, acc
 | St | Item | Effort |
 |----|------|--------|
 | 💤 | ETL `source.` / `target.` role aliases in generated SQL instead of `ds_<alias>`, so scripts survive a round trip. Needs cross-schema support in server mode | L |
-| 💤 | MCP skills (patient board, dashboard, cohort builders) from the layout and pitfall notes in [mcp-skills-advice.md](mcp-skills-advice.md) | M |
 | 🔜 | Kernel `sql_query` truncates at 10,000 rows without a warning; cohort `id_list` misses ids stored as doubles ([mcp-skills-advice.md](mcp-skills-advice.md) § Linkr issues) | S |
 
 ## User documentation — [website-docs.md](website-docs.md)
