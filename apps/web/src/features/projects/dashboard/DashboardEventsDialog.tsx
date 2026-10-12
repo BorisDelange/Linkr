@@ -124,11 +124,14 @@ export function DashboardEventsDialog({
               <Label>{t('dashboard.events_field_color')}</Label>
               <span />
             </div>
-            <div className="max-h-[55vh] space-y-1.5 overflow-y-auto">
+            {/* `-m-1 p-1`: room inside the scroll box for the inputs' focus ring
+                and shadow, which overflow-y-auto would otherwise clip. */}
+            <div className="-m-1 max-h-[55vh] space-y-1.5 overflow-y-auto p-1">
               {draft.map((event) => (
                 <div key={event.id} className={ROW_GRID}>
                   <DateTimeField
                     withTime
+                    clearable={false}
                     value={event.date || undefined}
                     onChange={(value) => update(event.id, { date: value ?? '' })}
                   />
@@ -138,7 +141,11 @@ export function DashboardEventsDialog({
                     value={localizedRaw(event.label, language)}
                     onChange={(e) => update(event.id, { label: setLocalized(event.label, language, e.target.value) })}
                   />
-                  <ColorPickerPopover value={event.color} onChange={(color) => update(event.id, { color })} />
+                  <ColorPickerPopover
+                    value={event.color}
+                    onChange={(color) => update(event.id, { color })}
+                    triggerClassName="w-full"
+                  />
                   <TooltipProvider>
                     <Tooltip>
                       <TooltipTrigger asChild>

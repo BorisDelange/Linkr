@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
-import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
+import { BADGE_TRIGGER_INSET, SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { isSearchEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
 
 /** Cap the number of option rows rendered at once. With very large option sets
@@ -124,6 +124,7 @@ export function MultiSelectFilter({
           type="button"
           className={cn(
             triggerClass ?? defaultTriggerClass,
+            showChevron && BADGE_TRIGGER_INSET,
             'flex items-center truncate',
             // The active accent marks a column filter as "filtering". A form
             // select holding a value is just a select, so skip it there.

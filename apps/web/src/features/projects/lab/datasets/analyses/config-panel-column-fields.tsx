@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { SearchInput } from '@/components/ui/search-input'
 import { firstMatchOnEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
-import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
+import { BADGE_TRIGGER_INSET, SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { cn } from '@/lib/utils'
 import { SectionLabel } from '@/components/ui/section-label'
 import { displayColumnName, displayCellValue, toComparableString } from '@/lib/dataset-utils'
@@ -111,7 +111,7 @@ export function MultiColumnSelect({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
-            className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
+            className={cn('flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors', BADGE_TRIGGER_INSET)}
           >
             <SelectionTriggerLabel
               labels={selectedLabels}

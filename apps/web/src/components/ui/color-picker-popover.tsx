@@ -59,6 +59,8 @@ interface ColorPickerPopoverProps {
   /** Label shown above the trigger */
   label?: string
   className?: string
+  /** E.g. `w-full`, so triggers stacked in a column line up whatever colour they name. */
+  triggerClassName?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +73,7 @@ export function ColorPickerPopover({
   specialOptions,
   label,
   className,
+  triggerClassName,
 }: ColorPickerPopoverProps) {
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -107,6 +110,7 @@ export function ColorPickerPopover({
             className={cn(
               'flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors hover:bg-accent/50',
               'h-7 min-w-0',
+              triggerClassName,
             )}
           >
             <span

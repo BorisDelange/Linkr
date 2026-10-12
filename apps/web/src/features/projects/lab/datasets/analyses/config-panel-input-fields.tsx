@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { SearchInput } from '@/components/ui/search-input'
 import { firstMatchOnEnter } from '@/components/ui/search-enter'
-import { SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
+import { BADGE_TRIGGER_INSET, SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { localizedRaw, setLocalizedOptional } from '@/lib/localized'
@@ -203,7 +203,7 @@ export function MultiSelectField({
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <button
-            className="flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors"
+            className={cn('flex h-8 w-full items-center justify-between rounded-md border px-3 text-xs hover:bg-accent/50 transition-colors', BADGE_TRIGGER_INSET)}
           >
             <SelectionTriggerLabel
               labels={selectedLabels}

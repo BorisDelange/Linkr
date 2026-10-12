@@ -28,6 +28,8 @@ interface DateTimeFieldProps {
    *  the stay start" wants a day, "when was the drug given" wants a minute. */
   withTime?: boolean
   disabled?: boolean
+  /** Offer the ✕ that empties the field. Off where the row has its own delete. */
+  clearable?: boolean
   className?: string
   /** Inclusive ISO bounds, passed through to the calendar. */
   min?: string
@@ -35,7 +37,7 @@ interface DateTimeFieldProps {
 }
 
 export function DateTimeField({
-  value, onChange, withTime = false, disabled, className, min, max,
+  value, onChange, withTime = false, disabled, clearable = true, className, min, max,
 }: DateTimeFieldProps) {
   const { t } = useTranslation()
   const [day = '', time = ''] = (value ?? '').split('T')
@@ -101,7 +103,7 @@ export function DateTimeField({
         // With a time half, the date's own clear button would sit BETWEEN the two
         // inputs and reset only one of them. One button at the end of the row
         // clears the whole moment, which is what "clear this field" means here.
-        clearable={!withTime}
+        clearable={clearable && !withTime}
       />
       {withTime && (
         <>
@@ -118,7 +120,7 @@ export function DateTimeField({
             }}
             className="h-7 w-[7.5rem] shrink-0 font-mono text-xs"
           />
-          {value && (
+          {clearable && value && (
             <button
               type="button"
               tabIndex={-1}

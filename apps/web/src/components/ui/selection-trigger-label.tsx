@@ -10,6 +10,14 @@ import { useFittedSelectionLabel } from '@/hooks/use-fitted-selection-label'
 const MAX_NAMED = 20
 
 /**
+ * For a trigger padded for text (`px-3`): pulls a badge row in to the same
+ * distance from the left edge as from the top and bottom, where text padding
+ * would leave a pill visibly adrift. Keyed on the shown row only, so the
+ * "N selected" fallback keeps the text padding.
+ */
+export const BADGE_TRIGGER_INSET = 'has-[[data-badges-shown]]:pl-1.5'
+
+/**
  * What a multi-select trigger reads when some options are chosen.
  *
  * Names the selection whenever it fits the trigger, whatever its size, and
@@ -80,7 +88,7 @@ export function SelectionTriggerLabel({
         </span>
       )}
       {canName && fits ? (
-        <span className={cn('block', !badges && 'truncate')}>{named}</span>
+        <span className={cn('block', !badges && 'truncate')} data-badges-shown={badges || undefined}>{named}</span>
       ) : (
         <span className="block truncate">{summary}</span>
       )}
