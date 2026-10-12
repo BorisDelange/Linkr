@@ -606,6 +606,22 @@
         "fr": "Généralement l’identifiant patient. Les intervalles de chaque patient sont fusionnés pour qu’un jour ne compte qu’une fois : un séjour répété sur chaque ligne d’une table à une ligne par événement, ou deux cathéters en place le même jour (le NHSN compte des jours-cathéter, pas des cathéters). Vide : l’intervalle de chaque ligne est additionné."
       }
     },
+    "eventIds": {
+      "type": "dashboard-events",
+      "label": {
+        "en": "Events",
+        "fr": "Événements"
+      },
+      "optional": true,
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      },
+      "description": {
+        "en": "Dated events drawn as dashed vertical lines: a protocol change, a new team, an outbreak. They belong to the dashboard, so every control chart on it can show them; pick the ones this chart marks. A line sits at the period that contains the event — the first point whose data can reflect it.",
+        "fr": "Événements datés tracés en lignes verticales pointillées : changement de protocole, nouvelle équipe, épidémie. Ils appartiennent au tableau de bord, donc chaque carte de contrôle peut les afficher ; choisissez ceux que cette carte marque. Une ligne se place sur la période qui contient l’événement — le premier point dont les données peuvent en rendre compte."
+      }
+    },
     "chartType": {
       "type": "select",
       "label": {

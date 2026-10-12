@@ -528,7 +528,21 @@
     "settings_tab_style": "Style",
     "settings_tab_dataset": "Dataset",
     "filter_min": "Min",
-    "filter_max": "Max"
+    "filter_max": "Max",
+    "events_title": "Événements du tableau de bord",
+    "events_description": "Événements datés partagés par les graphiques de ce tableau de bord : changement de protocole, nouvelle équipe, épidémie. Chaque graphique choisit ceux qu'il marque d'une ligne verticale.",
+    "events_empty": "Aucun événement pour l'instant.",
+    "events_field_label": "Libellé",
+    "events_field_color": "Couleur",
+    "events_delete_title": "Supprimer cet événement ?",
+    "events_delete_description": "« {{name}} » disparaîtra de tous les graphiques de ce tableau de bord qui le marquent.",
+    "events_untitled": "Événement sans titre",
+    "events_field_date": "Date",
+    "events_delete": "Supprimer l'événement",
+    "events_add": "Ajouter un événement",
+    "events_incomplete": "Chaque événement doit avoir une date et un libellé.",
+    "events_none_yet": "Ce tableau de bord n'a pas encore d'événement.",
+    "events_manage": "Gérer les événements"
   },
   "concepts": {
     "title": "Concepts",

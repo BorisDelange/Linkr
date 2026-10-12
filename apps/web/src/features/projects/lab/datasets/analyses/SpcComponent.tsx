@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type MouseEvent, type SVGProps } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import {
@@ -18,7 +18,7 @@ import { AlertTriangle, LineChart } from 'lucide-react'
 import { AnalysisLoading, usePluginName } from '@/components/ui/analysis-loading'
 import { localized } from '@/lib/localized'
 import type { ComponentPluginProps } from '@/lib/plugins/component-registry'
-import type { LocalizedString } from '@/types'
+import type { DashboardEvent, LocalizedString } from '@/types'
 import { getLucideIcon, resolveColor, TOOLTIP_STYLE, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-styles'
 import { isServerMode } from '@/lib/api-client'
 import { renderOnServer } from '@/lib/api/execution'
@@ -28,7 +28,10 @@ import type { SpcConfig } from '@/lib/spc/spc-compute'
 import type { ChartPoint, SpcResult, SpcWarning } from '@/lib/spc/spc-types'
 import { classifyVariation, hasFewCrossings } from '@/lib/spc/spc-variation'
 import type { ImprovementDirection, Variation } from '@/lib/spc/spc-variation'
+import { placeEvents, type EventMarker } from '@/lib/spc/spc-events'
+import { formatEventDate, selectEvents } from '@/lib/dashboard-events'
 import { buildSpcSpec } from './spc-server'
+import { ChartTooltipCard, FloatingChartTooltip } from './chart-tooltip'
 import { cn } from '@/lib/utils'
 
 /** How a special-cause period is marked on the line: a ringed dot, a tinted
@@ -82,7 +85,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max)
 }
 
-export function SpcComponent({ config, columns, rows, compact, datasetFileId, datasetFilters }: ComponentPluginProps) {
+export function SpcComponent({ config, columns, rows, compact, datasetFileId, datasetFilters, dashboardEvents }: ComponentPluginProps) {
   const { t } = useTranslation()
   const pluginName = usePluginName('spc')
   const server = isServerMode()
@@ -145,16 +148,27 @@ export function SpcComponent({ config, columns, rows, compact, datasetFileId, da
   if (server && (!serverLoaded || refreshing)) return <AnalysisLoading icon={LineChart} name={pluginName} compact={compact} />
   if (!result || result.points.length === 0) return <Placeholder text={t('analyses.spc_no_data')} />
 
-  return <SpcChart result={result} config={config} compact={compact} />
+  // Drawn on the client from the dashboard's events: the server computes the
+  // points only, so the events never travel in the render spec.
+  const events = selectEvents(dashboardEvents ?? [], config.eventIds)
+  return <SpcChart result={result} config={config} compact={compact} period={spcConfig.period} events={events} />
 }
 
 interface ChartProps {
   result: SpcResult
   config: Record<string, unknown>
   compact?: boolean
+  period: SpcConfig['period']
+  events: DashboardEvent[]
 }
 
-function SpcChart({ result, config, compact }: ChartProps) {
+/** The event marker under the pointer, and where the pointer is (viewport px). */
+interface HoveredMarker {
+  marker: EventMarker<DashboardEvent>
+  point: { x: number; y: number }
+}
+
+function SpcChart({ result, config, compact, period, events }: ChartProps) {
   const { t, i18n } = useTranslation()
   const decimals = typeof config.decimals === 'number' ? config.decimals : 1
   const showGrid = config.showGrid !== false
@@ -215,6 +229,9 @@ function SpcChart({ result, config, compact }: ChartProps) {
       ? result.points[result.baselineCount].date
       : null
 
+  const markers = placeEvents(result.points, events, period, result.chartType)
+  const [hovered, setHovered] = useState<HoveredMarker | null>(null)
+
   const countOf = (kind: Variation) => variations.filter(v => v === kind).length
   const fewCrossings = hasFewCrossings(result.points)
 
@@ -250,6 +267,8 @@ function SpcChart({ result, config, compact }: ChartProps) {
             />
             <Tooltip
               {...TOOLTIP_STYLE}
+              // The event's own tooltip replaces the period's while a marker is hovered.
+              active={hovered ? false : undefined}
               formatter={(value, name) => [
                 Array.isArray(value)
                   ? `${fmt(Number(value[0]))} – ${fmt(Number(value[1]))}`
@@ -316,9 +335,43 @@ function SpcChart({ result, config, compact }: ChartProps) {
                 isAnimationActive={false}
               />
             )}
+
+            {markers.map(marker => {
+              const color = resolveColor(marker.events[0].color).hex
+              const hover = (e: MouseEvent<SVGLineElement>) => setHovered({ marker, point: { x: e.clientX, y: e.clientY } })
+              return (
+                <ReferenceLine
+                  key={marker.pointDate}
+                  x={marker.pointDate}
+                  // Above the line and its dots, so the hover target is never covered.
+                  zIndex={650}
+                  shape={({ x1, y1, x2, y2 }: SVGProps<SVGLineElement>) => (
+                    <g>
+                      <line x1={x1} y1={y1} x2={x2} y2={y2} stroke={color} strokeWidth={1.5} strokeDasharray="5 3" />
+                      {/* A dashed 1.5px line is too thin to hover: a wide invisible twin takes the pointer. */}
+                      <line
+                        x1={x1}
+                        y1={y1}
+                        x2={x2}
+                        y2={y2}
+                        stroke="transparent"
+                        strokeWidth={10}
+                        pointerEvents="stroke"
+                        onMouseEnter={hover}
+                        onMouseMove={hover}
+                        onMouseLeave={() => setHovered(null)}
+                      />
+                    </g>
+                  )}
+                />
+              )
+            })}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
+      <FloatingChartTooltip point={hovered?.point ?? null}>
+        {hovered && <EventTooltip events={hovered.marker.events} />}
+      </FloatingChartTooltip>
 
       {showLegend && !compact && (
         <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
@@ -340,6 +393,18 @@ function SpcChart({ result, config, compact }: ChartProps) {
       )}
     </div>
   )
+}
+
+/** One event: its label as the title, its date below. Several in one period: one row each. */
+function EventTooltip({ events }: { events: DashboardEvent[] }) {
+  const { i18n } = useTranslation()
+  const label = (e: DashboardEvent) => localized(e.label, i18n.language)
+  const date = (e: DashboardEvent) => formatEventDate(e.date, i18n.language)
+  if (events.length === 1) {
+    const [event] = events
+    return <ChartTooltipCard title={label(event)} color={resolveColor(event.color).hex} rows={[{ value: date(event) }]} />
+  }
+  return <ChartTooltipCard rows={events.map(e => ({ color: resolveColor(e.color).hex, label: label(e), value: date(e) }))} />
 }
 
 function VariationCount({ count, color, label }: { count: number; color: string; label: string }) {

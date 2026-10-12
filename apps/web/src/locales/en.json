@@ -528,7 +528,21 @@
     "settings_tab_style": "Style",
     "settings_tab_dataset": "Dataset",
     "filter_min": "Min",
-    "filter_max": "Max"
+    "filter_max": "Max",
+    "events_title": "Dashboard events",
+    "events_description": "Dated events shared by this dashboard's charts: a protocol change, a new team, an outbreak. Each chart picks the ones it marks with a vertical line.",
+    "events_empty": "No events yet.",
+    "events_field_label": "Label",
+    "events_field_color": "Color",
+    "events_delete_title": "Delete this event?",
+    "events_delete_description": "\"{{name}}\" will disappear from every chart of this dashboard that marks it.",
+    "events_untitled": "Untitled event",
+    "events_field_date": "Date",
+    "events_delete": "Delete event",
+    "events_add": "Add event",
+    "events_incomplete": "Each event needs a date and a label.",
+    "events_none_yet": "This dashboard has no events yet.",
+    "events_manage": "Manage events"
   },
   "concepts": {
     "title": "Concepts",

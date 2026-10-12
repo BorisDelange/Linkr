@@ -35,7 +35,9 @@ import { resolveServerFilters } from './resolve-server-filters'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
 import { SizedPreview } from './SizedPreview'
-import type { DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
+import { DashboardEventsField } from './DashboardEventsField'
+import { useTabDashboardEvents } from './use-dashboard-events'
+import type { DashboardEvent, DashboardWidget, DashboardWidgetSource, DatasetColumn } from '@/types'
 import type { RuntimeOutput } from '@/lib/runtimes/types'
 import type { PluginConfigField } from '@/types/plugin'
 import type * as Monaco from 'monaco-editor'
@@ -222,6 +224,7 @@ function WidgetEditorBody({
   const { t, i18n } = useTranslation()
   const { filteredRows, columns, datasetFileId, filters } = useDashboardData()
   const { files: datasetFiles } = useDatasetStore()
+  const dashboardEvents = useTabDashboardEvents(widget.tabId)
 
   const projectDatasetFiles = datasetFiles.filter(
     (f) => f.projectUid === projectUid && f.type === 'file' && f.columns && f.columns.length > 0
@@ -513,6 +516,15 @@ function WidgetEditorBody({
                     onConfigChange={onConfigChange}
                     rows={filteredRows}
                     datasetFileId={datasetFileId ?? undefined}
+                    renderEventsField={(fieldKey, field) => (
+                      <DashboardEventsField
+                        tabId={widget.tabId}
+                        fieldKey={fieldKey}
+                        field={field}
+                        config={config}
+                        onConfigChange={onConfigChange}
+                      />
+                    )}
                   />
                 )}
                 {activeTab === 'code' && (
@@ -546,6 +558,7 @@ function WidgetEditorBody({
                       rows={filteredRows}
                       datasetFileId={datasetFileId}
                       datasetFilters={datasetFileId ? resolveServerFilters(filters, columns) : undefined}
+                      dashboardEvents={dashboardEvents}
                     />
                   ) : (
                     <PluginOutputRenderer
@@ -649,6 +662,7 @@ function ComponentPluginOutput({
   rows,
   datasetFileId,
   datasetFilters,
+  dashboardEvents,
 }: {
   componentId: string
   config: Record<string, unknown>
@@ -656,6 +670,7 @@ function ComponentPluginOutput({
   rows: Record<string, unknown>[]
   datasetFileId?: string | null
   datasetFilters?: unknown[]
+  dashboardEvents: DashboardEvent[]
 }) {
   const { t } = useTranslation()
   const Component = getComponent(componentId)
@@ -689,6 +704,7 @@ function ComponentPluginOutput({
           compact
           datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
           datasetFilters={isServerMode() && datasetFileId ? datasetFilters : undefined}
+          dashboardEvents={dashboardEvents}
         />
       </Suspense>
     </div>

@@ -84,4 +84,5 @@ export interface FieldRendererProps {
   datasetFileId?: string
   renderConceptField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
   renderDatasetField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
+  renderEventsField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
 }

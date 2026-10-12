@@ -5,9 +5,10 @@ import type { DashboardWidget } from '@/types'
 import { formatRows } from './cohorts.js'
 import { columnId } from '@linkr/format'
 import {
-  CHART_TITLE_HINT, bilingual, buildFilter, frenchParam, localizedChange, columnMetaMap, findColumn, layoutSchema, matchDatasetPath, placeWidget, resolveColumns,
-  type DatasetColumn, type Layout,
+  CHART_TITLE_HINT, bilingual, buildDashboardEvents, buildFilter, frenchParam, localizedChange, columnMetaMap, findColumn, layoutSchema, matchDatasetPath, placeWidget, resolveColumns,
+  type DatasetColumn, type EventInput, type Layout,
 } from './lab.js'
+import { formatEventDate, readDashboardEvents } from '@/lib/dashboard-events'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server,
@@ -192,6 +193,9 @@ export function registerLabTools(server: Server): void {
     for (const f of dashboard.filterConfig ?? []) {
       const scope = f.scope?.type === 'tabs' ? ` on tabs ${f.scope.tabIds.join(', ')}` : ''
       out.push(`  filter ${f.columnName} (${f.type}, ${f.inputType}) on ${f.datasetFileId}${scope} — filter_id: ${f.id}`)
+    }
+    for (const e of readDashboardEvents(dashboard.events)) {
+      out.push(`  event "${loc(e.label)}" on ${formatEventDate(e.date, 'en')} (${e.color}) — event_id: ${e.id}`)
     }
     return text(out.join('\n'))
   }))
@@ -378,11 +382,13 @@ export function registerLabTools(server: Server): void {
   }))
 
   server.registerTool('update_dashboard', {
-    description: 'Rename a dashboard, change its description or its default dataset.',
+    description: 'Rename a dashboard, change its description or its default dataset, or replace its events '
+      + '(dated markers that its control charts draw as vertical lines; a widget shows the ones its `eventIds` '
+      + 'config lists).',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       dashboard_id: string; name?: string; name_fr?: string; description?: string; description_fr?: string
-      dataset_path?: string | null
+      dataset_path?: string | null; events?: EventInput[]
     }>({
       type: 'object',
       properties: {
@@ -395,10 +401,26 @@ export function registerLabTools(server: Server): void {
           type: 'string',
           description: 'New default dataset for widgets that do not name one; "" clears it.',
         },
+        events: {
+          type: 'array',
+          description: 'The FULL event list, replacing the current one ([] removes all). Keep an event\'s '
+            + 'event_id (from describe_dashboard) to edit it: the widgets that selected it keep showing it.',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'event_id of an existing event; omit for a new one.' },
+              date: { type: 'string', description: 'YYYY-MM-DD, or YYYY-MM-DDTHH:MM for a time of day.' },
+              label: { type: 'string' },
+              label_fr: frenchParam('label'),
+              color: { type: 'string', description: 'Palette name (violet, amber, red, teal…) or #rrggbb. Default violet.' },
+            },
+            required: ['date', 'label'],
+          },
+        },
       },
       required: ['dashboard_id'],
     }),
-  }, guard(async ({ dashboard_id, name, name_fr, description, description_fr, dataset_path }) => {
+  }, guard(async ({ dashboard_id, name, name_fr, description, description_fr, dataset_path, events }) => {
     const changes: Record<string, unknown> = {}
     const frenchOnly = (name === undefined && name_fr !== undefined)
       || (description === undefined && description_fr !== undefined)
@@ -412,7 +434,13 @@ export function registerLabTools(server: Server): void {
     } else if (dataset_path !== undefined) {
       changes.defaultDatasetFileId = await datasetPath((await api.getDashboard(dashboard_id)).projectUid, dataset_path)
     }
-    if (Object.keys(changes).length === 0) return failure('Nothing to change: give name, description or dataset_path.')
+    if (events !== undefined) {
+      const current = readDashboardEvents((await api.getDashboard(dashboard_id)).events)
+      const built = buildDashboardEvents(events, current, randomUUID)
+      if ('error' in built) return failure(built.error)
+      changes.events = built.events
+    }
+    if (Object.keys(changes).length === 0) return failure('Nothing to change: give name, description, dataset_path or events.')
     const dashboard = await api.updateDashboard(dashboard_id, changes)
     return text(`Updated dashboard "${loc(dashboard.name)}".`)
   }))

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PluginManifest } from '@/types/plugin'
 import {
-  GRID_COLUMNS, bilingual, buildFilter, checkTextValue, columnMetaMap, findColumn, localizedChange, matchDatasetPath, placeWidget, resolveColumns,
+  GRID_COLUMNS, bilingual, buildDashboardEvents, buildFilter, checkTextValue, columnMetaMap, findColumn, localizedChange, matchDatasetPath, placeWidget, resolveColumns,
 } from './lab'
 import { findPlugin, listPlugins, pluginDoc } from './plugins'
 
@@ -177,5 +177,37 @@ describe('bilingual / localizedChange', () => {
     expect(localizedChange({ en: 'Old' })).toBeUndefined()
     expect(localizedChange('Age', undefined, 'Âge')).toEqual({ en: 'Age', fr: 'Âge' })
     expect(localizedChange('Old', 'New', 'Nouveau')).toEqual({ en: 'New', fr: 'Nouveau' })
+  })
+})
+
+describe('buildDashboardEvents', () => {
+  const current = [{ id: 'e1', date: '2025-01-01', label: { en: 'Old' }, color: 'red' }]
+  let n = 0
+  const newId = () => `new-${++n}`
+
+  it('keeps a known id, gives a new event a fresh one, and sorts by date', () => {
+    const out = buildDashboardEvents([
+      { date: '2025-06-01T08:30', label: 'New protocol', label_fr: 'Nouveau protocole' },
+      { id: 'e1', date: '2025-02-01', label: 'Renamed' },
+    ], current, newId)
+    expect(out).toEqual({
+      events: [
+        { id: 'e1', date: '2025-02-01', label: { en: 'Renamed', fr: 'Renamed' }, color: 'violet' },
+        { id: 'new-1', date: '2025-06-01T08:30', label: { en: 'New protocol', fr: 'Nouveau protocole' }, color: 'violet' },
+      ],
+    })
+  })
+
+  it('refuses a bad date, a missing label, an unknown or repeated id', () => {
+    expect(buildDashboardEvents([{ date: '01/02/2025', label: 'x' }], current, newId)).toHaveProperty('error')
+    expect(buildDashboardEvents([{ date: '2025-02-01', label: ' ' }], current, newId)).toHaveProperty('error')
+    expect(buildDashboardEvents([{ id: 'nope', date: '2025-02-01', label: 'x' }], current, newId)).toHaveProperty('error')
+    expect(buildDashboardEvents([
+      { id: 'e1', date: '2025-02-01', label: 'x' }, { id: 'e1', date: '2025-03-01', label: 'y' },
+    ], current, newId)).toHaveProperty('error')
+  })
+
+  it('clears every event from an empty list', () => {
+    expect(buildDashboardEvents([], current, newId)).toEqual({ events: [] })
   })
 })

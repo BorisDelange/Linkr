@@ -1,5 +1,5 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react'
-import type { DatasetColumn } from '@/types'
+import type { DashboardEvent, DatasetColumn } from '@/types'
 
 /** One comparison window: rows for the front-only path, filters for the server. */
 export interface PreviousPeriod {
@@ -40,6 +40,12 @@ export interface ComponentPluginProps {
    * treat its own controls as unavailable when it is not passed.
    */
   onConfigChange?: (changes: Record<string, unknown>) => void
+  /**
+   * Every event of the dashboard the widget sits on, for a component that marks
+   * dates on a time axis. The component picks the ones its own config selects.
+   * Absent outside dashboards.
+   */
+  dashboardEvents?: DashboardEvent[]
 }
 
 type ComponentLoader = () => Promise<{ default: ComponentType<ComponentPluginProps> }>

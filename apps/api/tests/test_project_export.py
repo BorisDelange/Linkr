@@ -531,3 +531,22 @@ def test_a_widget_with_no_layout_keys_like_its_ts_twin():
     )
     key = json.loads(tree["patient-dashboards/bedside.json"].decode())["widgets"][0]["key"]
     assert key.endswith("@undefined,undefined"), key
+
+
+def test_a_dashboard_without_events_exports_no_events_key():
+    # The API returns `events: null` for a dashboard that never had one, and an
+    # edit that removed the last leaves `[]`. Both must export like a dashboard
+    # from before the field existed, or every git-linked dashboard gains a line.
+    for events in (None, []):
+        dashboard = {"id": "d1", "projectUid": "p", "name": {"en": "Overview"}, "filterConfig": [], "events": events}
+        tree = build_project_tree(
+            project={"uid": "p", "name": {"en": "P"}},
+            organization=None,
+            ide_files=[], pipelines=[], cohorts=[], connections=[],
+            dashboards=[{"dashboard": dashboard, "tabs": [], "widgets": []}],
+            dataset_files=[], dataset_analyses={}, dataset_data={}, dataset_raw_files={},
+            attachments=[], attachment_blobs={},
+            versioned_data_files=set(),
+        )
+        out = json.loads(tree["dashboards/overview.json"].decode())["dashboard"]
+        assert "events" not in out, events

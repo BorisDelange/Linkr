@@ -311,6 +311,10 @@ def _build_dashboard_json(
     dashboard_out = _strip_instance_fields(dashboard)
     dashboard_out.pop("id", None)
     dashboard_out.pop("projectUid", None)
+    # Null or [] alike mean "no events": emit neither, so a dashboard that never
+    # had one exports as it did before the field existed.
+    if not dashboard_out.get("events"):
+        dashboard_out.pop("events", None)
     filter_config = dashboard_out.get("filterConfig")
     if isinstance(filter_config, list):
         remapped = []

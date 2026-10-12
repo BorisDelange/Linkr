@@ -17,6 +17,7 @@ class DashboardCreate(CamelModel):
     reload_widgets_on_tab_switch: bool | None = None
     fit_to_height: bool | None = None
     grid_v: int | None = None
+    events: list | None = None
     origin: str = "user"
     created_by_id: int | None = None
     created_by: str | None = None
@@ -36,6 +37,7 @@ class DashboardUpdate(CamelModel):
     reload_widgets_on_tab_switch: bool | None = None
     fit_to_height: bool | None = None
     grid_v: int | None = None
+    events: list | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
     version: str | None = None
@@ -56,6 +58,7 @@ class DashboardResponse(CamelModel):
     reload_widgets_on_tab_switch: bool | None = None
     fit_to_height: bool | None = None
     grid_v: int | None = None
+    events: list | None = None
     origin: str
     created_by_id: int | None = None
     created_by: str | None = None

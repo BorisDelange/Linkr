@@ -40,6 +40,25 @@
     "reloadWidgetsOnTabSwitch": false,
     "fitToHeight": false,
     "gridV": 2,
+    "events": [
+      {
+        "id": "evt-1",
+        "date": "2026-02-01",
+        "label": {
+          "en": "New sedation protocol",
+          "fr": "Nouveau protocole de sédation"
+        },
+        "color": "violet"
+      },
+      {
+        "id": "evt-2",
+        "date": "2026-04-15T08:30",
+        "label": {
+          "en": "Ward reopened"
+        },
+        "color": "#0ea5e9"
+      }
+    ],
     "createdBy": "Ada Lovelace",
     "createdByDetails": {
       "orcid": "0000-0000-0000-0001"

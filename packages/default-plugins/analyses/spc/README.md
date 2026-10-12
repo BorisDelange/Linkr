@@ -100,6 +100,26 @@ of the whole series, so it is reported under the chart rather than on every poin
 A signal means *look*, not *act*. It says the variation is unlikely to be chance
 — finding the cause is still your job.
 
+### Marking events
+
+A change you made — a new protocol, a staffing change, a ward that reopened — is
+easier to judge when the chart shows *when* it happened. Under **Events**, pick
+the events this chart marks, or open **Manage events** to add, edit or delete
+them: each has a date (and, optionally, a time), a label in English and French,
+and a colour.
+
+Events belong to the **dashboard**, not to one chart: define "New sedation
+protocol" once and every control chart of that dashboard can show it. Each chart
+still chooses which ones it draws.
+
+An event is drawn as a dashed vertical line at the **period that contains it** —
+the first point whose data can reflect it. The axis has one slot per period, not
+a continuous time line, so a mid-month event sits on its month rather than
+between two points. On a g or t chart, where each point is the interval ending
+on its date, the line sits on the first interval ending on or after the event.
+An event outside the plotted range is not drawn. Hover the line for its label
+and date.
+
 ### Warnings the widget may show
 
 These are surfaced rather than hidden, because each one means the numbers on

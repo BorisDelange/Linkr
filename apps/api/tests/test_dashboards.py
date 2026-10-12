@@ -70,6 +70,21 @@ async def test_dashboard_crud(client):
     assert (await client.get(f"{API}/dashboards/{d['id']}", headers=headers)).status_code == 404
 
 
+async def test_dashboard_events_round_trip(client):
+    headers = await _admin_headers(client)
+    proj = await _project(client, headers)
+    d = await _dashboard(client, headers, proj)
+    assert d["events"] is None
+
+    events = [{"id": "e1", "date": "2026-02-01T08:30", "label": {"en": "New protocol"}, "color": "violet"}]
+    r = await client.patch(f"{API}/dashboards/{d['id']}", headers=headers, json={"events": events})
+    assert r.json()["events"] == events
+    assert (await client.get(f"{API}/dashboards/{d['id']}", headers=headers)).json()["events"] == events
+
+    r = await client.patch(f"{API}/dashboards/{d['id']}", headers=headers, json={"events": []})
+    assert r.json()["events"] == []
+
+
 async def test_tabs_and_widgets_hierarchy(client):
     headers = await _admin_headers(client)
     proj = await _project(client, headers)

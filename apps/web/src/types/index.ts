@@ -675,10 +675,25 @@ export interface Dashboard extends Seedable, Authored {
   /** Grid-resolution version. Absent/1 = legacy 24-col grid; 2 = current 48-col grid. Widget
    *  layouts are doubled once on load when migrating 1→2 so they keep their visual size. */
   gridV?: number
+  /** Dated events shared by the dashboard's time charts (an SPC widget marks the ones its
+   *  `eventIds` config selects). Absent or null on a dashboard that never had one. */
+  events?: DashboardEvent[] | null
   /** User-facing semver (default '0.1.0'). Portable across export/import. */
   version?: string
   createdAt: string
   updatedAt: string
+}
+
+/** Something that happened at a known moment — a protocol change, a new team — drawn as a
+ *  vertical marker on the charts that select it. */
+export interface DashboardEvent {
+  id: string
+  /** `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MM` with a time of day: local wall time, as
+   *  `DateTimeField` writes it, so the day never shifts with the viewer's time zone. */
+  date: string
+  label: LocalizedString
+  /** A palette name (`red`, `amber`…) or a `#rrggbb` hex, resolved by `resolveColor`. */
+  color: string
 }
 
 export interface DashboardTab {

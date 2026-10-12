@@ -1400,6 +1400,9 @@ export async function buildProjectZip(
     delete dashboardOut.id
     // projectUid is the parent's local PK (regenerated on reimport); import re-sets it.
     delete dashboardOut.projectUid
+    // Null (server mode) or [] alike mean "no events": emit neither, so a dashboard that
+    // never had one exports as it did before the field existed. Mirrored in project_export.py.
+    if (!(dashboardOut.events as unknown[] | null | undefined)?.length) delete dashboardOut.events
     if (Array.isArray(dashboardOut.filterConfig)) {
       dashboardOut.filterConfig = (dashboardOut.filterConfig as DashboardFilter[]).map((f) => {
         const out = { ...f } as Record<string, unknown>

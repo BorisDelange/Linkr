@@ -100,6 +100,8 @@ export function pluginDoc(manifest: PluginManifest): string {
       const columns = [field.columnField, ...(field.columnFieldWhen ?? []).map((c) => c.columnField)]
         .filter((c, i, all): c is string => !!c && all.indexOf(c) === i)
       parts.push(`array of the ${source} in ${columns.join(' or ') || 'its column field'}, in display order`)
+    } else if (field.type === 'dashboard-events') {
+      parts.push('array of event ids from the dashboard\'s events (describe_dashboard; set them with update_dashboard)')
     } else {
       parts.push(field.type)
     }

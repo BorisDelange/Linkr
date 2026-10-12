@@ -63,7 +63,8 @@ function validateDashboardFile(
   // readLocalized first: `name` is still `unknown` here (checkLocalized only
   // reports on it), and dashboardKey takes a localized value, not any value.
   const tabs = validateTabs(bag, path, doc.tabs, dashboardKey(readLocalized(dashboard.name, 'en')))
-  validateWidgets(bag, path, doc.widgets, tabs, datasets, gridColumns)
+  const eventIds = validateEvents(bag, path, dashboard.events)
+  validateWidgets(bag, path, doc.widgets, tabs, datasets, gridColumns, eventIds)
   validateFilters(bag, path, dashboard.filterConfig, tabs, datasets)
 
   if (dashboard.defaultDatasetFileId != null) {
@@ -163,6 +164,7 @@ function validateWidgets(
   tabs: TabIndex,
   datasets: DatasetIndex,
   gridColumns: number,
+  eventIds: Set<string>,
 ): void {
   const seen = new Set<string>()
 
@@ -208,6 +210,78 @@ function validateWidgets(
     }
 
     validateSource(bag, path, `${pointer}/source`, widget.source, columns, datasets)
+    validateEventSelection(bag, path, `${pointer}/source/config/eventIds`, widget.source, eventIds)
+  })
+}
+
+/** `YYYY-MM-DD`, or with a time of day — the app's `isValidEventDate` (lib/dashboard-events.ts). */
+const EVENT_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/
+
+function isEventDate(value: string): boolean {
+  const m = EVENT_DATE.exec(value)
+  if (!m) return false
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])]
+  const day = new Date(Date.UTC(y, mo - 1, d))
+  if (day.getUTCFullYear() !== y || day.getUTCMonth() !== mo - 1 || day.getUTCDate() !== d) return false
+  return m[4] === undefined || (Number(m[4]) <= 23 && Number(m[5]) <= 59 && Number(m[6] ?? 0) <= 59)
+}
+
+/**
+ * `dashboard.events` — dated markers its time charts draw. Optional: absent (or
+ * null) is a dashboard without events. The app skips an entry it cannot draw
+ * rather than failing, so each such entry is reported: it would vanish silently.
+ * Returns the ids, for checking the widgets that select them.
+ */
+function validateEvents(bag: IssueBag, path: string, raw: unknown): Set<string> {
+  const ids = new Set<string>()
+  if (raw == null) return ids
+  if (!checkArray(bag, path, '/dashboard/events', raw, { label: '`events`' })) return ids
+
+  raw.forEach((event, i) => {
+    const pointer = `/dashboard/events/${i}`
+    if (!isObject(event)) {
+      bag.error(path, pointer, 'wrong-type', 'Each event must be an object.')
+      return
+    }
+    if (checkString(bag, path, `${pointer}/id`, event.id, { required: true, label: 'id' })) {
+      const id = event.id as string
+      if (ids.has(id)) bag.error(path, `${pointer}/id`, 'duplicate-key', `Duplicate event id "${id}".`)
+      ids.add(id)
+    }
+    if (checkString(bag, path, `${pointer}/date`, event.date, { required: true, label: 'date' })
+      && !isEventDate(event.date as string)) {
+      bag.error(path, `${pointer}/date`, 'wrong-type', `"${event.date as string}" is not a date the app can place.`,
+        'write YYYY-MM-DD, or YYYY-MM-DDTHH:MM for a time of day')
+    }
+    checkLocalized(bag, path, `${pointer}/label`, event.label, { required: true, label: 'label' })
+    if (event.color != null) checkString(bag, path, `${pointer}/color`, event.color, { label: 'color' })
+  })
+  return ids
+}
+
+/**
+ * A widget's `eventIds` (the config key of a `dashboard-events` field) naming an
+ * event the dashboard does not have: the chart simply draws nothing for it.
+ */
+function validateEventSelection(
+  bag: IssueBag,
+  path: string,
+  pointer: string,
+  source: unknown,
+  eventIds: Set<string>,
+): void {
+  if (!isObject(source) || !isObject(source.config)) return
+  const selected = source.config.eventIds
+  if (selected == null) return
+  if (!Array.isArray(selected)) {
+    bag.error(path, pointer, 'wrong-type', '`eventIds` must be a list of event ids.')
+    return
+  }
+  selected.forEach((id, i) => {
+    if (typeof id === 'string' && eventIds.has(id)) return
+    bag.warn(path, `${pointer}/${i}`, 'unknown-reference',
+      `Event "${String(id)}" is not one of this dashboard's events; the chart will not draw it.`,
+      listHint('dashboard events', [...eventIds]))
   })
 }
 

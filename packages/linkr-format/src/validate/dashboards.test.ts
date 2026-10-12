@@ -27,12 +27,14 @@ function dashboardDoc(overrides: {
   tabs?: unknown[]
   widgets?: unknown[]
   filterConfig?: unknown[]
+  events?: unknown
 }): string {
   return JSON.stringify({
     dashboard: {
       name: { en: 'Overview' },
       gridV: 2,
       filterConfig: overrides.filterConfig ?? [],
+      ...(overrides.events !== undefined ? { events: overrides.events } : {}),
     },
     tabs: overrides.tabs ?? [{ name: { en: 'Main' }, key: 'overview/main', parentKey: null }],
     widgets: overrides.widgets ?? [],
@@ -86,6 +88,54 @@ describe('validateDashboards', () => {
     expect(unknown?.severity).toBe('error')
     // The hint must enumerate the real columns; that is what lets an agent self-correct.
     expect(unknown?.hint).toContain('col_age')
+  })
+
+  describe('events', () => {
+    const event = (over: Record<string, unknown> = {}) => ({
+      id: 'e1', date: '2026-02-01', label: { en: 'New protocol' }, color: 'violet', ...over,
+    })
+    const spc = (eventIds: unknown) => widget({
+      source: { type: 'plugin', pluginId: 'linkr-analysis-spc', config: { dateColumn: 'col_age', eventIds } },
+    })
+
+    it('accepts a dashboard with no events, null events, or well-formed ones selected by a widget', () => {
+      for (const events of [undefined, null, [event(), event({ id: 'e2', date: '2026-03-01T08:30', color: '#0ea5e9' })]]) {
+        const issues = runDashboards({
+          'dashboards/overview.json': dashboardDoc({ events, widgets: events ? [spc(['e1'])] : [] }),
+        })
+        expect(issues).toEqual([])
+      }
+    })
+
+    it('flags an event the app cannot draw', () => {
+      const issues = runDashboards({
+        'dashboards/overview.json': dashboardDoc({
+          events: [event({ date: '2026-02-30' }), event({ id: 'e1', label: { en: ' ' } }), 'junk'],
+        }),
+      })
+      expect(issues.map((i) => [i.pointer, i.code])).toEqual([
+        ['/dashboard/events/0/date', 'wrong-type'],
+        ['/dashboard/events/1/id', 'duplicate-key'],
+        ['/dashboard/events/1/label', 'empty-value'],
+        ['/dashboard/events/2', 'wrong-type'],
+      ])
+    })
+
+    it('flags events that are not a list', () => {
+      const issues = runDashboards({ 'dashboards/overview.json': dashboardDoc({ events: { e1: event() } }) })
+      expect(issues.map((i) => i.pointer)).toEqual(['/dashboard/events'])
+    })
+
+    it('warns about a widget selecting an event the dashboard does not have', () => {
+      const issues = runDashboards({
+        'dashboards/overview.json': dashboardDoc({ events: [event()], widgets: [spc(['e1', 'gone'])] }),
+      })
+      expect(issues).toHaveLength(1)
+      expect(issues[0]).toMatchObject({
+        severity: 'warning', code: 'unknown-reference', pointer: '/widgets/0/source/config/eventIds/1',
+      })
+      expect(issues[0].hint).toContain('e1')
+    })
   })
 
   it('leaves non-column config strings alone', () => {

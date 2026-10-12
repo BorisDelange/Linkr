@@ -464,7 +464,7 @@ export function scaffoldManifest(args: {
 
 const FIELD_TYPES = new Set([
   'column-select', 'column-value-select', 'number', 'select', 'boolean', 'string', 'icon-select', 'color-select',
-  'palette-editor', 'concept-select', 'dataset-select', 'choice-order',
+  'palette-editor', 'concept-select', 'dataset-select', 'choice-order', 'dashboard-events',
 ])
 
 /**

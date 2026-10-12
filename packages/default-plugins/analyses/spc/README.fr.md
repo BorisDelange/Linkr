@@ -108,6 +108,27 @@ plutôt que sur chaque point.
 Un signal veut dire *regardez*, pas *agissez*. Il indique que la variation a peu
 de chances d'être due au hasard — en trouver la cause reste votre travail.
 
+### Marquer des événements
+
+Un changement que vous avez fait — un nouveau protocole, une nouvelle équipe, un
+service rouvert — se juge mieux quand la carte montre *quand* il a eu lieu. Dans
+**Événements**, choisissez ceux que cette carte marque, ou ouvrez **Gérer les
+événements** pour en ajouter, modifier ou supprimer : chacun a une date (et, si
+besoin, une heure), un libellé en anglais et en français, et une couleur.
+
+Les événements appartiennent au **tableau de bord**, pas à une carte : définissez
+« Nouveau protocole de sédation » une fois, et chaque carte de contrôle du
+tableau de bord peut l'afficher. Chaque carte choisit ensuite ceux qu'elle trace.
+
+Un événement est tracé en ligne verticale pointillée sur la **période qui le
+contient** — le premier point dont les données peuvent en rendre compte. L'axe a
+une case par période, pas un temps continu : un événement de mi-mois se place sur
+son mois, pas entre deux points. Sur une carte g ou t, où chaque point est
+l'intervalle qui se termine à sa date, la ligne se place sur le premier
+intervalle qui se termine le jour de l'événement ou après. Un événement hors de
+la plage tracée n'est pas affiché. Survolez la ligne pour voir son libellé et sa
+date.
+
 ### Avertissements possibles
 
 Ils sont affichés plutôt que masqués, car chacun signifie que les nombres à

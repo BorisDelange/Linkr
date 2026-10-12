@@ -41,6 +41,9 @@ interface GenericConfigPanelProps {
   /** Renders a `dataset-select` field (warehouse scope only), on the same terms:
    *  the host owns the picker so this panel keeps no dataset-store dependency. */
   renderDatasetField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
+  /** Renders a `dashboard-events` field: only a dashboard widget editor knows the
+   *  dashboard whose events it selects, so elsewhere the field renders nothing. */
+  renderEventsField?: (fieldKey: string, field: PluginConfigField) => React.ReactNode
 }
 
 export function GenericConfigPanel({
@@ -52,6 +55,7 @@ export function GenericConfigPanel({
   datasetFileId,
   renderConceptField,
   renderDatasetField,
+  renderEventsField,
 }: GenericConfigPanelProps) {
   const { i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
@@ -125,7 +129,8 @@ export function GenericConfigPanel({
           datasetFileId={datasetFileId}
           renderConceptField={renderConceptField}
           renderDatasetField={renderDatasetField}
-        />
+          renderEventsField={renderEventsField}
+                  />
       ) : fieldThenBooleans ? (
         <div key={group.keys.join('-')} className="grid items-end gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <FieldRenderer
@@ -140,6 +145,7 @@ export function GenericConfigPanel({
             datasetFileId={datasetFileId}
             renderConceptField={renderConceptField}
             renderDatasetField={renderDatasetField}
+            renderEventsField={renderEventsField}
           />
           <div className="flex flex-wrap items-end gap-x-5 gap-y-1">
             {group.keys.slice(1).map((key, idx) => (
@@ -156,6 +162,7 @@ export function GenericConfigPanel({
                 datasetFileId={datasetFileId}
                 renderConceptField={renderConceptField}
                 renderDatasetField={renderDatasetField}
+                renderEventsField={renderEventsField}
               />
             ))}
           </div>
@@ -192,6 +199,7 @@ export function GenericConfigPanel({
               datasetFileId={datasetFileId}
               renderConceptField={renderConceptField}
               renderDatasetField={renderDatasetField}
+              renderEventsField={renderEventsField}
             />
           ))}
         </div>
@@ -211,6 +219,7 @@ export function GenericConfigPanel({
               datasetFileId={datasetFileId}
               renderConceptField={renderConceptField}
               renderDatasetField={renderDatasetField}
+              renderEventsField={renderEventsField}
             />
           ))}
         </div>
@@ -254,8 +263,10 @@ function CollapsibleSection({ label, defaultOpen = true, children }: { label: st
   )
 }
 
-function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange, rows, datasetFileId, renderConceptField, renderDatasetField }: FieldRendererProps) {
+function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfigChange, rows, datasetFileId, renderConceptField, renderDatasetField, renderEventsField }: FieldRendererProps) {
   switch (field.type) {
+    case 'dashboard-events':
+      return renderEventsField ? renderEventsField(fieldKey, field) : null
     // Warehouse-only: the host supplies the picker, so this panel stays free of
     // any OMOP dependency.
     case 'concept-select':
@@ -298,7 +309,8 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           datasetFileId={datasetFileId}
           renderConceptField={renderConceptField}
           renderDatasetField={renderDatasetField}
-        />
+          renderEventsField={renderEventsField}
+                  />
       )
     case 'select':
       return field.multi ? (

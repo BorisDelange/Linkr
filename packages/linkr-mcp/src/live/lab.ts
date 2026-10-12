@@ -2,8 +2,9 @@
  * Pure helpers for dashboard widgets: the checks that turn a model's config into
  * one the widget renders, instead of a blank chart with an empty column picker.
  */
-import type { DashboardFilter } from '@/types'
+import type { DashboardEvent, DashboardFilter } from '@/types'
 import type { PluginManifest } from '@/types/plugin'
+import { isValidEventDate, normalizeEvents } from '@/lib/dashboard-events'
 
 /** Dashboards use a 48-column grid (gridV 2); a new widget is half width. */
 export const GRID_COLUMNS = 48
@@ -62,6 +63,10 @@ export function resolveColumns(
     } else if (field.type === 'string') {
       const error = checkTextValue(key, value, field.localized === true)
       if (error) errors.push(error)
+    } else if (field.type === 'dashboard-events') {
+      if (!Array.isArray(value) || value.some((v) => typeof v !== 'string')) {
+        errors.push(`${key}: a list of the dashboard's event ids (describe_dashboard lists them).`)
+      }
     }
   }
   const unknown = Object.keys(config).filter((k) => !(k in (manifest.configSchema ?? {})))
@@ -237,4 +242,38 @@ export function matchDatasetPath(files: { path: string }[], ref: string): { path
       ? `"${ref}" matches several datasets: ${list}. Give the full path.`
       : `No dataset "${ref}" in this project. Datasets: ${list || '(none)'} — see list_datasets.`,
   }
+}
+
+/** One event as a model writes it: English label, optional French one. */
+export interface EventInput {
+  id?: string
+  date: string
+  label: string
+  label_fr?: string
+  color?: string
+}
+
+/**
+ * The dashboard's whole event list from a model's, or the first reason it cannot be
+ * stored. An `id` naming a current event keeps it — the widgets that selected it
+ * still show it; without one the event is new. Every event needs a date and a label.
+ */
+export function buildDashboardEvents(
+  input: EventInput[], current: DashboardEvent[], newId: () => string,
+): { events: DashboardEvent[] } | { error: string } {
+  const known = new Set(current.map((e) => e.id))
+  const seen = new Set<string>()
+  const events: DashboardEvent[] = []
+  for (const [i, e] of input.entries()) {
+    if (!isValidEventDate(e.date)) return { error: `events[${i}].date: YYYY-MM-DD or YYYY-MM-DDTHH:MM, got "${e.date}".` }
+    if (!e.label?.trim()) return { error: `events[${i}].label is required.` }
+    if (e.id && !known.has(e.id)) {
+      return { error: `events[${i}].id: no event "${e.id}" on this dashboard — omit the id to add a new one.` }
+    }
+    const id = e.id ?? newId()
+    if (seen.has(id)) return { error: `events[${i}].id: "${id}" is listed twice.` }
+    seen.add(id)
+    events.push({ id, date: e.date, label: bilingual(e.label, e.label_fr), color: e.color ?? '' })
+  }
+  return { events: normalizeEvents(events) }
 }

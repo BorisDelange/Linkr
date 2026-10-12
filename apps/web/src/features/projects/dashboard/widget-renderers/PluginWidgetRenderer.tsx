@@ -10,6 +10,7 @@ import { resolveServerFilters } from '../resolve-server-filters'
 import { previousPeriodFilters } from '../previous-period'
 import type { PreviousPeriod } from '@/lib/plugins/component-registry'
 import { useWidgetExecution } from './use-widget-execution'
+import { useTabDashboardEvents } from '../use-dashboard-events'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { isServerMode } from '@/lib/api-client'
 import { executeOnServer } from '@/lib/api/execution'
@@ -135,6 +136,7 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
   const { t } = useTranslation()
   const { rows, filteredRows, columns, datasetFileId, filters } = useDashboardData()
   const source = widget.source as { type: 'plugin'; pluginId: string; config: Record<string, unknown> }
+  const dashboardEvents = useTabDashboardEvents(widget.tabId)
 
   const Component = getComponent(componentId)
 
@@ -189,6 +191,7 @@ function ComponentPluginWidget({ widget, componentId }: { widget: DashboardWidge
           datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
           datasetFilters={isServerMode() && datasetFileId ? resolveServerFilters(filters, columns) : undefined}
           getPreviousPeriod={getPreviousPeriod}
+          dashboardEvents={dashboardEvents}
         />
       </Suspense>
     </div>

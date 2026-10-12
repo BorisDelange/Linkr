@@ -13,6 +13,8 @@ import { localized, toLocalized } from '@/lib/localized'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { measureFitRows } from './dashboard-grid'
+import { DashboardEventsField } from './DashboardEventsField'
+import { useTabDashboardEvents } from './use-dashboard-events'
 import { SizedPreview } from './SizedPreview'
 import { getLabPlugins } from '@/lib/plugins/registry'
 import { getComponent, componentSupportsServer } from '@/lib/plugins/component-registry'
@@ -102,6 +104,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
     const dashboardId = tabs.find((tb) => tb.id === tabId)?.dashboardId
     return dashboards.find((d) => d.id === dashboardId)?.widgetSpacing
   }, [tabs, dashboards, tabId])
+  const dashboardEvents = useTabDashboardEvents(tabId)
 
   const lang = i18n.language as 'en' | 'fr'
   // Existing widget names in this tab (active language, for uniqueness check)
@@ -443,6 +446,15 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                           onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
                           rows={rows}
                           datasetFileId={datasetFileId ?? undefined}
+                          renderEventsField={(fieldKey, field) => (
+                            <DashboardEventsField
+                              tabId={tabId}
+                              fieldKey={fieldKey}
+                              field={field}
+                              config={pluginConfig}
+                              onConfigChange={(changes) => setPluginConfig((prev) => ({ ...prev, ...changes }))}
+                            />
+                          )}
                         />
                       </div>
                     )}
@@ -466,6 +478,7 @@ export function AddWidgetDialog({ open, onOpenChange, tabId, projectUid, default
                           columns={columns}
                           rows={rows}
                           datasetFileId={isServerMode() ? datasetFileId ?? undefined : undefined}
+                          dashboardEvents={dashboardEvents}
                         />
                       </Suspense>
                     ) : (

@@ -14,8 +14,10 @@ export interface PluginConfigField {
    *  through the concept picker, where the lab types edit dataset columns.
    *  `dataset-select` is warehouse-only too: it binds a patient widget to a
    *  DATASET (which dataset, and which of its columns carry patient/visit/date/
-   *  value), so hand-collected data can be read beside the warehouse's own. */
-  type: 'column-select' | 'column-value-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select' | 'palette-editor' | 'concept-select' | 'dataset-select' | 'choice-order'
+   *  value), so hand-collected data can be read beside the warehouse's own.
+   *  `dashboard-events` is dashboard-only: a `string[]` of the dashboard's event
+   *  ids, with the dialog that edits those events; it renders nothing elsewhere. */
+  type: 'column-select' | 'column-value-select' | 'number' | 'select' | 'boolean' | 'string' | 'icon-select' | 'color-select' | 'palette-editor' | 'concept-select' | 'dataset-select' | 'choice-order' | 'dashboard-events'
   label: { en: string; fr: string }
   multi?: boolean
   optional?: boolean

@@ -25,6 +25,8 @@ class Dashboard(Base, TimestampMixin):
     reload_widgets_on_tab_switch: Mapped[bool | None] = mapped_column(Boolean)
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
     grid_v: Mapped[int | None] = mapped_column(Integer)
+    # Dated markers shared by the dashboard's time charts: [{id, date, label, color}].
+    events: Mapped[list | None] = mapped_column(JSONB_or_JSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
