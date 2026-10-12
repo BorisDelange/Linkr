@@ -33,7 +33,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import type { DataSource } from '@/types'
 import { ImportVocabulariesDialog } from './ImportVocabulariesDialog'
 
-interface VocabulariesTabProps {
+interface VocabularyLibraryPanelProps {
   workspaceId: string
   canWrite: boolean
 }
@@ -43,7 +43,7 @@ interface VocabulariesTabProps {
  * and ETL of the workspace reads its concepts from here. One version of each
  * vocabulary at a time; an ATHENA import replaces the vocabularies ticked.
  */
-export function VocabulariesTab({ workspaceId, canWrite }: VocabulariesTabProps) {
+export function VocabularyLibraryPanel({ workspaceId, canWrite }: VocabularyLibraryPanelProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const dataSources = useDataSourceStore((s) => s.dataSources)

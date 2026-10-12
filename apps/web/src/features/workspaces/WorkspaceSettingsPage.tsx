@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams, useSearchParams } from 'react-router'
+import { Navigate, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -12,8 +12,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
 import { BadgeCategoriesTab } from '@/features/workspaces/BadgeCategoriesTab'
-import { VocabulariesTab } from '@/features/workspaces/VocabulariesTab'
-import { DataDictionariesTab } from '@/features/workspaces/DataDictionariesTab'
 import { isServerMode } from '@/lib/api-client'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -44,7 +42,7 @@ export function WorkspaceSettingsPage() {
   // a tab here (moved to the Edit Workspace dialog); gate the owner-only danger
   // tab and the server-only environments and LLM provider tabs.
   const requestedTab = tab ?? searchParams.get('tab') ?? 'members'
-  const availableTabs = ['members', 'badges', 'vocabularies', 'dictionaries', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
+  const availableTabs = ['members', 'badges', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
   // Hold the requested tab until the role is known: 'danger' is gated on canDelete,
   // which is false while /my-role loads, so a deep-link to it would otherwise snap
   // to 'members' permanently even for the owner.
@@ -60,6 +58,11 @@ export function WorkspaceSettingsPage() {
   const [deleteProgress, setDeleteProgress] = useState<{ phaseKey: string } | null>(null)
 
   if (!workspace || !wsUid) return null
+
+  // Vocabularies and data dictionaries moved to their own warehouse page.
+  if (requestedTab === 'vocabularies' || requestedTab === 'dictionaries') {
+    return <Navigate to={paths.warehouseVocabularies(wsUid, requestedTab === 'vocabularies' ? 'ohdsi' : 'dictionaries', 'library')} replace />
+  }
 
   const handleDelete = async () => {
     setDeleteProgress({ phaseKey: 'workspaces.delete_phase_projects' })
@@ -88,8 +91,6 @@ export function WorkspaceSettingsPage() {
         <TabsList className="shrink-0 w-fit mx-auto">
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="badges">{t('badge_categories.title')}</TabsTrigger>
-          <TabsTrigger value="vocabularies">{t('vocabulary_library.title')}</TabsTrigger>
-          <TabsTrigger value="dictionaries">{t('data_dictionaries.title')}</TabsTrigger>
           {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
@@ -104,16 +105,6 @@ export function WorkspaceSettingsPage() {
           {workspace && (
             <BadgeCategoriesTab workspace={workspace} canWrite={can('workspace-settings:write')} />
           )}
-        </TabsContent>
-
-        {/* OHDSI vocabularies — the library every mapping project and ETL reads */}
-        <TabsContent value="vocabularies" className="min-h-0 flex-1 overflow-auto pb-6">
-          <VocabulariesTab workspaceId={wsUid} canWrite={can('workspace-settings:write')} />
-        </TabsContent>
-
-        {/* Data dictionaries — the concept sets and units every feature picks from */}
-        <TabsContent value="dictionaries" className="min-h-0 flex-1 overflow-auto pb-6">
-          <DataDictionariesTab workspaceId={wsUid} canWrite={can('workspace-settings:write')} />
         </TabsContent>
 
         {/* Default environments (server mode) */}

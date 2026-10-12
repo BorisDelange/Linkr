@@ -112,7 +112,7 @@ export function registerMappingExtraTools(server: Server): void {
     description: 'Create a concept-mapping project (a workspace-level project where local terminology codes are mapped to '
       + 'OMOP standard concepts). Its source concepts come from a clinical database\'s concept dictionaries (database_id); '
       + 'without one the project starts empty and the user imports a file into it in Linkr (file upload is not available '
-      + 'here). Target concepts are searched in the workspace vocabulary library (workspace settings › Vocabularies).',
+      + 'here). Target concepts are searched in the workspace vocabulary library (Warehouse › Vocabularies › OHDSI vocabularies).',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       workspace_id?: string; project_uid?: string; name: string; description?: string; entity_id?: string

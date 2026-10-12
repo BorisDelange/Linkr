@@ -57,7 +57,7 @@ gateway: call them by name with `run_linkr_read_tool` (the `list_`, `get_`,
    means. Tell them in one sentence where it stands, e.g. *"MIMIC-IV Demo:
    1786 of 5636 mapped, no precomputed suggestions, vocabulary ATHENA."*
 2. If the vocabulary database is reported unusable, stop and relay the fix to
-   the user (import an ATHENA export in Linkr: workspace settings › Vocabularies —
+   the user (import an ATHENA export in Linkr: Warehouse › Vocabularies › OHDSI vocabularies —
    the vocabularies are shared by every mapping project of the workspace).
    A database project is read from its extraction only: until the user has run
    it (mapping project › Source concepts tab), the source-concept tools refuse

@@ -5,10 +5,8 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   BarChart3,
-  ChevronRight,
 } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
+import { EntryPointCard } from '@/components/ui/entry-point-card'
 import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -368,56 +366,23 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
           </div>
 
           <div className="mt-8 grid grid-cols-2 gap-4">
-            {/* Mapping Projects widget — teal */}
-            <Card
-              className="group relative cursor-pointer overflow-hidden transition-all hover:shadow-lg hover:-translate-y-0.5"
+            <EntryPointCard
+              icon={ArrowRightLeft}
+              accent="teal"
+              title={t('concept_mapping.projects_widget_title')}
+              description={t('concept_mapping.projects_widget_description')}
+              openLabel={t('concept_mapping.projects_widget_open')}
+              count={projects.length}
               onClick={props.onShowProjects}
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-teal-500/5 to-teal-600/10 opacity-0 transition-opacity group-hover:opacity-100" />
-              <div className="relative flex flex-col gap-3 p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-teal-500/10">
-                    <ArrowRightLeft size={18} className="text-teal-600" />
-                  </div>
-                  <p className="text-sm font-semibold">{t('concept_mapping.projects_widget_title')}</p>
-                  {projects.length > 0 && (
-                    <Badge variant="secondary" className="ml-auto shrink-0">
-                      {projects.length}
-                    </Badge>
-                  )}
-                </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {t('concept_mapping.projects_widget_description')}
-                </p>
-                <div className="flex items-center gap-1 text-xs font-medium text-teal-600">
-                  {t('concept_mapping.projects_widget_open')}
-                  <ChevronRight size={13} />
-                </div>
-              </div>
-            </Card>
-
-            {/* Cross-project Overview widget — indigo */}
-            <Card
-              className="group relative cursor-pointer overflow-hidden transition-all hover:shadow-lg hover:-translate-y-0.5"
+            />
+            <EntryPointCard
+              icon={BarChart3}
+              accent="indigo"
+              title={t('concept_mapping.global_widget_title')}
+              description={t('concept_mapping.global_widget_description')}
+              openLabel={t('concept_mapping.global_widget_open')}
               onClick={props.onShowGlobal}
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-indigo-600/10 opacity-0 transition-opacity group-hover:opacity-100" />
-              <div className="relative flex flex-col gap-3 p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10">
-                    <BarChart3 size={18} className="text-indigo-600" />
-                  </div>
-                  <p className="text-sm font-semibold">{t('concept_mapping.global_widget_title')}</p>
-                </div>
-                <p className="text-xs leading-relaxed text-muted-foreground">
-                  {t('concept_mapping.global_widget_description')}
-                </p>
-                <div className="flex items-center gap-1 text-xs font-medium text-indigo-600">
-                  {t('concept_mapping.global_widget_open')}
-                  <ChevronRight size={13} />
-                </div>
-              </div>
-            </Card>
+            />
           </div>
         </div>
       </div>

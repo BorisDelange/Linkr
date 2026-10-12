@@ -11,10 +11,10 @@ stub left, `<PlannedFeature>` pages for web apps, the Pipeline, reports and skil
 
 | Page | Gap | Effort |
 |------|-----|--------|
-| `workspace/settings` | Lists four tabs (members, badges, environments, deletion); the *Vocabularies* and *Data dictionaries* tabs are missing | S |
-| `project/concepts` | Says a data dictionary is imported from the project's *Concept settings*; it is now installed in Workspace settings and only picked by the project | S |
+| `workspace/settings` | Should list four tabs (members, badges, environments, deletion). Vocabularies and data dictionaries now have their own page, *Warehouse › Vocabularies* (landing with two widgets; OHDSI vocabularies and Data dictionaries pages, each with a browse tab and a manage tab), which needs its own doc page | M |
+| `project/concepts` | Says a data dictionary is imported from the project's *Concept settings*; it is now installed on the workspace *Vocabularies* page and only picked by the project | S |
 | `concept-mapping/target-concepts`, `concept-mapping/mapping-projects` | Concept sets now come from the workspace dictionaries (portable refs on export, detach instead of delete, missing sets listed on import); OHDSI vocabularies from the workspace library | S |
-| `administration/server-files` | Table still places the vocabulary folder under *Concept mapping › Vocabulary* (now Workspace settings); the concept-mapping source file can now come from the server | S |
+| `administration/server-files` | Table still places the vocabulary folder under *Concept mapping › Vocabulary* (now the workspace *Vocabularies* page); the concept-mapping source file can now come from the server | S |
 | `warehouse/databases` | Describes one stored password per database. Now: a personal account per user and database (prompt on first use, *Database accounts* tab, session-only option), credentials dropped when the target changes | S |
 
 ## Missing

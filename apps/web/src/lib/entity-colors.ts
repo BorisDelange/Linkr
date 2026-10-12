@@ -25,6 +25,7 @@ export interface EntityColor {
 /** Entity kinds that carry a hue. Workspace-level warehouse, project-level, and lab. */
 export type EntityColorKey =
   | 'schema-preset'
+  | 'vocabularies'
   | 'database'
   | 'mapping-project'
   | 'sql-collection'
@@ -43,12 +44,17 @@ export type EntityColorKey =
   | 'report'
 
 export const ENTITY_COLORS: Record<EntityColorKey, EntityColor> = {
-  // ── Workspace warehouse: seven items in one sidebar group, so they take seven
+  // ── Workspace warehouse: eight items in one sidebar group, so they take eight
   //    hues from around the wheel rather than shades of one. ──
   'schema-preset': {
     icon: 'text-sky-500',
     bg: 'bg-sky-500/10',
     badge: 'border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400',
+  },
+  'vocabularies': {
+    icon: 'text-green-600',
+    bg: 'bg-green-500/10',
+    badge: 'border-green-500/30 bg-green-500/10 text-green-700 dark:text-green-400',
   },
   'database': {
     icon: 'text-indigo-500',

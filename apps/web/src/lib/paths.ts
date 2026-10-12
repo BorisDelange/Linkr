@@ -83,6 +83,9 @@ export const paths = {
   warehouseDatabases: (wsUid: string) => `${ws(wsUid)}/warehouse/databases`,
   warehouseDatabase: (wsUid: string, dbId: string, siblings?: readonly string[]) =>
     `${ws(wsUid)}/warehouse/databases/${siblings ? shortenIdAmong(dbId, siblings) : shortenId(dbId)}`,
+  /** The workspace Vocabularies page: its landing, or one section with an optional `?tab=`. */
+  warehouseVocabularies: (wsUid: string, section?: 'ohdsi' | 'dictionaries', tab?: 'browse' | 'library') =>
+    `${ws(wsUid)}/warehouse/vocabularies${section ? `/${section}` : ''}${section && tab ? `?tab=${tab}` : ''}`,
   warehouseConceptMapping: (wsUid: string) => `${ws(wsUid)}/warehouse/concept-mapping/projects`,
   warehouseConceptMappingProject: (wsUid: string, mappingProjectId: string) =>
     `${ws(wsUid)}/warehouse/concept-mapping/${shortenId(mappingProjectId)}`,

@@ -2176,7 +2176,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                 title={t('concept_mapping.vocab_library_empty_title')}
                 description={t('concept_mapping.vocab_library_empty_hint')}
                 action={(
-                  <Button size="sm" variant="outline" onClick={() => navigate(paths.workspaceSettings(project.workspaceId, 'vocabularies'))}>
+                  <Button size="sm" variant="outline" onClick={() => navigate(paths.warehouseVocabularies(project.workspaceId, 'ohdsi', 'library'))}>
                     <Settings2 size={14} />
                     {t('concept_mapping.vocab_library_manage')}
                   </Button>

@@ -1,5 +1,5 @@
 /**
- * Workspace data dictionaries — the operations the settings tab and the pickers
+ * Workspace data dictionaries — the operations the Vocabularies page and the pickers
  * share. Storage does the writing (the server applies a sync in server mode);
  * this module fetches the content and keeps the concept-set store fresh.
  */

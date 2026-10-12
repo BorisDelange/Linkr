@@ -27,7 +27,7 @@ interface Row {
 
 /**
  * Add concept sets to a mapping project from the workspace's data dictionaries.
- * The sets themselves are managed (imported, updated) in the workspace settings;
+ * The sets themselves are managed (imported, updated) on the Vocabularies page;
  * a project only picks which ones it maps onto.
  */
 export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConceptSetsDialogProps) {
@@ -129,7 +129,7 @@ export function PickConceptSetsDialog({ open, onOpenChange, project }: PickConce
       confirmDisabled={picked.size === 0}
       busy={busy}
       footerExtra={
-        <Button variant="ghost" size="sm" onClick={() => navigate(paths.workspaceSettings(project.workspaceId, 'dictionaries'))}>
+        <Button variant="ghost" size="sm" onClick={() => navigate(paths.warehouseVocabularies(project.workspaceId, 'dictionaries', 'library'))}>
           <Settings2 size={14} />
           {t('concept_mapping.cs_manage_dictionaries')}
         </Button>

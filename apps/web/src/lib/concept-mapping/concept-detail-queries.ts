@@ -61,23 +61,28 @@ WHERE ancestor_concept_id IN (${idList})
 `
 }
 
-export function buildConceptAncestorCountQuery(conceptId: number): string {
+// The counts join the concept table like the graph queries do: concept_ancestor
+// can name concepts of a vocabulary that is not imported (an ATC class lists its
+// RxNorm descendants), and the graph never shows those — so neither does the count.
+export function buildConceptAncestorCountQuery(conceptId: number, conceptTable: string): string {
   return `
-SELECT COUNT(DISTINCT ancestor_concept_id) AS cnt
-FROM concept_ancestor
-WHERE descendant_concept_id = ${conceptId}
-  AND ancestor_concept_id != ${conceptId}
-  AND min_levels_of_separation <= ${MAX_DEPTH}
+SELECT COUNT(DISTINCT ca.ancestor_concept_id) AS cnt
+FROM concept_ancestor ca
+JOIN ${conceptTable} c ON c.concept_id = ca.ancestor_concept_id
+WHERE ca.descendant_concept_id = ${conceptId}
+  AND ca.ancestor_concept_id != ${conceptId}
+  AND ca.min_levels_of_separation <= ${MAX_DEPTH}
 `
 }
 
-export function buildConceptDescendantCountQuery(conceptId: number): string {
+export function buildConceptDescendantCountQuery(conceptId: number, conceptTable: string): string {
   return `
-SELECT COUNT(DISTINCT descendant_concept_id) AS cnt
-FROM concept_ancestor
-WHERE ancestor_concept_id = ${conceptId}
-  AND descendant_concept_id != ${conceptId}
-  AND min_levels_of_separation <= ${MAX_DEPTH}
+SELECT COUNT(DISTINCT ca.descendant_concept_id) AS cnt
+FROM concept_ancestor ca
+JOIN ${conceptTable} c ON c.concept_id = ca.descendant_concept_id
+WHERE ca.ancestor_concept_id = ${conceptId}
+  AND ca.descendant_concept_id != ${conceptId}
+  AND ca.min_levels_of_separation <= ${MAX_DEPTH}
 `
 }
 

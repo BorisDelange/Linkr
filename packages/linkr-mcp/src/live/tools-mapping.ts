@@ -37,7 +37,7 @@ async function vocabularyOf(project: MappingProject): Promise<Vocabulary> {
   const target = resolveVocabularyTarget(project, all)
   if (!target || !target.mapping.concepts?.[0] || !isOmopConceptTable(target.mapping.concepts[0])) {
     throw new Error('This workspace has no OMOP vocabulary. Ask the user to import an ATHENA export in Linkr: '
-      + 'workspace settings › Vocabularies.')
+      + 'Warehouse › Vocabularies › OHDSI vocabularies.')
   }
   return { databaseId: target.dsId, mapping: target.mapping, table: target.conceptTable }
 }
@@ -406,7 +406,7 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       `  ${String(r.concept_synonym_name)}${r.language_name ? ` (${String(r.language_name)})` : ''}`, 20)
     await section('Ancestors (nearest first)', buildConceptAncestorsQuery(id, v.table), asConcept, 12)
     await section('Descendants (nearest first)', buildConceptDescendantsQuery(id, v.table), asConcept, 15)
-    await section('Descendant count', buildConceptDescendantCountQuery(id), (r) => `  ${String(r.cnt)}`, 1)
+    await section('Descendant count', buildConceptDescendantCountQuery(id, v.table), (r) => `  ${String(r.cnt)}`, 1)
     return text(lines.join('\n'))
   }))
 

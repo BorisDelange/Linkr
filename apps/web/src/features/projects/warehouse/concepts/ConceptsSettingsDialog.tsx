@@ -13,7 +13,7 @@ interface ConceptsSettingsDialogProps {
   onStatsEnabledChange: (value: boolean) => void
   excludeOutliers: boolean
   onExcludeOutliersChange: (value: boolean) => void
-  /** The workspace's data dictionaries, managed in the workspace settings. */
+  /** The workspace's data dictionaries, managed on the workspace Vocabularies page. */
   dictionaries: DictionarySummary[]
   onManageDictionaries: () => void
 }

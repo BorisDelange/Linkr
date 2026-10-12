@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ExternalLink, Loader2, ArrowLeft, ZoomIn, ZoomOut, Maximize2, Minimize2, Expand } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
@@ -23,6 +23,7 @@ import {
   buildConceptDescendantCountQuery,
 } from '@/lib/concept-mapping/concept-detail-queries'
 import { copyText } from '@/lib/clipboard'
+import { bindPinchZoom, clampScale } from '@/lib/pinch-zoom'
 
 const MIN_WIDTH = 400
 const MAX_WIDTH = 1600
@@ -51,9 +52,14 @@ interface ConceptDetailSheetProps {
 // Detail row
 // ---------------------------------------------------------------------------
 
+/** The empty second half of a line holding a single field (two-column layout only). */
+function DetailCell() {
+  return <div className="hidden @lg:block" />
+}
+
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 py-1.5 border-b last:border-0">
+    <div className="flex items-start justify-between gap-3 border-b py-1.5">
       <span className="text-xs text-muted-foreground shrink-0">{label}</span>
       <span className="text-xs font-medium text-right">{children}</span>
     </div>
@@ -88,6 +94,8 @@ interface HierarchyGraphProps {
 }
 
 const HIERARCHY_WARN_THRESHOLD = 100
+const GRAPH_MIN_SCALE = 0.05
+const GRAPH_MAX_SCALE = 4
 
 function esc(s: string | number) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -310,7 +318,9 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
         physics: false,
         interaction: {
           hover: true,
-          zoomView: true,
+          // Zoom is ours (bindPinchZoom below): vis-network's own wheel zoom is
+          // far more sensitive than the IDE figure viewer's, and ignores Safari pinch.
+          zoomView: false,
           dragView: true,
           dragNodes: false,
           selectable: true,
@@ -380,7 +390,9 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
       const nodeId = params.nodes && params.nodes.length === 1
         ? Number(params.nodes[0])
         : networkRef.current?.getNodeAt(params.pointer.DOM) ?? null
-      if (nodeId !== null && nodeId !== selfId) {
+      if (nodeId === null || nodeId === undefined) {
+        networkRef.current?.fit({ animation: { duration: 350, easingFunction: 'easeInOutQuad' } })
+      } else if (nodeId !== selfId) {
         pinnedIdRef.current = null
         hideTooltip()
         applyPinStyle(Number(nodeId))
@@ -401,6 +413,24 @@ function HierarchyGraph({ self, ancestors, descendants, edgeRows, originId, onNa
   useEffect(() => {
     return () => hideTooltip()
   }, [hideTooltip])
+
+  // Zoom around the pointer: keep the canvas point under it where it was.
+  useEffect(() => {
+    const el = canvasRef.current
+    if (!el) return
+    return bindPinchZoom(el, (factor, point) => {
+      const net = networkRef.current
+      if (!net) return
+      const scale = clampScale(net.getScale() * factor, GRAPH_MIN_SCALE, GRAPH_MAX_SCALE)
+      const anchor = net.DOMtoCanvas(point)
+      const { width, height } = el.getBoundingClientRect()
+      net.moveTo({
+        scale,
+        position: { x: anchor.x - (point.x - width / 2) / scale, y: anchor.y - (point.y - height / 2) / scale },
+        animation: false,
+      })
+    })
+  }, [])
 
   const zoom = (factor: number) => {
     if (!networkRef.current) return
@@ -538,8 +568,8 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     if (!dataSourceId) return
     try {
       const [ancRows, descRows] = await Promise.all([
-        queryDataSource(dataSourceId, buildConceptAncestorCountQuery(conceptId)) as Promise<{ cnt: number }[]>,
-        queryDataSource(dataSourceId, buildConceptDescendantCountQuery(conceptId)) as Promise<{ cnt: number }[]>,
+        queryDataSource(dataSourceId, buildConceptAncestorCountQuery(conceptId, conceptTable)) as Promise<{ cnt: number }[]>,
+        queryDataSource(dataSourceId, buildConceptDescendantCountQuery(conceptId, conceptTable)) as Promise<{ cnt: number }[]>,
       ])
       const total = Number(ancRows[0]?.cnt ?? 0) + Number(descRows[0]?.cnt ?? 0) + 1
       if (total > HIERARCHY_WARN_THRESHOLD) {
@@ -552,7 +582,7 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     }
     if (nav) setHierarchyStack((s) => [...s, nav])
     doLoadHierarchyForId(conceptId)
-  }, [dataSourceId, doLoadHierarchyForId])
+  }, [dataSourceId, conceptTable, doLoadHierarchyForId])
 
   // Load hierarchy when tab becomes active (no data yet) or stack navigates
   const loadHierarchyForIdRef = useRef(loadHierarchyForId)
@@ -620,6 +650,13 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     // hierarchy handled by useEffect above
   }, [relations.length, relationsUnavailable, synonyms.length, synonymsUnavailable, loadRelations, loadSynonyms])
 
+  // Stable across renders: the graph rebuilds (and loses its zoom) whenever
+  // `self` changes identity, which a resize of the sheet re-rendered every frame.
+  const hierarchySelfConcept = useMemo<HierarchyConcept | null>(
+    () => (hierarchySelf ? { ...hierarchySelf, hierarchy_level: 0 } : null),
+    [hierarchySelf],
+  )
+
   if (!target) return null
 
   const isStandard = target.standard_concept === 'S'
@@ -652,13 +689,14 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
+          onDoubleClick={() => setWidth(DEFAULT_WIDTH)}
         />
 
         <SheetHeader className="shrink-0 border-b px-4 py-3">
           <SheetTitle className="leading-tight">{target.concept_name}</SheetTitle>
           <div className="mt-1 flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-xs text-muted-foreground">#{target.concept_id}</span>
-            {target.vocabulary_id && <Badge variant="outline" >{target.vocabulary_id}</Badge>}
+            {target.vocabulary_id && <Badge className="border-transparent bg-foreground text-background">{target.vocabulary_id}</Badge>}
             {isStandard && <Badge variant="default" className="bg-green-600">{t('concept_mapping.concept_info_standard')}</Badge>}
             {isClassification && <Badge variant="secondary" >{t('concept_mapping.concept_info_classification')}</Badge>}
             {!isStandard && !isClassification && <Badge variant="outline" className="text-destructive border-destructive">{t('concept_mapping.concept_info_non_standard')}</Badge>}
@@ -677,36 +715,39 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
           {/* Details */}
           <TabsContent value="details" className="flex-1 overflow-auto m-0">
             <ScrollArea className="h-full">
-              <div className="px-4 py-3 space-y-1">
-                {target.vocabulary_id && (
-                  <DetailRow label={t('concept_mapping.col_vocabulary')}>{target.vocabulary_id}</DetailRow>
-                )}
-                <DetailRow label={t('concept_mapping.col_concept_id')}>
-                  <span className="font-mono">{target.concept_id}</span>
-                </DetailRow>
-                <DetailRow label={t('concept_mapping.col_concept_name')}>{target.concept_name}</DetailRow>
-                {target.concept_code && (
-                  <DetailRow label={t('concept_mapping.col_concept_code')}><span className="font-mono">{target.concept_code}</span></DetailRow>
-                )}
-                {target.domain_id && (
-                  <DetailRow label={t('concept_mapping.col_domain')}>{target.domain_id}</DetailRow>
-                )}
-                {target.concept_class_id && (
-                  <DetailRow label={t('concept_mapping.col_concept_class')}>{target.concept_class_id}</DetailRow>
-                )}
-                <DetailRow label={t('concept_mapping.col_std')}>
-                  {isStandard
-                    ? <Badge variant="default" className="bg-green-600 px-1.5 py-0">{t('concept_mapping.concept_info_standard')}</Badge>
-                    : isClassification
-                    ? <Badge variant="secondary" className="px-1.5 py-0">{t('concept_mapping.concept_info_classification')}</Badge>
-                    : <Badge variant="outline" className="px-1.5 py-0 text-destructive border-destructive">{t('concept_mapping.concept_info_non_standard')}</Badge>}
-                </DetailRow>
-                <DetailRow label={t('concept_mapping.concept_info_validity')}>
-                  {isValid
-                    ? <Badge variant="default" className="bg-green-600 px-1.5 py-0">{t('concept_mapping.concept_info_valid')}</Badge>
-                    : <Badge variant="outline" className="px-1.5 py-0 text-destructive border-destructive">{target.invalid_reason ?? t('concept_mapping.concept_info_invalid')}</Badge>}
-                </DetailRow>
-                <div className="pt-2">
+              {/* One line per pair of fields, two columns; a narrowed sheet falls
+                  back to one. A field alone on its line keeps the first column only,
+                  so its value sits next to its label rather than at the far edge.
+                  A container query, since the sheet is resized independently of
+                  the viewport. */}
+              <div className="@container px-4 py-3">
+                <div className="grid grid-cols-1 gap-x-6 @lg:grid-cols-2">
+                  <DetailRow label={t('concept_mapping.col_vocabulary')}>{target.vocabulary_id ?? '—'}</DetailRow>
+                  <DetailCell />
+                  <DetailRow label={t('concept_mapping.col_concept_id')}>
+                    <span className="font-mono">{target.concept_id}</span>
+                  </DetailRow>
+                  <DetailRow label={t('concept_mapping.col_concept_code')}>
+                    <span className="font-mono">{target.concept_code ?? '—'}</span>
+                  </DetailRow>
+                  <DetailRow label={t('concept_mapping.col_concept_name')}>{target.concept_name}</DetailRow>
+                  <DetailCell />
+                  <DetailRow label={t('concept_mapping.col_domain')}>{target.domain_id ?? '—'}</DetailRow>
+                  <DetailRow label={t('concept_mapping.col_concept_class')}>{target.concept_class_id ?? '—'}</DetailRow>
+                  <DetailRow label={t('concept_mapping.concept_info_validity')}>
+                    {isValid
+                      ? <Badge variant="default" className="bg-green-600 px-1.5 py-0">{t('concept_mapping.concept_info_valid')}</Badge>
+                      : <Badge variant="outline" className="px-1.5 py-0 text-destructive border-destructive">{target.invalid_reason ?? t('concept_mapping.concept_info_invalid')}</Badge>}
+                  </DetailRow>
+                  <DetailRow label={t('concept_mapping.col_std')}>
+                    {isStandard
+                      ? <Badge variant="default" className="bg-green-600 px-1.5 py-0">{t('concept_mapping.concept_info_standard')}</Badge>
+                      : isClassification
+                      ? <Badge variant="secondary" className="px-1.5 py-0">{t('concept_mapping.concept_info_classification')}</Badge>
+                      : <Badge variant="outline" className="px-1.5 py-0 text-destructive border-destructive">{t('concept_mapping.concept_info_non_standard')}</Badge>}
+                  </DetailRow>
+                </div>
+                <div className="pt-3">
                   <a href={`https://athena.ohdsi.org/search-terms/terms/${target.concept_id}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
                     <ExternalLink size={11} />{t('concept_mapping.concept_info_athena')}
                   </a>
@@ -790,9 +831,9 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
                   </div>
                 ) : hierarchyEmpty ? (
                   <p className="flex h-full items-center justify-center text-xs text-muted-foreground">{t('concept_mapping.concept_info_no_hierarchy')}</p>
-                ) : hierarchySelf ? (
+                ) : hierarchySelfConcept ? (
                   <HierarchyGraph
-                    self={{ ...hierarchySelf, hierarchy_level: 0 } as HierarchyConcept}
+                    self={hierarchySelfConcept}
                     ancestors={hierarchyAncestors}
                     descendants={hierarchyDescendants}
                     edgeRows={hierarchyEdges}

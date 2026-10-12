@@ -243,7 +243,7 @@ export function ConceptsPage() {
     workspaceSets: workspaceConceptSets,
   } = useConceptSetIndex(mappedSource?.workspaceId, i18n.language)
   // The workspace's data dictionaries, for the settings dialog — they are
-  // managed (added, updated) in the workspace settings.
+  // managed (added, updated) on the workspace Vocabularies page.
   const [dataDictionaries, setDataDictionaries] = useState<DataDictionary[]>([])
   useEffect(() => {
     const ws = mappedSource?.workspaceId
@@ -797,7 +797,7 @@ export function ConceptsPage() {
         dictionaries={dictionarySummaries}
         onManageDictionaries={() => {
           setSettingsOpen(false)
-          if (mappedSource?.workspaceId) navigate(paths.workspaceSettings(mappedSource.workspaceId, 'dictionaries'))
+          if (mappedSource?.workspaceId) navigate(paths.warehouseVocabularies(mappedSource.workspaceId, 'dictionaries', 'library'))
         }}
       />
 

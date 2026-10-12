@@ -14,6 +14,7 @@ import {
   Settings2,
   ArrowLeft,
   ArrowRightLeft,
+  Library,
   LayoutDashboard,
   Database,
   Warehouse,
@@ -123,6 +124,7 @@ const workspaceNavItems: SegmentNavEntry[] = [
     children: [
       { segment: 'warehouse/schemas', icon: FileSpreadsheet, labelKey: 'app_warehouse.nav_schemas', iconColor: ENTITY_COLORS['schema-preset'].icon },
       { segment: 'warehouse/databases', icon: Database, labelKey: 'app_warehouse.nav_databases', iconColor: ENTITY_COLORS.database.icon },
+      { segment: 'warehouse/vocabularies', icon: Library, labelKey: 'app_warehouse.nav_vocabularies', iconColor: ENTITY_COLORS.vocabularies.icon },
       { segment: 'warehouse/concept-mapping', icon: ArrowRightLeft, labelKey: 'app_warehouse.nav_concept_mapping', iconColor: ENTITY_COLORS['mapping-project'].icon },
       { segment: 'warehouse/sql-scripts', icon: SquareTerminal, labelKey: 'app_warehouse.nav_sql_scripts', iconColor: ENTITY_COLORS['sql-collection'].icon },
       { segment: 'warehouse/data-quality', icon: ShieldCheck, labelKey: 'app_warehouse.nav_data_quality', iconColor: ENTITY_COLORS['dq-rule-set'].icon },
@@ -181,6 +183,7 @@ const projectBottomItems: SegmentNavItem[] = [
 const segmentsWithSubRoutes = new Set([
   'warehouse/schemas',
   'warehouse/databases',
+  'warehouse/vocabularies',
   'warehouse/concept-mapping',
   'warehouse/data-quality',
   'warehouse/etl',

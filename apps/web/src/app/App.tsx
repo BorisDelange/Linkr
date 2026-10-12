@@ -51,6 +51,7 @@ const CatalogPage = lazy(() => import('@/features/catalog/CatalogPage').then(m =
 const WikiPage = lazy(() => import('@/features/wiki/WikiPage').then(m => ({ default: m.WikiPage })))
 const AppDatabasesPage = lazy(() => import('@/features/warehouse/AppDatabasesPage').then(m => ({ default: m.AppDatabasesPage })))
 const SchemaPresetsPage = lazy(() => import('@/features/warehouse/SchemaPresetsPage').then(m => ({ default: m.SchemaPresetsPage })))
+const VocabulariesPage = lazy(() => import('@/features/warehouse/vocabularies/VocabulariesPage').then(m => ({ default: m.VocabulariesPage })))
 const ConceptMappingPage = lazy(() => import('@/features/warehouse/ConceptMappingPage').then(m => ({ default: m.ConceptMappingPage })))
 const EtlPage = lazy(() => import('@/features/warehouse/EtlPage').then(m => ({ default: m.EtlPage })))
 const SqlScriptsPage = lazy(() => import('@/features/warehouse/SqlScriptsPage').then(m => ({ default: m.SqlScriptsPage })))
@@ -243,6 +244,9 @@ export function App() {
             <Route path="/workspaces/:wsUid/warehouse/schemas" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schemas/:schemaId" element={<WorkspaceGuard><SchemaPresetsPage /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/schema-presets" element={<WorkspaceGuard><Navigate to="../schemas" replace /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/vocabularies" element={<WorkspaceGuard><VocabulariesPage /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/vocabularies/ohdsi" element={<WorkspaceGuard><VocabulariesPage section="ohdsi" /></WorkspaceGuard>} />
+            <Route path="/workspaces/:wsUid/warehouse/vocabularies/dictionaries" element={<WorkspaceGuard><VocabulariesPage section="dictionaries" /></WorkspaceGuard>} />
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping" element={<WorkspaceGuard><ConceptMappingPage /></WorkspaceGuard>} />
             {/* Literal view segments before the parameterized :mappingProjectId route so they win the match. */}
             <Route path="/workspaces/:wsUid/warehouse/concept-mapping/projects" element={<WorkspaceGuard><ConceptMappingPage view="projects" /></WorkspaceGuard>} />

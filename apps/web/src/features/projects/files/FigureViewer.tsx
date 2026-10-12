@@ -3,18 +3,10 @@ import { useTranslation } from 'react-i18next'
 import { ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { withResponsiveSvg } from '@/lib/svg-responsive'
+import { bindPinchZoom, clampScale as clamp } from '@/lib/pinch-zoom'
 
 const MIN_SCALE = 0.2
 const MAX_SCALE = 8
-// Zoom per unit of wheel delta, applied exponentially so a pinch (many small
-// deltas) and a mouse notch (one large delta) both feel proportionate.
-const WHEEL_ZOOM_RATE = 0.002
-const PINCH_ZOOM_RATE = 0.01
-
-/** Safari's trackpad pinch: non-standard, so not in the DOM typings. */
-interface GestureEvent extends UIEvent {
-  scale: number
-}
 
 /** Renders a figure (inline SVG or data-image) that fills the available output
  *  area by default, and is zoomable (wheel / buttons) and pannable (drag). The SVG
@@ -25,10 +17,6 @@ export function FigureViewer({ content, label }: { content: string; label?: stri
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const dragRef = useRef<{ x: number; y: number } | null>(null)
   const surfaceRef = useRef<HTMLDivElement>(null)
-  const scaleRef = useRef(scale)
-  useEffect(() => {
-    scaleRef.current = scale
-  }, [scale])
 
   const isSvg = /^\s*(<\?xml|<svg)/.test(content)
   const isImage = content.startsWith('data:image')
@@ -42,34 +30,10 @@ export function FigureViewer({ content, label }: { content: string; label?: stri
     setScale((s) => clamp(s * factor, MIN_SCALE, MAX_SCALE))
   }, [])
 
-  // Native, non-passive listeners: React registers wheel as passive, so its
-  // preventDefault is ignored and a trackpad pinch (Chrome/Firefox: wheel with
-  // ctrlKey; Safari: gesture events) zooms the whole page instead of the figure.
   useEffect(() => {
     const el = surfaceRef.current
     if (!el) return
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault()
-      const rate = e.ctrlKey ? PINCH_ZOOM_RATE : WHEEL_ZOOM_RATE
-      setScale((s) => clamp(s * Math.exp(-e.deltaY * rate), MIN_SCALE, MAX_SCALE))
-    }
-    let gestureStartScale = 1
-    const onGestureStart = (e: Event) => {
-      e.preventDefault()
-      gestureStartScale = scaleRef.current
-    }
-    const onGestureChange = (e: Event) => {
-      e.preventDefault()
-      setScale(clamp(gestureStartScale * (e as GestureEvent).scale, MIN_SCALE, MAX_SCALE))
-    }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    el.addEventListener('gesturestart', onGestureStart)
-    el.addEventListener('gesturechange', onGestureChange)
-    return () => {
-      el.removeEventListener('wheel', onWheel)
-      el.removeEventListener('gesturestart', onGestureStart)
-      el.removeEventListener('gesturechange', onGestureChange)
-    }
+    return bindPinchZoom(el, (factor) => setScale((s) => clamp(s * factor, MIN_SCALE, MAX_SCALE)))
   }, [])
 
   const onPointerDown = useCallback((e: React.PointerEvent) => {
@@ -139,8 +103,4 @@ function ZoomButton({ children, label, onClick }: { children: React.ReactNode; l
       {children}
     </button>
   )
-}
-
-function clamp(v: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, v))
 }

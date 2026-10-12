@@ -31,7 +31,7 @@ import { resolveConceptSet } from '@/lib/data-dictionary/resolve'
 import type { DataDictionary } from '@/types'
 import { DictionarySyncDialog } from './DictionarySyncDialog'
 
-interface DataDictionariesTabProps {
+interface DataDictionariesPanelProps {
   workspaceId: string
   canWrite: boolean
 }
@@ -41,7 +41,7 @@ interface DataDictionariesTabProps {
  * and recommended units, synced from a repository. Every mapping project, the
  * Concepts page and the MCP pick their concept sets here.
  */
-export function DataDictionariesTab({ workspaceId, canWrite }: DataDictionariesTabProps) {
+export function DataDictionariesPanel({ workspaceId, canWrite }: DataDictionariesPanelProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
   const conceptSets = useConceptMappingStore((s) => s.conceptSets)
