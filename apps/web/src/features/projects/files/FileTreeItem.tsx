@@ -39,6 +39,7 @@ import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { useConfirmDataVersioning } from '@/components/versioning/ConfirmDataVersioningDialog'
 import { cn } from '@/lib/utils'
+import { scriptsNodePath } from '@/lib/versioning-marks'
 import { contentSize } from '@/lib/file-tree-sort'
 import { actionableTargets, isRowInBulkSelection } from '@/lib/tree-selection'
 import { downloadBlob } from '@/lib/entity-io'
@@ -64,27 +65,6 @@ function getAllDescendantIds(files: TreeNode[], parentId: string): string[] {
     ids.push(...getAllDescendantIds(files, child.id))
   }
   return ids
-}
-
-// Path relative to the IDE root, matching the EXPORT tree (`buildIdePath` over the
-// re-rooted tree). Front-only keeps a synthetic `scripts` container folder at the
-// store root; the export drops it and reparents its children to null. So we must
-// stop the walk AT that container (not include its name) — otherwise the key comes
-// out `scripts/foo` here while the export writes `foo`, and a marked file's
-// `!scripts/foo` .gitignore exception never matches (silent non-versioning).
-function getNodePath(files: TreeNode[], nodeId: string): string {
-  const parts: string[] = []
-  let current = files.find((f) => f.id === nodeId)
-  while (current) {
-    const isSyntheticRoot =
-      current.parentId == null && current.type === 'folder' && current.name === 'scripts'
-    if (isSyntheticRoot) break
-    parts.unshift(current.name)
-    current = current.parentId
-      ? files.find((f) => f.id === current!.parentId)
-      : undefined
-  }
-  return parts.join('/')
 }
 
 export function FileTreeItem({
@@ -152,7 +132,7 @@ export function FileTreeItem({
   const isRealFile = !isFolder && !isVirtual
   const fileSize = contentSize((node as { content?: string }).content)
   const isDataFile = isRealFile && isDataExtension(node.name)
-  const markKey = isRealFile ? `scripts/${getNodePath(files as TreeNode[], node.id)}` : ''
+  const markKey = isRealFile ? `scripts/${scriptsNodePath(files, node.id)}` : ''
   const includedSet = new Set(
     Array.isArray(versionedRaw) ? (versionedRaw as unknown[]).filter((p): p is string => typeof p === 'string') : [],
   )
@@ -312,13 +292,13 @@ export function FileTreeItem({
     const { default: JSZip } = await import('jszip')
     const zip = new JSZip()
     for (const n of targetNodes) {
-      zip.file(getNodePath(files as TreeNode[], n.id) || n.name, n.content ?? '')
+      zip.file(scriptsNodePath(files, n.id) || n.name, n.content ?? '')
     }
     downloadBlob(await zip.generateAsync({ type: 'blob' }), 'scripts.zip')
   }
 
   /** Mark key and current state for ANY node, not just this row's. */
-  const markKeyFor = (n: TreeNode) => `scripts/${getNodePath(files as TreeNode[], n.id)}`
+  const markKeyFor = (n: TreeNode) => `scripts/${scriptsNodePath(files, n.id)}`
   const isVersionedFor = (n: TreeNode) => (
     isDataExtension(n.name) ? includedSet.has(markKeyFor(n)) : !excludedSet.has(markKeyFor(n))
   )
@@ -496,7 +476,7 @@ export function FileTreeItem({
             <>
               <ContextMenuItem
                 onClick={() => {
-                  const path = getNodePath(files as TreeNode[], node.id)
+                  const path = scriptsNodePath(files, node.id)
                   void copyText(path)
                 }}
               >
@@ -566,7 +546,7 @@ export function FileTreeItem({
                   {ideDir && (
                     <ContextMenuItem
                       onClick={() => {
-                        const path = getNodePath(files as TreeNode[], node.id)
+                        const path = scriptsNodePath(files, node.id)
                         void copyText(`${ideDir}/${path}`)
                       }}
                     >
@@ -576,7 +556,7 @@ export function FileTreeItem({
                   )}
                   <ContextMenuItem
                     onClick={() => {
-                      const path = getNodePath(files as TreeNode[], node.id)
+                      const path = scriptsNodePath(files, node.id)
                       void copyText(path)
                     }}
                   >

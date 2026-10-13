@@ -29,6 +29,8 @@ import { PushMappingsDialog } from './PushMappingsDialog'
 import { MappingProjectPull } from './MappingProjectPull'
 import { ChangeBadge } from './ChangeBadge'
 import { GitErrorInline } from './GitErrorInline'
+import { useConfirmDataVersioning } from './ConfirmDataVersioningDialog'
+import { dataFilesToPush } from '@/lib/git-file-classify'
 
 interface GitSyncPanelProps {
   scope: GitScope
@@ -126,17 +128,22 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
     if (syncStateSupported) void loadSyncState(scope, id, b)
   }
 
-  const handleCommit = async () => {
+  const files = status?.files ?? []
+  const { requestPush, dialog: confirmDataPushDialog } = useConfirmDataVersioning()
+
+  const handleCommit = () => {
     if (!message.trim() || committing || selected.size === 0) return
-    const result = await commitPush(scope, id, message.trim(), branch)
-    if (result?.pushed) {
-      setPushed(true)
-      setMessage('')
-      setTimeout(() => setPushed(false), 2000)
+    const commit = async () => {
+      const result = await commitPush(scope, id, message.trim(), branch)
+      if (result?.pushed) {
+        setPushed(true)
+        setMessage('')
+        setTimeout(() => setPushed(false), 2000)
+      }
     }
+    requestPush(dataFilesToPush(files.filter((f) => selected.has(f.path))), () => void commit())
   }
 
-  const files = status?.files ?? []
   // A private remote that couldn't be read (missing/invalid token) must NOT fall
   // through to the normal file view — the backend then sees an empty tree and
   // every file shows as "added", as if the repo were empty. Block both tabs with
@@ -163,8 +170,11 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // files and write a commit message for the common cases. Each action lists
   // the exact paths it will push (from the current changes) in a hover tooltip.
   const quickActions = buildQuickActions(scope, files)
-  const runQuickAction = async (qa: QuickAction) => {
+  const runQuickAction = (qa: QuickAction) => {
     if (committing || mustPullFirst || qa.files.length === 0) return
+    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa))
+  }
+  const commitQuickAction = async (qa: QuickAction) => {
     // commitPushPaths refreshes the status once the push lands, so the cards
     // reflect the new remote state (the pushed files drop off) without a manual
     // refresh — during that recompute the tab shows the computing spinner, not
@@ -574,6 +584,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           onClose={() => setDiffPath(null)}
         />
       )}
+
+      {confirmDataPushDialog}
 
       {mappingsOpen && (
         <PushMappingsDialog

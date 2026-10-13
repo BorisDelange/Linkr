@@ -1430,6 +1430,7 @@
     "versioned_badge": "Marqué pour le versioning (versionné avec le projet)",
     "component_server_unavailable": "Cette visualisation n'est pas encore disponible en mode serveur — elle s'exécutera côté serveur dans une prochaine mise à jour.",
     "new_dataset": "Nouveau jeu de données",
+    "create_failed": "Impossible de créer le jeu de données : {{error}}",
     "new_dataset_description": "Créer un fichier de jeu de données vide.",
     "new_folder": "Nouveau dossier",
     "new_folder_description": "Créer un dossier pour organiser vos jeux de données.",
@@ -2319,6 +2320,10 @@
     "description": "Créer et gérer des tableaux de bord interactifs."
   },
   "versioning": {
+    "confirm_push_data_title_one": "Pousser ce fichier de données ?",
+    "confirm_push_data_title_other": "Pousser ces {{count}} fichiers de données ?",
+    "confirm_push_data_hint": "Ce commit envoie des fichiers de données au dépôt distant : toute personne ayant accès à ce dépôt pourra les lire. Un fichier marqué à versionner est poussé à nouveau à chaque modification, cette confirmation est donc demandée à chaque synchronisation qui en contient.",
+    "confirm_push_data_action": "Valider et pousser",
     "confirm_data_title_one": "Versionner ce fichier de données ?",
     "confirm_data_title_other": "Versionner ces {{count}} fichiers de données ?",
     "confirm_data_warning_one": "Attention : le fichier suivant sera poussé sur le dépôt git",

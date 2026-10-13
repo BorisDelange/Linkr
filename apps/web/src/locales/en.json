@@ -1430,6 +1430,7 @@
     "versioned_badge": "Marked for versioning (committed with the project)",
     "component_server_unavailable": "This visualization isn't available in server mode yet — it will run server-side in a future update.",
     "new_dataset": "New dataset",
+    "create_failed": "Could not create the dataset: {{error}}",
     "new_dataset_description": "Create an empty dataset file.",
     "new_folder": "New folder",
     "new_folder_description": "Create a folder to organize your datasets.",
@@ -2319,6 +2320,10 @@
     "description": "Build and manage interactive dashboards."
   },
   "versioning": {
+    "confirm_push_data_title_one": "Push this data file?",
+    "confirm_push_data_title_other": "Push these {{count}} data files?",
+    "confirm_push_data_hint": "This commit sends data files to the remote repository, where anyone with access to it can read them. A file marked for versioning is pushed again each time it changes, so this confirmation is asked on every sync that carries one.",
+    "confirm_push_data_action": "Commit & push",
     "confirm_data_title_one": "Version this data file?",
     "confirm_data_title_other": "Version these {{count}} data files?",
     "confirm_data_warning_one": "Warning: the following file will be pushed to the git repository",

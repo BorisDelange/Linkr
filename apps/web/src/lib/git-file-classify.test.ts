@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isDataFile, defaultSelectedPaths, isForeignPath } from './git-file-classify'
+import { isDataFile, dataFilesToPush, defaultSelectedPaths, isForeignPath } from './git-file-classify'
 
 describe('isForeignPath', () => {
   it('flags files no scope rule recognises (another tool wrote them)', () => {
@@ -64,6 +64,29 @@ describe('isDataFile', () => {
 
   it('is case-insensitive on extension and folder', () => {
     expect(isDataFile('datasets/Cohort/DATA.CSV')).toBe(true)
+  })
+})
+
+describe('dataFilesToPush', () => {
+  it('keeps added, modified and renamed data files anywhere in the tree', () => {
+    const files = [
+      { path: 'datasets/view/syn_events.csv', changeType: 'modified' },
+      { path: 'datasets/view/rows.parquet', changeType: 'added' },
+      { path: 'scripts/reference.CSV', changeType: 'added' },
+      { path: 'datasets/view/x.xlsx', changeType: 'renamed' },
+      { path: 'datasets/manual/manual.edits.json', changeType: 'modified' },
+      { path: 'datasets/cohort/_data.json', changeType: 'added' },
+    ]
+    expect(dataFilesToPush(files)).toEqual(files)
+  })
+
+  it('drops deletions and non-data files', () => {
+    expect(dataFilesToPush([
+      { path: 'datasets/view/old.csv', changeType: 'deleted' },
+      { path: 'datasets/_tree.json', changeType: 'modified' },
+      { path: 'scripts/derive.py', changeType: 'added' },
+      { path: '.gitignore', changeType: 'modified' },
+    ])).toEqual([])
   })
 })
 

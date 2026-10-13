@@ -1,10 +1,11 @@
 import { create } from 'zustand'
 import type { ColumnFilterValue, DatasetFile, DatasetAnalysis, DatasetColumn } from '@/types'
 import { getStorage } from '@/lib/storage'
-import { uniqueColumnId } from '@/lib/column-id'
+import { columnId, uniqueColumnId } from '@/lib/column-id'
 import { coerceValue, fitsColumnType } from '@/lib/dataset-utils'
 import { cleanLocalized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
+import { datasetsNodePath } from '@/lib/versioning-marks'
 import { createEmptyDataset, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
 import {
   compactOps, replayOps, retypeAddedColumn,
@@ -74,7 +75,9 @@ interface DatasetState {
 
   loadProjectDatasets: (projectUid: string, binding?: string) => Promise<void>
   reloadDatasetsFromDisk: (projectUid: string) => Promise<void>
-  createFile: (name: string, parentId: string | null) => void
+  /** Resolves once the file exists where it is stored; rejects when the server
+   *  refuses it (e.g. a dataset already at that path). */
+  createFile: (name: string, parentId: string | null) => Promise<void>
   createFolder: (name: string, parentId: string | null) => void
   deleteNode: (id: string) => void
   renameNode: (id: string, newName: string) => void
@@ -416,6 +419,24 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
 
   createFile: (name, parentId) => {
     const projectUid = get().activeProjectUid ?? ''
+    // Server mode: a dataset is a file on disk whose id is its path, so it must be
+    // created there or it lives only in memory and vanishes on reload. The server
+    // cannot store a column-less dataset (no Parquet without a column), so it
+    // starts with one column the user renames or replaces.
+    if (isServerMode()) {
+      const path = parentId ? `${parentId}/${name}` : name
+      const firstColumn = 'column_1'
+      return createEmptyDataset(projectUid, path, [{ id: columnId(firstColumn), name: firstColumn, type: 'string' }])
+        .then((node) => {
+          _loadedData.set(node.id, [])
+          _savedDataSnapshot.set(node.id, '[]')
+          set((s) => ({
+            files: [...s.files, node],
+            selectedFileId: node.id,
+            openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
+          }))
+        })
+    }
     const id = uid()
     const node: DatasetFile = {
       id,
@@ -453,6 +474,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         getStorage().datasetData.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
       },
     })
+    return Promise.resolve()
   },
 
   createFolder: (name, parentId) => {
@@ -503,6 +525,11 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       idsToRemove.push(...getAllDescendants(state.files, id))
     }
     const removedFiles = state.files.filter((f) => idsToRemove.includes(f.id))
+    const markProjectUid = state.activeProjectUid
+    const marksForgotten = markProjectUid
+      ? useAppStore.getState().forgetVersioningMarks(markProjectUid, `datasets/${datasetsNodePath(state.files, id)}`)
+        .catch((e) => { console.warn('[dataset-store] versioning marks:', e); return null })
+      : Promise.resolve(null)
     const removedData = new Map<string, Record<string, unknown>[]>()
     const removedAnalyses: DatasetAnalysis[] = []
     for (const rid of idsToRemove) {
@@ -569,6 +596,9 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       descriptionParams: { name: node.name },
       timestamp: Date.now(),
       undo: () => {
+        void marksForgotten.then((removed) => {
+          if (removed && markProjectUid) void useAppStore.getState().restoreVersioningMarks(markProjectUid, removed)
+        })
         set((s) => ({
           files: [...s.files, ...removedFiles],
           selectedFileId: prevSelectedFileId,

@@ -8,6 +8,7 @@ import { seedWorkspaces, isSeeded } from '@/lib/seed-loader'
 import { userToAuthorDetails } from '@/lib/user-identity'
 import { buildPointer } from '@/lib/import-identity'
 import { disposeAllLiveTerminals } from '@/lib/terminal-sessions'
+import { dropMarksUnder, restoreMarks, type RemovedMarks } from '@/lib/versioning-marks'
 import type { Project, Workspace, Language, LocalizedString, TodoItem, ProjectStatus, ProjectBadge, OrganizationInfo, CatalogVisibility, AuthorDetails, Authored, Lineaged, EntityLicense } from '@/types'
 
 // Lazy reference to break circular dependency with workspace-store at module init time.
@@ -173,6 +174,11 @@ interface AppState {
    *  unmark a data file "to version"). Persists + travels with the export. */
   toggleVersionedDataFile: (uid: string, path: string) => Promise<void>
   toggleExcludedFile: (uid: string, path: string) => Promise<void>
+  /** Drop the versioning marks on a deleted file or folder (export tree path), so a
+   *  file recreated there starts unmarked. Returns what it removed, for undo. */
+  forgetVersioningMarks: (uid: string, key: string) => Promise<RemovedMarks | null>
+  restoreVersioningMarks: (uid: string, removed: RemovedMarks) => Promise<void>
+  _saveVersioningConfig: (uid: string, config: Record<string, unknown>) => Promise<void>
   /** Remember the database the IDE runs scripts against. Persists + travels with
    *  the export (the id is local, the ref beside it is what survives an import). */
   setIdeDataSource: (uid: string, dataSourceId: string | null) => Promise<void>
@@ -623,6 +629,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     await getStorage().projects.update(uid, { config: newConfig })
     // Same as versioned data files: the export tree (and its .gitignore) changes,
     // so drop the cached Versioning status.
+    const { useGitSyncStore } = await import('./git-sync-store')
+    useGitSyncStore.getState().markStale()
+  },
+
+  forgetVersioningMarks: async (uid, key) => {
+    const project = get()._projectsRaw.find((p) => p.uid === uid)
+    if (!project) return null
+    const res = dropMarksUnder((project.config ?? {}) as Record<string, unknown>, key)
+    if (!res) return null
+    await get()._saveVersioningConfig(uid, res.config)
+    return res.removed
+  },
+
+  restoreVersioningMarks: async (uid, removed) => {
+    const project = get()._projectsRaw.find((p) => p.uid === uid)
+    if (!project) return
+    await get()._saveVersioningConfig(uid, restoreMarks((project.config ?? {}) as Record<string, unknown>, removed))
+  },
+
+  _saveVersioningConfig: async (uid, config) => {
+    set((s) => ({
+      _projectsRaw: s._projectsRaw.map((p) =>
+        p.uid === uid ? { ...p, config } : p
+      ),
+    }))
+    await getStorage().projects.update(uid, { config })
     const { useGitSyncStore } = await import('./git-sync-store')
     useGitSyncStore.getState().markStale()
   },

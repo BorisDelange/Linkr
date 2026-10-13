@@ -64,6 +64,7 @@ import { ImportSettingsDialog } from './ImportSettingsDialog'
 import { useConfirmDataVersioning } from '@/components/versioning/ConfirmDataVersioningDialog'
 import type { DatasetFile } from '@/types'
 import { copyText } from '@/lib/clipboard'
+import { datasetsNodePath } from '@/lib/versioning-marks'
 
 /** Resolved server dirs (server mode) shared with every tree item so the context
  * menu can build an absolute "Copy path" and decide whether a relative path is
@@ -84,18 +85,6 @@ function getAllDescendantIds(files: DatasetFile[], parentId: string): string[] {
     ids.push(...getAllDescendantIds(files, child.id))
   }
   return ids
-}
-
-function getNodePath(files: DatasetFile[], nodeId: string): string {
-  const parts: string[] = []
-  let current = files.find((f) => f.id === nodeId)
-  while (current) {
-    parts.unshift(current.name)
-    current = current.parentId
-      ? files.find((f) => f.id === current!.parentId)
-      : undefined
-  }
-  return parts.join('/')
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +135,7 @@ function DatasetTreeItem({
     resolvedDirs.datasetsDir.startsWith(`${resolvedDirs.ideDir}/`)
 
   const versioning = useContext(VersioningContext)
-  const nodeDsPath = getNodePath(files, node.id)
+  const nodeDsPath = datasetsNodePath(files, node.id)
   // Marking key is the logical export path `datasets/<dsPath>` (a single namespace
   // shared with the IDE sidebar's scripts/<path>). Data files are gitignored by
   // default; a marked one is versioned (committed + exported).
@@ -455,7 +444,7 @@ function DatasetTreeItem({
           {!bulk && (relativeMeaningful ? (
             <ContextMenuItem
               onClick={() => {
-                const path = getNodePath(files, node.id)
+                const path = datasetsNodePath(files, node.id)
                 void copyText(path)
               }}
             >
@@ -605,7 +594,7 @@ export function DatasetFileTree({ search = '' }: DatasetFileTreeProps) {
     for (const id of ids) {
       const node = files.find((f) => f.id === id)
       if (!node || node.type !== 'file') continue
-      const key = `datasets/${getNodePath(files, id)}`
+      const key = `datasets/${datasetsNodePath(files, id)}`
       if (markedPaths.has(key) !== versioned) keys.push(key)
     }
     const apply = () => { for (const key of keys) void toggleVersionedDataFile(activeProjectUid, key) }

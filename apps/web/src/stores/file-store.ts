@@ -10,6 +10,7 @@ import {
   type Selection,
 } from '@/lib/tree-selection'
 import { isServerMode } from '@/lib/api-client'
+import { scriptsNodePath } from '@/lib/versioning-marks'
 import { useAppStore } from '@/stores/app-store'
 import { disposeLiveTerminal } from '@/lib/terminal-sessions'
 
@@ -1064,6 +1065,11 @@ export const useFileStore = create<FileState>((set, get) => ({
       idsToRemove.push(...getAllDescendants(state.files, id))
     }
     const removedFiles = state.files.filter((f) => idsToRemove.includes(f.id))
+    const markProjectUid = state.activeProjectUid
+    const marksForgotten = markProjectUid
+      ? useAppStore.getState().forgetVersioningMarks(markProjectUid, `scripts/${scriptsNodePath(state.files, id)}`)
+        .catch((e) => { console.warn('[file-store] versioning marks:', e); return null })
+      : Promise.resolve(null)
     const prevSelectedFileId = state.selectedFileId
     set((s) => {
       const remainingOpen = s.openFileIds.filter((fid) => !idsToRemove.includes(fid))
@@ -1110,6 +1116,9 @@ export const useFileStore = create<FileState>((set, get) => ({
       descriptionParams: { name: node.name },
       timestamp: Date.now(),
       undo: () => {
+        void marksForgotten.then((removed) => {
+          if (removed && markProjectUid) void useAppStore.getState().restoreVersioningMarks(markProjectUid, removed)
+        })
         set((s) => ({
           files: [...s.files, ...removedFiles],
           selectedFileId: prevSelectedFileId,

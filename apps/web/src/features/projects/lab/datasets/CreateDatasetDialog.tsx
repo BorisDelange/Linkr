@@ -23,15 +23,25 @@ interface CreateDatasetDialogProps {
 export function CreateDatasetDialog({ open, onOpenChange, parentId }: CreateDatasetDialogProps) {
   const { t } = useTranslation()
   const [name, setName] = useState('')
+  const [creating, setCreating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const { createFile } = useDatasetStore()
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     const trimmed = name.trim()
-    if (!trimmed) return
+    if (!trimmed || creating) return
     const fileName = trimmed.endsWith('.csv') ? trimmed : `${trimmed}.csv`
-    createFile(fileName, parentId)
-    setName('')
-    onOpenChange(false)
+    setCreating(true)
+    setError(null)
+    try {
+      await createFile(fileName, parentId)
+      setName('')
+      onOpenChange(false)
+    } catch (e) {
+      setError(t('datasets.create_failed', { error: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setCreating(false)
+    }
   }
 
   return (
@@ -47,20 +57,21 @@ export function CreateDatasetDialog({ open, onOpenChange, parentId }: CreateData
             <Input
               id="dataset-name"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => { setName(e.target.value); setError(null) }}
               placeholder="my_dataset.csv"
               onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); handleCreate() }
+                if (e.key === 'Enter') { e.preventDefault(); void handleCreate() }
               }}
               autoFocus
             />
+            {error && <p className="text-xs text-destructive">{error}</p>}
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={handleCreate} disabled={!name.trim()}>
+          <Button onClick={() => void handleCreate()} disabled={!name.trim() || creating}>
             {t('common.create')}
           </Button>
         </DialogFooter>
