@@ -164,7 +164,7 @@ class _ErrorLoggingMiddleware(BaseHTTPMiddleware):
             )
         except Exception:
             logger.exception("unhandled_error", path=request.url.path)
-            return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+            return JSONResponse(status_code=500, content={"detail": audit.with_reference("Internal server error")})
 
 
 app.add_middleware(_ErrorLoggingMiddleware)
@@ -181,7 +181,8 @@ app.add_middleware(
     #                        entity to it; unexposed, the client read null and the
     #                        anchor never moved, so a completed pull still reported
     #                        "behind" and blocked the next push with "pull first".
-    expose_headers=["x-file-name", "x-git-cloned-oid"],
+    #   x-request-id       — see core/audit.request_id.
+    expose_headers=["x-file-name", "x-git-cloned-oid", audit.REQUEST_ID_HEADER],
 )
 app.add_middleware(SecurityHeadersMiddleware)
 # Outermost, so a request refused by any layer below is still logged.

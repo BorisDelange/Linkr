@@ -228,13 +228,13 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
               <SelectContent>
                 {isServerMode() && (
                   <>
-                    <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                    <SelectItem value="mysql">MySQL</SelectItem>
+                    <SelectItem value="postgresql">{ENGINE_LABELS.postgresql}</SelectItem>
+                    <SelectItem value="mysql">{ENGINE_LABELS.mysql}</SelectItem>
                     <SelectItem value="doris">{ENGINE_LABELS.doris}</SelectItem>
                   </>
                 )}
-                <SelectItem value="duckdb">DuckDB</SelectItem>
-                <SelectItem value="sqlite">SQLite</SelectItem>
+                <SelectItem value="duckdb">{ENGINE_LABELS.duckdb}</SelectItem>
+                <SelectItem value="sqlite">{ENGINE_LABELS.sqlite}</SelectItem>
               </SelectContent>
             </Select>
           </div>

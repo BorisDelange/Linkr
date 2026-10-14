@@ -80,10 +80,13 @@ def cancel(query_id: str, owner: str) -> bool:
         # connection start another request's query, which would be interrupted.
         try:
             entry[1].interrupt()
-        except Exception:  # noqa: BLE001 — a query finishing as we interrupt is fine
+        except Exception:  # a query finishing as we interrupt is fine
             return False
-        if entry[2] is not None:
-            entry[2]()
+        hook = entry[2]
+    # Outside it: the hook reaches another database, and must not hold up every
+    # query starting or stopping meanwhile.
+    if hook is not None:
+        hook()
     return True
 
 

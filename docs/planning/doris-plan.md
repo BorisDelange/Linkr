@@ -189,7 +189,7 @@ networks:
 Échantillonner le SQL réel de l'app (comptage des concepts, catalog, extraction,
 DQ, statistiques, patients) avec un test Vitest temporaire qui enregistre les
 requêtes des générateurs sur le mapping OMOP 5.4, puis exécuter chacune deux fois
-sur Doris — telle quelle (`ATTACH`) et via `db_connect._pushed_down` — et comparer
+sur Doris — telle quelle (`ATTACH`) et via `pushdown._pushed_down` — et comparer
 noms de colonnes et lignes (ensembles, flottants arrondis à 1e-6, booléens typés).
 Toute différence est un bug de `remote_sql.py` : la règle fautive doit refuser la
 construction (`NotPortable`), pas l'approcher.

@@ -74,9 +74,13 @@ identity is parked (see *Not built*).
 `db_connect._dsn`, which checks `LINKR_DB_ALLOWED_HOSTS`
 (`services/data/db_host_guard.py`: names, IPs, CIDRs, libpq host lists and socket paths).
 `POST /data-sources/test-connection` needs `databases:write` in the workspace it names
-and answers "Connection failed", the driver's text going to the server log only; so do
-`/retest` and `/schema` of a stored external source (a managed or uploaded file keeps
-its message, which names only its own file). Why an
+and answers "Connection failed"; so do `/retest`, `/schema` and `/flight` of a stored
+external source (a managed or uploaded file keeps its message, which names only its own
+file). Only an instance admin gets the driver's text in the reply; for everyone else it
+goes to the server log and the access log's error column, and the reply quotes the
+request's reference to find it there (`routes/data_sources._connection_error`). The password the postgres/mysql extensions
+quote back in that text is redacted where the ATTACH raises it (`db_connect.attach_dsn`,
+`core/redact.py`), and again by `audit.bind`. Why an
 allowlist and not a block of private addresses: in an SPE the datamart *is* on a
 private address; what must be prevented is reaching the rest of the warehouse's
 network. Empty means unrestricted, so the SPE checklist sets it.

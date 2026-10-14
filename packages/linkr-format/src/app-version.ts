@@ -21,10 +21,12 @@ export const MIN_APP_VERSION: Partial<Record<LayoutKind, string>> = {
   // _database/mapping-overrides.json gained a `removed` list of relations the site
   // dropped. A 2.4.2 ignores it and queries tables that are not there.
   'database': '2.4.3',
-  // A dashboard widget's or analysis's `config.title` may be a LocalizedString
+  // 2.4.4: a dashboard widget's or analysis's `config.title` may be a LocalizedString
   // ({ en, fr }); a 2.4.3 renders it as a string and the dashboard crashes.
-  'project': '2.4.4',
-  'workspace': '2.4.4',
+  // 2.4.5: dashboards gained `events` and widgets an `eventIds` selection; a 2.4.4
+  // drops the events silently and the control charts lose their markers.
+  'project': '2.4.5',
+  'workspace': '2.4.5',
 }
 
 /**

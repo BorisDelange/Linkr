@@ -7,7 +7,7 @@ import time
 import duckdb
 import pytest
 
-from app.services.data import db_connect, query_cancel
+from app.services.data import connection_pool, db_connect, pushdown, query_cancel
 from app.services.data.remote_sql import RemoteQuery
 
 DORIS = {"engine": "doris", "host": "doris.internal", "port": 9030, "database": "omop", "username": "reader"}
@@ -80,13 +80,28 @@ def test_doris_login_that_can_write_is_refused():
 
 
 def test_doris_admin_role_privileges_are_write_privileges():
-    grants = [{"UserIdentity": "'root'@'%'", "Roles": "operator", "GlobalPrivs": "Node_priv,Admin_priv"}]
+    grants = [{"UserIdentity": "'root'@'%'", "Roles": "operator", "GlobalPrivs": "Node_priv,Admin_priv", "DatabasePrivs": None}]
     assert db_connect._doris_write_privileges(grants) == ["Admin_priv", "Node_priv"]
 
 
 def test_usage_on_capacity_is_not_a_write_privilege():
     grants = [{**READ_ONLY_GRANTS[0], "ResourcePrivs": "spark0: Usage_priv", "ComputeGroupPrivs": "cg: Usage_priv"}]
     assert db_connect._doris_write_privileges(grants) == []
+
+
+def test_an_empty_grants_result_is_refused():
+    """Fail closed: no row proves nothing about the login."""
+    with pytest.raises(ValueError, match="cannot verify.*no row"):
+        db_connect._attach_external(_FakeCon([]), "ext", DORIS, None)
+
+
+def test_grants_without_the_privilege_columns_are_refused():
+    """A Doris that renamed the columns would otherwise read as read-only."""
+    renamed = [{"UserIdentity": "'reader'@'%'", "Global": "Admin_priv", "Database": "internal.omop: Load_priv"}]
+    with pytest.raises(ValueError, match="cannot verify.*GlobalPrivs, DatabasePrivs"):
+        db_connect._attach_external(_FakeCon(renamed), "ext", DORIS, None)
+    with pytest.raises(ValueError, match="no DatabasePrivs column"):
+        db_connect._doris_write_privileges([{"UserIdentity": "'reader'@'%'", "GlobalPrivs": None}])
 
 
 # --- Pushdown: fallback and cancel ------------------------------------------
@@ -102,11 +117,14 @@ class _IdCon:
     def fetchone(self):
         return (42,)
 
+    def close(self):
+        pass
+
 
 @pytest.fixture
 def pushed(monkeypatch):
-    monkeypatch.setattr(db_connect, "_pushed_down", lambda con, config, sql: RemoteQuery("REMOTE", ("n",)))
-    monkeypatch.setattr(db_connect, "_passthrough", lambda config, remote: remote.sql)
+    monkeypatch.setattr(pushdown, "_pushed_down", lambda con, config, sql: RemoteQuery("REMOTE", ("n",)))
+    monkeypatch.setattr(pushdown, "_passthrough", lambda config, remote: remote.sql)
 
 
 def test_a_query_the_database_cannot_prepare_runs_locally(pushed):
@@ -118,22 +136,69 @@ def test_a_query_the_database_cannot_prepare_runs_locally(pushed):
             raise duckdb.IOException('Failed to prepare MySQL query "…": Unknown function')
         return "local rows"
 
-    assert db_connect._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run) == "local rows"
+    assert pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run) == "local rows"
     assert ran == ["REMOTE", "LOCAL"]
 
 
 def test_a_query_that_failed_running_is_not_retried_locally(pushed):
-    """Out of memory on Doris: the ATTACH would pull every row instead."""
+    """Out of memory on Doris: the ATTACH would pull every row instead. The
+    engine's message is what the user reads."""
     def run(q: str):
         raise duckdb.IOException('Failed to execute MySQL query "…": MEM_LIMIT_EXCEEDED')
 
-    with pytest.raises(duckdb.IOException, match="MEM_LIMIT_EXCEEDED"):
-        db_connect._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run)
+    with pytest.raises(pushdown.RemoteQueryFailed, match="MEM_LIMIT_EXCEEDED") as failed:
+        pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run)
+    assert isinstance(failed.value.__cause__, duckdb.IOException)
+
+
+def test_a_run_time_failure_is_not_a_dead_pooled_connection(pushed):
+    """connection_pool re-attaches and runs `use` again on an IOException; a
+    statement Doris failed must not be run a second time that way."""
+    uses, setups = [], []
+
+    def run(q: str):
+        raise duckdb.IOException('Failed to execute MySQL query "…": MEM_LIMIT_EXCEEDED')
+
+    def use(con):
+        uses.append(con)
+        return pushdown._with_pushdown(con, DORIS, None, "LOCAL", run)
+
+    def setup():
+        setups.append(1)
+        return _IdCon()
+
+    try:
+        with pytest.raises(pushdown.RemoteQueryFailed, match="MEM_LIMIT_EXCEEDED"):
+            connection_pool.run_pooled("doris-test", setup, use)
+    finally:
+        connection_pool.clear()
+    assert len(uses) == 1 and len(setups) == 1
+
+
+def test_the_scope_columns_cache_is_per_login():
+    """Two logins may see different tables of the same database."""
+    class Con:
+        def __init__(self, table):
+            self.table = table
+
+        def execute(self, sql):
+            return self
+
+        def fetchall(self):
+            return [(self.table, "id", "bigint")]
+
+    pushdown._remote_columns_cache.clear()
+    try:
+        assert pushdown._scope_columns(Con("a"), DORIS) == {"a": {"id": "BIGINT"}}
+        assert pushdown._scope_columns(Con("b"), {**DORIS, "username": "other"}) == {"b": {"id": "BIGINT"}}
+        assert pushdown._scope_columns(Con("c"), DORIS) == {"a": {"id": "BIGINT"}}
+    finally:
+        pushdown._remote_columns_cache.clear()
 
 
 def test_a_cancelled_pushed_down_query_kills_it_remotely_and_reads_as_cancelled(pushed, monkeypatch):
     killed: list[int] = []
-    monkeypatch.setattr(db_connect._RemoteKill, "_kill", lambda self: killed.append(self.connection_id))
+    monkeypatch.setattr(pushdown._RemoteKill, "_kill", lambda self: killed.append(self.connection_id))
 
     def run_cancelled(q: str):
         hook = query_cancel._cancel_hook.get()
@@ -141,6 +206,6 @@ def test_a_cancelled_pushed_down_query_kills_it_remotely_and_reads_as_cancelled(
         raise duckdb.IOException('Failed to execute MySQL query "…": cancel query by user')
 
     with pytest.raises(duckdb.InterruptException):
-        db_connect._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run_cancelled)
+        pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run_cancelled)
     time.sleep(0.05)  # the kill runs on its own thread
     assert killed == [42]

@@ -71,7 +71,8 @@ export function valueToSlider(
 /**
  * A window with one end set gets the column's bound as its other end, so it reads
  * as the closed window the reader sees (needed to compare it with the period
- * before it). Both ends unset stay unset: the filter is inactive.
+ * before it). Both ends unset stay unset: the filter is inactive — and a window
+ * that closes onto both bounds comes back unset too, as `sliderToValue` does.
  */
 export function closeWindow(
   bounds: DateBounds | null | undefined,
@@ -79,7 +80,8 @@ export function closeWindow(
   to: string | null,
 ): { from: string | null; to: string | null } {
   if (!bounds || (!from && !to)) return { from, to }
-  return { from: from ?? bounds.min, to: to ?? bounds.max }
+  const closed = { from: from ?? bounds.min, to: to ?? bounds.max }
+  return closed.from === bounds.min && closed.to === bounds.max ? { from: null, to: null } : closed
 }
 
 /**

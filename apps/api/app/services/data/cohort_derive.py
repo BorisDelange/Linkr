@@ -34,6 +34,7 @@ import duckdb
 from app.services.data.db_connect import (
     _alias_role,
     _attach_role,
+    attach_dsn,
     _engine_spec,
     _dsn,
     _ext_dir,
@@ -406,10 +407,9 @@ def _attach_target(con: duckdb.DuckDBPyConnection, target: TargetSpec) -> None:
         spec = _engine_spec(target.config)
         con.execute(f"INSTALL {spec['extension']}")
         con.execute(f"LOAD {spec['extension']}")
-        dsn = _dsn(target.config, target.password).replace("'", "''")
         # Writable, deliberately: this is the one place Linkr writes into a
         # database it did not create, and only statements generated here run.
-        con.execute(f"ATTACH '{dsn}' AS target (TYPE {spec['type']})")
+        attach_dsn(con, _dsn(target.config, target.password), "target", f"TYPE {spec['type']}")
         return
     raise ValueError(f"unknown target kind {target.kind!r}")
 

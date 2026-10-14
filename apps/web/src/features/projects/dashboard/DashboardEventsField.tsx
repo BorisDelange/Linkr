@@ -10,7 +10,7 @@ import type { DashboardEvent } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 import { formatEventDate } from '@/lib/dashboard-events'
 import { DashboardEventsDialog } from './DashboardEventsDialog'
-import { useTabDashboardEvents } from './use-dashboard-events'
+import { useTabDashboardEvents } from './use-tab-dashboard-events'
 
 /**
  * A `dashboard-events` config field: which of the dashboard's events this
@@ -33,7 +33,7 @@ export function DashboardEventsField({
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
   const dashboardId = useDashboardStore((s) => s.tabs.find((tab) => tab.id === tabId)?.dashboardId)
-  const updateDashboard = useDashboardStore((s) => s.updateDashboard)
+  const setDashboardEvents = useDashboardStore((s) => s.setDashboardEvents)
   const events = useTabDashboardEvents(tabId)
   const [dialogOpen, setDialogOpen] = useState(false)
 
@@ -54,11 +54,14 @@ export function DashboardEventsField({
 
   const save = (next: DashboardEvent[]) => {
     if (!dashboardId) return
-    updateDashboard(dashboardId, { events: next })
-    // An event added from this chart is one the user wants on it.
+    setDashboardEvents(dashboardId, next)
+    // An event added from this chart is one the user wants on it; a deleted one leaves
+    // the editor's draft too, or saving the widget would bring its id back.
     const before = new Set(events.map((e) => e.id))
+    const after = new Set(next.map((e) => e.id))
     const added = next.filter((e) => !before.has(e.id)).map((e) => e.id)
-    if (added.length > 0) onConfigChange({ [fieldKey]: [...selected, ...added] })
+    const kept = selected.filter((id) => after.has(id))
+    if (added.length > 0 || kept.length !== selected.length) onConfigChange({ [fieldKey]: [...kept, ...added] })
   }
 
   return (

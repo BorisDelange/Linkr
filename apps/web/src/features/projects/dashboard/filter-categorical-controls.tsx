@@ -93,7 +93,7 @@ export function CategoricalCheckbox({
           </label>
         ))}
         {uniqueValues.length === 0 && (
-          <p className="text-[10px] text-muted-foreground italic">No values</p>
+          <p className="text-[10px] text-muted-foreground italic">{t('dashboard.filter_no_values')}</p>
         )}
       </div>
     </div>

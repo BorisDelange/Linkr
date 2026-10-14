@@ -100,6 +100,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // Quick actions (simple, one-click) is the default; Details is the full
   // branch/file/message UI for advanced users.
   const [mode, setMode] = useState<'quick' | 'details'>('quick')
+  const { requestPush, dialog: confirmDataPushDialog } = useConfirmDataVersioning()
 
   // ensureStatus recomputes only when the entity/branch/includeData changed since
   // the last status (see the store), so switching tabs and returning to the same
@@ -129,7 +130,6 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   }
 
   const files = status?.files ?? []
-  const { requestPush, dialog: confirmDataPushDialog } = useConfirmDataVersioning()
 
   const handleCommit = () => {
     if (!message.trim() || committing || selected.size === 0) return

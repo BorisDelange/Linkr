@@ -4,7 +4,9 @@ import os
 import pytest
 from sqlalchemy import select
 
+from app.core import audit
 from app.core.security import hash_password
+from app.models.data_source import DataSource
 from app.models.database_credential import DatabaseCredential
 from app.models.user import User
 from app.services import blob_store
@@ -34,6 +36,13 @@ async def _create_user(db, client, username: str) -> dict:
         f"{API}/auth/login", json={"username": username, "password": "pw-for-tests-only"}
     )
     return {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+
+async def _create_member(db, client, admin, ws: str, username: str, role: str) -> tuple[int, dict]:
+    headers = await _create_user(db, client, username)
+    user_id = (await db.execute(select(User.id).where(User.username == username))).scalar_one()
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": user_id, "role": role})
+    return user_id, headers
 
 
 async def _workspace(client, headers) -> str:
@@ -221,7 +230,7 @@ async def test_retest_uses_stored_credentials(client):
     assert r.json()["ok"] is False and r.json()["error"]
 
 
-async def test_retest_and_schema_keep_the_driver_error_in_the_log(client, monkeypatch):
+async def test_only_an_instance_admin_reads_the_driver_error(client, db, monkeypatch):
     leak = "could not connect to server: Connection refused (10.0.0.5:5432)"
 
     async def failed_test(config):
@@ -239,10 +248,24 @@ async def test_retest_and_schema_keep_the_driver_error_in_the_log(client, monkey
         "connectionConfig": {"engine": "postgresql", "host": "10.0.0.5", "username": "u", "password": "p"},
     })).json()
 
+    bob_id, bob = await _create_member(db, client, headers, ws, "bob", "editor")
+    await database_credential_service.save(db, await db.get(DataSource, ds["id"]), bob_id, "u", "p", remember=True)
+
     r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=headers)
-    assert r.json() == {"ok": False, "error": "Connection failed", "tables": []}
+    assert r.json() == {"ok": False, "error": leak, "tables": []}
     r = await client.get(f"{API}/data-sources/{ds['id']}/schema", headers=headers)
-    assert r.status_code == 502 and r.json()["detail"] == "Connection failed"
+    assert r.status_code == 502 and r.json()["detail"] == leak
+
+    # Everyone else gets the reference of the line that holds the cause.
+    r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=bob)
+    assert r.json()["error"] == f"Connection failed (ref. {r.headers['x-request-id']})"
+    r = await client.get(f"{API}/data-sources/{ds['id']}/schema", headers=bob)
+    assert r.status_code == 502 and r.json()["detail"] == f"Connection failed (ref. {r.headers['x-request-id']})"
+    line = audit.query(filters={"request_id": r.headers["x-request-id"]})[0][0]
+    assert line["error"] == leak and line["action"] == "introspect"
+
+    errors = [line["error"] for line in audit.query(limit=50)[0] if line["action"] in ("retest", "introspect")]
+    assert errors and set(errors) == {leak}
 
 
 async def test_duckdb_file_source_query_and_schema(client):
@@ -405,7 +428,7 @@ async def test_test_connection_unsupported_engine(client):
         "workspaceId": ws, "connectionConfig": {"engine": "duckdb"},
     })
     assert r.status_code == 200
-    assert r.json() == {"ok": False, "error": "Connection failed", "tables": []}
+    assert r.json() == {"ok": False, "error": "unsupported engine for server-side test: duckdb", "tables": []}
 
 
 async def test_test_connection_needs_databases_write(client, db, monkeypatch):
@@ -429,7 +452,10 @@ async def test_test_connection_needs_databases_write(client, db, monkeypatch):
     assert reached == []
 
     r = await client.post(f"{API}/data-sources/test-connection", headers=admin, json=body)
-    assert r.json()["error"] == "Connection failed"
+    assert r.json()["error"] == "could not connect to server: Connection refused (10.0.0.5:5432)"
+    _, carol = await _create_member(db, client, admin, ws, "carol", "editor")
+    r = await client.post(f"{API}/data-sources/test-connection", headers=carol, json=body)
+    assert r.json()["error"].startswith("Connection failed (ref. ") and "10.0.0.5" not in r.json()["error"]
 
 
 async def test_non_member_cannot_access(client, db):
@@ -567,7 +593,7 @@ async def test_an_etl_run_holding_the_database_is_a_409_and_can_be_stopped(clien
     assert r.status_code == 200, r.text
 
     handle = db_connect.EtlRunHandle()
-    data_source_service._claim_for_etl(source_id, handle)
+    data_source_service._claim_for_etl([source_id], handle)
     try:
         for r in (
             await client.get(f"{API}/data-sources/{source_id}/schema", headers=headers),
@@ -583,7 +609,7 @@ async def test_an_etl_run_holding_the_database_is_a_409_and_can_be_stopped(clien
         r = await client.get(f"{API}/data-sources/{source_id}/schema", headers=headers)
         assert r.json()["detail"]["stopping"] is True
     finally:
-        data_source_service._release_from_etl(source_id, handle)
+        data_source_service._release_from_etl([source_id], handle)
 
     r = await client.get(f"{API}/data-sources/{source_id}/schema", headers=headers)
     assert r.status_code == 200, r.text

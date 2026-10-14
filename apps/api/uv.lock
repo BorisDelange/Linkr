@@ -927,7 +927,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.5" },
     { name = "scipy", marker = "extra == 'execution'", specifier = ">=1.11" },
     { name = "sqlalchemy", specifier = ">=2.0" },
-    { name = "sqlglot", specifier = ">=30" },
+    { name = "sqlglot", specifier = ">=30,<31" },
     { name = "statsmodels", marker = "extra == 'execution'", specifier = ">=0.14" },
     { name = "structlog", specifier = ">=24.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30" },

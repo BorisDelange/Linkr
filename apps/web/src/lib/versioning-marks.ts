@@ -74,3 +74,29 @@ export function restoreMarks(config: Record<string, unknown>, removed: RemovedMa
   }
   return next
 }
+
+/**
+ * Re-key every mark on `oldKey` or below it (a renamed or moved folder takes its
+ * files' marks along) so the mark follows the file instead of pointing at a path
+ * that no longer exists. Returns null when nothing was marked under `oldKey`.
+ */
+export function rekeyMarksUnder(
+  config: Record<string, unknown>,
+  oldKey: string,
+  newKey: string,
+): { config: Record<string, unknown> } | null {
+  if (oldKey === newKey) return null
+  const rekey = (p: string) =>
+    p === oldKey ? newKey : p.startsWith(`${oldKey}/`) ? `${newKey}${p.slice(oldKey.length)}` : p
+  const next = { ...config }
+  let changed = false
+  for (const list of MARK_LISTS) {
+    const raw = config[list]
+    if (!Array.isArray(raw)) continue
+    const moved = raw.map((p) => (typeof p === 'string' ? rekey(p) : p))
+    if (moved.every((p, i) => p === raw[i])) continue
+    next[list] = moved
+    changed = true
+  }
+  return changed ? { config: next } : null
+}

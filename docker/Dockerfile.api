@@ -34,7 +34,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # infra (jsonlite/base64enc/svglite) from a separate shared library that
 # renv_provisioner.ensure_kernel_r_lib() populates on first use (a one-off install
 # under the data volume, whose path isn't known at image-build time).
-RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc","renv"))' \
+# Pinned to a dated p3m snapshot so a rebuild ships the same versions; move the
+# date forward deliberately (a release step, like the lockfiles).
+ARG CRAN_SNAPSHOT=https://p3m.dev/cran/__linux__/noble/2026-10-01
+RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc","renv"), repos = c(CRAN = Sys.getenv("CRAN_SNAPSHOT")))' \
     && Rscript -e 'library(arrow); library(svglite); library(jsonlite); library(base64enc); library(renv)'
 
 # Python deps in a venv (Ubuntu 24.04 blocks system pip via PEP 668).
@@ -49,7 +52,17 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # uv builds each project's managed Python environment (uv_provisioner); without it
 # on PATH, every environment build fails.
 COPY apps/api/ ./
-RUN pip install --no-cache-dir -e ".[execution,doris]" uv
+# Exactly what apps/api/uv.lock resolves for these extras, hashes included — the
+# image freezes the lockfile, as the web image does with package-lock.json (a
+# dependency fix only ships once the lock is refreshed). The project itself goes
+# in editable afterwards, without re-resolving. Pinned uv: a different resolver
+# version would export a different list.
+RUN pip install --no-cache-dir "uv==0.10.2" \
+    && uv export --frozen --no-dev --no-emit-project --extra execution --extra doris \
+        --format requirements-txt -o /tmp/requirements.txt \
+    && uv pip sync --no-cache /tmp/requirements.txt \
+    && uv pip install --no-cache --no-deps -e . \
+    && rm /tmp/requirements.txt
 
 # Export-format version: in the repo it lives at the monorepo root, above the
 # copied apps/api tree, so ship it explicitly and point export_version.py at it.

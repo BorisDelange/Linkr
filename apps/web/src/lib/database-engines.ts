@@ -25,3 +25,11 @@ export const DEFAULT_PORTS: Partial<Record<DatabaseEngine, string>> = {
   doris: '9030',
   sqlserver: '1433',
 }
+
+/** A TCP port typed in a form, or null when the text is not one (blank included). */
+export function parsePort(value: string): number | null {
+  const text = value.trim()
+  if (!/^\d+$/.test(text)) return null
+  const n = Number(text)
+  return Number.isInteger(n) && n > 0 && n <= 65535 ? n : null
+}

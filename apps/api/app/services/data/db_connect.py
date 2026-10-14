@@ -14,7 +14,6 @@ import os
 import re
 import tempfile
 import threading
-import time
 import uuid
 from collections.abc import Callable
 from decimal import Decimal
@@ -23,7 +22,9 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
-from app.services.data import connection_pool, file_reader, flight, query_cancel, remote_sql
+from app.core.redact import redact_secrets
+from app.services.data import connection_pool, file_reader, query_cancel
+from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import check_db_host
 
 logger = logging.getLogger(__name__)
@@ -281,12 +282,29 @@ _DORIS_READ_PRIVS = {"select_priv", "show_view_priv"}
 # SHOW GRANTS columns that grant rights on data. The others (workload groups,
 # compute groups, resources, storage vaults) only grant usage of capacity.
 _DORIS_DATA_PRIV_COLUMNS = ("GlobalPrivs", "CatalogPrivs", "DatabasePrivs", "TablePrivs", "ColPrivs")
+# Without these two the result is not the SHOW GRANTS the check reads.
+_DORIS_REQUIRED_PRIV_COLUMNS = ("GlobalPrivs", "DatabasePrivs")
 _DORIS_PRIV_NAME = re.compile(r"[A-Za-z_]+_priv", re.IGNORECASE)
 
 
 def _doris_write_privileges(grants: list[dict]) -> list[str]:
     """The write-capable privileges in a Doris `SHOW GRANTS` result. Role grants
-    are already merged into these columns by Doris."""
+    are already merged into these columns by Doris.
+
+    Fails closed: a result with no row, or without the global and database
+    privilege columns, cannot prove the login read-only — Doris may have renamed
+    them, or the attach may not be talking to a Doris at all."""
+    if not grants:
+        raise ValueError(
+            "cannot verify that this Doris login is read-only: "
+            "unexpected SHOW GRANTS shape (no row)"
+        )
+    missing = [c for c in _DORIS_REQUIRED_PRIV_COLUMNS if not all(c in row for row in grants)]
+    if missing:
+        raise ValueError(
+            "cannot verify that this Doris login is read-only: "
+            f"unexpected SHOW GRANTS shape (no {', '.join(missing)} column)"
+        )
     found: set[str] = set()
     for row in grants:
         for column in _DORIS_DATA_PRIV_COLUMNS:
@@ -316,200 +334,33 @@ def _attach_external(
     """ATTACH an external database under `alias` (already a safe identifier),
     read-only — by the ATTACH where the engine allows it, else by its login."""
     spec = _engine_spec(config)
-    # The DSN goes into a single-quoted SQL literal; double any single quote a
-    # value may still legitimately contain (e.g. a password) so it can't close it.
-    dsn_literal = _dsn(config, password).replace("'", "''")
     options = f"TYPE {spec['type']}" + (", READ_ONLY" if spec["read_only"] else "")
-    con.execute(f"ATTACH '{dsn_literal}' AS \"{alias}\" ({options})")
+    attach_dsn(con, _dsn(config, password), alias, options)
     if config.get("engine") == "doris":
         _require_read_only_doris_login(con, alias)
 
 
+def attach_dsn(con: duckdb.DuckDBPyConnection, dsn: str, alias: str, options: str) -> None:
+    """ATTACH a DSN built by `_dsn` under `alias` (already a safe identifier).
+
+    The postgres and mysql extensions quote the whole DSN in their connection
+    error, password included; that text reaches the API's replies, job logs and
+    the access log, so it is redacted here, where it is raised. `from None`: the
+    original would otherwise travel on as the cause, in every traceback."""
+    # The DSN goes into a single-quoted SQL literal; double any single quote a
+    # value may still legitimately contain (e.g. a password) so it can't close it.
+    literal = dsn.replace("'", "''")
+    try:
+        con.execute(f"ATTACH '{literal}' AS \"{alias}\" ({options})")
+    except duckdb.Error as exc:
+        text = redact_secrets(str(exc))
+        if text == str(exc):
+            raise
+        raise type(exc)(text) from None
+
+
 def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
     _attach_external(con, _ATTACH_ALIAS, config, password)
-
-
-# --- Compute pushdown (remote_sql) -------------------------------------------
-
-# A scope's columns change only with the remote schema: re-read after this long.
-_REMOTE_COLUMNS_TTL = 300.0
-_remote_columns_cache: dict[tuple, tuple[float, dict[str, dict[str, str]]]] = {}
-_remote_columns_lock = threading.Lock()
-
-# Remote type names (information_schema.data_type) as the SQL types remote_sql
-# reasons on. Doris suffixes its newer storage formats (datetimev2, decimalv3).
-_REMOTE_TYPE_ALIASES = {"string": "TEXT", "largeint": "HUGEINT", "datetime": "TIMESTAMP"}
-_REMOTE_TYPE_SUFFIX = re.compile(r"v\d+$")
-
-
-def _remote_type(data_type: str) -> str:
-    name = _REMOTE_TYPE_SUFFIX.sub("", str(data_type).strip().lower())
-    return _REMOTE_TYPE_ALIASES.get(name, name.upper())
-
-
-def _scope_columns(con: duckdb.DuckDBPyConnection, config: dict) -> dict[str, dict[str, str]]:
-    """Table → {column: type} of the source's scope, lower-cased, from its own
-    information_schema."""
-    spec = _engine_spec(config)
-    scope = _scope(config)
-    key = (config.get("engine"), config.get("host"), config.get("port"), config.get("database"), scope)
-    with _remote_columns_lock:
-        hit = _remote_columns_cache.get(key)
-    if hit and time.monotonic() - hit[0] < _REMOTE_COLUMNS_TTL:
-        return hit[1]
-    inner = (
-        "SELECT table_name, column_name, data_type FROM information_schema.columns "
-        f"WHERE table_schema = ''{scope}''"
-    )
-    columns: dict[str, dict[str, str]] = {}
-    for table, column, data_type in con.execute(
-        f"SELECT * FROM {spec['query_fn']}('{_ATTACH_ALIAS}', '{inner}')"
-    ).fetchall():
-        columns.setdefault(str(table).lower(), {})[str(column).lower()] = _remote_type(data_type)
-    with _remote_columns_lock:
-        _remote_columns_cache[key] = (time.monotonic(), columns)
-    return columns
-
-
-# How the mysql extension reports a statement the server rejected before running
-# it (its prepare step), as opposed to one that failed while running.
-_REMOTE_PREPARE_FAILED = "Failed to prepare MySQL query"
-
-
-def _pushed_down(con: duckdb.DuckDBPyConnection, config: dict, sql: str) -> remote_sql.RemoteQuery | None:
-    """`sql` in the external database's own SQL, or None when it is not portable
-    (remote_sql) — the caller then runs it as is."""
-    engine = config.get("engine")
-    if engine not in remote_sql.PUSHDOWN_ENGINES:
-        return None
-    try:
-        return remote_sql.to_remote(
-            sql, engine, _scope(config),
-            lambda table: _scope_columns(con, config).get(table.lower()),
-        )
-    except remote_sql.NotPortable as exc:
-        logger.debug("query not pushed down (%s)", exc)
-        return None
-
-
-def _renamed(source: str, remote: remote_sql.RemoteQuery) -> str:
-    names = ", ".join('"' + n.replace('"', '""') + '"' for n in remote.columns)
-    return f"SELECT * FROM {source} AS _remote({names})"
-
-
-def _passthrough(config: dict, remote: remote_sql.RemoteQuery) -> str:
-    literal = remote.sql.replace("'", "''")
-    return _renamed(f"{_engine_spec(config)['query_fn']}('{_ATTACH_ALIAS}', '{literal}')", remote)
-
-
-def _flight_probe(con: duckdb.DuckDBPyConnection, config: dict) -> str | None:
-    """One row of a table of the scope, in the engine's SQL (see flight.problem)."""
-    tables = sorted(_scope_columns(con, config))
-    if not tables:
-        return None
-    quote = lambda name: "`" + name.replace("`", "``") + "`"  # noqa: E731
-    return f"SELECT 1 AS one FROM {quote(_scope(config))}.{quote(tables[0])} LIMIT 1"
-
-
-def flight_problem(config: dict, password: str | None) -> tuple[str, str | None] | None:
-    """Why Flight cannot carry this source's large results, or None (see flight)."""
-    if flight.port(config) is None:
-        return None
-    con = _connect(_engine_spec(config)["extension"])
-    try:
-        _attach(con, config, password)
-        return flight.problem(config, password, _flight_probe(con, config))
-    finally:
-        con.close()
-
-
-def _run_over_flight(
-    con: duckdb.DuckDBPyConnection, config: dict, password: str | None,
-    remote: remote_sql.RemoteQuery, run: Callable[[str], object],
-):
-    """`run` over the result streamed by Flight, registered as a view of `con`.
-    Raises flight.Unreachable when the transport fails before any row is read."""
-    view = f"_flight_{uuid.uuid4().hex}"
-    cancelled: list[bool] = []
-    with flight.reader(config, password, remote.sql) as (batches, cancel):
-        con.register(view, batches)
-        try:
-            with query_cancel.on_cancel(lambda: (cancelled.append(True), cancel())):
-                return run(_renamed(f'"{view}"', remote))
-        except duckdb.Error as exc:
-            if cancelled:
-                raise duckdb.InterruptException("query cancelled") from exc
-            if flight.is_transport_error(exc):
-                raise flight.Unreachable(str(exc).splitlines()[0]) from exc
-            raise
-        finally:
-            con.unregister(view)
-
-
-class _RemoteKill:
-    """Stops a pushed-down statement on the database's side, from a connection of
-    its own: the one running it is busy, and DuckDB's interrupt only takes effect
-    once the remote statement returns."""
-
-    def __init__(self, config: dict, password: str | None, connection_id: int):
-        self.config, self.password, self.connection_id = config, password, connection_id
-        self.fired = False
-        self.done = False
-
-    def __call__(self) -> None:
-        self.fired = True
-        threading.Thread(target=self._kill, daemon=True).start()
-
-    def _kill(self) -> None:
-        if self.done:
-            return
-        try:
-            con = _connect(_engine_spec(self.config)["extension"])
-            try:
-                _attach(con, self.config, self.password)
-                con.execute(f"CALL mysql_execute('{_ATTACH_ALIAS}', 'KILL QUERY {self.connection_id}')")
-            finally:
-                con.close()
-        except Exception as exc:  # noqa: BLE001 — the statement then runs to its end, as before
-            logger.warning("could not stop a pushed-down query on the database: %s", exc)
-
-
-def _with_pushdown(
-    con: duckdb.DuckDBPyConnection, config: dict, password: str | None, sql: str,
-    run: Callable[[str], object], bulk: bool = False,
-):
-    """`run` the pushed-down form of `sql` when there is one, else `sql`. A `bulk`
-    result goes over Arrow Flight when the database offers it (flight).
-
-    A query the database refuses to prepare (a function or type it does not
-    know) falls back to the ATTACH: slower, same answer. One that failed while
-    running (out of memory, timed out, cancelled) is not retried that way: the
-    ATTACH would pull every row the database could not even aggregate."""
-    remote = _pushed_down(con, config, sql)
-    if remote is None:
-        return run(sql)
-    if bulk and flight.port(config) is not None and flight.problem(config, password, _flight_probe(con, config)) is None:
-        try:
-            return _run_over_flight(con, config, password, remote, run)
-        except flight.Unreachable as exc:
-            flight.record(config, (flight.UNREACHABLE, str(exc)[:300]))
-    query_fn = _engine_spec(config)["query_fn"]
-    connection_id = con.execute(
-        f"SELECT * FROM {query_fn}('{_ATTACH_ALIAS}', 'SELECT CONNECTION_ID() AS id')"
-    ).fetchone()[0]
-    kill = _RemoteKill(config, password, int(connection_id))
-    try:
-        with query_cancel.on_cancel(kill):
-            return run(_passthrough(config, remote))
-    except duckdb.IOException as exc:
-        if kill.fired:
-            raise duckdb.InterruptException("query cancelled") from exc
-        if _REMOTE_PREPARE_FAILED not in str(exc):
-            raise
-        logger.warning("pushed-down query refused by the database, ran it locally: %s", exc)
-        return run(sql)
-    finally:
-        kill.done = True
 
 
 def _row_to_json(row: dict) -> dict:
@@ -930,7 +781,7 @@ def query_external(
         if not pushdown:
             return _run_read(con, search_path, sql, arrow)
         bulk = arrow or row_cap.get() > MAX_QUERY_ROWS
-        return _with_pushdown(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow), bulk)
+        return remote._with_pushdown(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow), bulk)
 
     if pool_key is None:
         con = _setup()
@@ -1441,7 +1292,7 @@ def materialize_parquet(
                 con.execute(f"COPY (\n{query}\n) TO '{_sql_path(tmp.as_posix())}' (FORMAT PARQUET)")
 
         if pushdown and config.get("engine") in EXTERNAL_ENGINES:
-            _with_pushdown(con, config, password, select_sql, _copy, bulk=True)
+            remote._with_pushdown(con, config, password, select_sql, _copy, bulk=True)
         else:
             _copy(select_sql)
         tmp.replace(dest)
@@ -1586,7 +1437,7 @@ class EtlRunHandle:
         if con is not None:
             try:
                 con.interrupt()
-            except Exception:  # noqa: BLE001 — already finishing is fine
+            except Exception:  # already finishing is fine
                 pass
 
     @property

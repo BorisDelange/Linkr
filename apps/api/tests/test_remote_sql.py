@@ -123,6 +123,21 @@ def test_text_cast_of_what_engines_print_differently_is_not(expr):
         doris(f"SELECT CAST({expr} AS VARCHAR) AS t FROM measurement")
 
 
+def test_an_iso_date_literal_is_portable(con):
+    """`DATE '2020-01-01'` is a cast of a string literal: the one spelling every
+    engine reads alike."""
+    q = "SELECT COUNT(*) AS n FROM measurement WHERE measurement_date >= DATE '2020-02-01' AND measurement_datetime < TIMESTAMP '2021-01-01 00:00:00'"
+    assert "CAST('2020-02-01' AS DATE)" in doris(q) and "CAST('2021-01-01 00:00:00' AS DATETIME)" in doris(q)
+    assert same_rows(con, q)
+    assert same_rows(con, "SELECT person_id AS p FROM measurement WHERE measurement_date = CAST('2020-01-01' AS DATE)")
+
+
+@pytest.mark.parametrize("literal", ["DATE 'epoch'", "DATE '2020-1-5'", "TIMESTAMP '2020-01-01T10:00:00'", "CAST(unit_source_value AS DATE)"])
+def test_a_date_spelling_duckdb_alone_reads_is_not(literal):
+    with pytest.raises(NotPortable, match="CAST"):
+        doris(f"SELECT COUNT(*) AS n FROM measurement WHERE measurement_date >= {literal}")
+
+
 def test_dates_extract_and_differ_the_same_way():
     out = doris("SELECT DATE_PART('year', measurement_datetime) AS y, DATE_DIFF('day', measurement_date, measurement_datetime) AS d, "
                 "measurement_date + INTERVAL '60' DAYS AS later FROM measurement")
@@ -180,6 +195,45 @@ def test_percentile_of_a_decimal_is_not_portable():
 ])
 def test_outside_the_portable_subset(sql):
     with pytest.raises(NotPortable):
+        doris(sql)
+
+
+# --- What reaches the passthrough: escaping and the scope ---------------------
+#
+# The remote SQL is interpolated into a single-quoted literal by the caller
+# (db_connect._passthrough doubles the quotes), so what matters here is that
+# sqlglot re-emits a literal as a literal and an identifier as an identifier,
+# and that nothing outside the scope's tables gets through.
+
+
+@pytest.mark.parametrize("sql, expected", [
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = 'O''Brien'", "= 'O''Brien'"),
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = 'a\\b'", "= 'a\\\\b'"),
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = 'x''; DROP TABLE measurement; --'", "= 'x''; DROP TABLE measurement; --'"),
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = 'a\nb'", "= 'a\\nb'"),
+    ('SELECT "person_id" AS "p`q" FROM measurement', "AS `p``q`"),
+    ("SELECT COUNT(*) AS n FROM measurement -- comment */ here\nWHERE person_id = 1", "/* comment * / here */ WHERE"),
+])
+def test_literals_and_identifiers_are_re_escaped_for_doris(sql, expected):
+    assert expected in doris(sql)
+
+
+@pytest.mark.parametrize("sql, reason", [
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = 'x'; DROP TABLE measurement", "single SELECT"),
+    ("SELECT table_name AS t FROM information_schema.tables", "schema information_schema"),
+    ("SELECT COUNT(*) AS n FROM mysql.user", "schema mysql"),
+    ("SELECT n FROM memory.main.counts", "catalog memory"),
+    ("SELECT x AS x FROM read_parquet('/etc/passwd') t(x)", "table function"),
+    ("SELECT x AS x FROM mysql_execute('ext', 'DROP TABLE t') t(x)", "table function"),
+    ("SELECT x AS x FROM mysql_query('ext', 'SELECT 1') t(x)", "table function"),
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = E'a\\nb'", "ByteString"),
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = $$x'y$$", "RawString"),
+    ("SELECT current_user() AS u FROM measurement", "CurrentUser"),
+    ("SELECT sleep(10) AS s FROM measurement", "function sleep"),
+    ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = 'x' INTO OUTFILE '/tmp/x'", "unparsed"),
+])
+def test_outside_the_scope_or_the_grammar(sql, reason):
+    with pytest.raises(NotPortable, match=reason):
         doris(sql)
 
 
