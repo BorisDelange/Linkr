@@ -225,6 +225,8 @@ export default defineConfig(({ mode }) => {
         [`${basePrefix}/api`]: {
           target: `http://localhost:${apiPort}`,
           changeOrigin: true,
+          // The notification, terminal and ETL-run sockets live under /api/v1.
+          ws: true,
           rewrite: unprefix,
         },
         [`${basePrefix}/ws`]: {
