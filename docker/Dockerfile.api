@@ -83,17 +83,10 @@ ENV LINKR_CLIENT_PY_SOURCE=/app/client/linkr-py/src
 # Pre-bundle DuckDB extensions into the image so an offline deployment never
 # needs to reach the network on first use. They install under
 # <dir>/v<ver>/<platform>/; the entrypoint seeds the runtime data volume's
-# extension dir from here. `excel` powers native .xlsx reads (mapping/datasets);
-# postgres/mysql/sqlite back the external-database connectors.
+# extension dir from here. The list lives in app/duckdb_extensions.py, which a
+# manual offline install runs too (npm run duckdb:extensions).
 ENV LINKR_DUCKDB_EXT_BUNDLE=/opt/duckdb_ext
-RUN python3 - <<'PY'
-import duckdb, os
-d = os.environ["LINKR_DUCKDB_EXT_BUNDLE"]
-con = duckdb.connect()
-con.execute(f"SET extension_directory = '{d}'")
-for ext in ("excel", "postgres", "mysql", "sqlite"):
-    con.execute(f"INSTALL {ext}")
-PY
+RUN python3 -m app.duckdb_extensions --dir "$LINKR_DUCKDB_EXT_BUNDLE"
 
 COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh
