@@ -28,7 +28,7 @@
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { CatalogQuery, CatalogRunStep, CatalogUnitInfo } from './catalog-compute'
-import { runCatalogComputation, type CatalogStepProgress } from './catalog-run'
+import { runCatalogComputation, type CatalogPhaseExecutor, type CatalogStepProgress } from './catalog-run'
 
 export type { CatalogStepProgress }
 
@@ -163,6 +163,8 @@ export interface StartCatalogRunInput {
   persist: (cache: CatalogResultCache, done: boolean) => Promise<void>
   /** Record a failure on the stored catalog, so a reload shows it. */
   persistError: (message: string) => Promise<void>
+  /** How each phase's queries run (server mode: a job); one by one through `query` when absent. */
+  executor?: CatalogPhaseExecutor
 }
 
 /**
@@ -219,6 +221,7 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
       query: input.query,
       resumeFrom: input.resumeFrom?.cache ?? null,
       persist: input.persist,
+      executor: input.executor,
     }, signal, {
       step: (step) => emitNow(catalogId, { phase: step }),
       unit: (info) => emit(catalogId, { current: info }),

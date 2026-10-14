@@ -112,6 +112,9 @@ async def lifespan(app: FastAPI):
     from app.services.execution.jobs import reconcile_on_startup
 
     await reconcile_on_startup()
+    from app.services.data import query_jobs
+
+    query_jobs.sweep_results()
     # Reclaim abandoned upload sessions and other unreferenced disk, then keep
     # sweeping on a timer. Held in a local so the reference isn't dropped (a bare
     # create_task can be garbage-collected mid-flight).

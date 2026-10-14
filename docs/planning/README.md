@@ -41,6 +41,20 @@ results as the optional `doris` extra with a warning banner.
 | 💤 | Still slow on Doris: concept-list assemble (whole dictionary over MySQL), `mode()` profiles, ETL source / cohort derive / R-Py libs (plan §3.3) | M |
 | 🔜 | User docs (linkr-website): connecting a Doris database | S |
 
+## Heavy tasks as server jobs — [heavy-jobs-plan.md](heavy-jobs-plan.md)
+
+Long work must not hang on one HTTP request through an SPE gateway (60 s → 504), nor run
+two heavy DuckDB queries at once (container OOM). Inventory of every heavy task in §1.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **[TO TEST]** Query job primitive + data catalog as proof of concept (plan §2–3, built 2026-10-14 on `feature/gateway-timeouts`) | M |
+| 🔜 | Catalog sizing (`planSlices`) and yield estimates through the same job | S |
+| 🔜 | Concept counts, DQ runs, database statistics on the same primitive | M |
+| 🔜 | `deferred` safety net on `/query` for interactive queries | S |
+| 🔜 | Server-side heavy routes as jobs (cohort freeze, exports, git, …) and ad-hoc tasks into `jobs` | L |
+| 🔜 | Unblock the event loop: `fs/rebind-copy`, `uploads/{id}/complete` | S |
+
 ## To test manually in the app
 
 Built, never exercised by hand. Everything else below is still to build.

@@ -173,6 +173,21 @@ class QueryRequest(CamelModel):
     pushdown: bool = False
 
 
+class QueryJobItem(CamelModel):
+    # Names the result: what the client fetches it back by.
+    key: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    sql: str
+
+
+class QueryJobRequest(CamelModel):
+    """Read queries run one after the other as a job (services/data/query_jobs)."""
+
+    label: str = Field(min_length=1, max_length=255)
+    queries: list[QueryJobItem] = Field(min_length=1, max_length=10_000)
+    # As QueryRequest.pushdown: the app's own SQL only.
+    pushdown: bool = False
+
+
 class QueryCancelRequest(CamelModel):
     query_id: str
 

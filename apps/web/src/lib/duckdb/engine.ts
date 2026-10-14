@@ -613,6 +613,19 @@ export interface QueryOptions {
   pushdown?: boolean
 }
 
+/**
+ * The SQL as the database runs it: the class relations it names (`linkr_*`)
+ * written in from the source's schema mapping. Whatever sends app SQL to the
+ * server outside `queryDataSource` (a query job) must pass it through here.
+ */
+export async function prepareQuerySql(dataSourceId: string, sql: string): Promise<string> {
+  const mapping = mappingResolver?.(dataSourceId)
+  if (mapping && sql.toLowerCase().includes(RELATION_PREFIX)) {
+    return injectClassRelations(sql, mapping, await sourceTables(dataSourceId))
+  }
+  return sql
+}
+
 /** Run an arbitrary SQL query against a data source schema. */
 export async function queryDataSource(
   dataSourceId: string,
@@ -621,10 +634,7 @@ export async function queryDataSource(
 ): Promise<Record<string, unknown>[]> {
   const { signal, allRows, pushdown = true } = options
   signal?.throwIfAborted()
-  const mapping = mappingResolver?.(dataSourceId)
-  if (mapping && sql.toLowerCase().includes(RELATION_PREFIX)) {
-    sql = injectClassRelations(sql, mapping, await sourceTables(dataSourceId))
-  }
+  sql = await prepareQuerySql(dataSourceId, sql)
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.

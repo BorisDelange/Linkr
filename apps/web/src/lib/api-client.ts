@@ -3,6 +3,7 @@
  * Wraps fetch with JWT auth headers and automatic token refresh.
  */
 
+import i18n from '@/lib/i18n'
 import { disposeAllLiveTerminals } from '@/lib/terminal-sessions'
 import { credentialRequiredDetail, requestDatabaseLogin } from '@/stores/database-login-prompt'
 
@@ -168,7 +169,7 @@ export function formatApiError(err: unknown): FormattedError {
   // broken route; the status is what separates them, and it was being dropped.
   const status = err instanceof ApiError ? err.status : null
   const withStatus = (summary: string): string =>
-    status !== null ? `${summary} (HTTP ${status})` : summary
+    status !== null && !summary.includes(`HTTP ${status}`) ? `${summary} (HTTP ${status})` : summary
   try {
     const body = JSON.parse(raw)
     const detail = body?.detail
@@ -214,9 +215,23 @@ export async function apiRequest<T>(
     }
   }
   if (!res.ok) {
-    throw new ApiError(res.status, await res.text())
+    throw new ApiError(res.status, proxyErrorMessage(res) ?? await res.text())
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+/**
+ * The failure in words when a proxy in front of the API wrote it, not Linkr —
+ * an HTML error page, or a gateway status without Linkr's JSON body. That page
+ * says nothing the user can act on; null when Linkr itself answered.
+ */
+export function proxyErrorMessage(res: Pick<Response, 'status' | 'headers'>): string | null {
+  const type = res.headers.get('content-type') ?? ''
+  if (type.includes('json')) return null
+  if (res.status === 504) return i18n.t('common.proxy_timeout')
+  if (res.status === 502 || res.status === 503) return i18n.t('common.proxy_unreachable', { status: res.status })
+  if (type.includes('text/html')) return i18n.t('common.proxy_error_page', { status: res.status })
+  return null
 }
 
 const DEFERRED_POLL_MS = 1500

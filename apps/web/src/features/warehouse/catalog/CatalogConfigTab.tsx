@@ -27,6 +27,9 @@ import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { isServerMode } from '@/lib/api-client'
+import { localized } from '@/lib/localized'
+import { jobExecutor } from '@/lib/duckdb/catalog-job-executor'
 import { buildServiceListQuery } from '@/lib/duckdb/catalog-queries'
 import { formatDuration } from '@/lib/format-helpers'
 import { estimateCrossings, estimateKey, getCachedEstimate, type CatalogUnitInfo, type CrossingEstimate, type EstimateProgress } from '@/lib/duckdb/catalog-compute'
@@ -210,13 +213,16 @@ export function CatalogConfigTab({ catalog }: Props) {
       mapping,
       ensureMounted: () => ensureMounted(catalog.dataSourceId).then(() => {}),
       query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true }),
+      executor: isServerMode()
+        ? jobExecutor(catalog.dataSourceId, (phase) => t(`data_catalog.job_${phase}`, { name: localized(catalog.name, i18n.language) }))
+        : undefined,
       resumeFrom,
       persist,
       persistError: async (message) => {
         await updateCatalog(catalog.id, { status: 'error', lastError: message })
       },
     })
-  }, [catalog, mapping, dataSource, ensureMounted, persist, updateCatalog])
+  }, [catalog, mapping, dataSource, ensureMounted, persist, updateCatalog, t, i18n.language])
 
   /** Throw the computed results away, unlocking a fresh run. */
   const discard = useCallback(async () => {

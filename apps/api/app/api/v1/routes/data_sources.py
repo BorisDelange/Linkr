@@ -4,7 +4,7 @@ import logging
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.websockets import WebSocketDisconnect
 
@@ -15,6 +15,7 @@ from app.core.permissions import check_workspace_permission
 from app.core.ws_auth import authenticate_ws, refuse
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
+from app.models.job import Job
 from app.models.user import User
 from app.schemas.concept_cache import (
     ConceptCacheAssembleRequest,
@@ -47,6 +48,7 @@ from app.schemas.data_source import (
     IntrospectedTable,
     QueryCancelRequest,
     QueryCancelResult,
+    QueryJobRequest,
     QueryRequest,
     QueryResult,
     TestConnectionRequest,
@@ -63,7 +65,7 @@ from app.services import (
     notification_service,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db, query_cancel
+from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db, query_cancel, query_jobs
 from app.services.execution import jobs
 from app.schemas.execution import JobResponse
 
@@ -318,6 +320,48 @@ async def cancel_query(
     about to run). Answers whether a running query was hit."""
     await _load_source(db, source_id, user, "databases:read")
     return QueryCancelResult(cancelled=query_cancel.cancel(body.query_id, str(user.id)))
+
+
+@router.post("/{source_id}/query-jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def start_query_job(
+    source_id: str,
+    body: QueryJobRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run read queries one after the other as a job of the database's workspace,
+    for work too long for one request (services/data/query_jobs). Each result is
+    fetched from `…/query-jobs/{job}/results/{key}` once the job lists it done."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    if not source.workspace_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database belongs to no workspace")
+    login = await _login(db, source, user)
+    if len({q.key for q in body.queries}) != len(body.queries):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "query keys must be unique")
+    job = await query_jobs.start(
+        db, source.id, source.workspace_id, user.id, login, body.label,
+        [(q.key, q.sql) for q in body.queries], body.pushdown,
+    )
+    return job
+
+
+@router.get("/{source_id}/query-jobs/{job_id}/results/{key}")
+async def query_job_result(
+    source_id: str,
+    job_id: str,
+    key: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """One query's rows, as `POST /query` answers them. 404 until it is done."""
+    await _load_source(db, source_id, user, "databases:read")
+    job = await db.get(Job, job_id)
+    if job is None or job.user_id != user.id or job.kind != "query" or (job.result or {}).get("sourceId") != source_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    path = query_jobs.result_path(job_id, key)
+    if path is None or not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not ready")
+    return FileResponse(path, media_type="application/json")
 
 
 @router.post("/{source_id}/derive-plan")

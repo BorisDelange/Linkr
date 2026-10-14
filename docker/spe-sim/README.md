@@ -39,6 +39,10 @@ docker compose -f docker/spe-sim/docker-compose.yml \
 
 Password: `$DATAMART_PASSWORD`, default `SpeSim_2026!`. They start empty.
 
+Datamart files (a Parquet export, a DuckDB file) go in `docker/spe-sim/datamart/`, or the
+folder `SPE_DATAMART_DIR` names. The SPE sees it read-only at `/datamart`: add it in Linkr
+as a database on the server, path `/datamart/<folder>`.
+
 ## Test
 
 Once it is serving, from the repo root:

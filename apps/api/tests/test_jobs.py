@@ -20,7 +20,7 @@ async def _seed(db, engine, monkeypatch):
     # module-level semaphore so it binds to this test's event loop.
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(jobs, "async_session", maker)
-    monkeypatch.setattr(jobs, "_semaphore", None)
+    monkeypatch.setattr(jobs, "_semaphores", {})
     db.add(Workspace(id="ws1"))
     await db.flush()
     db.add(Project(uid="proj-1", workspace_id="ws1"))

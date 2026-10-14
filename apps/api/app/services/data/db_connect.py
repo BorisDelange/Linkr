@@ -140,8 +140,51 @@ def _forbid_file_access(con: duckdb.DuckDBPyConnection, readable: list[str] | No
     con.execute("SET enable_external_access=false")
 
 
-def _connect(extension: str) -> duckdb.DuckDBPyConnection:
+_MEMORY_SHARE = 0.6
+
+
+def _container_memory() -> int | None:
+    """Bytes the process may use: the cgroup's cap when there is one, else RAM."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        # "max" (v2) or a huge number (v1) mean no cap.
+        if raw.isdigit() and int(raw) < 1 << 60:
+            return int(raw)
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def memory_limit() -> str | None:
+    """The `memory_limit` given to every DuckDB opened here (settings.duckdb_memory_limit)."""
+    if settings.duckdb_memory_limit:
+        return settings.duckdb_memory_limit
+    total = _container_memory()
+    return f"{int(total * _MEMORY_SHARE) // (1024 * 1024)}MB" if total else None
+
+
+def _open() -> duckdb.DuckDBPyConnection:
+    """A new in-memory DuckDB, held under `memory_limit()` so it spills to disk
+    rather than get the container killed."""
     con = duckdb.connect()
+    limit = memory_limit()
+    if limit:
+        con.execute(f"SET memory_limit = '{_require_memory(limit)}'")
+    return con
+
+
+def _require_memory(value: str) -> str:
+    if not re.fullmatch(r"\d+(\.\d+)?\s*[KMGT]i?B", value.strip(), re.IGNORECASE):
+        raise ValueError(f"invalid DuckDB memory limit: {value!r}")
+    return value.strip()
+
+
+def _connect(extension: str) -> duckdb.DuckDBPyConnection:
+    con = _open()
     # Persist installed extensions under data_dir so INSTALL only hits the
     # network once (and can be pre-warmed at build time in an offline image).
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
@@ -919,7 +962,7 @@ def query_file(
     across calls — shared by every user of the source, hence `_run_isolated`."""
 
     def _setup() -> duckdb.DuckDBPyConnection:
-        con = duckdb.connect()
+        con = _open()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_file(con, engine, path)
         _forbid_file_access(con)
@@ -974,7 +1017,7 @@ def query_file_source(
     expression (reader + sheet/delimiter options + Excel extension) is built by
     the shared `file_reader.build_read_expr`, the same one dataset import uses.
     """
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         reader = file_reader.build_read_expr(
@@ -1020,7 +1063,7 @@ def file_source_columns(
     ``preview_rows`` rows (0 = none). Keeps the mapping mount's ``nullstr='NA'``
     so a literal "NA" cell becomes NULL identically to the browser DuckDB-WASM
     path and the eventual server-side query."""
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         reader = file_reader.build_read_expr(
@@ -1042,7 +1085,7 @@ def file_source_columns(
 def introspect_file(engine: str, path: str) -> list[dict]:
     """Tables + columns of a local DuckDB/SQLite file. Types are DuckDB-normalized
     (the file has no separate native catalog to passthrough to)."""
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         _attach_file(con, engine, path)
@@ -1257,7 +1300,7 @@ def query_parquet_folder(
     search_path = _parquet_search_path(groups)
 
     def _setup() -> duckdb.DuckDBPyConnection:
-        con = duckdb.connect()
+        con = _open()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_parquet_views(con, groups)
         _forbid_file_access(con, [p for paths in groups.values() for p in paths])
@@ -1308,7 +1351,7 @@ def _source_setup(
         groups = _group_parquet(files, known or [])
 
         def _setup_pq() -> duckdb.DuckDBPyConnection:
-            con = duckdb.connect()
+            con = _open()
             con.execute(f"SET extension_directory = '{_ext_dir()}'")
             _attach_parquet_views(con, groups)
             return con
@@ -1321,7 +1364,7 @@ def _source_setup(
     path = files[0][1]
 
     def _setup_file() -> duckdb.DuckDBPyConnection:
-        con = duckdb.connect()
+        con = _open()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_file(con, str(engine), path)
         return con
@@ -1410,7 +1453,7 @@ def materialize_parquet(
 def query_cached_parquet(path: str, sql: str) -> list[dict]:
     """Run read-only SQL against a materialized cache Parquet exposed as the view
     `concepts` — the table name the page query references."""
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         con.execute(
@@ -1432,7 +1475,7 @@ def introspect_parquet_folder(
     A table from a schema directory is reported as `schema.table`: two modules may
     hold the same table name, and a flat list would show one of them twice."""
     groups = _group_parquet(files, known)
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     result: list[dict] = []
     try:
@@ -1588,7 +1631,7 @@ def run_etl_sql(
     # An in-memory hub, with every role ATTACHed onto it. Opening the target file
     # directly would name that database after the file and make it impossible to
     # also attach it as `target` (DuckDB refuses the same file twice).
-    con = duckdb.connect()
+    con = _open()
     # Registered before the first ATTACH: a cancel arriving in that window must
     # still be able to stop the run, or it would attach and hold the file anyway.
     if handle is not None and not handle._bind(con):

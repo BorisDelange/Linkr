@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText, Trash2 } from 'lucide-react'
+import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText, Square, Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -175,7 +176,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                         onClick={() => void onCancel(job.id)}
                         aria-label={t('jobs.cancel')}
                       >
-                        <Ban size={13} />
+                        <Square size={12} />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top" sideOffset={4}>
@@ -202,11 +203,17 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           itself, so the modal must claim its full height up front rather than
           shrink-wrap the (unwrapped, 3-line) content. */}
       <DialogContent className="flex h-[90vh] w-[90vw] flex-col sm:max-w-[60vw]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+        <DialogHeader className="flex-row items-center gap-3 pr-8">
+          <DialogTitle className="flex min-w-0 flex-1 items-center gap-2">
             {logJob && <JobStatusIcon status={logJob.status} />}
-            {logJob?.label}
+            <span className="truncate">{logJob?.label}</span>
           </DialogTitle>
+          {logJob && ACTIVE.has(logJob.status) && (
+            <Button size="xs" variant="outline" className="shrink-0 gap-1" onClick={() => void onCancel(logJob.id)}>
+              <Square size={12} />
+              {t('jobs.stop')}
+            </Button>
+          )}
         </DialogHeader>
         {logJob?.result ? (
           // With artifacts the body scrolls: log at a fixed share, figures below.

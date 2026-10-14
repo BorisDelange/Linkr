@@ -42,6 +42,9 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.api
+    # SPE containers get a memory cap; DuckDB reads it, stays under it and spills
+    # to disk past it. Without one it sizes itself on the whole host.
+    mem_limit: ${SPE_MEMORY:-4g}
     environment:
       - LINKR_DATABASE_URL=sqlite+aiosqlite:////var/lib/linkr/linkr.db
       - LINKR_DATA_DIR=/var/lib/linkr
@@ -53,6 +56,9 @@ services:
       - LINKR_R_REPOS=http://mirror/repository/cran/__linux__/noble/latest
     volumes:
       - linkr-8743:/var/lib/linkr
+      # Datamart files delivered into the SPE (Parquet exports, DuckDB files),
+      # read-only. Add them in Linkr as a server-path database: /datamart/<folder>.
+      - ${SPE_DATAMART_DIR:-./datamart}:/datamart:ro
     networks:
       # The web container's nginx proxies /api/ to the host named `api`.
       spe-8743:

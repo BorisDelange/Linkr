@@ -23,16 +23,18 @@ from app.models.job import Job
 
 # Live tasks by job id, so cancel() can reach a running job's asyncio.Task.
 _tasks: dict[str, asyncio.Task] = {}
-_semaphore: asyncio.Semaphore | None = None
+# One queue per lane: a long data catalog must not hold up an env build, nor the
+# reverse. "build" also takes script runs and derivations.
+_LANE_CAPS = {"build": "max_build_concurrency", "heavy_query": "max_heavy_queries"}
+_semaphores: dict[str, asyncio.Semaphore] = {}
 
 
-def _sem() -> asyncio.Semaphore:
+def _sem(lane: str) -> asyncio.Semaphore:
     # Built lazily on first use so it binds to the running loop, and reads the
-    # configured cap (max_build_concurrency) at that point.
-    global _semaphore
-    if _semaphore is None:
-        _semaphore = asyncio.Semaphore(settings.max_build_concurrency)
-    return _semaphore
+    # configured cap at that point.
+    if lane not in _semaphores:
+        _semaphores[lane] = asyncio.Semaphore(getattr(settings, _LANE_CAPS[lane]))
+    return _semaphores[lane]
 
 
 async def create(
@@ -61,10 +63,11 @@ async def create(
     return job
 
 
-def launch(job_id: str, body) -> None:
+def launch(job_id: str, body, *, lane: str = "build") -> None:
     """Schedule a job body (an async callable receiving a JobHandle). Runs behind
-    the semaphore; records status/log/progress transitions in its own DB session."""
-    _tasks[job_id] = asyncio.create_task(_run(job_id, body, audit.actor()))
+    its lane's semaphore; records status/log/progress transitions in its own DB
+    session."""
+    _tasks[job_id] = asyncio.create_task(_run(job_id, body, audit.actor(), lane))
 
 
 async def run_now(job_id: str, body) -> None:
@@ -76,12 +79,12 @@ async def run_now(job_id: str, body) -> None:
     await task
 
 
-async def _run(job_id: str, body, launched_by: dict) -> None:
+async def _run(job_id: str, body, launched_by: dict, lane: str = "build") -> None:
     """`launched_by` is the launching request's actor: the job's own access-log
     line (core/audit) names them, whatever data the body touches."""
     handle = JobHandle(job_id)
     try:
-        async with _sem():
+        async with _sem(lane):
             await _set(job_id, status="running")
             with audit.job_scope(job_id, "job", launched_by):
                 await body(handle)
@@ -171,13 +174,19 @@ async def clear_finished(
     a build in flight isn't lost from the panel."""
     from sqlalchemy import delete
 
-    await db.execute(
-        delete(Job)
+    from app.services.data import query_jobs
+
+    finished = (
+        select(Job.id)
         .where(_owned_by(project_uid, workspace_id))
         .where(Job.user_id == user_id)
         .where(Job.status.in_(("done", "error", "cancelled")))
     )
+    ids = list((await db.execute(finished)).scalars().all())
+    await db.execute(delete(Job).where(Job.id.in_(ids)))
     await db.commit()
+    for job_id in ids:
+        query_jobs.drop_results(job_id)
 
 
 async def reconcile_on_startup() -> None:
