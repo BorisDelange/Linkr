@@ -147,13 +147,13 @@ async function computeAgePyramid(
           WHEN age < 90 THEN '80-89'
           ELSE '90+'
         END as age_group,
-        p.gender
-      FROM ${visit.name} v
-      JOIN ${patient.name} p ON v.patient_id = p.patient_id
-      CROSS JOIN LATERAL (
-        SELECT ${age} as age
+        gender
+      FROM (
+        SELECT ${age} as age, p.gender
+        FROM ${visit.name} v
+        JOIN ${patient.name} p ON v.patient_id = p.patient_id
       ) ages
-      WHERE ages.age >= 0 AND ages.age < 150
+      WHERE age >= 0 AND age < 150
     ) sub
     GROUP BY age_group
     ORDER BY age_group

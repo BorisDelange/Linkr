@@ -47,6 +47,15 @@ services:
       # - LINKR_TRUSTED_PROXY_SECRET=${LINKR_TRUSTED_PROXY_SECRET}
     volumes:
       - linkr-data:/var/lib/linkr
+    # An external database (Doris, Postgres…) on this same host is reached as
+    # host.docker.internal: `localhost` would be the container itself. Docker
+    # Desktop defines the name; on Linux this line does.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Doris running in Docker on this host: join its network instead, and give its
+    # container name as host. Flight reads the results from the backends, which
+    # must be reachable at the address they announce (see the database page).
+    # networks: [default, doris]
 
   # MCP server: lets agents (LibreChat, OpenCode…) act on this instance, each with
   # their own Linkr API key (User settings → API keys). Point the client at
@@ -79,3 +88,10 @@ services:
 volumes:
   linkr-data:
   # pgdata:
+
+# Doris's own compose network, for `networks: [default, doris]` above
+# (`docker network ls` gives its name).
+# networks:
+#   doris:
+#     external: true
+#     name: <doris network>

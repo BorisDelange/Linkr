@@ -25,6 +25,7 @@ import {
 import { useConnectionStore } from '@/stores/connection-store'
 import { isServerMode } from '@/lib/api-client'
 import type { DatabaseEngine } from '@/types'
+import { DEFAULT_PORTS, ENGINE_LABELS } from '@/lib/database-engines'
 
 // Default engine matches the workspace Databases dialog: Postgres in server mode
 // (external DBs are the common case), DuckDB in front-only (Postgres isn't offered).
@@ -229,6 +230,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
                   <>
                     <SelectItem value="postgresql">PostgreSQL</SelectItem>
                     <SelectItem value="mysql">MySQL</SelectItem>
+                    <SelectItem value="doris">{ENGINE_LABELS.doris}</SelectItem>
                   </>
                 )}
                 <SelectItem value="duckdb">DuckDB</SelectItem>
@@ -345,7 +347,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
                 <Input
                   value={dbPort}
                   onChange={(e) => setDbPort(e.target.value)}
-                  placeholder={engine === 'postgresql' ? '5432' : engine === 'mysql' ? '3306' : '1433'}
+                  placeholder={DEFAULT_PORTS[engine]}
                 />
               </div>
               <div className="space-y-2">

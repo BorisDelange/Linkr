@@ -141,8 +141,10 @@ def _open_external(db: dict) -> "duckdb.DuckDBPyConnection":
         _use_server_extensions(con)
         con.execute(f"INSTALL {attach_type}")
         con.execute(f"LOAD {attach_type}")
+        # Doris refuses a READ_ONLY attach; its login is read-only instead.
+        read_only = ", READ_ONLY" if db.get("attachReadOnly", True) else ""
         con.execute(
-            f"ATTACH {_quote(db['attachDsn'])} AS ext (TYPE {attach_type}, READ_ONLY)"
+            f"ATTACH {_quote(db['attachDsn'])} AS ext (TYPE {attach_type}{read_only})"
         )
         # The source's schema goes on the search path so bare table names resolve
         # the way they do in the app's SQL editor.

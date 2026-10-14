@@ -76,6 +76,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { foldAccents } from '@/lib/fold-accents'
+import { DEFAULT_PORTS, ENGINE_LABELS } from '@/lib/database-engines'
 
 type DbTab = 'general' | 'connection' | 'metadata' | 'attribution'
 
@@ -217,6 +218,7 @@ export function AddDatabaseDialog({
         )
         if (config.host) setDbHost(config.host)
         if (config.port) setDbPort(String(config.port))
+        setDbFlightPort(config.flightPort ? String(config.flightPort) : '')
         if (config.database) setDbDatabase(config.database)
         if (config.schema) setDbSchema(config.schema)
         setDbAllowWrites(!!config.allowWrites)
@@ -272,6 +274,7 @@ export function AddDatabaseDialog({
   const [dbEngine, setDbEngine] = useState<DatabaseEngine>(defaultEngine)
   const [dbHost, setDbHost] = useState('')
   const [dbPort, setDbPort] = useState('')
+  const [dbFlightPort, setDbFlightPort] = useState('')
   const [dbDatabase, setDbDatabase] = useState('')
   const [dbSchema, setDbSchema] = useState('')
   const [dbAllowWrites, setDbAllowWrites] = useState(false)
@@ -308,6 +311,7 @@ export function AddDatabaseDialog({
     setDbEngine(defaultEngine)
     setDbHost('')
     setDbPort('')
+    setDbFlightPort('')
     setDbDatabase('')
     setDbSchema('')
     setDbAllowWrites(false)
@@ -407,6 +411,7 @@ export function AddDatabaseDialog({
                     username: dbUsername || undefined,
                     password: dbPassword || undefined,
                     ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+                    ...(dbEngine === 'doris' && dbFlightPort ? { flightPort: Number(dbFlightPort) } : {}),
                   }
                 : {}),
             }
@@ -486,6 +491,7 @@ export function AddDatabaseDialog({
               // leaves the stored (encrypted) credential untouched server-side.
               ...(dbPassword ? { password: dbPassword } : {}),
               ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+              ...(dbEngine === 'doris' && dbFlightPort ? { flightPort: Number(dbFlightPort) } : {}),
             }
             changes.connectionConfig = connectionConfig
             if (isServerMode()) changes.requireSessionOnly = requireSessionOnly
@@ -536,6 +542,7 @@ export function AddDatabaseDialog({
                 username: dbUsername || undefined,
                 password: dbPassword || undefined,
                 ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+                ...(dbEngine === 'doris' && dbFlightPort ? { flightPort: Number(dbFlightPort) } : {}),
               }
             : {}),
         }
@@ -891,6 +898,7 @@ export function AddDatabaseDialog({
                                 <>
                                   <SelectItem value="postgresql">PostgreSQL</SelectItem>
                                   <SelectItem value="mysql">MySQL</SelectItem>
+                                  <SelectItem value="doris">{ENGINE_LABELS.doris}</SelectItem>
                         </>
                       )}
                       <SelectItem value="duckdb">DuckDB</SelectItem>
@@ -1049,7 +1057,7 @@ export function AddDatabaseDialog({
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_port')}</Label>
-                      <Input value={dbPort} onChange={(e) => setDbPort(e.target.value)} placeholder="5432" />
+                      <Input value={dbPort} onChange={(e) => setDbPort(e.target.value)} placeholder={DEFAULT_PORTS[dbEngine]} />
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_database')}</Label>
@@ -1057,7 +1065,7 @@ export function AddDatabaseDialog({
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_schema')}</Label>
-                      <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder="public" />
+                      <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder={dbEngine === 'postgresql' ? 'public' : undefined} />
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_username')}</Label>
@@ -1067,6 +1075,17 @@ export function AddDatabaseDialog({
                       <Label>{t('databases.field_password')}</Label>
                       <PasswordInput value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
                     </div>
+                    {dbEngine === 'doris' && (
+                      <>
+                        <div className="space-y-2">
+                          <Label>{t('databases.field_flight_port')}</Label>
+                          <Input value={dbFlightPort} onChange={(e) => setDbFlightPort(e.target.value)} placeholder="8070" />
+                        </div>
+                        <p className="col-span-full text-xs text-muted-foreground">
+                          {t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}
+                        </p>
+                      </>
+                    )}
                     {isServerMode() && (
                       <p className="col-span-full text-xs text-muted-foreground">
                         {t('database_logins.form_hint')}

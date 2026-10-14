@@ -10,7 +10,7 @@ export * from './data-quality-checks'
 async function runCheck(dataSourceId: string, check: DqCheck): Promise<DqCheckResult> {
   const start = performance.now()
   try {
-    const rows = await queryDataSource(dataSourceId, check.sql)
+    const rows = await queryDataSource(dataSourceId, check.sql, { pushdown: check.origin !== 'manual' })
     const elapsed = performance.now() - start
 
     if (!rows.length) {

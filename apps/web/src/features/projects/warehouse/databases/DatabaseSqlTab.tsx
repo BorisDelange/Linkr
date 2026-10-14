@@ -60,7 +60,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
     const at = new Date().toISOString()
     const start = performance.now()
     try {
-      const rows = await queryDataSource(dataSourceId, sql)
+      const rows = await queryDataSource(dataSourceId, sql, { pushdown: false })
       const headers = rows.length > 0 ? Object.keys(rows[0]) : []
       setOutcome({
         kind: 'rows',

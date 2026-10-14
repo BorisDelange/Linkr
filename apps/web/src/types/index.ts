@@ -269,7 +269,7 @@ export interface Project extends Seedable, Authored, Lineaged {
 // --- Data Source Types ---
 
 export type DataSourceType = 'database' | 'fhir'
-export type DatabaseEngine = 'duckdb' | 'postgresql' | 'sqlite' | 'mysql' | 'sqlserver' | 'oracle'
+export type DatabaseEngine = 'duckdb' | 'postgresql' | 'sqlite' | 'mysql' | 'doris' | 'sqlserver' | 'oracle'
 export type DataSourceStatus = 'connected' | 'disconnected' | 'error' | 'configuring'
 
 export interface DatabaseConnectionConfig {
@@ -306,6 +306,9 @@ export interface DatabaseConnectionConfig {
   serverPath?: string
   host?: string
   port?: number
+  /** Doris: the frontend's Arrow Flight SQL port (default 8070), which carries
+   *  large results. Machine-local like the host: stripped from exports. */
+  flightPort?: number
   database?: string
   schema?: string
   /** Sent, never stored: in server mode a username + password typed in the

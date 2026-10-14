@@ -604,6 +604,13 @@ export interface QueryOptions {
    * an aggregate once per page instead.
    */
   allRows?: boolean
+  /**
+   * Server mode, external database: let it compute the query itself when the
+   * server finds it portable (`remote_sql.py`) — same answer, without pulling
+   * every row of an aggregate. On by default for the app's own queries; pass
+   * `false` for SQL a user wrote.
+   */
+  pushdown?: boolean
 }
 
 /** Run an arbitrary SQL query against a data source schema. */
@@ -612,7 +619,7 @@ export async function queryDataSource(
   sql: string,
   options: QueryOptions = {},
 ): Promise<Record<string, unknown>[]> {
-  const { signal, allRows } = options
+  const { signal, allRows, pushdown = true } = options
   signal?.throwIfAborted()
   const mapping = mappingResolver?.(dataSourceId)
   if (mapping && sql.toLowerCase().includes(RELATION_PREFIX)) {
@@ -627,7 +634,7 @@ export async function queryDataSource(
     if (dataSourceId.startsWith('filesrc_')) {
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
-    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows })
+    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown })
   }
   // Wait for the source to be in DuckDB before naming its schema. Callers used
   // to have to do this themselves, and the ones that forgot raced the mount on

@@ -27,6 +27,8 @@ import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { AddConnectionDialog } from './AddConnectionDialog'
 import { cn } from '@/lib/utils'
+import { ENGINE_LABELS } from '@/lib/database-engines'
+import type { DatabaseEngine } from '@/types'
 
 interface ConnectionsPanelProps {
   open: boolean
@@ -39,16 +41,6 @@ const statusDot: Record<string, string> = {
   disconnected: 'bg-gray-400',
   error: 'bg-red-500',
   configuring: 'bg-amber-500',
-}
-
-/** Display label for a database engine (proper casing, not raw uppercase). */
-const engineLabels: Record<string, string> = {
-  duckdb: 'DuckDB',
-  postgresql: 'PostgreSQL',
-  sqlite: 'SQLite',
-  mysql: 'MySQL',
-  sqlserver: 'SQL Server',
-  oracle: 'Oracle',
 }
 
 function ConnectionItem({
@@ -94,7 +86,7 @@ function ConnectionItem({
           <span className={cn('size-2 shrink-0 rounded-full', statusDot[entry.status] ?? 'bg-gray-400')} />
         </div>
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          <span className="shrink-0">{engineLabels[entry.engine] ?? entry.engine}</span>
+          <span className="shrink-0">{ENGINE_LABELS[entry.engine as DatabaseEngine] ?? entry.engine}</span>
           {errorText && (
             <span className="min-w-0 truncate text-destructive" title={errorText}>{errorText}</span>
           )}

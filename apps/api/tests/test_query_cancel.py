@@ -67,9 +67,26 @@ def test_interrupt_happens_while_the_query_is_still_registered():
         def interrupt(self):
             Con.held = query_cancel._lock.locked()
 
-    query_cancel._running["q4"] = ("7", Con())
+    query_cancel._running["q4"] = ("7", Con(), None)
     assert query_cancel.cancel("q4", "7") is True
     assert Con.held is True
+
+
+def test_cancel_also_runs_the_query_hook():
+    """A pushed-down query stops on the database's side through its hook."""
+    calls: list[str] = []
+
+    class Con:
+        def interrupt(self):
+            calls.append("interrupt")
+
+    token = query_cancel.current_query.set(("q5", "7"))
+    try:
+        with query_cancel.on_cancel(lambda: calls.append("hook")), query_cancel.tracking(Con()):
+            assert query_cancel.cancel("q5", "7") is True
+    finally:
+        query_cancel.current_query.reset(token)
+    assert calls == ["interrupt", "hook"]
 
 
 def test_untagged_query_is_untouched():

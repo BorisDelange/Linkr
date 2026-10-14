@@ -84,7 +84,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
       if (what === 'check') {
         const bodySql = bodyOf(current)
         if (!bodySql) throw new Error(t('schema_mapping.nothing_to_check'))
-        const described = await queryDataSource(sourceId, `DESCRIBE ${bodySql}`)
+        const described = await queryDataSource(sourceId, `DESCRIBE ${bodySql}`, { pushdown: false })
         if (!isLatest()) return
         const next = checkContract(cls, described as { column_name: string; column_type: string }[], bodySql)
         setReport(next)
@@ -99,7 +99,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
       } else {
         // The draft's relation, injected here: the database's own mapping would
         // otherwise answer for `linkr_…`.
-        const result = await queryDataSource(sourceId, withClassRelations(`SELECT * FROM ${relation.name} LIMIT 100`, mapping))
+        const result = await queryDataSource(sourceId, withClassRelations(`SELECT * FROM ${relation.name} LIMIT 100`, mapping), { pushdown: false })
         if (isLatest()) setRows(result)
       }
     } catch (e) {

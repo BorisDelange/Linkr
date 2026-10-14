@@ -29,8 +29,9 @@ from app.config import settings
 from app.core import audit, crypto
 from app.models.data_source import DataSource
 from app.models.database_credential import DatabaseCredential
+from app.services.data import db_connect
 
-EXTERNAL_ENGINES = ("postgresql", "mysql")
+EXTERNAL_ENGINES = db_connect.EXTERNAL_ENGINES
 # The connection settings that decide which server a login is sent to.
 TARGET_KEYS = ("engine", "host", "port", "database", "sslmode")
 # Credential fields that never belong in a database's stored config.
@@ -79,8 +80,15 @@ def target_of(config: dict | None) -> tuple:
     return tuple(str(config.get(k) or "") for k in TARGET_KEYS)
 
 
+# Also decide where a login is sent (Doris' Flight port), but kept out of
+# TARGET_KEYS: those seal every stored password, and adding one would make the
+# existing ones unreadable. A change still forgets the logins.
+_RETARGET_KEYS = ("flightPort",)
+
+
 def target_changed(before: dict | None, after: dict | None) -> bool:
-    return target_of(before) != target_of(after)
+    other = lambda c: tuple(str((c or {}).get(k) or "") for k in _RETARGET_KEYS)  # noqa: E731
+    return target_of(before) != target_of(after) or other(before) != other(after)
 
 
 def secret_context(user_id: int, source: DataSource) -> str:
