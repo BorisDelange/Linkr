@@ -372,6 +372,11 @@ export function ConceptTable({
     useSensor(KeyboardSensor),
   )
 
+  // Read by the checkbox cell rather than closed over: as a dependency of
+  // `columns`, every click rebuilt every column definition.
+  const selectedRef = useRef(selectedConceptIds)
+  selectedRef.current = selectedConceptIds
+
   const allVisibleSelected =
     concepts.length > 0 && concepts.every((c) => selectedConceptIds.has(c.concept_id))
 
@@ -504,12 +509,12 @@ export function ConceptTable({
           cell: ({ row }) => (
             <div
               className={`flex size-4 shrink-0 items-center justify-center rounded border ${
-                selectedConceptIds.has(row.original.concept_id)
+                selectedRef.current.has(row.original.concept_id)
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'border-muted-foreground/30'
               }`}
             >
-              {selectedConceptIds.has(row.original.concept_id) && <Check size={10} />}
+              {selectedRef.current.has(row.original.concept_id) && <Check size={10} />}
             </div>
           ),
           size: 36,
@@ -532,7 +537,7 @@ export function ConceptTable({
       : []
 
     return [...leading, ...dataColumns, ...trailing]
-  }, [availableColumns, t, onOpenConceptSet, pickMode, selectedConceptIds, rowAction])
+  }, [availableColumns, t, onOpenConceptSet, pickMode, rowAction])
 
   const table = useReactTable({
     data: concepts,

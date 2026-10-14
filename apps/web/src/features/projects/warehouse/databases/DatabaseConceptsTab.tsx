@@ -31,7 +31,7 @@ interface DatabaseConceptsTabProps {
  */
 export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = false }: DatabaseConceptsTabProps) {
   const { t, i18n } = useTranslation()
-  const concepts = useConcepts(dataSourceId, schemaMapping)
+  const concepts = useConcepts(dataSourceId, schemaMapping, 'database')
   const { count } = concepts
   const [confirmRestart, setConfirmRestart] = useState(false)
   // Rows alone take one pass per table — seconds — and make the list sortable

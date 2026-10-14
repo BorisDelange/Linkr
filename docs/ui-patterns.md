@@ -212,10 +212,12 @@ fetch against out-of-order answers (keep a ticket, drop stale replies) —
 are the reference. An export must go to the server with the same query, never
 from `data`, which is one page.
 
-Four older tables still hand-roll server paging — `SourceConceptTable`,
-`ConceptTable`, `CohortConceptPickerDialog` and `GlobalSummaryView`'s dedup/flat
-pair. They predate server mode; migrating one means checking its extras (columns
-joined after the fetch, checkbox pickers, multi-selection) against it.
+Three older tables still hand-roll server paging — `SourceConceptTable`,
+`ConceptTable` and `GlobalSummaryView`'s dedup/flat pair. They predate server
+mode; migrating one means checking its extras (columns joined after the fetch,
+checkbox pickers, multi-selection) against it. A concept picker is not a fourth:
+it is `ConceptTable` with `pickMode` under `ConceptPickerToolbar`, fed by
+`useConcepts(…, 'picker')` (see the patient-data and cohort pickers).
 
 **Do not trust the `manual*` flags to tell you which.** `manualSorting` /
 `manualFiltering` / `manualPagination` have been copy-pasted into tables that are
