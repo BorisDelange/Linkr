@@ -43,6 +43,14 @@ Datamart files (a Parquet export, a DuckDB file) go in `docker/spe-sim/datamart/
 folder `SPE_DATAMART_DIR` names. The SPE sees it read-only at `/datamart`: add it in Linkr
 as a database on the server, path `/datamart/<folder>`.
 
+For a large OMOP datamart without real data, `make-datamart.py` generates a synthetic one
+there (gitignored, like everything in `datamart/`):
+
+```bash
+python3 docker/spe-sim/make-datamart.py              # 20 M rows, ~270 MB, seconds per query
+python3 docker/spe-sim/make-datamart.py 240000000    # 240 M rows, ~3.3 GB, minutes per query
+```
+
 ## Test
 
 Once it is serving, from the repo root:

@@ -141,7 +141,7 @@ que l'API soit tuée.
 ## 4. Reproduction
 
 `docker/spe-sim`, passerelle à 60 s, conteneur à 4 Go, base DuckDB sur Parquet de 240 M de
-lignes (générateur synthétique OMOP) : la requête de décompte des concepts du catalog dure
+lignes (`python3 docker/spe-sim/make-datamart.py 240000000`, OMOP synthétique ; sans argument, 20 M de lignes pour des essais rapides) : la requête de décompte des concepts du catalog dure
 190 s côté serveur et le navigateur reçoit un 504 à 60 s. Une tranche de 50 M de lignes dure
 26 s. Deux requêtes simultanées font tuer le conteneur (OOM).
 
