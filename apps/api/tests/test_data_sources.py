@@ -251,11 +251,18 @@ async def test_only_an_instance_admin_reads_the_driver_error(client, db, monkeyp
     bob_id, bob = await _create_member(db, client, headers, ws, "bob", "editor")
     await database_credential_service.save(db, await db.get(DataSource, ds["id"]), bob_id, "u", "p", remember=True)
 
-    for who, expected in ((headers, leak), (bob, "Connection failed")):
-        r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=who)
-        assert r.json() == {"ok": False, "error": expected, "tables": []}
-        r = await client.get(f"{API}/data-sources/{ds['id']}/schema", headers=who)
-        assert r.status_code == 502 and r.json()["detail"] == expected
+    r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=headers)
+    assert r.json() == {"ok": False, "error": leak, "tables": []}
+    r = await client.get(f"{API}/data-sources/{ds['id']}/schema", headers=headers)
+    assert r.status_code == 502 and r.json()["detail"] == leak
+
+    # Everyone else gets the reference of the line that holds the cause.
+    r = await client.post(f"{API}/data-sources/{ds['id']}/retest", headers=bob)
+    assert r.json()["error"] == f"Connection failed (ref. {r.headers['x-request-id']})"
+    r = await client.get(f"{API}/data-sources/{ds['id']}/schema", headers=bob)
+    assert r.status_code == 502 and r.json()["detail"] == f"Connection failed (ref. {r.headers['x-request-id']})"
+    line = audit.query(filters={"request_id": r.headers["x-request-id"]})[0][0]
+    assert line["error"] == leak and line["action"] == "introspect"
 
     errors = [line["error"] for line in audit.query(limit=50)[0] if line["action"] in ("retest", "introspect")]
     assert errors and set(errors) == {leak}
@@ -448,7 +455,7 @@ async def test_test_connection_needs_databases_write(client, db, monkeypatch):
     assert r.json()["error"] == "could not connect to server: Connection refused (10.0.0.5:5432)"
     _, carol = await _create_member(db, client, admin, ws, "carol", "editor")
     r = await client.post(f"{API}/data-sources/test-connection", headers=carol, json=body)
-    assert r.json()["error"] == "Connection failed"
+    assert r.json()["error"].startswith("Connection failed (ref. ") and "10.0.0.5" not in r.json()["error"]
 
 
 async def test_non_member_cannot_access(client, db):

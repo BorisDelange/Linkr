@@ -6316,6 +6316,8 @@
     "detail": "SQL / code",
     "status": "Statut",
     "rows": "Lignes",
+    "error": "Erreur",
+    "request_id": "Référence",
     "ip": "Adresse IP",
     "verify": "Vérifier l'intégrité",
     "verify_ok": "Intact : {{count}} entrées vérifiées, aucune modifiée ni supprimée.",

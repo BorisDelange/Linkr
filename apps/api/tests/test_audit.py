@@ -50,6 +50,29 @@ def test_edited_line_breaks_the_chain():
     assert result["ok"] is False and result["brokenAtSeq"] == 2
 
 
+def test_lines_from_before_the_request_id_still_verify():
+    path = settings.data_path / "audit" / f"{date.today().isoformat()}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prev = audit._GENESIS
+    with path.open("w") as f:
+        for seq in (1, 2):
+            old = {k: None for k in audit.COLUMNS if k not in ("hash", "request_id")}
+            old.update(seq=seq, at=f"{date.today().isoformat()}T00:00:0{seq}.000+00:00", action="query")
+            body = json.dumps(old, sort_keys=True, default=str)
+            prev = audit._line_hash(prev, body)
+            f.write(json.dumps({**old, "hash": prev}) + "\n")
+    audit._writer.state = None
+    audit.write({"user_id": 1, "action": "query", "request_id": "abc123"})
+    assert audit.verify() == {"ok": True, "checked": 3, "brokenAtSeq": None}
+
+    lines = path.read_text().splitlines()
+    tampered = json.loads(lines[2])
+    tampered["request_id"] = "other"
+    lines[2] = json.dumps(tampered)
+    path.write_text("\n".join(lines) + "\n")
+    assert audit.verify()["brokenAtSeq"] == 3
+
+
 def test_removed_line_breaks_the_chain():
     for i in range(3):
         audit.write({"user_id": 1, "action": "query", "detail": f"SELECT {i}"})
@@ -231,6 +254,19 @@ async def test_a_missing_login_is_logged_as_refused(client):
     assert r.status_code == 428
     rows, _ = audit.query(filters={"data_source_id": [source_id]})
     assert rows[0]["status"] == 428 and rows[0]["error"] == "no login for this database"
+    assert rows[0]["request_id"] == r.headers["x-request-id"]
+
+
+async def test_an_unhandled_error_answers_its_reference(client, monkeypatch):
+    headers = await _admin(client)
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("internal detail")
+
+    monkeypatch.setattr(audit, "query", boom)
+    r = await client.get(f"{API}/audit-log", headers=headers)
+    rid = r.headers["x-request-id"]
+    assert r.status_code == 500 and r.json()["detail"] == f"Internal server error (ref. {rid})"
 
 
 async def test_the_log_is_admin_only_but_own_activity_is_open(client, db):

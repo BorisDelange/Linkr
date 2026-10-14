@@ -726,9 +726,16 @@ DuckDB; months past `LINKR_AUDIT_RETENTION_DAYS` (365) are deleted.
   `credential_set/forget`, and one line per `client_recipe` password handed out).
   A line is kept when an action was bound, the request was refused (401/403/428) or it
   changed something — not for plain reads. Jobs get `job_scope` with the launcher.
-- **Never result data**; `detail` is SQL/code truncated to 2 KB.
+- **Never result data**; `detail` is SQL/code truncated to 2 KB. `error` is a refusal's
+  reason or a failed access's driver text (password redacted, `core/redact.py`); stack
+  traces stay in the server log.
+- **Request id**: 12 hex chars per request, returned as `x-request-id`, written on the
+  line and bound in structlog's context, so every server-log line of the request (the
+  `app.*` stdlib loggers too) carries it. A reply that withholds its cause (a 500,
+  "Connection failed") quotes it as `(ref. …)` (`audit.with_reference`).
 - **Hash chain** (`seq`, `hash = sha256(prev + line)`), checked by `verify`. Assumes a
-  single API worker.
+  single API worker. A column added later (`_LATER_COLUMNS`) is hashed only when set,
+  so lines written before it still verify.
 - Routes: `GET /audit-log` (paged / sorted / filtered server-side: `limit`, `offset`,
   `sort`, `desc`, `filters` = JSON column → text or list; column names whitelisted
   by `VIEW_COLUMNS`, values bound), `/audit-log/export` (CSV of every matching

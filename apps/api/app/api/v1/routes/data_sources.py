@@ -726,8 +726,8 @@ def _connection_error(
     The driver's text names the hosts and ports that do: returned to anyone, it
     makes the server a scanner of the network it sits in (docs/design/spe-security.md).
     So only an instance admin reads it in the reply; everyone else gets "Connection
-    failed", and the text goes to the access log and the server log, where that
-    admin finds it."""
+    failed" and a reference, and the text goes to the access log and the server
+    log, where that reference finds it."""
     text = str(error)
     logger.info("%s of %s failed: %s", action, source.id if source else "a new connection", text)
     audit.bind(
@@ -735,7 +735,7 @@ def _connection_error(
         data_source_id=source.id if source else None,
         workspace_id=source.workspace_id if source else workspace_id,
     )
-    return text if user.role == "admin" else "Connection failed"
+    return text if user.role == "admin" else audit.with_reference("Connection failed")
 
 
 @router.get("/{source_id}/flight", response_model=FlightStatus)

@@ -22,6 +22,7 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
+from app.core.redact import redact_secrets
 from app.services.data import connection_pool, file_reader, query_cancel
 from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import check_db_host
@@ -290,13 +291,29 @@ def _attach_external(
     """ATTACH an external database under `alias` (already a safe identifier),
     read-only — by the ATTACH where the engine allows it, else by its login."""
     spec = _engine_spec(config)
-    # The DSN goes into a single-quoted SQL literal; double any single quote a
-    # value may still legitimately contain (e.g. a password) so it can't close it.
-    dsn_literal = _dsn(config, password).replace("'", "''")
     options = f"TYPE {spec['type']}" + (", READ_ONLY" if spec["read_only"] else "")
-    con.execute(f"ATTACH '{dsn_literal}' AS \"{alias}\" ({options})")
+    attach_dsn(con, _dsn(config, password), alias, options)
     if config.get("engine") == "doris":
         _require_read_only_doris_login(con, alias)
+
+
+def attach_dsn(con: duckdb.DuckDBPyConnection, dsn: str, alias: str, options: str) -> None:
+    """ATTACH a DSN built by `_dsn` under `alias` (already a safe identifier).
+
+    The postgres and mysql extensions quote the whole DSN in their connection
+    error, password included; that text reaches the API's replies, job logs and
+    the access log, so it is redacted here, where it is raised. `from None`: the
+    original would otherwise travel on as the cause, in every traceback."""
+    # The DSN goes into a single-quoted SQL literal; double any single quote a
+    # value may still legitimately contain (e.g. a password) so it can't close it.
+    literal = dsn.replace("'", "''")
+    try:
+        con.execute(f"ATTACH '{literal}' AS \"{alias}\" ({options})")
+    except duckdb.Error as exc:
+        text = redact_secrets(str(exc))
+        if text == str(exc):
+            raise
+        raise type(exc)(text) from None
 
 
 def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
