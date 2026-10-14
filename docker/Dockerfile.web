@@ -34,10 +34,10 @@ WORKDIR /app/apps/web
 # "/" keeps API calls relative (/api/v1/...), so nginx proxies them to the api
 # service — the backend URL is never baked into the bundle. Empty = front-only.
 #
-# Sub-path deployment (reverse proxy that does NOT strip the prefix): set
+# Sub-path deployment (reverse proxy serving the app under /my-prefix/): set
 # BASE_PATH=/my-prefix/ — it prefixes assets + router basename, and becomes the
-# VITE_API_URL default so API/WS calls carry the prefix too. A proxy that DOES
-# strip the prefix needs neither (keep both at "/").
+# VITE_API_URL default so API/WS calls carry the prefix too. Works whether the
+# proxy strips the prefix or forwards it (the serve stage drops it, see below).
 ARG BASE_PATH=/
 ENV BASE_PATH=$BASE_PATH
 ARG VITE_API_URL=$BASE_PATH
@@ -48,4 +48,17 @@ RUN npm run build
 FROM nginx:alpine
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+# A proxy that forwards the prefix sends /my-prefix/assets/…, but files and the
+# /api/ and /ws/ routes live at the root: drop the prefix and route again.
+# Trimmed like normalizeBasePath (vite.config.ts), and limited to plain path
+# characters so it is safe inside the sed expression and the nginx regex.
+ARG BASE_PATH=/
+RUN prefix=$(printf '%s' "$BASE_PATH" | sed -E 's#^/+##; s#/+$##') \
+    && if [ -n "$prefix" ]; then \
+         printf '%s' "$prefix" | grep -Eq '^[A-Za-z0-9._~/-]+$' \
+           || { echo "BASE_PATH must be a plain path, got: $BASE_PATH" >&2; exit 1; }; \
+         sed -i "s#^    \# @base-path-rule@#    location ^~ /$prefix/ { rewrite ^/$prefix/(.*)\$ /\$1 last; }#" \
+           /etc/nginx/conf.d/default.conf \
+         && grep -qF "location ^~ /$prefix/" /etc/nginx/conf.d/default.conf; \
+       fi
 EXPOSE 80

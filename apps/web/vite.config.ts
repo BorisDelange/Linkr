@@ -98,9 +98,9 @@ function injectBootBytes(): Plugin {
 // Sub-path deployments (e.g. reverse proxy exposing the app under
 // /docker-9250/): BASE_PATH prefixes all asset URLs and, via Vite's BASE_URL,
 // the router basename in main.tsx. Normalized to /…/ as Vite requires.
-// In a production build, set it only when the proxy does NOT strip the prefix —
-// when it does, nginx sees "/" and a prefix here would break every asset URL.
-// The dev server copes with both (see restoreBasePrefix).
+// Set it whether or not the proxy strips the prefix: the browser asks for
+// prefixed URLs either way. The Docker image's nginx and the dev server
+// (restoreBasePrefix) both accept the two forms.
 function normalizeBasePath(raw: string | undefined) {
   const trimmed = (raw || '/').trim()
   if (trimmed === '' || trimmed === '/') return '/'

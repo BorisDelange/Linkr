@@ -79,3 +79,11 @@ Inheriting the SPE's security only holds if Linkr does not undo it from the insi
 - **Client-only (WASM)** keeps data in the browser, has no login, no server audit, and
   loads Pyodide/webR from a CDN on first use. It is for demos, portals, open or synthetic
   data — **never an SPE deployment for real patient data**.
+
+## Testing against an SPE locally
+
+[`docker/spe-sim/`](../docker/spe-sim/README.md) simulates the common shape: a TLS
+gateway serving each SPE under `/docker-<id>/`, SPE networks with no internet route, a
+Nexus-style package mirror, and Postgres / Oracle / SQL Server datamarts reachable
+through explicitly opened links. Gateway misconfigurations (WebSockets dropped, short
+idle timeout, small body limit) are one environment variable away.

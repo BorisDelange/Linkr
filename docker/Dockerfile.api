@@ -27,13 +27,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # R packages for the APP interpreter (built-in dashboard component renders run on
 # the shared Rscript, NOT an isolated project env): arrow (Parquet dataset
 # injection), svglite (SVG device), jsonlite + base64enc (R kernel wire protocol —
-# see execution/kernel.py). Binary installs from p3m (fast).
+# see execution/kernel.py), renv (builds each project's managed R environment —
+# renv_provisioner loads it before anything else, and an offline server could not
+# fetch it). Binary installs from p3m (fast).
 # NB: isolated PROJECT R kernels drop the site library, so they load the kernel
 # infra (jsonlite/base64enc/svglite) from a separate shared library that
 # renv_provisioner.ensure_kernel_r_lib() populates on first use (a one-off install
 # under the data volume, whose path isn't known at image-build time).
-RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc"))' \
-    && Rscript -e 'library(arrow); library(svglite); library(jsonlite); library(base64enc)'
+RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc","renv"))' \
+    && Rscript -e 'library(arrow); library(svglite); library(jsonlite); library(base64enc); library(renv)'
 
 # Python deps in a venv (Ubuntu 24.04 blocks system pip via PEP 668).
 # Execution extras: matplotlib, scipy, statsmodels, lifelines (pandas + pyarrow are core).
@@ -44,8 +46,10 @@ RUN python3 -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
 # The full source is needed for the editable install (hatchling packages `app`).
+# uv builds each project's managed Python environment (uv_provisioner); without it
+# on PATH, every environment build fails.
 COPY apps/api/ ./
-RUN pip install --no-cache-dir -e ".[execution,doris]"
+RUN pip install --no-cache-dir -e ".[execution,doris]" uv
 
 # Export-format version: in the repo it lives at the monorepo root, above the
 # copied apps/api tree, so ship it explicitly and point export_version.py at it.
