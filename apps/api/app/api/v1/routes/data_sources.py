@@ -146,7 +146,7 @@ async def create_data_source(
     try:
         return await data_source_service.create(db, body, user)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc
     except data_source_service.AliasTaken as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
@@ -161,13 +161,11 @@ async def test_connection(
     its tables. The password in the request is used for the test only and is
     never persisted.
 
-    The driver's error stays in the server log: returned, it would tell a caller
-    which hosts and ports answer — a scanner of the network the server sits in."""
+    The driver's error is for instance admins only (see _connection_error)."""
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
     ok, error, tables = await data_source_service.test_connection(body.connection_config)
     if not ok:
-        logger.info("test-connection failed: %s", error)
-        error = "Connection failed"
+        error = _connection_error(user, "connection_test", error, workspace_id=body.workspace_id)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
 
 
@@ -249,7 +247,7 @@ async def update_data_source(
     try:
         return await data_source_service.update(db, source, body, editor_id=user.id)
     except fs_browser.FsBrowseError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        raise HTTPException(exc.status_code, str(exc)) from exc
     except data_source_service.AliasTaken as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
 
@@ -707,18 +705,37 @@ async def retest_data_source(
     source = await _load_source(db, source_id, user, "databases:read")
     ok, error, tables = await data_source_service.test_connection_stored(source, await _login(db, source, user))
     if not ok and _reaches_the_network(source):
-        logger.info("retest of %s failed: %s", source.id, error)
-        error = "Connection failed"
+        error = _connection_error(user, "retest", error, source)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
 
 
 def _reaches_the_network(source) -> bool:
     """An external engine's driver error names hosts and ports that answer (see
-    `test_connection`); a managed or uploaded file's names only its own file."""
+    `_connection_error`); a managed or uploaded file's names only its own file."""
     return (
         not data_source_service.is_managed(source)
         and data_source_service.is_external_engine((source.connection_config or {}).get("engine"))
     )
+
+
+def _connection_error(
+    user: User, action: str, error: object, source: DataSource | None = None, workspace_id: str | None = None,
+) -> str:
+    """What the caller is told when an external database did not answer.
+
+    The driver's text names the hosts and ports that do: returned to anyone, it
+    makes the server a scanner of the network it sits in (docs/design/spe-security.md).
+    So only an instance admin reads it in the reply; everyone else gets "Connection
+    failed", and the text goes to the access log and the server log, where that
+    admin finds it."""
+    text = str(error)
+    logger.info("%s of %s failed: %s", action, source.id if source else "a new connection", text)
+    audit.bind(
+        action=action, error=text,
+        data_source_id=source.id if source else None,
+        workspace_id=source.workspace_id if source else workspace_id,
+    )
+    return text if user.role == "admin" else "Connection failed"
 
 
 @router.get("/{source_id}/flight", response_model=FlightStatus)
@@ -736,8 +753,7 @@ async def get_flight_status(
     except database_credential_service.CredentialRequired:
         raise
     except Exception as e:  # noqa: BLE001 — the database itself is unreachable: the page says so elsewhere
-        logger.info("flight status of %s failed: %s", source.id, e)
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Connection failed") from e
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, _connection_error(user, "flight_check", e, source)) from e
 
 
 @router.get("/{source_id}/schema", response_model=list[IntrospectedTable])
@@ -758,11 +774,10 @@ async def get_data_source_schema(
         # Reaching the database is the one thing this route does, so a driver
         # failure is not a server fault: unhandled, it became a bare 500 whose
         # "Internal server error" hid the only text that says what went wrong —
-        # a held file lock, a missing file. An external engine's text stays in
-        # the server log, like `test_connection`'s.
+        # a held file lock, a missing file. An external engine's text is for
+        # instance admins only (_connection_error).
         if _reaches_the_network(source):
-            logger.info("introspection of %s failed: %s", source.id, e)
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Connection failed") from e
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, _connection_error(user, "introspect", e, source)) from e
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
 
 

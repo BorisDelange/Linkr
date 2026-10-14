@@ -407,6 +407,7 @@
     "filter_clear_all": "Tout effacer",
     "filter_reset": "Réinitialiser le filtre",
     "filter_no_columns": "Aucun filtre configuré. Ajoutez un filtre pour filtrer les données des widgets.",
+    "filter_no_values": "Aucune valeur",
     "filter_add": "Ajouter un filtre",
     "filter_add_title": "Ajouter un filtre",
     "filter_edit_title": "Modifier le filtre",
@@ -929,10 +930,12 @@
     "layout_unsorted_description": "Lire un patient y parcourt l'essentiel de la table : {{tables}}. Écrire les fichiers Parquet triés par patient (puis par date) permet à toutes les vues patient, et au décompte des concepts, de sauter le reste.",
     "doris_read_only_hint": "Doris ne peut pas ouvrir une connexion en lecture seule : Linkr exige donc un compte qui ne peut que lire (SELECT). Un compte disposant d'un autre droit est refusé.",
     "field_flight_port": "Port Arrow Flight SQL",
+    "port_invalid": "Saisissez un port entre 1 et 65535.",
     "doris_flight_hint": "Les résultats volumineux passent par Arrow Flight SQL (l'arrow_flight_sql_port du FE, 8070 par défaut) : chaque BE doit être joignable depuis le serveur Linkr, ou annoncer une adresse qui l'est (public_host).",
     "flight_slow_title": "Les résultats volumineux de cette base seront lents",
     "flight_not_installed": "Le serveur Linkr ne peut pas utiliser Arrow Flight SQL (son extra « doris » n'est pas installé) : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés.",
-    "flight_unreachable": "Arrow Flight SQL (port {{port}}) est injoignable : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Vérifiez que le port est ouvert et que chaque BE est joignable depuis le serveur Linkr. Erreur : {{detail}}"
+    "flight_unreachable": "Arrow Flight SQL (port {{port}}) est injoignable : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Vérifiez que le port est ouvert et que chaque BE est joignable depuis le serveur Linkr. Erreur : {{detail}}",
+    "flight_unauthenticated": "Arrow Flight SQL (port {{port}}) a refusé l'identifiant : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Le même utilisateur et mot de passe sont envoyés au port Flight : vérifiez que Doris les accepte sur celui-ci. Erreur : {{detail}}"
   },
   "reports": {
     "title": "Rapports",

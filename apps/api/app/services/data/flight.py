@@ -12,6 +12,11 @@ and `problem` says why, which the database page shows.
 Doris answers a Flight query from its backends, not from the frontend the
 client connects to: each backend must be reachable from this server, or
 announce an address that is (`public_host` + `arrow_flight_sql_proxy_port`).
+
+TLS follows the source's `sslmode`, with libpq's meaning of the words: `require`
+encrypts and trusts the network for the server's identity, `verify-ca` /
+`verify-full` check its certificate — against `sslrootcert` (a PEM file on
+this server) when given, else the system's roots.
 """
 
 from __future__ import annotations
@@ -21,18 +26,26 @@ import logging
 import threading
 import time
 from collections.abc import Callable, Iterator
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 try:
     import adbc_driver_flightsql.dbapi as _flightsql
-except ImportError:  # the `doris` extra is not installed
+except ImportError:
     _flightsql = None
 
 DEFAULT_PORTS = {"doris": 8070}
 
 NOT_INSTALLED = "not_installed"
 UNREACHABLE = "unreachable"
+UNAUTHENTICATED = "unauthenticated"
+
+_TLS_MODES = ("require", "verify-ca", "verify-full")
+# adbc_driver_flightsql.DatabaseOptions.TLS_SKIP_VERIFY / TLS_ROOT_CERTS, spelled
+# out so the module reads without the optional driver.
+_TLS_SKIP_VERIFY = "adbc.flight.sql.client_option.tls_skip_verify"
+_TLS_ROOT_CERTS = "adbc.flight.sql.client_option.tls_root_certs"
 
 # A failed probe is believed this long before Flight is tried again.
 _RECHECK_AFTER = 600.0
@@ -44,7 +57,12 @@ _checked: dict[tuple, tuple[float, str | None, str | None]] = {}
 
 
 class Unreachable(Exception):
-    """Flight could not carry the query; the MySQL protocol can."""
+    """Flight could not carry the query; the MySQL protocol can. `status` says
+    whether the port did not answer (UNREACHABLE) or refused the login."""
+
+    def __init__(self, message: str, status: str = UNREACHABLE):
+        super().__init__(message)
+        self.status = status
 
 
 def port(config: dict) -> int | None:
@@ -54,8 +72,17 @@ def port(config: dict) -> int | None:
     return int(config.get("flightPort") or DEFAULT_PORTS[engine])
 
 
+def tls(config: dict) -> bool:
+    return str(config.get("sslmode") or "").lower() in _TLS_MODES
+
+
+def uri(config: dict) -> str:
+    scheme = "grpc+tls" if tls(config) else "grpc"
+    return f"{scheme}://{config['host']}:{port(config)}"
+
+
 def _key(config: dict) -> tuple:
-    return (config.get("engine"), config.get("host"), port(config), config.get("username"))
+    return (config.get("engine"), config.get("host"), port(config), config.get("username"), tls(config))
 
 
 def _connect(config: dict, password: str | None, timeout: str | None = None):
@@ -63,12 +90,23 @@ def _connect(config: dict, password: str | None, timeout: str | None = None):
     if timeout:
         kwargs["adbc.flight.sql.rpc.timeout_seconds.query"] = timeout
         kwargs["adbc.flight.sql.rpc.timeout_seconds.fetch"] = timeout
-    return _flightsql.connect(f"grpc://{config['host']}:{port(config)}", db_kwargs=kwargs)
+    if tls(config):
+        if str(config.get("sslmode")).lower() == "require":
+            kwargs[_TLS_SKIP_VERIFY] = "true"
+        if root_cert := config.get("sslrootcert"):
+            kwargs[_TLS_ROOT_CERTS] = Path(root_cert).read_text()
+    return _flightsql.connect(uri(config), db_kwargs=kwargs)
 
 
 def _is_transport_error(exc: Exception) -> bool:
     text = str(exc)
     return any(s in text for s in ("Unavailable", "connection error", "DeadlineExceeded", "dial tcp", "Unauthenticated"))
+
+
+def status_of(exc: Exception) -> str:
+    """What a failed Flight call says about the port: refused the login, or did
+    not answer (the default, which also covers a backend out of reach)."""
+    return UNAUTHENTICATED if "Unauthenticated" in str(exc) else UNREACHABLE
 
 
 def problem(config: dict, password: str | None, probe_sql: str | None) -> tuple[str, str | None] | None:
@@ -91,8 +129,8 @@ def problem(config: dict, password: str | None, probe_sql: str | None) -> tuple[
             with contextlib.closing(_connect(config, password, _PROBE_TIMEOUT)) as conn, conn.cursor() as cur:
                 cur.execute(probe_sql)
                 cur.fetchall()
-        except Exception as exc:  # noqa: BLE001 — any failure means: use the MySQL protocol
-            found = (UNREACHABLE, str(exc).splitlines()[0][:300])
+        except Exception as exc:  # any failure means: use the MySQL protocol
+            found = (status_of(exc), str(exc).splitlines()[0][:300])
     record(config, found)
     return found
 
@@ -119,7 +157,7 @@ def reader(config: dict, password: str | None, sql: str) -> Iterator[tuple[objec
             with contextlib.suppress(Exception):
                 conn.close()
         if _is_transport_error(exc):
-            raise Unreachable(str(exc).splitlines()[0]) from exc
+            raise Unreachable(str(exc).splitlines()[0], status_of(exc)) from exc
         raise
     try:
         yield batches, cur.adbc_cancel

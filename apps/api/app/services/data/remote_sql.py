@@ -77,6 +77,10 @@ _CAST_FROM: dict[frozenset, set] = {
 }
 
 _DATE_UNITS = {"YEAR", "QUARTER", "MONTH", "DAY"}
+# `DATE '2020-01-01'` / `TIMESTAMP '2020-01-01 10:00:00'`: the one date spelling
+# every engine reads alike. DuckDB also takes 'epoch', '2020-1-5' or a T
+# separator, which Doris does not.
+_ISO_DATETIME = re.compile(r"\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?)?")
 # STRFTIME formats whose tokens mean the same to MySQL's DATE_FORMAT.
 _PORTABLE_TIME_FORMAT = re.compile(r"(%[Ymd]|[-/ ._:])*")
 
@@ -282,12 +286,16 @@ def _typed(tree: exp.Expression, scope: str, tables: list[str], columns: Callabl
     try:
         tree = qualify(tree, schema={scope: schema}, db=scope, dialect="duckdb", validate_qualify_columns=True)
         return annotate_types(tree, schema={scope: schema}, dialect="duckdb")
-    except Exception as exc:  # noqa: BLE001 — anything the optimizer cannot type stays local
+    except Exception as exc:  # anything the optimizer cannot type stays local
         raise NotPortable(f"untyped: {exc}") from exc
 
 
 def _type(node: exp.Expression | None) -> T:
     return node.type.this if node is not None and node.type is not None else T.UNKNOWN
+
+
+def _is_iso_literal(node: exp.Expression) -> bool:
+    return isinstance(node, exp.Literal) and node.is_string and _ISO_DATETIME.fullmatch(node.this) is not None
 
 
 def _is_patient_key(node: exp.Expression, typed: bool = True) -> bool:
@@ -331,6 +339,8 @@ def _check_node(node: exp.Expression) -> None:
         if _is_patient_key(node.this) and node.to.this in _INTEGER:
             return
         target, source = node.to.this, _type(node.this)
+        if target in _TEMPORAL and _is_iso_literal(node.this):
+            return
         accepted = next((ok for targets, ok in _CAST_FROM.items() if target in targets), None)
         if accepted is None or source not in accepted:
             raise NotPortable(f"CAST {source.value} to {target.value}")

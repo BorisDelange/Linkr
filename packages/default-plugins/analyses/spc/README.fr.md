@@ -114,7 +114,8 @@ Un changement que vous avez fait — un nouveau protocole, une nouvelle équipe,
 service rouvert — se juge mieux quand la carte montre *quand* il a eu lieu. Dans
 **Événements**, choisissez ceux que cette carte marque, ou ouvrez **Gérer les
 événements** pour en ajouter, modifier ou supprimer : chacun a une date (et, si
-besoin, une heure), un libellé en anglais et en français, et une couleur.
+besoin, une heure), un libellé — saisi dans la langue de l'application, l'autre
+langue en reprenant la valeur au départ — et une couleur.
 
 Les événements appartiennent au **tableau de bord**, pas à une carte : définissez
 « Nouveau protocole de sédation » une fois, et chaque carte de contrôle du

@@ -105,8 +105,8 @@ A signal means *look*, not *act*. It says the variation is unlikely to be chance
 A change you made — a new protocol, a staffing change, a ward that reopened — is
 easier to judge when the chart shows *when* it happened. Under **Events**, pick
 the events this chart marks, or open **Manage events** to add, edit or delete
-them: each has a date (and, optionally, a time), a label in English and French,
-and a colour.
+them: each has a date (and, optionally, a time), a label — typed in the app's
+language, the other language starting as a copy of it — and a colour.
 
 Events belong to the **dashboard**, not to one chart: define "New sedation
 protocol" once and every control chart of that dashboard can show it. Each chart

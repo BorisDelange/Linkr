@@ -60,7 +60,7 @@ function dsNodeToFile(projectUid: string, n: DsNode): DatasetFile {
 }
 
 /** Child path from parent id(=path) + name (root parent → bare name). */
-function dsChildPath(parentId: string | null, name: string): string {
+export function dsChildPath(parentId: string | null, name: string): string {
   return parentId ? `${parentId}/${name}` : name
 }
 

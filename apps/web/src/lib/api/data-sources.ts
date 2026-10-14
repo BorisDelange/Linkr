@@ -494,9 +494,11 @@ export function getParquetLayout(dataSourceId: string, checks: LayoutCheck[]): P
 
 /** Whether Arrow Flight carries a Doris database's large results (`flight.py`). */
 export interface FlightStatus {
-  status: 'ok' | 'not_applicable' | 'not_installed' | 'unreachable'
+  status: 'ok' | 'not_applicable' | 'not_installed' | 'unreachable' | 'unauthenticated'
   port?: number
   detail?: string
+  /** The Flight connection is encrypted (the database's `sslmode`). */
+  tls?: boolean
 }
 
 export function fetchFlightStatus(dataSourceId: string): Promise<FlightStatus> {

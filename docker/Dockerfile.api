@@ -49,7 +49,17 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 # uv builds each project's managed Python environment (uv_provisioner); without it
 # on PATH, every environment build fails.
 COPY apps/api/ ./
-RUN pip install --no-cache-dir -e ".[execution,doris]" uv
+# Exactly what apps/api/uv.lock resolves for these extras, hashes included — the
+# image freezes the lockfile, as the web image does with package-lock.json (a
+# dependency fix only ships once the lock is refreshed). The project itself goes
+# in editable afterwards, without re-resolving. Pinned uv: a different resolver
+# version would export a different list.
+RUN pip install --no-cache-dir "uv==0.10.2" \
+    && uv export --frozen --no-dev --no-emit-project --extra execution --extra doris \
+        --format requirements-txt -o /tmp/requirements.txt \
+    && uv pip sync --no-cache /tmp/requirements.txt \
+    && uv pip install --no-cache --no-deps -e . \
+    && rm /tmp/requirements.txt
 
 # Export-format version: in the repo it lives at the monorepo root, above the
 # copied apps/api tree, so ship it explicitly and point export_version.py at it.

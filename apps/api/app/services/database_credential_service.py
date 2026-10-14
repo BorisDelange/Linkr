@@ -87,7 +87,9 @@ _RETARGET_KEYS = ("flightPort",)
 
 
 def target_changed(before: dict | None, after: dict | None) -> bool:
-    other = lambda c: tuple(str((c or {}).get(k) or "") for k in _RETARGET_KEYS)  # noqa: E731
+    def other(config: dict | None) -> tuple:
+        return tuple(str((config or {}).get(k) or "") for k in _RETARGET_KEYS)
+
     return target_of(before) != target_of(after) or other(before) != other(after)
 
 

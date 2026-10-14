@@ -1,23 +1,32 @@
 import { describe, expect, it } from 'vitest'
+import type { DashboardWidget } from '@/types'
+import type { PluginConfigField } from '@/types/plugin'
 import {
-  DEFAULT_EVENT_COLOR, formatEventDate, isCompleteEvent, isValidEventDate, normalizeEvents,
-  readDashboardEvents, selectEvents,
+  DEFAULT_EVENT_COLOR, eventSelectionKeys, formatEventDate, isCompleteEvent, isValidEventColor, isValidEventDate,
+  normalizeEvents, pruneEventIds, readDashboardEvents, selectEvents,
 } from './dashboard-events'
+import fixture from './event-date.fixture.json'
 
 describe('isValidEventDate', () => {
-  it('accepts a day and a day with a time', () => {
-    expect(isValidEventDate('2025-02-28')).toBe(true)
-    expect(isValidEventDate('2025-02-28T08:30')).toBe(true)
-    expect(isValidEventDate('2025-02-28T08:30:15')).toBe(true)
+  it('accepts and refuses the strings the format validator does', () => {
+    for (const date of fixture.accepted) expect(isValidEventDate(date), date).toBe(true)
+    for (const date of fixture.refused) expect(isValidEventDate(date), date).toBe(false)
   })
 
-  it('refuses a day that does not exist, a bad time, or another format', () => {
-    expect(isValidEventDate('2025-02-29')).toBe(false)
-    expect(isValidEventDate('2025-13-01')).toBe(false)
-    expect(isValidEventDate('2025-02-28T24:00')).toBe(false)
-    expect(isValidEventDate('28/02/2025')).toBe(false)
-    expect(isValidEventDate('2025-02-28Z')).toBe(false)
+  it('refuses a non-string', () => {
     expect(isValidEventDate(20250228)).toBe(false)
+    expect(isValidEventDate(null)).toBe(false)
+  })
+})
+
+describe('isValidEventColor', () => {
+  it('takes a palette name or a six-digit hex, nothing else', () => {
+    expect(isValidEventColor(DEFAULT_EVENT_COLOR)).toBe(true)
+    expect(isValidEventColor('#0ea5e9')).toBe(true)
+    expect(isValidEventColor('none')).toBe(false)
+    expect(isValidEventColor('#abc')).toBe(false)
+    expect(isValidEventColor('mauve')).toBe(false)
+    expect(isValidEventColor(undefined)).toBe(false)
   })
 })
 
@@ -93,6 +102,46 @@ describe('selectEvents', () => {
   it('selects nothing from a missing or malformed selection', () => {
     expect(selectEvents(events, undefined)).toEqual([])
     expect(selectEvents(events, 'a')).toEqual([])
+  })
+})
+
+describe('eventSelectionKeys', () => {
+  it('reads the keys typed dashboard-events, and eventIds for an unknown plugin', () => {
+    const schema: Record<string, PluginConfigField> = {
+      dateColumn: { type: 'column-select', label: { en: 'Date', fr: 'Date' } },
+      markers: { type: 'dashboard-events', label: { en: 'Events', fr: 'Événements' } },
+    }
+    expect(eventSelectionKeys(schema)).toEqual(['markers'])
+    expect(eventSelectionKeys(undefined)).toEqual(['eventIds'])
+  })
+})
+
+describe('pruneEventIds', () => {
+  const widget = (id: string, source: DashboardWidget['source']): DashboardWidget => ({
+    id, tabId: 't', name: { en: id }, layout: { x: 0, y: 0, w: 24, h: 12 }, source,
+  })
+  const schemaOf = (pluginId: string) => pluginId === 'spc'
+    ? { markers: { type: 'dashboard-events', label: { en: 'Events', fr: 'Événements' } } satisfies PluginConfigField }
+    : undefined
+
+  it('returns only the widgets that selected a deleted event, with the survivors kept in order', () => {
+    const out = pruneEventIds([
+      widget('a', { type: 'plugin', pluginId: 'spc', config: { markers: ['e2', 'gone', 'e1'], eventIds: ['gone'] } }),
+      widget('b', { type: 'plugin', pluginId: 'spc', config: { markers: ['e1'] } }),
+      widget('c', { type: 'plugin', pluginId: 'other', config: { eventIds: ['gone', 'e1'] } }),
+      widget('d', { type: 'inline', language: 'sql', code: 'select 1', config: { eventIds: ['gone'] } }),
+    ], ['e1', 'e2'], schemaOf)
+    expect(out.map((w) => [w.id, w.source.config])).toEqual([
+      ['a', { markers: ['e2', 'e1'], eventIds: ['gone'] }],
+      ['c', { eventIds: ['e1'] }],
+    ])
+  })
+
+  it('leaves a missing or malformed selection alone', () => {
+    expect(pruneEventIds([
+      widget('a', { type: 'plugin', pluginId: 'spc', config: {} }),
+      widget('b', { type: 'plugin', pluginId: 'spc', config: { markers: 'e1' } }),
+    ], [], schemaOf)).toEqual([])
   })
 })
 

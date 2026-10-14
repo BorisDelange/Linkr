@@ -130,7 +130,7 @@ export function GenericConfigPanel({
           renderConceptField={renderConceptField}
           renderDatasetField={renderDatasetField}
           renderEventsField={renderEventsField}
-                  />
+        />
       ) : fieldThenBooleans ? (
         <div key={group.keys.join('-')} className="grid items-end gap-4" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <FieldRenderer
@@ -310,7 +310,7 @@ function FieldRenderer({ fieldKey, field, value, columns, lang, config, onConfig
           renderConceptField={renderConceptField}
           renderDatasetField={renderDatasetField}
           renderEventsField={renderEventsField}
-                  />
+        />
       )
     case 'select':
       return field.multi ? (

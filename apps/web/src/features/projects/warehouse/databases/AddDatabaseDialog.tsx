@@ -76,7 +76,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { foldAccents } from '@/lib/fold-accents'
-import { DEFAULT_PORTS, ENGINE_LABELS } from '@/lib/database-engines'
+import { DEFAULT_PORTS, ENGINE_LABELS, parsePort } from '@/lib/database-engines'
 
 type DbTab = 'general' | 'connection' | 'metadata' | 'attribution'
 
@@ -275,6 +275,10 @@ export function AddDatabaseDialog({
   const [dbHost, setDbHost] = useState('')
   const [dbPort, setDbPort] = useState('')
   const [dbFlightPort, setDbFlightPort] = useState('')
+  const dbPortValue = parsePort(dbPort)
+  const dbFlightPortValue = parsePort(dbFlightPort)
+  const dbPortInvalid = !!dbPort.trim() && dbPortValue === null
+  const dbFlightPortInvalid = dbEngine === 'doris' && !!dbFlightPort.trim() && dbFlightPortValue === null
   const [dbDatabase, setDbDatabase] = useState('')
   const [dbSchema, setDbSchema] = useState('')
   const [dbAllowWrites, setDbAllowWrites] = useState(false)
@@ -405,13 +409,13 @@ export function AddDatabaseDialog({
               ...(!isFileEngine(dbEngine)
                 ? {
                     host: dbHost,
-                    port: dbPort ? Number(dbPort) : undefined,
+                    port: dbPortValue ?? undefined,
                     database: dbDatabase,
                     schema: dbSchema || undefined,
                     username: dbUsername || undefined,
                     password: dbPassword || undefined,
                     ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
-                    ...(dbEngine === 'doris' && dbFlightPort ? { flightPort: Number(dbFlightPort) } : {}),
+                    ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
                   }
                 : {}),
             }
@@ -483,7 +487,7 @@ export function AddDatabaseDialog({
             const connectionConfig: DatabaseConnectionConfig = {
               engine: dbEngine,
               host: dbHost,
-              port: dbPort ? Number(dbPort) : undefined,
+              port: dbPortValue ?? undefined,
               database: dbDatabase,
               schema: dbSchema || undefined,
               username: dbUsername || undefined,
@@ -491,7 +495,7 @@ export function AddDatabaseDialog({
               // leaves the stored (encrypted) credential untouched server-side.
               ...(dbPassword ? { password: dbPassword } : {}),
               ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
-              ...(dbEngine === 'doris' && dbFlightPort ? { flightPort: Number(dbFlightPort) } : {}),
+              ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
             }
             changes.connectionConfig = connectionConfig
             if (isServerMode()) changes.requireSessionOnly = requireSessionOnly
@@ -536,13 +540,13 @@ export function AddDatabaseDialog({
           ...(!isFileEngine(dbEngine)
             ? {
                 host: dbHost,
-                port: dbPort ? Number(dbPort) : undefined,
+                port: dbPortValue ?? undefined,
                 database: dbDatabase,
                 schema: dbSchema || undefined,
                 username: dbUsername || undefined,
                 password: dbPassword || undefined,
                 ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
-                ...(dbEngine === 'doris' && dbFlightPort ? { flightPort: Number(dbFlightPort) } : {}),
+                ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
               }
             : {}),
         }
@@ -663,6 +667,7 @@ export function AddDatabaseDialog({
   const isConnectionValid =
     (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles || usesServerPath) &&
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
+    !(selectedType === 'database' && !isFileEngine(dbEngine) && (dbPortInvalid || dbFlightPortInvalid)) &&
     !isSizeBlocked
 
   const canSubmit = isNameValid && isConnectionValid && (!fileLocationChanged || fileLocationValid)
@@ -896,13 +901,13 @@ export function AddDatabaseDialog({
                                   Order: network DBs first (server mode), then file engines. */}
                               {isServerMode() && (
                                 <>
-                                  <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                                  <SelectItem value="mysql">MySQL</SelectItem>
+                                  <SelectItem value="postgresql">{ENGINE_LABELS.postgresql}</SelectItem>
+                                  <SelectItem value="mysql">{ENGINE_LABELS.mysql}</SelectItem>
                                   <SelectItem value="doris">{ENGINE_LABELS.doris}</SelectItem>
                         </>
                       )}
-                      <SelectItem value="duckdb">DuckDB</SelectItem>
-                      <SelectItem value="sqlite">SQLite</SelectItem>
+                      <SelectItem value="duckdb">{ENGINE_LABELS.duckdb}</SelectItem>
+                      <SelectItem value="sqlite">{ENGINE_LABELS.sqlite}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1057,7 +1062,14 @@ export function AddDatabaseDialog({
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_port')}</Label>
-                      <Input value={dbPort} onChange={(e) => setDbPort(e.target.value)} placeholder={DEFAULT_PORTS[dbEngine]} />
+                      <Input
+                        value={dbPort}
+                        onChange={(e) => setDbPort(e.target.value)}
+                        placeholder={DEFAULT_PORTS[dbEngine]}
+                        inputMode="numeric"
+                        aria-invalid={dbPortInvalid}
+                      />
+                      {dbPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_database')}</Label>
@@ -1079,7 +1091,14 @@ export function AddDatabaseDialog({
                       <>
                         <div className="space-y-2">
                           <Label>{t('databases.field_flight_port')}</Label>
-                          <Input value={dbFlightPort} onChange={(e) => setDbFlightPort(e.target.value)} placeholder="8070" />
+                          <Input
+                            value={dbFlightPort}
+                            onChange={(e) => setDbFlightPort(e.target.value)}
+                            placeholder="8070"
+                            inputMode="numeric"
+                            aria-invalid={dbFlightPortInvalid}
+                          />
+                          {dbFlightPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
                         </div>
                         <p className="col-span-full text-xs text-muted-foreground">
                           {t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}

@@ -477,6 +477,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
     return cols
   }, [t, selectionMode, selectedIds, toggleSelection])
 
+  // TODO(concept-mapping): migrate to DataTable (docs/ui-patterns.md)
   const csTable = useReactTable({
     data: csPageItems,
     columns: csColumns,
@@ -708,7 +709,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                         <TooltipContent side="top" className="text-xs">{t('common.columns')}</TooltipContent>
                       </Tooltip>
                       <DropdownMenuContent align="start" className="w-[180px]">
-                        <DropdownMenuLabel className="text-xs">{t('concepts.column_visibility', 'Columns')}</DropdownMenuLabel>
+                        <DropdownMenuLabel className="text-xs">{t('common.columns')}</DropdownMenuLabel>
                         <DropdownMenuSeparator />
                         {csTable.getAllColumns()
                           .filter((col) => !col.id.startsWith('_'))

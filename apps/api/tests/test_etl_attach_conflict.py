@@ -306,6 +306,31 @@ async def test_a_second_run_on_the_same_target_is_refused(managed_source):
         await first
 
 
+async def test_a_run_reading_a_database_holds_it_against_another_runs_target(managed_source, managed_db):
+    """Pipeline A reads `other` as its source while writing elsewhere; pipeline B
+    whose target is `other` meets the same 409 as a second run on A's target,
+    and the hold ends with A."""
+    other = SimpleNamespace(
+        id="etl-busy-source",
+        workspace_id=None,
+        connection_config={"engine": "duckdb", "managed": True, "managedPath": managed_db},
+    )
+    first = asyncio.create_task(
+        data_source_service.run_etl(None, managed_source, SLOW_SQL, {"source": other}, user_id=1)
+    )
+    await _until(lambda: _running(managed_source.id) and _running(other.id))
+    with pytest.raises(data_source_service.DatabaseBusy) as busy:
+        await data_source_service.run_etl(None, other, "SELECT 1;", {}, user_id=1)
+    assert busy.value.status_code == 409
+    assert busy.value.detail["dataSourceId"] == other.id
+
+    data_source_service.stop_etl_run(managed_source.id)
+    with pytest.raises(db_connect.EtlRunCancelled):
+        await first
+    await _until(lambda: not _running(other.id))
+    await data_source_service.run_etl(None, other, "SELECT 1 AS x;", {}, user_id=1)
+
+
 async def test_a_finished_run_frees_the_database(managed_source):
     await data_source_service.run_etl(None, managed_source, "SELECT 1 AS x;", {}, user_id=1)
     await _until(lambda: not _running(managed_source.id))

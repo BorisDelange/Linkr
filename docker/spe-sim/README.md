@@ -98,6 +98,10 @@ administrator writes against a real one:
 - CRAN: `http://mirror/repository/cran/__linux__/noble/latest` for Ubuntu binaries, or
   `…/cran/latest` for sources (`LINKR_R_REPOS`)
 
+The mirror's `@follow_redirect` location proxies whatever `Location` the upstream
+answers, with no allowlist — fine for a simulator whose only upstreams are PyPI and
+Posit, not a template for a real mirror.
+
 To test a fully offline SPE (no mirror at all): `docker compose … stop mirror`.
 
 ## Add a second SPE

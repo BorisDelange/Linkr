@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { IssueBag } from '../issue.js'
 import { MemoryTree } from '../tree.js'
@@ -119,6 +122,18 @@ describe('validateDashboards', () => {
         ['/dashboard/events/1/label', 'empty-value'],
         ['/dashboard/events/2', 'wrong-type'],
       ])
+    })
+
+    it('draws exactly the dates the app does (apps/web/src/lib/event-date.fixture.json)', () => {
+      const here = dirname(fileURLToPath(import.meta.url))
+      const fixture = JSON.parse(readFileSync(resolve(here, '../../../../apps/web/src/lib/event-date.fixture.json'), 'utf-8')) as {
+        accepted: string[]; refused: string[]
+      }
+      const dateIssues = (date: string) => runDashboards({
+        'dashboards/overview.json': dashboardDoc({ events: [event({ date })] }),
+      }).map((i) => i.pointer)
+      for (const date of fixture.accepted) expect(dateIssues(date), date).toEqual([])
+      for (const date of fixture.refused) expect(dateIssues(date), date).toEqual(['/dashboard/events/0/date'])
     })
 
     it('flags events that are not a list', () => {

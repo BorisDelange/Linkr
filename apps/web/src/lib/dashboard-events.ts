@@ -1,8 +1,17 @@
 import { cleanLocalized, toLocalized } from '@/lib/localized'
-import type { DashboardEvent, LocalizedString } from '@/types'
+import { COLOR_MAP } from '@/lib/plugins/shared-styles'
+import type { DashboardEvent, DashboardWidget, LocalizedString } from '@/types'
+import type { PluginConfigField } from '@/types/plugin'
 
 /** Distinct from the SPC line (blue) and its signal colours (red, orange, teal). */
 export const DEFAULT_EVENT_COLOR = 'violet'
+
+/** The palette names an event may carry, besides a `#rrggbb` hex. */
+export const EVENT_COLOR_NAMES = Object.keys(COLOR_MAP).filter((name) => name !== 'none')
+
+export function isValidEventColor(value: unknown): value is string {
+  return typeof value === 'string' && (EVENT_COLOR_NAMES.includes(value) || /^#[0-9a-fA-F]{6}$/.test(value))
+}
 
 const EVENT_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/
 
@@ -68,6 +77,42 @@ export function normalizeEvents(events: readonly DashboardEvent[]): DashboardEve
   return events
     .map(e => ({ id: e.id, date: e.date, label: cleanLocalized(e.label) ?? {}, color: e.color || DEFAULT_EVENT_COLOR }))
     .sort(compareEvents)
+}
+
+/** The config keys holding a `dashboard-events` selection. An unknown plugin is read
+ *  through the key every shipped plugin uses. */
+export function eventSelectionKeys(schema: Record<string, PluginConfigField> | undefined): string[] {
+  if (!schema) return ['eventIds']
+  return Object.entries(schema).filter(([, field]) => field.type === 'dashboard-events').map(([key]) => key)
+}
+
+/**
+ * The widgets still selecting an event the dashboard no longer has, each rewritten
+ * to the surviving ids — the caller persists them. Nothing else about a widget
+ * changes, and a widget whose selection is intact is not returned.
+ */
+export function pruneEventIds(
+  widgets: readonly DashboardWidget[],
+  survivingIds: readonly string[],
+  schemaOf: (pluginId: string) => Record<string, PluginConfigField> | undefined,
+): DashboardWidget[] {
+  const alive = new Set(survivingIds)
+  const out: DashboardWidget[] = []
+  for (const widget of widgets) {
+    if (widget.source.type !== 'plugin') continue
+    const config = { ...widget.source.config }
+    let changed = false
+    for (const key of eventSelectionKeys(schemaOf(widget.source.pluginId))) {
+      const selected = config[key]
+      if (!Array.isArray(selected)) continue
+      const kept = selected.filter((id) => typeof id === 'string' && alive.has(id))
+      if (kept.length === selected.length) continue
+      config[key] = kept
+      changed = true
+    }
+    if (changed) out.push({ ...widget, source: { ...widget.source, config } })
+  }
+  return out
 }
 
 /** The dashboard's events a widget selected, in time order. Ids of deleted events are ignored. */

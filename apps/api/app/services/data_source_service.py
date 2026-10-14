@@ -41,6 +41,7 @@ from app.services.data import (
     managed_db,
 )
 from app.services.data import parquet_layout as parquet_layout_fs
+from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import DbHostNotAllowed
 
 # External network databases reached via DuckDB's ATTACH extensions.
@@ -939,22 +940,31 @@ def _require_no_etl_run(source: DataSource) -> None:
         raise DatabaseBusy(source.id, run)
 
 
-def _claim_for_etl(source_id: str, handle: db_connect.EtlRunHandle) -> None:
-    """Register the run on its target; checked and set under one acquisition so
-    two runs started together cannot both pass."""
+def _claim_for_etl(source_ids: list[str], handle: db_connect.EtlRunHandle) -> None:
+    """Register the run on its target and on every managed database it reads (a
+    role's file is attached too); checked and set under one acquisition so two
+    runs started together cannot both pass."""
     with _etl_runs_lock:
-        run = _etl_runs.get(source_id)
-        if run is None:
-            _etl_runs[source_id] = EtlRunState(handle, datetime.now(timezone.utc))
-            return
-    raise DatabaseBusy(source_id, run)
+        for source_id in source_ids:
+            run = _etl_runs.get(source_id)
+            if run is not None:
+                raise DatabaseBusy(source_id, run)
+        state = EtlRunState(handle, datetime.now(timezone.utc))
+        for source_id in source_ids:
+            _etl_runs[source_id] = state
 
 
-def _release_from_etl(source_id: str, handle: db_connect.EtlRunHandle) -> None:
+def _release_from_etl(source_ids: list[str], handle: db_connect.EtlRunHandle) -> None:
     with _etl_runs_lock:
-        run = _etl_runs.get(source_id)
-        if run is not None and run.handle is handle:
-            del _etl_runs[source_id]
+        for source_id in source_ids:
+            run = _etl_runs.get(source_id)
+            if run is not None and run.handle is handle:
+                del _etl_runs[source_id]
+
+
+def _etl_held_ids(target: DataSource, roles: dict[str, DataSource]) -> list[str]:
+    managed = [s for s in roles.values() if s is not None and is_managed(s)]
+    return list(dict.fromkeys([target.id, *(s.id for s in managed)]))
 
 
 def stop_etl_run(source_id: str) -> bool:
@@ -1000,9 +1010,11 @@ async def run_etl(
     # in-flight query on that connection, so nothing is closed mid-statement; the
     # next browse simply re-establishes a warm connection.
     for source in (target, *roles.values()):
-        _require_no_etl_run(source)
+        if source is not None:
+            _require_no_etl_run(source)
     for source in (target, *roles.values()):
-        connection_pool.invalidate(source.id)
+        if source is not None:
+            connection_pool.invalidate(source.id)
     _audit(target, "etl_run", sql)
 
     attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"}, user_id)
@@ -1015,7 +1027,8 @@ async def run_etl(
     # the file. Shielded so the cancellation reaches us here rather than tearing
     # down the await while the thread is still bound to the connection.
     handle = db_connect.EtlRunHandle()
-    _claim_for_etl(target.id, handle)
+    held = _etl_held_ids(target, roles)
+    _claim_for_etl(held, handle)
     task = asyncio.create_task(
         asyncio.to_thread(
             db_connect.run_etl_sql,
@@ -1029,7 +1042,7 @@ async def run_etl(
     )
     # Released when the THREAD ends, not when this await does: a cancelled run
     # keeps the file until its rollback is over, and reads must wait for that.
-    task.add_done_callback(lambda _: _release_from_etl(target.id, handle))
+    task.add_done_callback(lambda _: _release_from_etl(held, handle))
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
@@ -1120,10 +1133,11 @@ async def flight_status(source: DataSource, login: Login | None) -> dict:
         return {"status": "not_applicable"}
     if login is None:
         raise database_credential_service.CredentialRequired(source)
-    found = await asyncio.to_thread(db_connect.flight_problem, with_login(config, login), login.password)
+    found = await asyncio.to_thread(remote.flight_problem, with_login(config, login), login.password)
+    status = {"port": flight.port(config), "tls": flight.tls(config)}
     if found is None:
-        return {"status": "ok", "port": flight.port(config)}
-    return {"status": found[0], "port": flight.port(config), "detail": found[1]}
+        return {"status": "ok", **status}
+    return {"status": found[0], "detail": found[1], **status}
 
 
 # --- Live connection test (external databases) -----------------------------

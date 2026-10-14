@@ -83,6 +83,12 @@ describe('closeWindow', () => {
     expect(closeWindow(bounds, null, '2024-01-20')).toEqual({ from: '2024-01-01', to: '2024-01-20' })
   })
 
+  it('reads a window over the whole column as no restriction, like sliderToValue', () => {
+    expect(closeWindow(bounds, '2024-01-01', null)).toEqual({ from: null, to: null })
+    expect(closeWindow(bounds, null, '2024-01-31')).toEqual({ from: null, to: null })
+    expect(closeWindow(bounds, '2024-01-01', '2024-01-31')).toEqual({ from: null, to: null })
+  })
+
   it('leaves an inactive filter, or unknown bounds, alone', () => {
     expect(closeWindow(bounds, null, null)).toEqual({ from: null, to: null })
     expect(closeWindow(null, '2024-01-10', null)).toEqual({ from: '2024-01-10', to: null })

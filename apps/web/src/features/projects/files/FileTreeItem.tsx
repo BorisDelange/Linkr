@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useState, useRef, useEffect, useContext } from 'react'
+import { FileTreeVersioningContext } from './file-tree-versioning-context'
 import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
 import { useMyProjectRole } from '@/hooks/use-context-role'
@@ -37,7 +38,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { useOverflowTooltip } from '@/hooks/use-overflow-tooltip'
 import { DialogShell } from '@/components/ui/dialog-shell'
-import { useConfirmDataVersioning } from '@/components/versioning/ConfirmDataVersioningDialog'
 import { cn } from '@/lib/utils'
 import { scriptsNodePath } from '@/lib/versioning-marks'
 import { contentSize } from '@/lib/file-tree-sort'
@@ -141,7 +141,7 @@ export function FileTreeItem({
   )
   // Will this file be versioned? data → only if included; code → unless excluded.
   const willBeVersioned = isDataFile ? includedSet.has(markKey) : isRealFile && !excludedSet.has(markKey)
-  const { requestMark, dialog: confirmVersioningDialog } = useConfirmDataVersioning()
+  const { requestMark } = useContext(FileTreeVersioningContext)
   const toggleVersioning = () => {
     if (!activeProjectUid) return
     if (!isDataFile) {
@@ -614,8 +614,6 @@ export function FileTreeItem({
             onNewChild={onNewChild}
           />
         ))}
-
-      {confirmVersioningDialog}
 
       {/* Delete confirmation dialog */}
       <DialogShell

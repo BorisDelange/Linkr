@@ -168,8 +168,10 @@ class QueryRequest(CamelModel):
     query_id: str | None = None
     # Every row, up to db_connect.MAX_QUERY_ROWS_ALL, instead of the usual cap.
     all_rows: bool = False
-    # The app's own query: an external database may compute it itself when it is
-    # portable (services/data/remote_sql.py). Never set for SQL a user wrote.
+    # Let an external database compute the query itself when it is portable
+    # (services/data/remote_sql.py). The client sets it only for its own builder
+    # SQL; the server accepts it for any SQL, since the translation admits only a
+    # portable SELECT subset over the scope — anything else runs as before.
     pushdown: bool = False
 
 
@@ -188,10 +190,13 @@ class QueryResult(CamelModel):
 class FlightStatus(CamelModel):
     """Whether Arrow Flight carries this database's large results (services/data/flight.py).
     `not_applicable`: the engine has no Flight; `not_installed`: the server lacks
-    the `doris` extra; `unreachable`: Flight answered with an error (`detail`)."""
+    the `doris` extra; `unreachable`: Flight did not answer (`detail`);
+    `unauthenticated`: it refused the login. `tls`: the connection is encrypted
+    (the source's `sslmode`)."""
     status: str
     port: int | None = None
     detail: str | None = None
+    tls: bool = False
 
 
 class MoveFileRequest(CamelModel):

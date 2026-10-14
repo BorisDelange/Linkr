@@ -40,7 +40,7 @@ dependencies = [
     "jedi>=0.20.0",
     # Translates the app's heavy queries into a Postgres/Doris database's own SQL
     # so it computes them itself (services/data/remote_sql.py). Pure Python.
-    "sqlglot>=30",
+    "sqlglot>=30,<31",
 ]
 
 [tool.pytest.ini_options]

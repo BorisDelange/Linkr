@@ -9,6 +9,7 @@ import {
   type DatasetColumn, type EventInput, type Layout,
 } from './lab.js'
 import { formatEventDate, readDashboardEvents } from '@/lib/dashboard-events'
+import { widgetEventPrunes } from './lab.js'
 import { findPlugin, listPlugins, pluginDoc, pluginSummary } from './plugins.js'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server,
@@ -422,6 +423,7 @@ export function registerLabTools(server: Server): void {
     }),
   }, guard(async ({ dashboard_id, name, name_fr, description, description_fr, dataset_path, events }) => {
     const changes: Record<string, unknown> = {}
+    let prunedWidgets: DashboardWidget[] = []
     const frenchOnly = (name === undefined && name_fr !== undefined)
       || (description === undefined && description_fr !== undefined)
     const current = frenchOnly ? await api.getDashboard(dashboard_id) : undefined
@@ -439,10 +441,15 @@ export function registerLabTools(server: Server): void {
       const built = buildDashboardEvents(events, current, randomUUID)
       if ('error' in built) return failure(built.error)
       changes.events = built.events
+      const tabs = await api.listTabs(dashboard_id)
+      const widgets = (await Promise.all(tabs.map((tab) => api.listWidgets(tab.id)))).flat()
+      prunedWidgets = widgetEventPrunes(widgets, built.events)
     }
     if (Object.keys(changes).length === 0) return failure('Nothing to change: give name, description, dataset_path or events.')
     const dashboard = await api.updateDashboard(dashboard_id, changes)
-    return text(`Updated dashboard "${loc(dashboard.name)}".`)
+    for (const w of prunedWidgets) await api.updateWidget(w.id, { source: w.source })
+    const pruned = prunedWidgets.length ? ` ${prunedWidgets.length} widget(s) stopped selecting a deleted event.` : ''
+    return text(`Updated dashboard "${loc(dashboard.name)}".${pruned}`)
   }))
 
   server.registerTool('delete_dashboard', {

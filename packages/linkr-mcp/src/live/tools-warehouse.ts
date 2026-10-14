@@ -127,9 +127,10 @@ export function registerWarehouseTools(server: Server): void {
     let dictKey: string | undefined
     if (dictionary) {
       const wanted = dictionary.toLowerCase()
-      const dict = dicts.find((d) => d.key?.toLowerCase() === wanted || d.name.toLowerCase() === wanted)
-      if (!dict?.key) {
-        const valid = dicts.map((d) => (d.key === d.name ? d.key : `${d.key} (table ${d.name})`)).join(', ')
+      const keyed = dicts.filter((d): d is typeof d & { key: string } => !!d.key)
+      const dict = keyed.find((d) => d.key.toLowerCase() === wanted || d.name.toLowerCase() === wanted)
+      if (!dict) {
+        const valid = keyed.map((d) => (d.key === d.name ? d.key : `${d.key} (table ${d.name})`)).join(', ')
         return failure(`No dictionary "${dictionary}" in this database. Valid dictionaries: ${valid}. `
           + 'Or omit `dictionary` to search them all.')
       }

@@ -64,9 +64,9 @@ import {
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import {
   DatabaseStatsDashboard,
-  StatsErrorBanner,
   useDatabaseStats,
 } from './DatabaseStatsDashboard'
+import { StatsErrorBanner } from './stats-error-banner'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
@@ -299,14 +299,15 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
             )}
           />
         )}
-        {flightStatus && (flightStatus.status === 'unreachable' || flightStatus.status === 'not_installed') && (
+        {flightStatus && flightStatus.status !== 'ok' && flightStatus.status !== 'not_applicable' && (
           <NoticeBanner
             tone="warning"
             className="mx-6 mb-3"
             title={t('databases.flight_slow_title')}
             description={flightStatus.status === 'not_installed'
               ? t('databases.flight_not_installed')
-              : t('databases.flight_unreachable', { port: flightStatus.port, detail: flightStatus.detail ?? '' })}
+              : t(flightStatus.status === 'unauthenticated' ? 'databases.flight_unauthenticated' : 'databases.flight_unreachable',
+                  { port: flightStatus.port, detail: flightStatus.detail ?? '' })}
           />
         )}
         {!source.schemaMapping && (

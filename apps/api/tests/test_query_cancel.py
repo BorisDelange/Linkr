@@ -89,6 +89,38 @@ def test_cancel_also_runs_the_query_hook():
     assert calls == ["interrupt", "hook"]
 
 
+def test_a_slow_hook_does_not_hold_the_lock():
+    """The hook reaches another database; a query registering meanwhile must
+    not wait for it."""
+    hook_started, hook_release = threading.Event(), threading.Event()
+
+    def slow_hook():
+        hook_started.set()
+        hook_release.wait(5)
+
+    class Con:
+        def interrupt(self):
+            pass
+
+    query_cancel._running["q6"] = ("7", Con(), slow_hook)
+    cancelling = threading.Thread(target=query_cancel.cancel, args=("q6", "7"))
+    cancelling.start()
+    assert hook_started.wait(5)
+    try:
+        registered = threading.Event()
+
+        def register():
+            query_cancel.current_query.set(("q7", "7"))
+            with query_cancel.tracking(Con()):
+                registered.set()
+
+        threading.Thread(target=contextvars.copy_context().run, args=(register,)).start()
+        assert registered.wait(2), "tracking waited for the cancel hook"
+    finally:
+        hook_release.set()
+        cancelling.join(5)
+
+
 def test_untagged_query_is_untouched():
     assert db_connect._run_read(duckdb.connect(), "memory", "SELECT 42 AS x", False) == [{"x": 42}]
 

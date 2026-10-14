@@ -11,6 +11,7 @@ import {
 } from '@/lib/tree-selection'
 import { isServerMode } from '@/lib/api-client'
 import { scriptsNodePath } from '@/lib/versioning-marks'
+import { rekeyVersioningMarks } from '@/stores/rekey-versioning-marks'
 import { useAppStore } from '@/stores/app-store'
 import { disposeLiveTerminal } from '@/lib/terminal-sessions'
 
@@ -175,6 +176,15 @@ interface FileState {
 }
 
 let undoCounter = 0
+
+/** Marks are keyed by export path, so a renamed or moved node (and everything
+ *  under it) must carry its marks along — else they point at a path that no
+ *  longer exists and the file silently reverts to its default versioning. */
+function rekeyScriptMarks(projectUid: string, files: FileNode[], id: string, change: Partial<Pick<FileNode, 'name' | 'parentId'>>): void {
+  const oldKey = `scripts/${scriptsNodePath(files, id)}`
+  const newKey = `scripts/${scriptsNodePath(files.map((f) => (f.id === id ? { ...f, ...change } : f)), id)}`
+  rekeyVersioningMarks(projectUid, oldKey, newKey).catch((e) => console.warn('[file-store] versioning marks:', e))
+}
 
 /** Generate a unique ID for files and folders. */
 function newFileId(type: 'file' | 'folder'): string {
@@ -1145,6 +1155,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       return
     }
     const projectUid = state.activeProjectUid ?? ''
+    rekeyScriptMarks(projectUid, state.files, id, { name: newName })
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, name: newName } : f)),
     }))
@@ -1163,6 +1174,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     const oldParentId = node.parentId
     if (oldParentId === newParentId) return
     const projectUid = state.activeProjectUid ?? ''
+    rekeyScriptMarks(projectUid, state.files, id, { parentId: newParentId })
     set((s) => ({
       files: s.files.map((f) =>
         f.id === id ? { ...f, parentId: newParentId } : f

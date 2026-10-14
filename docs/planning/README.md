@@ -37,7 +37,7 @@ results as the optional `doris` extra with a warning banner.
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | **[TO TEST]** In the app against the local Doris (plan §3.1) | S |
-| 🤔 | Docker image: ship the `doris` extra? Postgres pushdown: measure on a remote server first. User SQL pushdown? (plan §3.2) | S |
+| 🤔 | The API image ships the `doris` extra (77253fe28). Postgres pushdown: measure on a remote server first. User SQL pushdown? (plan §3.2) | S |
 | 💤 | Still slow on Doris: concept-list assemble (whole dictionary over MySQL), `mode()` profiles, ETL source / cohort derive / R-Py libs (plan §3.3) | M |
 | 🔜 | User docs (linkr-website): connecting a Doris database | S |
 

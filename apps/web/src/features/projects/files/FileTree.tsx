@@ -4,6 +4,8 @@ import { useFileStore } from '@/stores/file-store'
 import { useAppStore } from '@/stores/app-store'
 import { useProjectTree, type TreeNode } from '@/hooks/use-project-tree'
 import { FileTreeItem } from './FileTreeItem'
+import { FileTreeVersioningContext } from './file-tree-versioning-context'
+import { useConfirmDataVersioning } from '@/components/versioning/ConfirmDataVersioningDialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { cn } from '@/lib/utils'
 import { FileTreeHeader, type FileTreeSort } from '@/components/ui/file-tree-header'
@@ -20,6 +22,8 @@ interface FileTreeProps {
 
 export function FileTree({ onNewChild, search = '' }: FileTreeProps) {
   const { t } = useTranslation()
+  const { requestMark, dialog: confirmVersioningDialog } = useConfirmDataVersioning()
+  const versioning = useMemo(() => ({ requestMark }), [requestMark])
   const expandedFolders = useFileStore((s) => s.expandedFolders)
   const selectedFileId = useFileStore((s) => s.selectedFileId)
   const moveNode = useFileStore((s) => s.moveNode)
@@ -149,20 +153,23 @@ export function FileTree({ onNewChild, search = '' }: FileTreeProps) {
         onDragLeave={handleRootDragLeave}
         onDrop={handleRootDrop}
       >
-        {rootNodes.map((node) => (
-          <FileTreeItem
-            key={node.id}
-            node={node}
-            depth={0}
-            getChildren={getChildren}
-            expandedFolders={effectiveExpanded}
-            selectedFileId={selectedFileId}
-            visibleIds={visibleIds}
-            onNewChild={onNewChild}
-          />
-        ))}
+        <FileTreeVersioningContext.Provider value={versioning}>
+          {rootNodes.map((node) => (
+            <FileTreeItem
+              key={node.id}
+              node={node}
+              depth={0}
+              getChildren={getChildren}
+              expandedFolders={effectiveExpanded}
+              selectedFileId={selectedFileId}
+              visibleIds={visibleIds}
+              onNewChild={onNewChild}
+            />
+          ))}
+        </FileTreeVersioningContext.Provider>
       </div>
     </ScrollArea>
+    {confirmVersioningDialog}
     </>
   )
 }

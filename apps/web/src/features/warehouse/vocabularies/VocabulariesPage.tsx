@@ -55,7 +55,7 @@ function VocabulariesHome({ workspaceId }: { workspaceId: string }) {
       <div className="mt-8 grid grid-cols-2 gap-4">
         <EntryPointCard
           icon={Library}
-          accent="green"
+          accent="vocabularies"
           title={t('vocabularies.ohdsi_title')}
           description={t('vocabularies.ohdsi_widget_description')}
           openLabel={t('vocabularies.ohdsi_widget_open')}
@@ -64,7 +64,7 @@ function VocabulariesHome({ workspaceId }: { workspaceId: string }) {
         />
         <EntryPointCard
           icon={BookMarked}
-          accent="amber"
+          accent="concepts"
           title={t('data_dictionaries.title')}
           description={t('vocabularies.dictionaries_widget_description')}
           openLabel={t('vocabularies.dictionaries_widget_open')}
