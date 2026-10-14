@@ -39,6 +39,8 @@ npm run data:fetch # bake the default data into public/data/seed/ (needs network
 
 # Docker
 docker compose -f docker/docker-compose.yml up
+# SPE simulation (gateway under /docker-<id>/, no internet, package mirror, datamarts) → docker/spe-sim/README.md
+docker compose -f docker/spe-sim/docker-compose.yml up --build
 
 # Parallel worktrees (see below)
 npm run worktree:new -- <name>   # own branch, own ports, ready to run
