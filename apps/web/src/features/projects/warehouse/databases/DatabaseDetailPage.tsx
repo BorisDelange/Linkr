@@ -90,7 +90,7 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
-import { isExternalEngine } from '@/lib/database-engines'
+import { isExternalEngine, portOf } from '@/lib/database-engines'
 import { useFlightStatus } from './use-flight-status'
 
 const DATABASE_TAB_IDS = ['overview', 'statistics', 'concepts', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
@@ -694,7 +694,7 @@ function ConnectionCard({ source }: { source: DataSource }) {
       : config.host
         ? [{
             label: t('databases.field_host'),
-            value: `${config.host}${config.port ? `:${config.port}` : ''}${config.database ? `/${config.database}` : ''}`,
+            value: `${config.host}${portOf(config) ? `:${portOf(config)}` : ''}${config.database ? `/${config.database}` : ''}`,
           }]
         : []),
     { label: t('databases.field_identifier'), value: source.alias },

@@ -23,14 +23,14 @@ def test_dsn_keeps_each_value_as_one_token():
          "username": "reader"},
         "s3cr3t",
     )
-    assert _top_level_keys(dsn) == ["host", "dbname", "user", "password"]
+    assert _top_level_keys(dsn) == ["host", "port", "dbname", "user", "password"]
 
 
 def test_simple_value_is_not_quoted():
     """A benign host/user has no special chars, so it stays bare — the form DuckDB
     actually connects with (double-quoting it would break host resolution)."""
     dsn = db_connect._dsn({"engine": "postgresql", "host": "localhost"}, None)
-    assert dsn == "host=localhost"
+    assert dsn == "host=localhost port=5432"
 
 
 def test_dsn_injection_via_username_is_neutralised():
@@ -76,6 +76,15 @@ def test_dsn_injection_via_tab_is_neutralised():
     assert keys.count("host") == 1
     assert keys.count("password") == 1
     assert keys.count("user") == 1
+
+
+def test_a_blank_port_is_the_engines_default():
+    # The form shows it as the placeholder; left to the MySQL driver, a blank
+    # Doris port went to 3306, where Doris does not listen.
+    for engine, port in (("postgresql", 5432), ("mysql", 3306), ("doris", 9030)):
+        for blank in (None, "", 0):
+            assert f"port={port}" in db_connect._dsn({"engine": engine, "host": "h", "port": blank}, None)
+    assert "port=6000" in db_connect._dsn({"engine": "doris", "host": "h", "port": "6000"}, None)
 
 
 def test_port_is_coerced_to_int():

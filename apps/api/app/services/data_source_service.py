@@ -760,7 +760,7 @@ async def connection_info(db: AsyncSession, source: DataSource, user_id: int) ->
             engine=engine,
             kind="external",
             host=config.get("host"),
-            port=config.get("port"),
+            port=db_connect.port_of(config),
             database=config.get("database"),
             schema_name=config.get("schema"),
             username=(await database_credential_service.status_for(db, source, user_id))["username"],

@@ -224,6 +224,18 @@ def _dsn_value(value: str) -> str:
     return re.sub(r"\s", lambda m: "\\" + m.group(0), escaped)
 
 
+# What the form shows as a blank port's placeholder (DEFAULT_PORTS in the web
+# app's lib/database-engines.ts). Left to the driver, a blank Doris port went to
+# MySQL's 3306, where Doris does not listen: its FE answers on 9030.
+DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "doris": 9030}
+
+
+def port_of(config: dict) -> int | None:
+    """The port a connection goes to: the one set, else the engine's default."""
+    port = config.get("port")
+    return int(port) if port else DEFAULT_PORTS.get(config.get("engine"))
+
+
 def _dsn(config: dict, password: str | None) -> str:
     """Build a key=value DSN. Both the libpq (Postgres) and MySQL ATTACH strings
     accept host/port/user/password; the database key differs (dbname vs database).
@@ -234,8 +246,8 @@ def _dsn(config: dict, password: str | None) -> str:
     parts: list[str] = []
     if host := config.get("host"):
         parts.append(f"host={_dsn_value(host)}")
-    if port := config.get("port"):
-        parts.append(f"port={int(port)}")
+    if port := port_of(config):
+        parts.append(f"port={port}")
     if database := config.get("database"):
         key = "database" if is_mysql else "dbname"
         parts.append(f"{key}={_dsn_value(database)}")

@@ -26,6 +26,12 @@ export const DEFAULT_PORTS: Partial<Record<DatabaseEngine, string>> = {
   sqlserver: '1433',
 }
 
+/** The port a connection goes to: the one set, else the engine's default (the
+ *  server applies the same, `db_connect.port_of`). */
+export function portOf(config: { engine?: DatabaseEngine; port?: number | string | null }): string | undefined {
+  return config.port ? String(config.port) : config.engine ? DEFAULT_PORTS[config.engine] : undefined
+}
+
 /** A TCP port typed in a form, or null when the text is not one (blank included). */
 export function parsePort(value: string): number | null {
   const text = value.trim()
