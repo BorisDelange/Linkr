@@ -345,6 +345,30 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
   await storage.datasetFiles.update(fileId, patch)
 }
 
+/** Undo of a dataset created on the server: drop it from the tree and delete its file. */
+function serverCreateUndo(
+  set: (fn: (s: DatasetState) => Partial<DatasetState>) => void,
+  id: string,
+  name: string,
+): UndoAction {
+  return {
+    id: `undo-${undoCounter++}`,
+    descriptionKey: 'datasets.new_file',
+    descriptionParams: { name },
+    timestamp: Date.now(),
+    undo: () => {
+      set((s) => ({
+        files: s.files.filter((f) => f.id !== id),
+        selectedFileId: s.selectedFileId === id ? null : s.selectedFileId,
+        openFileIds: s.openFileIds.filter((fid) => fid !== id),
+      }))
+      _loadedData.delete(id)
+      _savedDataSnapshot.delete(id)
+      getStorage().datasetFiles.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
+    },
+  }
+}
+
 export const useDatasetStore = create<DatasetState>((set, get) => ({
   files: [],
   expandedFolders: [],
@@ -436,22 +460,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
             selectedFileId: node.id,
             openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
           }))
-          get().pushUndo({
-            id: `undo-${undoCounter++}`,
-            descriptionKey: 'datasets.new_file',
-            descriptionParams: { name },
-            timestamp: Date.now(),
-            undo: () => {
-              set((s) => ({
-                files: s.files.filter((f) => f.id !== node.id),
-                selectedFileId: s.selectedFileId === node.id ? null : s.selectedFileId,
-                openFileIds: s.openFileIds.filter((fid) => fid !== node.id),
-              }))
-              _loadedData.delete(node.id)
-              _savedDataSnapshot.delete(node.id)
-              getStorage().datasetFiles.delete(node.id).catch((e) => console.warn('[dataset-store] persist error:', e))
-            },
-          })
+          get().pushUndo(serverCreateUndo(set, node.id, name))
         })
     }
     const id = uid()
@@ -1108,6 +1117,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
         _dirtyVersion: s._dirtyVersion + 1,
       }))
+      get().pushUndo(serverCreateUndo(set, node.id, name))
       return node.id
     }
 

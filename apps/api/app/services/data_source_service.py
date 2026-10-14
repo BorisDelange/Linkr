@@ -913,7 +913,7 @@ class DatabaseBusy(HTTPException):
             "An ETL run that was stopped still holds this database while it rolls back; "
             "it can be read again once that is done."
             if stopping
-            else "An ETL run is writing to this database; it can be read once the run ends or is stopped."
+            else "An ETL run is using this database; it can be opened again once the run ends or is stopped."
         )
         super().__init__(
             status.HTTP_409_CONFLICT,
@@ -968,7 +968,7 @@ def _etl_held_ids(target: DataSource, roles: dict[str, DataSource]) -> list[str]
 
 
 def stop_etl_run(source_id: str) -> bool:
-    """Interrupt the run writing to this database, whoever started it. The run
+    """Interrupt the run holding this database, whoever started it. The run
     rolls its statement back and releases the file; False when none is running."""
     with _etl_runs_lock:
         run = _etl_runs.get(source_id)

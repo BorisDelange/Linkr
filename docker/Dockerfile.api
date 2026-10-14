@@ -34,7 +34,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # infra (jsonlite/base64enc/svglite) from a separate shared library that
 # renv_provisioner.ensure_kernel_r_lib() populates on first use (a one-off install
 # under the data volume, whose path isn't known at image-build time).
-RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc","renv"))' \
+# Pinned to a dated p3m snapshot so a rebuild ships the same versions; move the
+# date forward deliberately (a release step, like the lockfiles).
+ARG CRAN_SNAPSHOT=https://p3m.dev/cran/__linux__/noble/2026-10-01
+RUN Rscript -e 'options(Ncpus=parallel::detectCores()); install.packages(c("arrow","svglite","jsonlite","base64enc","renv"), repos = c(CRAN = Sys.getenv("CRAN_SNAPSHOT")))' \
     && Rscript -e 'library(arrow); library(svglite); library(jsonlite); library(base64enc); library(renv)'
 
 # Python deps in a venv (Ubuntu 24.04 blocks system pip via PEP 668).
