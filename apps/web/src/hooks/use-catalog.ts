@@ -18,6 +18,7 @@ import {
   type CatalogFetchError,
 } from '@/lib/catalog/remote'
 import type { CatalogCache, CatalogDiff, CatalogEntry } from '@/lib/catalog/types'
+import { useCatalogSourcesStore } from '@/stores/catalog-sources-store'
 
 /** Stable identity for "no entries" — see the note on `entries` below. */
 const EMPTY_ENTRIES: CatalogEntry[] = []
@@ -95,6 +96,13 @@ export function useCatalog(catalog: CatalogConfig | null): UseCatalogResult {
       if (shownRef.current === key) setLoading(false)
     }
   }, [catalog, cacheKey])
+
+  const autoLoadId = useCatalogSourcesStore((s) => s.autoLoadId)
+  useEffect(() => {
+    if (catalog && autoLoadId === catalog.id && useCatalogSourcesStore.getState().consumeLoadRequest(catalog.id)) {
+      void download()
+    }
+  }, [autoLoadId, catalog, download])
 
   // Once a cache exists, check for updates once per mount (cheap: ~2 KB).
   useEffect(() => {

@@ -10,9 +10,8 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
+import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import { PasswordInput } from '@/components/ui/password-input'
-import { Label } from '@/components/ui/label'
 import { cleanGitUrl } from '@/lib/git-clone'
 import { gitCloneToZip, GitRemoteError } from '@/lib/api/git'
 import { formatApiError, isServerMode, type FormattedError } from '@/lib/api-client'
@@ -20,6 +19,9 @@ import { ImportErrorDialog } from '@/components/ui/import-error-dialog'
 import { IncompatibleAppVersionError, WrongEntityTypeError } from '@/lib/app-version-compat'
 import { ServerModeNotice } from '@/components/ui/server-mode-notice'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
+import { PrivateRepoFields } from '@/components/versioning/PrivateRepoFields'
+import { useHostToken } from '@/hooks/use-host-token'
+import { gitUrlHost, privateTokenMissing } from '@/lib/git-host'
 import { ImportCatalogTab } from '@/components/ui/import-catalog-tab'
 import { CatalogInstallOutcome } from '@/features/catalog/CatalogInstallDialog'
 import { useCatalogInstall } from '@/features/catalog/use-catalog-install'
@@ -93,6 +95,7 @@ export function ImportSourceDialog({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [url, setUrl] = useState('')
   const [branch, setBranch] = useState('main')
+  const [isPrivate, setIsPrivate] = useState(false)
   const [token, setToken] = useState('')
   const [cloning, setCloning] = useState(false)
   const [importing, setImporting] = useState(false)
@@ -110,6 +113,11 @@ export function ImportSourceDialog({
 
   // Git clone is server-side only.
   const serverMode = isServerMode()
+  const host = gitUrlHost(url)
+  const hasToken = useHostToken(isPrivate ? host : undefined)
+  /** Sent only for a private repo: with none, the server still tries the account's token for the host. */
+  const cloneToken = isPrivate ? token.trim() || undefined : undefined
+  const canClone = !!url.trim() && !privateTokenMissing(isPrivate, token, hasToken)
 
   const catalogType = catalogTypeForScope(scope) ?? catalogTypeProp
   /** Tracked only to widen the dialog on the catalog tab, whose cards need the room. */
@@ -168,7 +176,7 @@ export function ImportSourceDialog({
   const repoName = (u: string) => (u.split('/').pop() || 'repo').replace(/\.git$/, '')
 
   const handleClone = async () => {
-    if (!url.trim() || cloning) return
+    if (!canClone || cloning) return
     setError(null)
     setErrorCode(undefined)
     setCloning(true)
@@ -177,12 +185,15 @@ export function ImportSourceDialog({
     const cleanUrl = cleanGitUrl(url.trim())
     let cloned: Awaited<ReturnType<typeof gitCloneToZip>>
     try {
-      cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', token || undefined, activeWorkspaceId ?? undefined)
+      cloned = await gitCloneToZip(cleanUrl, branch.trim() || 'main', cloneToken, activeWorkspaceId ?? undefined)
     } catch (err) {
       console.error('[import] git clone failed:', err)
       // Keep the backend's typed code alongside the raw text: it is what turns
       // "something went wrong" into "this repo needs a token".
-      setErrorCode(err instanceof GitRemoteError ? err.code : undefined)
+      const code = err instanceof GitRemoteError ? err.code : undefined
+      setErrorCode(code)
+      // Refused for want of credentials: open the token field the error points at.
+      if (code === 'auth_required' || code === 'auth_failed') setIsPrivate(true)
       setError(err instanceof Error ? err.message : String(err))
       setCloning(false)
       return
@@ -190,7 +201,7 @@ export function ImportSourceDialog({
     try {
       const blob = cloned.blob
       const syncedOid = cloned.oid ?? undefined
-      const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: token || undefined, syncedOid }
+      const gitRemote = { url: cleanUrl, branch: branch.trim() || 'main', authToken: cloneToken, syncedOid }
       // Keep the modal open (with the loader) until the import actually finishes —
       // writing entities, scores and refreshing the list. Closing first unmounted
       // the dialog mid-import, so suggestions weren't persisted and the list stayed
@@ -276,23 +287,31 @@ export function ImportSourceDialog({
               <ServerModeNotice inline className="mx-auto" />
             ) : (
               <>
-                <div className="space-y-2">
-                  <Label>{t('import_source.git_url')}</Label>
-                  <Input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://gitlab.com/group/repo.git" className="h-9 text-sm" />
+                <div className="grid gap-3 sm:grid-cols-[1fr_8rem]">
+                  <FormField label={t('import_source.git_url')} required>
+                    {({ id }) => (
+                      <Input id={id} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://gitlab.com/group/repo.git" />
+                    )}
+                  </FormField>
+                  <FormField label={t('import_source.git_branch')}>
+                    {({ id }) => (
+                      <Input id={id} value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" />
+                    )}
+                  </FormField>
                 </div>
-                <div className="space-y-2">
-                  <Label>{t('import_source.git_branch')}</Label>
-                  <Input value={branch} onChange={(e) => setBranch(e.target.value)} placeholder="main" className="h-9 text-sm" />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('import_source.git_token')}</Label>
-                  <PasswordInput value={token} onChange={(e) => setToken(e.target.value)} placeholder={t('import_source.git_token_ph')} className="h-9 text-sm" />
-                </div>
-                <p className="text-[10px] text-muted-foreground leading-relaxed">{t('import_source.private_repo_hint')}</p>
+                <PrivateRepoFields
+                  isPrivate={isPrivate}
+                  onPrivateChange={setIsPrivate}
+                  token={token}
+                  onTokenChange={setToken}
+                  host={host}
+                  hasToken={hasToken}
+                  hint={t('import_source.private_repo_hint')}
+                />
                 {error && <GitErrorInline detail={error} code={errorCode} />}
                 <div className="flex items-center justify-end gap-2">
                   {importing && <span className="text-xs text-muted-foreground">{t('import_source.importing')}</span>}
-                  <Button onClick={handleClone} disabled={!url.trim() || busy} className="gap-1.5">
+                  <Button onClick={handleClone} disabled={!canClone || busy} className="gap-1.5">
                     {busy ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
                     {t('import_source.clone_import')}
                   </Button>

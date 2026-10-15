@@ -2683,7 +2683,11 @@
     "pull_db_take": "Replace with the remote",
     "sync_auth_rejected_title": "Access token refused",
     "sync_auth_rejected_body": "A token is stored for this host, but the repository refused it. It may be for another account, expired, or lack read/write access to this repository — replace it from Config.",
-    "file_desc_similarity_scores_csv": "The suggestions of one versioned method (Manage suggestions › Versioned)."
+    "file_desc_similarity_scores_csv": "The suggestions of one versioned method (Manage suggestions › Versioned).",
+    "private_repo": "Private repository",
+    "private_repo_token_hint": "Saved to your account for {{host}} and reused for every repository there, including git sync. Other users never see it.",
+    "private_repo_token_stored": "Your account already has a token for {{host}}. Leave blank to keep it, or paste a new one to replace it.",
+    "private_repo_this_host": "this host"
   },
   "summary": {
     "tab_overview": "Overview",
@@ -3996,11 +4000,7 @@
     "sources_delete_description": "\"{{name}}\" will no longer be offered on the Catalog page. What you installed from it stays in place.",
     "sources_none": "No catalog configured",
     "sources_none_description": "Add a catalog, or restore the community one, with the gear icon above.",
-    "sources_private": "Private repository",
     "sources_private_hint": "Read with your own access token. Other users of this Linkr need theirs to browse it.",
-    "sources_token_hint": "Saved to your account for {{host}} and reused for every repository there, including git sync. Other users never see it.",
-    "sources_token_stored": "Your account already has a token for {{host}}. Leave blank to keep it, or paste a new one to replace it.",
-    "sources_token_this_host": "this host",
     "error_unauthorized": "Could not read this private catalog. Check its address, and that your access token for this host can read the repository (Manage catalogs).",
     "error_server_mode_required": "A private catalog needs a Linkr server: the access token is stored in your account."
   },
@@ -5900,15 +5900,13 @@
     "choose_file": "Choose file",
     "git_url": "Repository URL",
     "git_branch": "Branch",
-    "git_token": "Token",
-    "git_token_ph": "For private repos",
     "clone_import": "Clone & import",
     "error_auth": "Authentication failed. For a private repository, provide a valid access token.",
     "error_not_found": "Repository not found. Check the URL.",
     "error_ref": "Branch not found. Check the branch name.",
     "error_network": "Network error while cloning. Check your connection and the proxy.",
     "error_unknown": "Clone failed. Check the URL, branch, token and CORS proxy.",
-    "private_repo_hint": "For a private repository, provide a personal access token."
+    "private_repo_hint": "Cloned with your own access token for its host."
   },
   "setup": {
     "title": "Welcome to Linkr",

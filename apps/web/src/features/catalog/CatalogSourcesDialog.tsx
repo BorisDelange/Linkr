@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Lock, Pencil, Plus, RotateCcw, Store, Trash2 } from 'lucide-react'
 import {
@@ -16,13 +16,11 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { PasswordInput } from '@/components/ui/password-input'
-import { Switch } from '@/components/ui/switch'
 import { GitErrorInline } from '@/components/versioning/GitErrorInline'
-import { GitTokenHelp } from '@/components/versioning/GitTokenHelp'
-import { isServerMode } from '@/lib/api-client'
-import { gitHostTokenStatus, gitSetHostToken } from '@/lib/api/git'
+import { PrivateRepoFields } from '@/components/versioning/PrivateRepoFields'
+import { useHostToken } from '@/hooks/use-host-token'
+import { privateTokenMissing } from '@/lib/git-host'
+import { gitSetHostToken } from '@/lib/api/git'
 import { cleanLocalized, localized, localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
 import { DEFAULT_CATALOG_BRANCH, DEFAULT_CATALOG_URL, parseCatalogUrl } from '@/lib/catalog/remote'
 import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, type CatalogConfig } from '@/lib/catalog/settings'
@@ -49,6 +47,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
   const language = useAppStore((s) => s.language)
   const catalogs = useCatalogSourcesStore((s) => s.catalogs)
   const setCatalogs = useCatalogSourcesStore((s) => s.setCatalogs)
+  const requestLoad = useCatalogSourcesStore((s) => s.requestLoad)
   /** The catalog being edited, `'new'` for the add form, null for the list. */
   const [editing, setEditing] = useState<CatalogConfig | 'new' | null>(null)
   const [deleting, setDeleting] = useState<CatalogConfig | null>(null)
@@ -66,10 +65,8 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
     ? catalogs.filter((c) => editing === 'new' || c.id !== editing.id).map((c) => c.url)
     : []
   const { source: draftSource, invalidUrl, duplicate } = validateDraft(draft, takenUrls, language)
-  const hostToken = useHostToken(draft.private ? draftSource?.repoUrl : undefined)
-  // A private catalog is unreadable until the account holds a token for its host.
-  const tokenMissing = draft.private && !draft.token.trim() && hostToken.hasToken !== true
-  const canSubmit = !!draftSource && !tokenMissing && !saving
+  const hasToken = useHostToken(draft.private ? draftSource?.host : undefined)
+  const canSubmit = !!draftSource && !privateTokenMissing(draft.private, draft.token, hasToken) && !saving
 
   const submit = async () => {
     if (!editing || !draftSource || !canSubmit) return
@@ -95,12 +92,15 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
   }
 
   const save = (catalog: CatalogConfig) => {
-    const exists = catalogs.some((c) => c.id === catalog.id)
+    const previous = catalogs.find((c) => c.id === catalog.id)
     setCatalogs(
-      exists ? catalogs.map((c) => (c.id === catalog.id ? catalog : c)) : [...catalogs, catalog],
+      previous ? catalogs.map((c) => (c.id === catalog.id ? catalog : c)) : [...catalogs, catalog],
       // A catalog just added is the one the user wants to browse.
-      exists ? undefined : catalog.id,
+      previous ? undefined : catalog.id,
     )
+    const repointed = !previous || previous.url !== catalog.url || previous.branch !== catalog.branch
+      || !!previous.private !== !!catalog.private
+    if (repointed) requestLoad(catalog.id)
     setEditing(null)
   }
 
@@ -149,7 +149,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
               invalidUrl={invalidUrl}
               duplicate={duplicate}
               host={draftSource?.host ?? parseCatalogUrl(draft.url)?.host ?? null}
-              hasToken={hostToken.hasToken}
+              hasToken={hasToken}
             />
             {saveError && <GitErrorInline detail={saveError} />}
           </>
@@ -165,7 +165,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
                       <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                         <span className="truncate">{localized(catalog.name, language) || catalog.url}</span>
                         {catalog.private && (
-                          <Lock size={12} className="shrink-0 text-muted-foreground" aria-label={t('catalog.sources_private')} />
+                          <Lock size={12} className="shrink-0 text-muted-foreground" aria-label={t('versioning.private_repo')} />
                         )}
                       </p>
                       <p className="truncate font-mono text-xs text-muted-foreground" title={catalog.url}>
@@ -246,23 +246,6 @@ function draftOf(initial: CatalogConfig | null, language: string): CatalogDraft 
   }
 }
 
-/**
- * Whether the account holds a token for the host of `repoUrl` — its presence only,
- * the token itself never comes back. null while unknown (no URL, or in flight).
- */
-function useHostToken(repoUrl: string | undefined): { hasToken: boolean | null } {
-  const [status, setStatus] = useState<{ url: string; hasToken: boolean } | null>(null)
-  useEffect(() => {
-    if (!repoUrl || !isServerMode()) return
-    let cancelled = false
-    gitHostTokenStatus(repoUrl)
-      .then((s) => { if (!cancelled) setStatus({ url: repoUrl, hasToken: s.hasToken }) })
-      .catch(() => { /* unknown: the token field then reads as required */ })
-    return () => { cancelled = true }
-  }, [repoUrl])
-  return { hasToken: status && status.url === repoUrl ? status.hasToken : null }
-}
-
 /** The draft as a catalog to save, or null while it cannot be saved. */
 function validateDraft(draft: CatalogDraft, takenUrls: string[], language: string) {
   const source = parseCatalogUrl(draft.url, draft.branch)
@@ -327,46 +310,15 @@ function CatalogSourceForm({
       </div>
       {invalidUrl && <p className="text-xs text-destructive">{t('catalog.settings_invalid_url')}</p>}
       {duplicate && <p className="text-xs text-destructive">{t('catalog.sources_duplicate')}</p>}
-      {/* The token lives in the account, server-side: a client-only build has none. */}
-      {isServerMode() && (
-        <div className="space-y-3 rounded-md border p-3">
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-0.5">
-              <Label htmlFor="catalog-private">{t('catalog.sources_private')}</Label>
-              <p className="text-xs text-muted-foreground">{t('catalog.sources_private_hint')}</p>
-            </div>
-            <Switch
-              id="catalog-private"
-              checked={draft.private}
-              onCheckedChange={(checked) => onChange({ ...draft, private: checked })}
-            />
-          </div>
-          {draft.private && (
-            <>
-              <FormField
-                label={t('versioning.remote_token')}
-                required={hasToken !== true}
-                hint={
-                  hasToken
-                    ? t('catalog.sources_token_stored', { host })
-                    : t('catalog.sources_token_hint', { host: host ?? t('catalog.sources_token_this_host') })
-                }
-              >
-                {({ id }) => (
-                  <PasswordInput
-                    id={id}
-                    value={draft.token}
-                    onChange={(e) => onChange({ ...draft, token: e.target.value })}
-                    placeholder={hasToken ? '••••••••' : t('versioning.remote_token_placeholder')}
-                    autoComplete="off"
-                  />
-                )}
-              </FormField>
-              <GitTokenHelp />
-            </>
-          )}
-        </div>
-      )}
+      <PrivateRepoFields
+        isPrivate={draft.private}
+        onPrivateChange={(checked) => onChange({ ...draft, private: checked })}
+        token={draft.token}
+        onTokenChange={(token) => onChange({ ...draft, token })}
+        host={host}
+        hasToken={hasToken}
+        hint={t('catalog.sources_private_hint')}
+      />
     </div>
   )
 }

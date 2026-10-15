@@ -2683,7 +2683,11 @@
     "pull_db_take": "Remplacer par la version distante",
     "sync_auth_rejected_title": "Jeton d'accès refusé",
     "sync_auth_rejected_body": "Un jeton est enregistré pour cet hôte, mais le dépôt l'a refusé. Il peut appartenir à un autre compte, avoir expiré, ou ne pas donner accès à ce dépôt — remplacez-le depuis Configuration.",
-    "file_desc_similarity_scores_csv": "Les suggestions d'une méthode versionnée (Gérer les suggestions › Versionné)."
+    "file_desc_similarity_scores_csv": "Les suggestions d'une méthode versionnée (Gérer les suggestions › Versionné).",
+    "private_repo": "Dépôt privé",
+    "private_repo_token_hint": "Enregistré dans votre compte pour {{host}} et réutilisé pour tous les dépôts de cet hôte, synchronisation git comprise. Les autres utilisateurs ne le voient jamais.",
+    "private_repo_token_stored": "Votre compte a déjà un jeton pour {{host}}. Laissez vide pour le conserver, ou collez-en un nouveau pour le remplacer.",
+    "private_repo_this_host": "cet hôte"
   },
   "summary": {
     "tab_overview": "Vue d'ensemble",
@@ -3996,11 +4000,7 @@
     "sources_delete_description": "« {{name}} » ne sera plus proposé sur la page Catalogue. Ce que vous en avez installé reste en place.",
     "sources_none": "Aucun catalogue configuré",
     "sources_none_description": "Ajoutez un catalogue, ou rétablissez le catalogue communautaire, avec l'icône d'engrenage ci-dessus.",
-    "sources_private": "Dépôt privé",
     "sources_private_hint": "Lu avec votre propre jeton d'accès. Les autres utilisateurs de ce Linkr ont besoin du leur pour le parcourir.",
-    "sources_token_hint": "Enregistré dans votre compte pour {{host}} et réutilisé pour tous les dépôts de cet hôte, synchronisation git comprise. Les autres utilisateurs ne le voient jamais.",
-    "sources_token_stored": "Votre compte a déjà un jeton pour {{host}}. Laissez vide pour le conserver, ou collez-en un nouveau pour le remplacer.",
-    "sources_token_this_host": "cet hôte",
     "error_unauthorized": "Impossible de lire ce catalogue privé. Vérifiez son adresse, et que votre jeton d'accès pour cet hôte peut lire le dépôt (Gérer les catalogues).",
     "error_server_mode_required": "Un catalogue privé nécessite un serveur Linkr : le jeton d'accès est enregistré dans votre compte."
   },
@@ -5900,15 +5900,13 @@
     "choose_file": "Choisir un fichier",
     "git_url": "URL du dépôt",
     "git_branch": "Branche",
-    "git_token": "Jeton",
-    "git_token_ph": "Pour dépôts privés",
     "clone_import": "Cloner et importer",
     "error_auth": "Échec d'authentification. Pour un dépôt privé, fournissez un jeton d'accès valide.",
     "error_not_found": "Dépôt introuvable. Vérifiez l'URL.",
     "error_ref": "Branche introuvable. Vérifiez le nom de la branche.",
     "error_network": "Erreur réseau pendant le clonage. Vérifiez votre connexion et le proxy.",
     "error_unknown": "Échec du clonage. Vérifiez l'URL, la branche, le jeton et le proxy CORS.",
-    "private_repo_hint": "Pour un dépôt privé, fournissez un jeton d'accès personnel."
+    "private_repo_hint": "Cloné avec votre propre jeton d'accès pour cet hôte."
   },
   "setup": {
     "title": "Bienvenue sur Linkr",
