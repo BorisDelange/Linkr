@@ -297,8 +297,8 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               ? t('databases.location_missing_path', { path: location.path })
               : t('databases.location_missing_description')}
             action={canEditLocation && (
-              <Button size="sm-tight" onClick={() => setEditOpen(true)}>
-                <FolderOpen size={12} />
+              <Button size="sm" onClick={() => setEditOpen(true)}>
+                <FolderOpen size={14} />
                 {t('databases.location_missing_change')}
               </Button>
             )}
@@ -326,8 +326,8 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
             title={t('databases.no_schema_title')}
             description={t('databases.no_schema_description')}
             action={canEditLocation && (
-              <Button size="sm-tight" onClick={() => setEditOpen(true)}>
-                <Network size={12} />
+              <Button size="sm" onClick={() => setEditOpen(true)}>
+                <Network size={14} />
                 {t('databases.no_schema_assign')}
               </Button>
             )}
@@ -1077,7 +1077,7 @@ function OverviewTab({
           description={t('databases.stats_not_computed_hint')}
           action={(
             <Button size="sm" onClick={refreshStats} disabled={statsLoading}>
-              <BarChart3 size={14} className="mr-1.5" />
+              <BarChart3 size={14} />
               {t('databases.load_statistics')}
             </Button>
           )}

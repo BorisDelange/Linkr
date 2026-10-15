@@ -86,9 +86,8 @@ function RetryButton({ onRetry, retrying }: { onRetry: () => void; retrying: boo
       size="sm"
       onClick={() => { setPressed(true); onRetry() }}
       disabled={busy}
-      className="gap-1.5 text-xs"
     >
-      {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+      {busy ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
       {t('databases.stats_retry')}
     </Button>
   )
