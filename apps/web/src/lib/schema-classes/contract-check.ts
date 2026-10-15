@@ -23,6 +23,9 @@ export interface ContractReport {
 
 const EXTRA = /^extra_[A-Za-z0-9_]+$/
 
+/** Required columns the relation's spec fills whatever its SQL returns (`drugKind`). */
+const SUPPLIED_BY_SPEC: Partial<Record<ClassName, string[]>> = { drug: ['drug_kind'] }
+
 /** Does a DuckDB type fit a contract column kind? Ids take any type (VARCHAR or
  *  BIGINT); a bare NULL (`NULL AS x`) has type "NULL" and fills nothing. */
 function fits(kind: ColumnKind, type: string): boolean {
@@ -61,9 +64,10 @@ export function checkContract(cls: ClassName, described: readonly DescribedColum
     const name = d.column_name.toLowerCase()
     if (cls === 'concept' && EXTRA.test(name) && d.column_type.toUpperCase() !== 'NULL') filled.push(name)
   }
+  const supplied = SUPPLIED_BY_SPEC[cls] ?? []
   return {
     filled,
-    missingRequired: contract.filter((c) => c.required && !filled.includes(c.name)).map((c) => c.name),
+    missingRequired: contract.filter((c) => c.required && !filled.includes(c.name) && !supplied.includes(c.name)).map((c) => c.name),
     unknown: described
       .map((d) => d.column_name)
       .filter((n) => !known.has(n.toLowerCase()) && !(cls === 'concept' && EXTRA.test(n.toLowerCase()))),

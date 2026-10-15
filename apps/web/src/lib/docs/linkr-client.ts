@@ -159,8 +159,8 @@ the same model, each language's own naming convention.
 Lists what the acting user may read — the same set the Databases page shows,
 resolved server-side, so a script never hardcodes a path.
 
-The \`dialect\` column, **not** \`engine\`, says which SQL to write: PostgreSQL and
-MySQL are reached by attaching them into DuckDB exactly as the app's own SQL
+The \`dialect\` column, **not** \`engine\`, says which SQL to write: PostgreSQL,
+MySQL and Apache Doris are reached by attaching them into DuckDB exactly as the app's own SQL
 editor does, so a query moves between the IDE and the app unchanged.
 
 ## Value
@@ -198,7 +198,7 @@ Returns a real DBI connection, so everything built on DBI works: \`dbGetQuery\`,
 ## The connection is always DuckDB
 
 A managed or uploaded file is opened directly; a Parquet source is registered as
-one view per table; PostgreSQL and MySQL are ATTACHed read-only, which is how the
+one view per table; PostgreSQL, MySQL and Doris are ATTACHed read-only, which is how the
 app itself reaches them. So the SQL is DuckDB's in every case, a query moves
 between the IDE and the app's SQL editor unchanged, and a live table can be joined
 against a local Parquet file in one statement.
@@ -254,8 +254,8 @@ model, each language's own naming convention.
 Lists what the acting user may read — the same set the Databases page shows,
 resolved server-side, so a script never hardcodes a path.
 
-The \`dialect\` field, **not** \`engine\`, says which SQL to write: PostgreSQL and
-MySQL are reached by attaching them into DuckDB exactly as the app's own SQL
+The \`dialect\` field, **not** \`engine\`, says which SQL to write: PostgreSQL,
+MySQL and Apache Doris are reached by attaching them into DuckDB exactly as the app's own SQL
 editor does, so a query moves between the IDE and the app unchanged.
 
 ## Returns
@@ -293,7 +293,7 @@ pandas' \`read_sql\` and anything else built on it work.
 ## The connection is always DuckDB
 
 A managed or uploaded file is opened directly; a Parquet source is registered as
-one view per table; PostgreSQL and MySQL are ATTACHed read-only, which is how the
+one view per table; PostgreSQL, MySQL and Doris are ATTACHed read-only, which is how the
 app itself reaches them. So the SQL is DuckDB's in every case, a query moves
 between the IDE and the app's SQL editor unchanged, and a live table can be joined
 against a local Parquet file in one statement.

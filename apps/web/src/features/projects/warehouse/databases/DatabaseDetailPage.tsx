@@ -17,6 +17,7 @@ import {
   Loader2,
   Minimize2,
   Plug,
+  RefreshCw,
   Table,
   Table2,
   SquareTerminal,
@@ -28,6 +29,7 @@ import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, Database
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
+import { useSessionDismissal } from '@/hooks/use-session-dismissal'
 import { useUrlTab } from '@/hooks/use-url-tab'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { paths } from '@/lib/paths'
@@ -64,9 +66,9 @@ import {
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import {
   DatabaseStatsDashboard,
-  StatsErrorBanner,
   useDatabaseStats,
 } from './DatabaseStatsDashboard'
+import { StatsErrorBanner } from './stats-error-banner'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 import { useReadmeAttachments } from '@/hooks/use-readme-attachments'
@@ -83,6 +85,7 @@ import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuild
 import { useDatabaseActions } from './use-database-actions'
 import { DerivedFromCard } from './DerivedFromCard'
 import { DatabaseSqlTab } from './DatabaseSqlTab'
+import { openInSqlConsole } from './sql-console-drafts'
 import { DatabaseConceptsTab } from './DatabaseConceptsTab'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useCohortStore } from '@/stores/cohort-store'
@@ -90,6 +93,8 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
+import { isExternalEngine, portOf } from '@/lib/database-engines'
+import { useFlightStatus } from './use-flight-status'
 
 const DATABASE_TAB_IDS = ['overview', 'statistics', 'concepts', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
@@ -151,6 +156,8 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const location = useDatabaseLocation(source)
   const canEditLocation = useMyWorkspaceRole().can('databases:write') && !readOnly
   const [editOpen, setEditOpen] = useState(false)
+  const [flightDismissed, dismissFlight] = useSessionDismissal(`flight:${source?.id}`)
+  const [noSchemaDismissed, dismissNoSchema] = useSessionDismissal(`no-schema:${source?.id}`)
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   // Reinstalling replaces the whole entity's content, so it takes the same role
@@ -159,8 +166,9 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const canReinstall = useMyWorkspaceRole().atLeast('owner') && !readOnly
   // The concept counts are a cache: shared for a file database (an edit), the
   // user's own for an external one — the server's `_cache_write_permission`.
+  const flightStatus = useFlightStatus(source)
   const canCountConcepts = useMyWorkspaceRole().can('databases:write')
-    || ['postgresql', 'mysql'].includes(String((source?.connectionConfig as DatabaseConnectionConfig | undefined)?.engine))
+    || isExternalEngine((source?.connectionConfig as DatabaseConnectionConfig | undefined)?.engine)
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,
@@ -289,21 +297,36 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               ? t('databases.location_missing_path', { path: location.path })
               : t('databases.location_missing_description')}
             action={canEditLocation && (
-              <Button variant="outline" size="sm-tight" onClick={() => setEditOpen(true)}>
+              <Button size="sm-tight" onClick={() => setEditOpen(true)}>
                 <FolderOpen size={12} />
                 {t('databases.location_missing_change')}
               </Button>
             )}
           />
         )}
-        {!source.schemaMapping && (
+        {flightStatus && flightStatus.status !== 'ok' && flightStatus.status !== 'not_applicable' && !flightDismissed && (
           <NoticeBanner
             tone="warning"
             className="mx-6 mb-3"
+            onDismiss={dismissFlight}
+            title={t('databases.flight_slow_title')}
+            description={flightStatus.status === 'not_installed'
+              ? t('databases.flight_not_installed')
+              : t(flightStatus.status === 'unauthenticated' ? 'databases.flight_unauthenticated' : 'databases.flight_unreachable',
+                  { port: flightStatus.port, detail: flightStatus.detail ?? '' })}
+          />
+        )}
+        {/* Closable everywhere but on the Mapping tab, where the missing schema
+            is the subject of the page. */}
+        {!source.schemaMapping && (shownTab === 'mapping' || !noSchemaDismissed) && (
+          <NoticeBanner
+            tone="warning"
+            className="mx-6 mb-3"
+            onDismiss={shownTab === 'mapping' ? undefined : dismissNoSchema}
             title={t('databases.no_schema_title')}
             description={t('databases.no_schema_description')}
             action={canEditLocation && (
-              <Button variant="outline" size="sm-tight" onClick={() => setEditOpen(true)}>
+              <Button size="sm-tight" onClick={() => setEditOpen(true)}>
                 <Network size={12} />
                 {t('databases.no_schema_assign')}
               </Button>
@@ -312,6 +335,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         )}
         {editOpen && dbActions.renderEditDialog?.({
           item: source,
+          initialTab: 'connection',
           onOpenChange: (open: boolean) => {
             setEditOpen(open)
             if (!open) notifyDatabaseLocationChanged(source.id)
@@ -330,6 +354,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               onSeeStatistics={() => setActiveTab('statistics')}
               onEditReadme={readOnly ? undefined : () => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={readOnly ? undefined : () => setActiveTab('license')}
+              onEditConnection={canEditLocation ? () => setEditOpen(true) : undefined}
             />
           </div>
         </TabsContent>
@@ -376,7 +401,15 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               between the placeholder and a half-listed schema, and text could not
               even be selected. A transient status is not a disconnection. */}
           {source.status === 'connected' || source.status === 'configuring' ? (
-            schemaEverOpened && <SchemaBrowser dataSourceId={source.id} />
+            schemaEverOpened && (
+              <SchemaBrowser
+                dataSourceId={source.id}
+                onQueryRows={(sql) => {
+                  openInSqlConsole(source.id, sql)
+                  setActiveTab('sql')
+                }}
+              />
+            )
           ) : (
             <div className="flex h-full flex-col items-center justify-center">
               <DatabaseIcon size={28} className="text-muted-foreground/40" />
@@ -680,7 +713,7 @@ function ConnectionCard({ source }: { source: DataSource }) {
       : config.host
         ? [{
             label: t('databases.field_host'),
-            value: `${config.host}${config.port ? `:${config.port}` : ''}${config.database ? `/${config.database}` : ''}`,
+            value: `${config.host}${portOf(config) ? `:${portOf(config)}` : ''}${config.database ? `/${config.database}` : ''}`,
           }]
         : []),
     { label: t('databases.field_identifier'), value: source.alias },
@@ -852,6 +885,7 @@ function OverviewTab({
   onSeeStatistics,
   onEditReadme,
   onSeeLicense,
+  onEditConnection,
 }: {
   source: DataSource
   statsMapping: SchemaMapping
@@ -860,6 +894,8 @@ function OverviewTab({
   /** Absent from a project: the readme and licence tabs are the workspace's. */
   onEditReadme?: () => void
   onSeeLicense?: () => void
+  /** Opens the edit dialog on its Connection tab; absent without the right to edit. */
+  onEditConnection?: () => void
 }) {
   const { t, i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments('data-source', source.id, source.workspaceId)
@@ -890,7 +926,8 @@ function OverviewTab({
   // statistics to run, and saying so twice buries the reason that matters.
   // Only once the stored statistics have been looked up: before that the banner
   // flashed on every visit to a database that does have them.
-  const showStatsBanner = cacheLoaded && !cache && !statsLoading && !showStatusBanner
+  const [statsBannerDismissed, dismissStatsBanner] = useSessionDismissal(`stats-not-computed:${source.id}`)
+  const showStatsBanner = cacheLoaded && !cache && !statsLoading && !showStatusBanner && !statsBannerDismissed
   // A failed computation says why in place of the "not computed" prompt, which
   // otherwise came back as if nothing had been tried.
   const showStatsError = statsError != null && !showStatusBanner
@@ -948,62 +985,56 @@ function OverviewTab({
           a database left disconnected by a data-free import has something to say
           too, and gating this on 'error' alone made those states silent. */}
       {showStatusBanner && (
-        <div className={cn('col-span-full shrink-0 rounded-lg border px-4 py-3',
-          source.status === 'error' ? 'border-destructive/30 bg-destructive/5'
-            : configuring ? 'bg-muted/40'
-              : 'border-amber-500/30 bg-amber-500/5',
-        )}>
-          <p className={cn('flex items-center gap-1.5 text-xs font-medium',
-            source.status === 'error' ? 'text-destructive' : configuring ? 'text-foreground' : 'text-amber-700 dark:text-amber-400',
-          )}>
-            {configuring && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
-            {t(source.status === 'error' ? 'databases.detail_error'
-              : configuring ? 'databases.detail_configuring' : 'databases.detail_not_connected')}
-          </p>
-          <p className={cn('mt-1 text-xs',
-            source.status === 'error' ? 'break-all font-mono text-destructive/80'
-              : configuring ? 'text-muted-foreground' : 'break-all text-amber-700/80 dark:text-amber-400/80',
-          )}>
-            {configuring && (!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT)
-              ? t('databases.detail_configuring_hint')
-              : !source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
-                ? t('databases.imported_without_data')
-                : source.errorMessage}
-          </p>
-          {/* A database built from a schema carries its DDL but never its tables —
-              the export leaves the DuckDB file behind on purpose. Offer the one
-              action that can fix it, since creation was the only path that ever
-              applied the DDL. */}
-          {/* Nothing to do while it is being set up: a job builds it, or a test is
-              already running — kept while the user's own retest spins. */}
-          {(!configuring || retesting) && <div className="mt-2 flex flex-wrap items-center gap-2">
-            {/* First, because it is the non-destructive way out and fixes every
-                transient cause. The rebuild below is the last resort. */}
-            <Button size="sm" variant="outline" onClick={handleRetest} disabled={retesting || rebuilding}>
-              {retesting && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
-              {t('databases.test_connection_again')}
-            </Button>
-            {canWrite && canRebuild && (
-              <>
-                {/* Confirmed, never immediate: the rebuild drops whatever the file
-                    holds, and a database that merely failed to connect may still
-                    carry every row it was loaded with. */}
-                <Button
-                  size="sm"
-                  variant="destructive"
-                  onClick={() => setConfirmRebuild(true)}
-                  disabled={rebuilding || retesting}
-                >
-                  {rebuilding && <Loader2 className="mr-1.5 size-3.5 animate-spin" />}
+        <NoticeBanner
+          tone={source.status === 'error' ? 'danger' : configuring ? 'progress' : 'warning'}
+          className="col-span-full"
+          title={t(source.status === 'error' ? 'databases.detail_error'
+            : configuring ? 'databases.detail_configuring' : 'databases.detail_not_connected')}
+          description={(
+            <>
+              <p className={cn(
+                source.status === 'error' ? 'break-all font-mono text-destructive/80'
+                  : configuring ? undefined : 'break-all text-amber-700/80 dark:text-amber-400/80',
+              )}>
+                {configuring && (!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT)
+                  ? t('databases.detail_configuring_hint')
+                  : !source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
+                    ? t('databases.imported_without_data')
+                    : source.errorMessage}
+              </p>
+              {/* A database built from a schema carries its DDL but never its
+                  tables — the export leaves the DuckDB file behind on purpose. */}
+              {canWrite && canRebuild && <p className="mt-1 text-[10px]">{t('databases.rebuild_from_schema_hint')}</p>}
+            </>
+          )}
+          // Nothing to do while it is being set up: a job builds it, or a test is
+          // already running — kept while the user's own retest spins.
+          action={(!configuring || retesting) && (
+            <div className="flex items-center gap-2">
+              {onEditConnection && (
+                <Button size="sm-tight" variant="outline" onClick={onEditConnection} disabled={retesting || rebuilding}>
+                  <Pencil size={12} />
+                  {t('databases.edit_connection')}
+                </Button>
+              )}
+              {/* The non-destructive way out, which fixes every transient cause;
+                  the rebuild beside it is the last resort. */}
+              <Button size="sm-tight" onClick={handleRetest} disabled={retesting || rebuilding}>
+                {retesting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                {t('databases.test_connection_again')}
+              </Button>
+              {canWrite && canRebuild && (
+                // Confirmed, never immediate: the rebuild drops whatever the file
+                // holds, and a database that merely failed to connect may still
+                // carry every row it was loaded with.
+                <Button size="sm-tight" variant="destructive" onClick={() => setConfirmRebuild(true)} disabled={rebuilding || retesting}>
+                  {rebuilding && <Loader2 size={12} className="animate-spin" />}
                   {t('databases.rebuild_from_schema')}
                 </Button>
-                <span className="text-[10px] text-muted-foreground">
-                  {t('databases.rebuild_from_schema_hint')}
-                </span>
-              </>
-            )}
-          </div>}
-        </div>
+              )}
+            </div>
+          )}
+        />
       )}
 
       <AlertDialog open={confirmRebuild} onOpenChange={setConfirmRebuild}>
@@ -1041,6 +1072,7 @@ function OverviewTab({
         <NoticeBanner
           tone="warning"
           className="col-span-full"
+          onDismiss={dismissStatsBanner}
           title={t('databases.stats_not_computed')}
           description={t('databases.stats_not_computed_hint')}
           action={(

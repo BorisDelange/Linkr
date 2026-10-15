@@ -10,12 +10,13 @@ import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { getStorage } from '@/lib/storage'
-import { formatApiError, isServerMode } from '@/lib/api-client'
-import { etlRunningDetail, stopEtlRunOnServer } from '@/lib/api/data-sources'
-import { NoticeBanner } from '@/components/ui/notice-banner'
+import { isServerMode } from '@/lib/api-client'
 import { ParquetLayoutNotice } from './ParquetLayoutNotice'
-import { computeDatabaseStats, streamTableCounts } from '@/lib/duckdb/database-stats'
+import { StatsErrorBanner } from './stats-error-banner'
+import { computeDatabaseStats, statsJobName, streamTableCounts, type StatsPhase } from '@/lib/duckdb/database-stats'
+import { hasRememberedJob } from '@/lib/duckdb/run-query-job'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { localized } from '@/lib/localized'
 import type {
   DatabaseStatsCache, AgePyramidBucket, AdmissionTimelineBucket,
   DescriptiveStats, GenderDistribution, SchemaMapping, TableRowCount,
@@ -48,6 +49,9 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
   cacheRef.current = cache
   const autoRefreshed = useRef(false)
 
+  const { t, i18n } = useTranslation()
+  const sourceName = useDataSourceStore((s) => s.dataSources.find((d) => d.id === dataSourceId)?.name)
+  const jobLabel = t('databases.stats_job', { name: sourceName ? localized(sourceName, i18n.language) : dataSourceId })
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
   const recordRowCounts = useDataSourceStore((s) => s.recordRowCounts)
   const keepCounts = useCallback((stats: DatabaseStatsCache) => {
@@ -75,7 +79,10 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     })
   }, [dataSourceId])
 
-  const refresh = useCallback(async () => {
+  /** `resume`: only follow the job of that phase a closed tab left (server
+   *  mode) — the statistics, then the table counts as a refresh does; or the
+   *  table counts alone. */
+  const compute = useCallback(async (resume?: StatsPhase) => {
     setIsLoading(true)
     // The error stays up through the retry and goes only once it succeeds: a
     // retry refused at once would otherwise flash the band away and back.
@@ -101,11 +108,16 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
         // Fast block first (patients/visits/age/gender/timeline) — renders in a
         // few seconds. Persist it right away so switching tabs (which unmounts
         // this panel) reloads from cache instead of recomputing from zero.
-        const stats = await computeDatabaseStats(dataSourceId, schemaMapping, signal)
-        setCache(stats)
-        setError(null)
-        await getStorage().databaseStatsCache.save(stats)
-        keepCounts(stats)
+        let stats: DatabaseStatsCache
+        if (resume === 'counts' && previous) {
+          stats = previous
+        } else {
+          stats = await computeDatabaseStats(dataSourceId, schemaMapping, { signal, label: jobLabel, resumeOnly: resume === 'stats' })
+          setCache(stats)
+          setError(null)
+          await getStorage().databaseStatsCache.save(stats)
+          keepCounts(stats)
+        }
 
         // Per-table counts stream in afterwards, batch by batch, persisting after
         // each batch so a mid-stream tab switch keeps the counts gathered so far.
@@ -121,7 +133,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
           }
           setCache(running)
           getStorage().databaseStatsCache.save(running).catch(() => {})
-        }, undefined, signal)
+        }, { signal, label: jobLabel, resumeOnly: resume === 'counts' })
       })()
       _inFlight.set(dataSourceId, run)
       try {
@@ -139,7 +151,17 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
       setIsLoading(false)
       setIsStopping(false)
     }
-  }, [dataSourceId, schemaMapping, ensureMounted, keepCounts])
+  }, [dataSourceId, schemaMapping, ensureMounted, keepCounts, jobLabel])
+  const refresh = useCallback(() => compute(), [compute])
+
+  // A computation a closed tab left on the server: follow it rather than lose it.
+  const resumed = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isServerMode() || !cacheLoaded || resumed.current === dataSourceId || _inFlight.has(dataSourceId)) return
+    resumed.current = dataSourceId
+    if (hasRememberedJob(statsJobName(dataSourceId, 'stats'))) void compute('stats')
+    else if (hasRememberedJob(statsJobName(dataSourceId, 'counts'))) void compute('counts')
+  }, [cacheLoaded, dataSourceId, compute])
 
   /** Stop the refresh: the queries in flight are cancelled (server mode
    *  interrupts them), and what was already computed stays. */
@@ -787,92 +809,5 @@ function AdmissionTimelineChart({ data }: { data: AdmissionTimelineBucket[] }) {
         />
       </LineChart>
     </ResponsiveContainer>
-  )
-}
-
-/** Why the statistics could not be computed. An ETL run holding the database
- *  gets its own band, with a way to stop the run: DuckDB lets nothing else open
- *  the file — reads included — until the run has let go of it. */
-export function StatsErrorBanner({ dataSourceId, error, onRetry, retrying = false, className }: {
-  dataSourceId: string
-  error: unknown
-  onRetry: () => void
-  retrying?: boolean
-  className?: string
-}) {
-  const { t } = useTranslation()
-  const [stopRequested, setStopRequested] = useState(false)
-  const [stopError, setStopError] = useState<unknown>(null)
-  const etl = etlRunningDetail(error)
-
-  if (!etl) {
-    return (
-      <NoticeBanner
-        tone="danger"
-        className={className}
-        title={t('databases.stats_failed')}
-        description={formatApiError(error).summary}
-        action={<RetryButton onRetry={onRetry} retrying={retrying} />}
-      />
-    )
-  }
-
-  const stopping = etl.stopping || stopRequested
-  const stopRun = async () => {
-    setStopError(null)
-    try {
-      await stopEtlRunOnServer(dataSourceId)
-      setStopRequested(true)
-    } catch (err) {
-      setStopError(err)
-    }
-  }
-  return (
-    <NoticeBanner
-      tone="warning"
-      className={className}
-      title={stopping ? t('databases.stats_etl_stopping_title') : t('databases.stats_etl_running_title')}
-      description={stopError != null
-        ? formatApiError(stopError).summary
-        : stopping ? t('databases.stats_etl_stopping_description') : t('databases.stats_etl_running_description')}
-      action={(
-        <div className="flex gap-2">
-          {!stopping && (
-            <Button variant="outline" size="sm" onClick={() => void stopRun()} className="gap-1.5 text-xs">
-              <Square size={12} />
-              {t('databases.stats_etl_stop_run')}
-            </Button>
-          )}
-          <RetryButton onRetry={onRetry} retrying={retrying} />
-        </div>
-      )}
-    />
-  )
-}
-
-/** Least time the Retry spinner shows after a click. A retry refused at once
- *  would otherwise change nothing on screen, and read as a dead button. */
-const RETRY_FEEDBACK_MS = 700
-
-function RetryButton({ onRetry, retrying }: { onRetry: () => void; retrying: boolean }) {
-  const { t } = useTranslation()
-  const [pressed, setPressed] = useState(false)
-  useEffect(() => {
-    if (!pressed) return
-    const timer = setTimeout(() => setPressed(false), RETRY_FEEDBACK_MS)
-    return () => clearTimeout(timer)
-  }, [pressed])
-  const busy = retrying || pressed
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => { setPressed(true); onRetry() }}
-      disabled={busy}
-      className="gap-1.5 text-xs"
-    >
-      {busy ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-      {t('databases.stats_retry')}
-    </Button>
   )
 }

@@ -2,9 +2,10 @@
  * Pure helpers for dashboard widgets: the checks that turn a model's config into
  * one the widget renders, instead of a blank chart with an empty column picker.
  */
-import type { DashboardEvent, DashboardFilter } from '@/types'
+import type { DashboardEvent, DashboardFilter, DashboardWidget } from '@/types'
 import type { PluginManifest } from '@/types/plugin'
-import { isValidEventDate, normalizeEvents } from '@/lib/dashboard-events'
+import { EVENT_COLOR_NAMES, isValidEventColor, isValidEventDate, normalizeEvents, pruneEventIds } from '@/lib/dashboard-events'
+import { findPlugin } from './plugins.js'
 
 /** Dashboards use a 48-column grid (gridV 2); a new widget is half width. */
 export const GRID_COLUMNS = 48
@@ -267,6 +268,9 @@ export function buildDashboardEvents(
   for (const [i, e] of input.entries()) {
     if (!isValidEventDate(e.date)) return { error: `events[${i}].date: YYYY-MM-DD or YYYY-MM-DDTHH:MM, got "${e.date}".` }
     if (!e.label?.trim()) return { error: `events[${i}].label is required.` }
+    if (e.color !== undefined && !isValidEventColor(e.color)) {
+      return { error: `events[${i}].color: "${e.color}" is neither #rrggbb nor a palette name (${EVENT_COLOR_NAMES.join(', ')}).` }
+    }
     if (e.id && !known.has(e.id)) {
       return { error: `events[${i}].id: no event "${e.id}" on this dashboard — omit the id to add a new one.` }
     }
@@ -276,4 +280,10 @@ export function buildDashboardEvents(
     events.push({ id, date: e.date, label: bilingual(e.label, e.label_fr), color: e.color ?? '' })
   }
   return { events: normalizeEvents(events) }
+}
+
+/** The dashboard's widgets whose selection names an event `events` no longer holds,
+ *  rewritten to the surviving ids: saved beside the events so no widget keeps a dead id. */
+export function widgetEventPrunes(widgets: readonly DashboardWidget[], events: readonly DashboardEvent[]): DashboardWidget[] {
+  return pruneEventIds(widgets, events.map((e) => e.id), (pluginId) => findPlugin(pluginId)?.configSchema)
 }

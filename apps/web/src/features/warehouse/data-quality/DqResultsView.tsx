@@ -1,8 +1,8 @@
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X, AlertTriangle } from 'lucide-react'
+import { ShieldCheck, Play, Loader2, PanelRight, BarChart3, History, X, AlertTriangle, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -12,7 +12,8 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
-import { runAllChecks, runnableChecks } from '@/lib/duckdb/data-quality'
+import { runnableChecks } from '@/lib/duckdb/data-quality'
+import { isServerMode } from '@/lib/api-client'
 import type { DqCheck, DqCheckResult, DqReport } from '@/lib/duckdb/data-quality'
 import type { DqCustomCheck } from '@/types'
 import { cn } from '@/lib/utils'
@@ -22,10 +23,14 @@ import { DqCheckDetailPanel } from './DqCheckDetailPanel'
 import { DqCategoryCharts } from './DqCategoryCharts'
 import { DqHistoryDialog } from './DqHistoryDialog'
 import { CATEGORY_COLORS, STATUS_CONFIG, SEVERITY_CONFIG } from './DqConstants'
+import { clearDqRunError, dqJobName, getDqRun, lastDqReport, startDqRun, stopDqRun, watchDqRun } from './dq-run'
+import { hasRememberedJob } from '@/lib/duckdb/run-query-job'
 
 interface Props {
   /** Rule set the history modal is scoped to. */
   ruleSetId?: string
+  /** The run's name in the jobs panel (server mode). */
+  runLabel?: string
   dataSourceId: string
   customChecks?: DqCustomCheck[]
   /** Called after a successful scan with the full report. */
@@ -41,13 +46,20 @@ interface Row {
   result: DqCheckResult
 }
 
-export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanComplete, onBeforeScan, onInvestigate }: Props) {
+export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks, onScanComplete, onBeforeScan, onInvestigate }: Props) {
   const { t } = useTranslation()
   const canWrite = useMyWorkspaceRole().can('data-quality:write')
 
-  const [report, setReport] = useState<DqReport | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [progress, setProgress] = useState({ done: 0, total: 0 })
+  // The run outlives this view (dq-run.ts): it is read from there.
+  const runKey = ruleSetId ?? dataSourceId
+  const run = useSyncExternalStore(
+    useCallback((notify: () => void) => watchDqRun(runKey, notify), [runKey]),
+    () => getDqRun(runKey),
+  )
+  const loading = run.running
+  const scanError = run.error
+  // A past run picked from the history, shown until closed or a new run starts.
+  const [restored, setRestored] = useState<DqReport | null>(null)
   const [selectedCheckId, setSelectedCheckId] = useState<string | null>(null)
   const [detailVisible, setDetailVisible] = useState(true)
   const [chartsVisible, setChartsVisible] = useState(true)
@@ -55,47 +67,38 @@ export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanCom
   // Set when the displayed report comes from a past run (not a fresh scan) —
   // drives the "viewing a historical run" banner. Cleared on a new scan.
   const [viewedRunAt, setViewedRunAt] = useState<string | null>(null)
-  const [scanError, setScanError] = useState<string | null>(null)
-  const cancelledRef = useRef(false)
+  const runInput = useCallback((resumeOnly: boolean) => ({
+    ruleSetId: runKey,
+    dataSourceId,
+    checks: runnableChecks(customChecks ?? []),
+    label: runLabel ?? t('data_quality.run_scan'),
+    prepare: onBeforeScan ?? (async () => {}),
+    onComplete: (r: DqReport) => onScanComplete?.(r),
+    resumeOnly,
+  }), [runKey, dataSourceId, customChecks, runLabel, onBeforeScan, onScanComplete, t])
 
-  const handleRunScan = useCallback(async () => {
+  const handleRunScan = useCallback(() => {
     if (loading) return
-    cancelledRef.current = false
-    setLoading(true)
-    setReport(null)
+    setRestored(null)
     setSelectedCheckId(null)
     setViewedRunAt(null)
-    setScanError(null)
-    setProgress({ done: 0, total: 0 })
+    startDqRun(runInput(false))
+  }, [loading, runInput])
 
-    try {
-      if (onBeforeScan) await onBeforeScan()
+  // A run a closed tab left on the server: follow it rather than lose it — once
+  // the checks are loaded, which tell whether it is still this rule set's run.
+  useEffect(() => {
+    if (isServerMode() && customChecks?.length && hasRememberedJob(dqJobName(runKey)) && !getDqRun(runKey).running) startDqRun(runInput(true))
+  }, [runKey, customChecks, runInput])
 
-      const checks = runnableChecks(customChecks ?? [])
-      setProgress({ done: 0, total: checks.length })
-
-      const result = await runAllChecks(dataSourceId, checks, (done, total) => {
-        if (!cancelledRef.current) setProgress({ done, total })
-      })
-
-      if (!cancelledRef.current) {
-        setReport(result)
-        onScanComplete?.(result)
-      }
-    } catch (err) {
-      if (!cancelledRef.current) {
-        setScanError(err instanceof Error ? err.message : String(err))
-      }
-    } finally {
-      setLoading(false)
-    }
-  }, [dataSourceId, customChecks, loading, onBeforeScan, onScanComplete])
+  // The last run's report, even one this view did not see start.
+  const report = restored ?? (run.running ? null : lastDqReport(runKey))
 
   const handleRestore = useCallback((entry: { report?: unknown; startedAt: string }) => {
     if (!entry.report) return
     const past = entry.report as DqReport
     // A run saved before the Kahn categories still names the old ones.
-    setReport({ ...past, checks: past.checks.map((c) => normalizeDqCheck({ ...c, subcategory: c.subcategory ?? null })) })
+    setRestored({ ...past, checks: past.checks.map((c) => normalizeDqCheck({ ...c, subcategory: c.subcategory ?? null })) })
     setSelectedCheckId(null)
     setViewedRunAt(entry.startedAt)
   }, [])
@@ -240,9 +243,17 @@ export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanCom
             </Button>
           )}
 
-          {loading && progress.total > 0 && (
+          {loading && (
+            <Button size="sm" variant="outline" onClick={() => stopDqRun(runKey)} className="h-6 gap-1 px-2 text-xs">
+              <Square size={12} />
+              {t('data_quality.stop_scan')}
+            </Button>
+          )}
+
+          {loading && run.total > 0 && (
             <span className="text-xs text-muted-foreground">
-              {t('data_quality.progress', { done: progress.done, total: progress.total })}
+              {t('data_quality.progress', { done: run.done, total: run.total })}
+              {run.reading != null && ` · ${t('run_steps.reading', { pct: run.reading })}`}
             </span>
           )}
 
@@ -293,7 +304,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanCom
               variant="ghost"
               size="icon-xs"
               className="ml-auto h-5 w-5 text-amber-700 hover:text-amber-900 dark:text-amber-300"
-              onClick={() => { setReport(null); setViewedRunAt(null); setSelectedCheckId(null) }}
+              onClick={() => { setRestored(null); setViewedRunAt(null); setSelectedCheckId(null) }}
               title={t('common.close')}
             >
               <X size={13} />
@@ -310,7 +321,7 @@ export function DqResultsView({ ruleSetId, dataSourceId, customChecks, onScanCom
               variant="ghost"
               size="icon-xs"
               className="ml-auto h-5 w-5 text-destructive"
-              onClick={() => setScanError(null)}
+              onClick={() => clearDqRunError(runKey)}
               title={t('common.close')}
             >
               <X size={13} />

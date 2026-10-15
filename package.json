@@ -21,6 +21,7 @@
     "worktree:remove": "node scripts/remove-worktree.mjs",
     "worktree:status": "node scripts/worktree-status.mjs",
     "data:fetch": "tsx scripts/fetch-default-data.ts",
+    "duckdb:extensions": "node scripts/duckdb-extensions.mjs",
     "hooks:install": "node scripts/install-git-hooks.mjs",
     "prepare": "node scripts/install-git-hooks.mjs"
   },

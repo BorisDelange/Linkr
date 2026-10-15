@@ -28,7 +28,7 @@
 import type { CatalogResultCache, DataCatalog } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { CatalogQuery, CatalogRunStep, CatalogUnitInfo } from './catalog-compute'
-import { runCatalogComputation, type CatalogStepProgress } from './catalog-run'
+import { runCatalogComputation, type CatalogPhaseExecutor, type CatalogStepProgress } from './catalog-run'
 
 export type { CatalogStepProgress }
 
@@ -47,11 +47,15 @@ export interface CatalogRunSnapshot {
   steps: Partial<Record<CatalogRunStep, CatalogStepProgress>>
   /** The unit in flight. */
   current: CatalogUnitInfo | null
+  /** When the phase began (epoch ms). */
+  phaseStartedAt: number | null
+  /** Percent of its data the unit in flight has read, when the database can tell. */
+  reading: number | null
   error: string | null
 }
 
 const IDLE: CatalogRunSnapshot = {
-  running: false, phase: null, computed: null, total: null, steps: {}, current: null, error: null,
+  running: false, phase: null, computed: null, total: null, steps: {}, current: null, phaseStartedAt: null, reading: null, error: null,
 }
 
 interface Run {
@@ -89,7 +93,7 @@ function emit(catalogId: string, patch: Partial<CatalogRunSnapshot>): void {
   if (!run) return
   run.snapshot = { ...run.snapshot, ...patch }
 
-  const onlyProgress = Object.keys(patch).every((k) => k === 'computed' || k === 'current' || k === 'steps')
+  const onlyProgress = Object.keys(patch).every((k) => k === 'computed' || k === 'current' || k === 'steps' || k === 'reading')
   const now = Date.now()
   if (onlyProgress && now - run.lastNotifiedAt < PROGRESS_THROTTLE_MS) return
   run.lastNotifiedAt = now
@@ -163,6 +167,8 @@ export interface StartCatalogRunInput {
   persist: (cache: CatalogResultCache, done: boolean) => Promise<void>
   /** Record a failure on the stored catalog, so a reload shows it. */
   persistError: (message: string) => Promise<void>
+  /** How each phase's queries run (server mode: a job); one by one through `query` when absent. */
+  executor?: CatalogPhaseExecutor
 }
 
 /**
@@ -191,6 +197,8 @@ export function startCatalogRun(input: StartCatalogRunInput): void {
       total: null,
       steps: {},
       current: null,
+      phaseStartedAt: Date.now(),
+      reading: null,
       error: null,
     },
     controller,
@@ -219,15 +227,17 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
       query: input.query,
       resumeFrom: input.resumeFrom?.cache ?? null,
       persist: input.persist,
+      executor: input.executor,
     }, signal, {
-      step: (step) => emitNow(catalogId, { phase: step }),
+      step: (step) => emitNow(catalogId, { phase: step, phaseStartedAt: Date.now(), reading: null }),
       unit: (info) => emit(catalogId, { current: info }),
+      reading: (reading) => emit(catalogId, { reading }),
       progress: (computed, steps, total) => {
         if (total !== getCatalogRunSnapshot(catalogId).total) emitNow(catalogId, { computed, steps, total })
         else emit(catalogId, { computed, steps })
       },
       saved: (computed) => emitNow(catalogId, { computed }),
-      finishing: () => emitNow(catalogId, { phase: 'saving', current: null }),
+      finishing: () => emitNow(catalogId, { phase: 'saving', phaseStartedAt: Date.now(), current: null, reading: null }),
     })
   } catch (err) {
     if (!signal.aborted) {
@@ -245,7 +255,7 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
     // the live counts so the view falls back to the persisted ones — which by now
     // describe this run, since every save point wrote them.
     const error = run?.snapshot.error ?? null
-    emitNow(catalogId, { running: false, phase: null, computed: null, total: null, steps: {}, current: null })
+    emitNow(catalogId, { running: false, phase: null, computed: null, total: null, steps: {}, current: null, phaseStartedAt: null, reading: null })
     if (run) {
       run.snapshot = { ...IDLE, error }
       if (run.watchers.size === 0 && !error) runs.delete(catalogId)

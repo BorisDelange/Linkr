@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import audit
+from app.core import audit, deferred
 from app.schemas.base import CamelModel
 
 from app.core.database import get_db
@@ -250,17 +250,24 @@ async def global_table_build(
         filter_values = global_table_service.distinct_filter_values(path, mode)
         return signature, total, filter_values
 
-    try:
-        signature, total, filter_values = await asyncio.to_thread(_run)
-    except file_reader.ExcelSupportUnavailable:
-        raise HTTPException(
-            status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable"
-        )
-    except Exception as e:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST, f"Global table build failed: {e}"
-        )
-    return {"signature": signature, "total": total, "filterValues": filter_values}
+    async def work() -> dict:
+        try:
+            signature, total, filter_values = await asyncio.to_thread(_run)
+        except file_reader.ExcelSupportUnavailable:
+            raise HTTPException(
+                status.HTTP_501_NOT_IMPLEMENTED, "excel_support_unavailable"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, f"Global table build failed: {e}"
+            )
+        return {"signature": signature, "total": total, "filterValues": filter_values}
+
+    # Every project's source concepts and mappings of a big workspace take a while
+    # to merge: past `deferred.WAIT_SECONDS` the build goes on as a job (core/deferred).
+    return await deferred.respond(
+        user.id, work, deferred.AsJob("Mapping overview", workspace_id=body.workspace_id, lane="heavy_query"),
+    )
 
 
 class GlobalTableQuery(CamelModel):
@@ -680,14 +687,24 @@ async def import_score_csvs(
         csvs.append((f.method, str(blob_store.path_for(f.sha))))
     if not csvs:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No file")
-    async with _scores_lock(project_id):
-        try:
-            sha = await scores_export.replace_methods(db, project, csvs)
-        except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    if not sha:
-        return None
-    return await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha)))
+    async def work():
+        async with _scores_lock(project_id), deferred.session() as session:
+            fresh = await svc.get(session, project_id)
+            if fresh is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+            try:
+                sha = await scores_export.replace_methods(session, fresh, csvs)
+            except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        if not sha:
+            return None
+        return await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha)))
+
+    # Millions of score rows take minutes to load and index: past
+    # `deferred.WAIT_SECONDS` the import goes on as a job (core/deferred).
+    return await deferred.respond(
+        user.id, work, deferred.AsJob("Import similarity scores", workspace_id=project.workspace_id, lane="heavy_query"),
+    )
 
 
 class ScoresByTarget(CamelModel):
@@ -922,20 +939,31 @@ async def export_zip(
     Scores default to what git carries (the versioned methods, as CSV);
     `scoreMethods` + `scoresFormat` pick another selection, `noScores` none."""
     project = await _load_project(db, project_id, user, "concept-mapping:read")
-    try:
-        zip_bytes = await assemble_mapping_project_zip(
-            db, project, scores_format, [] if no_scores else score_methods
-        )
-    except SourceConceptsUnreadable as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-    audit.bind(action="export", workspace_id=project.workspace_id,
-               detail=f"mapping project {project.id} export ({len(zip_bytes)} bytes)")
+    workspace_id = project.workspace_id
     slug = _localized(project.name, "en") or project.id
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"content-disposition": _attachment_disposition(f"{slug}.zip")},
-    )
+
+    async def work() -> Response:
+        async with deferred.session() as session:
+            fresh = await svc.get(session, project_id)
+            if fresh is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+            try:
+                zip_bytes = await assemble_mapping_project_zip(
+                    session, fresh, scores_format, [] if no_scores else score_methods
+                )
+            except SourceConceptsUnreadable as e:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        audit.bind(action="export", workspace_id=workspace_id,
+                   detail=f"mapping project {project_id} export ({len(zip_bytes)} bytes)")
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"content-disposition": _attachment_disposition(f"{slug}.zip")},
+        )
+
+    # The source concepts and scores of a big project take a while to zip: past
+    # `deferred.WAIT_SECONDS` it goes on as a job (core/deferred).
+    return await deferred.respond(user.id, work, deferred.AsJob("Mapping project export", workspace_id=workspace_id))
 
 
 # --- Concept mappings (per-project) ----------------------------------------

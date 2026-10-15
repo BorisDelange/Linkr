@@ -221,9 +221,20 @@ export async function planSlices(
 // Units
 // ---------------------------------------------------------------------------
 
+/**
+ * One unit as data, so a whole phase can be handed to a server job: its query,
+ * and how its rows add into the run state. `sql` is null for a unit that only
+ * rearranges counts already made.
+ */
 export interface CatalogRunUnit {
   info: CatalogUnitInfo
-  run: (state: CatalogRunState, signal: AbortSignal) => Promise<void>
+  sql: string | null
+  apply: (state: CatalogRunState, rows: readonly Record<string, unknown>[]) => void
+}
+
+/** Run one unit through `query` and add its rows in. */
+export async function runUnit(unit: CatalogRunUnit, state: CatalogRunState, query: CatalogQuery, signal?: AbortSignal): Promise<void> {
+  unit.apply(state, unit.sql ? await query(unit.sql, signal) : [])
 }
 
 const sliceOf = (slices: readonly SerializedRange[], i: number): [number, number] | undefined =>
@@ -235,7 +246,7 @@ const rangeOf = (s: SerializedRange): PatientRange | null => (s.lo == null && s.
  * and the rankings the crossings are planned from (top services, concepts in
  * scope). Step by step, each over every slice.
  */
-export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: CatalogQuery, slices: readonly SerializedRange[]): CatalogRunUnit[] {
+export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, slices: readonly SerializedRange[]): CatalogRunUnit[] {
   const cfg = catalog.variables.concept
   const counts = catalogCounts(catalog)
   const units: CatalogRunUnit[] = []
@@ -246,8 +257,9 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
     for (const q of queries) {
       units.push({
         info: { step: 'concepts', dictionary: q.dictKey, slice: sliceOf(slices, i) },
-        run: async (state, signal) => {
-          for (const row of await query(q.sql, signal)) {
+        sql: q.sql,
+        apply: (state, rows) => {
+          for (const row of rows) {
             const r: CatalogConceptRow = {
               conceptId: row.concept_id as number | string,
               conceptName: row.concept_name as string,
@@ -276,8 +288,9 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
     if (!sql) throw new Error(MISSING_MAPPING)
     units.push({
       info: { step: 'totals', slice: sliceOf(slices, i) },
-      run: async (state, signal) => {
-        const row = (await query(sql, signal))[0] ?? {}
+      sql,
+      apply: (state, rows) => {
+        const row = rows[0] ?? {}
         state.totals.totalPatients += Number(row.total_patients ?? 0)
         state.totals.totalVisits += Number(row.total_visits ?? 0)
         state.totals.totalRecords += Number(row.total_records ?? 0)
@@ -295,8 +308,9 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
       if (!sql) return
       units.push({
         info: { step: 'ranking', ranked: 'service', slice: sliceOf(slices, i) },
-        run: async (state, signal) => {
-          for (const r of await query(sql, signal)) {
+        sql,
+        apply: (state, rows) => {
+          for (const r of rows) {
             const name = String(r.svc)
             state.serviceRank.set(name, (state.serviceRank.get(name) ?? 0) + Number(r.patients ?? 0))
           }
@@ -310,8 +324,9 @@ export function baseUnits(catalog: DataCatalog, mapping: SchemaMapping, query: C
       if (!sql) return
       units.push({
         info: { step: 'ranking', ranked: 'concept', slice: sliceOf(slices, i) },
-        run: async (state, signal) => {
-          for (const r of await query(sql, signal)) {
+        sql,
+        apply: (state, rows) => {
+          for (const r of rows) {
             const key = String(r.concept)
             const prev = state.conceptRank.get(key) ?? { patients: 0, records: 0 }
             state.conceptRank.set(key, { patients: prev.patients + Number(r.patients ?? 0), records: prev.records + Number(r.records ?? 0) })
@@ -352,7 +367,7 @@ export interface CrossingPlan {
  * concept variable's 1-way marginal), and for each crossing one query per
  * concept chunk and patient slice.
  */
-export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, query: CatalogQuery, state: CatalogRunState): CrossingPlan {
+export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, state: CatalogRunState): CrossingPlan {
   const variables = catalog.variables
   const crossings = effectiveCrossings(catalog)
   const service = variables.service
@@ -372,11 +387,11 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, quer
   const units: CatalogRunUnit[] = []
   const queryUnit = (vars: CatalogVariableId[], info: CatalogUnitInfo, unitCtx: CrossingQueryContext): CatalogRunUnit => ({
     info,
-    run: async (st, signal) => {
-      const rows = await runCrossingQuery(unitCtx, vars, query, signal)
+    sql: buildCrossingQuery(unitCtx, vars),
+    apply: (st, rows) => {
       const id = crossingId(vars)
       const entry = st.crossings.get(id) ?? { variables: vars, cells: new Map() }
-      mergeCells(entry.cells, rows)
+      mergeCells(entry.cells, rows.map((r) => crossingRow(vars, r)))
       st.crossings.set(id, entry)
     },
   })
@@ -386,7 +401,8 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, quer
     if (id === 'concept') {
       units.push({
         info: { step: 'crossings', crossing: vars },
-        run: async (st) => { st.crossings.set(id, { variables: vars, cells: new Map(conceptRows.map((r) => [r.values.join(SEP), { ...r }])) }) },
+        sql: null,
+        apply: (st) => { st.crossings.set(id, { variables: vars, cells: new Map(conceptRows.map((r) => [r.values.join(SEP), { ...r }])) }) },
       })
       continue
     }
@@ -421,18 +437,14 @@ export function planCrossings(catalog: DataCatalog, mapping: SchemaMapping, quer
   return { ctx, crossings, units, labels }
 }
 
-/** The cells of one crossing query, raw. */
-async function runCrossingQuery(ctx: CrossingQueryContext, vars: CatalogVariableId[], query: CatalogQuery, signal?: AbortSignal): Promise<CatalogCrossingRow[]> {
-  const sql = buildCrossingQuery(ctx, vars)
-  if (!sql) return []
-  return (await query(sql, signal)).map((r) => {
-    const row: CatalogCrossingRow = { values: vars.map((v) => String(r[variableColumn(v)])), patients: Number(r.patients ?? 0) }
-    if (r.records != null) row.records = Number(r.records)
-    if (r.stays != null) row.stays = Number(r.stays)
-    if (r.unit_stays != null) row.unitStays = Number(r.unit_stays)
-    if (r.cell_key != null) row.key = Number(r.cell_key)
-    return row
-  })
+/** One cell of a crossing query, raw. */
+function crossingRow(vars: CatalogVariableId[], r: Record<string, unknown>): CatalogCrossingRow {
+  const row: CatalogCrossingRow = { values: vars.map((v) => String(r[variableColumn(v)])), patients: Number(r.patients ?? 0) }
+  if (r.records != null) row.records = Number(r.records)
+  if (r.stays != null) row.stays = Number(r.stays)
+  if (r.unit_stays != null) row.unitStays = Number(r.unit_stays)
+  if (r.cell_key != null) row.key = Number(r.cell_key)
+  return row
 }
 
 /**
@@ -522,16 +534,16 @@ export async function estimateCrossings(
   if (todo.length === 0) return
   const scoped = { ...catalog, crossings: todo }
   const state = emptyRunState()
-  const ranking = baseUnits(scoped, mapping, query, [{}]).filter((u) => u.info.step === 'ranking')
+  const ranking = baseUnits(scoped, mapping, [{}]).filter((u) => u.info.step === 'ranking')
   const total = ranking.length + todo.length
   let done = 0
   for (const unit of ranking) {
     signal?.throwIfAborted()
     onProgress?.({ done, total, current: 'ranking' })
-    await unit.run(state, signal ?? new AbortController().signal)
+    await runUnit(unit, state, query, signal)
     done++
   }
-  const plan = planCrossings(scoped, mapping, query, state)
+  const plan = planCrossings(scoped, mapping, state)
   for (const vars of todo) {
     signal?.throwIfAborted()
     onProgress?.({ done, total, current: vars })

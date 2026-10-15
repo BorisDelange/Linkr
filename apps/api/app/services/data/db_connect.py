@@ -22,7 +22,9 @@ from pathlib import Path
 import duckdb
 
 from app.config import settings
+from app.core.redact import redact_secrets
 from app.services.data import connection_pool, file_reader, query_cancel
+from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import check_db_host
 
 logger = logging.getLogger(__name__)
@@ -44,12 +46,18 @@ MAX_QUERY_ROWS_ALL = 2_000_000
 # the request's context through `asyncio.to_thread`.
 row_cap: contextvars.ContextVar[int] = contextvars.ContextVar("row_cap", default=MAX_QUERY_ROWS)
 
-# Per-engine wiring: the DuckDB extension, the ATTACH TYPE, and the passthrough
-# query function used to read the source's own information_schema.
+# Per-engine wiring: the DuckDB extension, the ATTACH TYPE, the passthrough
+# query function used to read the source's own information_schema, and whether
+# the ATTACH can be READ_ONLY. Doris speaks the MySQL protocol but rejects the
+# `START TRANSACTION READ ONLY` a READ_ONLY attach sends, so it attaches writable
+# and the login itself must be read-only (_require_read_only_doris_login).
 _ENGINES = {
-    "postgresql": {"extension": "postgres", "type": "postgres", "query_fn": "postgres_query"},
-    "mysql": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query"},
+    "postgresql": {"extension": "postgres", "type": "postgres", "query_fn": "postgres_query", "read_only": True},
+    "mysql": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "read_only": True},
+    "doris": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "read_only": False},
 }
+EXTERNAL_ENGINES = tuple(_ENGINES)
+_MYSQL_PROTOCOL = ("mysql", "doris")
 
 
 def _engine_spec(config: dict) -> dict:
@@ -133,8 +141,55 @@ def _forbid_file_access(con: duckdb.DuckDBPyConnection, readable: list[str] | No
     con.execute("SET enable_external_access=false")
 
 
-def _connect(extension: str) -> duckdb.DuckDBPyConnection:
+_MEMORY_SHARE = 0.6
+
+
+def _container_memory() -> int | None:
+    """Bytes the process may use: the cgroup's cap when there is one, else RAM."""
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        # "max" (v2) or a huge number (v1) mean no cap.
+        if raw.isdigit() and int(raw) < 1 << 60:
+            return int(raw)
+    try:
+        return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def memory_limit() -> str | None:
+    """The `memory_limit` given to every DuckDB opened here (settings.duckdb_memory_limit)."""
+    if settings.duckdb_memory_limit:
+        return settings.duckdb_memory_limit
+    total = _container_memory()
+    return f"{int(total * _MEMORY_SHARE) // (1024 * 1024)}MB" if total else None
+
+
+def _open() -> duckdb.DuckDBPyConnection:
+    """A new in-memory DuckDB, held under `memory_limit()` so it spills to disk
+    rather than get the container killed, its query progress readable."""
     con = duckdb.connect()
+    limit = memory_limit()
+    if limit:
+        con.execute(f"SET memory_limit = '{_require_memory(limit)}'")
+    # Without it `query_progress()` answers -1: a query job reads it to show how
+    # much of the data a long query has read (query_cancel.progress).
+    con.execute("SET enable_progress_bar = true")
+    con.execute("SET enable_progress_bar_print = false")
+    return con
+
+
+def _require_memory(value: str) -> str:
+    if not re.fullmatch(r"\d+(\.\d+)?\s*[KMGT]i?B", value.strip(), re.IGNORECASE):
+        raise ValueError(f"invalid DuckDB memory limit: {value!r}")
+    return value.strip()
+
+
+def _connect(extension: str) -> duckdb.DuckDBPyConnection:
+    con = _open()
     # Persist installed extensions under data_dir so INSTALL only hits the
     # network once (and can be pre-warmed at build time in an offline image).
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
@@ -173,18 +228,30 @@ def _dsn_value(value: str) -> str:
     return re.sub(r"\s", lambda m: "\\" + m.group(0), escaped)
 
 
+# What the form shows as a blank port's placeholder (DEFAULT_PORTS in the web
+# app's lib/database-engines.ts). Left to the driver, a blank Doris port went to
+# MySQL's 3306, where Doris does not listen: its FE answers on 9030.
+DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "doris": 9030}
+
+
+def port_of(config: dict) -> int | None:
+    """The port a connection goes to: the one set, else the engine's default."""
+    port = config.get("port")
+    return int(port) if port else DEFAULT_PORTS.get(config.get("engine"))
+
+
 def _dsn(config: dict, password: str | None) -> str:
     """Build a key=value DSN. Both the libpq (Postgres) and MySQL ATTACH strings
     accept host/port/user/password; the database key differs (dbname vs database).
     Every client-controlled value is quoted (see _dsn_value). Every external
     connection is built here, so this is where the host allowlist applies."""
     check_db_host(config.get("host"))
-    is_mysql = config.get("engine") == "mysql"
+    is_mysql = config.get("engine") in _MYSQL_PROTOCOL
     parts: list[str] = []
     if host := config.get("host"):
         parts.append(f"host={_dsn_value(host)}")
-    if port := config.get("port"):
-        parts.append(f"port={int(port)}")
+    if port := port_of(config):
+        parts.append(f"port={port}")
     if database := config.get("database"):
         key = "database" if is_mysql else "dbname"
         parts.append(f"{key}={_dsn_value(database)}")
@@ -200,15 +267,67 @@ def _dsn(config: dict, password: str | None) -> str:
     return " ".join(parts)
 
 
-def _scope(config: dict) -> str:
-    """The schema (Postgres) or database (MySQL) whose tables we expose. Validated
-    as a plain identifier since it is interpolated into SQL below."""
-    is_mysql = config.get("engine") == "mysql"
-    scope = config.get("schema") or config.get("database") if is_mysql else config.get("schema")
-    scope = scope or ("mysql" if is_mysql else "public")
+def _scope(config: dict) -> str | None:
+    """The default schema: where a bare table name (`FROM patient`) resolves. A
+    MySQL/Doris `database` is a schema here, so `database` stands in for it when
+    `schema` is blank; MySQL/Doris have no default otherwise, Postgres has
+    `public`. Every other schema stays readable as `schema.table`
+    (_external_search_path). Validated as a plain identifier since it is
+    interpolated into SQL below."""
+    is_mysql = config.get("engine") in _MYSQL_PROTOCOL
+    scope = (config.get("schema") or config.get("database")) if is_mysql else (config.get("schema") or "public")
+    if not scope:
+        return None
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", scope):
         raise ValueError(f"invalid schema/database name: {scope!r}")
     return scope
+
+
+# Schemas an engine keeps for itself. Never data a preset names, and on the
+# search path they would put `mysql.user` next to the warehouse's own tables.
+# Mirrored by the R/Python client libraries (linkr-py _databases, linkr-r connect).
+SYSTEM_SCHEMAS = frozenset({
+    "information_schema", "pg_catalog", "pg_toast", "mysql", "sys", "performance_schema", "__internal_schema",
+})
+
+
+# The list as the SQL of a passthrough query, itself inside a DuckDB literal.
+_SYSTEM_SCHEMAS_NESTED = ", ".join(f"''{name}''" for name in sorted(SYSTEM_SCHEMAS))
+
+
+def is_system_schema(name: str) -> bool:
+    lowered = name.lower()
+    return lowered in SYSTEM_SCHEMAS or lowered.startswith(("pg_temp", "pg_toast"))
+
+
+def _data_schemas(con: duckdb.DuckDBPyConnection, catalog: str) -> list[str]:
+    """The schemas of an attached external database that hold data, sorted. A
+    MySQL/Doris `database` is a DuckDB schema of the attach, and the attach sees
+    every one the login may read, whatever database the DSN names."""
+    rows = con.execute(
+        "SELECT schema_name FROM information_schema.schemata WHERE catalog_name = ? ORDER BY schema_name",
+        [catalog],
+    ).fetchall()
+    return [str(r[0]) for r in rows if not is_system_schema(str(r[0]))]
+
+
+def _external_search_path(
+    con: duckdb.DuckDBPyConnection, config: dict, catalog: str = _ATTACH_ALIAS, head: tuple[str, ...] = ("memory",),
+) -> str:
+    """`head`, the default schema, then every other data schema of the attach.
+
+    DuckDB looks a two-part name (`vocab.concept`) up only through the
+    schemas the search path lists: with the default schema alone, a preset naming
+    a second schema read "schema does not exist" although the attach held it. A
+    bare name two schemas hold resolves to the default, then alphabetically.
+    A name that is not a plain identifier is left off, reachable fully qualified."""
+    default = _scope(config)
+    schemas = _data_schemas(con, catalog)
+    ordered = schemas
+    if default:
+        match = next((s for s in schemas if s.lower() == default.lower()), default)
+        ordered = [match, *(s for s in schemas if s != match)]
+    return ",".join([*head, *(f'{catalog}."{s}"' for s in ordered if _SAFE_IDENT.fullmatch(s))])
 
 
 def attach_recipe(config: dict, password: str | None) -> dict:
@@ -221,18 +340,95 @@ def attach_recipe(config: dict, password: str | None) -> dict:
         "type": spec["type"],
         "dsn": _dsn(config, password),
         "scope": _scope(config),
+        "readOnly": spec["read_only"],
     }
 
 
-def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
+# Doris privileges that only read. Anything else on a data object (Load, Alter,
+# Create, Drop) or globally (Admin, Node, Grant) lets the login write.
+_DORIS_READ_PRIVS = {"select_priv", "show_view_priv"}
+# SHOW GRANTS columns that grant rights on data. The others (workload groups,
+# compute groups, resources, storage vaults) only grant usage of capacity.
+_DORIS_DATA_PRIV_COLUMNS = ("GlobalPrivs", "CatalogPrivs", "DatabasePrivs", "TablePrivs", "ColPrivs")
+# Without these two the result is not the SHOW GRANTS the check reads.
+_DORIS_REQUIRED_PRIV_COLUMNS = ("GlobalPrivs", "DatabasePrivs")
+_DORIS_PRIV_NAME = re.compile(r"[A-Za-z_]+_priv", re.IGNORECASE)
+
+
+def _doris_write_privileges(grants: list[dict]) -> list[str]:
+    """The write-capable privileges in a Doris `SHOW GRANTS` result. Role grants
+    are already merged into these columns by Doris.
+
+    Fails closed: a result with no row, or without the global and database
+    privilege columns, cannot prove the login read-only — Doris may have renamed
+    them, or the attach may not be talking to a Doris at all."""
+    if not grants:
+        raise ValueError(
+            "cannot verify that this Doris login is read-only: "
+            "unexpected SHOW GRANTS shape (no row)"
+        )
+    missing = [c for c in _DORIS_REQUIRED_PRIV_COLUMNS if not all(c in row for row in grants)]
+    if missing:
+        raise ValueError(
+            "cannot verify that this Doris login is read-only: "
+            f"unexpected SHOW GRANTS shape (no {', '.join(missing)} column)"
+        )
+    found: set[str] = set()
+    for row in grants:
+        for column in _DORIS_DATA_PRIV_COLUMNS:
+            for name in _DORIS_PRIV_NAME.findall(str(row.get(column) or "")):
+                if name.lower() not in _DORIS_READ_PRIVS:
+                    found.add(name)
+    return sorted(found)
+
+
+def _require_read_only_doris_login(con: duckdb.DuckDBPyConnection, alias: str) -> None:
+    """Refuse a Doris login that can write. Doris cannot be attached READ_ONLY, so
+    this is what keeps a query from writing to the warehouse."""
+    cur = con.execute(f"SELECT * FROM mysql_query('{alias}', 'SHOW GRANTS')")
+    names = [d[0] for d in cur.description]
+    grants = [dict(zip(names, row)) for row in cur.fetchall()]
+    writes = _doris_write_privileges(grants)
+    if writes:
+        raise ValueError(
+            "Linkr only connects to Doris with a read-only login (SELECT only); "
+            f"this one also holds {', '.join(writes)}"
+        )
+
+
+def _attach_external(
+    con: duckdb.DuckDBPyConnection, alias: str, config: dict, password: str | None,
+) -> None:
+    """ATTACH an external database under `alias` (already a safe identifier),
+    read-only — by the ATTACH where the engine allows it, else by its login."""
     spec = _engine_spec(config)
-    dsn = _dsn(config, password)
+    options = f"TYPE {spec['type']}" + (", READ_ONLY" if spec["read_only"] else "")
+    attach_dsn(con, _dsn(config, password), alias, options)
+    if config.get("engine") == "doris":
+        _require_read_only_doris_login(con, alias)
+
+
+def attach_dsn(con: duckdb.DuckDBPyConnection, dsn: str, alias: str, options: str) -> None:
+    """ATTACH a DSN built by `_dsn` under `alias` (already a safe identifier).
+
+    The postgres and mysql extensions quote the whole DSN in their connection
+    error, password included; that text reaches the API's replies, job logs and
+    the access log, so it is redacted here, where it is raised. `from None`: the
+    original would otherwise travel on as the cause, in every traceback."""
     # The DSN goes into a single-quoted SQL literal; double any single quote a
     # value may still legitimately contain (e.g. a password) so it can't close it.
-    dsn_literal = dsn.replace("'", "''")
-    con.execute(
-        f"ATTACH '{dsn_literal}' AS {_ATTACH_ALIAS} (TYPE {spec['type']}, READ_ONLY)"
-    )
+    literal = dsn.replace("'", "''")
+    try:
+        con.execute(f"ATTACH '{literal}' AS \"{alias}\" ({options})")
+    except duckdb.Error as exc:
+        text = redact_secrets(str(exc))
+        if text == str(exc):
+            raise
+        raise type(exc)(text) from None
+
+
+def _attach(con: duckdb.DuckDBPyConnection, config: dict, password: str | None) -> None:
+    _attach_external(con, _ATTACH_ALIAS, config, password)
 
 
 def _row_to_json(row: dict) -> dict:
@@ -620,7 +816,7 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
 
 def query_external(
     config: dict, password: str | None, sql: str, pool_key: str | None = None,
-    arrow: bool = False,
+    arrow: bool = False, pushdown: bool = False,
 ):
     """Run SQL against the attached source and return rows as dicts.
 
@@ -635,10 +831,11 @@ def query_external(
     `search_path` is re-set on every call, so reuse is safe. Without a key the
     connection is opened and closed per call (used by one-shot paths like
     test_connection, where reuse would defeat the point).
+
+    `pushdown`: let the external database compute the query when it is portable
+    (remote_sql) — for the app's own aggregates, never for a user's SQL.
     """
     spec = _engine_spec(config)
-    scope = _scope(config)
-    search_path = f"memory,{_ATTACH_ALIAS}.{scope}"
 
     def _setup() -> duckdb.DuckDBPyConnection:
         con = _connect(spec["extension"])
@@ -646,18 +843,21 @@ def query_external(
         _forbid_file_access(con)
         return con
 
+    def _read(con: duckdb.DuckDBPyConnection):
+        search_path = _external_search_path(con, config)
+        if not pushdown:
+            return _run_read(con, search_path, sql, arrow)
+        bulk = arrow or row_cap.get() > MAX_QUERY_ROWS
+        return remote._with_pushdown(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow), bulk)
+
     if pool_key is None:
         con = _setup()
         try:
-            return _run_read(con, search_path, sql, arrow)
+            return _read(con)
         finally:
             con.close()
 
-    return connection_pool.run_pooled(
-        pool_key,
-        _setup,
-        lambda con: _run_read(con, search_path, sql, arrow),
-    )
+    return connection_pool.run_pooled(pool_key, _setup, _read)
 
 
 def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None:
@@ -680,7 +880,7 @@ def query_file(
     across calls — shared by every user of the source, hence `_run_isolated`."""
 
     def _setup() -> duckdb.DuckDBPyConnection:
-        con = duckdb.connect()
+        con = _open()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_file(con, engine, path)
         _forbid_file_access(con)
@@ -735,7 +935,7 @@ def query_file_source(
     expression (reader + sheet/delimiter options + Excel extension) is built by
     the shared `file_reader.build_read_expr`, the same one dataset import uses.
     """
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         reader = file_reader.build_read_expr(
@@ -781,7 +981,7 @@ def file_source_columns(
     ``preview_rows`` rows (0 = none). Keeps the mapping mount's ``nullstr='NA'``
     so a literal "NA" cell becomes NULL identically to the browser DuckDB-WASM
     path and the eventual server-side query."""
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         reader = file_reader.build_read_expr(
@@ -803,7 +1003,7 @@ def file_source_columns(
 def introspect_file(engine: str, path: str) -> list[dict]:
     """Tables + columns of a local DuckDB/SQLite file. Types are DuckDB-normalized
     (the file has no separate native catalog to passthrough to)."""
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         _attach_file(con, engine, path)
@@ -1018,7 +1218,7 @@ def query_parquet_folder(
     search_path = _parquet_search_path(groups)
 
     def _setup() -> duckdb.DuckDBPyConnection:
-        con = duckdb.connect()
+        con = _open()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_parquet_views(con, groups)
         _forbid_file_access(con, [p for paths in groups.values() for p in paths])
@@ -1042,23 +1242,23 @@ def _source_setup(
     password: str | None,
     files: list[tuple[str, str]] | None,
     known: list[str] | None,
-) -> tuple[Callable[[], duckdb.DuckDBPyConnection], str, list[str]]:
-    """Return (setup, search_path, readable): a setup that connects to the source
-    and makes its tables resolvable by bare name — the same wiring query_external/
-    query_file/query_parquet_folder use, factored out so materialize_parquet can
-    reuse it — and the files its views read lazily, which must stay readable once
-    file access is cut (an attached database stays readable on its own)."""
+) -> tuple[Callable[[], duckdb.DuckDBPyConnection], Callable[[duckdb.DuckDBPyConnection], str], list[str]]:
+    """Return (setup, search_path, readable): a setup that connects to the source,
+    the search path that makes its tables resolvable by bare name on that
+    connection — the same wiring query_external/query_file/query_parquet_folder
+    use, factored out so materialize_parquet can reuse it — and the files its
+    views read lazily, which must stay readable once file access is cut (an
+    attached database stays readable on its own)."""
     engine = config.get("engine")
-    if engine in ("postgresql", "mysql"):
+    if engine in EXTERNAL_ENGINES:
         spec = _engine_spec(config)
-        scope = _scope(config)
 
         def _setup_ext() -> duckdb.DuckDBPyConnection:
             con = _connect(spec["extension"])
             _attach(con, config, password)
             return con
 
-        return _setup_ext, f"memory,{_ATTACH_ALIAS}.{scope}", []
+        return _setup_ext, lambda con: _external_search_path(con, config), []
 
     if not files:
         raise ValueError("no files for file/parquet source materialization")
@@ -1069,25 +1269,26 @@ def _source_setup(
         groups = _group_parquet(files, known or [])
 
         def _setup_pq() -> duckdb.DuckDBPyConnection:
-            con = duckdb.connect()
+            con = _open()
             con.execute(f"SET extension_directory = '{_ext_dir()}'")
             _attach_parquet_views(con, groups)
             return con
 
+        search_path = _parquet_search_path(groups)
         return (
-            _setup_pq, _parquet_search_path(groups),
+            _setup_pq, lambda _con: search_path,
             [p for paths in groups.values() for p in paths],
         )
 
     path = files[0][1]
 
     def _setup_file() -> duckdb.DuckDBPyConnection:
-        con = duckdb.connect()
+        con = _open()
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         _attach_file(con, str(engine), path)
         return con
 
-    return _setup_file, f"memory,{_ATTACH_ALIAS}", []
+    return _setup_file, lambda _con: f"memory,{_ATTACH_ALIAS}", []
 
 
 _SELECT_HEAD = re.compile(r"(SELECT|WITH)\b", re.IGNORECASE)
@@ -1119,6 +1320,7 @@ def materialize_parquet(
     select_sql: str,
     dest_path: str,
     views: dict[str, tuple[str, list[str]]] | None = None,
+    pushdown: bool = False,
 ) -> None:
     """Run `select_sql` against the source and write the full result to a Parquet
     file at `dest_path`, via a one-shot (non-pooled) connection.
@@ -1135,6 +1337,8 @@ def materialize_parquet(
     Written to a temp file then atomically renamed over `dest_path`, so concurrent
     readers always see either the previous complete cache or the new one — never a
     half-written file.
+
+    `pushdown`: let an external database compute the query (see query_external).
     """
     select_sql = _single_query(select_sql)
     setup, search_path, readable = _source_setup(config, password, files, known)
@@ -1149,11 +1353,16 @@ def materialize_parquet(
             view_files.extend(files_read)
         _forbid_file_access(con, [*readable, *view_files, tmp.as_posix()])
         _lock_down_user_sql(con)
-        con.execute(f"SET search_path='{search_path}'")
-        with query_cancel.tracking(con):
-            con.execute(
-                f"COPY (\n{select_sql}\n) TO '{_sql_path(tmp.as_posix())}' (FORMAT PARQUET)"
-            )
+        con.execute(f"SET search_path='{search_path(con)}'")
+
+        def _copy(query: str) -> None:
+            with query_cancel.tracking(con):
+                con.execute(f"COPY (\n{query}\n) TO '{_sql_path(tmp.as_posix())}' (FORMAT PARQUET)")
+
+        if pushdown and config.get("engine") in EXTERNAL_ENGINES:
+            remote._with_pushdown(con, config, password, select_sql, _copy, bulk=True)
+        else:
+            _copy(select_sql)
         tmp.replace(dest)
     finally:
         con.close()
@@ -1163,7 +1372,7 @@ def materialize_parquet(
 def query_cached_parquet(path: str, sql: str) -> list[dict]:
     """Run read-only SQL against a materialized cache Parquet exposed as the view
     `concepts` — the table name the page query references."""
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     try:
         con.execute(
@@ -1185,7 +1394,7 @@ def introspect_parquet_folder(
     A table from a schema directory is reported as `schema.table`: two modules may
     hold the same table name, and a flat list would show one of them twice."""
     groups = _group_parquet(files, known)
-    con = duckdb.connect()
+    con = _open()
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
     result: list[dict] = []
     try:
@@ -1212,19 +1421,20 @@ def introspect_external(config: dict, password: str | None) -> list[dict]:
         [{ "name": str, "columns": [{ "name", "type", "nullable" }] }]
     Reads the source's own information_schema via the engine's passthrough query
     function so column types come back as native names (integer, text, date).
+    Every data schema is read: a table of the default schema is named bare, any
+    other `schema.table`, as a Parquet folder's module directories are.
     Raises on connection/permission failure — the caller turns it into a result.
     """
     spec = _engine_spec(config)
-    scope = _scope(config)
+    default = (_scope(config) or "").lower()
     con = _connect(spec["extension"])
     try:
         _attach(con, config, password)
-        # Single-quotes doubled for the nested SQL literal; `scope` is validated.
         inner = (
-            "SELECT table_name, column_name, data_type, is_nullable, ordinal_position "
+            "SELECT table_schema, table_name, column_name, data_type, is_nullable, ordinal_position "
             "FROM information_schema.columns "
-            f"WHERE table_schema = ''{scope}'' "
-            "ORDER BY table_name, ordinal_position"
+            f"WHERE table_schema NOT IN ({_SYSTEM_SCHEMAS_NESTED}) "
+            "ORDER BY table_schema, table_name, ordinal_position"
         )
         rows = con.execute(
             f"SELECT * FROM {spec['query_fn']}('{_ATTACH_ALIAS}', '{inner}')"
@@ -1233,8 +1443,12 @@ def introspect_external(config: dict, password: str | None) -> list[dict]:
         con.close()
 
     tables: dict[str, list[dict]] = {}
-    for table_name, column_name, data_type, is_nullable, _pos in rows:
-        tables.setdefault(str(table_name), []).append(
+    for table_schema, table_name, column_name, data_type, is_nullable, _pos in rows:
+        schema = str(table_schema)
+        if is_system_schema(schema):
+            continue
+        name = str(table_name) if schema.lower() == default else f"{schema}.{table_name}"
+        tables.setdefault(name, []).append(
             {
                 "name": str(column_name),
                 "type": str(data_type),
@@ -1296,13 +1510,26 @@ class EtlRunHandle:
         if con is not None:
             try:
                 con.interrupt()
-            except Exception:  # noqa: BLE001 — already finishing is fine
+            except Exception:  # already finishing is fine
                 pass
 
     @property
     def cancelled(self) -> bool:
         with self._lock:
             return self._cancelled
+
+    def progress(self) -> float | None:
+        """Percent of its data the statement in flight has read; None when not
+        running or DuckDB cannot tell (see query_cancel.progress)."""
+        with self._lock:
+            con = self._con if not self._done else None
+            if con is None:
+                return None
+            try:
+                value = con.query_progress()
+            except Exception:  # the statement finishing as we read is fine
+                return None
+        return value if value > 0 else None
 
 
 def run_etl_sql(
@@ -1341,7 +1568,7 @@ def run_etl_sql(
     # An in-memory hub, with every role ATTACHed onto it. Opening the target file
     # directly would name that database after the file and make it impossible to
     # also attach it as `target` (DuckDB refuses the same file twice).
-    con = duckdb.connect()
+    con = _open()
     # Registered before the first ATTACH: a cancel arriving in that window must
     # still be able to stop the run, or it would attach and hold the file anyway.
     if handle is not None and not handle._bind(con):
@@ -1477,7 +1704,8 @@ def _role_schema_path(con: duckdb.DuckDBPyConnection) -> list[str]:
     ).fetchall()
     schemas: dict[str, list[str]] = {}
     for cat, schema in rows:
-        schemas.setdefault(str(cat), []).append(str(schema))
+        if not is_system_schema(str(schema)):
+            schemas.setdefault(str(cat), []).append(str(schema))
     return [
         f'"{_require_ident(cat, "catalog name")}"."{_require_ident(schema, "schema name")}"'
         for cat, names in schemas.items()
@@ -1709,7 +1937,7 @@ def _parquet_role_files(spec: dict) -> list[str]:
 
 
 def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
-    """ATTACH one role database READ_ONLY under its role name.
+    """ATTACH one role database read-only under its role name.
 
     `role` comes from client `roles` keys and table names from uploaded Parquet
     filenames, so both are validated as identifiers before being quoted in, and
@@ -1750,10 +1978,6 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
         spec_engine = _engine_spec(spec["config"])
         con.execute(f"INSTALL {spec_engine['extension']}")
         con.execute(f"LOAD {spec_engine['extension']}")
-        dsn_literal = _dsn(spec["config"], spec.get("password"))
-        con.execute(
-            f"ATTACH '{dsn_literal}' AS \"{role}\" "
-            f"(TYPE {spec_engine['type']}, READ_ONLY)"
-        )
+        _attach_external(con, role, spec["config"], spec.get("password"))
         return
     raise ValueError(f"cannot attach role {role!r}: unknown kind {kind!r}")

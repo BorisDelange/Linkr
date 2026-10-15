@@ -71,7 +71,7 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       schemaLabel: localized(source.schemaSource?.label, i18n.language)
         || localized(mapping.presetLabel, i18n.language)
         || undefined,
-      run: (sql) => engine.queryDataSource(source.id, sql),
+      run: (sql) => engine.queryDataSource(source.id, sql, { heavy: true }),
       t,
       locale: i18n.language,
       threshold: applied,

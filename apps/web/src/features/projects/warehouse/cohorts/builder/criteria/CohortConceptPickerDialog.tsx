@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
-import { X, Check } from 'lucide-react'
+import { X } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -11,56 +11,13 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
-import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
-import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
-import {
-  CountCell,
-  conceptCellContent,
-} from '@/features/projects/warehouse/concepts/concept-cells'
-import {
-  DropdownMenu,
-  DropdownMenuCheckboxItem,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import {
-  flexRender,
-  getCoreRowModel,
-  useReactTable,
-  type ColumnDef,
-  type VisibilityState,
-} from '@tanstack/react-table'
-import {
-  ChevronLeft,
-  ChevronRight,
-  Settings2,
-} from 'lucide-react'
-import { SortIndicator } from '@/components/ui/table-primitives'
+import type { VisibilityState } from '@tanstack/react-table'
 import { useConcepts, type ConceptRow } from '../../../concepts/use-concepts'
 import { ConceptCountNotice } from '../../../concepts/ConceptCountNotice'
+import { ConceptTable } from '../../../concepts/ConceptTable'
+import { ConceptPickerToolbar } from '../../../concepts/ConceptPickerToolbar'
+import { DEFAULT_HIDDEN_COLUMNS } from '../../../concepts/concept-queries'
 import type { SchemaMapping } from '@/types'
-
-// ---------------------------------------------------------------------------
-// Props
-// ---------------------------------------------------------------------------
 
 interface CohortConceptPickerDialogProps {
   open: boolean
@@ -70,51 +27,6 @@ interface CohortConceptPickerDialogProps {
   dataSourceId: string | undefined
   schemaMapping: SchemaMapping | undefined
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function columnLabel(id: string): string {
-  return id
-    .replace(/^_/, '')
-    .replace(/_/g, ' ')
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
-
-function ColumnFilterSelect({
-  value,
-  options,
-  placeholder,
-  onChange,
-}: {
-  value: string | null
-  options: string[]
-  placeholder: string
-  onChange: (v: string | null) => void
-}) {
-  const { t } = useTranslation()
-  return (
-    <Select
-      value={value ?? '__all__'}
-      onValueChange={(v) => onChange(v === '__all__' ? null : v)}
-    >
-      <SelectTrigger className="h-6 w-full border-dashed text-[10px] font-normal">
-        <SelectValue placeholder={placeholder} />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="__all__">{t('concepts.filter_all')}</SelectItem>
-        {options.map((opt) => (
-          <SelectItem key={opt} value={opt} className="text-xs">{opt}</SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
 
 export function CohortConceptPickerDialog({
   open,
@@ -126,47 +38,40 @@ export function CohortConceptPickerDialog({
 }: CohortConceptPickerDialogProps) {
   const { t } = useTranslation()
 
-  // Local selection state
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [selectedNames, setSelectedNames] = useState<Map<number, string>>(new Map())
 
-  // Reuse the concepts hook
-  const hook = useConcepts(open ? dataSourceId : undefined, open ? schemaMapping : undefined)
+  const hook = useConcepts(open ? dataSourceId : undefined, open ? schemaMapping : undefined, 'picker')
 
-  // Sync from props when dialog opens
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
+    () => Object.fromEntries(DEFAULT_HIDDEN_COLUMNS.map((id) => [id, false])),
+  )
+
+  // Synced on opening only: the caller passes a fresh array on every render.
   useEffect(() => {
-    if (open) {
-      setSelectedIds(new Set(selectedConceptIds))
-    }
-  }, [open, selectedConceptIds])
+    if (open) setSelectedIds(new Set(selectedConceptIds))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
-  // Keep selectedNames updated from concepts data
+  // Names of the rows seen, so the selected panel can label concepts picked on
+  // another page.
   useEffect(() => {
     if (!hook.concepts.length) return
     setSelectedNames((prev) => {
+      if (hook.concepts.every((c) => prev.has(c.concept_id))) return prev
       const next = new Map(prev)
       for (const c of hook.concepts) {
-        if (!next.has(c.concept_id)) {
-          next.set(c.concept_id, c.concept_name)
-        }
+        if (!next.has(c.concept_id)) next.set(c.concept_id, c.concept_name)
       }
       return next
     })
   }, [hook.concepts])
 
-  const toggleConcept = useCallback((conceptId: number, conceptName: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(conceptId)) {
-        next.delete(conceptId)
-      } else {
-        next.add(conceptId)
-      }
-      return next
-    })
+  const rememberName = useCallback((row: ConceptRow) => {
     setSelectedNames((prev) => {
+      if (prev.get(row.concept_id) === row.concept_name) return prev
       const next = new Map(prev)
-      next.set(conceptId, conceptName)
+      next.set(row.concept_id, row.concept_name)
       return next
     })
   }, [])
@@ -179,9 +84,7 @@ export function CohortConceptPickerDialog({
     })
   }, [])
 
-  const clearAll = useCallback(() => {
-    setSelectedIds(new Set())
-  }, [])
+  const clearAll = useCallback(() => setSelectedIds(new Set()), [])
 
   const handleConfirm = () => {
     const names: Record<number, string> = {}
@@ -191,376 +94,65 @@ export function CohortConceptPickerDialog({
     onConfirm([...selectedIds], names)
   }
 
-  // TanStack table setup
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({})
-
-  const columns = useMemo<ColumnDef<ConceptRow>[]>(() => {
-    const checkboxCol: ColumnDef<ConceptRow> = {
-      id: '_select',
-      header: () => null,
-      cell: ({ row }) => {
-        const isSelected = selectedIds.has(row.original.concept_id)
-        return (
-          <div
-            className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-              isSelected
-                ? 'border-primary bg-primary text-primary-foreground'
-                : 'border-muted-foreground/30'
-            }`}
-          >
-            {isSelected && <Check size={10} />}
-          </div>
-        )
-      },
-      size: 36,
-      minSize: 36,
-    }
-
-    const dataCols: ColumnDef<ConceptRow>[] = hook.availableColumns.map((col) => {
-      const base: Partial<ColumnDef<ConceptRow>> = {
-        id: col.id,
-        header: () => columnLabel(col.id),
-      }
-
-      switch (col.id) {
-        case 'concept_id':
-          return {
-            ...base,
-            accessorFn: (row) => row.concept_id,
-            cell: ({ row }) => <span className="font-mono">{row.original.concept_id}</span>,
-            size: 80,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'concept_name':
-          return {
-            ...base,
-            accessorFn: (row) => row.concept_name,
-            cell: ({ row }) => row.original.concept_name,
-            size: 250,
-            minSize: 120,
-          } as ColumnDef<ConceptRow>
-
-        case 'concept_code':
-          return {
-            ...base,
-            accessorFn: (row) => row.concept_code,
-            cell: ({ row }) => <span className="font-mono">{String(row.original.concept_code ?? '')}</span>,
-            size: 100,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'record_count':
-          return {
-            ...base,
-            header: () => t('concepts.column_records'),
-            accessorFn: (row) => row.record_count,
-            cell: ({ row }) => (
-              <CountCell value={row.original.record_count as number | undefined} />
-            ),
-            size: 90,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'patient_count':
-          return {
-            ...base,
-            header: () => t('concepts.column_patients'),
-            accessorFn: (row) => row.patient_count,
-            cell: ({ row }) => (
-              <CountCell value={row.original.patient_count as number | undefined} />
-            ),
-            size: 90,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-
-        case 'standard_concept':
-          return {
-            ...base,
-            header: () => t('concepts.column_standard'),
-            accessorFn: (row) => row.standard_concept,
-            cell: ({ row }) => (
-              <StandardConceptBadge value={row.original.standard_concept as string | null} />
-            ),
-            size: 70,
-            minSize: 50,
-          } as ColumnDef<ConceptRow>
-
-        default:
-          return {
-            ...base,
-            accessorFn: (row) => row[col.id],
-            cell: ({ row }) => String(row.original[col.id] ?? ''),
-            size: 120,
-            minSize: 60,
-          } as ColumnDef<ConceptRow>
-      }
-    })
-
-    return [checkboxCol, ...dataCols]
-  }, [hook.availableColumns, selectedIds, t])
-
-  const table = useReactTable({
-    data: hook.concepts,
-    columns,
-    state: { columnVisibility },
-    onColumnVisibilityChange: setColumnVisibility,
-    getCoreRowModel: getCoreRowModel(),
-    manualPagination: true,
-    manualFiltering: true,
-    manualSorting: true,
-    pageCount: hook.totalPages,
-  })
-
-  const renderColumnFilter = (columnId: string) => {
-    if (columnId === '_select') return null
-
-    if (columnId === 'concept_id') {
-      return (
-        <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder="ID..."
-          value={hook.filters._searchId ?? ''}
-          onChange={(e) => hook.updateFilter('_searchId', e.target.value || null)}
-        />
-      )
-    }
-    if (columnId === 'concept_name') {
-      return (
-        <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder={t('concepts.search_placeholder')}
-          value={hook.filters._searchText ?? ''}
-          onChange={(e) => hook.updateFilter('_searchText', e.target.value || null)}
-        />
-      )
-    }
-    if (columnId === 'concept_code') {
-      return (
-        <input
-          className="h-6 w-full rounded border border-dashed bg-transparent px-1.5 text-[10px] font-mono outline-none placeholder:text-muted-foreground focus:border-primary"
-          placeholder="Code..."
-          value={hook.filters._searchCode ?? ''}
-          onChange={(e) => hook.updateFilter('_searchCode', e.target.value || null)}
-        />
-      )
-    }
-
-    const col = hook.availableColumns.find((c) => c.id === columnId)
-    if (col?.filterable && hook.filterOptions[columnId]?.length) {
-      return (
-        <ColumnFilterSelect
-          value={hook.filters[columnId] as string | null}
-          options={hook.filterOptions[columnId]}
-          placeholder={columnLabel(columnId)}
-          onChange={(v) => hook.updateFilter(columnId, v)}
-        />
-      )
-    }
-
-    return null
-  }
-
-  const selectedList = useMemo(() => {
-    return [...selectedIds].map((id) => ({
-      id,
-      name: selectedNames.get(id) ?? `#${id}`,
-    }))
-  }, [selectedIds, selectedNames])
+  const selectedList = useMemo(
+    () => [...selectedIds].map((id) => ({ id, name: selectedNames.get(id) ?? `#${id}` })),
+    [selectedIds, selectedNames],
+  )
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[85vh] max-h-[85vh] max-w-[95vw] sm:max-w-[95vw] flex-col gap-0 p-0">
-        <DialogHeader className="shrink-0 border-b px-6 py-4">
+        <DialogHeader className="shrink-0 border-b px-4 py-3">
           <DialogTitle>{t('cohorts.concept_pick')}</DialogTitle>
         </DialogHeader>
         <ConceptCountNotice count={hook.count} dataSourceId={dataSourceId} className="mx-4 mt-3" />
 
         <div className="flex min-h-0 flex-1">
-          {/* Left: concept table */}
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-r">
-            <div className="flex items-center justify-end border-b px-2 py-1">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm-tight">
-                    <Settings2 size={12} />
-                    {t('concepts.column_visibility', 'Columns')}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-[180px]">
-                  <DropdownMenuLabel className="text-xs">
-                    {t('concepts.column_visibility', 'Columns')}
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  {table
-                    .getAllColumns()
-                    .filter((col) => col.getCanHide())
-                    .map((col) => (
-                      <DropdownMenuCheckboxItem
-                        key={col.id}
-                        checked={col.getIsVisible()}
-                        onCheckedChange={(checked) => col.toggleVisibility(!!checked)}
-                        onSelect={(e) => e.preventDefault()}
-                        className="text-xs"
-                      >
-                        {columnLabel(col.id)}
-                      </DropdownMenuCheckboxItem>
-                    ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-
-            <div className="min-h-0 flex-1 overflow-auto">
-              <Table className="w-full" style={{ tableLayout: 'fixed' }}>
-                <TableHeader>
-                  <TableRow>
-                    {table.getHeaderGroups().map((headerGroup) =>
-                      headerGroup.headers.map((header) => (
-                        <TableHead
-                          key={header.id}
-                          className="select-none overflow-hidden text-xs"
-                          style={{ width: header.getSize(), maxWidth: header.getSize() }}
-                        >
-                          {header.column.id === '_select' ? null : (
-                            <button
-                              type="button"
-                              className="flex w-full min-w-0 items-center gap-1 overflow-hidden pr-2 hover:text-foreground"
-                              onClick={() => hook.updateSorting(header.column.id)}
-                            >
-                              <TruncatedHeader label={headerLabel(header.column.columnDef.header, header.getContext())}>
-                                {flexRender(header.column.columnDef.header, header.getContext())}
-                              </TruncatedHeader>
-                              <SortIndicator columnId={header.column.id} sorting={hook.sorting} />
-                            </button>
-                          )}
-                        </TableHead>
-                      )),
-                    )}
-                  </TableRow>
-                  <TableRow className="hover:bg-transparent">
-                    {table.getHeaderGroups().map((headerGroup) =>
-                      headerGroup.headers.map((header) => (
-                        <TableHead
-                          key={`filter-${header.id}`}
-                          className="px-1 py-1"
-                          style={{ width: header.getSize() }}
-                        >
-                          {renderColumnFilter(header.column.id)}
-                        </TableHead>
-                      )),
-                    )}
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {hook.isLoading ? (
-                    Array.from({ length: 10 }).map((_, i) => (
-                      <TableRow key={i}>
-                        {table.getVisibleLeafColumns().map((col) => (
-                          <TableCell key={col.id}>
-                            <Skeleton className="h-4 w-full" />
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))
-                  ) : table.getRowModel().rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={table.getVisibleLeafColumns().length}
-                        className="h-24 text-center text-sm text-muted-foreground"
-                      >
-                        {t('patient_data.no_concepts_found')}
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    table.getRowModel().rows.map((row) => {
-                      const isSelected = selectedIds.has(row.original.concept_id)
-                      return (
-                        <TableRow
-                          key={row.original.concept_id}
-                          className="cursor-pointer"
-                          data-state={isSelected ? 'selected' : undefined}
-                          onClick={() =>
-                            toggleConcept(row.original.concept_id, row.original.concept_name)
-                          }
-                        >
-                          {row.getVisibleCells().map((cell) => (
-                            <TableCell
-                              key={cell.id}
-                              className="overflow-hidden truncate px-2 py-1 text-xs"
-                              style={{ maxWidth: cell.column.getSize() }}
-                            >
-                              {conceptCellContent(
-                                cell.column.id,
-                                cell.getValue(),
-                                flexRender(cell.column.columnDef.cell, cell.getContext()),
-                              )}
-                            </TableCell>
-                          ))}
-                        </TableRow>
-                      )
-                    })
-                  )}
-                </TableBody>
-              </Table>
-            </div>
-
-            <div className="flex shrink-0 items-center justify-between border-t px-3 py-2">
-              <span className="text-xs text-muted-foreground">
-                {t('concepts.pagination_total', { count: hook.totalCount })}
-              </span>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">
-                  {t('concepts.pagination_per_page')}
-                </span>
-                <Select
-                  value={String(hook.pageSize)}
-                  onValueChange={(v) => hook.setPageSize(Number(v))}
-                >
-                  <SelectTrigger className="h-7 w-[70px] text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="10">10</SelectItem>
-                    <SelectItem value="25">25</SelectItem>
-                    <SelectItem value="50">50</SelectItem>
-                    <SelectItem value="100">100</SelectItem>
-                  </SelectContent>
-                </Select>
-                <span className="text-xs text-muted-foreground">
-                  {t('concepts.pagination_page', {
-                    page: hook.page + 1,
-                    total: hook.totalPages,
-                  })}
-                </span>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-7 w-7"
-                  disabled={hook.page === 0}
-                  onClick={() => hook.setPage(hook.page - 1)}
-                >
-                  <ChevronLeft size={14} />
-                </Button>
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-7 w-7"
-                  disabled={hook.page >= hook.totalPages - 1}
-                  onClick={() => hook.setPage(hook.page + 1)}
-                >
-                  <ChevronRight size={14} />
-                </Button>
-              </div>
+            <ConceptPickerToolbar
+              availableColumns={hook.availableColumns}
+              filters={hook.filters}
+              filterOptions={hook.filterOptions}
+              onFilterChange={hook.updateFilter}
+            />
+            <div className="min-h-0 flex-1">
+              <ConceptTable
+                concepts={hook.concepts}
+                totalCount={hook.totalCount}
+                page={hook.page}
+                pageSize={hook.pageSize}
+                totalPages={hook.totalPages}
+                isLoading={hook.isLoading}
+                selectedConceptId={null}
+                availableColumns={hook.availableColumns}
+                filters={hook.filters}
+                filterOptions={hook.filterOptions}
+                sorting={hook.sorting}
+                columnVisibility={columnVisibility}
+                onColumnVisibilityChange={setColumnVisibility}
+                onFilterChange={hook.updateFilter}
+                onSortingChange={hook.updateSorting}
+                onSelect={() => {}}
+                selectedConceptIds={selectedIds}
+                onSelectedConceptIdsChange={setSelectedIds}
+                onPageChange={hook.setPage}
+                onPageSizeChange={(size) => {
+                  hook.setPageSize(size)
+                  hook.setPage(0)
+                }}
+                pickMode
+                onToggleConcept={rememberName}
+                emptyMessage={t('patient_data.no_concepts_found')}
+              />
             </div>
           </div>
 
-          {/* Right: selected concepts panel */}
           <div className="flex w-64 shrink-0 flex-col">
             <div className="flex items-center justify-between border-b px-3 py-2">
               <span className="text-xs font-medium">
                 {t('cohorts.concept_selected')}
               </span>
-              <Badge variant="secondary" >
+              <Badge variant="secondary">
                 {selectedIds.size}
               </Badge>
             </div>
@@ -589,6 +181,7 @@ export function CohortConceptPickerDialog({
                           type="button"
                           className="shrink-0 rounded-sm p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
                           onClick={() => removeConcept(item.id)}
+                          aria-label={t('patient_data.remove')}
                         >
                           <X size={12} />
                         </button>

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, BookOpen, Download, Trash2 } from 'lucide-react'
+import { BookOpen, Download, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FieldInfo } from '@/components/ui/field-info'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import { SectionLabel } from '@/components/ui/section-label'
 import {
   AlertDialog,
@@ -123,10 +124,7 @@ export function VocabularyLibraryPanel({ workspaceId, canWrite }: VocabularyLibr
       </div>
 
       {releases.length > 1 && (
-        <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-          <span>{t('vocabulary_library.mixed_releases', { releases: releases.join(', ') })}</span>
-        </div>
+        <NoticeBanner tone="warning" title={t('vocabulary_library.mixed_releases', { releases: releases.join(', ') })} />
       )}
 
       {vocabularies === null ? null : vocabularies.length === 0 ? (

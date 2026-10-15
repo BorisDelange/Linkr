@@ -1,0 +1,135 @@
+# A Secure Processing Environment (SPE), simulated: what most clinical data
+# warehouses put around a research project, and what Linkr must work inside.
+# See README.md. From the repo root:
+#
+#   export LINKR_SECRET_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(48))")
+#   docker compose -f docker/spe-sim/docker-compose.yml up --build
+#   → https://localhost:8443/docker-8743/
+#
+# Topology: the gateway is the only published container. Each SPE network is
+# `internal` (no route to the internet). A port "opened" between an SPE and
+# another machine is a small internal network that holds just those two.
+name: linkr-spe-sim
+
+services:
+  gateway:
+    build: ./gateway
+    ports:
+      - "${SPE_GATEWAY_PORT:-8443}:443"
+    environment:
+      SPE_IDS: "8743"
+      GATEWAY_WEBSOCKETS: ${GATEWAY_WEBSOCKETS:-on}
+      GATEWAY_STRIP_PREFIX: ${GATEWAY_STRIP_PREFIX:-on}
+      GATEWAY_IDLE_TIMEOUT: ${GATEWAY_IDLE_TIMEOUT:-3600s}
+      GATEWAY_MAX_BODY: ${GATEWAY_MAX_BODY:-512m}
+    networks: [edge, spe-8743]
+
+  # ── SPE docker-8743 ─────────────────────────────────────────────────────────
+  # The gateway reaches it by its SPE name, as at a hospital: the web container
+  # answers to `docker-8743` on the SPE network.
+  web-8743:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.web
+      args:
+        BASE_PATH: /docker-8743/
+    networks:
+      spe-8743:
+        aliases: [docker-8743]
+    depends_on: [api-8743]
+
+  api-8743:
+    build:
+      context: ../..
+      dockerfile: docker/Dockerfile.api
+    # SPE containers get a memory cap; DuckDB reads it, stays under it and spills
+    # to disk past it. Without one it sizes itself on the whole host.
+    mem_limit: ${SPE_MEMORY:-4g}
+    environment:
+      - LINKR_DATABASE_URL=sqlite+aiosqlite:////var/lib/linkr/linkr.db
+      - LINKR_DATA_DIR=/var/lib/linkr
+      - LINKR_SECRET_KEY=${LINKR_SECRET_KEY:?set LINKR_SECRET_KEY before up}
+      - LINKR_CORS_ORIGINS=https://localhost:${SPE_GATEWAY_PORT:-8443}
+      - LINKR_DEBUG=false
+      # Project environments start empty; every package comes through the mirror.
+      - LINKR_PIP_INDEX_URL=http://mirror/repository/pypi/simple
+      - LINKR_R_REPOS=http://mirror/repository/cran/__linux__/noble/latest
+    volumes:
+      - linkr-8743:/var/lib/linkr
+      # Datamart files delivered into the SPE (Parquet exports, DuckDB files),
+      # read-only. Add them in Linkr as a server-path database: /datamart/<folder>.
+      - ${SPE_DATAMART_DIR:-./datamart}:/datamart:ro
+    networks:
+      # The web container's nginx proxies /api/ to the host named `api`.
+      spe-8743:
+        aliases: [api]
+      open-8743-mirror: {}
+      open-8743-datamart: {}
+
+  # ── Outside the SPE ─────────────────────────────────────────────────────────
+  # The institution's package mirror (Nexus-like). It alone has internet access.
+  mirror:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./mirror/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - mirror-cache:/var/cache/nginx/mirror
+    networks: [egress, open-8743-mirror]
+
+  # The project's datamart, as the warehouse platform delivers it. Postgres is the
+  # common case; Oracle and SQL Server are behind profiles (`--profile oracle`,
+  # `--profile sqlserver`) for connector work. From Linkr: host = the service name.
+  datamart-postgres:
+    image: postgres:16-alpine
+    profiles: [datamart]
+    environment:
+      POSTGRES_DB: datamart
+      POSTGRES_USER: linkr_reader
+      POSTGRES_PASSWORD: ${DATAMART_PASSWORD:-SpeSim_2026!}
+    volumes:
+      - datamart-postgres:/var/lib/postgresql/data
+    networks: [open-8743-datamart]
+
+  datamart-oracle:
+    # Oracle Database Free, multi-arch. Service name FREEPDB1, port 1521;
+    # APP_USER is created in it.
+    image: gvenzl/oracle-free:23-slim-faststart
+    profiles: [oracle]
+    environment:
+      ORACLE_PASSWORD: ${DATAMART_PASSWORD:-SpeSim_2026!}
+      APP_USER: linkr_reader
+      APP_USER_PASSWORD: ${DATAMART_PASSWORD:-SpeSim_2026!}
+    volumes:
+      - datamart-oracle:/opt/oracle/oradata
+    networks: [open-8743-datamart]
+
+  datamart-sqlserver:
+    # amd64 only: Docker Desktop on Apple Silicon runs it under Rosetta
+    # (Settings › General › "Use Rosetta for x86/amd64 emulation").
+    # Login `sa`, port 1433. The password must meet SQL Server's complexity rule.
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    profiles: [sqlserver]
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_PID: Developer
+      MSSQL_SA_PASSWORD: ${DATAMART_PASSWORD:-SpeSim_2026!}
+    volumes:
+      - datamart-sqlserver:/var/opt/mssql
+    networks: [open-8743-datamart]
+
+networks:
+  edge: {}
+  egress: {}
+  spe-8743:
+    internal: true
+  open-8743-mirror:
+    internal: true
+  open-8743-datamart:
+    internal: true
+
+volumes:
+  linkr-8743:
+  mirror-cache:
+  datamart-postgres:
+  datamart-oracle:
+  datamart-sqlserver:

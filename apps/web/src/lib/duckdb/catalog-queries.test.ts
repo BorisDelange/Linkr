@@ -192,8 +192,11 @@ describe('patient slices', () => {
     expect(buildCrossingQuery({ mapping, variables, range: { lo: 1 } }, ['concept', 'period'])).toContain('AND e.patient_id >= 1')
   })
 
-  it('cuts the patients at quantiles', () => {
-    expect(buildPatientBoundsQuery(mapping, 4)).toContain('quantile_disc(patient_id, [0.250000, 0.500000, 0.750000])')
+  it('cuts the patients at the ranks ⌈n·k/slices⌉', () => {
+    const sql = buildPatientBoundsQuery(mapping, 4)!
+    expect(sql).toContain('ROW_NUMBER() OVER (ORDER BY patient_id) AS rn, COUNT(*) OVER () AS n')
+    expect(sql).toContain('((rn - 1) * 4 < n * 1 AND rn * 4 >= n * 1)')
+    expect(sql).toContain('((rn - 1) * 4 < n * 3 AND rn * 4 >= n * 3)')
     expect(buildPatientBoundsQuery(mapping, 1)).toBeNull()
   })
 })

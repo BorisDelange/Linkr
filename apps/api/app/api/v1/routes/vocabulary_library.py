@@ -8,6 +8,7 @@ See services/vocabulary_library.py.
 
 import asyncio
 from datetime import datetime, timezone
+from functools import partial
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -15,6 +16,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.core import deferred
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
@@ -24,6 +26,7 @@ from app.schemas.base import CamelModel
 from app.services import blob_store, data_source_service, fs_browser
 from app.services import vocabulary_library as lib
 from app.services.data import concept_cache_fs, connection_pool
+from app.services.execution import jobs
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/vocabulary-library", tags=["vocabulary-library"])
 
@@ -118,15 +121,21 @@ async def inspect_export(
     library has of it (null when absent), so the client can preview the import."""
     await check_workspace_permission(db, workspace_id, user, "workspace-settings:write")
     files = await _export_files(db, workspace_id, user, source)
-    try:
-        found = await asyncio.to_thread(lib.inspect_export, files)
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     held = {v["vocabularyId"]: v for v in _inventory(await _library(db, workspace_id))}
-    for v in found["vocabularies"]:
-        v["libraryVersion"] = held.get(v["vocabularyId"], {}).get("vocabularyVersion")
-        v["inLibrary"] = v["vocabularyId"] in held
-    return found
+
+    async def work() -> dict:
+        try:
+            found = await asyncio.to_thread(lib.inspect_export, files)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        for v in found["vocabularies"]:
+            v["libraryVersion"] = held.get(v["vocabularyId"], {}).get("vocabularyVersion")
+            v["inLibrary"] = v["vocabularyId"] in held
+        return found
+
+    # A full ATHENA export is gigabytes to read: past `deferred.WAIT_SECONDS` the
+    # inspection goes on as a job (core/deferred).
+    return await deferred.respond(user.id, work, deferred.AsJob("Inspect vocabulary export", workspace_id=workspace_id))
 
 
 @router.post("/import")
@@ -143,18 +152,29 @@ async def start_import(
     if library is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "The workspace has no vocabulary library yet")
     files = await _export_files(db, workspace_id, user, body.source)
-    try:
-        found = await asyncio.to_thread(lib.inspect_export, files)
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    by_id = {v["vocabularyId"]: v for v in found["vocabularies"]}
-    chosen = [v for v in body.vocabularies if v in by_id]
-    if not chosen:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "None of these vocabularies is in the export")
     library_id = library.id
     source_label = _source_label(body.source, files)
 
-    async def run(state: lib.ImportState) -> None:
+    async def start() -> dict:
+        try:
+            found = await asyncio.to_thread(lib.inspect_export, files)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        by_id = {v["vocabularyId"]: v for v in found["vocabularies"]}
+        chosen = [v for v in body.vocabularies if v in by_id]
+        if not chosen:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "None of these vocabularies is in the export")
+        state = lib.start_import(workspace_id, partial(run, found, by_id, chosen))
+        # A job of the panel, which can stop it: the library stays as it was
+        # unless the swap had begun.
+        async with deferred.session() as session:
+            job = await jobs.create(
+                session, None, user.id, "vocab-import", f"Import {', '.join(chosen)[:200]}", workspace_id=workspace_id,
+            )
+        await jobs.adopt(job.id, state.task)
+        return state.as_dict()
+
+    async def run(found: dict, by_id: dict, chosen: list[str], state: lib.ImportState) -> None:
         # The import rewrites files the pooled connection has open.
         connection_pool.invalidate(library_id)
         written = await asyncio.to_thread(lib.write_partitions, workspace_id, files, chosen, state)
@@ -187,7 +207,9 @@ async def start_import(
             await session.commit()
         state.vocabularies = written
 
-    return lib.start_import(workspace_id, run).as_dict()
+    # The export is read once more to check the choice: past
+    # `deferred.WAIT_SECONDS` that goes on in the background too (core/deferred).
+    return await deferred.respond(user.id, start)
 
 
 def _source_label(source: ExportSource, files: list[tuple[str, str]]) -> str:

@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   DEFAULT_DATABASE_LOCATION,
@@ -76,8 +77,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { foldAccents } from '@/lib/fold-accents'
+import { DEFAULT_PORTS, ENGINE_LABELS, databaseIsSchema, parsePort } from '@/lib/database-engines'
 
-type DbTab = 'general' | 'connection' | 'metadata' | 'attribution'
+export type DatabaseDialogTab = 'general' | 'connection' | 'metadata' | 'attribution'
+type DbTab = DatabaseDialogTab
 
 interface AddDatabaseDialogProps {
   open: boolean
@@ -86,6 +89,8 @@ interface AddDatabaseDialogProps {
   projectUid?: string
   /** When provided, the dialog opens in edit mode for this data source. */
   editingSource?: DataSource | null
+  /** The tab an edit opens on (default General): a connection problem opens Connection. */
+  initialTab?: DatabaseDialogTab
 }
 
 const sourceTypes: {
@@ -140,6 +145,7 @@ export function AddDatabaseDialog({
   onOpenChange,
   projectUid,
   editingSource,
+  initialTab = 'general',
 }: AddDatabaseDialogProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -200,7 +206,7 @@ export function AddDatabaseDialog({
       setDescription(localizedRaw(editingSource.description, language))
       setSelectedType(editingSource.sourceType)
       setStep(2)
-      setDbTab('general')
+      setDbTab(initialTab)
       if (editingSource.sourceType === 'database') {
         const config = editingSource.connectionConfig as DatabaseConnectionConfig
         setDbEngine(config.engine)
@@ -217,8 +223,10 @@ export function AddDatabaseDialog({
         )
         if (config.host) setDbHost(config.host)
         if (config.port) setDbPort(String(config.port))
-        if (config.database) setDbDatabase(config.database)
-        if (config.schema) setDbSchema(config.schema)
+        setDbFlightPort(config.flightPort ? String(config.flightPort) : '')
+        const defaultSchema = databaseIsSchema(config.engine) ? config.schema || config.database : config.database
+        if (defaultSchema) setDbDatabase(defaultSchema)
+        if (config.schema && !databaseIsSchema(config.engine)) setDbSchema(config.schema)
         setDbAllowWrites(!!config.allowWrites)
         const located = databaseLocationOf(config.managedPath)
         setFileLocation(located)
@@ -239,7 +247,7 @@ export function AddDatabaseDialog({
       setSchemaPresetId(initial)
       setInitialPresetId(initial)
     }
-  }, [open, editingSource, language, customPresets])
+  }, [open, editingSource, language, customPresets, initialTab])
 
   // Common fields
   const [name, setName] = useState('')
@@ -272,6 +280,11 @@ export function AddDatabaseDialog({
   const [dbEngine, setDbEngine] = useState<DatabaseEngine>(defaultEngine)
   const [dbHost, setDbHost] = useState('')
   const [dbPort, setDbPort] = useState('')
+  const [dbFlightPort, setDbFlightPort] = useState('')
+  const dbPortValue = parsePort(dbPort)
+  const dbFlightPortValue = parsePort(dbFlightPort)
+  const dbPortInvalid = !!dbPort.trim() && dbPortValue === null
+  const dbFlightPortInvalid = dbEngine === 'doris' && !!dbFlightPort.trim() && dbFlightPortValue === null
   const [dbDatabase, setDbDatabase] = useState('')
   const [dbSchema, setDbSchema] = useState('')
   const [dbAllowWrites, setDbAllowWrites] = useState(false)
@@ -308,6 +321,7 @@ export function AddDatabaseDialog({
     setDbEngine(defaultEngine)
     setDbHost('')
     setDbPort('')
+    setDbFlightPort('')
     setDbDatabase('')
     setDbSchema('')
     setDbAllowWrites(false)
@@ -401,12 +415,13 @@ export function AddDatabaseDialog({
               ...(!isFileEngine(dbEngine)
                 ? {
                     host: dbHost,
-                    port: dbPort ? Number(dbPort) : undefined,
+                    port: dbPortValue ?? undefined,
                     database: dbDatabase,
-                    schema: dbSchema || undefined,
+                    schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
                     username: dbUsername || undefined,
                     password: dbPassword || undefined,
                     ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+                    ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
                   }
                 : {}),
             }
@@ -478,14 +493,15 @@ export function AddDatabaseDialog({
             const connectionConfig: DatabaseConnectionConfig = {
               engine: dbEngine,
               host: dbHost,
-              port: dbPort ? Number(dbPort) : undefined,
+              port: dbPortValue ?? undefined,
               database: dbDatabase,
-              schema: dbSchema || undefined,
+              schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
               username: dbUsername || undefined,
               // Only send a password when the user typed one — an empty field
               // leaves the stored (encrypted) credential untouched server-side.
               ...(dbPassword ? { password: dbPassword } : {}),
               ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+              ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
             }
             changes.connectionConfig = connectionConfig
             if (isServerMode()) changes.requireSessionOnly = requireSessionOnly
@@ -530,12 +546,13 @@ export function AddDatabaseDialog({
           ...(!isFileEngine(dbEngine)
             ? {
                 host: dbHost,
-                port: dbPort ? Number(dbPort) : undefined,
+                port: dbPortValue ?? undefined,
                 database: dbDatabase,
-                schema: dbSchema || undefined,
+                schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
                 username: dbUsername || undefined,
                 password: dbPassword || undefined,
                 ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+                ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
               }
             : {}),
         }
@@ -656,6 +673,7 @@ export function AddDatabaseDialog({
   const isConnectionValid =
     (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles || usesServerPath) &&
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
+    !(selectedType === 'database' && !isFileEngine(dbEngine) && (dbPortInvalid || dbFlightPortInvalid)) &&
     !isSizeBlocked
 
   const canSubmit = isNameValid && isConnectionValid && (!fileLocationChanged || fileLocationValid)
@@ -889,12 +907,13 @@ export function AddDatabaseDialog({
                                   Order: network DBs first (server mode), then file engines. */}
                               {isServerMode() && (
                                 <>
-                                  <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                                  <SelectItem value="mysql">MySQL</SelectItem>
+                                  <SelectItem value="postgresql">{ENGINE_LABELS.postgresql}</SelectItem>
+                                  <SelectItem value="mysql">{ENGINE_LABELS.mysql}</SelectItem>
+                                  <SelectItem value="doris">{ENGINE_LABELS.doris}</SelectItem>
                         </>
                       )}
-                      <SelectItem value="duckdb">DuckDB</SelectItem>
-                      <SelectItem value="sqlite">SQLite</SelectItem>
+                      <SelectItem value="duckdb">{ENGINE_LABELS.duckdb}</SelectItem>
+                      <SelectItem value="sqlite">{ENGINE_LABELS.sqlite}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1049,16 +1068,51 @@ export function AddDatabaseDialog({
                     </div>
                     <div className="space-y-2">
                       <Label>{t('databases.field_port')}</Label>
-                      <Input value={dbPort} onChange={(e) => setDbPort(e.target.value)} placeholder="5432" />
+                      <Input
+                        value={dbPort}
+                        onChange={(e) => setDbPort(e.target.value)}
+                        placeholder={DEFAULT_PORTS[dbEngine]}
+                        inputMode="numeric"
+                        aria-invalid={dbPortInvalid}
+                      />
+                      {dbPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
                     </div>
-                    <div className="space-y-2">
-                      <Label>{t('databases.field_database')}</Label>
-                      <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('databases.field_schema')}</Label>
-                      <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder="public" />
-                    </div>
+                    {dbEngine === 'doris' && (
+                      <div className="space-y-2">
+                        <Label>{t('databases.field_flight_port')}</Label>
+                        <Input
+                          value={dbFlightPort}
+                          onChange={(e) => setDbFlightPort(e.target.value)}
+                          placeholder="8070"
+                          inputMode="numeric"
+                          aria-invalid={dbFlightPortInvalid}
+                        />
+                        {dbFlightPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
+                      </div>
+                    )}
+                    {databaseIsSchema(dbEngine) ? (
+                      <div className={cn('space-y-2', dbEngine !== 'doris' && 'col-span-full')}>
+                        <Label className="flex items-center gap-1.5">
+                          {t('databases.field_default_schema')}
+                          <FieldInfo text={t('databases.field_default_schema_hint_mysql')} />
+                        </Label>
+                        <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label>{t('databases.field_database')}</Label>
+                          <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-1.5">
+                            {t('databases.field_default_schema')}
+                            <FieldInfo text={t('databases.field_default_schema_hint_postgresql')} />
+                          </Label>
+                          <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder="public" />
+                        </div>
+                      </>
+                    )}
                     <div className="space-y-2">
                       <Label>{t('databases.field_username')}</Label>
                       <Input value={dbUsername} onChange={(e) => setDbUsername(e.target.value)} />
@@ -1067,6 +1121,11 @@ export function AddDatabaseDialog({
                       <Label>{t('databases.field_password')}</Label>
                       <PasswordInput value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
                     </div>
+                    {dbEngine === 'doris' && (
+                      <p className="col-span-full text-xs text-muted-foreground">
+                        {t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}
+                      </p>
+                    )}
                     {isServerMode() && (
                       <p className="col-span-full text-xs text-muted-foreground">
                         {t('database_logins.form_hint')}

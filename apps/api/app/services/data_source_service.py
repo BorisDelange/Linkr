@@ -37,13 +37,15 @@ from app.services.data import (
     concept_cache_fs,
     connection_pool,
     db_connect,
+    flight,
     managed_db,
 )
 from app.services.data import parquet_layout as parquet_layout_fs
+from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import DbHostNotAllowed
 
 # External network databases reached via DuckDB's ATTACH extensions.
-_EXTERNAL_ENGINES = ("postgresql", "mysql")
+_EXTERNAL_ENGINES = db_connect.EXTERNAL_ENGINES
 # File databases uploaded to the blob store and attached from disk server-side.
 _FILE_ENGINES = ("duckdb", "sqlite")
 
@@ -645,14 +647,13 @@ def _keep_managed_path(config: dict, current: dict | None) -> dict:
 class CompactionState:
     """Live state of one compaction, polled by the client.
 
-    In memory rather than a `jobs` row: a Job is keyed by project, and a database
-    belongs to the workspace, so persisting one would mean a schema change and a
-    migration to carry a single integer. The cost of losing this on restart is
-    that the UI stops reporting progress — the compaction itself is a temp file
+    In memory, for the byte count the page polls; the compaction is also a job
+    of the database's workspace, for the panel, which can stop it. Losing this on
+    restart only stops the progress report — the compaction itself is a temp file
     plus an atomic rename, which is safe to interrupt at any point.
     """
 
-    status: str  # 'running' | 'done' | 'error'
+    status: str  # 'running' | 'done' | 'error' | 'cancelled'
     size_before: int
     #: Denominator for the bar: bytes the data occupies, free blocks excluded.
     #: None when DuckDB would not answer — the UI then shows bytes without a %.
@@ -672,7 +673,7 @@ def compaction_state(source_id: str) -> CompactionState | None:
         return _compactions.get(source_id)
 
 
-async def start_compaction(source: DataSource) -> CompactionState:
+async def start_compaction(source: DataSource, user_id: int | None = None) -> CompactionState:
     """Begin compacting a managed database, returning once it is under way.
 
     Runs detached so the request returns immediately: a multi-GB rewrite outlives
@@ -716,13 +717,19 @@ async def start_compaction(source: DataSource) -> CompactionState:
         # value that is either the old one or the new one, never a torn one.
         state.bytes_written = n
 
+    cancel = threading.Event()
+
     def _run() -> None:
         try:
-            before, after = managed_db.compact(path, _on_bytes)
+            before, after = managed_db.compact(path, _on_bytes, cancel)
         except Exception as e:  # noqa: BLE001 — reported through the polled state
+            if cancel.is_set():
+                state.status = "cancelled"
+                return
             state.status = "error"
             state.error = str(e)
-            return
+            raise
+
         state.size_before = before
         state.size_after = after
         state.bytes_written = after
@@ -731,9 +738,26 @@ async def start_compaction(source: DataSource) -> CompactionState:
     # Held in a module-level set: asyncio keeps only a weak reference to a task,
     # so one nobody holds can be collected mid-flight and the compaction would
     # stop silently part-way through.
-    task = asyncio.create_task(asyncio.to_thread(_run))
+    async def _supervise() -> None:
+        try:
+            await asyncio.to_thread(_run)
+        except asyncio.CancelledError:
+            # Stopped from the jobs panel: the thread interrupts its copy.
+            cancel.set()
+            raise
+
+    task = asyncio.create_task(_supervise())
     _compaction_tasks.add(task)
     task.add_done_callback(_compaction_tasks.discard)
+    if source.workspace_id and user_id is not None:
+        from app.core import deferred
+        from app.services.execution import jobs
+
+        async with deferred.session() as db:
+            job = await jobs.create(db, None, user_id, "compact", f"Compact {source.name}", workspace_id=source.workspace_id)
+        await jobs.adopt(job.id, task)
+    else:
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
     return state
 
 
@@ -758,7 +782,7 @@ async def connection_info(db: AsyncSession, source: DataSource, user_id: int) ->
             engine=engine,
             kind="external",
             host=config.get("host"),
-            port=config.get("port"),
+            port=db_connect.port_of(config),
             database=config.get("database"),
             schema_name=config.get("schema"),
             username=(await database_credential_service.status_for(db, source, user_id))["username"],
@@ -911,7 +935,7 @@ class DatabaseBusy(HTTPException):
             "An ETL run that was stopped still holds this database while it rolls back; "
             "it can be read again once that is done."
             if stopping
-            else "An ETL run is writing to this database; it can be read once the run ends or is stopped."
+            else "An ETL run is using this database; it can be opened again once the run ends or is stopped."
         )
         super().__init__(
             status.HTTP_409_CONFLICT,
@@ -938,26 +962,35 @@ def _require_no_etl_run(source: DataSource) -> None:
         raise DatabaseBusy(source.id, run)
 
 
-def _claim_for_etl(source_id: str, handle: db_connect.EtlRunHandle) -> None:
-    """Register the run on its target; checked and set under one acquisition so
-    two runs started together cannot both pass."""
+def _claim_for_etl(source_ids: list[str], handle: db_connect.EtlRunHandle) -> None:
+    """Register the run on its target and on every managed database it reads (a
+    role's file is attached too); checked and set under one acquisition so two
+    runs started together cannot both pass."""
     with _etl_runs_lock:
-        run = _etl_runs.get(source_id)
-        if run is None:
-            _etl_runs[source_id] = EtlRunState(handle, datetime.now(timezone.utc))
-            return
-    raise DatabaseBusy(source_id, run)
+        for source_id in source_ids:
+            run = _etl_runs.get(source_id)
+            if run is not None:
+                raise DatabaseBusy(source_id, run)
+        state = EtlRunState(handle, datetime.now(timezone.utc))
+        for source_id in source_ids:
+            _etl_runs[source_id] = state
 
 
-def _release_from_etl(source_id: str, handle: db_connect.EtlRunHandle) -> None:
+def _release_from_etl(source_ids: list[str], handle: db_connect.EtlRunHandle) -> None:
     with _etl_runs_lock:
-        run = _etl_runs.get(source_id)
-        if run is not None and run.handle is handle:
-            del _etl_runs[source_id]
+        for source_id in source_ids:
+            run = _etl_runs.get(source_id)
+            if run is not None and run.handle is handle:
+                del _etl_runs[source_id]
+
+
+def _etl_held_ids(target: DataSource, roles: dict[str, DataSource]) -> list[str]:
+    managed = [s for s in roles.values() if s is not None and is_managed(s)]
+    return list(dict.fromkeys([target.id, *(s.id for s in managed)]))
 
 
 def stop_etl_run(source_id: str) -> bool:
-    """Interrupt the run writing to this database, whoever started it. The run
+    """Interrupt the run holding this database, whoever started it. The run
     rolls its statement back and releases the file; False when none is running."""
     with _etl_runs_lock:
         run = _etl_runs.get(source_id)
@@ -975,12 +1008,14 @@ async def run_etl(
     user_id: int,
     mapping_data: dict[str, str] | None = None,
     on_statement: Callable[[int, int, str], None] | None = None,
+    handle: db_connect.EtlRunHandle | None = None,
 ) -> list[dict]:
     """Run ETL SQL with the target writable and the other roles attached read-only.
 
     `on_statement(index, total, sql)` is invoked from the worker THREAD before
     each statement, so a streaming caller must marshal it back to the loop
-    (`call_soon_threadsafe`) rather than await inside it."""
+    (`call_soon_threadsafe`) rather than await inside it. `handle`: the run's,
+    for a caller that reads its progress."""
     if not is_managed(target):
         raise ValueError(
             "the pipeline target must be a database created from a schema"
@@ -999,9 +1034,11 @@ async def run_etl(
     # in-flight query on that connection, so nothing is closed mid-statement; the
     # next browse simply re-establishes a warm connection.
     for source in (target, *roles.values()):
-        _require_no_etl_run(source)
+        if source is not None:
+            _require_no_etl_run(source)
     for source in (target, *roles.values()):
-        connection_pool.invalidate(source.id)
+        if source is not None:
+            connection_pool.invalidate(source.id)
     _audit(target, "etl_run", sql)
 
     attachments = await role_attachments(db, {k: v for k, v in roles.items() if k != "target"}, user_id)
@@ -1013,8 +1050,9 @@ async def run_etl(
     # The handle lets us interrupt the statement so the thread unwinds and frees
     # the file. Shielded so the cancellation reaches us here rather than tearing
     # down the await while the thread is still bound to the connection.
-    handle = db_connect.EtlRunHandle()
-    _claim_for_etl(target.id, handle)
+    handle = handle or db_connect.EtlRunHandle()
+    held = _etl_held_ids(target, roles)
+    _claim_for_etl(held, handle)
     task = asyncio.create_task(
         asyncio.to_thread(
             db_connect.run_etl_sql,
@@ -1028,7 +1066,7 @@ async def run_etl(
     )
     # Released when the THREAD ends, not when this await does: a cancelled run
     # keeps the file until its rollback is over, and reads must wait for that.
-    task.add_done_callback(lambda _: _release_from_etl(target.id, handle))
+    task.add_done_callback(lambda _: _release_from_etl(held, handle))
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError:
@@ -1071,6 +1109,7 @@ async def client_recipe(db: AsyncSession, source: DataSource, login: Login | Non
             "attach_type": recipe["type"],
             "attach_dsn": recipe["dsn"],
             "attach_scope": recipe["scope"],
+            "attach_read_only": recipe["readOnly"],
         }
 
     if is_managed(source):
@@ -1111,6 +1150,20 @@ async def client_recipe(db: AsyncSession, source: DataSource, login: Login | Non
     return {"engine": engine, "kind": None, "connectable": False}
 
 
+async def flight_status(source: DataSource, login: Login | None) -> dict:
+    """See schemas.FlightStatus."""
+    config = dict(source.connection_config or {})
+    if flight.port(config) is None:
+        return {"status": "not_applicable"}
+    if login is None:
+        raise database_credential_service.CredentialRequired(source)
+    found = await asyncio.to_thread(remote.flight_problem, with_login(config, login), login.password)
+    status = {"port": flight.port(config), "tls": flight.tls(config)}
+    if found is None:
+        return {"status": "ok", **status}
+    return {"status": found[0], "detail": found[1], **status}
+
+
 # --- Live connection test (external databases) -----------------------------
 
 def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
@@ -1119,14 +1172,16 @@ def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
 
 async def query(
     db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool = False,
+    pushdown: bool = False,
 ):
     """Run read-only SQL server-side: ATTACH a network DB with the caller's own
     `login` (see database_credential_service.resolve_login) or a local
     DuckDB/SQLite file from the blob store. JSON-ready rows, capped; or, with
-    `arrow`, the whole result as an Arrow table. Logged (core/audit)."""
+    `arrow`, the whole result as an Arrow table. Logged (core/audit).
+    `pushdown`: see db_connect.query_external."""
     _audit(source, "query", sql)
     try:
-        result = await _query(db, source, login, sql, arrow)
+        result = await _query(db, source, login, sql, arrow, pushdown)
     except Exception as exc:
         audit.bind(error=str(exc))
         raise
@@ -1134,7 +1189,7 @@ async def query(
     return result
 
 
-async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool):
+async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool, pushdown: bool = False):
     config = dict(source.connection_config or {})
     engine = config.get("engine")
     if engine in _EXTERNAL_ENGINES:
@@ -1142,7 +1197,7 @@ async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql:
             raise database_credential_service.CredentialRequired(source)
         return await asyncio.to_thread(
             db_connect.query_external, with_login(config, login), login.password, sql,
-            pool_key(source, login), arrow,
+            pool_key(source, login), arrow, pushdown,
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, read it where it lives.

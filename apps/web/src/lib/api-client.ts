@@ -3,6 +3,7 @@
  * Wraps fetch with JWT auth headers and automatic token refresh.
  */
 
+import i18n from '@/lib/i18n'
 import { disposeAllLiveTerminals } from '@/lib/terminal-sessions'
 import { credentialRequiredDetail, requestDatabaseLogin } from '@/stores/database-login-prompt'
 
@@ -168,7 +169,7 @@ export function formatApiError(err: unknown): FormattedError {
   // broken route; the status is what separates them, and it was being dropped.
   const status = err instanceof ApiError ? err.status : null
   const withStatus = (summary: string): string =>
-    status !== null ? `${summary} (HTTP ${status})` : summary
+    status !== null && !summary.includes(`HTTP ${status}`) ? `${summary} (HTTP ${status})` : summary
   try {
     const body = JSON.parse(raw)
     const detail = body?.detail
@@ -201,22 +202,51 @@ export async function apiRequest<T>(
   init?: RequestInit,
   opts?: { promptLogin?: boolean },
 ): Promise<T> {
-  let res = await apiFetch(`/api/v1${path}`, init, opts)
-  // A route that outlives the gateway timeout answers 202 with a task id and
-  // keeps working (backend `core/deferred.py`); polling returns the response it
-  // would have sent, so every caller sees one ordinary request.
-  if (res.status === 202) {
-    const taskId = ((await res.clone().json().catch(() => null)) as { deferredTaskId?: string } | null)?.deferredTaskId
-    const signal = init?.signal ?? undefined
-    while (taskId && res.status === 202) {
-      await abortableDelay(DEFERRED_POLL_MS, signal)
-      res = await apiFetch(`/api/v1/deferred/${encodeURIComponent(taskId)}`, { signal }, opts)
-    }
-  }
+  const res = await apiFetchFollowing(`/api/v1${path}`, init, opts)
   if (!res.ok) {
-    throw new ApiError(res.status, await res.text())
+    throw new ApiError(res.status, proxyErrorMessage(res) ?? await res.text())
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+/**
+ * `apiFetch`, for a route that may outlive the gateway timeout: such a route
+ * answers 202 with a task id and keeps working (backend `core/deferred.py`);
+ * polling returns the response it would have sent — JSON or a file alike — so
+ * the caller sees one ordinary request. Work that long also shows in the jobs
+ * panel, which is told at once.
+ */
+export async function apiFetchFollowing(
+  path: string,
+  init?: RequestInit,
+  opts?: { promptLogin?: boolean },
+): Promise<Response> {
+  let res = await apiFetch(path, init, opts)
+  if (res.status !== 202) return res
+  const taskId = ((await res.clone().json().catch(() => null)) as { deferredTaskId?: string } | null)?.deferredTaskId
+  if (!taskId) return res
+  // The jobs panel lists it at once (lib/api/environments: notifyJobsChanged).
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('linkr:jobs-changed'))
+  const signal = init?.signal ?? undefined
+  while (res.status === 202) {
+    await abortableDelay(DEFERRED_POLL_MS, signal)
+    res = await apiFetch(`/api/v1/deferred/${encodeURIComponent(taskId)}`, { signal }, opts)
+  }
+  return res
+}
+
+/**
+ * The failure in words when a proxy in front of the API wrote it, not Linkr —
+ * an HTML error page, or a gateway status without Linkr's JSON body. That page
+ * says nothing the user can act on; null when Linkr itself answered.
+ */
+export function proxyErrorMessage(res: Pick<Response, 'status' | 'headers'>): string | null {
+  const type = res.headers.get('content-type') ?? ''
+  if (type.includes('json')) return null
+  if (res.status === 504) return i18n.t('common.proxy_timeout')
+  if (res.status === 502 || res.status === 503) return i18n.t('common.proxy_unreachable', { status: res.status })
+  if (type.includes('text/html')) return i18n.t('common.proxy_error_page', { status: res.status })
+  return null
 }
 
 const DEFERRED_POLL_MS = 1500

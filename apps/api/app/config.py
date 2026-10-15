@@ -110,6 +110,15 @@ class Settings(BaseSettings):
     # than that resets the deadline every line and runs forever, pinning a
     # max_build_concurrency slot (shared with env builds) until it's manually killed.
     job_timeout_seconds: int = 1800
+    # Heavy queries run as jobs (a data catalog's counts…): how many at once. Each
+    # opens its own DuckDB, which sizes its memory on the whole container, so two
+    # big ones together can get the container killed. Own queue: never waits on,
+    # nor holds up, an env build.
+    max_heavy_queries: int = 1
+    # Memory each DuckDB that reads a database may use before spilling to disk
+    # (e.g. "3GB"). Empty: 60 % of the container's memory. DuckDB's own default
+    # (80 %) leaves too little for the API itself, and the container is killed.
+    duckdb_memory_limit: str = ""
 
     # Data
     data_dir: str = "~/.linkr"

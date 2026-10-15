@@ -212,10 +212,12 @@ fetch against out-of-order answers (keep a ticket, drop stale replies) —
 are the reference. An export must go to the server with the same query, never
 from `data`, which is one page.
 
-Four older tables still hand-roll server paging — `SourceConceptTable`,
-`ConceptTable`, `CohortConceptPickerDialog` and `GlobalSummaryView`'s dedup/flat
-pair. They predate server mode; migrating one means checking its extras (columns
-joined after the fetch, checkbox pickers, multi-selection) against it.
+Three older tables still hand-roll server paging — `SourceConceptTable`,
+`ConceptTable` and `GlobalSummaryView`'s dedup/flat pair. They predate server
+mode; migrating one means checking its extras (columns joined after the fetch,
+checkbox pickers, multi-selection) against it. A concept picker is not a fourth:
+it is `ConceptTable` with `pickMode` under `ConceptPickerToolbar`, fed by
+`useConcepts(…, 'picker')` (see the patient-data and cohort pickers).
 
 **Do not trust the `manual*` flags to tell you which.** `manualSorting` /
 `manualFiltering` / `manualPagination` have been copy-pasted into tables that are
@@ -701,7 +703,7 @@ Check this table before writing any form field.
 | `MappingEditor` | A schema mapping edited class by class (visual relation or SQL, parameters, contract check and preview on a database). Used by the Schemas page and a database's Mapping tab (override mode: `relationExtra`, `canRemove`, `paramsSlot`). Don't build another mapping form. |
 | `ImageLightbox` / `ZoomableImage` | The full-screen image viewer (zoom, pan, reset) and the click-to-enlarge `<img>` built on it. **Every markdown view already enlarges its images** via `markdownComponents` (below) — you only reach for these directly for an image outside markdown, as `CellOutput` does for notebook figures. |
 | `StatCard` | A headline figure: tinted icon square, `text-2xl` value, label, optional `detail` line (a share, a progress bar). Link (`to`), button (`onClick`) or static. The workspace and project summaries, the catalog's Anonymization tab. Tint with an `ENTITY_COLORS` `bg` + `icon` pair. |
-| `EntryPointCard` | A clickable widget on a section landing page leading to one of its sub-views (Concept mapping: projects / overview; Vocabularies: OHDSI / data dictionaries): tinted icon, title, optional count badge, description, call to action. `accent` picks a predefined hue — add one to its table rather than passing classes. |
+| `EntryPointCard` | A clickable widget on a section landing page leading to one of its sub-views (Concept mapping: projects / overview; Vocabularies: OHDSI / data dictionaries): tinted icon, title, optional count badge, description, call to action. `accent` is an `EntityColorKey`: the hue comes from `ENTITY_COLORS` (`lib/entity-colors.ts`), so it matches the sidebar item and card of what the card leads to. |
 | `LinkrLogo` | The logo. |
 
 ### Rendering markdown

@@ -378,6 +378,16 @@ describe('checkContract', () => {
     expect(checkContract('visit', described.slice(1)).missingRequired).toEqual(['visit_id'])
   })
 
+  it('does not ask a drug relation\'s SQL for drug_kind, which its spec supplies', () => {
+    const drug = [
+      { column_name: 'patient_id', column_type: 'VARCHAR' },
+      { column_name: 'concept_id', column_type: 'VARCHAR' },
+      { column_name: 'start_datetime', column_type: 'TIMESTAMP' },
+    ]
+    expect(checkContract('drug', drug).missingRequired).toEqual([])
+    expect(checkContract('drug', drug.slice(1)).missingRequired).toEqual(['patient_id'])
+  })
+
   it('flags a window over the whole relation, not one partitioned per patient', () => {
     expect(hasGlobalWindow('SELECT ROW_NUMBER() OVER (ORDER BY id) AS drug_id FROM t')).toBe(true)
     expect(hasGlobalWindow('SELECT ROW_NUMBER() OVER (PARTITION BY pid ORDER BY id) FROM t')).toBe(false)

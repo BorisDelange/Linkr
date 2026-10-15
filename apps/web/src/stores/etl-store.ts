@@ -76,6 +76,10 @@ interface EtlState {
   // Pipeline run state
   pipelineRunning: boolean
   pipelineRunAbort: AbortController | null
+  /** Percent of its data the statement in flight has read (server, when DuckDB
+   *  can tell). Live only — not part of the run log, which is persisted. */
+  runReading: number | null
+  setRunReading: (pct: number | null) => void
   scriptStatuses: Map<string, EtlRunLog>
   runHistory: EtlRunHistoryEntry[]
   /** False until this pipeline's history has been read. The quality-check cache
@@ -499,6 +503,8 @@ export const useEtlStore = create<EtlState>((set, get) => ({
   // --- Pipeline run state ---
   pipelineRunning: false,
   pipelineRunAbort: null,
+  runReading: null,
+  setRunReading: (pct) => { if (get().runReading !== pct) set({ runReading: pct }) },
   runningFileIds: [],
   scriptStatuses: new Map(),
   runHistory: [],
@@ -755,7 +761,7 @@ export const useEtlStore = create<EtlState>((set, get) => ({
         history[0] = { ...history[0], status, completedAt: new Date().toISOString() }
         toPersist = history[0]
       }
-      return { pipelineRunning: false, pipelineRunAbort: null, runningFileIds: [], runHistory: history }
+      return { pipelineRunning: false, pipelineRunAbort: null, runReading: null, runningFileIds: [], runHistory: history }
     })
     persistRun(toPersist)
   },

@@ -24,7 +24,7 @@ import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import audit
+from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_admin, get_current_user
 from app.core.permissions import (
@@ -33,6 +33,7 @@ from app.core.permissions import (
     require_permission,
     require_project_permission,
 )
+from app.models.mapping_project import MappingProject
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.git import (
@@ -146,6 +147,22 @@ async def _guard(coro) -> dict:
         return await coro
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
+
+
+async def _pushed(user: User, as_job: deferred.AsJob | None, commit, anchor: tuple[str, str, str] | None = None):
+    """Commit and push, past a gateway's timeout: a push of a big repository (LFS)
+    takes minutes, so after `deferred.WAIT_SECONDS` it goes on as a job of the
+    panel (core/deferred). `anchor` (scope, id, branch): the sync anchor to move to
+    a pushed commit."""
+
+    async def work() -> dict:
+        result = await _guard(commit)
+        if anchor and result.get("pushed") and result.get("commit"):
+            async with deferred.session() as session:
+                await git_sync_state_service.set_oid(session, *anchor, result["commit"]["oid"])
+        return result
+
+    return await deferred.respond(user.id, work, as_job)
 
 
 async def _assembled(coro, what: str) -> bytes:
@@ -324,7 +341,9 @@ async def project_commit_push(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Project is not linked to a git remote"
         )
-    return await _guard(
+    return await _pushed(
+        user,
+        deferred.AsJob("Git push", project_uid=project.uid),
         git_service.commit_push(
             git_service.project_repo_getter,
             project.uid,
@@ -334,7 +353,7 @@ async def project_commit_push(
             _remote_url(project),
             await _token(db, user, project),
             paths,
-        )
+        ),
     )
 
 
@@ -466,7 +485,9 @@ async def workspace_commit_push(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Workspace is not linked to a git remote"
         )
-    return await _guard(
+    return await _pushed(
+        _member,
+        deferred.AsJob("Git push", workspace_id=ws.id),
         git_service.commit_push(
             git_service.workspace_repo_getter,
             ws.id,
@@ -476,7 +497,7 @@ async def workspace_commit_push(
             _remote_url(ws),
             await _token(db, _member, ws),
             paths,
-        )
+        ),
     )
 
 
@@ -710,27 +731,40 @@ async def mapping_project_pull_scores(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "invalid score method")
     branch = _default_branch(mp, body.branch)
     token = await _token(db, user, mp)
-    async with scores_export.scores_lock(mp.id):
-        with tempfile.TemporaryDirectory() as tmp:
-            csvs: list[tuple[str, str]] = []
-            for i, (method, path) in enumerate(paths):
-                data = await _guard(
-                    git_service.pull_file_bytes(
-                        git_service.mapping_project_repo_getter,
-                        mp.id, branch, path, _remote_url(mp), token,
+    remote = _remote_url(mp)
+    mp_id, workspace_id = mp.id, mp.workspace_id
+
+    async def work():
+        async with scores_export.scores_lock(mp_id), deferred.session() as session:
+            fresh = await session.get(MappingProject, mp_id)
+            if fresh is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Mapping project not found")
+            with tempfile.TemporaryDirectory() as tmp:
+                csvs: list[tuple[str, str]] = []
+                for i, (method, path) in enumerate(paths):
+                    data = await _guard(
+                        git_service.pull_file_bytes(
+                            git_service.mapping_project_repo_getter,
+                            mp_id, branch, path, remote, token,
+                        )
                     )
-                )
-                target = Path(tmp) / f"{i}.csv"
-                target.write_bytes(data)
-                csvs.append((method, str(target)))
-            try:
-                sha = await scores_export.replace_methods(db, mp, csvs, body.removed)
-            except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
-                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-    if not sha:
-        return None
-    return await asyncio.to_thread(
-        scores_service.build_index, mp.id, str(blob_store.path_for(sha))
+                    target = Path(tmp) / f"{i}.csv"
+                    await asyncio.to_thread(target.write_bytes, data)
+                    csvs.append((method, str(target)))
+                try:
+                    sha = await scores_export.replace_methods(session, fresh, csvs, body.removed)
+                except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
+                    raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        if not sha:
+            return None
+        return await asyncio.to_thread(
+            scores_service.build_index, mp_id, str(blob_store.path_for(sha))
+        )
+
+    # Hundreds of MB per method: past `deferred.WAIT_SECONDS` the pull goes on as
+    # a job (core/deferred).
+    return await deferred.respond(
+        user.id, work, deferred.AsJob("Pull similarity scores", workspace_id=workspace_id, lane="heavy_query"),
     )
 
 
@@ -777,7 +811,9 @@ async def mapping_project_commit_push(
     row = await git_sync_state_service.get(
         db, "mapping-projects", mp.id, resolved_branch
     )
-    result = await _guard(
+    return await _pushed(
+        user,
+        deferred.AsJob("Git push", workspace_id=mp.workspace_id),
         git_service.commit_push(
             git_service.mapping_project_repo_getter,
             mp.id,
@@ -788,18 +824,9 @@ async def mapping_project_commit_push(
             await _token(db, user, mp),
             paths,
             *_push_anchors(row),
-        )
+        ),
+        ("mapping-projects", mp.id, resolved_branch),
     )
-    # A successful push means the pushed commit is now the synced point → move the anchor.
-    if result.get("pushed") and result.get("commit"):
-        await git_sync_state_service.set_oid(
-            db,
-            "mapping-projects",
-            mp.id,
-            resolved_branch,
-            result["commit"]["oid"],
-        )
-    return result
 
 
 # --- SQL script collection scope ------------------------------------------
@@ -909,7 +936,9 @@ async def sql_collection_commit_push(
             status.HTTP_400_BAD_REQUEST,
             "SQL script collection is not linked to a git remote",
         )
-    return await _guard(
+    return await _pushed(
+        user,
+        deferred.AsJob("Git push", workspace_id=c.workspace_id),
         git_service.commit_push(
             git_service.sql_collection_repo_getter,
             c.id,
@@ -919,7 +948,7 @@ async def sql_collection_commit_push(
             _remote_url(c),
             await _token(db, user, c),
             paths,
-        )
+        ),
     )
 
 
@@ -1067,7 +1096,9 @@ def _register_entity_git_routes(
         # hasn't pulled ("pull first"). Without it the guard is inert and a stale
         # push silently fast-forwards over someone else's commits.
         row = await git_sync_state_service.get(db, prefix, _entity_id(e), resolved_branch)
-        result = await _guard(
+        return await _pushed(
+            user,
+            deferred.AsJob("Git push", workspace_id=e.workspace_id),
             git_service.commit_push(
                 repo_getter,
                 _entity_id(e),
@@ -1078,14 +1109,9 @@ def _register_entity_git_routes(
                 await _token(db, user, e),
                 paths,
                 *_push_anchors(row),
-            )
+            ),
+            (prefix, _entity_id(e), resolved_branch),
         )
-        # A successful push means the pushed commit is now the synced point.
-        if result.get("pushed") and result.get("commit"):
-            await git_sync_state_service.set_oid(
-                db, prefix, _entity_id(e), resolved_branch, result["commit"]["oid"]
-            )
-        return result
 
     @router.get(
         f"/{prefix}/{{entity_id}}/sync-state",
@@ -1269,25 +1295,34 @@ async def clone(
     # none — so a retry clone of a private repo (the card's "content not imported"
     # button, which has no token to hand) reuses the token saved at first import.
     token = body.token or await git_credential_service.token_for_url(db, user, body.url)
-    try:
-        data, cloned_oid = await git_service.clone_to_zip(
-            body.url, body.branch or "main", token
-        )
-    except git_service.GitError as exc:
-        raise _git_http_error(exc) from exc
-    if body.token:
-        await git_credential_service.set_token_for_url(db, user, body.url, body.token)
-    audit.bind(action="download", workspace_id=body.workspace_id,
-               detail=f"git clone {_without_credentials(body.url)} ({len(data)} bytes)")
-    headers = {"Content-Disposition": 'attachment; filename="repo.zip"'}
-    # The cloned HEAD, so the import and pull flows can anchor the entity's sync
-    # state to it. Exposing it to JS is CORSMiddleware's job (expose_headers in
-    # main.py): setting Access-Control-Expose-Headers here does nothing, because the
-    # middleware overwrites it with its own list on the way out — which is exactly
-    # how this header stayed unreadable, leaving every pull unanchored.
-    if cloned_oid:
-        headers["X-Git-Cloned-Oid"] = cloned_oid
-    return Response(content=data, media_type="application/zip", headers=headers)
+
+    async def work() -> Response:
+        try:
+            data, cloned_oid = await git_service.clone_to_zip(
+                body.url, body.branch or "main", token
+            )
+        except git_service.GitError as exc:
+            raise _git_http_error(exc) from exc
+        if body.token:
+            async with deferred.session() as session:
+                await git_credential_service.set_token_for_url(session, user, body.url, body.token)
+        audit.bind(action="download", workspace_id=body.workspace_id,
+                   detail=f"git clone {_without_credentials(body.url)} ({len(data)} bytes)")
+        headers = {"Content-Disposition": 'attachment; filename="repo.zip"'}
+        # The cloned HEAD, so the import and pull flows can anchor the entity's sync
+        # state to it. Exposing it to JS is CORSMiddleware's job (expose_headers in
+        # main.py): setting Access-Control-Expose-Headers here does nothing, because the
+        # middleware overwrites it with its own list on the way out — which is exactly
+        # how this header stayed unreadable, leaving every pull unanchored.
+        if cloned_oid:
+            headers["X-Git-Cloned-Oid"] = cloned_oid
+        return Response(content=data, media_type="application/zip", headers=headers)
+
+    # A repository with LFS data takes minutes: past `deferred.WAIT_SECONDS` the
+    # clone goes on as a job (core/deferred), its ZIP handed to the poll.
+    return await deferred.respond(
+        user.id, work, deferred.AsJob(f"Git clone {_without_credentials(body.url)}", workspace_id=body.workspace_id),
+    )
 
 
 def _without_credentials(url: str) -> str:
@@ -1504,7 +1539,9 @@ async def settings_commit_push(
         )
     resolved_branch = await _settings_branch(db, branch)
     row = await git_sync_state_service.get(db, "settings", SETTINGS_ID, resolved_branch)
-    result = await _guard(
+    return await _pushed(
+        user,
+        None,
         git_service.commit_push(
             git_service.settings_repo_getter,
             SETTINGS_ID,
@@ -1515,13 +1552,9 @@ async def settings_commit_push(
             await _settings_token(db, user),
             paths,
             *_push_anchors(row),
-        )
+        ),
+        ("settings", SETTINGS_ID, resolved_branch),
     )
-    if result.get("pushed") and result.get("commit"):
-        await git_sync_state_service.set_oid(
-            db, "settings", SETTINGS_ID, resolved_branch, result["commit"]["oid"]
-        )
-    return result
 
 
 @router.post("/settings/account/set-sync-state", status_code=status.HTTP_204_NO_CONTENT)

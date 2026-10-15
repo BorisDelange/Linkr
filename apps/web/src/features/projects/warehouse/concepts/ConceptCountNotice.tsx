@@ -68,7 +68,6 @@ export function ConceptCountNotice({
       className={className}
       action={wsUid && (
         <Button
-          variant="outline"
           size="sm"
           className="h-6 gap-1 text-xs"
           onClick={() => navigate(conceptsTabHref(wsUid, projectUid, dataSourceId))}

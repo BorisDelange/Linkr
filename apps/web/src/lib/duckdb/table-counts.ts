@@ -1,4 +1,7 @@
 import * as duckdbEngine from '@/lib/duckdb/engine'
+import { runQueryJob } from '@/lib/duckdb/run-query-job'
+import { isServerMode } from '@/lib/api-client'
+import i18n from '@/lib/i18n'
 import { getStorage } from '@/lib/storage'
 import { quoteTableRef } from '@/lib/format-helpers'
 import type { DatabaseStatsCache, TableRowCount } from '@/types'
@@ -116,6 +119,40 @@ export async function countAllTables(
   const counts = new Map(options.seed ?? [])
   if (tables.length === 0) return counts
 
+  if (isServerMode()) {
+    // One job, in the heavy-query lane: no count outlasts a gateway's timeout or
+    // runs beside another heavy query, and the jobs panel can stop it.
+    let done = 0
+    await runQueryJob(
+      dataSourceId,
+      i18n.t('databases.count_tables_job'),
+      tables.map((table, i) => ({ key: `t${i}`, sql: `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}` })),
+      (i, rows, { error }) => {
+        if (error == null) counts.set(tables[i], Number(rows[0]?.cnt ?? 0))
+        options.onBatch?.(new Map(counts))
+        options.onProgress?.(++done, tables.length)
+      },
+      { signal: new AbortController().signal, keepGoing: true },
+    )
+  } else {
+    await countInBatches(dataSourceId, tables, counts, options)
+  }
+
+  const existing = await getStorage().databaseStatsCache.get(dataSourceId).catch(() => undefined)
+  await getStorage().databaseStatsCache
+    .save(mergeTableCounts(dataSourceId, existing, counts))
+    .catch(() => {})
+  notifyTableCounts(dataSourceId)
+  return counts
+}
+
+/** The browser's way: `BATCH` tables at a time, each failure skipped. */
+async function countInBatches(
+  dataSourceId: string,
+  tables: string[],
+  counts: Map<string, number>,
+  options: CountAllOptions,
+): Promise<void> {
   const BATCH = 6
   for (let i = 0; i < tables.length; i += BATCH) {
     const batch = tables.slice(i, i + BATCH)
@@ -133,11 +170,4 @@ export async function countAllTables(
     options.onBatch?.(new Map(counts))
     options.onProgress?.(Math.min(i + BATCH, tables.length), tables.length)
   }
-
-  const existing = await getStorage().databaseStatsCache.get(dataSourceId).catch(() => undefined)
-  await getStorage().databaseStatsCache
-    .save(mergeTableCounts(dataSourceId, existing, counts))
-    .catch(() => {})
-  notifyTableCounts(dataSourceId)
-  return counts
 }

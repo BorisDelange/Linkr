@@ -604,6 +604,33 @@ export interface QueryOptions {
    * an aggregate once per page instead.
    */
   allRows?: boolean
+  /**
+   * Server mode, external database: let it compute the query itself when the
+   * server finds it portable (`remote_sql.py`) — same answer, without pulling
+   * every row of an aggregate. On by default for the app's own queries; pass
+   * `false` for SQL a user wrote.
+   */
+  pushdown?: boolean
+  /**
+   * Server mode: a heavy query of the app's own (an estimate, a report, a
+   * profile). It waits its turn in the server's heavy-query lane, so it never
+   * runs beside another heavy query (a catalog, a count) — two of them can get
+   * the container killed for memory.
+   */
+  heavy?: boolean
+}
+
+/**
+ * The SQL as the database runs it: the class relations it names (`linkr_*`)
+ * written in from the source's schema mapping. Whatever sends app SQL to the
+ * server outside `queryDataSource` (a query job) must pass it through here.
+ */
+export async function prepareQuerySql(dataSourceId: string, sql: string): Promise<string> {
+  const mapping = mappingResolver?.(dataSourceId)
+  if (mapping && sql.toLowerCase().includes(RELATION_PREFIX)) {
+    return injectClassRelations(sql, mapping, await sourceTables(dataSourceId))
+  }
+  return sql
 }
 
 /** Run an arbitrary SQL query against a data source schema. */
@@ -612,12 +639,9 @@ export async function queryDataSource(
   sql: string,
   options: QueryOptions = {},
 ): Promise<Record<string, unknown>[]> {
-  const { signal, allRows } = options
+  const { signal, allRows, pushdown = true, heavy } = options
   signal?.throwIfAborted()
-  const mapping = mappingResolver?.(dataSourceId)
-  if (mapping && sql.toLowerCase().includes(RELATION_PREFIX)) {
-    sql = injectClassRelations(sql, mapping, await sourceTables(dataSourceId))
-  }
+  sql = await prepareQuerySql(dataSourceId, sql)
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.
@@ -627,7 +651,7 @@ export async function queryDataSource(
     if (dataSourceId.startsWith('filesrc_')) {
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
-    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows })
+    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, heavy })
   }
   // Wait for the source to be in DuckDB before naming its schema. Callers used
   // to have to do this themselves, and the ones that forgot raced the mount on

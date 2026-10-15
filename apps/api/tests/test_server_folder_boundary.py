@@ -38,7 +38,7 @@ async def test_a_database_cannot_point_inside_linkrs_data_folder(client, seed_ro
     ws = await _workspace(client, h)
 
     created = await client.post(f"{API}/data-sources", headers=h, json=_source_body(ws, victim))
-    assert created.status_code == 400
+    assert created.status_code == 403
 
     elsewhere = tmp_path_factory.mktemp("server") / "ok.db"
     _sqlite_with_users(elsewhere)
@@ -47,7 +47,7 @@ async def test_a_database_cannot_point_inside_linkrs_data_folder(client, seed_ro
     moved = await client.patch(f"{API}/data-sources/{created.json()['id']}", headers=h, json={
         "connectionConfig": {"engine": "sqlite", "serverPath": str(victim)},
     })
-    assert moved.status_code == 400
+    assert moved.status_code == 403
 
 
 async def test_a_database_cannot_point_into_another_projects_folder_without_the_grant(
@@ -63,7 +63,7 @@ async def test_a_database_cannot_point_into_another_projects_folder_without_the_
 
     member = await _user_with_global_role(client, db, h, "bob", ["all-workspaces:write", "all-projects:write"])
     r = await client.post(f"{API}/data-sources", headers=member, json=_source_body(ws, theirs / "private.db"))
-    assert r.status_code == 400
+    assert r.status_code == 403
     neutral = tmp_path_factory.mktemp("neutral") / "shared.db"
     _sqlite_with_users(neutral)
     r = await client.post(f"{API}/data-sources", headers=member, json=_source_body(ws, neutral))

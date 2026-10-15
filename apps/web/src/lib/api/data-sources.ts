@@ -44,12 +44,12 @@ export function testConnectionOnServer(
 export async function queryDataSourceOnServer(
   dataSourceId: string,
   sql: string,
-  { signal, allRows }: { signal?: AbortSignal; allRows?: boolean } = {},
+  { signal, allRows, pushdown, heavy }: { signal?: AbortSignal; allRows?: boolean; pushdown?: boolean; heavy?: boolean } = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await cancellableOnServer(dataSourceId, signal, (queryId) =>
     apiRequest<{ rows: Record<string, unknown>[] }>(
       `/data-sources/${dataSourceId}/query`,
-      { method: 'POST', body: JSON.stringify({ sql, allRows, ...(queryId ? { queryId } : {}) }) },
+      { method: 'POST', body: JSON.stringify({ sql, allRows, pushdown, ...(heavy ? { heavy } : {}), ...(queryId ? { queryId } : {}) }) },
     ),
   )
   return res.rows
@@ -329,7 +329,7 @@ export function fetchDatabaseConnectionInfo(
 }
 
 export interface CompactStatus {
-  status: 'running' | 'done' | 'error'
+  status: 'running' | 'done' | 'error' | 'cancelled'
   sizeBefore: number
   sizeAfter: number | null
   /**
@@ -490,4 +490,17 @@ export function getParquetLayout(dataSourceId: string, checks: LayoutCheck[]): P
     method: 'POST',
     body: JSON.stringify({ checks }),
   })
+}
+
+/** Whether Arrow Flight carries a Doris database's large results (`flight.py`). */
+export interface FlightStatus {
+  status: 'ok' | 'not_applicable' | 'not_installed' | 'unreachable' | 'unauthenticated'
+  port?: number
+  detail?: string
+  /** The Flight connection is encrypted (the database's `sslmode`). */
+  tls?: boolean
+}
+
+export function fetchFlightStatus(dataSourceId: string): Promise<FlightStatus> {
+  return apiRequest<FlightStatus>(`/data-sources/${dataSourceId}/flight`)
 }

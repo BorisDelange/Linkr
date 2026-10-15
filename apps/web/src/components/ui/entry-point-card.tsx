@@ -2,15 +2,8 @@ import type { LucideIcon } from 'lucide-react'
 import { ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
+import { ENTITY_COLORS, type EntityColorKey } from '@/lib/entity-colors'
 import { cn } from '@/lib/utils'
-
-// Whole class names, so Tailwind's source scan finds them.
-const ACCENTS = {
-  teal: { gradient: 'from-teal-500/5 to-teal-600/10', square: 'bg-teal-500/10', text: 'text-teal-600' },
-  indigo: { gradient: 'from-indigo-500/5 to-indigo-600/10', square: 'bg-indigo-500/10', text: 'text-indigo-600' },
-  green: { gradient: 'from-green-500/5 to-green-600/10', square: 'bg-green-500/10', text: 'text-green-600' },
-  amber: { gradient: 'from-amber-500/5 to-amber-600/10', square: 'bg-amber-500/10', text: 'text-amber-600' },
-} as const
 
 interface EntryPointCardProps {
   icon: LucideIcon
@@ -19,7 +12,8 @@ interface EntryPointCardProps {
   /** The call to action at the bottom ("Open…"). */
   openLabel: string
   onClick: () => void
-  accent: keyof typeof ACCENTS
+  /** The entity the card leads to: its hue, as on its sidebar item and list-page card. */
+  accent: EntityColorKey
   /** Shown as a badge beside the title when above zero. */
   count?: number
 }
@@ -29,17 +23,17 @@ interface EntryPointCardProps {
  * (Concept mapping, Vocabularies): tinted icon, title, description, call to action.
  */
 export function EntryPointCard({ icon: Icon, title, description, openLabel, onClick, accent, count }: EntryPointCardProps) {
-  const colors = ACCENTS[accent]
+  const colors = ENTITY_COLORS[accent]
   return (
     <Card
       className="group relative cursor-pointer overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg"
       onClick={onClick}
     >
-      <div className={cn('absolute inset-0 bg-gradient-to-br opacity-0 transition-opacity group-hover:opacity-100', colors.gradient)} />
+      <div className={cn('absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100', colors.bg)} />
       <div className="relative flex flex-col gap-3 p-5">
         <div className="flex items-center gap-3">
-          <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', colors.square)}>
-            <Icon size={18} className={colors.text} />
+          <div className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', colors.bg)}>
+            <Icon size={18} className={colors.icon} />
           </div>
           <p className="text-sm font-semibold">{title}</p>
           {!!count && (
@@ -49,7 +43,7 @@ export function EntryPointCard({ icon: Icon, title, description, openLabel, onCl
           )}
         </div>
         <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>
-        <div className={cn('flex items-center gap-1 text-xs font-medium', colors.text)}>
+        <div className={cn('flex items-center gap-1 text-xs font-medium', colors.icon)}>
           {openLabel}
           <ChevronRight size={13} />
         </div>

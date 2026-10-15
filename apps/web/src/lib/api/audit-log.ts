@@ -28,6 +28,8 @@ export interface AuditEntry {
   detail: string | null
   rowCount: number | null
   error: string | null
+  /** Also the `x-request-id` header of the reply and the reference an error quotes. */
+  requestId: string | null
   /** `via` with every `job:<id>` folded into "job". */
   viaKind: string | null
   /** The SQL or code, else the route. */

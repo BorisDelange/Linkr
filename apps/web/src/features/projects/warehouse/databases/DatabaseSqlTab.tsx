@@ -15,6 +15,7 @@ import type { ShortcutActionId } from '@/types/shortcuts'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { formatApiError, isServerMode } from '@/lib/api-client'
 import { formatDateTimeLocale, formatSqlCell } from '@/lib/format-helpers'
+import { sqlConsoleDrafts as drafts, takePendingRun } from './sql-console-drafts'
 
 /** Rows shown; the query itself is capped server-side too. */
 const SHOWN_ROWS = 1000
@@ -25,10 +26,6 @@ const SHORTCUT_ACTIONS: ShortcutActionId[] = ['run_selection_or_line', 'run_file
 type Outcome =
   | { kind: 'rows'; headers: string[]; rows: string[][]; total: number; ms: number; at: string }
   | { kind: 'error'; message: string; ms: number; at: string }
-
-/** The draft of each database's query, kept while the app is open — this tab
- *  saves nothing, but leaving it for the Schema tab must not lose the query. */
-const drafts = new Map<string, string>()
 
 interface Props {
   dataSourceId: string
@@ -60,7 +57,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
     const at = new Date().toISOString()
     const start = performance.now()
     try {
-      const rows = await queryDataSource(dataSourceId, sql)
+      const rows = await queryDataSource(dataSourceId, sql, { pushdown: false })
       const headers = rows.length > 0 ? Object.keys(rows[0]) : []
       setOutcome({
         kind: 'rows',
@@ -103,6 +100,11 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
     const sql = initialSql?.trim()
     if (runOnMount && sql) void execute(sql)
   }, [runOnMount, initialSql, execute])
+
+  useEffect(() => {
+    const sql = drafts.get(draftKey)?.trim()
+    if (takePendingRun(draftKey) && sql) void execute(sql)
+  }, [draftKey, execute])
 
   return (
     <TooltipProvider>

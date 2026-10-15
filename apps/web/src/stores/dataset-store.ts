@@ -6,7 +6,7 @@ import { coerceValue, fitsColumnType } from '@/lib/dataset-utils'
 import { cleanLocalized } from '@/lib/localized'
 import { isServerMode } from '@/lib/api-client'
 import { datasetsNodePath } from '@/lib/versioning-marks'
-import { createEmptyDataset, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
+import { createEmptyDataset, dsChildPath, duplicateDataset, fetchDatasetMeta, recordDatasetOps, reimportDataset } from '@/lib/api/datasets'
 import {
   compactOps, replayOps, retypeAddedColumn,
   type DatasetCellValue, type DatasetOp, type OpColumn, type ReplayInput,
@@ -14,6 +14,7 @@ import {
 import { carryColumnMeta, unreplay } from '@/stores/dataset-ops-baseline'
 import { planColumnRename, rekeyFilter, rekeyWidgetConfig, type ColumnRenamePlan } from '@/lib/dataset-column-rename'
 import { stampAuthored, useAppStore } from '@/stores/app-store'
+import { rekeyVersioningMarks } from '@/stores/rekey-versioning-marks'
 
 /** Per-file table view state (filters, sort, paging, layout). Held in the store rather
  *  than in the table component so it survives navigating away from the Datasets page. */
@@ -344,6 +345,30 @@ async function recordOps(fileId: string, ops: DatasetOp[], replace: boolean): Pr
   await storage.datasetFiles.update(fileId, patch)
 }
 
+/** Undo of a dataset created on the server: drop it from the tree and delete its file. */
+function serverCreateUndo(
+  set: (fn: (s: DatasetState) => Partial<DatasetState>) => void,
+  id: string,
+  name: string,
+): UndoAction {
+  return {
+    id: `undo-${undoCounter++}`,
+    descriptionKey: 'datasets.new_file',
+    descriptionParams: { name },
+    timestamp: Date.now(),
+    undo: () => {
+      set((s) => ({
+        files: s.files.filter((f) => f.id !== id),
+        selectedFileId: s.selectedFileId === id ? null : s.selectedFileId,
+        openFileIds: s.openFileIds.filter((fid) => fid !== id),
+      }))
+      _loadedData.delete(id)
+      _savedDataSnapshot.delete(id)
+      getStorage().datasetFiles.delete(id).catch((e) => console.warn('[dataset-store] persist error:', e))
+    },
+  }
+}
+
 export const useDatasetStore = create<DatasetState>((set, get) => ({
   files: [],
   expandedFolders: [],
@@ -424,7 +449,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     // cannot store a column-less dataset (no Parquet without a column), so it
     // starts with one column the user renames or replaces.
     if (isServerMode()) {
-      const path = parentId ? `${parentId}/${name}` : name
+      const path = dsChildPath(parentId, name)
       const firstColumn = 'column_1'
       return createEmptyDataset(projectUid, path, [{ id: columnId(firstColumn), name: firstColumn, type: 'string' }])
         .then((node) => {
@@ -435,6 +460,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
             selectedFileId: node.id,
             openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
           }))
+          get().pushUndo(serverCreateUndo(set, node.id, name))
         })
     }
     const id = uid()
@@ -624,6 +650,10 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     if (!node) return
     const oldName = node.name
     const projectUid = state.activeProjectUid ?? ''
+    const oldKey = `datasets/${datasetsNodePath(state.files, id)}`
+    const newKey = `datasets/${datasetsNodePath(state.files.map((f) => (f.id === id ? { ...f, name: newName } : f)), id)}`
+    const marksRekeyed = rekeyVersioningMarks(projectUid, oldKey, newKey)
+      .catch((e) => { console.warn('[dataset-store] versioning marks:', e); return false })
     set((s) => ({
       files: s.files.map((f) => (f.id === id ? { ...f, name: newName, updatedAt: new Date().toISOString() } : f)),
     }))
@@ -640,6 +670,9 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       descriptionParams: { name: oldName },
       timestamp: Date.now(),
       undo: () => {
+        void marksRekeyed.then((changed) => {
+          if (changed) void rekeyVersioningMarks(projectUid, newKey, oldKey)
+        })
         set((s) => ({
           files: s.files.map((f) =>
             f.id === id ? { ...f, name: oldName, updatedAt: new Date().toISOString() } : f
@@ -657,6 +690,10 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     const oldParentId = node.parentId
     if (oldParentId === newParentId) return
     const projectUid = state.activeProjectUid ?? ''
+    const oldKey = `datasets/${datasetsNodePath(state.files, id)}`
+    const newKey = `datasets/${datasetsNodePath(state.files.map((f) => (f.id === id ? { ...f, parentId: newParentId } : f)), id)}`
+    const marksRekeyed = rekeyVersioningMarks(projectUid, oldKey, newKey)
+      .catch((e) => { console.warn('[dataset-store] versioning marks:', e); return false })
     set((s) => ({
       files: s.files.map((f) =>
         f.id === id ? { ...f, parentId: newParentId, updatedAt: new Date().toISOString() } : f
@@ -675,6 +712,9 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
       descriptionParams: { name: node.name },
       timestamp: Date.now(),
       undo: () => {
+        void marksRekeyed.then((changed) => {
+          if (changed) void rekeyVersioningMarks(projectUid, newKey, oldKey)
+        })
         set((s) => ({
           files: s.files.map((f) =>
             f.id === id ? { ...f, parentId: oldParentId, updatedAt: new Date().toISOString() } : f
@@ -1068,7 +1108,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
     // so a file has to be created on the server. Skipping this left the dataset in
     // memory only — it looked created, then vanished on reload.
     if (isServerMode()) {
-      const path = parentId ? `${parentId}/${name}` : name
+      const path = dsChildPath(parentId, name)
       const node = await createEmptyDataset(projectUid, path, columns)
       _loadedData.set(node.id, rows)
       set((s) => ({
@@ -1077,6 +1117,7 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         openFileIds: s.openFileIds.includes(node.id) ? s.openFileIds : [...s.openFileIds, node.id],
         _dirtyVersion: s._dirtyVersion + 1,
       }))
+      get().pushUndo(serverCreateUndo(set, node.id, name))
       return node.id
     }
 

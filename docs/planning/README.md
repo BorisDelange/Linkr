@@ -29,17 +29,28 @@ run like the catalog (browser-driven units, pause/resume), order below.
 
 ### Apache Doris + remote compute — [doris-plan.md](doris-plan.md)
 
-Doris as an external database (server mode). Measured 2026-10-09: DuckDB never
-pushes aggregates to an attached DB, so a `GROUP BY` over 3.4M rows takes 24 s via
-ATTACH vs 0.16 s computed by Doris — already true for Postgres. Flight SQL only
-pays off for bulk extracts (100 s → 2.6 s), as an optional extra.
+Built on `feature/doris` (2026-10-09): `doris` engine (read-only login enforced),
+heavy app queries translated and computed by Doris (437/555 real queries, 0
+different; ×3 to ×30), remote `KILL QUERY` on cancel, Arrow Flight SQL for bulk
+results as the optional `doris` extra with a warning banner.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | Arbitrate plan §5 (passthrough security, cancellation, order, R/Py libs, derive fix, Docker extra) | S |
-| 🔜 | 1. `doris` engine on the MySQL ATTACH path, without `READ_ONLY` | S |
-| 🔜 | 2. Remote compute: portable aggregate units in passthrough + local DuckDB finishing (concept counts first, then catalog, mapping extraction, DQ…) | L |
-| 💤 | 3. Flight SQL for bulk extracts (optional `doris` extra, MySQL fallback with a warning) | M |
+| 🔜 | **[TO TEST]** In the app against the local Doris (plan §3.1) | S |
+| 🤔 | The API image ships the `doris` extra (77253fe28). Postgres pushdown: measure on a remote server first. User SQL pushdown? (plan §3.2) | S |
+| 💤 | Still slow on Doris: concept-list assemble (whole dictionary over MySQL), `mode()` profiles, ETL source / cohort derive / R-Py libs (plan §3.3) | M |
+| 🔜 | User docs (linkr-website): connecting a Doris database | S |
+
+## Heavy tasks as server jobs — [heavy-jobs-plan.md](heavy-jobs-plan.md)
+
+Long work must not hang on one HTTP request through an SPE gateway (60 s → 504), nor run
+two heavy DuckDB queries at once (container OOM). Inventory of every heavy task in §1.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **[TO TEST]** Query job primitive + data catalog as proof of concept (plan §2–3, built 2026-10-14 on `feature/gateway-timeouts`) | M |
+| 🔜 | **[TO TEST]** Concept counts (one job per step, assemblies inside the job), DQ runs (keep-going job, followed again after a closed tab), database statistics — and progress inside a query (`query_progress`, DuckDB only) on the step lines and in the Jobs panel (plan §2, §3 bis, built 2026-10-14 on `feature/heavy-jobs`) | M |
+| 🔜 | **[TO TEST]** `deferred` backed by jobs (long work → cancellable `task` job, poll returns JSON or file), `/query` on it with a `heavy` lane for the app's heavy queries, every group-B route on it, compaction + vocabulary import as jobs, ETL as a job (WebSocket gone), event-loop blockers moved to threads, stats remembered across a closed tab (plan §3 ter, built 2026-10-14 on `feature/heavy-jobs`) | L |
 
 ## To test manually in the app
 
@@ -56,6 +67,7 @@ Built, never exercised by hand. Everything else below is still to build.
 | 🔜 | Dataset editing & manual collection (cell edits, undo after reload, rename repairs filters, two people collecting) | both | M |
 | 🔜 | Patient data: localStorage migration, server round-trip, export → reimport → export stability | both | S |
 | 🔜 | Private catalog: add one with a token (Manage catalogs › Private repository), browse it, install a private entry from it; a second user without a token sees the "private catalog" error | server | S |
+| 🔜 | SPE simulation (`docker/spe-sim/`): smoke test, then terminal, env installs through the mirror, Postgres datamart, `GATEWAY_WEBSOCKETS=off` (README § Test) | server | S |
 | 🔜 | Setup wizard on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | server | S |
 
 ## Embedded chat over LibreChat — [embedded-chat-plan.md](embedded-chat-plan.md)

@@ -8,7 +8,7 @@
     "en": "Statistical process control: p, u, c and individuals charts, Laney's overdispersion-corrected P′/U′, EWMA for slow drifts, and g/t charts for rare events — with control limits that follow each period's denominator and automatic signal detection.",
     "fr": "Maîtrise statistique des processus : cartes p, u, c et individuelles, cartes P′/U′ de Laney corrigées de la surdispersion, EWMA pour les dérives lentes, cartes g/t pour les événements rares — avec des limites de contrôle qui suivent le dénominateur de chaque période et une détection automatique des signaux."
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "statistics",
   "tags": [
     "spc",

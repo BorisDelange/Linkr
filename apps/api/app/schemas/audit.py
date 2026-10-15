@@ -22,6 +22,7 @@ class AuditEntry(CamelModel):
     detail: str | None = None
     row_count: int | None = None
     error: str | None = None
+    request_id: str | None = None
     via_kind: str | None = None
     summary: str | None = None
     what: str | None = None

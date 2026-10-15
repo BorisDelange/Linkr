@@ -57,7 +57,7 @@ interface Props {
 }
 
 export function DqRuleSetDetailPage({ ruleSetId }: Props) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const navigate = useNavigate()
   const { wsUid, raw } = useResolvedParams()
   const {
@@ -284,6 +284,7 @@ export function DqRuleSetDetailPage({ ruleSetId }: Props) {
           <div className={cn('h-full', activeTab !== 'results' && 'hidden')}>
             <DqResultsView
               ruleSetId={ruleSet.id}
+              runLabel={t('data_quality.job_label', { name: localized(ruleSet.name, i18n.language) })}
               dataSourceId={ruleSet.dataSourceId}
               customChecks={customChecks}
               onScanComplete={handleScanComplete}

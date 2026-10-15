@@ -1,10 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import audit
+from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission, require_project_permission
+from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
@@ -57,6 +58,7 @@ async def get_project(project=Depends(require_project_permission("project-summar
 async def export_zip(
     project=Depends(require_project_permission("project-settings:read")),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Build the project's export ZIP server-side and return it for download — the
     same git-variant tree the versioning flow commits. Offloads the browser: no
@@ -67,16 +69,27 @@ async def export_zip(
     from app.services.project_export import _slugify
     from app.services.project_export_assemble import assemble_project_zip
 
-    zip_bytes = await assemble_project_zip(db, project)
-    audit.bind(action="export", project_uid=project.uid, workspace_id=project.workspace_id,
-               detail=f"project export ({len(zip_bytes)} bytes)")
+    project_uid, workspace_id = project.uid, project.workspace_id
     name = project.name.get("en") if isinstance(project.name, dict) else project.name
-    slug = _slugify(name or project.uid)
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"content-disposition": f'attachment; filename="{slug}.zip"'},
-    )
+    slug = _slugify(name or project_uid)
+
+    async def work() -> Response:
+        async with deferred.session() as session:
+            fresh = await session.get(Project, project_uid)
+            if fresh is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+            zip_bytes = await assemble_project_zip(session, fresh)
+        audit.bind(action="export", project_uid=project_uid, workspace_id=workspace_id,
+                   detail=f"project export ({len(zip_bytes)} bytes)")
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"content-disposition": f'attachment; filename="{slug}.zip"'},
+        )
+
+    # A project with big datasets takes minutes to zip: past
+    # `deferred.WAIT_SECONDS` it goes on as a job (core/deferred).
+    return await deferred.respond(user.id, work, deferred.AsJob("Project export", project_uid=project_uid))
 
 
 @router.patch("/{project_uid}", response_model=ProjectResponse)

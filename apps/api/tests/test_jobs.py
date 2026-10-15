@@ -20,7 +20,7 @@ async def _seed(db, engine, monkeypatch):
     # module-level semaphore so it binds to this test's event loop.
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(jobs, "async_session", maker)
-    monkeypatch.setattr(jobs, "_semaphore", None)
+    monkeypatch.setattr(jobs, "_semaphores", {})
     db.add(Workspace(id="ws1"))
     await db.flush()
     db.add(Project(uid="proj-1", workspace_id="ws1"))
@@ -52,6 +52,20 @@ async def test_job_runs_to_done(db):
     assert settled.status == "done"
     assert settled.progress == 100
     assert "hello" in settled.log_tail
+
+
+async def test_job_records_when_it_started_and_ended(db):
+    job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
+    assert job.started_at is None and job.finished_at is None
+
+    async def body(handle):
+        await asyncio.sleep(0.05)
+
+    jobs.launch(job.id, body)
+    settled = await _wait_settled(db, job.id)
+    assert settled.started_at is not None
+    assert settled.finished_at is not None
+    assert settled.finished_at >= settled.started_at
 
 
 async def test_log_has_no_blank_leading_line(db):

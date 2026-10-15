@@ -31,7 +31,7 @@ interface DatabaseConceptsTabProps {
  */
 export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = false }: DatabaseConceptsTabProps) {
   const { t, i18n } = useTranslation()
-  const concepts = useConcepts(dataSourceId, schemaMapping)
+  const concepts = useConcepts(dataSourceId, schemaMapping, 'database')
   const { count } = concepts
   const [confirmRestart, setConfirmRestart] = useState(false)
   // Rows alone take one pass per table — seconds — and make the list sortable
@@ -61,12 +61,14 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
       label: t('concepts.count_step_records'),
       status: stepStatus(records, running && live.phase === 'records'),
       progress: records,
+      ...(live.phase === 'records' ? { startedAt: live.phaseStartedAt, reading: live.reading } : {}),
     },
     {
       id: 'patients',
       label: t('concepts.count_step_patients'),
       status: stepStatus(patients, running && live.phase === 'patients'),
       progress: patients,
+      ...(live.phase === 'patients' ? { startedAt: live.phaseStartedAt, reading: live.reading } : {}),
     },
   ]
   if (running && (live.phase === 'planning' || live.phase === 'assembling')) {

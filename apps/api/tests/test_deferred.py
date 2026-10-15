@@ -63,3 +63,73 @@ async def test_a_failure_nobody_polls_is_retrieved(monkeypatch):
     gc.collect()
     assert deferred._running == {}
     assert not unretrieved
+
+
+async def _workspace(client) -> tuple[dict, str, int]:
+    await client.post("/api/v1/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
+    r = await client.post("/api/v1/auth/login", json={"username": "admin", "password": "pw-for-tests-only"})
+    headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    ws = (await client.post("/api/v1/workspaces", headers=headers, json={"name": {"en": "W"}})).json()["id"]
+    me = (await client.get("/api/v1/auth/me", headers=headers)).json()["id"]
+    return headers, ws, me
+
+
+async def _status(client, headers, ws, job_id, want, tries=100):
+    """The job's status once it reads `want` — its end is written a beat after the task's."""
+    for _ in range(tries):
+        listed = (await client.get(f"/api/v1/workspaces/{ws}/jobs", headers=headers)).json()
+        status_ = next(j for j in listed if j["id"] == job_id)["status"]
+        if status_ == want:
+            break
+        await asyncio.sleep(0.02)
+    return status_
+
+
+async def test_long_work_becomes_a_job_of_the_panel_that_cancels_it(client, monkeypatch):
+    from app.services.execution import jobs
+
+    monkeypatch.setattr(jobs, "_semaphores", {})
+    headers, ws, me = await _workspace(client)
+    gate = asyncio.Event()
+
+    async def slow():
+        await gate.wait()
+        return {"ok": True}
+
+    pending = await deferred.respond(str(me), slow, deferred.AsJob("Export", workspace_id=ws, lane="heavy_query"))
+    assert pending.status_code == 202
+    task_id = __import__("json").loads(pending.body)["deferredTaskId"]
+    await asyncio.sleep(0.05)
+    listed = (await client.get(f"/api/v1/workspaces/{ws}/jobs", headers=headers)).json()
+    job = next(j for j in listed if j["id"] == task_id)
+    assert job["kind"] == "task" and job["label"] == "Export" and job["status"] == "running"
+
+    # As the cancel route does. Not through it: in tests every session shares one
+    # SQLite connection, and the route's closing rollback would undo the status
+    # the task's end writes meanwhile.
+    assert jobs.is_running(task_id)
+    jobs._tasks[task_id].cancel()
+    await asyncio.sleep(0.05)
+    with pytest.raises(HTTPException) as exc:
+        deferred.poll(str(me), task_id)
+    assert exc.value.status_code == 499
+    assert await _status(client, headers, ws, task_id, "cancelled") == "cancelled"
+
+
+async def test_a_job_that_ends_hands_its_result_to_the_poll(client, monkeypatch):
+    from app.services.execution import jobs
+
+    monkeypatch.setattr(jobs, "_semaphores", {})
+    headers, ws, me = await _workspace(client)
+    gate = asyncio.Event()
+
+    async def slow():
+        await gate.wait()
+        return {"ok": True}
+
+    pending = await deferred.respond(str(me), slow, deferred.AsJob("Export", workspace_id=ws))
+    task_id = __import__("json").loads(pending.body)["deferredTaskId"]
+    gate.set()
+    await asyncio.sleep(0.05)
+    assert deferred.poll(str(me), task_id) == {"ok": True}
+    assert await _status(client, headers, ws, task_id, "done") == "done"

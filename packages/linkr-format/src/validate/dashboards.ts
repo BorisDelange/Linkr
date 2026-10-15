@@ -214,7 +214,8 @@ function validateWidgets(
   })
 }
 
-/** `YYYY-MM-DD`, or with a time of day — the app's `isValidEventDate` (lib/dashboard-events.ts). */
+/** `YYYY-MM-DD`, or with a time of day — the app's `isValidEventDate` (lib/dashboard-events.ts);
+ *  apps/web/src/lib/event-date.fixture.json holds the strings both must agree on. */
 const EVENT_DATE = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2}))?)?$/
 
 function isEventDate(value: string): boolean {

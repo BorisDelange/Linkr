@@ -181,7 +181,12 @@ export function DialogShell({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn(KIND_CLASS[kind], className)} onKeyDown={handleKeyDown}>
+      <DialogContent
+        className={cn(KIND_CLASS[kind], className)}
+        onKeyDown={handleKeyDown}
+        // Radix warns about a dialog without a description unless told there is none.
+        {...(description ? {} : { 'aria-describedby': undefined })}
+      >
         <DialogHeader className={kind === 'workbench' ? 'shrink-0' : undefined}>
           <DialogTitle>{title}</DialogTitle>
           {description ? <DialogDescription>{description}</DialogDescription> : null}

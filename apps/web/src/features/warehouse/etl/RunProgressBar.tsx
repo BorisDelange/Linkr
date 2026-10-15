@@ -46,6 +46,7 @@ export function RunProgressBar({ files, onGoToStatement }: Props) {
   }).length
 
   const elapsed = useElapsed(log?.startedAt, running)
+  const reading = useEtlStore((s) => s.runReading)
 
   if (!running) return null
 
@@ -108,6 +109,9 @@ export function RunProgressBar({ files, onGoToStatement }: Props) {
         )}
         {elapsed && (
           <span className="shrink-0 tabular-nums text-muted-foreground">· {elapsed}</span>
+        )}
+        {reading != null && (
+          <span className="shrink-0 tabular-nums text-muted-foreground">· {t('run_steps.reading', { pct: reading })}</span>
         )}
       </div>
     </div>

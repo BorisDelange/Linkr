@@ -248,7 +248,7 @@ function referenceParams(props: Props): Record<string, string> {
 function toleratingMissingDatabase(schema: { required?: string[] }) {
   const advertised = fromJsonSchema(schema)
   const lenient = fromJsonSchema({ ...schema, required: schema.required!.filter((p) => p !== 'database_id') })
-  return { '~standard': { ...advertised['~standard'], validate: lenient['~standard'].validate } }
+  return { ...advertised, '~standard': { ...advertised['~standard'], validate: lenient['~standard'].validate } }
 }
 
 /**

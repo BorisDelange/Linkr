@@ -117,6 +117,10 @@ export interface Job {
   /** A 'run' job's artifacts. A 'derive' job carries a `DerivationJobResult`. */
   result?: JobResult | null
   createdAt: string
+  /** Left the queue; null while queued. */
+  startedAt?: string | null
+  /** Ended, whatever the outcome; null while live. */
+  finishedAt?: string | null
 }
 
 /** What a finished derivation reports, on its job. */

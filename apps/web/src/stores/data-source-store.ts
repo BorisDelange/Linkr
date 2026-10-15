@@ -20,6 +20,7 @@ import { localized } from '@/lib/localized'
 import { createConcurrencyLimit } from '@/lib/concurrency-limit'
 import { useAppStore, stampAuthored, stampLineage } from '@/stores/app-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { isExternalEngine } from '@/lib/database-engines'
 import type {
   DataSource,
   DatabaseConnectionConfig,
@@ -570,17 +571,15 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     }
 
     // Server mode: the source lives on the server — no browser WASM mount.
-    // External DBs (Postgres/MySQL) open a live connection; file DBs
+    // External DBs (Postgres/MySQL/Doris) open a live connection; file DBs
     // (DuckDB/SQLite are an `engine`, not a separate sourceType) were uploaded
     // to the blob store above. Either way the schema + counts are read
     // server-side. sourceType is only 'database' | 'fhir'; 'fhir' has no WASM
     // mount path, so gating on 'database' covers every mountable case.
     if (isServerMode() && source.sourceType === 'database') {
-      const isExternalEngine =
-        connectionConfig.engine === 'postgresql' || connectionConfig.engine === 'mysql'
       let updated: Partial<DataSource>
       try {
-        if (isExternalEngine) {
+        if (isExternalEngine(connectionConfig.engine)) {
           const result = await testConnectionOnServer(connectionConfig, newSource.workspaceId)
           if (!result.ok) throw new Error(result.error ?? 'Connection failed')
         }

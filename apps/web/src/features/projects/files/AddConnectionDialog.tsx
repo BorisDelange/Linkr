@@ -13,6 +13,7 @@ import { FileSource, type FileOrigin } from '@/components/ui/file-source'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { FieldInfo } from '@/components/ui/field-info'
 import { RequiredMark } from '@/components/ui/required-mark'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import {
@@ -25,6 +26,7 @@ import {
 import { useConnectionStore } from '@/stores/connection-store'
 import { isServerMode } from '@/lib/api-client'
 import type { DatabaseEngine } from '@/types'
+import { DEFAULT_PORTS, ENGINE_LABELS, databaseIsSchema } from '@/lib/database-engines'
 
 // Default engine matches the workspace Databases dialog: Postgres in server mode
 // (external DBs are the common case), DuckDB in front-only (Postgres isn't offered).
@@ -177,7 +179,7 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
             host: dbHost.trim(),
             port: dbPort ? Number(dbPort) : undefined,
             database: dbDatabase.trim() || undefined,
-            schema: dbSchema.trim() || undefined,
+            schema: databaseIsSchema(engine) ? undefined : dbSchema.trim() || undefined,
             username: dbUsername.trim() || undefined,
             password: dbPassword || undefined,
           },
@@ -227,12 +229,13 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
               <SelectContent>
                 {isServerMode() && (
                   <>
-                    <SelectItem value="postgresql">PostgreSQL</SelectItem>
-                    <SelectItem value="mysql">MySQL</SelectItem>
+                    <SelectItem value="postgresql">{ENGINE_LABELS.postgresql}</SelectItem>
+                    <SelectItem value="mysql">{ENGINE_LABELS.mysql}</SelectItem>
+                    <SelectItem value="doris">{ENGINE_LABELS.doris}</SelectItem>
                   </>
                 )}
-                <SelectItem value="duckdb">DuckDB</SelectItem>
-                <SelectItem value="sqlite">SQLite</SelectItem>
+                <SelectItem value="duckdb">{ENGINE_LABELS.duckdb}</SelectItem>
+                <SelectItem value="sqlite">{ENGINE_LABELS.sqlite}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -345,17 +348,32 @@ export function AddConnectionDialog({ open, onOpenChange, projectUid }: AddConne
                 <Input
                   value={dbPort}
                   onChange={(e) => setDbPort(e.target.value)}
-                  placeholder={engine === 'postgresql' ? '5432' : engine === 'mysql' ? '3306' : '1433'}
+                  placeholder={DEFAULT_PORTS[engine]}
                 />
               </div>
-              <div className="space-y-2">
-                <Label>{t('connections.field_database')}</Label>
-                <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
-              </div>
-              <div className="space-y-2">
-                <Label>{t('connections.field_schema')}</Label>
-                <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder="public" />
-              </div>
+              {databaseIsSchema(engine) ? (
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-1.5">
+                    {t('connections.field_default_schema')}
+                    <FieldInfo text={t('connections.field_default_schema_hint_mysql')} />
+                  </Label>
+                  <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <Label>{t('connections.field_database')}</Label>
+                    <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="flex items-center gap-1.5">
+                      {t('connections.field_default_schema')}
+                      <FieldInfo text={t('connections.field_default_schema_hint_postgresql')} />
+                    </Label>
+                    <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder="public" />
+                  </div>
+                </>
+              )}
               <div className="space-y-2">
                 <Label>{t('connections.field_username')}</Label>
                 <Input value={dbUsername} onChange={(e) => setDbUsername(e.target.value)} />

@@ -9,6 +9,7 @@ import {
   conceptCountProgress,
   conceptCountSignature,
   planConceptCountUnits,
+  stepJobItems,
   type ConceptCountManifest,
 } from './concept-count-plan'
 import { buildConceptsAssembleQuery, buildConceptsQuery, computeAvailableColumns, CONCEPT_COUNTS_VIEW } from './concept-queries'
@@ -263,5 +264,31 @@ describe('concept id types', () => {
       [{ relation: 'linkr_event_measurement', code: 'Y831' }],
     )
     expect(mismatches).toEqual([{ event: 'Measurement', eventType: 'VARCHAR', dictionaryType: 'DOUBLE', code: 'Y831' }])
+  })
+})
+
+describe('stepJobItems', () => {
+  const units = (n: number) => Array.from({ length: n }, (_, i) => ({ key: `u${i}`, sql: `SELECT ${i}` }))
+  const sql = (final: boolean) => (final ? 'final' : 'partial')
+
+  it('assembles the rows once, after the last unit', () => {
+    expect(stepJobItems('records', units(3), sql)).toEqual([
+      { key: 'u0', sql: 'SELECT 0' },
+      { key: 'u1', sql: 'SELECT 1' },
+      { key: 'u2', sql: 'SELECT 2' },
+      { key: 'assemble-2', sql: 'final' },
+    ])
+  })
+
+  it('assembles the patients about every tenth of the units, then at the end', () => {
+    const items = stepJobItems('patients', units(64), sql)
+    const assemblies = items.filter((it) => it.key.startsWith('assemble-'))
+    expect(assemblies).toHaveLength(10)
+    expect(assemblies.at(-1)).toEqual({ key: 'assemble-63', sql: 'final' })
+    expect(assemblies.slice(0, -1).every((a) => a.sql === 'partial')).toBe(true)
+    // Never two in a row: each follows a unit.
+    items.forEach((it, i) => {
+      if (it.key.startsWith('assemble-')) expect(items[i - 1].key.startsWith('u')).toBe(true)
+    })
   })
 })

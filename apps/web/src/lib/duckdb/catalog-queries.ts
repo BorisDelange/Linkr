@@ -103,14 +103,21 @@ export function buildSizeQuery(mapping: SchemaMapping): string | null {
   (${events.length ? events.join(' + ') : '0'})::BIGINT AS event_rows`
 }
 
-/** The patient ids cutting the patients into `slices` slices of equal size, in order. */
+/**
+ * The patient ids cutting the patients into `slices` slices of equal size, in
+ * order: the k-th bound is the patient of rank ⌈n·k/slices⌉. Ranks and integer
+ * arithmetic rather than `quantile_disc`, so that an external database can
+ * compute the same bounds itself (apps/api/app/services/data/remote_sql.py).
+ */
 export function buildPatientBoundsQuery(mapping: SchemaMapping, slices: number): string | null {
   const patient = classRelation(mapping, 'patient')
   if (!patient || slices < 2) return null
-  const qs = Array.from({ length: slices - 1 }, (_, i) => ((i + 1) / slices).toFixed(6))
+  const picks = Array.from({ length: slices - 1 }, (_, i) => `((rn - 1) * ${slices} < n * ${i + 1} AND rn * ${slices} >= n * ${i + 1})`)
   return `SELECT DISTINCT b FROM (
-  SELECT unnest(quantile_disc(patient_id, [${qs.join(', ')}])) AS b FROM ${patient.name} WHERE patient_id IS NOT NULL
+  SELECT patient_id AS b, ROW_NUMBER() OVER (ORDER BY patient_id) AS rn, COUNT(*) OVER () AS n
+  FROM ${patient.name} WHERE patient_id IS NOT NULL
 ) _q
+WHERE ${picks.join('\n   OR ')}
 ORDER BY b`
 }
 

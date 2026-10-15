@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, ScrollText, Trash2 } from 'lucide-react'
+import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, Square, Trash2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -8,6 +9,7 @@ import { isServerMode } from '@/lib/api-client'
 import { CodeViewer } from '@/components/editor/CodeViewer'
 import { stripAnsi } from '@/lib/ansi'
 import { cn } from '@/lib/utils'
+import { formatDuration } from '@/lib/format-helpers'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, listWorkspaceJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type Job } from '@/lib/api/environments'
@@ -34,7 +36,8 @@ function sameJobs(a: Job[], b: Job[]): boolean {
       j.status === o.status &&
       j.progress === o.progress &&
       j.label === o.label &&
-      j.logTail === o.logTail
+      j.logTail === o.logTail &&
+      j.finishedAt === o.finishedAt
     )
   })
 }
@@ -164,7 +167,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                 {job.status === 'running' && job.progress > 0 && (
                   <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
                 )}
-                <ScrollText size={11} className="shrink-0 text-muted-foreground/50" />
+                <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
               </button>
               {ACTIVE.has(job.status) ? (
                 <TooltipProvider>
@@ -175,7 +178,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                         onClick={() => void onCancel(job.id)}
                         aria-label={t('jobs.cancel')}
                       >
-                        <Ban size={13} />
+                        <Square size={12} />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top" sideOffset={4}>
@@ -202,12 +205,23 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           itself, so the modal must claim its full height up front rather than
           shrink-wrap the (unwrapped, 3-line) content. */}
       <DialogContent className="flex h-[90vh] w-[90vw] flex-col sm:max-w-[60vw]">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+        <DialogHeader className="pr-8">
+          <DialogTitle className="flex min-w-0 items-center gap-2">
             {logJob && <JobStatusIcon status={logJob.status} />}
-            {logJob?.label}
+            <span className="truncate">{logJob?.label}</span>
           </DialogTitle>
         </DialogHeader>
+        {logJob && (
+          <div className="flex items-center gap-3">
+            {ACTIVE.has(logJob.status) && (
+              <Button size="sm" variant="destructive" onClick={() => void onCancel(logJob.id)}>
+                <Square size={14} />
+                {t('jobs.stop')}
+              </Button>
+            )}
+            <JobDuration job={logJob} className="text-xs text-muted-foreground" />
+          </div>
+        )}
         {logJob?.result ? (
           // With artifacts the body scrolls: log at a fixed share, figures below.
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
@@ -311,6 +325,27 @@ function formatJobTime(iso: string): string {
   if (isNaN(d.getTime())) return ''
   const p = (n: number) => String(n).padStart(2, '0')
   return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+/** How long a job ran, or has been running (ticking). Nothing while queued. */
+function JobDuration({ job, className }: { job: Job; className?: string }) {
+  const { t } = useTranslation()
+  const live = job.status === 'running' && !!job.startedAt && !job.finishedAt
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!live) return
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [live])
+  if (!job.startedAt) return null
+  const end = job.finishedAt ? new Date(job.finishedAt).getTime() : live ? now : null
+  if (end == null) return null
+  const ms = Math.max(0, end - new Date(job.startedAt).getTime())
+  return (
+    <span className={cn('tabular-nums', className)} title={t(job.finishedAt ? 'jobs.duration_done' : 'jobs.duration_running')}>
+      {formatDuration(ms)}
+    </span>
+  )
 }
 
 function JobStatusIcon({ status }: { status: Job['status'] }) {

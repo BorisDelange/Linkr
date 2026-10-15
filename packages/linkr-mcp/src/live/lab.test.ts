@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import type { DashboardWidget } from '@/types'
 import type { PluginManifest } from '@/types/plugin'
 import {
-  GRID_COLUMNS, bilingual, buildDashboardEvents, buildFilter, checkTextValue, columnMetaMap, findColumn, localizedChange, matchDatasetPath, placeWidget, resolveColumns,
+  GRID_COLUMNS, bilingual, buildDashboardEvents, buildFilter, checkTextValue, columnMetaMap, findColumn, localizedChange, matchDatasetPath, placeWidget, resolveColumns, widgetEventPrunes,
 } from './lab'
 import { findPlugin, listPlugins, pluginDoc } from './plugins'
 
@@ -209,5 +210,31 @@ describe('buildDashboardEvents', () => {
 
   it('clears every event from an empty list', () => {
     expect(buildDashboardEvents([], current, newId)).toEqual({ events: [] })
+  })
+
+  it('takes a palette name or a hex colour and names the palette when refusing another', () => {
+    const colored = (color: string) => buildDashboardEvents([{ date: '2025-02-01', label: 'x', color }], current, newId)
+    expect(colored('amber')).toMatchObject({ events: [{ color: 'amber' }] })
+    expect(colored('#0ea5e9')).toMatchObject({ events: [{ color: '#0ea5e9' }] })
+    expect(colored('mauve')).toMatchObject({ error: expect.stringMatching(/"mauve".*violet/) })
+    expect(colored('#abc')).toHaveProperty('error')
+  })
+})
+
+describe('widgetEventPrunes', () => {
+  const events = [{ id: 'e1', date: '2025-01-01', label: { en: 'Kept' }, color: 'red' }]
+  const widget = (id: string, source: DashboardWidget['source']): DashboardWidget => ({
+    id, tabId: 't', name: { en: id }, layout: { x: 0, y: 0, w: 24, h: 12 }, source,
+  })
+
+  it('drops deleted ids from the SPC field the shipped manifest declares, and from an unknown plugin\'s eventIds', () => {
+    const out = widgetEventPrunes([
+      widget('spc', { type: 'plugin', pluginId: 'linkr-analysis-spc', config: { dateColumn: 'col_d', eventIds: ['e1', 'gone'] } }),
+      widget('intact', { type: 'plugin', pluginId: 'linkr-analysis-spc', config: { eventIds: ['e1'] } }),
+      widget('unknown', { type: 'plugin', pluginId: 'someone-else', config: { eventIds: ['gone'] } }),
+      widget('inline', { type: 'inline', language: 'sql', code: 'select 1', config: { eventIds: ['gone'] } }),
+    ], events)
+    expect(out.map((w) => [w.id, w.source.config.eventIds])).toEqual([['spc', ['e1']], ['unknown', []]])
+    expect(out[0].source.config.dateColumn).toBe('col_d')
   })
 })

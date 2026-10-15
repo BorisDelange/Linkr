@@ -270,7 +270,7 @@ def inspect_export(files: ExportFiles) -> dict:
 class ImportState:
     id: str
     workspace_id: str
-    status: str = "running"  # running | done | error
+    status: str = "running"  # running | done | error | cancelled
     step: str = ""
     done: int = 0
     total: int = 0
@@ -278,6 +278,9 @@ class ImportState:
     vocabularies: list[dict] = field(default_factory=list)
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
+    # Set by a cancel: the writing thread stops at its next table, before the swap.
+    cancelled: bool = False
+    task: asyncio.Task | None = field(default=None, repr=False, compare=False)
 
     def as_dict(self) -> dict:
         return {
@@ -320,6 +323,15 @@ def import_state(import_id: str) -> ImportState | None:
     return _imports.get(import_id)
 
 
+class ImportCancelled(Exception):
+    """The import was cancelled while staging: the library is as it was."""
+
+
+def _check_cancelled(progress: "ImportState | None") -> None:
+    if progress is not None and progress.cancelled:
+        raise ImportCancelled("The import was cancelled")
+
+
 def write_partitions(
     workspace_id: str,
     files: ExportFiles,
@@ -358,6 +370,7 @@ def write_partitions(
         con.execute("CREATE TABLE owner AS SELECT concept_id, vocabulary_id AS _v FROM c")
 
         for table in per_vocab_tables:
+            _check_cancelled(progress)
             if progress:
                 progress.step = table
             col = OWNED_BY[table]
@@ -388,6 +401,7 @@ def write_partitions(
                 progress.done += 1
 
         for table in shared_tables:
+            _check_cancelled(progress)
             if progress:
                 progress.step = table
             key = SHARED_KEYS[table]
@@ -406,6 +420,7 @@ def write_partitions(
             if progress:
                 progress.done += 1
         con.close()
+        _check_cancelled(progress)
 
         # Swap in: every staged file replaces its counterpart; a table this export
         # lacks keeps the vocabulary's older partition out — it would describe
@@ -458,9 +473,16 @@ def start_import(workspace_id: str, run) -> ImportState:
             try:
                 await run(state)
                 state.status = "done"
-            except Exception as e:  # noqa: BLE001 — reported through the polled state
+            except asyncio.CancelledError:
+                # The thread writing the staging dir stops at its next table.
+                state.cancelled = True
+                state.status = "cancelled"
+                raise
+            except Exception as e:
+                # Reported through the polled state, and to the job that adopts the task.
                 state.status = "error"
                 state.error = str(e)
+                raise
             finally:
                 state.finished_at = time.time()
 
@@ -468,4 +490,7 @@ def start_import(workspace_id: str, run) -> ImportState:
     task = asyncio.create_task(_job())
     _import_tasks.add(task)
     task.add_done_callback(_import_tasks.discard)
+    # Retrieved even when no job adopts the task: its state already reports it.
+    task.add_done_callback(lambda t: t.cancelled() or t.exception())
+    state.task = task
     return state

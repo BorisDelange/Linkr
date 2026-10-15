@@ -141,16 +141,37 @@ def _open_external(db: dict) -> "duckdb.DuckDBPyConnection":
         _use_server_extensions(con)
         con.execute(f"INSTALL {attach_type}")
         con.execute(f"LOAD {attach_type}")
+        # Doris refuses a READ_ONLY attach; its login is read-only instead.
+        read_only = ", READ_ONLY" if db.get("attachReadOnly", True) else ""
         con.execute(
-            f"ATTACH {_quote(db['attachDsn'])} AS ext (TYPE {attach_type}, READ_ONLY)"
+            f"ATTACH {_quote(db['attachDsn'])} AS ext (TYPE {attach_type}{read_only})"
         )
-        # The source's schema goes on the search path so bare table names resolve
-        # the way they do in the app's SQL editor.
-        con.execute(f"SET search_path = 'memory,ext.{db['attachScope']}'")
+        con.execute(f"SET search_path = {_quote(_external_search_path(con, db.get('attachScope')))}")
     except Exception:
         con.close()
         raise
     return con
+
+
+# Schemas an engine keeps for itself (mirrors the server's db_connect.SYSTEM_SCHEMAS).
+_SYSTEM_SCHEMAS = frozenset({
+    "information_schema", "pg_catalog", "pg_toast", "mysql", "sys", "performance_schema", "__internal_schema",
+})
+
+
+def _external_search_path(con: "duckdb.DuckDBPyConnection", default: str | None) -> str:
+    """The default schema, then every other data schema of the attach, so bare
+    and `schema.table` names resolve the way they do in the app's SQL editor."""
+    schemas = [
+        str(r[0]) for r in con.execute(
+            "SELECT schema_name FROM information_schema.schemata WHERE catalog_name = 'ext' ORDER BY schema_name"
+        ).fetchall()
+        if str(r[0]).lower() not in _SYSTEM_SCHEMAS and not str(r[0]).lower().startswith(("pg_temp", "pg_toast"))
+    ]
+    if default:
+        first = next((s for s in schemas if s.lower() == default.lower()), default)
+        schemas = [first, *(s for s in schemas if s != first)]
+    return ",".join(["memory", *(f"ext.{_ident(s)}" for s in schemas)])
 
 
 def _use_server_extensions(con: "duckdb.DuckDBPyConnection") -> None:

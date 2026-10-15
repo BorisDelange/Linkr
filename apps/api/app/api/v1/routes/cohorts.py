@@ -1,8 +1,10 @@
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission
@@ -168,30 +170,45 @@ async def materialize_cohort(
         await check_workspace_permission(db, source.workspace_id, user, "databases:read")
     login = await database_credential_service.resolve_login(db, source, user.id)
 
-    try:
-        table = await data_source_service.query(db, source, login, body.membership_sql, arrow=True)
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-    except HTTPException:  # an ETL run holding the file
-        raise
-    except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
-    if not {"id", "patient_id"} <= set(table.column_names):
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT, "the membership query must return `id` and `patient_id`"
-        )
+    async def work() -> CohortResponse:
+        # Its own session: past `deferred.WAIT_SECONDS` the request's is gone.
+        async with deferred.session() as session:
+            fresh = await session.get(Cohort, cohort_id)
+            target = await data_source_service.get(session, source_id)
+            if fresh is None or target is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Cohort or database not found")
+            try:
+                # The app's own membership query: an external database may compute it, and stream it over Flight.
+                table = await data_source_service.query(session, target, login, body.membership_sql, arrow=True, pushdown=True)
+            except ValueError as e:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+            except HTTPException:  # an ETL run holding the file
+                raise
+            except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
+            if not {"id", "patient_id"} <= set(table.column_names):
+                raise HTTPException(
+                    status.HTTP_422_UNPROCESSABLE_CONTENT, "the membership query must return `id` and `patient_id`"
+                )
 
-    materialization = cohort_service.build_materialization(
-        cohort.level, table.column("id").to_pylist(), table.column("patient_id").to_pylist(),
-        datetime.now(timezone.utc),
+            materialization = await asyncio.to_thread(
+                cohort_service.build_materialization,
+                fresh.level, table.column("id").to_pylist(), table.column("patient_id").to_pylist(),
+                datetime.now(timezone.utc),
+            )
+            # Undone by unfreezing — only a first freeze: an earlier id list is not kept.
+            before = {**undo_service.cohort_snapshot(fresh), "materialization": None} if fresh.materialization is None else None
+            fresh = await cohort_service.update(session, fresh, CohortUpdate(
+                materialization=materialization, result_count=materialization["count"],
+            ))
+            await _record_materialization(session, request, user, fresh, "created", materialization["count"], before)
+            return CohortResponse.model_validate(fresh, from_attributes=True)
+
+    # A membership of millions of rows outlives a gateway's timeout: past
+    # `deferred.WAIT_SECONDS` it goes on as a job of the project (core/deferred).
+    return await deferred.respond(
+        user.id, work, deferred.AsJob("Freeze cohort", project_uid=cohort.project_uid, lane="heavy_query"),
     )
-    # Undone by unfreezing — only a first freeze: an earlier id list is not kept.
-    before = {**undo_service.cohort_snapshot(cohort), "materialization": None} if cohort.materialization is None else None
-    cohort = await cohort_service.update(db, cohort, CohortUpdate(
-        materialization=materialization, result_count=materialization["count"],
-    ))
-    await _record_materialization(db, request, user, cohort, "created", materialization["count"], before)
-    return cohort
 
 
 @router.delete("/{cohort_id}/materialization", response_model=CohortResponse)

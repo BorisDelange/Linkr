@@ -460,6 +460,7 @@ export function VocabularyBrowser({ dataSourceId }: VocabularyBrowserProps) {
     }
   }
 
+  // TODO(concept-mapping): migrate to DataTable (docs/ui-patterns.md)
   const browseTable = useReactTable({
     data: browsePageItems,
     columns: browseColumns,

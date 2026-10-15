@@ -13,13 +13,17 @@ into the worker thread, where the statement runner reads it.
 A cancel can land before its query reaches a connection (it is still waiting on
 the pooled connection's lock); the id is then remembered briefly and the query
 refuses to start.
+
+A query DuckDB hands to an external database (a pushed-down passthrough) does
+not stop on `interrupt()`: DuckDB waits for the remote statement to end. Such a
+query registers a hook (`on_cancel`) that stops it on the database's side.
 """
 
 import contextlib
 import contextvars
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import duckdb
 
@@ -28,8 +32,11 @@ current_query: contextvars.ContextVar[tuple[str, str] | None] = contextvars.Cont
 
 _EARLY_CANCEL_TTL_S = 60.0
 
+# Runs when the query is cancelled, after the interrupt; must not block.
+_cancel_hook: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar("cancel_hook", default=None)
+
 _lock = threading.Lock()
-_running: dict[str, tuple[str, duckdb.DuckDBPyConnection]] = {}
+_running: dict[str, tuple[str, duckdb.DuckDBPyConnection, Callable[[], None] | None]] = {}
 _cancelled_early: dict[str, tuple[str, float]] = {}
 
 
@@ -49,7 +56,7 @@ def tracking(con: duckdb.DuckDBPyConnection) -> Iterator[None]:
         early = _cancelled_early.pop(query_id, None)
         if early is not None and early[0] == owner:
             raise QueryCancelled(query_id)
-        _running[query_id] = (owner, con)
+        _running[query_id] = (owner, con, _cancel_hook.get())
     try:
         yield
     finally:
@@ -73,6 +80,41 @@ def cancel(query_id: str, owner: str) -> bool:
         # connection start another request's query, which would be interrupted.
         try:
             entry[1].interrupt()
-        except Exception:  # noqa: BLE001 — a query finishing as we interrupt is fine
+        except Exception:  # a query finishing as we interrupt is fine
             return False
+        hook = entry[2]
+    # Outside it: the hook reaches another database, and must not hold up every
+    # query starting or stopping meanwhile.
+    if hook is not None:
+        hook()
     return True
+
+
+def progress(query_id: str, owner: str) -> float | None:
+    """How much of its data `owner`'s running query `query_id` has read, in
+    percent; None when it is not running or DuckDB cannot tell.
+
+    DuckDB counts the rows its scans have read, not the work left: a query that
+    ends on a big aggregation sits at its last figure meanwhile. And a query an
+    external database computes (pushed down) reads nothing DuckDB can count, so
+    it stays at 0 — reported as None, not as a query stuck at its start.
+    """
+    with _lock:
+        entry = _running.get(query_id)
+        if entry is None or entry[0] != owner:
+            return None
+        try:
+            value = entry[1].query_progress()
+        except Exception:  # the query finishing as we read is fine
+            return None
+    return value if value > 0 else None
+
+
+@contextlib.contextmanager
+def on_cancel(hook: Callable[[], None]) -> Iterator[None]:
+    """Also call `hook` if the query `tracking` runs within this block is cancelled."""
+    token = _cancel_hook.set(hook)
+    try:
+        yield
+    finally:
+        _cancel_hook.reset(token)

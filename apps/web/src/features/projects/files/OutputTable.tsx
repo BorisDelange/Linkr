@@ -18,6 +18,7 @@ import {
   type ColumnFilterValue,
 } from '@/features/projects/lab/datasets/ColumnFilterInput'
 import { cn } from '@/lib/utils'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { DATE_DATETIME_RE, parseBoolean, columnTint } from '@/lib/dataset-utils'
 import { sortOutputRows } from '@/lib/output-table-sort'
 
@@ -276,16 +277,15 @@ export function OutputTable({ headers, rows, compact }: OutputTableProps) {
                         key={colIdx}
                         style={compact ? undefined : { maxWidth: getColWidth(colIdx) }}
                         className={cn(
-                          'border-b border-r whitespace-nowrap truncate',
+                          'border-b border-r whitespace-nowrap',
                           compact ? 'px-2 py-0 max-w-[300px]' : 'px-3 py-1',
                           columnTypes[colIdx] === 'number' && !nullish && 'tabular-nums',
                           columnTint(colIdx),
                         )}
-                        title={!nullish ? val : undefined}
                       >
                         {nullish
                           ? <span className="italic text-muted-foreground/50">null</span>
-                          : val}
+                          : <TruncatedText text={String(val)} />}
                       </td>
                     )
                   })}

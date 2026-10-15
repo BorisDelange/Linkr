@@ -124,6 +124,8 @@ export function AccessLogTab() {
       ),
     },
     { id: 'row_count', header: t('access_log.rows'), accessor: (r) => r.rowCount ?? '', filter: 'number', size: 80, align: 'right' },
+    { id: 'error', header: t('access_log.error'), accessor: (r) => r.error ?? '', filter: 'text', size: 280 },
+    { id: 'request_id', header: t('access_log.request_id'), accessor: (r) => r.requestId ?? '', filter: 'text', size: 110 },
     { id: 'client_ip', header: t('access_log.ip'), accessor: (r) => r.clientIp ?? '', filter: 'text', size: 110, hidden: true },
   ], [t, i18n.language, sourceName])
 

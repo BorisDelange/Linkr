@@ -112,7 +112,7 @@ export function ConceptsPage() {
     setStatsEnabled,
     excludeOutliers,
     setExcludeOutliers,
-  } = useConcepts(mappedSource?.id, mappedSource?.schemaMapping)
+  } = useConcepts(mappedSource?.id, mappedSource?.schemaMapping, 'project')
 
   const [detailVisible, setDetailVisible] = useState(true)
 

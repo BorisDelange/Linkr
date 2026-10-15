@@ -25,6 +25,7 @@ import { csvBlob, toCsv } from '@/lib/csv-export'
 import { downloadBlob } from '@/lib/entity-io'
 import { useEtlStore } from '@/stores/etl-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { localized } from '@/lib/localized'
 import {
   countByDiff,
   isQualityCacheUsable,
@@ -167,7 +168,7 @@ function StatisticsView({
   const computeOne = async (ds: DataSource | undefined): Promise<StatsResult> => {
     if (!ds?.id || !ds.schemaMapping) return { stats: null }
     try {
-      const fresh = await computeDatabaseStats(ds.id, ds.schemaMapping)
+      const fresh = await computeDatabaseStats(ds.id, ds.schemaMapping, { label: t('databases.stats_job', { name: localized(ds.name, i18n.language) }) })
       // Merge, not replace: tableCounts belong to the schema browser, which fills
       // them separately — overwriting with our empty list would erase them.
       const existing = await getStorage().databaseStatsCache.get(ds.id).catch(() => undefined)

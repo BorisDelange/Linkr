@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { Dashboard, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue, LocalizedString } from '@/types'
+import type { Dashboard, DashboardEvent, DashboardTab, DashboardWidget, DashboardWidgetSource, FilterValue, LocalizedString } from '@/types'
 import { getStorage } from '@/lib/storage'
 import { toLocalized } from '@/lib/localized'
 import { copyName } from '@/lib/copy-name'
@@ -9,6 +9,8 @@ import { remapWidgetColumns } from '@/features/projects/dashboard/remap-widget-c
 import { isWidgetPluginStale, stampPluginVersion } from '@/features/projects/dashboard/plugin-drift'
 import { invalidateWidgetResult } from '@/features/projects/dashboard/widget-renderers/use-widget-execution'
 import { fitTabLayouts } from '@/features/projects/dashboard/dashboard-grid'
+import { pruneEventIds } from '@/lib/dashboard-events'
+import { getPlugin } from '@/lib/plugins/registry'
 
 interface DashboardState {
   // Loaded data for current project
@@ -41,6 +43,8 @@ interface DashboardState {
   /** Deep-copy a dashboard with its tabs and widgets. Returns the new id. */
   duplicateDashboard: (id: string) => Promise<string | null>
   updateDashboard: (id: string, changes: Partial<Dashboard>) => void
+  /** Replace a dashboard's events; the widgets selecting a deleted one drop its id. */
+  setDashboardEvents: (dashboardId: string, events: DashboardEvent[]) => void
   deleteDashboard: (id: string) => void
   setActiveDashboard: (id: string | null) => void
 
@@ -357,6 +361,24 @@ export const useDashboardStore = create<DashboardState>((set, get) => ({
       ),
     }))
     getStorage().dashboards.update(id, changes).catch((e) => console.warn('[dashboard-store] persist error:', e))
+  },
+
+  setDashboardEvents: (dashboardId, events) => {
+    get().updateDashboard(dashboardId, { events })
+    const { tabs, widgets } = get()
+    const tabIds = new Set(tabs.filter((t) => t.dashboardId === dashboardId).map((t) => t.id))
+    const pruned = pruneEventIds(
+      widgets.filter((w) => tabIds.has(w.tabId)),
+      events.map((e) => e.id),
+      (pluginId) => getPlugin(pluginId)?.manifest.configSchema,
+    )
+    if (pruned.length === 0) return
+    const byId = new Map(pruned.map((w) => [w.id, w]))
+    set((s) => ({ widgets: s.widgets.map((w) => byId.get(w.id) ?? w) }))
+    const storage = getStorage()
+    for (const w of pruned) {
+      storage.dashboardWidgets.update(w.id, { source: w.source }).catch((e) => console.warn('[dashboard-store] persist error:', e))
+    }
   },
 
   deleteDashboard: (id) => {

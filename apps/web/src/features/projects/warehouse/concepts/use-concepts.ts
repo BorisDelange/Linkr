@@ -101,8 +101,15 @@ export interface ConceptStats {
 }
 
 // ---------------------------------------------------------------------------
-// Module-level state cache (survives component unmount/remount)
+// Module-level caches (survive component unmount/remount)
 // ---------------------------------------------------------------------------
+
+/**
+ * Which view is browsing the concepts. Each view keeps its own filters, sort and
+ * page, so narrowing the list in a picker does not narrow the Concepts page.
+ * A picker keeps nothing between openings: it starts from the defaults.
+ */
+export type ConceptsScope = 'project' | 'database' | 'picker'
 
 interface CachedResult {
   concepts: ConceptRow[]
@@ -116,20 +123,49 @@ interface CachedState {
   pageSize: number
   selectedConceptId: number | null
   filterOptions: Record<string, string[]>
-  statsCache: Map<number, ConceptStats>
-  resultCache: Map<string, CachedResult>
 }
 
 const stateCache = new Map<string, CachedState>()
+
+// Data, unlike the UI state, is the same for every view of a database: a page
+// fetched by the Concepts page is served to a picker asking for the same SQL.
+const resultCaches = new Map<string, Map<string, CachedResult>>()
+const statsCaches = new Map<string, Map<number, ConceptStats>>()
+const RESULT_CACHE_LIMIT = 200
+
+function cacheFor<K, V>(caches: Map<string, Map<K, V>>, key: string): Map<K, V> {
+  let cache = caches.get(key)
+  if (!cache) {
+    cache = new Map()
+    caches.set(key, cache)
+  }
+  return cache
+}
+
+function rememberResult(cache: Map<string, CachedResult>, key: string, result: CachedResult) {
+  cache.set(key, result)
+  // Maps iterate in insertion order: the first key is the oldest page.
+  if (cache.size > RESULT_CACHE_LIMIT) cache.delete(cache.keys().next().value as string)
+}
 
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
 
-export function useConcepts(dataSourceId: string | undefined, schemaMapping: SchemaMapping | undefined) {
-  const cached = dataSourceId ? stateCache.get(dataSourceId) : undefined
+export function useConcepts(
+  dataSourceId: string | undefined,
+  schemaMapping: SchemaMapping | undefined,
+  scope: ConceptsScope,
+) {
+  const persist = scope !== 'picker'
+  const stateKey = dataSourceId ? `${scope}:${dataSourceId}` : undefined
+  const cached = persist && stateKey ? stateCache.get(stateKey) : undefined
 
-  const [hasConceptTable, setHasConceptTable] = useState<boolean | null>(null)
+  // Tagged with its database: a hook remounted on another database (a picker
+  // reopening) must read "not checked yet", not the previous answer — a stale
+  // `false` flashed "No concepts found" before the skeleton.
+  const [conceptTableCheck, setConceptTableCheck] = useState<{ dataSourceId: string | undefined; exists: boolean | null } | null>(null)
+  const hasConceptTable = conceptTableCheck?.dataSourceId === dataSourceId ? conceptTableCheck?.exists ?? null : null
   const [filters, setFilters] = useState<ConceptFilters>(cached?.filters ?? EMPTY_FILTERS)
   const [sorting, setSorting] = useState<ConceptSorting | null>(cached?.sorting ?? { columnId: 'record_count', desc: true })
   const [debouncedTextFilters, setDebouncedTextFilters] = useState<ConceptFilters>(cached?.filters ?? EMPTY_FILTERS)
@@ -142,15 +178,12 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // "no concepts" rather than "not read yet".
   const [isLoading, setIsLoading] = useState(true)
 
-  const resultCache = useRef<Map<string, CachedResult>>(cached?.resultCache ?? new Map())
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>(cached?.filterOptions ?? {})
 
   const [selectedConceptId, setSelectedConceptId] = useState<number | null>(cached?.selectedConceptId ?? null)
   const [selectedConcept, setSelectedConcept] = useState<Record<string, unknown> | null>(null)
   const [conceptStatsLoading, setConceptStatsLoading] = useState(false)
   const [conceptStats, setConceptStats] = useState<ConceptStats | null>(null)
-
-  const statsCache = useRef<Map<number, ConceptStats>>(cached?.statsCache ?? new Map())
 
   // Server mode: the concept list (with counts) is materialized to a shared
   // Parquet cache, computed from the database's Concepts tab; the page reads
@@ -160,9 +193,20 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   const cacheReady = count.exists
   const cacheChecked = count.checked
   const [frontVersion, setFrontVersion] = useState(0)
+  // Re-runs the loads when a run may have assembled a newer list. It is NOT the
+  // cache key: it bumps on every status probe, so a picker reopened under the
+  // same list would never hit the cache. The list's own mtime is the key.
   const listVersion = isServerMode() ? count.version : frontVersion
+  const listStamp = isServerMode() ? (count.refreshedAt ?? '') : ''
   const [statsEnabled, setStatsEnabled] = useState(true)
   const [excludeOutliers, setExcludeOutliers] = useState(true)
+
+  const resultCache = dataSourceId ? cacheFor(resultCaches, dataSourceId) : undefined
+  // Keyed by the outlier setting too: the two histograms differ, and another
+  // view may be showing the other one.
+  const statsCache = dataSourceId
+    ? cacheFor(statsCaches, `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`)
+    : undefined
 
   // The concept whose stats are the ones we currently want shown. A slow load
   // for a previously-clicked concept must not clobber a newer selection, and a
@@ -176,34 +220,31 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // Save state to module-level cache on unmount
   useEffect(() => {
     return () => {
-      if (dataSourceId) {
+      if (persist && stateKey) {
         const s = latestRef.current
-        stateCache.set(dataSourceId, {
+        stateCache.set(stateKey, {
           filters: s.filters,
           sorting: s.sorting,
           page: s.page,
           pageSize: s.pageSize,
           selectedConceptId: s.selectedConceptId,
           filterOptions: s.filterOptions,
-          statsCache: statsCache.current,
-          resultCache: resultCache.current,
         })
       }
     }
-
-  }, [dataSourceId])
+  }, [persist, stateKey])
 
   // Adopt the incoming database's state when it changes under a mounted hook.
   // The useState initializers above run once, so switching database otherwise
   // left the previous one's selection, filters and page in place — the detail
   // sidebar kept showing a concept that does not exist in the new database.
   // Skipped on the first render: the initializers already read the same cache.
-  const adoptedRef = useRef(dataSourceId)
+  const adoptedRef = useRef(stateKey)
   useEffect(() => {
-    if (adoptedRef.current === dataSourceId) return
-    adoptedRef.current = dataSourceId
+    if (adoptedRef.current === stateKey) return
+    adoptedRef.current = stateKey
 
-    const next = dataSourceId ? stateCache.get(dataSourceId) : undefined
+    const next = persist && stateKey ? stateCache.get(stateKey) : undefined
     setFilters(next?.filters ?? EMPTY_FILTERS)
     setDebouncedTextFilters(next?.filters ?? EMPTY_FILTERS)
     setSorting(next?.sorting ?? { columnId: 'record_count', desc: true })
@@ -215,9 +256,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     // and numbers on screen until the new query lands.
     setSelectedConcept(null)
     setConceptStats(null)
-    statsCache.current = next?.statsCache ?? new Map()
-    resultCache.current = next?.resultCache ?? new Map()
-  }, [dataSourceId])
+  }, [persist, stateKey])
 
   // ---------------------------------------------------------------------------
   // Available columns (derived from schema mapping)
@@ -276,18 +315,24 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
 
   useEffect(() => {
     if (!dataSourceId || dicts.length === 0) {
-      setHasConceptTable(dicts.length === 0 ? false : null)
+      setConceptTableCheck({ dataSourceId, exists: dicts.length === 0 ? false : null })
       return
     }
+    let cancelled = false
     discoverTables(dataSourceId).then((tables) => {
+      if (cancelled) return
       // At least one concept dict table must exist. Matched through `tableListHas`
       // because discovery reports qualified names (`icu.d_items`) for a source with
       // schemas, while the mapping keeps schema and table apart. A dictionary in
       // SQL names no table: trusted to exist.
-      setHasConceptTable(dicts.some((d) => !d.tables[0] || tableListHas(tables, d.tables[0])))
+      setConceptTableCheck({
+        dataSourceId,
+        exists: dicts.some((d) => !d.tables[0] || tableListHas(tables, d.tables[0])),
+      })
     }).catch(() => {
-      setHasConceptTable(false)
+      if (!cancelled) setConceptTableCheck({ dataSourceId, exists: false })
     })
+    return () => { cancelled = true }
   }, [dataSourceId, dicts])
 
   // ---------------------------------------------------------------------------
@@ -347,9 +392,9 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) {
       // Nothing to load (no source, or the source has no concept table). The
-      // page renders its own empty state, so stop the skeleton — but keep it
+      // page renders its own empty state, so stop the skeleton — but show it
       // while the concept-table check is still pending (hasConceptTable null).
-      if (hasConceptTable === false || !dataSourceId || !schemaMapping) setIsLoading(false)
+      setIsLoading(hasConceptTable === null && !!dataSourceId && !!schemaMapping)
       return
     }
 
@@ -373,7 +418,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     const countSql = server
       ? buildCacheCountQuery(effectiveFilters, availableColumns)
       : buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
-    if (!conceptsSql || !countSql) {
+    if (!conceptsSql || !countSql || !resultCache) {
       setConcepts([])
       setTotalCount(0)
       return
@@ -382,8 +427,8 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     // The SQL deterministically encodes filters + page + sorting, so it doubles
     // as the cache key: a remount with restored UI state hits the cache and skips
     // the refetch (preserving filters/page across navigation).
-    const cacheKey = `${dataSourceId}::${listVersion}::${conceptsSql}`
-    const hit = resultCache.current.get(cacheKey)
+    const cacheKey = `${listStamp}::${conceptsSql}`
+    const hit = resultCache.get(cacheKey)
     if (hit) {
       setConcepts(hit.concepts)
       setTotalCount(hit.totalCount)
@@ -402,7 +447,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
         if (cancelled) return
         const loadedConcepts = rows as unknown as ConceptRow[]
         const loadedTotal = Number(countResult[0]?.cnt ?? 0)
-        resultCache.current.set(cacheKey, { concepts: loadedConcepts, totalCount: loadedTotal })
+        rememberResult(resultCache, cacheKey, { concepts: loadedConcepts, totalCount: loadedTotal })
         setConcepts(loadedConcepts)
         setTotalCount(loadedTotal)
       } catch (err) {
@@ -417,7 +462,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
     load()
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, cacheChecked, listVersion, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, cacheChecked, listVersion, listStamp, resultCache, debouncedTextFilters._searchText, debouncedTextFilters._searchId, debouncedTextFilters._searchCode, dropdownFilterKey, page, pageSize, sorting, availableColumns])
 
   // ---------------------------------------------------------------------------
   // Load selected concept details
@@ -461,14 +506,14 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // ---------------------------------------------------------------------------
 
   const loadConceptStats = useCallback(async (conceptId: number, dictKey: string) => {
-    if (!dataSourceId || !schemaMapping) return
+    if (!dataSourceId || !schemaMapping || !statsCache) return
 
     // This concept is now the one we want shown. Any older in-flight load that
     // resolves later will see it's no longer active and skip its state updates.
     activeStatsConceptId.current = conceptId
     const isStale = () => activeStatsConceptId.current !== conceptId
 
-    const cachedStats = statsCache.current.get(conceptId)
+    const cachedStats = statsCache.get(conceptId)
     if (cachedStats) {
       // Instant: cached clicks render immediately and clear any leftover spinner
       // from a still-running load for a different concept.
@@ -485,7 +530,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       try {
         const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId)
         if (shared && isFreshCachedStats(shared)) {
-          statsCache.current.set(conceptId, shared)
+          statsCache.set(conceptId, shared)
           if (!isStale()) {
             setConceptStats(shared)
             setConceptStatsLoading(false)
@@ -535,7 +580,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
         histogram,
         ...(excludeOutliers ? { histogramVariant: HISTOGRAM_VARIANT } : {}),
       }
-      statsCache.current.set(conceptId, stats)
+      statsCache.set(conceptId, stats)
       // Share the computed stats with every user of this source — but only the
       // default (outliers excluded) form: the shared cache is keyed by concept
       // id alone, so storing a raw histogram would serve it to everyone.
@@ -551,19 +596,7 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
       // Only the latest request controls the shared loading flag.
       if (!isStale()) setConceptStatsLoading(false)
     }
-  }, [dataSourceId, schemaMapping, excludeOutliers])
-
-  // Toggling the outlier clip changes the histogram SQL, and the stats cache is
-  // keyed by concept id alone — drop it so the panel re-queries.
-  const firstOutlierRun = useRef(true)
-  useEffect(() => {
-    if (firstOutlierRun.current) {
-      firstOutlierRun.current = false
-      return
-    }
-    statsCache.current.clear()
-    setConceptStats(null)
-  }, [excludeOutliers])
+  }, [dataSourceId, schemaMapping, excludeOutliers, statsCache])
 
   // Auto-load stats when selected concept changes. With stats off, drop what is
   // on screen: keeping it would show the previous concept's histogram under the
@@ -590,11 +623,14 @@ export function useConcepts(dataSourceId: string | undefined, schemaMapping: Sch
   // Front-only: re-query the source. Server mode computes the counts from the
   // database's Concepts tab (`useConceptCount`), never from a page that lists them.
   const refresh = useCallback(() => {
-    statsCache.current.clear()
-    resultCache.current.clear()
+    if (dataSourceId) {
+      resultCaches.delete(dataSourceId)
+      statsCaches.delete(`${dataSourceId}::clip`)
+      statsCaches.delete(`${dataSourceId}::raw`)
+    }
     setConceptStats(null)
     setFrontVersion((v) => v + 1)
-  }, [])
+  }, [dataSourceId])
 
   const updateFilter = useCallback((key: string, value: ConceptFilterValue) => {
     setFilters((prev) => ({ ...prev, [key]: value }))

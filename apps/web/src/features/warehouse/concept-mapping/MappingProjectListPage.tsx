@@ -368,7 +368,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
           <div className="mt-8 grid grid-cols-2 gap-4">
             <EntryPointCard
               icon={ArrowRightLeft}
-              accent="teal"
+              accent="mapping-project"
               title={t('concept_mapping.projects_widget_title')}
               description={t('concept_mapping.projects_widget_description')}
               openLabel={t('concept_mapping.projects_widget_open')}
@@ -377,7 +377,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
             />
             <EntryPointCard
               icon={BarChart3}
-              accent="indigo"
+              accent="database"
               title={t('concept_mapping.global_widget_title')}
               description={t('concept_mapping.global_widget_description')}
               openLabel={t('concept_mapping.global_widget_open')}

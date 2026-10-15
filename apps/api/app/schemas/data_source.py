@@ -168,6 +168,33 @@ class QueryRequest(CamelModel):
     query_id: str | None = None
     # Every row, up to db_connect.MAX_QUERY_ROWS_ALL, instead of the usual cap.
     all_rows: bool = False
+    # Let an external database compute the query itself when it is portable
+    # (services/data/remote_sql.py). The client sets it only for its own builder
+    # SQL; the server accepts it for any SQL, since the translation admits only a
+    # portable SELECT subset over the scope — anything else runs as before.
+    pushdown: bool = False
+    # A heavy query of the app's own (an estimate, a report, a profile): it waits
+    # its turn in the heavy-query lane, so it never runs beside another heavy one.
+    heavy: bool = False
+
+
+class QueryJobItem(CamelModel):
+    # Names the result: what the client fetches it back by.
+    key: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
+    sql: str
+    # This query's own `pushdown`, over the job's; the app's own SQL only.
+    pushdown: bool | None = None
+
+
+class QueryJobRequest(CamelModel):
+    """Read queries run one after the other as a job (services/data/query_jobs)."""
+
+    label: str = Field(min_length=1, max_length=255)
+    queries: list[QueryJobItem] = Field(min_length=1, max_length=10_000)
+    # As QueryRequest.pushdown: the app's own SQL only.
+    pushdown: bool = False
+    # A failing query does not end the job: its error is kept by its key.
+    keep_going: bool = False
 
 
 class QueryCancelRequest(CamelModel):
@@ -180,6 +207,18 @@ class QueryCancelResult(CamelModel):
 
 class QueryResult(CamelModel):
     rows: list[dict]
+
+
+class FlightStatus(CamelModel):
+    """Whether Arrow Flight carries this database's large results (services/data/flight.py).
+    `not_applicable`: the engine has no Flight; `not_installed`: the server lacks
+    the `doris` extra; `unreachable`: Flight did not answer (`detail`);
+    `unauthenticated`: it refused the login. `tls`: the connection is encrypted
+    (the source's `sslmode`)."""
+    status: str
+    port: int | None = None
+    detail: str | None = None
+    tls: bool = False
 
 
 class MoveFileRequest(CamelModel):
@@ -226,6 +265,13 @@ class EtlRunRequest(CamelModel):
         return out
 
 
+class EtlJobRequest(EtlRunRequest):
+    """An ETL script run as a job (services/data/etl_jobs); `label` names it in
+    the jobs panel."""
+
+    label: str = Field(min_length=1, max_length=255)
+
+
 class ParquetTablePath(CamelModel):
     """One queryable table of a Parquet source, with the absolute path(s) to read.
 
@@ -257,7 +303,7 @@ class CompactStatus(CamelModel):
     side of it, and `null` when DuckDB would not answer.
     """
 
-    status: str  # 'running' | 'done' | 'error'
+    status: str  # 'running' | 'done' | 'error' | 'cancelled'
     size_before: int
     size_after: int | None = None
     data_size: int | None = None
@@ -309,11 +355,13 @@ class ClientDatabase(CamelModel):
     path: str | None = None
     # kind="parquet-folder": table name → blob path(s), registered as views.
     tables: list[ParquetTablePath] = []
-    # kind="external": the DuckDB ATTACH type ("postgres"/"mysql"), the DSN, and
-    # the schema whose tables land on the search path.
+    # kind="external": the DuckDB ATTACH type ("postgres"/"mysql"), the DSN, the
+    # schema whose tables land on the search path, and whether to ATTACH it
+    # READ_ONLY (Doris refuses it; its login is read-only instead).
     attach_type: str | None = None
     attach_dsn: str | None = None
     attach_scope: str | None = None
+    attach_read_only: bool = True
 
     @field_validator("name", mode="before")
     @classmethod

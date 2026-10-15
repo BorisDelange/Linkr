@@ -27,6 +27,7 @@ import contextlib
 import hashlib
 import json
 import os
+import secrets
 import threading
 import time
 from collections.abc import Iterator
@@ -38,6 +39,7 @@ import duckdb
 import structlog
 
 from app.config import settings
+from app.core.redact import redact_secrets
 
 _DETAIL_MAX = 2000
 _GENESIS = "0" * 64
@@ -66,8 +68,16 @@ COLUMNS: dict[str, str] = {
     "detail": "VARCHAR",
     "row_count": "BIGINT",
     "error": "VARCHAR",
+    "request_id": "VARCHAR",
     "hash": "VARCHAR",
 }
+
+# Columns added after the chain began, hashed only when set: hashed as null they
+# would change the canonical form of every line written before they existed, and
+# `verify` would report those logs as tampered with.
+_LATER_COLUMNS = ("request_id",)
+
+REQUEST_ID_HEADER = "x-request-id"
 
 _logger = structlog.get_logger("linkr.audit")
 _current: ContextVar[dict | None] = ContextVar("linkr_audit", default=None)
@@ -86,7 +96,23 @@ def bind(**fields) -> None:
             continue
         if key == "detail":
             value = str(value)[:_DETAIL_MAX]
+        elif key == "error":
+            value = redact_secrets(str(value))[:_DETAIL_MAX]
         ctx[key] = value
+
+
+def request_id() -> str | None:
+    """The current request's id: sent back as the `x-request-id` header, written
+    on its access-log line and on every server-log line it produced, so a
+    reference a user quotes leads to both."""
+    return (_current.get() or {}).get("request_id")
+
+
+def with_reference(message: str) -> str:
+    """`message` followed by the request id, for a reply that withholds the real
+    cause: whoever reads the server log or the access log finds it from there."""
+    rid = request_id()
+    return f"{message} (ref. {rid})" if rid else message
 
 
 def set_actor(user_id: int, username: str, via: str) -> None:
@@ -109,7 +135,7 @@ def job_scope(job_id: str, kind: str, launched_by: dict) -> Iterator[dict]:
     try:
         yield ctx
     except BaseException as exc:
-        ctx.setdefault("error", str(exc)[:_DETAIL_MAX])
+        ctx.setdefault("error", redact_secrets(str(exc))[:_DETAIL_MAX])
         ctx.setdefault("status", 499 if isinstance(exc, _cancelled()) else 500)
         raise
     finally:
@@ -136,19 +162,23 @@ class AuditMiddleware:
             await self.app(scope, receive, send)
             return
         headers = dict(scope.get("headers") or [])
+        rid = secrets.token_hex(6)
         ctx: dict = {
             "method": scope.get("method", "WS"),
             "route": scope.get("path"),
             "client_ip": (scope.get("client") or (None,))[0],
+            "request_id": rid,
         }
         if client := headers.get(b"x-linkr-client"):
             ctx["client"] = client.decode("latin-1")[:40]
         token = _current.set(ctx)
+        log_ctx = structlog.contextvars.bind_contextvars(request_id=rid)
         started = time.perf_counter()
 
         async def capture(message):
             if message["type"] == "http.response.start":
                 ctx["status"] = message["status"]
+                message = {**message, "headers": [*message.get("headers", []), (REQUEST_ID_HEADER.encode(), rid.encode())]}
             await send(message)
 
         try:
@@ -158,6 +188,7 @@ class AuditMiddleware:
             raise
         finally:
             ctx["duration_ms"] = int((time.perf_counter() - started) * 1000)
+            structlog.contextvars.reset_contextvars(**log_ctx)
             _current.reset(token)
             if _worth_logging(ctx):
                 write(ctx)
@@ -184,7 +215,9 @@ def _line_hash(prev: str, body: str) -> str:
 
 
 def _canonical(record: dict) -> str:
-    return json.dumps({k: record.get(k) for k in COLUMNS if k != "hash"}, sort_keys=True, default=str)
+    body = {k: record.get(k) for k in COLUMNS if k != "hash" and k not in _LATER_COLUMNS}
+    body.update({k: record[k] for k in _LATER_COLUMNS if record.get(k) is not None})
+    return json.dumps(body, sort_keys=True, default=str)
 
 
 class _Writer:

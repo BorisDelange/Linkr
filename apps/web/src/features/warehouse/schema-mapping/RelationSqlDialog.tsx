@@ -84,7 +84,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
       if (what === 'check') {
         const bodySql = bodyOf(current)
         if (!bodySql) throw new Error(t('schema_mapping.nothing_to_check'))
-        const described = await queryDataSource(sourceId, `DESCRIBE ${bodySql}`)
+        const described = await queryDataSource(sourceId, `DESCRIBE ${bodySql}`, { pushdown: false })
         if (!isLatest()) return
         const next = checkContract(cls, described as { column_name: string; column_type: string }[], bodySql)
         setReport(next)
@@ -99,7 +99,7 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
       } else {
         // The draft's relation, injected here: the database's own mapping would
         // otherwise answer for `linkr_…`.
-        const result = await queryDataSource(sourceId, withClassRelations(`SELECT * FROM ${relation.name} LIMIT 100`, mapping))
+        const result = await queryDataSource(sourceId, withClassRelations(`SELECT * FROM ${relation.name} LIMIT 100`, mapping), { pushdown: false })
         if (isLatest()) setRows(result)
       }
     } catch (e) {
@@ -187,7 +187,9 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
           )}
         </TabsContent>
 
-        <TabsContent value="preview" className="min-h-0 flex-1 space-y-3 overflow-auto">
+        {/* A column, the table taking the rest: it scrolls inside itself, which
+            is what keeps its sticky header in view. */}
+        <TabsContent value="preview" className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
           {previewSources.length === 0 ? (
             <p className="text-xs text-muted-foreground">{t('schema_mapping.no_database')}</p>
           ) : (
@@ -195,13 +197,16 @@ export function RelationSqlDialog({ open, onOpenChange, cls, specKey, spec, mapp
           )}
           {error && tab === 'preview' && <p className="whitespace-pre-wrap text-xs text-destructive">{error}</p>}
           {rows && (
-            <DataTable
-              data={rows}
-              columns={columns}
-              rowKey={(r) => rows.indexOf(r)}
-              density="compact"
-              emptyMessage={t('common.no_results')}
-            />
+            <div className="min-h-0 flex-1">
+              <DataTable
+                data={rows}
+                columns={columns}
+                rowKey={(r) => rows.indexOf(r)}
+                density="compact"
+                stickyHeader
+                emptyMessage={t('common.no_results')}
+              />
+            </div>
           )}
         </TabsContent>
       </Tabs>

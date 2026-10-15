@@ -50,8 +50,10 @@ EXPORT_APP_VERSION = _read_export_version()
 MIN_APP_VERSION: dict[str, str] = {
     "schema-preset": "2.4.3",
     "database": "2.4.3",
-    "project": "2.4.4",
-    "workspace": "2.4.4",
+    # 2.4.5: dashboards gained events and widgets an eventIds selection; a 2.4.4
+    # drops the events silently.
+    "project": "2.4.5",
+    "workspace": "2.4.5",
 }
 
 

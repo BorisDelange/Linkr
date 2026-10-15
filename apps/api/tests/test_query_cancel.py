@@ -67,9 +67,58 @@ def test_interrupt_happens_while_the_query_is_still_registered():
         def interrupt(self):
             Con.held = query_cancel._lock.locked()
 
-    query_cancel._running["q4"] = ("7", Con())
+    query_cancel._running["q4"] = ("7", Con(), None)
     assert query_cancel.cancel("q4", "7") is True
     assert Con.held is True
+
+
+def test_cancel_also_runs_the_query_hook():
+    """A pushed-down query stops on the database's side through its hook."""
+    calls: list[str] = []
+
+    class Con:
+        def interrupt(self):
+            calls.append("interrupt")
+
+    token = query_cancel.current_query.set(("q5", "7"))
+    try:
+        with query_cancel.on_cancel(lambda: calls.append("hook")), query_cancel.tracking(Con()):
+            assert query_cancel.cancel("q5", "7") is True
+    finally:
+        query_cancel.current_query.reset(token)
+    assert calls == ["interrupt", "hook"]
+
+
+def test_a_slow_hook_does_not_hold_the_lock():
+    """The hook reaches another database; a query registering meanwhile must
+    not wait for it."""
+    hook_started, hook_release = threading.Event(), threading.Event()
+
+    def slow_hook():
+        hook_started.set()
+        hook_release.wait(5)
+
+    class Con:
+        def interrupt(self):
+            pass
+
+    query_cancel._running["q6"] = ("7", Con(), slow_hook)
+    cancelling = threading.Thread(target=query_cancel.cancel, args=("q6", "7"))
+    cancelling.start()
+    assert hook_started.wait(5)
+    try:
+        registered = threading.Event()
+
+        def register():
+            query_cancel.current_query.set(("q7", "7"))
+            with query_cancel.tracking(Con()):
+                registered.set()
+
+        threading.Thread(target=contextvars.copy_context().run, args=(register,)).start()
+        assert registered.wait(2), "tracking waited for the cancel hook"
+    finally:
+        hook_release.set()
+        cancelling.join(5)
 
 
 def test_untagged_query_is_untouched():
@@ -91,3 +140,21 @@ def test_row_cap_can_be_raised_for_the_request():
         assert len(db_connect._run_read(con, "memory", "SELECT * FROM range(20000)", False)) == 20000
     finally:
         db_connect.row_cap.reset(token)
+
+
+def test_progress_reads_how_far_a_running_query_has_read():
+    con = db_connect._open()
+    con.execute("CREATE TABLE big AS SELECT range i FROM range(30000000)")
+    outcome: dict = {}
+    thread = _run_tagged(con, "SELECT count(DISTINCT i % 9999991), sum(i * i) FROM big", "q4", "7", outcome)
+    seen: list[float] = []
+    while thread.is_alive():
+        value = query_cancel.progress("q4", "7")
+        if value is not None:
+            seen.append(value)
+        assert query_cancel.progress("q4", "8") is None
+        time.sleep(0.01)
+    thread.join()
+    assert "rows" in outcome
+    assert seen and all(0 < v <= 100 for v in seen)
+    assert query_cancel.progress("q4", "7") is None
