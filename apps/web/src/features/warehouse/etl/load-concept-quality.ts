@@ -33,7 +33,7 @@ export async function loadConceptQuality(targetDsId: string): Promise<QualityCon
     LEFT JOIN concept t ON t.concept_id = cr.concept_id_2
     WHERE c.concept_id >= 2000000000
       AND cr.concept_id_2 != 0
-  `)
+  `, { allRows: true, heavy: true })
 
   // Not every target has a source_to_concept_map: its absence only means none.
   const stcm = ccr.length > 0 ? ccr : await duckdbEngine.queryDataSource(targetDsId, `
@@ -41,7 +41,7 @@ export async function loadConceptQuality(targetDsId: string): Promise<QualityCon
            source_concept_id, target_concept_id, target_vocabulary_id
     FROM source_to_concept_map
     WHERE target_concept_id != 0
-  `).catch(() => [])
+  `, { allRows: true, heavy: true }).catch(() => [])
   if (stcm.length === 0) return []
 
   const mappings = stcm.map((r) => ({
@@ -100,7 +100,7 @@ async function countConcepts(
         FROM ${qualify(ct)}
         WHERE "${col}" IN (${idList})
         GROUP BY "${col}"
-      `)
+      `, { allRows: true, heavy: true })
       for (const r of rows) {
         const cid = Number(r.cid)
         const prev = counts.get(cid) ?? { patients: 0, rows: 0 }

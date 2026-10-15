@@ -442,3 +442,21 @@ def test_split_statements_reads_backslashes_as_duckdb_does(data_dir):
     ]
     with pytest.raises(ValueError, match="INSTALL"):
         db_connect._reject_forbidden_statements("SELECT '\\'; INSTALL httpfs; --'")
+
+
+def test_a_cancelled_compaction_leaves_the_file_as_it_was(tmp_path):
+    import threading
+
+    import duckdb
+
+    path = tmp_path / "big.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE t AS SELECT range AS i, range * 7 AS j FROM range(60000000)")
+    con.close()
+    before = path.read_bytes()[:4096], path.stat().st_size
+    cancel = threading.Event()
+    cancel.set()
+    with pytest.raises(duckdb.InterruptException):
+        managed_db.compact(path, None, cancel)
+    assert (path.read_bytes()[:4096], path.stat().st_size) == before
+    assert not list(tmp_path.glob("*.compacting-*"))

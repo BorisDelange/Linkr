@@ -95,7 +95,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
     const key = definitionKey
     setStats((m) => new Map(m).set(table.name, 'loading'))
     try {
-      const [row] = await queryDataSource(dataSourceId, sql)
+      const [row] = await queryDataSource(dataSourceId, sql, { heavy: true })
       if (currentKeyRef.current !== key) return
       const pair = (a: string, b: string): [number, number] => [Number(row?.[a] ?? 0), Number(row?.[b] ?? 0)]
       const next: Stats = { rows: pair('selected_rows', 'all_rows') }

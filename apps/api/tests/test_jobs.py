@@ -54,6 +54,20 @@ async def test_job_runs_to_done(db):
     assert "hello" in settled.log_tail
 
 
+async def test_job_records_when_it_started_and_ended(db):
+    job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
+    assert job.started_at is None and job.finished_at is None
+
+    async def body(handle):
+        await asyncio.sleep(0.05)
+
+    jobs.launch(job.id, body)
+    settled = await _wait_settled(db, job.id)
+    assert settled.started_at is not None
+    assert settled.finished_at is not None
+    assert settled.finished_at >= settled.started_at
+
+
 async def test_log_has_no_blank_leading_line(db):
     """The first log entry must not leave an empty leading line in the panel."""
     job = await jobs.create(db, "proj-1", 1, kind="run", label="Run")

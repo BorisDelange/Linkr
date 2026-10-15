@@ -419,7 +419,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     get().executionAborts.get(id)?.abort()
     const controller = new AbortController()
     const { signal } = controller
-    const query = (sql: string) => engine.queryDataSource(dataSourceId, sql, { signal })
+    const query = (sql: string) => engine.queryDataSource(dataSourceId, sql, { signal, heavy: true })
     const isCurrent = () => get().executionAborts.get(id) === controller
     const setIfCurrent = (fn: (s: CohortState) => Partial<CohortState>) =>
       set((s) => (s.executionAborts.get(id) === controller ? fn(s) : {}))

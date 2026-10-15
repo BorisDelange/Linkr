@@ -104,7 +104,7 @@ export function CatalogConfigTab({ catalog }: Props) {
   const enabled = useMemo(() => enabledVariables(variables).sort((a, b) => CARD_ORDER.indexOf(a) - CARD_ORDER.indexOf(b)), [variables])
   const query = useCallback(async (sql: string, signal?: AbortSignal) => {
     await ensureMounted(catalog.dataSourceId)
-    return queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true })
+    return queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true })
   }, [catalog.dataSourceId, ensureMounted])
 
   // --- Config writers ---
@@ -193,7 +193,9 @@ export function CatalogConfigTab({ catalog }: Props) {
       status: done ? 'success' : 'computing',
       lastError: null,
       lastComputedAt: cache.computedAt,
-      lastComputeDurationMs: cache.durationMs,
+      // Kept from the last finished run meanwhile: a running one shows it as the
+      // time to expect.
+      ...(done ? { lastComputeDurationMs: cache.durationMs } : {}),
       // The resume offset: null once the run is finished, so the panel stops
       // reading as paused.
       computedSteps: done ? null : cache.completedSteps ?? 0,
@@ -212,7 +214,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       catalog,
       mapping,
       ensureMounted: () => ensureMounted(catalog.dataSourceId).then(() => {}),
-      query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true }),
+      query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true }),
       executor: isServerMode()
         ? jobExecutor(catalog.dataSourceId, (phase) => t(`data_catalog.job_${phase}`, { name: localized(catalog.name, i18n.language) }))
         : undefined,
@@ -288,6 +290,8 @@ export function CatalogConfigTab({ catalog }: Props) {
         status,
         progress,
         detail: snapshot.phase === id ? unitDetail(snapshot.current) : undefined,
+        startedAt: snapshot.phase === id ? snapshot.phaseStartedAt : undefined,
+        reading: snapshot.phase === id ? snapshot.reading : undefined,
       }
     })
   const hasGender = !!mapping && has(classRelation(mapping, 'patient'), 'gender')
@@ -504,7 +508,9 @@ export function CatalogConfigTab({ catalog }: Props) {
             {/* Each phase says what it is doing: silence here reads as a button
                 that did nothing, and the concept pass alone can take minutes. */}
             {running
-              ? t('data_catalog.compute_running')
+              ? (catalog.lastComputeDurationMs != null
+                ? t('data_catalog.compute_running_last', { duration: formatDuration(catalog.lastComputeDurationMs) })
+                : t('data_catalog.compute_running'))
               : catalog.lastComputedAt
                 ? (paused
                   ? t('data_catalog.compute_paused', { date: new Date(catalog.lastComputedAt).toLocaleString(i18n.language) })

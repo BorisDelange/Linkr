@@ -44,12 +44,12 @@ export function testConnectionOnServer(
 export async function queryDataSourceOnServer(
   dataSourceId: string,
   sql: string,
-  { signal, allRows, pushdown }: { signal?: AbortSignal; allRows?: boolean; pushdown?: boolean } = {},
+  { signal, allRows, pushdown, heavy }: { signal?: AbortSignal; allRows?: boolean; pushdown?: boolean; heavy?: boolean } = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await cancellableOnServer(dataSourceId, signal, (queryId) =>
     apiRequest<{ rows: Record<string, unknown>[] }>(
       `/data-sources/${dataSourceId}/query`,
-      { method: 'POST', body: JSON.stringify({ sql, allRows, pushdown, ...(queryId ? { queryId } : {}) }) },
+      { method: 'POST', body: JSON.stringify({ sql, allRows, pushdown, ...(heavy ? { heavy } : {}), ...(queryId ? { queryId } : {}) }) },
     ),
   )
   return res.rows
@@ -329,7 +329,7 @@ export function fetchDatabaseConnectionInfo(
 }
 
 export interface CompactStatus {
-  status: 'running' | 'done' | 'error'
+  status: 'running' | 'done' | 'error' | 'cancelled'
   sizeBefore: number
   sizeAfter: number | null
   /**

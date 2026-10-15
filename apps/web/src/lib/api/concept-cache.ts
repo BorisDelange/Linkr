@@ -1,5 +1,6 @@
 import { apiRequest } from '@/lib/api-client'
-import { cancellableOnServer } from '@/lib/api/data-sources'
+import type { Job } from '@/lib/api/environments'
+import type { QueryJobItem } from '@/lib/api/query-jobs'
 import type { ConceptCountManifest } from '@/features/projects/warehouse/concepts/concept-count-plan'
 
 /** The last counting run of a source's concept list, as the server keeps it. */
@@ -34,15 +35,14 @@ export function startConceptRun(sourceId: string, manifest: ConceptCountManifest
   })
 }
 
-/** Run one counting unit of run `runId` server-side; `signal` interrupts it.
- *  Rejects (409) once that run was replaced, or while another unit counts. */
-export function writeConceptUnit(sourceId: string, runId: string, key: string, sql: string, signal?: AbortSignal): Promise<void> {
-  return cancellableOnServer(sourceId, signal, (queryId) =>
-    apiRequest<void>(`${base(sourceId)}/units/${encodeURIComponent(key)}`, {
-      method: 'POST',
-      body: JSON.stringify({ sql, runId, ...(queryId ? { queryId } : {}) }),
-    }),
-  )
+/** Run counting units of run `runId` (and assemblies of the list, keyed
+ *  `assemble-…`) as a server job; follow it with `followQueryJob`. Rejects
+ *  (409) once that run was replaced. */
+export function startConceptUnitsJob(sourceId: string, label: string, runId: string, units: readonly QueryJobItem[]): Promise<Job> {
+  return apiRequest<Job>(`${base(sourceId)}/units-job`, {
+    method: 'POST',
+    body: JSON.stringify({ label, runId, units }),
+  })
 }
 
 /** Write the concept list (`selectSql`) from the units done so far. */

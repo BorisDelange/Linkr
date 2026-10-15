@@ -202,22 +202,37 @@ export async function apiRequest<T>(
   init?: RequestInit,
   opts?: { promptLogin?: boolean },
 ): Promise<T> {
-  let res = await apiFetch(`/api/v1${path}`, init, opts)
-  // A route that outlives the gateway timeout answers 202 with a task id and
-  // keeps working (backend `core/deferred.py`); polling returns the response it
-  // would have sent, so every caller sees one ordinary request.
-  if (res.status === 202) {
-    const taskId = ((await res.clone().json().catch(() => null)) as { deferredTaskId?: string } | null)?.deferredTaskId
-    const signal = init?.signal ?? undefined
-    while (taskId && res.status === 202) {
-      await abortableDelay(DEFERRED_POLL_MS, signal)
-      res = await apiFetch(`/api/v1/deferred/${encodeURIComponent(taskId)}`, { signal }, opts)
-    }
-  }
+  const res = await apiFetchFollowing(`/api/v1${path}`, init, opts)
   if (!res.ok) {
     throw new ApiError(res.status, proxyErrorMessage(res) ?? await res.text())
   }
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
+}
+
+/**
+ * `apiFetch`, for a route that may outlive the gateway timeout: such a route
+ * answers 202 with a task id and keeps working (backend `core/deferred.py`);
+ * polling returns the response it would have sent — JSON or a file alike — so
+ * the caller sees one ordinary request. Work that long also shows in the jobs
+ * panel, which is told at once.
+ */
+export async function apiFetchFollowing(
+  path: string,
+  init?: RequestInit,
+  opts?: { promptLogin?: boolean },
+): Promise<Response> {
+  let res = await apiFetch(path, init, opts)
+  if (res.status !== 202) return res
+  const taskId = ((await res.clone().json().catch(() => null)) as { deferredTaskId?: string } | null)?.deferredTaskId
+  if (!taskId) return res
+  // The jobs panel lists it at once (lib/api/environments: notifyJobsChanged).
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('linkr:jobs-changed'))
+  const signal = init?.signal ?? undefined
+  while (res.status === 202) {
+    await abortableDelay(DEFERRED_POLL_MS, signal)
+    res = await apiFetch(`/api/v1/deferred/${encodeURIComponent(taskId)}`, { signal }, opts)
+  }
+  return res
 }
 
 /**

@@ -231,7 +231,7 @@ async def stage_server_file(
             raise HTTPException(e.status_code, str(e))
         return DsStagedFile(sha=sha, size=size, file_name=src.name)
 
-    return await deferred.respond(user.id, work)
+    return await deferred.respond(user.id, work, deferred.AsJob(f"Copy {src.name}", project_uid=body.project_uid))
 
 
 async def _preview(path, file_name: str, parse_options: dict | None) -> DsPreviewResponse:
@@ -329,7 +329,7 @@ async def import_dataset(
             path=body.path, columns=res["columns"], row_count=res["rowCount"],
         )
 
-    return await deferred.respond(user.id, work)
+    return await deferred.respond(user.id, work, deferred.AsJob(f"Import {body.path}", project_uid=body.project_uid))
 
 
 @router.post("/create-empty", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
@@ -413,29 +413,40 @@ async def create_dataset_from_query(
         raise HTTPException(status.HTTP_409_CONFLICT, "A dataset already exists at this path")
 
     login = await database_credential_service.resolve_login(db, source, user.id)
-    try:
-        table = await data_source_service.query(db, source, login, body.sql, arrow=True)
-    except HTTPException:  # an ETL run holding the file
-        raise
-    except Exception as e:  # noqa: BLE001 — surface SQL errors to the caller
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
-    import pyarrow.parquet as pq
+    async def work() -> DsNodeResponse:
+        async with deferred.session() as session:
+            target = await session.get(DataSource, body.data_source_id)
+            if target is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Database not found")
+            try:
+                table = await data_source_service.query(session, target, login, body.sql, arrow=True)
+            except HTTPException:  # an ETL run holding the file
+                raise
+            except Exception as e:  # noqa: BLE001 — surface SQL errors to the caller
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
 
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    # Written aside then renamed, so a reader never sees half a file.
-    tmp = dst.with_name(f".{dst.name}.tmp")
-    await asyncio.to_thread(pq.write_table, table, tmp)
-    tmp.replace(dst)
-    node = await asyncio.to_thread(_file_node, body.project_uid, path)
-    await notification_service.record_change(
-        db, user=user, source=notification_service.client_source(request),
-        action="updated" if existed else "created", entity_type="dataset", entity_id=path,
-        project_uid=body.project_uid, label=path,
-        # A replaced file is gone once overwritten: only a creation is undoable.
-        undo=None if existed else {"kind": "dataset", "op": "delete", "id": path},
+            import pyarrow.parquet as pq
+
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            # Written aside then renamed, so a reader never sees half a file.
+            tmp = dst.with_name(f".{dst.name}.tmp")
+            await asyncio.to_thread(pq.write_table, table, tmp)
+            tmp.replace(dst)
+            node = await asyncio.to_thread(_file_node, body.project_uid, path)
+            await notification_service.record_change(
+                session, user=user, source=notification_service.client_source(request),
+                action="updated" if existed else "created", entity_type="dataset", entity_id=path,
+                project_uid=body.project_uid, label=path,
+                # A replaced file is gone once overwritten: only a creation is undoable.
+                undo=None if existed else {"kind": "dataset", "op": "delete", "id": path},
+            )
+            return node
+
+    # A whole result, uncapped: past `deferred.WAIT_SECONDS` it goes on as a job.
+    return await deferred.respond(
+        user.id, work, deferred.AsJob(f"Dataset {path}", project_uid=body.project_uid, lane="heavy_query"),
     )
-    return node
 
 
 async def _notify_dataset(
@@ -485,7 +496,7 @@ async def reimport_dataset(
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
         return _file_node(body.project_uid, body.path)
 
-    return await deferred.respond(user.id, work)
+    return await deferred.respond(user.id, work, deferred.AsJob(f"Re-import {body.path}", project_uid=body.project_uid))
 
 
 @router.post("/columns/meta", response_model=DsNodeResponse)

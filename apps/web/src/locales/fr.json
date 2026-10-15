@@ -658,6 +658,8 @@
     "count_complete": "Décomptés le {{date}}",
     "count_open_tab": "Onglet Concepts de la base",
     "absent_tables_description": "Les comptages et les données patient les lisent comme vides. Absentes : {{tables}}.",
+    "count_job_records": "Concepts de « {{name}} » : lignes par table",
+    "count_job_patients": "Concepts de « {{name}} » : patients",
     "count_step_records": "Lignes par table",
     "count_step_patients": "Patients, tranche par tranche",
     "count_phase_planning": "Préparation du calcul",
@@ -676,6 +678,8 @@
     "count_scope_all": "Lignes et patients"
   },
   "databases": {
+    "count_tables_job": "Compter les tables",
+    "stats_job": "Statistiques de « {{name}} »",
     "error_file_missing": "La base « {{name}} » ne peut pas être lue : son fichier n'est plus à l'emplacement indiqué (déplacé ou supprimé). Vérifiez sa connexion dans la page Bases de données.",
     "detail_cohorts": "Cohortes",
     "location": "Emplacement",
@@ -952,6 +956,8 @@
     "no_source_description": "Liez une base de données à ce projet et sélectionnez-la comme active pour exécuter les contrôles de qualité.",
     "no_results": "Aucun résultat de scan",
     "no_results_description": "Cliquez sur « Lancer le scan » pour analyser la qualité des données.",
+    "stop_scan": "Arrêter",
+    "job_label": "Qualité des données « {{name}} »",
     "run_scan": "Lancer le scan",
     "scanning": "Scan en cours...",
     "score": "Score",
@@ -3625,6 +3631,9 @@
       "open_tab": "Ouvrir l'onglet {{tab}}"
     }
   },
+  "run_steps": {
+    "reading": "{{pct}} % des données lues"
+  },
   "jobs": {
     "title_one": "{{count}} tâche",
     "title_other": "{{count}} tâches",
@@ -3632,6 +3641,8 @@
     "cancel": "Annuler",
     "cancel_tooltip": "Interrompre cette tâche",
     "stop": "Arrêter",
+    "duration_done": "Durée",
+    "duration_running": "En cours depuis",
     "show_log": "Voir la sortie",
     "no_log": "Aucune sortie.",
     "empty": "Aucune tâche pour le moment.",
@@ -4081,6 +4092,7 @@
     "no_matching_databases": "Aucune base ne correspond à cette recherche"
   },
   "etl": {
+    "run_job": "ETL « {{name}} »",
     "gen_warn_table_not_in_ddl": "{{table}} n'est pas dans la DDL de la cible : seules les colonnes que son mapping nomme sont écrites.",
     "gen_warn_no_target_relation": "Le schéma cible ne dit pas où va {{relation}} (pas de relation visuelle) : non écrit.",
     "gen_warn_no_target_table": "La table {{table}} n'est pas chargée : choisissez une table cible.",
@@ -5478,6 +5490,7 @@
     "run_step_crossings": "Calculer les croisements",
     "run_step_saving": "Enregistrer les résultats",
     "compute_running": "Calcul en cours…",
+    "compute_running_last": "Calcul en cours… le dernier a pris {{duration}}",
     "estimate_stop": "Arrêter",
     "estimate_ranking": "classement",
     "concept_level_summary": "Compté par {{level}}",

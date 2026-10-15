@@ -86,11 +86,15 @@ async def test_cache_status_empty(client):
 
 
 async def test_counting_run_routes(client, monkeypatch, tmp_path_factory):
-    """Start a run, write a unit, assemble: the status reports the unit, and the
-    page query reads the assembled list."""
+    """Start a run, count a unit in a job, assemble: the status reports the unit,
+    and the page query reads the assembled list."""
     import duckdb
 
     from app.config import settings
+    from app.services.execution import jobs
+
+    # The lanes' semaphores bind to the loop of the test that first used them.
+    monkeypatch.setattr(jobs, "_semaphores", {})
 
     # Not tmp_path: that is the tests' data dir, which a serverPath may never touch.
     server_dir = tmp_path_factory.mktemp("server")
@@ -109,15 +113,18 @@ async def test_counting_run_routes(client, monkeypatch, tmp_path_factory):
     })).json()["id"]
     base = f"{API}/data-sources/{src}/concept-cache"
 
-    unit = {"sql": "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, "
-                   "COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM measurement GROUP BY concept_id",
-            "runId": "r1"}
-    assert (await client.post(f"{base}/units/records-0", headers=headers, json=unit)).status_code == 409
+    job = {"label": "Concepts", "runId": "r1", "units": [{
+        "key": "records-0",
+        "sql": "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, "
+               "COUNT(DISTINCT person_id)::BIGINT AS patient_count FROM measurement GROUP BY concept_id",
+    }]}
+    assert (await client.post(f"{base}/units-job", headers=headers, json=job)).status_code == 409
 
     r = await client.put(f"{base}/run", headers=headers, json={"manifest": {"signature": "s", "runId": "r1"}, "reset": True})
     assert r.status_code == 204
-    r = await client.post(f"{base}/units/records-0", headers=headers, json=unit)
-    assert r.status_code == 204, r.text
+    r = await client.post(f"{base}/units-job", headers=headers, json=job)
+    assert r.status_code == 202, r.text
+    await jobs._tasks[r.json()["id"]]
 
     assemble = {"selectSql": "SELECT c.concept_id, c.concept_name, n.record_count, n.patient_count FROM concept c "
                              "LEFT JOIN memory.main._concept_counts n ON n.concept_id = c.concept_id"}

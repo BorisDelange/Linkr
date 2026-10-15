@@ -1,4 +1,4 @@
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { apiFetchFollowing, apiRequest } from '@/lib/api-client'
 import type { WorkspaceStorage } from '@/lib/storage'
 import type { Workspace } from '@/types'
 import type { BuildWorkspaceZipOptions } from '@/lib/entity-io'
@@ -12,7 +12,7 @@ export async function fetchWorkspaceExportZipFromServer(
   workspaceId: string,
   options: BuildWorkspaceZipOptions = {},
 ): Promise<Blob | null> {
-  const res = await apiFetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/export-zip`, {
+  const res = await apiFetchFollowing(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/export-zip`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

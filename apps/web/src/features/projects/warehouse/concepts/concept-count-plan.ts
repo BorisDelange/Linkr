@@ -272,3 +272,29 @@ export function conceptCountProgress(
     finishedAt: run.manifest.finishedAt ?? null,
   }
 }
+
+/** Assemblies of the list while patients are counted, besides the one at the end. */
+const ASSEMBLIES_PER_STEP = 10
+/** Key of an assembly in a step's job: the server runs it as such (query_jobs.ASSEMBLE_KEY_PREFIX). */
+export const ASSEMBLE_PREFIX = 'assemble-'
+
+/**
+ * A step's job: its units in order, with an assembly of the list after the last
+ * and, for the patients, after every tenth or so of them — never beside a unit.
+ * `assembleSql(final)` is the list as it stands after the step's last unit or before.
+ */
+export function stepJobItems(
+  step: ConceptCountStep,
+  units: readonly { key: string; sql: string }[],
+  assembleSql: (final: boolean) => string,
+): { key: string; sql: string }[] {
+  const items: { key: string; sql: string }[] = []
+  const n = units.length
+  units.forEach((u, j) => {
+    items.push({ key: u.key, sql: u.sql })
+    const last = j === n - 1
+    const mark = step === 'patients' && Math.floor((ASSEMBLIES_PER_STEP * (j + 1)) / n) > Math.floor((ASSEMBLIES_PER_STEP * j) / n)
+    if (last || mark) items.push({ key: `${ASSEMBLE_PREFIX}${j}`, sql: assembleSql(last) })
+  })
+  return items
+}

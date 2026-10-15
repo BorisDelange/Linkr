@@ -21,7 +21,7 @@ export function jobExecutor(dataSourceId: string, label: (phase: CatalogPhase) =
         return await followQueryJob(dataSourceId, jobId, list.map(keyOf), async (i, rows) => {
           await onRows(list[i].offset, rows)
           delivered++
-        }, { signal, onWaiting: (i) => starting(list[i].offset) })
+        }, { signal, onWaiting: (i, reading) => starting(list[i].offset, reading) })
       } finally {
         pending = list.slice(delivered)
       }
