@@ -4000,7 +4000,6 @@
     "sources_delete_description": "\"{{name}}\" will no longer be offered on the Catalog page. What you installed from it stays in place.",
     "sources_none": "No catalog configured",
     "sources_none_description": "Add a catalog, or restore the community one, with the gear icon above.",
-    "sources_private_hint": "Read with your own access token. Other users of this Linkr need theirs to browse it.",
     "error_unauthorized": "Could not read this private catalog. Check its address, and that your access token for this host can read the repository (Manage catalogs).",
     "error_server_mode_required": "A private catalog needs a Linkr server: the access token is stored in your account."
   },
@@ -5905,8 +5904,7 @@
     "error_not_found": "Repository not found. Check the URL.",
     "error_ref": "Branch not found. Check the branch name.",
     "error_network": "Network error while cloning. Check your connection and the proxy.",
-    "error_unknown": "Clone failed. Check the URL, branch, token and CORS proxy.",
-    "private_repo_hint": "Cloned with your own access token for its host."
+    "error_unknown": "Clone failed. Check the URL, branch, token and CORS proxy."
   },
   "setup": {
     "title": "Welcome to Linkr",

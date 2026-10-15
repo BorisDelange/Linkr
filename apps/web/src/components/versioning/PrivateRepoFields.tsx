@@ -16,8 +16,6 @@ interface PrivateRepoFieldsProps {
   host: string | null
   /** From `useHostToken`: a stored token makes the field optional. */
   hasToken: boolean | null
-  /** What "private" means on this surface, under the switch. */
-  hint: string
 }
 
 /**
@@ -26,7 +24,7 @@ interface PrivateRepoFieldsProps {
  * build has no account, so it renders nothing there.
  */
 export function PrivateRepoFields({
-  isPrivate, onPrivateChange, token, onTokenChange, host, hasToken, hint,
+  isPrivate, onPrivateChange, token, onTokenChange, host, hasToken,
 }: PrivateRepoFieldsProps) {
   const { t } = useTranslation()
   const switchId = useId()
@@ -34,11 +32,8 @@ export function PrivateRepoFields({
 
   return (
     <div className="space-y-3 rounded-md border p-3">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-0.5">
-          <Label htmlFor={switchId}>{t('versioning.private_repo')}</Label>
-          <p className="text-xs text-muted-foreground">{hint}</p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <Label htmlFor={switchId}>{t('versioning.private_repo')}</Label>
         <Switch id={switchId} checked={isPrivate} onCheckedChange={onPrivateChange} />
       </div>
       {isPrivate && (
@@ -46,6 +41,8 @@ export function PrivateRepoFields({
           <FormField
             label={t('versioning.remote_token')}
             required={hasToken !== true}
+            // Only the stored-token note says what to do with the field; the other is background.
+            hintInTooltip={!hasToken}
             hint={
               hasToken
                 ? t('versioning.private_repo_token_stored', { host })

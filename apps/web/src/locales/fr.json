@@ -4000,7 +4000,6 @@
     "sources_delete_description": "« {{name}} » ne sera plus proposé sur la page Catalogue. Ce que vous en avez installé reste en place.",
     "sources_none": "Aucun catalogue configuré",
     "sources_none_description": "Ajoutez un catalogue, ou rétablissez le catalogue communautaire, avec l'icône d'engrenage ci-dessus.",
-    "sources_private_hint": "Lu avec votre propre jeton d'accès. Les autres utilisateurs de ce Linkr ont besoin du leur pour le parcourir.",
     "error_unauthorized": "Impossible de lire ce catalogue privé. Vérifiez son adresse, et que votre jeton d'accès pour cet hôte peut lire le dépôt (Gérer les catalogues).",
     "error_server_mode_required": "Un catalogue privé nécessite un serveur Linkr : le jeton d'accès est enregistré dans votre compte."
   },
@@ -5905,8 +5904,7 @@
     "error_not_found": "Dépôt introuvable. Vérifiez l'URL.",
     "error_ref": "Branche introuvable. Vérifiez le nom de la branche.",
     "error_network": "Erreur réseau pendant le clonage. Vérifiez votre connexion et le proxy.",
-    "error_unknown": "Échec du clonage. Vérifiez l'URL, la branche, le jeton et le proxy CORS.",
-    "private_repo_hint": "Cloné avec votre propre jeton d'accès pour cet hôte."
+    "error_unknown": "Échec du clonage. Vérifiez l'URL, la branche, le jeton et le proxy CORS."
   },
   "setup": {
     "title": "Bienvenue sur Linkr",

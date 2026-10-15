@@ -306,7 +306,6 @@ export function ImportSourceDialog({
                   onTokenChange={setToken}
                   host={host}
                   hasToken={hasToken}
-                  hint={t('import_source.private_repo_hint')}
                 />
                 {error && <GitErrorInline detail={error} code={errorCode} />}
                 <div className="flex items-center justify-end gap-2">

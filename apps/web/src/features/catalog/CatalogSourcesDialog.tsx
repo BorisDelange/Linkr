@@ -317,7 +317,6 @@ function CatalogSourceForm({
         onTokenChange={(token) => onChange({ ...draft, token })}
         host={host}
         hasToken={hasToken}
-        hint={t('catalog.sources_private_hint')}
       />
     </div>
   )
