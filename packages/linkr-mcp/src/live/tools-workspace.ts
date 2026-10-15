@@ -6,6 +6,7 @@ import type { ProjectStatus } from '@/types'
 import { clip } from './helpers.js'
 import { DESTRUCTIVE, READ, WRITE, failure, guard, text, type Server } from './shared.js'
 import { registerDatabaseTools } from './tools-databases.js'
+import { registerSchemaPresetTools } from './tools-schema-presets.js'
 import {
   BADGES_PROP, LANGUAGE_PROP, findProject, langOf, linkedProjects, name, resolveWorkspace, rest,
 } from './workspace-rest.js'
@@ -326,4 +327,5 @@ export function registerWorkspaceTools(server: Server): void {
   }))
 
   registerDatabaseTools(server)
+  registerSchemaPresetTools(server)
 }
