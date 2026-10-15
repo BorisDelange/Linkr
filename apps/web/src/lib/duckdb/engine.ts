@@ -611,6 +611,13 @@ export interface QueryOptions {
    * `false` for SQL a user wrote.
    */
   pushdown?: boolean
+  /**
+   * Server mode: a heavy query of the app's own (an estimate, a report, a
+   * profile). It waits its turn in the server's heavy-query lane, so it never
+   * runs beside another heavy query (a catalog, a count) — two of them can get
+   * the container killed for memory.
+   */
+  heavy?: boolean
 }
 
 /**
@@ -632,7 +639,7 @@ export async function queryDataSource(
   sql: string,
   options: QueryOptions = {},
 ): Promise<Record<string, unknown>[]> {
-  const { signal, allRows, pushdown = true } = options
+  const { signal, allRows, pushdown = true, heavy } = options
   signal?.throwIfAborted()
   sql = await prepareQuerySql(dataSourceId, sql)
   // Server mode: the tables live on the server (external DB or server-held
@@ -644,7 +651,7 @@ export async function queryDataSource(
     if (dataSourceId.startsWith('filesrc_')) {
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
-    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown })
+    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, heavy })
   }
   // Wait for the source to be in DuckDB before naming its schema. Callers used
   // to have to do this themselves, and the ones that forgot raced the mount on

@@ -178,3 +178,5 @@ class JobResponse(CamelModel):
     # None for other kinds / before completion.
     result: dict | None = None
     created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None

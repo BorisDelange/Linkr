@@ -8,6 +8,7 @@ and moved into the content-addressed blob store; the caller then references the
 returned sha (e.g. a dataset import).
 """
 
+import asyncio
 import json
 import uuid
 from pathlib import Path
@@ -134,30 +135,39 @@ async def put_chunk(
     tmp.replace(d / str(index))
 
 
-@router.post("/{upload_id}/complete", response_model=CompleteResponse)
-async def complete_upload(upload_id: str, user: User = Depends(get_current_user)):
-    d, meta = _own_session(upload_id, user)
-    total = int(meta["totalChunks"])
-
-    missing = [i for i in range(total) if not (d / str(i)).exists()]
-    if missing:
-        raise HTTPException(
-            status.HTTP_409_CONFLICT,
-            detail={"error": "missing_chunks", "missing": missing},
-        )
-
+def _assemble(d: Path, total: int) -> Path:
     assembled = d / "_assembled"
     with assembled.open("wb") as out:
         for i in range(total):
             with (d / str(i)).open("rb") as part:
                 while buf := part.read(_CHUNK):
                     out.write(buf)
+    return assembled
 
-    sha, size = await blob_store.store_file(assembled)
 
-    # Clean up the whole session dir (assembled file was moved out by store_file).
+def _drop_session(d: Path) -> None:
+    """The whole session dir; the assembled file was moved out by store_file."""
     for p in d.iterdir():
         p.unlink(missing_ok=True)
     d.rmdir()
+
+
+@router.post("/{upload_id}/complete", response_model=CompleteResponse)
+async def complete_upload(upload_id: str, user: User = Depends(get_current_user)):
+    d, meta = _own_session(upload_id, user)
+    total = int(meta["totalChunks"])
+
+    missing = await asyncio.to_thread(lambda: [i for i in range(total) if not (d / str(i)).exists()])
+    if missing:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"error": "missing_chunks", "missing": missing},
+        )
+
+    # Copying gigabytes takes a while: off the event loop, or every other
+    # request waits for it.
+    assembled = await asyncio.to_thread(_assemble, d, total)
+    sha, size = await blob_store.store_file(assembled)
+    await asyncio.to_thread(_drop_session, d)
 
     return CompleteResponse(sha=sha, size=size, file_name=meta["fileName"])

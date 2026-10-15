@@ -3,16 +3,14 @@ import contextlib
 import logging
 
 import duckdb
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
-from starlette.websockets import WebSocketDisconnect
 
-from app.core import audit
-from app.core.database import async_session, get_db
+from app.core import audit, deferred
+from app.core.database import get_db
 from app.core.deps import get_current_user, get_session_user
 from app.core.permissions import check_workspace_permission
-from app.core.ws_auth import authenticate_ws, refuse
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.job import Job
@@ -21,7 +19,7 @@ from app.schemas.concept_cache import (
     ConceptCacheAssembleRequest,
     ConceptCacheStatus,
     ConceptRunStart,
-    ConceptUnitRequest,
+    ConceptUnitsJobRequest,
     ConceptPageRequest,
     ConceptPageResult,
     ConceptStatsResponse,
@@ -44,6 +42,7 @@ from app.schemas.data_source import (
     DerivePlanRequest,
     DeriveRequest,
     FlightStatus,
+    EtlJobRequest,
     EtlRunRequest,
     IntrospectedTable,
     QueryCancelRequest,
@@ -65,7 +64,7 @@ from app.services import (
     notification_service,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs, connection_pool, db_connect, managed_db, query_cancel, query_jobs
+from app.services.data import concept_cache_fs, etl_jobs, connection_pool, db_connect, managed_db, query_cancel, query_jobs
 from app.services.execution import jobs
 from app.schemas.execution import JobResponse
 
@@ -284,27 +283,43 @@ async def query_data_source(
 ):
     """Run read-only SQL server-side against an external source (Postgres) and
     return the result rows. The server-mode counterpart to the browser's
-    queryDataSource — the raw tables never reach the client, only results."""
+    queryDataSource — the raw tables never reach the client, only results.
+
+    A query still running after `deferred.WAIT_SECONDS` answers 202 and goes on as
+    a job of the database's workspace (core/deferred): no gateway timeout cuts it,
+    and the jobs panel can stop it, as `/query/cancel` can."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
-    tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
-    cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
-    try:
-        rows = await data_source_service.query(db, source, login, body.sql, pushdown=body.pushdown)
-    except (query_cancel.QueryCancelled, duckdb.InterruptException):
-        raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    finally:
-        if tag is not None:
-            query_cancel.current_query.reset(tag)
-        if cap is not None:
-            db_connect.row_cap.reset(cap)
-    return QueryResult(rows=rows)
+
+    async def work():
+        tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
+        cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
+        try:
+            async with deferred.session() as session:
+                fresh = await data_source_service.get(session, source_id)
+                if fresh is None:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "Data source not found")
+                rows = await data_source_service.query(session, fresh, login, body.sql, pushdown=body.pushdown)
+        except (query_cancel.QueryCancelled, duckdb.InterruptException):
+            raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        finally:
+            if tag is not None:
+                query_cancel.current_query.reset(tag)
+            if cap is not None:
+                db_connect.row_cap.reset(cap)
+        return QueryResult(rows=rows)
+
+    # Heavy: it waits its turn behind the heavy jobs, from the start, job or not.
+    as_job = deferred.AsJob(
+        "SQL query", workspace_id=source.workspace_id, lane="heavy_query" if body.heavy else None,
+    )
+    return await deferred.respond(user.id, work, as_job)
 
 
 @router.post("/{source_id}/query/cancel", response_model=QueryCancelResult)
@@ -337,8 +352,9 @@ async def start_query_job(
     if len({q.key for q in body.queries}) != len(body.queries):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "query keys must be unique")
     job = await query_jobs.start(
-        db, source.id, source.workspace_id, user.id, login, body.label,
-        [(q.key, q.sql) for q in body.queries], body.pushdown,
+        db, source.id, source.workspace_id, user.id, body.label,
+        [query_jobs.JobQuery(q.key, q.sql, q.pushdown) for q in body.queries],
+        query_jobs.read_rows(login, body.pushdown), keep_going=body.keep_going,
     )
     return job
 
@@ -354,7 +370,7 @@ async def query_job_result(
     """One query's rows, as `POST /query` answers them. 404 until it is done."""
     await _load_source(db, source_id, user, "databases:read")
     job = await db.get(Job, job_id)
-    if job is None or job.user_id != user.id or job.kind != "query" or (job.result or {}).get("sourceId") != source_id:
+    if job is None or job.user_id != user.id or job.kind not in ("query", "etl") or (job.result or {}).get("sourceId") != source_id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     path = query_jobs.result_path(job_id, key)
     if path is None or not path.is_file():
@@ -528,10 +544,22 @@ async def move_file(
     or back to Linkr's data folder). The file itself moves: nothing is left
     behind at the old place."""
     source = await _load_source(db, source_id, user, "databases:write")
-    try:
-        return await data_source_service.move_managed_file(db, source, body.path)
-    except ValueError as exc:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+
+    async def work():
+        async with deferred.session() as session:
+            fresh = await data_source_service.get(session, source_id)
+            if fresh is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Data source not found")
+            try:
+                moved = await data_source_service.move_managed_file(session, fresh, body.path)
+            except ValueError as exc:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+            return DataSourceResponse.model_validate(moved, from_attributes=True)
+
+    # Across disks the file is copied, gigabytes of it: past `deferred.WAIT_SECONDS`
+    # the move goes on as a job (core/deferred).
+    as_job = deferred.AsJob(f"Move {source.name}", workspace_id=source.workspace_id) if source.workspace_id else None
+    return await deferred.respond(user.id, work, as_job)
 
 
 @router.post("/{source_id}/create-from-ddl", response_model=DataSourceResponse)
@@ -582,22 +610,28 @@ async def etl_run(
         roles[role] = await _load_source(db, ds_id, user, "databases:read")
     for role_source in roles.values():
         await _login(db, role_source, user)
-    try:
-        rows = await data_source_service.run_etl(
-            db, target, body.sql, roles, user.id, body.mapping_data
-        )
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    except db_connect.EtlRunCancelled:
-        # The client that asked for this run is gone (reload/navigation), so there
-        # is nobody to answer. Not an error: re-raised as a cancellation so it is
-        # not reported as a failed script.
-        raise
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001 — surface SQL errors to the client
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return QueryResult(rows=rows)
+
+    async def work() -> QueryResult:
+        try:
+            async with deferred.session() as session:
+                rows = await data_source_service.run_etl(
+                    session, target, body.sql, roles, user.id, body.mapping_data
+                )
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        except db_connect.EtlRunCancelled:
+            # Stopped (`…/etl-run/stop`, the jobs panel): not a failed script.
+            raise
+        except HTTPException:
+            raise
+        except Exception as e:  # noqa: BLE001 — surface SQL errors to the client
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        return QueryResult(rows=rows)
+
+    # The MCP's way to run a script: past `deferred.WAIT_SECONDS` it goes on as a
+    # job (core/deferred) — the app itself runs scripts as `…/etl-jobs`.
+    as_job = deferred.AsJob("ETL script", workspace_id=target.workspace_id, lane="heavy_query") if target.workspace_id else None
+    return await deferred.respond(user.id, work, as_job)
 
 
 @router.post("/{source_id}/etl-run/stop", status_code=status.HTTP_204_NO_CONTENT)
@@ -615,121 +649,28 @@ async def stop_etl_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no ETL run is writing to this database")
 
 
-@router.websocket("/{source_id}/etl-run-stream")
-async def etl_run_stream(websocket: WebSocket, source_id: str):
-    """Run one ETL script on ONE connection, streaming per-statement progress.
-
-    The HTTP twin above takes a single statement, so a script split by the client
-    got a fresh connection per statement and lost everything session-scoped:
-    `SET VARIABLE` set in one statement was gone by the next, and
-    `query(getvariable(...))` then failed with `syntax error at or near "NULL"`.
-
-    Here the script arrives whole, the server splits it (the same splitter the
-    client uses) and reports each statement as it starts — so progress stays live
-    without paying for it in lost session state.
-
-    Auth via ?token= (a WebSocket carries no Authorization header).
-    """
-    user = await authenticate_ws(websocket)
-    if user is None:
-        return  # authenticate_ws already closed with WS_AUTH_FAILED
-
-    try:
-        async with async_session() as db:
-            target = await _load_source(db, source_id, user, "databases:write")
-    except HTTPException:
-        # Unknown source or no permission — the client asked for something it may
-        # not have, which is a policy violation.
-        await refuse(websocket, status.WS_1008_POLICY_VIOLATION)
-        return
-    except Exception:
-        # Anything else is our fault, not the client's; say so rather than
-        # reporting a server fault as a permission denial.
-        await refuse(websocket, status.WS_1011_INTERNAL_ERROR)
-        return
-
-    await websocket.accept()
-    loop = asyncio.get_running_loop()
-
-    try:
-        msg = await websocket.receive_json()
-    except (WebSocketDisconnect, ValueError):
-        return  # client went away, or sent something that is not JSON
-
-    sql = msg.get("sql")
-    if not isinstance(sql, str):
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-
-    try:
-        async with async_session() as db:
-            roles: dict[str, DataSource] = {}
-            for role, ds_id in (msg.get("roles") or {}).items():
-                if role == "target" or not ds_id:
-                    continue
-                roles[role] = await _load_source(db, ds_id, user, "databases:read")
-    except HTTPException:  # a role that does not exist, or one the user may not read
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-        return
-    except Exception:
-        await websocket.close(code=status.WS_1011_INTERNAL_ERROR)
-        return
-
-    # Called from the DuckDB worker thread, so the send is marshalled back onto
-    # the loop rather than awaited here. Fire-and-forget: a progress event that
-    # loses the race with a closing socket must not break the run.
-    def on_statement(index: int, total: int, stmt: str) -> None:
-        def send() -> None:
-            asyncio.ensure_future(_send_quietly(websocket, {
-                "type": "statement", "index": index, "total": total,
-                "sql": stmt[:2000],
-            }))
-        loop.call_soon_threadsafe(send)
-
-    async def run() -> None:
-        async with async_session() as db:
-            rows = await data_source_service.run_etl(
-                db, target, sql, roles, user.id, msg.get("mappingData") or {},
-                on_statement=on_statement,
-            )
-        await _send_quietly(websocket, {"type": "done", "rows": rows})
-
-    task = asyncio.create_task(run())
-    # The client stops a run by CLOSING the socket, so watch for that alongside
-    # the run itself rather than waiting on the run alone.
-    closed = asyncio.create_task(websocket.receive_text())
-    try:
-        done, _ = await asyncio.wait(
-            {task, closed}, return_when=asyncio.FIRST_COMPLETED,
-        )
-        # `.exception()` itself raises if the task was cancelled, so only ask a
-        # task that finished on its own.
-        if task in done and not task.cancelled():
-            exc = task.exception()
-            # A cancelled run is the user pressing Stop, not a failure to report.
-            if isinstance(exc, database_credential_service.CredentialRequired):
-                await _send_quietly(websocket, {"type": "error", **exc.detail})
-            elif exc is not None and not isinstance(exc, db_connect.EtlRunCancelled):
-                await _send_quietly(websocket, {"type": "error", "message": str(exc)})
-    finally:
-        closed.cancel()
-        if not task.done():
-            # Cancelling is what stops the run: run_etl shields the worker thread
-            # and, on CancelledError, interrupts the statement and waits for the
-            # file to be released. Abandoning the await instead would leave the
-            # thread holding the target ATTACHed (see EtlRunHandle).
-            task.cancel()
-            with contextlib.suppress(BaseException):
-                await task
-        with contextlib.suppress(BaseException):
-            await websocket.close()
-
-
-async def _send_quietly(websocket: WebSocket, payload: dict) -> None:
-    """Send, tolerating an already-closed socket: a run that finishes just after
-    the client navigated away must unwind normally, not raise."""
-    with contextlib.suppress(BaseException):
-        await websocket.send_json(payload)
+@router.post("/{source_id}/etl-jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def start_etl_job(
+    source_id: str,
+    body: EtlJobRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Run one ETL script on this target as a job of its workspace
+    (services/data/etl_jobs): the job reports the statement it is on, and the
+    last statement's rows are fetched from `…/query-jobs/{job}/results/rows`.
+    Stopped like any job, from the jobs panel or `POST /jobs/{id}/cancel`."""
+    target = await _load_source(db, source_id, user, "databases:write")
+    if not target.workspace_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database belongs to no workspace")
+    roles: dict[str, DataSource] = {}
+    for role, ds_id in (body.roles or {}).items():
+        if role == "target" or not ds_id:
+            continue
+        roles[role] = await _load_source(db, ds_id, user, "databases:read")
+    for role_source in roles.values():
+        await _login(db, role_source, user)
+    return await etl_jobs.start(db, target, roles, user.id, body.label, body.sql, body.mapping_data)
 
 
 @router.post("/{source_id}/retest", response_model=TestConnectionResult)
@@ -869,7 +810,7 @@ async def compact_database(
     """
     source = await _load_source(db, source_id, user, "databases:write")
     try:
-        state = await data_source_service.start_compaction(source)
+        state = await data_source_service.start_compaction(source, user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
     return _compact_status(state)
@@ -948,36 +889,30 @@ async def start_concept_run(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
 
 
-@router.post("/{source_id}/concept-cache/units/{key}", status_code=status.HTTP_204_NO_CONTENT)
-async def write_concept_unit(
+@router.post("/{source_id}/concept-cache/units-job", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
+async def start_concept_units_job(
     source_id: str,
-    key: str,
-    body: ConceptUnitRequest,
+    body: ConceptUnitsJobRequest,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Run one counting unit of run `runId` and keep its rows — 409 once that run
-    was replaced, or while another unit of the database is counted. Cancellable
-    like a query: tagged with `queryId`, `/query/cancel` interrupts it (409)."""
+    """Run counting units of run `runId` as a job of the database's workspace, for
+    units too long for one request — 409 when that run is no longer the stored
+    one. The job lists each unit done once its file is kept."""
     source = await _load_source(db, source_id, user, "databases:read")
     await _require_source_access(db, source, user, _cache_write_permission(source))
+    if not source.workspace_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database belongs to no workspace")
     login = await _login(db, source, user)
-    tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
-    try:
-        await data_source_service.write_concept_unit(db, source, login, key, body.sql, body.run_id)
-    except (query_cancel.QueryCancelled, duckdb.InterruptException):
-        raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
-    except concept_cache_fs.RunConflict as e:
-        raise HTTPException(status.HTTP_409_CONFLICT, str(e))
-    except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
-    except HTTPException:
-        raise
-    except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    finally:
-        if tag is not None:
-            query_cancel.current_query.reset(tag)
+    if len({u.key for u in body.units}) != len(body.units):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "unit keys must be unique")
+    run = concept_cache_fs.run_status(source.id, _principal(source, user))
+    if run is None or run["manifest"].get("runId") != body.run_id:
+        raise HTTPException(status.HTTP_409_CONFLICT, "this counting run was replaced")
+    return await query_jobs.start(
+        db, source.id, source.workspace_id, user.id, body.label,
+        [query_jobs.JobQuery(u.key, u.sql) for u in body.units], query_jobs.write_concept_units(login, body.run_id),
+    )
 
 
 @router.post("/{source_id}/concept-cache/assemble", response_model=ConceptCacheStatus)

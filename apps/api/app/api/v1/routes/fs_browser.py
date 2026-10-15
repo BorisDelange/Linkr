@@ -5,6 +5,7 @@ answer to the permission of what they feed (see below). The heavy lifting lives 
 ``services.fs_browser``; validation against the configured browse roots happens
 there. Server mode only — front-only has no server filesystem to browse."""
 
+import asyncio
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -105,7 +106,9 @@ async def rebind_copy(
     The binding change itself is a normal project update; this only moves bytes."""
     _guard()
     try:
-        return fs_browser.copy_tree(body.src, body.dst, body.on_conflict)
+        # A folder of gigabytes takes minutes: off the event loop, or every other
+        # request waits for it.
+        return await asyncio.to_thread(fs_browser.copy_tree, body.src, body.dst, body.on_conflict)
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 

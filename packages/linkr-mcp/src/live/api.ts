@@ -22,6 +22,8 @@ import { effectiveMapping } from '@/lib/schema-classes/overrides'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
 import type { ExecutionOutput, RunLanguage } from './ide.js'
 
+/** How often a deferred request (202) is polled. */
+const DEFERRED_POLL_MS = 1500
 
 /** The database as the app's store publishes it: `schemaMapping` is the EFFECTIVE mapping (the
  *  stored base with the database's own overrides applied, e.g. a table removed from the preset),
@@ -175,7 +177,7 @@ export class LinkrApi {
   async request<T>(method: string, path: string, body?: unknown, retried = false): Promise<T> {
     if (!this.accessToken) await this.login()
     const form = body instanceof FormData
-    const res = await fetch(`${this.base}${path}`, {
+    let res = await fetch(`${this.base}${path}`, {
       method,
       headers: {
         Authorization: `Bearer ${this.accessToken}`,
@@ -192,6 +194,17 @@ export class LinkrApi {
         if (!this.env.LINKR_USERNAME) throw new ApiError(401, 'The Linkr token was rejected (expired?).')
       }
       return this.request(method, path, body, true)
+    }
+    // A route that outlives the gateway timeout answers 202 and keeps working
+    // (backend `core/deferred.py`): polling returns the response it would have sent.
+    if (res.status === 202) {
+      const taskId = ((await res.clone().json().catch(() => null)) as { deferredTaskId?: string } | null)?.deferredTaskId
+      while (taskId && res.status === 202) {
+        await new Promise((resolve) => setTimeout(resolve, DEFERRED_POLL_MS))
+        res = await fetch(`${this.base}/deferred/${encodeURIComponent(taskId)}`, {
+          headers: { Authorization: `Bearer ${this.accessToken}`, 'X-Linkr-Client': 'mcp' },
+        })
+      }
     }
     if (!res.ok) {
       let detail = res.statusText

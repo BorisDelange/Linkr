@@ -90,6 +90,26 @@ def cancel(query_id: str, owner: str) -> bool:
     return True
 
 
+def progress(query_id: str, owner: str) -> float | None:
+    """How much of its data `owner`'s running query `query_id` has read, in
+    percent; None when it is not running or DuckDB cannot tell.
+
+    DuckDB counts the rows its scans have read, not the work left: a query that
+    ends on a big aggregation sits at its last figure meanwhile. And a query an
+    external database computes (pushed down) reads nothing DuckDB can count, so
+    it stays at 0 — reported as None, not as a query stuck at its start.
+    """
+    with _lock:
+        entry = _running.get(query_id)
+        if entry is None or entry[0] != owner:
+            return None
+        try:
+            value = entry[1].query_progress()
+        except Exception:  # the query finishing as we read is fine
+            return None
+    return value if value > 0 else None
+
+
 @contextlib.contextmanager
 def on_cancel(hook: Callable[[], None]) -> Iterator[None]:
     """Also call `hook` if the query `tracking` runs within this block is cancelled."""

@@ -140,3 +140,21 @@ def test_row_cap_can_be_raised_for_the_request():
         assert len(db_connect._run_read(con, "memory", "SELECT * FROM range(20000)", False)) == 20000
     finally:
         db_connect.row_cap.reset(token)
+
+
+def test_progress_reads_how_far_a_running_query_has_read():
+    con = db_connect._open()
+    con.execute("CREATE TABLE big AS SELECT range i FROM range(30000000)")
+    outcome: dict = {}
+    thread = _run_tagged(con, "SELECT count(DISTINCT i % 9999991), sum(i * i) FROM big", "q4", "7", outcome)
+    seen: list[float] = []
+    while thread.is_alive():
+        value = query_cancel.progress("q4", "7")
+        if value is not None:
+            seen.append(value)
+        assert query_cancel.progress("q4", "8") is None
+        time.sleep(0.01)
+    thread.join()
+    assert "rows" in outcome
+    assert seen and all(0 < v <= 100 for v in seen)
+    assert query_cancel.progress("q4", "7") is None

@@ -1,14 +1,10 @@
+import i18n from '@/lib/i18n'
+import { isServerMode } from '@/lib/api-client'
 import { queryDataSource, discoverTables } from './engine'
+import { runQueryJob } from './run-query-job'
 import { quoteTableRef } from '@/lib/format-helpers'
 import { specTables } from '@/lib/schema-classes/spec'
-import type {
-  DatabaseStatsCache,
-  AgePyramidBucket,
-  GenderDistribution,
-  TableRowCount,
-  AdmissionTimelineBucket,
-  DescriptiveStats,
-} from '@/types'
+import type { DatabaseStatsCache, TableRowCount } from '@/types'
 import type { SchemaMapping } from '@/types'
 import { classRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
@@ -25,197 +21,179 @@ function ageAt(patient: ClassRelation, refDate: string): string | null {
     : byYear
 }
 
+/** One statistics query and how its rows land in the result; rows are null when it failed. */
+interface StatsQuery {
+  key: string
+  sql: string
+  apply: (rows: Record<string, unknown>[] | null, out: DatabaseStatsCache) => void
+}
+
 /**
- * Compute the "fast" database statistics — everything except per-table row
- * counts. These 5 blocks run in parallel and return in a few seconds even on a
- * large warehouse; the slow per-table counts are streamed separately (see
- * streamTableCounts) so the panel can render before they finish.
+ * Runs statistics queries and hands each one's rows over, null for one that
+ * failed — a block that cannot be computed shows empty, it does not stop the
+ * others. In the browser, `parallel` at a time; on a server, one query job
+ * (`run-query-job.ts`), so none outlasts a gateway's timeout or runs beside
+ * another heavy query, and the jobs panel can stop it.
  */
-export async function computeDatabaseStats(
-  dataSourceId: string,
-  mapping: SchemaMapping,
-  signal?: AbortSignal,
-): Promise<DatabaseStatsCache> {
-  const [summary, genderDistribution, agePyramid, admissionTimeline, descriptiveStats] =
-    await Promise.all([
-      computeSummary(dataSourceId, mapping, signal),
-      computeGenderDistribution(dataSourceId, mapping, signal),
-      computeAgePyramid(dataSourceId, mapping, signal),
-      computeAdmissionTimeline(dataSourceId, mapping, signal),
-      computeDescriptiveStats(dataSourceId, mapping, signal),
-    ])
-  // The blocks swallow their own failures, so an interrupted run would come
-  // back as zeros: refuse it rather than let it replace the stored figures.
-  signal?.throwIfAborted()
+type StatsRunner = (
+  queries: readonly StatsQuery[],
+  onRows: (index: number, rows: Record<string, unknown>[] | null) => void,
+) => Promise<void>
 
-  return {
-    dataSourceId,
-    computedAt: new Date().toISOString(),
-    summary,
-    genderDistribution,
-    agePyramid,
-    admissionTimeline,
-    descriptiveStats,
-    tableCounts: [],
-  }
+export interface StatsOptions {
+  signal?: AbortSignal
+  /** The job's name in the jobs panel (server mode). */
+  label?: string
+  /** Only follow the job a closed tab left (server mode); with none, stop as a stop does. */
+  resumeOnly?: boolean
 }
 
-async function safeQueryCount(dsId: string, table: string, signal?: AbortSignal): Promise<number> {
-  try {
-    const rows = await queryDataSource(dsId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`, { signal })
-    return Number(rows[0]?.cnt ?? 0)
-  } catch {
-    return 0
-  }
-}
+export type StatsPhase = 'stats' | 'counts'
 
-async function computeSummary(
-  dsId: string,
-  mapping: SchemaMapping,
-  signal?: AbortSignal,
-): Promise<DatabaseStatsCache['summary']> {
-  const tables = await discoverTables(dsId)
-  const tableCount = tables.length
+/** Where a database's statistics job of `phase` is remembered in this browser. */
+export const statsJobName = (dsId: string, phase: StatsPhase) => `stats:${dsId}:${phase}`
 
-  const count = async (rel: ClassRelation | undefined) => (rel ? safeQueryCount(dsId, rel.name, signal) : 0)
-  const patientCount = await count(classRelation(mapping, 'patient'))
-  const visitCount = await count(classRelation(mapping, 'visit'))
-  const visitDetailCount = await count(classRelation(mapping, 'visit_detail'))
-
-  return { patientCount, visitCount, visitDetailCount, tableCount }
-}
-
-/** Compute gender distribution from patient table. */
-async function computeGenderDistribution(
-  dsId: string,
-  mapping: SchemaMapping,
-  signal?: AbortSignal,
-): Promise<GenderDistribution> {
-  const patient = classRelation(mapping, 'patient')
-  if (!has(patient, 'gender')) return { male: 0, female: 0, other: 0 }
-
-  try {
-    const sql = `
-      SELECT
-        COUNT(*) FILTER (WHERE gender = 'male')::INTEGER as male,
-        COUNT(*) FILTER (WHERE gender = 'female')::INTEGER as female,
-        COUNT(*) FILTER (WHERE gender = 'unknown')::INTEGER as other
-      FROM ${patient!.name}
-    `
-    const rows = await queryDataSource(dsId, sql, { signal })
-    if (rows[0]) {
-      return {
-        male: Number(rows[0].male ?? 0),
-        female: Number(rows[0].female ?? 0),
-        other: Number(rows[0].other ?? 0),
+function statsRunner(dsId: string, phase: StatsPhase, { signal, label, resumeOnly }: StatsOptions, parallel: number): StatsRunner {
+  if (!isServerMode()) {
+    return async (queries, onRows) => {
+      for (let i = 0; i < queries.length; i += parallel) {
+        await Promise.all(queries.slice(i, i + parallel).map(async (q, j) => {
+          let rows: Record<string, unknown>[] | null = null
+          try {
+            rows = await queryDataSource(dsId, q.sql, { signal })
+          } catch { /* the block shows empty */ }
+          onRows(i + j, rows)
+        }))
+        signal?.throwIfAborted()
       }
     }
-  } catch { /* ignore */ }
-  return { male: 0, female: 0, other: 0 }
-}
-
-/**
- * Compute age pyramid using visit-level ages.
- * Uses the visit table for age calculation.
- */
-async function computeAgePyramid(
-  dsId: string,
-  mapping: SchemaMapping,
-  signal?: AbortSignal,
-): Promise<AgePyramidBucket[]> {
-  const patient = classRelation(mapping, 'patient')
-  const visit = classRelation(mapping, 'visit')
-  if (!patient || !visit || !has(patient, 'gender')) return []
-  const age = ageAt(patient, 'v.start_datetime')
-  if (!age) return []
-
-  const sql = `
-    SELECT age_group,
-           COUNT(*) FILTER (WHERE gender = 'male')::INTEGER as male,
-           COUNT(*) FILTER (WHERE gender = 'female')::INTEGER as female
-    FROM (
-      SELECT
-        CASE
-          WHEN age < 10 THEN '00-09'
-          WHEN age < 20 THEN '10-19'
-          WHEN age < 30 THEN '20-29'
-          WHEN age < 40 THEN '30-39'
-          WHEN age < 50 THEN '40-49'
-          WHEN age < 60 THEN '50-59'
-          WHEN age < 70 THEN '60-69'
-          WHEN age < 80 THEN '70-79'
-          WHEN age < 90 THEN '80-89'
-          ELSE '90+'
-        END as age_group,
-        gender
-      FROM (
-        SELECT ${age} as age, p.gender
-        FROM ${visit.name} v
-        JOIN ${patient.name} p ON v.patient_id = p.patient_id
-      ) ages
-      WHERE age >= 0 AND age < 150
-    ) sub
-    GROUP BY age_group
-    ORDER BY age_group
-  `
-  try {
-    const rows = await queryDataSource(dsId, sql, { signal })
-    return rows.map((r) => ({
-      ageGroup: String(r.age_group),
-      male: Number(r.male ?? 0),
-      female: Number(r.female ?? 0),
-    }))
-  } catch {
-    return []
+  }
+  return async (queries, onRows) => {
+    const outcome = await runQueryJob(
+      dsId,
+      label ?? i18n.t('databases.stats_job', { name: dsId }),
+      queries.map(({ key, sql }) => ({ key, sql })),
+      (i, rows, { error }) => onRows(i, error == null ? rows : null),
+      {
+        signal: signal ?? new AbortController().signal,
+        keepGoing: true,
+        remember: { name: statsJobName(dsId, phase), signature: queries.map((q) => `${q.key}:${q.sql.length}`).join(',') },
+        resumeOnly,
+      },
+    )
+    if (!outcome) throw new DOMException('nothing to resume', 'AbortError')
+    if (outcome.delivered === queries.length) return
+    // Stopped from the jobs panel: as a stop from the page.
+    if (outcome.status === 'cancelled') throw new DOMException('cancelled', 'AbortError')
+    throw new Error(outcome.error ?? `the statistics job ended ${outcome.status}`)
   }
 }
 
-/** Compute monthly admission timeline from visit table. */
-async function computeAdmissionTimeline(
-  dsId: string,
-  mapping: SchemaMapping,
-  signal?: AbortSignal,
-): Promise<AdmissionTimelineBucket[]> {
-  const visit = classRelation(mapping, 'visit')
-  if (!visit) return []
+const num = (v: unknown) => (v != null ? Number(v) : undefined)
+const str = (v: unknown) => (v ? String(v) : undefined)
 
-  const sql = `
-    SELECT
-      STRFTIME(start_datetime::TIMESTAMP, '%Y-%m') as month,
-      COUNT(*)::INTEGER as count
-    FROM ${visit.name}
-    WHERE start_datetime IS NOT NULL
-    GROUP BY month
-    ORDER BY month
-  `
-  try {
-    const rows = await queryDataSource(dsId, sql, { signal })
-    return rows.map((r) => ({
-      month: String(r.month),
-      count: Number(r.count ?? 0),
-    }))
-  } catch {
-    return []
-  }
-}
-
-/** Compute descriptive statistics. */
-async function computeDescriptiveStats(
-  dsId: string,
-  mapping: SchemaMapping,
-  signal?: AbortSignal,
-): Promise<DescriptiveStats> {
-  const stats: DescriptiveStats = {}
+/** The statistics' queries, each with where its rows go. */
+function statsQueries(mapping: SchemaMapping): StatsQuery[] {
+  const queries: StatsQuery[] = []
   const patient = classRelation(mapping, 'patient')
   const visit = classRelation(mapping, 'visit')
+  const vd = classRelation(mapping, 'visit_detail')
 
-  if (!patient || !visit) return stats
+  const count = (key: 'patientCount' | 'visitCount' | 'visitDetailCount', rel: ClassRelation | undefined) => {
+    if (!rel) return
+    queries.push({
+      key,
+      sql: `SELECT COUNT(*) as cnt FROM ${quoteTableRef(rel.name)}`,
+      apply: (rows, out) => { out.summary[key] = Number(rows?.[0]?.cnt ?? 0) },
+    })
+  }
+  count('patientCount', patient)
+  count('visitCount', visit)
+  count('visitDetailCount', vd)
 
-  // Age stats (at first visit)
-  const age = ageAt(patient, 'MIN(vo.start_datetime)')
-  if (age) {
-    try {
-      const ageSql = `
+  if (has(patient, 'gender')) {
+    queries.push({
+      key: 'gender',
+      sql: `
+        SELECT
+          COUNT(*) FILTER (WHERE gender = 'male')::INTEGER as male,
+          COUNT(*) FILTER (WHERE gender = 'female')::INTEGER as female,
+          COUNT(*) FILTER (WHERE gender = 'unknown')::INTEGER as other
+        FROM ${patient!.name}
+      `,
+      apply: (rows, out) => {
+        const r = rows?.[0]
+        if (r) out.genderDistribution = { male: Number(r.male ?? 0), female: Number(r.female ?? 0), other: Number(r.other ?? 0) }
+      },
+    })
+  }
+
+  const visitAge = patient && visit && has(patient, 'gender') ? ageAt(patient, 'v.start_datetime') : null
+  if (visitAge) {
+    queries.push({
+      key: 'age_pyramid',
+      sql: `
+        SELECT age_group,
+               COUNT(*) FILTER (WHERE gender = 'male')::INTEGER as male,
+               COUNT(*) FILTER (WHERE gender = 'female')::INTEGER as female
+        FROM (
+          SELECT
+            CASE
+              WHEN age < 10 THEN '00-09'
+              WHEN age < 20 THEN '10-19'
+              WHEN age < 30 THEN '20-29'
+              WHEN age < 40 THEN '30-39'
+              WHEN age < 50 THEN '40-49'
+              WHEN age < 60 THEN '50-59'
+              WHEN age < 70 THEN '60-69'
+              WHEN age < 80 THEN '70-79'
+              WHEN age < 90 THEN '80-89'
+              ELSE '90+'
+            END as age_group,
+            gender
+          FROM (
+            SELECT ${visitAge} as age, p.gender
+            FROM ${visit!.name} v
+            JOIN ${patient!.name} p ON v.patient_id = p.patient_id
+          ) ages
+          WHERE age >= 0 AND age < 150
+        ) sub
+        GROUP BY age_group
+        ORDER BY age_group
+      `,
+      apply: (rows, out) => {
+        out.agePyramid = (rows ?? []).map((r) => ({ ageGroup: String(r.age_group), male: Number(r.male ?? 0), female: Number(r.female ?? 0) }))
+      },
+    })
+  }
+
+  if (visit) {
+    queries.push({
+      key: 'admission_timeline',
+      sql: `
+        SELECT
+          STRFTIME(start_datetime::TIMESTAMP, '%Y-%m') as month,
+          COUNT(*)::INTEGER as count
+        FROM ${visit.name}
+        WHERE start_datetime IS NOT NULL
+        GROUP BY month
+        ORDER BY month
+      `,
+      apply: (rows, out) => {
+        out.admissionTimeline = (rows ?? []).map((r) => ({ month: String(r.month), count: Number(r.count ?? 0) }))
+      },
+    })
+  }
+
+  if (!patient || !visit) return queries
+  const stats = (out: DatabaseStatsCache) => out.descriptiveStats
+
+  // Age at first visit
+  const firstAge = ageAt(patient, 'MIN(vo.start_datetime)')
+  if (firstAge) {
+    queries.push({
+      key: 'age_stats',
+      sql: `
         SELECT
           ROUND(AVG(age), 1) as age_mean,
           ROUND(MEDIAN(age), 1) as age_median,
@@ -224,46 +202,44 @@ async function computeDescriptiveStats(
           ROUND(QUANTILE_CONT(age, 0.25), 1) as age_q1,
           ROUND(QUANTILE_CONT(age, 0.75), 1) as age_q3
         FROM (
-          SELECT p.patient_id, ${age} as age
+          SELECT p.patient_id, ${firstAge} as age
           FROM ${patient.name} p
           JOIN ${visit.name} vo ON vo.patient_id = p.patient_id
           WHERE vo.start_datetime IS NOT NULL
           GROUP BY p.patient_id, p.birth_date, p.birth_year
         ) sub
         WHERE age >= 0 AND age < 150
-      `
-      const rows = await queryDataSource(dsId, ageSql, { signal })
-      if (rows[0]) {
-        stats.ageMean = rows[0].age_mean != null ? Number(rows[0].age_mean) : undefined
-        stats.ageMedian = rows[0].age_median != null ? Number(rows[0].age_median) : undefined
-        stats.ageMin = rows[0].age_min != null ? Number(rows[0].age_min) : undefined
-        stats.ageMax = rows[0].age_max != null ? Number(rows[0].age_max) : undefined
-        stats.ageQ1 = rows[0].age_q1 != null ? Number(rows[0].age_q1) : undefined
-        stats.ageQ3 = rows[0].age_q3 != null ? Number(rows[0].age_q3) : undefined
-      }
-    } catch { /* ignore */ }
+      `,
+      apply: (rows, out) => {
+        const r = rows?.[0]
+        if (!r) return
+        Object.assign(stats(out), {
+          ageMean: num(r.age_mean), ageMedian: num(r.age_median), ageMin: num(r.age_min),
+          ageMax: num(r.age_max), ageQ1: num(r.age_q1), ageQ3: num(r.age_q3),
+        })
+      },
+    })
   }
 
-  // Admission date range
-  try {
-    const dateSql = `
+  queries.push({
+    key: 'admission_dates',
+    sql: `
       SELECT
         MIN(start_datetime)::VARCHAR as date_min,
         MAX(start_datetime)::VARCHAR as date_max
       FROM ${visit.name}
       WHERE start_datetime IS NOT NULL
-    `
-    const rows = await queryDataSource(dsId, dateSql, { signal })
-    if (rows[0]) {
-      stats.admissionDateMin = rows[0].date_min ? String(rows[0].date_min) : undefined
-      stats.admissionDateMax = rows[0].date_max ? String(rows[0].date_max) : undefined
-    }
-  } catch { /* ignore */ }
+    `,
+    apply: (rows, out) => {
+      const r = rows?.[0]
+      if (r) Object.assign(stats(out), { admissionDateMin: str(r.date_min), admissionDateMax: str(r.date_max) })
+    },
+  })
 
-  // Discharge date range and length of stay
   if (has(visit, 'end_datetime')) {
-    try {
-      const losSql = `
+    queries.push({
+      key: 'length_of_stay',
+      sql: `
         SELECT
           MIN(end_datetime)::VARCHAR as discharge_min,
           MAX(end_datetime)::VARCHAR as discharge_max,
@@ -272,20 +248,21 @@ async function computeDescriptiveStats(
         FROM ${visit.name}
         WHERE start_datetime IS NOT NULL
           AND end_datetime IS NOT NULL
-      `
-      const rows = await queryDataSource(dsId, losSql, { signal })
-      if (rows[0]) {
-        stats.dischargeDateMin = rows[0].discharge_min ? String(rows[0].discharge_min) : undefined
-        stats.dischargeDateMax = rows[0].discharge_max ? String(rows[0].discharge_max) : undefined
-        stats.losMean = rows[0].los_mean != null ? Number(rows[0].los_mean) : undefined
-        stats.losMedian = rows[0].los_median != null ? Number(rows[0].los_median) : undefined
-      }
-    } catch { /* ignore */ }
+      `,
+      apply: (rows, out) => {
+        const r = rows?.[0]
+        if (!r) return
+        Object.assign(stats(out), {
+          dischargeDateMin: str(r.discharge_min), dischargeDateMax: str(r.discharge_max),
+          losMean: num(r.los_mean), losMedian: num(r.los_median),
+        })
+      },
+    })
   }
 
-  // Visits per patient
-  try {
-    const vpSql = `
+  queries.push({
+    key: 'visits_per_patient',
+    sql: `
       SELECT
         ROUND(AVG(visit_count), 1) as vp_mean,
         ROUND(MEDIAN(visit_count), 1) as vp_median,
@@ -296,37 +273,62 @@ async function computeDescriptiveStats(
         FROM ${visit.name}
         GROUP BY patient_id
       ) sub
-    `
-    const rows = await queryDataSource(dsId, vpSql, { signal })
-    if (rows[0]) {
-      stats.visitsPerPatientMean = rows[0].vp_mean != null ? Number(rows[0].vp_mean) : undefined
-      stats.visitsPerPatientMedian = rows[0].vp_median != null ? Number(rows[0].vp_median) : undefined
-      stats.visitsPerPatientMin = rows[0].vp_min != null ? Number(rows[0].vp_min) : undefined
-      stats.visitsPerPatientMax = rows[0].vp_max != null ? Number(rows[0].vp_max) : undefined
-    }
-  } catch { /* ignore */ }
+    `,
+    apply: (rows, out) => {
+      const r = rows?.[0]
+      if (!r) return
+      Object.assign(stats(out), {
+        visitsPerPatientMean: num(r.vp_mean), visitsPerPatientMedian: num(r.vp_median),
+        visitsPerPatientMin: num(r.vp_min), visitsPerPatientMax: num(r.vp_max),
+      })
+    },
+  })
 
-  // Visit unit (visit_detail) length of stay
-  const vd = classRelation(mapping, 'visit_detail')
   if (vd && has(vd, 'end_datetime')) {
-    try {
-      const unitLosSql = `
+    queries.push({
+      key: 'unit_length_of_stay',
+      sql: `
         SELECT
           ROUND(AVG(DATEDIFF('day', start_datetime::TIMESTAMP, end_datetime::TIMESTAMP)), 1) as los_mean,
           ROUND(MEDIAN(DATEDIFF('day', start_datetime::TIMESTAMP, end_datetime::TIMESTAMP)), 1) as los_median
         FROM ${vd.name}
         WHERE start_datetime IS NOT NULL
           AND end_datetime IS NOT NULL
-      `
-      const rows = await queryDataSource(dsId, unitLosSql, { signal })
-      if (rows[0]) {
-        stats.unitLosMean = rows[0].los_mean != null ? Number(rows[0].los_mean) : undefined
-        stats.unitLosMedian = rows[0].los_median != null ? Number(rows[0].los_median) : undefined
-      }
-    } catch { /* ignore */ }
+      `,
+      apply: (rows, out) => {
+        const r = rows?.[0]
+        if (r) Object.assign(stats(out), { unitLosMean: num(r.los_mean), unitLosMedian: num(r.los_median) })
+      },
+    })
   }
+  return queries
+}
 
-  return stats
+/**
+ * Compute the database statistics — everything except per-table row counts,
+ * which stream in separately (streamTableCounts) so the panel renders first.
+ */
+export async function computeDatabaseStats(
+  dataSourceId: string,
+  mapping: SchemaMapping,
+  options: StatsOptions = {},
+): Promise<DatabaseStatsCache> {
+  const out: DatabaseStatsCache = {
+    dataSourceId,
+    computedAt: new Date().toISOString(),
+    summary: { patientCount: 0, visitCount: 0, visitDetailCount: 0, tableCount: (await discoverTables(dataSourceId)).length },
+    genderDistribution: { male: 0, female: 0, other: 0 },
+    agePyramid: [],
+    admissionTimeline: [],
+    descriptiveStats: {},
+    tableCounts: [],
+  }
+  const queries = statsQueries(mapping)
+  await statsRunner(dataSourceId, 'stats', options, queries.length)(queries, (i, rows) => queries[i].apply(rows, out))
+  // A block's failure shows empty, so an interrupted run would come back as
+  // zeros: refuse it rather than let it replace the stored figures.
+  options.signal?.throwIfAborted()
+  return out
 }
 
 /** The tables named by the schema mapping, in priority order — these are the
@@ -348,8 +350,8 @@ export async function streamTableCounts(
   dsId: string,
   mapping: SchemaMapping,
   onBatch: (counts: TableRowCount[]) => void,
+  options: StatsOptions = {},
   batchSize = 6,
-  signal?: AbortSignal,
 ): Promise<TableRowCount[]> {
   const all = await discoverTables(dsId)
   const mapped = mappedTableNames(mapping).filter((t) => all.includes(t))
@@ -357,17 +359,27 @@ export async function streamTableCounts(
   const ordered = [...mapped, ...rest]
 
   const results: TableRowCount[] = []
-  for (let i = 0; i < ordered.length; i += batchSize) {
-    const batch = ordered.slice(i, i + batchSize)
-    const counts = await Promise.all(
-      batch.map(async (table) => ({
-        tableName: table,
-        rowCount: await safeQueryCount(dsId, table, signal),
-      })),
-    )
-    signal?.throwIfAborted()
-    results.push(...counts)
-    onBatch(counts)
+  const queries: StatsQuery[] = ordered.map((table, i) => ({
+    key: `t${i}`,
+    sql: `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`,
+    apply: () => {},
+  }))
+  // A batch's counts are handed over together, as they come in the browser.
+  let batch: TableRowCount[] = []
+  try {
+    await statsRunner(dsId, 'counts', options, batchSize)(queries, (i, rows) => {
+      const count = { tableName: ordered[i], rowCount: Number(rows?.[0]?.cnt ?? 0) }
+      results.push(count)
+      batch.push(count)
+      if (batch.length === batchSize) {
+        onBatch(batch)
+        batch = []
+      }
+    })
+  } finally {
+    // Stopped or not, the tables counted so far are kept.
+    if (batch.length) onBatch(batch)
   }
+  options.signal?.throwIfAborted()
   return results
 }

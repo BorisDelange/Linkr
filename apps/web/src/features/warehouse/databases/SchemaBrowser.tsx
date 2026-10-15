@@ -338,7 +338,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
       let total: number | null = null
       const map: NullCounts = new Map()
       if (withStats) {
-        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`)
+        const countRows = await duckdbEngine.queryDataSource(dataSourceId, `SELECT COUNT(*) as cnt FROM ${quoteTableRef(table)}`, { heavy: true })
         total = Number(countRows[0]?.cnt ?? 0)
 
         // Null + distinct counts per column, in one batched round-trip.
@@ -346,7 +346,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
           const parts = cols.map((c) =>
             `SELECT '${escSql(c.column_name)}' as col, COUNT(*) - COUNT(${quoteIdent(c.column_name)}) as null_count, COUNT(DISTINCT ${quoteIdent(c.column_name)}) as distinct_count FROM ${quoteTableRef(table)}`
           )
-          const batchRows = await duckdbEngine.queryDataSource(dataSourceId, parts.join(' UNION ALL '))
+          const batchRows = await duckdbEngine.queryDataSource(dataSourceId, parts.join(' UNION ALL '), { heavy: true })
           for (const row of batchRows) {
             map.set(String(row.col), {
               nullCount: Number(row.null_count),
@@ -424,6 +424,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
         const basicRows = await duckdbEngine.queryDataSource(
           dataSourceId,
           `SELECT COUNT(*) - COUNT(${c}) as null_count, COUNT(DISTINCT ${c}) as distinct_count FROM ${tbl}`,
+          { heavy: true },
         )
         if (cancelled) return
         const nullCount = Number(basicRows[0]?.null_count ?? 0)
@@ -439,6 +440,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
           const numRows = await duckdbEngine.queryDataSource(
             dataSourceId,
             `SELECT MIN(${c}) as min_val, MAX(${c}) as max_val, AVG(${c})::DOUBLE as mean_val FROM ${tbl} WHERE ${c} IS NOT NULL`,
+            { heavy: true },
           )
           if (cancelled) return
           minValue = String(numRows[0]?.min_val ?? '')
@@ -451,6 +453,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
               `WITH bounds AS (SELECT MIN(${c})::DOUBLE as lo, MAX(${c})::DOUBLE as hi FROM ${tbl} WHERE ${c} IS NOT NULL),
                bins AS (SELECT width_bucket(${c}::DOUBLE, lo, hi + 0.0001, 15) as bin, COUNT(*) as cnt FROM ${tbl}, bounds WHERE ${c} IS NOT NULL GROUP BY bin ORDER BY bin)
                SELECT bin, cnt FROM bins`,
+              { heavy: true },
             )
             if (!cancelled) {
               const lo = Number(minValue)
@@ -466,6 +469,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
           const dateRows = await duckdbEngine.queryDataSource(
             dataSourceId,
             `SELECT MIN(${c}) as min_val, MAX(${c}) as max_val FROM ${tbl} WHERE ${c} IS NOT NULL`,
+            { heavy: true },
           )
           if (cancelled) return
           minValue = String(dateRows[0]?.min_val ?? '')
@@ -476,6 +480,7 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
           const topRows = await duckdbEngine.queryDataSource(
             dataSourceId,
             `SELECT ${c}::VARCHAR as val, COUNT(*) as cnt FROM ${tbl} WHERE ${c} IS NOT NULL GROUP BY ${c} ORDER BY cnt DESC LIMIT 20`,
+            { heavy: true },
           )
           if (!cancelled) {
             const nonNull = total - nullCount

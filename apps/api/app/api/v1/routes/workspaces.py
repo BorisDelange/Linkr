@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import audit
+from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import require_global_permission, require_permission
@@ -66,6 +66,7 @@ async def export_zip(
     workspace_id: str,
     body: WorkspaceExportRequest | None = None,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
     """Build the workspace's export ZIP server-side and return it for download —
     the same git-variant tree the versioning flow commits, honoring the export
@@ -91,19 +92,29 @@ async def export_zip(
         sections=opts.sections,
         exclude_entities=opts.exclude_entities,
     )
-    try:
-        zip_bytes = await assemble_workspace_zip(db, workspace, options)
-    except SourceConceptsUnreadable as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
-    audit.bind(action="export", workspace_id=workspace.id,
-               detail=f"workspace export ({len(zip_bytes)} bytes)")
     name = workspace.name.get("en") if isinstance(workspace.name, dict) else workspace.name
     slug = _slugify(name or workspace.id)
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={"content-disposition": f'attachment; filename="{slug}.zip"'},
-    )
+
+    async def work() -> Response:
+        async with deferred.session() as session:
+            fresh = await workspace_service.get(session, workspace_id)
+            if fresh is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+            try:
+                zip_bytes = await assemble_workspace_zip(session, fresh, options)
+            except SourceConceptsUnreadable as e:
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        audit.bind(action="export", workspace_id=workspace_id,
+                   detail=f"workspace export ({len(zip_bytes)} bytes)")
+        return Response(
+            content=zip_bytes,
+            media_type="application/zip",
+            headers={"content-disposition": f'attachment; filename="{slug}.zip"'},
+        )
+
+    # A workspace with big datasets takes minutes to zip: past
+    # `deferred.WAIT_SECONDS` it goes on as a job (core/deferred).
+    return await deferred.respond(user.id, work, deferred.AsJob("Workspace export", workspace_id=workspace_id))
 
 
 @router.patch(

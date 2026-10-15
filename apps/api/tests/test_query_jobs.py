@@ -179,3 +179,114 @@ async def test_a_failing_query_stops_the_job_and_keeps_its_whole_error(client):
     assert "missing_table" in failed["result"]["error"] and "\n" in failed["result"]["error"]
     ok = await client.get(f"{API}/data-sources/{ds}/query-jobs/{job['id']}/results/u0", headers=headers)
     assert ok.json() == {"rows": [{"one": 1}]}
+
+
+async def test_the_query_in_flight_reports_how_far_it_has_read(client, monkeypatch):
+    monkeypatch.setattr(query_jobs, "PROGRESS_POLL_SECONDS", 0.01)
+    monkeypatch.setattr(query_cancel, "progress", lambda query_id, owner: 42.0)
+    reports: list[tuple[dict, int]] = []
+    real_result, real_progress = jobs.JobHandle.set_result, jobs.JobHandle.progress
+    seen: dict = {}
+
+    async def set_result(self, result):
+        seen["result"] = dict(result)
+        await real_result(self, result)
+
+    async def progress(self, pct):
+        if "reading" in seen.get("result", {}):
+            reports.append((seen["result"], pct))
+        await real_progress(self, pct)
+
+    monkeypatch.setattr(jobs.JobHandle, "set_result", set_result)
+    monkeypatch.setattr(jobs.JobHandle, "progress", progress)
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    job = await _start(client, headers, ds, [("u0", "SELECT 1 AS one"), ("u1", SLOW)])
+
+    async def reported():
+        while not any(r["current"] == "u1" for r, _ in reports):
+            await asyncio.sleep(0.02)
+
+    # Generous: under the whole suite's load the job can take a while to start.
+    await asyncio.wait_for(reported(), 30)
+    await client.post(f"{API}/jobs/{job['id']}/cancel", headers=headers)
+    await _settle(job["id"])
+
+    result, pct = next((r, p) for r, p in reports if r["current"] == "u1")
+    # The second of two queries, 42 % read: the job is 71 % through.
+    assert result["reading"] == 42 and result["done"] == ["u0"] and pct == 71
+
+
+async def _concept_run(client, headers, ds, run_id: str) -> None:
+    r = await client.put(f"{API}/data-sources/{ds}/concept-cache/run", headers=headers, json={
+        "manifest": {"runId": run_id, "units": []}, "reset": True,
+    })
+    assert r.status_code == 204, r.text
+
+
+async def test_concept_units_run_as_a_job_and_are_kept_as_the_run_units(client):
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    await _concept_run(client, headers, ds, "run-a")
+    r = await client.post(f"{API}/data-sources/{ds}/concept-cache/units-job", headers=headers, json={
+        "label": "Concepts", "runId": "run-a",
+        "units": [{"key": "records-0", "sql": "SELECT x AS concept_id, 1 AS n FROM t"}],
+    })
+    assert r.status_code == 202, r.text
+    await _settle(r.json()["id"])
+
+    done = await _job(client, headers, ws, r.json()["id"])
+    assert done["status"] == "done" and done["result"]["done"] == ["records-0"]
+    # Kept in the concept cache, not as a result for the client to fetch.
+    assert done["result"]["rows"] == {}
+    status = (await client.get(f"{API}/data-sources/{ds}/concept-cache", headers=headers)).json()
+    assert status["run"]["doneUnits"] == ["records-0"] and not status["exists"]
+
+
+async def test_a_concept_job_assembles_the_list_between_its_units(client):
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    await _concept_run(client, headers, ds, "run-a")
+    r = await client.post(f"{API}/data-sources/{ds}/concept-cache/units-job", headers=headers, json={
+        "label": "Concepts", "runId": "run-a", "units": [
+            {"key": "records-0", "sql": "SELECT x AS concept_id, 1 AS n FROM t"},
+            {"key": "assemble-0", "sql": "SELECT concept_id, sum(n) AS n FROM memory.main._concept_counts GROUP BY 1"},
+        ],
+    })
+    await _settle(r.json()["id"])
+    assert (await _job(client, headers, ws, r.json()["id"]))["status"] == "done"
+    status = (await client.get(f"{API}/data-sources/{ds}/concept-cache", headers=headers)).json()
+    assert status["exists"] and status["run"]["doneUnits"] == ["records-0"]
+    page = await client.post(f"{API}/data-sources/{ds}/concept-cache/query", headers=headers, json={
+        "sql": "SELECT count(*) AS c FROM concepts"})
+    assert page.json()["rows"] == [{"c": 10}]
+
+
+async def test_concept_units_of_a_replaced_run_are_refused(client):
+    headers = await _admin(client)
+    _, ds = await _source(client, headers)
+    await _concept_run(client, headers, ds, "run-a")
+    await _concept_run(client, headers, ds, "run-b")
+    r = await client.post(f"{API}/data-sources/{ds}/concept-cache/units-job", headers=headers, json={
+        "label": "Concepts", "runId": "run-a", "units": [{"key": "records-0", "sql": "SELECT 1 AS concept_id"}],
+    })
+    assert r.status_code == 409
+
+
+async def test_keep_going_records_a_failing_query_and_runs_the_next(client):
+    headers = await _admin(client)
+    ws, ds = await _source(client, headers)
+    r = await client.post(f"{API}/data-sources/{ds}/query-jobs", headers=headers, json={
+        "label": "Checks", "keepGoing": True, "queries": [
+            {"key": "c0", "sql": "SELECT * FROM missing_table"},
+            {"key": "c1", "sql": "SELECT count(*) AS n FROM t", "pushdown": False},
+        ],
+    })
+    assert r.status_code == 202, r.text
+    await _settle(r.json()["id"])
+    job = await _job(client, headers, ws, r.json()["id"])
+    assert job["status"] == "done" and job["result"]["done"] == ["c0", "c1"]
+    assert "missing_table" in job["result"]["errors"]["c0"] and "c1" not in job["result"]["errors"]
+    assert set(job["result"]["ms"]) == {"c0", "c1"}
+    ok = await client.get(f"{API}/data-sources/{ds}/query-jobs/{job['id']}/results/c1", headers=headers)
+    assert ok.json() == {"rows": [{"n": 10}]}

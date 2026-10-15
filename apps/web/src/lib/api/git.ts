@@ -5,7 +5,7 @@
  * export ZIP the frontend already knows how to build (buildProjectZip /
  * buildWorkspaceZip). The backend unpacks it, then diffs / commits / pushes.
  */
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { apiFetch, apiFetchFollowing, apiRequest } from '@/lib/api-client'
 import type { FileChangeType } from '@/types'
 
 export type GitScope =
@@ -102,7 +102,7 @@ function base(scope: GitScope, id: string): string {
  *  On failure throws a GitRemoteError (code + raw), so callers show a friendly
  *  message instead of the raw {detail:{…}} JSON. */
 async function postForm<T>(path: string, form: FormData): Promise<T> {
-  const res = await apiFetch(`/api/v1${path}`, { method: 'POST', body: form })
+  const res = await apiFetchFollowing(`/api/v1${path}`, { method: 'POST', body: form })
   if (!res.ok) throw await gitError(res)
   return res.status === 204 ? (undefined as T) : ((await res.json()) as T)
 }
@@ -260,7 +260,7 @@ export async function gitCloneToZip(
   token: string | undefined,
   workspaceId: string | undefined,
 ): Promise<{ blob: Blob; oid: string | null }> {
-  const res = await apiFetch('/api/v1/git/clone', {
+  const res = await apiFetchFollowing('/api/v1/git/clone', {
     method: 'POST',
     body: JSON.stringify({ url, branch, token: token || undefined, workspaceId }),
   })

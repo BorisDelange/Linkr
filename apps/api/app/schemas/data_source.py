@@ -173,12 +173,17 @@ class QueryRequest(CamelModel):
     # SQL; the server accepts it for any SQL, since the translation admits only a
     # portable SELECT subset over the scope — anything else runs as before.
     pushdown: bool = False
+    # A heavy query of the app's own (an estimate, a report, a profile): it waits
+    # its turn in the heavy-query lane, so it never runs beside another heavy one.
+    heavy: bool = False
 
 
 class QueryJobItem(CamelModel):
     # Names the result: what the client fetches it back by.
     key: str = Field(pattern=r"^[A-Za-z0-9_.-]{1,64}$")
     sql: str
+    # This query's own `pushdown`, over the job's; the app's own SQL only.
+    pushdown: bool | None = None
 
 
 class QueryJobRequest(CamelModel):
@@ -188,6 +193,8 @@ class QueryJobRequest(CamelModel):
     queries: list[QueryJobItem] = Field(min_length=1, max_length=10_000)
     # As QueryRequest.pushdown: the app's own SQL only.
     pushdown: bool = False
+    # A failing query does not end the job: its error is kept by its key.
+    keep_going: bool = False
 
 
 class QueryCancelRequest(CamelModel):
@@ -258,6 +265,13 @@ class EtlRunRequest(CamelModel):
         return out
 
 
+class EtlJobRequest(EtlRunRequest):
+    """An ETL script run as a job (services/data/etl_jobs); `label` names it in
+    the jobs panel."""
+
+    label: str = Field(min_length=1, max_length=255)
+
+
 class ParquetTablePath(CamelModel):
     """One queryable table of a Parquet source, with the absolute path(s) to read.
 
@@ -289,7 +303,7 @@ class CompactStatus(CamelModel):
     side of it, and `null` when DuckDB would not answer.
     """
 
-    status: str  # 'running' | 'done' | 'error'
+    status: str  # 'running' | 'done' | 'error' | 'cancelled'
     size_before: int
     size_after: int | None = None
     data_size: int | None = None

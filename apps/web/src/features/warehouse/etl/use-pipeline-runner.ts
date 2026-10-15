@@ -110,6 +110,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         const rows = await runPipelineSql(pipeline, dsId, resolvedSql, {
           mappingData: mappingDataFor(),
           signal: abort?.signal,
+          onReading: (pct) => useEtlStore.getState().setRunReading(pct),
           onProgress: (done, total, next) => {
             log(file.id, {
               status: 'running',
@@ -210,6 +211,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
       const rows = await runPipelineSql(pipeline, dataSourceId, resolved, {
         mappingData: mappingDataFor(),
         signal: abort?.signal,
+        onReading: (pct) => useEtlStore.getState().setRunReading(pct),
         onProgress: (done, total, next) => log({
           statementsDone: done, statementsTotal: total, currentStatement: next,
         }),

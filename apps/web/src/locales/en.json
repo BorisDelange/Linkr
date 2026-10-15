@@ -658,6 +658,8 @@
     "count_complete": "Counted on {{date}}",
     "count_open_tab": "Database Concepts tab",
     "absent_tables_description": "Counts and patient data read them as empty. Missing: {{tables}}.",
+    "count_job_records": "Concepts of “{{name}}”: rows per table",
+    "count_job_patients": "Concepts of “{{name}}”: patients",
     "count_step_records": "Rows per table",
     "count_step_patients": "Patients, slice by slice",
     "count_phase_planning": "Planning the run",
@@ -676,6 +678,8 @@
     "count_scope_all": "Rows and patients"
   },
   "databases": {
+    "count_tables_job": "Count the tables",
+    "stats_job": "Statistics of “{{name}}”",
     "error_file_missing": "The database « {{name}} » cannot be read: its file is no longer where it was (moved or deleted). Check its connection on the Databases page.",
     "detail_cohorts": "Cohorts",
     "location": "Location",
@@ -949,6 +953,8 @@
     "no_source_description": "Link a database to this project and select it as active to run data quality checks.",
     "no_results": "No scan results yet",
     "no_results_description": "Click \"Run Scan\" to analyze data quality across all tables.",
+    "stop_scan": "Stop",
+    "job_label": "Data quality “{{name}}”",
     "run_scan": "Run Scan",
     "scanning": "Scanning...",
     "score": "Score",
@@ -3620,6 +3626,9 @@
       "open_tab": "Open the {{tab}} tab"
     }
   },
+  "run_steps": {
+    "reading": "{{pct}}% of the data read"
+  },
   "jobs": {
     "title_one": "{{count}} job",
     "title_other": "{{count}} jobs",
@@ -3627,6 +3636,8 @@
     "cancel": "Cancel",
     "cancel_tooltip": "Stop this job",
     "stop": "Stop",
+    "duration_done": "Ran for",
+    "duration_running": "Running for",
     "show_log": "Show output",
     "no_log": "No output.",
     "empty": "No jobs yet.",
@@ -4076,6 +4087,7 @@
     "no_matching_databases": "No database matches this search"
   },
   "etl": {
+    "run_job": "ETL “{{name}}”",
     "gen_warn_table_not_in_ddl": "{{table}} is not in the target's DDL: only the columns its mapping names are written.",
     "gen_warn_no_target_relation": "The target schema does not say where {{relation}} goes (no visual relation): not written.",
     "gen_warn_no_target_table": "Table {{table}} is not loaded: pick a target table.",
@@ -5471,6 +5483,7 @@
     "run_step_crossings": "Compute the crossings",
     "run_step_saving": "Save the results",
     "compute_running": "Computing…",
+    "compute_running_last": "Computing… the last run took {{duration}}",
     "estimate_stop": "Stop",
     "estimate_ranking": "ranking",
     "concept_level_summary": "Counted by {{level}}",

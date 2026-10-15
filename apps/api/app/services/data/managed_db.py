@@ -156,7 +156,7 @@ def data_size(path: Path) -> int | None:
 
 
 def compact(
-    path: Path, on_bytes: Callable[[int], None] | None = None
+    path: Path, on_bytes: Callable[[int], None] | None = None, cancel: threading.Event | None = None
 ) -> tuple[int, int]:
     """Rewrite the managed file without its free blocks. Returns (before, after).
 
@@ -193,11 +193,20 @@ def compact(
     tmp = path.with_name(f"{path.stem}.compacting-{os.getpid()}.duckdb")
     tmp.unlink(missing_ok=True)
 
+    con = duckdb.connect()
     stop = threading.Event()
     watcher: threading.Thread | None = None
-    if on_bytes is not None:
+    if on_bytes is not None or cancel is not None:
         def _watch() -> None:
-            while not stop.wait(1.0):
+            ticks = 0
+            # A tenth of a second for a cancel, a second for the byte count.
+            while not stop.wait(0.1):
+                # `cancel`: the copy is interrupted, the original file untouched.
+                if cancel is not None and cancel.is_set():
+                    con.interrupt()
+                ticks += 1
+                if on_bytes is None or ticks % 10:
+                    continue
                 try:
                     on_bytes(tmp.stat().st_size)
                 except OSError:
@@ -208,7 +217,6 @@ def compact(
         watcher = threading.Thread(target=_watch, daemon=True)
         watcher.start()
 
-    con = duckdb.connect()
     try:
         con.execute(f"SET extension_directory = '{_ext_dir()}'")
         con.execute(f"ATTACH '{_sql_literal(str(path))}' AS src (READ_ONLY)")

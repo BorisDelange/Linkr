@@ -49,11 +49,8 @@ two heavy DuckDB queries at once (container OOM). Inventory of every heavy task 
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | **[TO TEST]** Query job primitive + data catalog as proof of concept (plan §2–3, built 2026-10-14 on `feature/gateway-timeouts`) | M |
-| 🔜 | Catalog sizing (`planSlices`) and yield estimates through the same job | S |
-| 🔜 | Concept counts, DQ runs, database statistics on the same primitive | M |
-| 🔜 | `deferred` safety net on `/query` for interactive queries | S |
-| 🔜 | Server-side heavy routes as jobs (cohort freeze, exports, git, …) and ad-hoc tasks into `jobs` | L |
-| 🔜 | Unblock the event loop: `fs/rebind-copy`, `uploads/{id}/complete` | S |
+| 🔜 | **[TO TEST]** Concept counts (one job per step, assemblies inside the job), DQ runs (keep-going job, followed again after a closed tab), database statistics — and progress inside a query (`query_progress`, DuckDB only) on the step lines and in the Jobs panel (plan §2, §3 bis, built 2026-10-14 on `feature/heavy-jobs`) | M |
+| 🔜 | **[TO TEST]** `deferred` backed by jobs (long work → cancellable `task` job, poll returns JSON or file), `/query` on it with a `heavy` lane for the app's heavy queries, every group-B route on it, compaction + vocabulary import as jobs, ETL as a job (WebSocket gone), event-loop blockers moved to threads, stats remembered across a closed tab (plan §3 ter, built 2026-10-14 on `feature/heavy-jobs`) | L |
 
 ## To test manually in the app
 

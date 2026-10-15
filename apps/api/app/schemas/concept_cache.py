@@ -1,6 +1,9 @@
 from datetime import datetime
 
+from pydantic import Field
+
 from app.schemas.base import CamelModel
+from app.schemas.data_source import QueryJobItem
 
 
 class ConceptCacheAssembleRequest(CamelModel):
@@ -32,14 +35,14 @@ class ConceptRunStart(CamelModel):
     reset: bool = False
 
 
-class ConceptUnitRequest(CamelModel):
-    """One counting unit: a single SELECT whose rows are kept as the unit's file,
-    for the run `run_id` (the manifest's `runId`) — refused once that run was
-    replaced. `query_id` makes it cancellable through `/query/cancel`."""
+class ConceptUnitsJobRequest(CamelModel):
+    """Counting units of run `run_id` run one after the other as a job, each kept
+    as its unit's file; a key starting `assemble-` writes the list from the units
+    done so far instead (services/data/query_jobs.write_concept_units)."""
 
-    sql: str
+    label: str = Field(min_length=1, max_length=255)
     run_id: str
-    query_id: str | None = None
+    units: list[QueryJobItem] = Field(min_length=1, max_length=10_000)
 
 
 class ConceptPageRequest(CamelModel):

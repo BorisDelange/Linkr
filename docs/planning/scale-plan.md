@@ -88,8 +88,9 @@ joint les dictionnaires aux unités faites (vue `memory.main._concept_counts`).
   générique — la boucle du catalog, elle, sauvegarde un état en mémoire et ne
   s'est pas prêtée à l'extraction), `use-concept-count.ts`, `ConceptCountNotice`,
   `databases/DatabaseConceptsTab.tsx`.
-- Serveur : routes `PUT …/concept-cache/run`, `POST …/units/{key}` (annulable par
-  `/query/cancel`), `POST …/assemble` ; l'ancienne route `refresh` a disparu.
+- Serveur : routes `PUT …/concept-cache/run`, `POST …/units-job` (une étape = un job
+  de requêtes, assemblages compris — voir `heavy-jobs-plan.md`), `POST …/assemble` ;
+  l'ancienne route `refresh` a disparu.
 - Mode client seul : inchangé (comptes en ligne).
 
 ### 1.4 Mesures (banc `scratchpad`, Mac 8 cœurs / 16 Go / SSD)

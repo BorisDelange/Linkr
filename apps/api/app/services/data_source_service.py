@@ -647,14 +647,13 @@ def _keep_managed_path(config: dict, current: dict | None) -> dict:
 class CompactionState:
     """Live state of one compaction, polled by the client.
 
-    In memory rather than a `jobs` row: a Job is keyed by project, and a database
-    belongs to the workspace, so persisting one would mean a schema change and a
-    migration to carry a single integer. The cost of losing this on restart is
-    that the UI stops reporting progress — the compaction itself is a temp file
+    In memory, for the byte count the page polls; the compaction is also a job
+    of the database's workspace, for the panel, which can stop it. Losing this on
+    restart only stops the progress report — the compaction itself is a temp file
     plus an atomic rename, which is safe to interrupt at any point.
     """
 
-    status: str  # 'running' | 'done' | 'error'
+    status: str  # 'running' | 'done' | 'error' | 'cancelled'
     size_before: int
     #: Denominator for the bar: bytes the data occupies, free blocks excluded.
     #: None when DuckDB would not answer — the UI then shows bytes without a %.
@@ -674,7 +673,7 @@ def compaction_state(source_id: str) -> CompactionState | None:
         return _compactions.get(source_id)
 
 
-async def start_compaction(source: DataSource) -> CompactionState:
+async def start_compaction(source: DataSource, user_id: int | None = None) -> CompactionState:
     """Begin compacting a managed database, returning once it is under way.
 
     Runs detached so the request returns immediately: a multi-GB rewrite outlives
@@ -718,13 +717,19 @@ async def start_compaction(source: DataSource) -> CompactionState:
         # value that is either the old one or the new one, never a torn one.
         state.bytes_written = n
 
+    cancel = threading.Event()
+
     def _run() -> None:
         try:
-            before, after = managed_db.compact(path, _on_bytes)
+            before, after = managed_db.compact(path, _on_bytes, cancel)
         except Exception as e:  # noqa: BLE001 — reported through the polled state
+            if cancel.is_set():
+                state.status = "cancelled"
+                return
             state.status = "error"
             state.error = str(e)
-            return
+            raise
+
         state.size_before = before
         state.size_after = after
         state.bytes_written = after
@@ -733,9 +738,26 @@ async def start_compaction(source: DataSource) -> CompactionState:
     # Held in a module-level set: asyncio keeps only a weak reference to a task,
     # so one nobody holds can be collected mid-flight and the compaction would
     # stop silently part-way through.
-    task = asyncio.create_task(asyncio.to_thread(_run))
+    async def _supervise() -> None:
+        try:
+            await asyncio.to_thread(_run)
+        except asyncio.CancelledError:
+            # Stopped from the jobs panel: the thread interrupts its copy.
+            cancel.set()
+            raise
+
+    task = asyncio.create_task(_supervise())
     _compaction_tasks.add(task)
     task.add_done_callback(_compaction_tasks.discard)
+    if source.workspace_id and user_id is not None:
+        from app.core import deferred
+        from app.services.execution import jobs
+
+        async with deferred.session() as db:
+            job = await jobs.create(db, None, user_id, "compact", f"Compact {source.name}", workspace_id=source.workspace_id)
+        await jobs.adopt(job.id, task)
+    else:
+        task.add_done_callback(lambda t: t.cancelled() or t.exception())
     return state
 
 
@@ -986,12 +1008,14 @@ async def run_etl(
     user_id: int,
     mapping_data: dict[str, str] | None = None,
     on_statement: Callable[[int, int, str], None] | None = None,
+    handle: db_connect.EtlRunHandle | None = None,
 ) -> list[dict]:
     """Run ETL SQL with the target writable and the other roles attached read-only.
 
     `on_statement(index, total, sql)` is invoked from the worker THREAD before
     each statement, so a streaming caller must marshal it back to the loop
-    (`call_soon_threadsafe`) rather than await inside it."""
+    (`call_soon_threadsafe`) rather than await inside it. `handle`: the run's,
+    for a caller that reads its progress."""
     if not is_managed(target):
         raise ValueError(
             "the pipeline target must be a database created from a schema"
@@ -1026,7 +1050,7 @@ async def run_etl(
     # The handle lets us interrupt the statement so the thread unwinds and frees
     # the file. Shielded so the cancellation reaches us here rather than tearing
     # down the await while the thread is still bound to the connection.
-    handle = db_connect.EtlRunHandle()
+    handle = handle or db_connect.EtlRunHandle()
     held = _etl_held_ids(target, roles)
     _claim_for_etl(held, handle)
     task = asyncio.create_task(

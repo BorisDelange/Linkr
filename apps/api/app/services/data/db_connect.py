@@ -170,11 +170,15 @@ def memory_limit() -> str | None:
 
 def _open() -> duckdb.DuckDBPyConnection:
     """A new in-memory DuckDB, held under `memory_limit()` so it spills to disk
-    rather than get the container killed."""
+    rather than get the container killed, its query progress readable."""
     con = duckdb.connect()
     limit = memory_limit()
     if limit:
         con.execute(f"SET memory_limit = '{_require_memory(limit)}'")
+    # Without it `query_progress()` answers -1: a query job reads it to show how
+    # much of the data a long query has read (query_cancel.progress).
+    con.execute("SET enable_progress_bar = true")
+    con.execute("SET enable_progress_bar_print = false")
     return con
 
 
@@ -1456,6 +1460,19 @@ class EtlRunHandle:
     def cancelled(self) -> bool:
         with self._lock:
             return self._cancelled
+
+    def progress(self) -> float | None:
+        """Percent of its data the statement in flight has read; None when not
+        running or DuckDB cannot tell (see query_cancel.progress)."""
+        with self._lock:
+            con = self._con if not self._done else None
+            if con is None:
+                return None
+            try:
+                value = con.query_progress()
+            except Exception:  # the statement finishing as we read is fine
+                return None
+        return value if value > 0 else None
 
 
 def run_etl_sql(

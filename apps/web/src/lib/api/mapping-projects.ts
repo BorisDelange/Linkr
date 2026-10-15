@@ -1,4 +1,4 @@
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { apiFetch, apiFetchFollowing, apiRequest } from '@/lib/api-client'
 import { uploadFileInChunks } from '@/lib/api/upload'
 import { SourceConceptsUnreadableError } from '@/lib/concept-mapping/export-masking'
 import type {
@@ -70,7 +70,7 @@ export async function fetchExportZipFromServer(
     for (const m of scores.methods) params.append('scoreMethods', m)
   }
   const query = params.size ? `?${params}` : ''
-  const res = await apiFetch(`/api/v1${PROJ}/${projectId}/export-zip${query}`)
+  const res = await apiFetchFollowing(`/api/v1${PROJ}/${projectId}/export-zip${query}`)
   // The route's only 400: a source-concepts file it cannot read, hence cannot mask.
   if (res.status === 400) throw new SourceConceptsUnreadableError()
   if (!res.ok) return null

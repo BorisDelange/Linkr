@@ -50,8 +50,9 @@ export type CatalogPhaseExecutor = (phase: {
   /** A job now carries the phase: saved at once, so a tab closed before its first
    *  result still resumes by following it. */
   jobStarted: (jobId: string) => Promise<void>
-  /** The query at `offset` is the one being worked on, for the progress line. */
-  starting: (offset: number) => void
+  /** The query at `offset` is the one being worked on, for the progress line;
+   *  `reading`, the percent of its data read when the database can tell. */
+  starting: (offset: number, reading?: number | null) => void
   onRows: (offset: number, rows: Record<string, unknown>[]) => Promise<void>
   signal: AbortSignal
 }) => Promise<void>
@@ -106,6 +107,8 @@ export interface CatalogComputationInput {
 export interface CatalogComputationHooks {
   step?: (step: CatalogRunStep) => void
   unit?: (info: CatalogUnitInfo) => void
+  /** Percent of its data the query in flight has read; null when unknown or once it is done. */
+  reading?: (pct: number | null) => void
   /** Units done so far, per step, and the planned total once known. */
   progress?: (computed: number, steps: Partial<Record<CatalogRunStep, CatalogStepProgress>>, total: number | null) => void
   saved?: (computed: number) => void
@@ -187,6 +190,7 @@ export async function runCatalogComputation(
         announce(offset)
         units[offset - first].apply(state, rows)
         offset++
+        hooks.reading?.(null)
         hooks.progress?.(offset, stepCounts(all(), offset, sized), total)
         if (Date.now() - savedAt >= SAVE_EVERY_MS) {
           await save(false)
@@ -207,7 +211,10 @@ export async function runCatalogComputation(
             job = { id, phase }
             await save(false)
           },
-          starting: announce,
+          starting: (at, reading) => {
+            announce(at)
+            hooks.reading?.(reading ?? null)
+          },
           onRows: async (at, rows) => {
             signal.throwIfAborted()
             // Already added in: a resumed job hands back what it finished.

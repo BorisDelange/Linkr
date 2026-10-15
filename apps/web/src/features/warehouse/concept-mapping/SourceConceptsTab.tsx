@@ -385,7 +385,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
         : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes, walked: saved?.walked },
       query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal }),
       queryAll: (sql, signal) => queryDataSourceAll(dataSource.id, sql, { signal }),
-      queryAggregate: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, allRows: true }),
+      queryAggregate: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, allRows: true, heavy: true }),
       persist,
       persistError: async (message) => {
         if (!saved) return

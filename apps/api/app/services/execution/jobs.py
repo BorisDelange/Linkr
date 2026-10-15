@@ -13,7 +13,7 @@ reconciled to ``error`` at startup — the row survives, the process does not.
 
 import asyncio
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
@@ -27,6 +27,8 @@ _tasks: dict[str, asyncio.Task] = {}
 # reverse. "build" also takes script runs and derivations.
 _LANE_CAPS = {"build": "max_build_concurrency", "heavy_query": "max_heavy_queries"}
 _semaphores: dict[str, asyncio.Semaphore] = {}
+# Status writes of adopted tasks still in flight (see adopt).
+_status_writes: set[asyncio.Task] = set()
 
 
 def _sem(lane: str) -> asyncio.Semaphore:
@@ -68,6 +70,39 @@ def launch(job_id: str, body, *, lane: str = "build") -> None:
     its lane's semaphore; records status/log/progress transitions in its own DB
     session."""
     _tasks[job_id] = asyncio.create_task(_run(job_id, body, audit.actor(), lane))
+
+
+def lane_slot(lane: str) -> asyncio.Semaphore:
+    """The lane's semaphore, for work run outside a job body that must still wait
+    its turn (a deferred request, core/deferred)."""
+    return _sem(lane)
+
+
+async def adopt(job_id: str, task: asyncio.Task) -> None:
+    """Make an already running task a job: cancellable from the panel, its status
+    following the task's end. For work that became long only once started (a
+    deferred request, core/deferred)."""
+    # Written before the end can be: the two must not race.
+    await _set(job_id, status="running")
+    _tasks[job_id] = task
+
+    def finished(t: asyncio.Task) -> None:
+        _tasks.pop(job_id, None)
+        if t.cancelled():
+            fields = {"status": "cancelled"}
+        elif t.exception() is not None:
+            fields = {"status": "error", "log_tail": str(t.exception())[-4000:]}
+        else:
+            fields = {"status": "done", "progress": 100}
+        # Held until written: the loop keeps only a weak reference to a task.
+        write = asyncio.get_running_loop().create_task(_set(job_id, **fields))
+        _status_writes.add(write)
+        write.add_done_callback(_status_writes.discard)
+
+    if task.done():
+        finished(task)
+    else:
+        task.add_done_callback(finished)
 
 
 async def run_now(job_id: str, body) -> None:
@@ -126,7 +161,15 @@ class JobHandle:
         await _set(self.job_id, result=result)
 
 
+_ENDED = ("done", "error", "cancelled")
+
+
 async def _set(job_id: str, **fields) -> None:
+    status = fields.get("status")
+    if status == "running":
+        fields["started_at"] = func.now()
+    elif status in _ENDED:
+        fields["finished_at"] = func.now()
     async with async_session() as db:
         await db.execute(update(Job).where(Job.id == job_id).values(**fields))
         await db.commit()
@@ -196,6 +239,6 @@ async def reconcile_on_startup() -> None:
         await db.execute(
             update(Job)
             .where(Job.status.in_(("running", "queued")))
-            .values(status="error", log_tail="Interrupted by server restart")
+            .values(status="error", log_tail="Interrupted by server restart", finished_at=func.now())
         )
         await db.commit()

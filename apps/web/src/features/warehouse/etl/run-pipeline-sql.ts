@@ -1,5 +1,7 @@
 import { isServerMode } from '@/lib/api-client'
-import { runEtlStream } from '@/lib/api/etl-run-ws'
+import { EtlJobCancelledError, runEtlJob } from '@/lib/api/etl-jobs'
+import i18n from '@/lib/i18n'
+import { localized } from '@/lib/localized'
 import * as duckdbEngine from '@/lib/duckdb/engine'
 import type { DatabaseConnectionConfig, DataSource, EtlPipeline } from '@/types'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -32,9 +34,11 @@ export interface RunOptions {
    *  instead of an opaque "running". `next` is the statement about to run, so the
    *  counter can name what it is waiting on. */
   onProgress?: (done: number, total: number, next?: string) => void
-  /** Stops between statements when the user hits Stop. A statement already in
-   *  flight runs to completion — DuckDB has no mid-query cancellation here. */
+  /** Stops between statements when the user hits Stop; on the server, the job
+   *  is cancelled, which interrupts the statement in flight. */
   signal?: AbortSignal
+  /** Percent of its data the statement in flight has read (server, when DuckDB can tell). */
+  onReading?: (pct: number | null) => void
   /** `mapping.<name>` exports the script reads, as CSV text, keyed by export
    *  name. Supplied per run: the rows live outside the versioned script. */
   mappingData?: Record<string, string>
@@ -54,13 +58,13 @@ export async function runPipelineSql(
   sql: string,
   options: RunOptions = {},
 ): Promise<Record<string, unknown>[]> {
-  const { onProgress, signal, mappingData = {} } = options
+  const { onProgress, onReading, signal, mappingData = {} } = options
 
-  // Server mode with a managed target: send the script WHOLE over the streaming
-  // endpoint. Splitting it here meant one request — and one DuckDB connection —
-  // per statement, so a script could not carry `SET VARIABLE` or a temp table
-  // from one statement to the next. The server splits it instead and reports
-  // each statement, so progress survives without the session being cut up.
+  // Server mode with a managed target: send the script WHOLE as a server job.
+  // Splitting it here meant one request — and one DuckDB connection — per
+  // statement, so a script could not carry `SET VARIABLE` or a temp table from
+  // one statement to the next. The server splits it instead and reports each
+  // statement, so progress survives without the session being cut up.
   const streamTarget = serverStreamTarget(pipeline)
   if (streamTarget) {
     if (signal?.aborted) throw new RunAbortedError()
@@ -69,8 +73,10 @@ export async function runPipelineSql(
     // announces a statement BEFORE running it, exactly like the loop below.
     let seen = 0
     try {
-      const rows = await runEtlStream(streamTarget, sql, roles, mappingData, {
+      const label = i18n.t('etl.run_job', { name: pipeline ? localized(pipeline.name, i18n.language) : streamTarget })
+      const rows = await runEtlJob(streamTarget, label, sql, roles, mappingData, {
         signal,
+        onReading,
         onStatement: (index, total, next) => {
           seen = total
           onProgress?.(index, total, next)
@@ -79,8 +85,8 @@ export async function runPipelineSql(
       onProgress?.(seen, seen, undefined)
       return rows
     } catch (err) {
-      // A socket closed by Stop is the stop, not a failure.
-      if (signal?.aborted) throw new RunAbortedError()
+      // A stop — from this page or from the jobs panel — is not a failure.
+      if (signal?.aborted || err instanceof EtlJobCancelledError) throw new RunAbortedError()
       throw err
     }
   }

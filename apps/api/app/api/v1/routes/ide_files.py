@@ -226,7 +226,7 @@ async def copy_from_server(
             order=0,
         )
 
-    result = await deferred.respond(user.id, work)
+    result = await deferred.respond(user.id, work, deferred.AsJob(f"Copy {body.path}", project_uid=body.project_uid))
     if isinstance(result, IdeFileResponse):
         await _notify(db, request, user, "created", body.project_uid, body.path)
         return result

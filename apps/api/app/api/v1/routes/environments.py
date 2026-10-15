@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
+from app.core import deferred
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission, has_project_permission
@@ -138,8 +139,10 @@ async def check_env_updates(
     # Off the event loop: this shells out to Rscript/uv against the package index
     # (up to the 120s edit timeout). Run inline it froze the single worker, and the
     # route is only `read`-gated, so any project reader could stall the whole API.
-    return await asyncio.to_thread(
-        environments.check_updates, project_uid, language, checked_at
+    return await deferred.respond(
+        user.id,
+        lambda: asyncio.to_thread(environments.check_updates, project_uid, language, checked_at),
+        deferred.AsJob(f"Check {environments.language_label(language)} updates", project_uid=project_uid),
     )
 
 
@@ -180,6 +183,23 @@ async def set_env_options(
     }
 
 
+async def _package_op(user: User, project_uid: str, language: str, label: str, op):
+    """A package operation, run as its tracked job (see run_package_op_as_job). A
+    resolve against a slow index outlives a gateway's timeout: past
+    `deferred.WAIT_SECONDS` the request answers 202 and the client polls (the job
+    is already in the panel, cancellable there)."""
+
+    async def work():
+        async with deferred.session() as session:
+            try:
+                env = await environments.run_package_op_as_job(session, project_uid, language, user.id, label, op)
+            except (ValueError, ProvisionError) as e:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            return _env_response(env)
+
+    return await deferred.respond(user.id, work)
+
+
 @router.post(
     "/projects/{project_uid}/environments/{language}/packages",
     response_model=EnvironmentResponse,
@@ -199,16 +219,12 @@ async def add_env_packages(
     if not body.packages:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No packages given")
     label = f"Add {', '.join(body.packages)} to {environments.language_label(language)}"
-    try:
-        env = await environments.run_package_op_as_job(
-            db, project_uid, language, user.id, label,
-            lambda job_db, on_log: environments.add_packages(
-                job_db, project_uid, language, body.packages, on_log=on_log
-            ),
-        )
-    except (ValueError, ProvisionError) as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return _env_response(env)
+    return await _package_op(
+        user, project_uid, language, label,
+        lambda job_db, on_log: environments.add_packages(
+            job_db, project_uid, language, body.packages, on_log=on_log
+        ),
+    )
 
 
 # Spec filenames a language legitimately versions (manifest + lockfile + activation).
@@ -274,16 +290,12 @@ async def remove_env_package(
                 f"'{package}' is a kernel package and cannot be removed",
             )
     label = f"Remove {package} from {environments.language_label(language)}"
-    try:
-        env = await environments.run_package_op_as_job(
-            db, project_uid, language, user.id, label,
-            lambda job_db, on_log: environments.remove_package(
-                job_db, project_uid, language, package, on_log=on_log
-            ),
-        )
-    except (ValueError, ProvisionError) as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return _env_response(env)
+    return await _package_op(
+        user, project_uid, language, label,
+        lambda job_db, on_log: environments.remove_package(
+            job_db, project_uid, language, package, on_log=on_log
+        ),
+    )
 
 
 @router.post(
@@ -304,11 +316,18 @@ async def install_preset(
     packages = environments.preset_for(
         workspace.default_env_packages if workspace else None, language
     )
-    try:
-        env = await environments.install_preset(db, project_uid, language, packages)
-    except (ValueError, ProvisionError) as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return _env_response(env)
+    async def work():
+        async with deferred.session() as session:
+            try:
+                env = await environments.install_preset(session, project_uid, language, packages)
+            except (ValueError, ProvisionError) as e:
+                raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            return _env_response(env)
+
+    # Re-locking a whole preset takes minutes: past `deferred.WAIT_SECONDS` it goes
+    # on as a job (core/deferred).
+    label = f"Default packages for {environments.language_label(language)}"
+    return await deferred.respond(user.id, work, deferred.AsJob(label, project_uid=project_uid))
 
 
 @router.post(
@@ -330,16 +349,12 @@ async def upgrade_env_packages(
         package = _valid_package(package)
     target = package or "all packages"
     label = f"Update {target} in {environments.language_label(language)}"
-    try:
-        env = await environments.run_package_op_as_job(
-            db, project_uid, language, user.id, label,
-            lambda job_db, on_log: environments.upgrade(
-                job_db, project_uid, language, package, on_log=on_log
-            ),
-        )
-    except (ValueError, ProvisionError) as e:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
-    return _env_response(env)
+    return await _package_op(
+        user, project_uid, language, label,
+        lambda job_db, on_log: environments.upgrade(
+            job_db, project_uid, language, package, on_log=on_log
+        ),
+    )
 
 
 @router.post(

@@ -1,4 +1,4 @@
-import { apiFetch, apiRequest } from '@/lib/api-client'
+import { apiFetchFollowing, apiRequest } from '@/lib/api-client'
 import type { ProjectStorage } from '@/lib/storage'
 import type { Project } from '@/types'
 
@@ -9,7 +9,7 @@ import type { Project } from '@/types'
 export async function fetchProjectExportZipFromServer(
   uid: string,
 ): Promise<Blob | null> {
-  const res = await apiFetch(`/api/v1/projects/${encodeURIComponent(uid)}/export-zip`)
+  const res = await apiFetchFollowing(`/api/v1/projects/${encodeURIComponent(uid)}/export-zip`)
   if (!res.ok) return null
   return await res.blob()
 }

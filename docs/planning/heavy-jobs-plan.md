@@ -20,7 +20,7 @@ deux grosses requêtes DuckDB simultanées dépassent la mémoire du container, 
 
 ## 1. Inventaire
 
-État au 2026-10-14. « Mode » : **sync** = une requête HTTP qui attend ; **boucle** = le
+État au 2026-10-14, §3 bis et §3 ter compris. « Mode » : **sync** = une requête HTTP qui attend ; **boucle** = le
 navigateur enchaîne des requêtes courtes ; **deferred** = 202 + relève ; **job** = table
 `jobs` ; **tâche** = tâche en mémoire avec sa propre relève ; **WS** = WebSocket.
 
@@ -30,40 +30,43 @@ La grande majorité. Une seule primitive serveur (le *job de requêtes*, §2) le
 
 | Tâche | Mode | Survit à l'onglet fermé | Annulable | Cible |
 |---|---|---|---|---|
-| Data catalog : calcul (aussi via MCP) | boucle | non (reprise) | oui | **job — preuve de concept** |
-| Data catalog : estimation des rendements | boucle, non découpée | non | au démontage | job |
-| Liste des concepts : décompte par unités | boucle | non (reprise) | oui | job |
-| Statistiques d'une base | boucle (~10 requêtes) | non | oui | job |
-| Comptage de toutes les tables, profil de colonne, qualité ETL | sync / boucle | non | non | job |
-| Qualité des données : exécution d'un jeu de règles | boucle séquentielle | **non, résultats perdus** | **non** | job |
-| Cohorte : exécution, rapport, tables | boucle | non | en partie | job (exécution, rapport) |
-| Extraction des concepts sources (mapping) | boucle | non (reprise) | oui | job |
-| Éditeur SQL (base, scripts, IDE, Rmd) | sync | non | **non** | interactif + `deferred` |
-| Données patient, statistiques d'un concept, nombre de patients | sync | non | rarement | interactif + `deferred` |
+| Data catalog : calcul (aussi via MCP) | **job** (serveur) | oui (suit le job) | oui | fait (§3) |
+| Data catalog : estimation des rendements, dimensionnement | boucle, requêtes `heavy` | non | oui | fait (§3 ter) |
+| Liste des concepts : décompte par unités | **job** par étape | oui (suit le job) | oui | fait (§3 bis) |
+| Statistiques d'une base | **job** (statistiques, puis comptage des tables) | oui (suit le job) | oui | fait (§3 bis) |
+| Comptage de toutes les tables | **job** | non | oui | fait (§3 ter) |
+| Profil de colonne, qualité ETL | requêtes `heavy` | non | oui (panneau) | fait (§3 ter) |
+| Qualité des données : exécution d'un jeu de règles | **job** | oui (suit le job) | oui | fait (§3 bis) |
+| Cohorte : exécution, rapport, tables | requêtes `heavy` | non | oui (panneau) | fait (§3 ter) |
+| Extraction des concepts sources (mapping) | boucle, classement `heavy` | non (reprise) | oui | fait (§3 ter) |
+| Éditeur SQL (base, scripts, IDE, Rmd) | `deferred` | non | oui (panneau) | fait (§3 ter) |
+| Données patient, statistiques d'un concept, nombre de patients | `deferred` | non | oui (panneau) | fait (§3 ter) |
 
 ### B. Travail lourd déjà côté serveur, en requête synchrone
 
 | Tâche | Route | Cible |
 |---|---|---|
-| Gel d'une cohorte (matérialisation, sans plafond de lignes) | `POST /cohorts/{id}/materialize` | job |
-| Dataset depuis une requête (MCP seul, sans plafond) | `POST /dataset-files/from-query` | job |
-| Commit + push git, clone | `git.py` | job |
-| Export ZIP espace de travail / projet / mapping | `export-zip` | job |
-| Table globale des mappings, import de scores | `mapping_projects.py` | job |
-| Création d'une base depuis un DDL, déplacement de fichier | `data_sources.py` | job |
-| Paquets : ajout/suppression (job, mais la requête attend), preset, mises à jour | `environments.py` | job sans attente |
-| Inspection d'un export ATHENA (relancée à l'import) | `vocabulary-library/inspect` | job |
+| Gel d'une cohorte (matérialisation, sans plafond de lignes) | `POST /cohorts/{id}/materialize` | fait (`deferred`, lourde) |
+| Dataset depuis une requête (MCP seul, sans plafond) | `POST /dataset-files/from-query` | fait (`deferred`, lourde) |
+| Commit + push git, clone | `git.py` | fait (`deferred`) ; statut et diff : non |
+| Export ZIP espace de travail / projet / mapping | `export-zip` | fait (`deferred`) ; réglages : non |
+| Table globale des mappings, import et pull de scores | `mapping_projects.py`, `git.py` | fait (`deferred`, lourde) |
+| Déplacement de fichier ; création depuis un DDL | `data_sources.py` | fait (`deferred`) ; DDL : non (rapide) |
+| Paquets : ajout/suppression, preset, mises à jour | `environments.py` | fait (`deferred`) |
+| Inspection d'un export ATHENA (relancée à l'import) | `vocabulary-library/inspect`, `/import` | fait (`deferred`) |
 
 ### C. Tâches de fond ad hoc, à ranger dans la table `jobs`
 
 Compactage d'une base, import de vocabulaires (l'interface ne peut pas s'y raccrocher), et
 `deferred` lui-même. Aucune n'est annulable, toutes sont perdues au redémarrage.
+**Fait (§3 ter)** : les trois sont des jobs du panneau, annulables.
 
 ### D. Flux WebSocket
 
 - **Exécution ETL** : rien n'est envoyé pendant une instruction, donc une instruction plus
   longue que le délai d'inactivité de la passerelle coupe la socket, et la coupure annule le
   run. Elle échoue aussi si la passerelle bloque les WebSockets. Cible : job, flux en option.
+  **Fait (§3 ter)** : job ETL, la WebSocket a disparu.
 - **Terminal** : interactif par nature, reste en WebSocket.
 
 ### E. Déjà des jobs
@@ -74,6 +77,7 @@ Dérivation d'une base depuis une cohorte, construction d'environnement, « Run 
 
 `fs/rebind-copy` (copie de dossier sur la boucle d'événements) et `uploads/{id}/complete`
 (réassemblage des morceaux sur la boucle) : pendant la copie, plus personne n'a de réponse.
+**Fait (§3 ter)** : les deux passent dans un thread.
 
 ---
 
@@ -100,6 +104,20 @@ de chacune. Une requête seule est le cas d'une liste d'un élément.
   tournent jamais ensemble.
 - **Annulation** : `POST /jobs/{id}/cancel` interrompt la requête DuckDB en cours
   (`query_cancel` / `con.interrupt()`), pas seulement la tâche asyncio.
+- **Runner** : ce que fait une requête est un paramètre du job. Par défaut (`read_rows`)
+  le chemin de `/query` et un fichier de résultat ; `write_concept_units` écrit l'unité
+  dans le cache des concepts (aucun résultat à rapatrier). Chaque requête peut porter son
+  propre `pushdown` (jamais pour le SQL écrit à la main). `keepGoing` : une requête en
+  échec n'arrête pas le job, son erreur est gardée sous sa clé (`errors`). Le job garde
+  aussi la durée de chaque requête (`ms`).
+- **Progression dans une requête** : toutes les connexions DuckDB du serveur ont
+  `enable_progress_bar` ; pendant une requête, le job lit `con.query_progress()` chaque
+  seconde et publie `current` + `reading` (pourcentage des données lues), et une
+  `progress` de job qui compte la fraction de la requête en cours (panneau Jobs). C'est la
+  part des lignes lues, pas le temps restant : une agrégation finale reste sur son dernier
+  chiffre. Une requête calculée par Postgres/MySQL/Doris (pushdown) n'en donne aucune —
+  l'interface montre alors le temps écoulé de l'étape (`RunSteps`), et le catalog la durée
+  de son dernier calcul.
 
 **Client** (`lib/api/query-jobs.ts`)
 
@@ -138,6 +156,53 @@ tests vitest (plan des étapes, reprise avec job) et pytest (route, annulation, 
 fermant l'onglet au milieu ; et deux catalogs lancés ensemble passent l'un après l'autre sans
 que l'API soit tuée.
 
+## 3 bis. Concepts, qualité, statistiques — construit le 2026-10-14
+
+À valider à la main dans `docker/spe-sim` (§4).
+
+- **Décompte des concepts** (`concept-count-runner.ts`) : un job par étape (lignes par
+  table, puis patients par tranche), route `POST …/concept-cache/units-job`. L'assemblage
+  de la liste est une requête du job (clé `assemble-…`) : après la dernière unité de
+  chaque étape et environ tous les dixièmes des patients — jamais à côté d'une unité,
+  donc jamais deux grosses requêtes DuckDB ensemble. L'id du job est dans le manifeste du
+  run : un onglet fermé laisse le job compter, le démarrage suivant le suit. La route
+  unité par unité (`POST …/units/{key}`) a disparu.
+- **Qualité des données** (`dq-run.ts`, sur `lib/run-registry.ts`) : un job `keepGoing`
+  (un contrôle en échec est un résultat `error`, pas la fin du run). Le run survit au
+  changement d'onglet ; le job est retenu dans le navigateur avec la liste des contrôles
+  qu'il exécute (`runQueryJob`, `remember`), et la page rouverte le suit puis enregistre
+  le run dans l'historique. Bouton Arrêter.
+- **Statistiques d'une base** (`database-stats.ts`) : les blocs sont une liste de
+  requêtes ; un job `keepGoing` pour les statistiques, puis un pour le comptage des
+  tables (un bloc en échec reste vide, comme avant). Un job arrêté depuis le panneau vaut
+  un arrêt de la page. Chaque job est retenu dans le navigateur (`runQueryJob`,
+  option `remember`) : l'onglet rouvert suit celui que la fermeture a laissé et
+  enregistre ses résultats.
+- **Progression** : voir §2 ; affichée sur la ligne de l'étape active (catalog,
+  concepts), dans l'onglet Résultats de la qualité et dans le panneau Jobs.
+
+## 3 ter. Le reste — construit le 2026-10-14
+
+À valider à la main dans `docker/spe-sim` (§4).
+
+- **`deferred` adossé aux jobs** (`core/deferred.py`) : un travail qui dépasse 20 s devient un
+  job `task` du panneau (`AsJob` : libellé, propriétaire, file éventuelle), annulable ; la
+  relève rend la réponse de la route, JSON ou fichier (`apiFetchFollowing` côté client, et
+  le client du MCP). Seuls les travaux longs comptent dans le plafond par utilisateur.
+- **`/query`** passe par là : plus aucun 504 sur une requête interactive. Une requête que
+  l'application marque `heavy` (estimations et dimensionnement du catalog, cohorte, profil
+  de colonne, qualité ETL, classement de l'extraction) attend son tour dans la file des
+  requêtes lourdes ; elle ne devient un job du panneau qu'au-delà de 20 s, sans l'inonder.
+- **Routes du groupe B** : `deferred.respond` autour de leur travail, dans sa propre session.
+- **Groupe C** : compactage et import de vocabulaires deviennent des jobs (`compact`,
+  `vocab-import`) ; l'annulation interrompt la copie avant tout remplacement de fichier.
+- **ETL** : `POST …/etl-jobs`, un job par script (même session DuckDB), suivi par relève ;
+  la WebSocket est supprimée. La route synchrone reste pour le MCP, sous `deferred`.
+- **Groupe F** : copie de dossier et réassemblage d'upload hors de la boucle d'événements.
+- **Non traité** : statut et diff git reconstruisent l'export dans la requête ; export et
+  clone des réglages (admin) ; création depuis un DDL (rapide) ; lectures paginées des
+  fichiers source d'un projet de mapping (`filesrc_`, hors `/query`).
+
 ## 4. Reproduction
 
 `docker/spe-sim`, passerelle à 60 s, conteneur à 4 Go, base DuckDB sur Parquet de 240 M de
@@ -147,8 +212,7 @@ lignes (`python3 docker/spe-sim/make-datamart.py 240000000`, OMOP synthétique ;
 
 ## 5. Ensuite, dans l'ordre
 
-1. Liste des concepts, qualité des données, statistiques : même primitive, même exécuteur.
-2. `deferred` sur `/query` pour les requêtes interactives.
-3. Groupe B (gel de cohorte, exports, git…) : `jobs.launch` autour du code existant.
-4. Groupe C dans la table `jobs` ; ETL en job.
-5. Groupe F, indépendamment (petits correctifs).
+1. ~~Liste des concepts, qualité des données, statistiques~~ — fait (§3 bis).
+2. ~~`deferred` sur `/query`~~, ~~groupe B~~, ~~groupe C et ETL~~, ~~groupe F~~ — fait (§3 ter).
+3. Valider l'ensemble dans `docker/spe-sim` (§4), puis les points « non traité » du §3 ter
+   s'ils posent problème en vrai.
