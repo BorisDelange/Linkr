@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, loadCatalogSettings, updateCatalogs } from './settings'
+import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, catalogSourceOf, loadCatalogSettings, updateCatalogs } from './settings'
 
 /** Multiple catalogs: the stored list, the one-time carry-over of the old single setting, and cache clearing. */
 
@@ -66,5 +66,12 @@ describe('updateCatalogs', () => {
     expect(store.has('linkr-catalog-cache:b')).toBe(false)
     expect(store.has('linkr-catalog-cache:c')).toBe(false)
     expect(next.activeId).toBe('a')
+  })
+})
+
+describe('catalogSourceOf', () => {
+  it('marks a private catalog so it is read through the backend', () => {
+    expect(catalogSourceOf({ ...DEFAULT_CATALOG, private: true })?.private).toBe(true)
+    expect(catalogSourceOf(DEFAULT_CATALOG)?.private).toBeUndefined()
   })
 })

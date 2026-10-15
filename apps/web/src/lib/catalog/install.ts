@@ -269,9 +269,10 @@ export type PrepareResult =
  * question the per-page ZIP importers ask, and keyed the same way: on the id the repo
  * declares, not on the name.
  *
- * No credentials: a catalog entry must be publicly clonable, since every instance
- * reading the index has to be able to install it. CI in the index repo rejects an entry
- * whose repo it can't reach anonymously.
+ * No token is passed: the server falls back to the user's own token for the repo's
+ * host. An entry of the community catalog must be publicly clonable (its CI rejects
+ * one it can't reach anonymously); a private catalog's entries clone with the same
+ * account token that reads the catalog.
  */
 export async function prepareCatalogInstall(
   entry: CatalogEntry,

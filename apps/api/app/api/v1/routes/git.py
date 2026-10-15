@@ -59,6 +59,7 @@ from app.schemas.git import (
 from app.services import (
     app_settings_service,
     blob_store,
+    catalog_remote_service,
     git_content_status_service,
     git_credential_service,
     git_service,
@@ -1326,6 +1327,29 @@ async def get_host_token_status(
     if not host:
         return {"host": None, "has_token": False}
     return {"host": host, "has_token": await git_credential_service.has_token_for_host(db, user, host)}
+
+
+@router.get("/catalog-file")
+async def get_catalog_file(
+    url: str,
+    file: str,
+    branch: str = "main",
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """A private catalog's index file, read with the acting user's token for its host.
+
+    Failures answer 502 with `{code}` (the client's CatalogFetchError kind) rather
+    than the upstream status: a 401 here would read as the user's own session expiring.
+    """
+    from fastapi.responses import Response
+
+    token = await git_credential_service.token_for_url(db, user, url)
+    try:
+        data = await catalog_remote_service.fetch_file(url, branch, file, token)
+    except catalog_remote_service.CatalogFetchError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, {"code": exc.kind}) from exc
+    return Response(content=data, media_type="application/json")
 
 
 # --- Settings scope (account-level: organizations + users + roles) --------

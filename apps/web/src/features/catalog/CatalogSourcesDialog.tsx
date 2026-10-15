@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Pencil, Plus, RotateCcw, Store, Trash2 } from 'lucide-react'
+import { Lock, Pencil, Plus, RotateCcw, Store, Trash2 } from 'lucide-react'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +16,13 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { EmptyState } from '@/components/ui/empty-state'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { PasswordInput } from '@/components/ui/password-input'
+import { Switch } from '@/components/ui/switch'
+import { GitErrorInline } from '@/components/versioning/GitErrorInline'
+import { GitTokenHelp } from '@/components/versioning/GitTokenHelp'
+import { isServerMode } from '@/lib/api-client'
+import { gitHostTokenStatus, gitSetHostToken } from '@/lib/api/git'
 import { cleanLocalized, localized, localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
 import { DEFAULT_CATALOG_BRANCH, DEFAULT_CATALOG_URL, parseCatalogUrl } from '@/lib/catalog/remote'
 import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, type CatalogConfig } from '@/lib/catalog/settings'
@@ -46,9 +53,12 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
   const [editing, setEditing] = useState<CatalogConfig | 'new' | null>(null)
   const [deleting, setDeleting] = useState<CatalogConfig | null>(null)
   const [draft, setDraft] = useState<CatalogDraft>(() => draftOf(null, language))
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
   const startEditing = (catalog: CatalogConfig | 'new') => {
     setDraft(draftOf(catalog === 'new' ? null : catalog, language))
+    setSaveError(null)
     setEditing(catalog)
   }
 
@@ -56,16 +66,32 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
     ? catalogs.filter((c) => editing === 'new' || c.id !== editing.id).map((c) => c.url)
     : []
   const { source: draftSource, invalidUrl, duplicate } = validateDraft(draft, takenUrls, language)
+  const hostToken = useHostToken(draft.private ? draftSource?.repoUrl : undefined)
+  // A private catalog is unreadable until the account holds a token for its host.
+  const tokenMissing = draft.private && !draft.token.trim() && hostToken.hasToken !== true
+  const canSubmit = !!draftSource && !tokenMissing && !saving
 
-  const submit = () => {
-    if (!editing || !draftSource) return
-    save({
-      id: editing === 'new' ? crypto.randomUUID() : editing.id,
-      // The other language may stay blank: `localized` falls back to this one.
-      name: cleanLocalized(draft.name) ?? {},
-      url: draftSource.repoUrl,
-      branch: draftSource.branch,
-    })
+  const submit = async () => {
+    if (!editing || !draftSource || !canSubmit) return
+    setSaving(true)
+    setSaveError(null)
+    try {
+      // The token goes to the account, keyed by host — never into the catalog list,
+      // which sits in this browser's storage.
+      if (draft.private && draft.token.trim()) await gitSetHostToken(draftSource.repoUrl, draft.token.trim())
+      save({
+        id: editing === 'new' ? crypto.randomUUID() : editing.id,
+        // The other language may stay blank: `localized` falls back to this one.
+        name: cleanLocalized(draft.name) ?? {},
+        url: draftSource.repoUrl,
+        branch: draftSource.branch,
+        ...(draft.private && { private: true }),
+      })
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSaving(false)
+    }
   }
 
   const save = (catalog: CatalogConfig) => {
@@ -96,9 +122,10 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
         kind="settings"
         title={editing === 'new' ? t('catalog.sources_add_title') : editing ? t('catalog.sources_edit_title') : t('catalog.sources_title')}
         description={editing ? undefined : t('catalog.sources_description')}
-        onConfirm={editing ? submit : undefined}
+        onConfirm={editing ? () => void submit() : undefined}
         confirmLabel={editing === 'new' ? t('common.add') : t('common.save')}
-        confirmDisabled={!draftSource}
+        confirmDisabled={!canSubmit}
+        busy={saving}
         cancelLabel={editing ? t('common.cancel') : t('common.close')}
         footerExtra={
           !editing && !hasDefault ? (
@@ -115,7 +142,17 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
         }
       >
         {editing ? (
-          <CatalogSourceForm draft={draft} onChange={setDraft} invalidUrl={invalidUrl} duplicate={duplicate} />
+          <>
+            <CatalogSourceForm
+              draft={draft}
+              onChange={setDraft}
+              invalidUrl={invalidUrl}
+              duplicate={duplicate}
+              host={draftSource?.host ?? parseCatalogUrl(draft.url)?.host ?? null}
+              hasToken={hostToken.hasToken}
+            />
+            {saveError && <GitErrorInline detail={saveError} />}
+          </>
         ) : (
           <div className="space-y-3">
             {catalogs.length === 0 ? (
@@ -125,8 +162,11 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
                 {catalogs.map((catalog) => (
                   <li key={catalog.id} className="flex items-center gap-3 px-3 py-2">
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">
-                        {localized(catalog.name, language) || catalog.url}
+                      <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+                        <span className="truncate">{localized(catalog.name, language) || catalog.url}</span>
+                        {catalog.private && (
+                          <Lock size={12} className="shrink-0 text-muted-foreground" aria-label={t('catalog.sources_private')} />
+                        )}
                       </p>
                       <p className="truncate font-mono text-xs text-muted-foreground" title={catalog.url}>
                         {catalog.url}
@@ -189,6 +229,9 @@ interface CatalogDraft {
   name: LocalizedString
   url: string
   branch: string
+  private: boolean
+  /** A new token for the host, sent to the account on save; blank keeps the stored one. */
+  token: string
 }
 
 function draftOf(initial: CatalogConfig | null, language: string): CatalogDraft {
@@ -198,7 +241,26 @@ function draftOf(initial: CatalogConfig | null, language: string): CatalogDraft 
     name: seedLocalizedForEditing(initial?.name, language),
     url: initial?.url ?? '',
     branch: initial?.branch ?? DEFAULT_CATALOG_BRANCH,
+    private: !!initial?.private,
+    token: '',
   }
+}
+
+/**
+ * Whether the account holds a token for the host of `repoUrl` — its presence only,
+ * the token itself never comes back. null while unknown (no URL, or in flight).
+ */
+function useHostToken(repoUrl: string | undefined): { hasToken: boolean | null } {
+  const [status, setStatus] = useState<{ url: string; hasToken: boolean } | null>(null)
+  useEffect(() => {
+    if (!repoUrl || !isServerMode()) return
+    let cancelled = false
+    gitHostTokenStatus(repoUrl)
+      .then((s) => { if (!cancelled) setStatus({ url: repoUrl, hasToken: s.hasToken }) })
+      .catch(() => { /* unknown: the token field then reads as required */ })
+    return () => { cancelled = true }
+  }, [repoUrl])
+  return { hasToken: status && status.url === repoUrl ? status.hasToken : null }
 }
 
 /** The draft as a catalog to save, or null while it cannot be saved. */
@@ -215,11 +277,15 @@ function CatalogSourceForm({
   onChange,
   invalidUrl,
   duplicate,
+  host,
+  hasToken,
 }: {
   draft: CatalogDraft
   onChange: (draft: CatalogDraft) => void
   invalidUrl: boolean
   duplicate: boolean
+  host: string | null
+  hasToken: boolean | null
 }) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -261,6 +327,46 @@ function CatalogSourceForm({
       </div>
       {invalidUrl && <p className="text-xs text-destructive">{t('catalog.settings_invalid_url')}</p>}
       {duplicate && <p className="text-xs text-destructive">{t('catalog.sources_duplicate')}</p>}
+      {/* The token lives in the account, server-side: a client-only build has none. */}
+      {isServerMode() && (
+        <div className="space-y-3 rounded-md border p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-0.5">
+              <Label htmlFor="catalog-private">{t('catalog.sources_private')}</Label>
+              <p className="text-xs text-muted-foreground">{t('catalog.sources_private_hint')}</p>
+            </div>
+            <Switch
+              id="catalog-private"
+              checked={draft.private}
+              onCheckedChange={(checked) => onChange({ ...draft, private: checked })}
+            />
+          </div>
+          {draft.private && (
+            <>
+              <FormField
+                label={t('versioning.remote_token')}
+                required={hasToken !== true}
+                hint={
+                  hasToken
+                    ? t('catalog.sources_token_stored', { host })
+                    : t('catalog.sources_token_hint', { host: host ?? t('catalog.sources_token_this_host') })
+                }
+              >
+                {({ id }) => (
+                  <PasswordInput
+                    id={id}
+                    value={draft.token}
+                    onChange={(e) => onChange({ ...draft, token: e.target.value })}
+                    placeholder={hasToken ? '••••••••' : t('versioning.remote_token_placeholder')}
+                    autoComplete="off"
+                  />
+                )}
+              </FormField>
+              <GitTokenHelp />
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }

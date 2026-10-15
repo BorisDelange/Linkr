@@ -3966,7 +3966,14 @@
     "sources_delete_title": "Retirer ce catalogue ?",
     "sources_delete_description": "« {{name}} » ne sera plus proposé sur la page Catalogue. Ce que vous en avez installé reste en place.",
     "sources_none": "Aucun catalogue configuré",
-    "sources_none_description": "Ajoutez un catalogue, ou rétablissez le catalogue communautaire, avec l'icône d'engrenage ci-dessus."
+    "sources_none_description": "Ajoutez un catalogue, ou rétablissez le catalogue communautaire, avec l'icône d'engrenage ci-dessus.",
+    "sources_private": "Dépôt privé",
+    "sources_private_hint": "Lu avec votre propre jeton d'accès. Les autres utilisateurs de ce Linkr ont besoin du leur pour le parcourir.",
+    "sources_token_hint": "Enregistré dans votre compte pour {{host}} et réutilisé pour tous les dépôts de cet hôte, synchronisation git comprise. Les autres utilisateurs ne le voient jamais.",
+    "sources_token_stored": "Votre compte a déjà un jeton pour {{host}}. Laissez vide pour le conserver, ou collez-en un nouveau pour le remplacer.",
+    "sources_token_this_host": "cet hôte",
+    "error_unauthorized": "Impossible de lire ce catalogue privé. Vérifiez son adresse, et que votre jeton d'accès pour cet hôte peut lire le dépôt (Gérer les catalogues).",
+    "error_server_mode_required": "Un catalogue privé nécessite un serveur Linkr : le jeton d'accès est enregistré dans votre compte."
   },
   "wiki": {
     "title": "Wiki",

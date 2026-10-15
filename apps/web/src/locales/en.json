@@ -3966,7 +3966,14 @@
     "sources_delete_title": "Remove this catalog?",
     "sources_delete_description": "\"{{name}}\" will no longer be offered on the Catalog page. What you installed from it stays in place.",
     "sources_none": "No catalog configured",
-    "sources_none_description": "Add a catalog, or restore the community one, with the gear icon above."
+    "sources_none_description": "Add a catalog, or restore the community one, with the gear icon above.",
+    "sources_private": "Private repository",
+    "sources_private_hint": "Read with your own access token. Other users of this Linkr need theirs to browse it.",
+    "sources_token_hint": "Saved to your account for {{host}} and reused for every repository there, including git sync. Other users never see it.",
+    "sources_token_stored": "Your account already has a token for {{host}}. Leave blank to keep it, or paste a new one to replace it.",
+    "sources_token_this_host": "this host",
+    "error_unauthorized": "Could not read this private catalog. Check its address, and that your access token for this host can read the repository (Manage catalogs).",
+    "error_server_mode_required": "A private catalog needs a Linkr server: the access token is stored in your account."
   },
   "wiki": {
     "title": "Wiki",

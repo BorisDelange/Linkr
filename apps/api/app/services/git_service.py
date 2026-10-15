@@ -1833,6 +1833,53 @@ async def clone_to_zip(url: str, branch: str, token: str | None) -> tuple[bytes,
     return await asyncio.to_thread(work)
 
 
+async def read_remote_file(url: str, branch: str, path: str, token: str | None, max_bytes: int) -> bytes | None:
+    """One file at the tip of a remote branch, or None when the branch has no such file.
+
+    Goes through git rather than the host's REST API so that a token scoped for git
+    alone (GitLab's read_repository, which the raw-file API refuses) is enough — the
+    same token every other git op of this user on this host already uses.
+    """
+    if branch:
+        _safe_ref(branch)
+    if not path or path.startswith(("-", "/")) or ".." in path.split("/"):
+        raise GitError(f"invalid path: {path!r}", "unknown")
+
+    def work() -> bytes | None:
+        import tempfile
+
+        tmp = Path(tempfile.mkdtemp(prefix="linkr-read-"))
+        try:
+            cleaned = _clean_url(url)
+            _reject_internal_host(cleaned)
+            args = ["clone", "--depth", "1", "--single-branch", "--no-checkout"]
+            if branch:
+                args += ["--branch", branch]
+            args += [_with_credentials(cleaned, token), str(tmp / "repo")]
+            proc = subprocess.run(
+                ["git", *args], capture_output=True, text=True, timeout=_GIT_TIMEOUT, env=_git_env()
+            )
+            if proc.returncode != 0:
+                raise _failure(proc.stderr.strip(), token, [cleaned])
+            repo = tmp / "repo"
+            size = _run(repo, "cat-file", "-s", f"HEAD:{path}", check=False).strip()
+            if not size.isdigit():
+                return None
+            if int(size) > max_bytes:
+                raise GitError(f"{path} is larger than {max_bytes} bytes", "unknown")
+            blob = subprocess.run(
+                ["git", "cat-file", "blob", f"HEAD:{path}"],
+                cwd=repo, capture_output=True, timeout=_GIT_TIMEOUT, env=_git_env(), check=True,
+            )
+            return blob.stdout
+        except subprocess.TimeoutExpired as exc:
+            raise GitError("git timed out reading the remote", "network") from exc
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    return await asyncio.to_thread(work)
+
+
 # Repo-getter bindings per scope (passed to the generic ops above).
 def project_repo_getter(uid: str) -> Path:
     return _project_repo(uid)

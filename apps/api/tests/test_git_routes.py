@@ -103,6 +103,37 @@ async def test_host_token_is_stored_per_user_and_not_returned(client, db):
     assert (await db.execute(select(GitCredential))).first() is None
 
 
+async def test_catalog_file_reads_with_the_users_host_token(client, monkeypatch):
+    from app.services import catalog_remote_service
+
+    calls: list[tuple] = []
+
+    async def fake_fetch(url, branch, file, token):
+        calls.append((url, branch, file, token))
+        if not token:
+            raise catalog_remote_service.CatalogFetchError("unauthorized")
+        return b'{"schemaVersion":1}'
+
+    monkeypatch.setattr(catalog_remote_service, "fetch_file", fake_fetch)
+    headers = await _bootstrap_admin(client)
+    query = "url=https://gitlab.chu.fr/g/catalog&branch=main&file=catalog.json"
+
+    # No token stored for the host yet: a coded 502, never a 401 the client would
+    # take for its own session expiring.
+    r = await client.get(f"{API}/git/catalog-file?{query}", headers=headers)
+    assert r.status_code == 502
+    assert r.json()["detail"] == {"code": "unauthorized"}
+
+    await client.put(
+        f"{API}/git/host-token", headers=headers,
+        json={"url": "https://gitlab.chu.fr/other/repo", "token": "glpat-chu"},
+    )
+    r = await client.get(f"{API}/git/catalog-file?{query}", headers=headers)
+    assert r.status_code == 200
+    assert r.json() == {"schemaVersion": 1}
+    assert calls[-1] == ("https://gitlab.chu.fr/g/catalog", "main", "catalog.json", "glpat-chu")
+
+
 async def test_git_status_endpoint_reports_added_files(client):
     """Hitting the status route proves the git router is mounted and gated."""
     headers = await _bootstrap_admin(client)

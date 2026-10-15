@@ -21,6 +21,11 @@ export interface CatalogConfig {
   name: LocalizedString
   url: string
   branch: string
+  /**
+   * Read with the user's access token for the repo's host. The token is not here: it
+   * belongs to the account, server-side, shared with git for every repo on that host.
+   */
+  private?: boolean
 }
 
 export interface CatalogSettings {
@@ -121,7 +126,8 @@ export function updateCatalogs(previous: CatalogSettings, next: CatalogSettings)
 
 /** Resolved source to fetch from, or null when the URL is unusable. */
 export function catalogSourceOf(catalog: CatalogConfig): CatalogSource | null {
-  return parseCatalogUrl(catalog.url, catalog.branch)
+  const source = parseCatalogUrl(catalog.url, catalog.branch)
+  return source && catalog.private ? { ...source, private: true } : source
 }
 
 // ---------------------------------------------------------------------------

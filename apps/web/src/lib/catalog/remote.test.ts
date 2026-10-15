@@ -11,6 +11,9 @@ import {
 } from './remote'
 import type { CatalogFile, CatalogIndexFile } from './types'
 
+const api = vi.hoisted(() => ({ serverMode: true, apiFetch: vi.fn() }))
+vi.mock('@/lib/api-client', () => ({ isServerMode: () => api.serverMode, apiFetch: api.apiFetch }))
+
 // parseCatalogUrl accepts whatever a user pastes into Settings. A wrong parse points the
 // whole catalog at a 404, so the tolerated forms are pinned here.
 describe('parseCatalogUrl', () => {
@@ -148,6 +151,46 @@ describe('fetch error classification', () => {
     expect(url).toContain('/api/v4/projects/')
     expect(url).toContain('/repository/files/')
     expect(url).not.toContain('/-/raw/')
+  })
+})
+
+// A private catalog never goes to GitLab from the browser: the token lives server-side.
+describe('private catalog', () => {
+  const source = { ...parseCatalogUrl('https://gitlab.chu.fr/g/catalog', 'prod')!, private: true }
+  const index = { schemaVersion: 1, contentHash: 'a', hashes: {} }
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    api.apiFetch.mockReset()
+    api.serverMode = true
+  })
+
+  it('reads through the backend route, never fetching GitLab directly', async () => {
+    const direct = vi.fn()
+    vi.stubGlobal('fetch', direct)
+    api.apiFetch.mockResolvedValue({ ok: true, status: 200, json: async () => index })
+    await expect(fetchCatalogIndex(source)).resolves.toMatchObject({ contentHash: 'a' })
+    expect(direct).not.toHaveBeenCalled()
+    const path = String(api.apiFetch.mock.calls[0]![0])
+    expect(path).toMatch(/^\/api\/v1\/git\/catalog-file\?/)
+    const query = new URLSearchParams(path.split('?')[1])
+    expect(Object.fromEntries(query)).toEqual({ url: 'https://gitlab.chu.fr/g/catalog', branch: 'prod', file: 'catalog-index.json' })
+  })
+
+  it('surfaces the coded refusal the backend sends', async () => {
+    api.apiFetch.mockResolvedValue({ ok: false, status: 502, json: async () => ({ detail: { code: 'unauthorized' } }) })
+    await expect(fetchCatalogIndex(source)).rejects.toMatchObject({ kind: 'unauthorized' })
+  })
+
+  it('reads an unknown or missing code as network', async () => {
+    api.apiFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({ detail: 'boom' }) })
+    await expect(fetchCatalogIndex(source)).rejects.toMatchObject({ kind: 'network' })
+  })
+
+  it('needs server mode, where the account holding the token lives', async () => {
+    api.serverMode = false
+    await expect(fetchCatalogIndex(source)).rejects.toMatchObject({ kind: 'server-mode-required' })
+    expect(api.apiFetch).not.toHaveBeenCalled()
   })
 })
 

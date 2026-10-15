@@ -6,8 +6,9 @@
  * works in the static/WASM build with no backend and no CORS proxy. The `/-/raw/` route
  * has no CORS header and a 60/min limit; the API route allows 500/min.
  *
- * Reading the catalog needs no token — the index repo is public. Only *installing* an
- * entry needs the backend (a git clone), which is gated separately.
+ * Reading a public catalog needs no token. A private one is read through the backend,
+ * which holds the user's access token for the host and never hands it to the browser —
+ * so private catalogs, like installing any entry (a git clone), need server mode.
  */
 
 import type { CatalogCache, CatalogDiff, CatalogFile, CatalogIndexFile } from './types'
@@ -28,6 +29,8 @@ export interface CatalogSource {
   /** Project path (`group/subgroup/repo`), un-encoded. */
   project: string
   branch: string
+  /** Read through the backend with the user's token for `host` instead of directly. */
+  private?: boolean
 }
 
 /**
@@ -67,7 +70,15 @@ export function catalogFileUrl(source: CatalogSource, file: string): string {
 }
 
 /** Distinguishes "no network / blocked" from "the file is not what we expect". */
-export type CatalogFetchError = 'network' | 'not-found' | 'malformed' | 'unsupported-version'
+export type CatalogFetchError =
+  | 'network'
+  | 'not-found'
+  | 'malformed'
+  | 'unsupported-version'
+  /** Private catalog the user's token for its host cannot read — or there is no token. */
+  | 'unauthorized'
+  /** Private catalog in a client-only build, which has no account to hold a token. */
+  | 'server-mode-required'
 
 export class CatalogError extends Error {
   // Declared and assigned explicitly rather than as a constructor parameter
@@ -82,6 +93,15 @@ export class CatalogError extends Error {
 }
 
 async function fetchJson<T>(source: CatalogSource, file: string): Promise<T> {
+  const res = source.private ? await fetchThroughServer(source, file) : await fetchDirect(source, file)
+  try {
+    return (await res.json()) as T
+  } catch {
+    throw new CatalogError('malformed')
+  }
+}
+
+async function fetchDirect(source: CatalogSource, file: string): Promise<Response> {
   let res: Response
   try {
     res = await fetch(catalogFileUrl(source, file), { headers: { accept: 'application/json' } })
@@ -91,11 +111,27 @@ async function fetchJson<T>(source: CatalogSource, file: string): Promise<T> {
   }
   if (res.status === 404) throw new CatalogError('not-found')
   if (!res.ok) throw new CatalogError('network', `HTTP ${res.status}`)
+  return res
+}
+
+const SERVER_ERRORS = new Set<CatalogFetchError>(['network', 'not-found', 'unauthorized', 'malformed'])
+
+/** The backend fetches with the user's (user, host) git token and answers 502 `{code}` on failure. */
+async function fetchThroughServer(source: CatalogSource, file: string): Promise<Response> {
+  const { apiFetch, isServerMode } = await import('@/lib/api-client')
+  if (!isServerMode()) throw new CatalogError('server-mode-required')
+  const query = new URLSearchParams({ url: source.repoUrl, branch: source.branch, file })
+  let res: Response
   try {
-    return (await res.json()) as T
+    res = await apiFetch(`/api/v1/git/catalog-file?${query}`)
   } catch {
-    throw new CatalogError('malformed')
+    throw new CatalogError('network')
   }
+  if (!res.ok) {
+    const code = ((await res.json().catch(() => null)) as { detail?: { code?: string } } | null)?.detail?.code
+    throw new CatalogError(SERVER_ERRORS.has(code as CatalogFetchError) ? (code as CatalogFetchError) : 'network')
+  }
+  return res
 }
 
 function assertVersion(schemaVersion: unknown): void {
