@@ -132,11 +132,33 @@ linkr_connect <- function(alias, read_only = TRUE) {
     "ATTACH %s AS ext (TYPE %s%s)",
     .linkr_quote(con, db$attachDsn), db$attachType, read_only
   ))
-  # The source's schema goes on the search path so bare table names resolve the
-  # way they do in the app's SQL editor.
-  .linkr_exec(con, sprintf(
-    "SET search_path = 'memory,ext.%s'", db$attachScope
-  ))
+  search_path <- .linkr_external_search_path(con, db$attachScope)
+  .linkr_exec(con, sprintf("SET search_path = %s", .linkr_quote(con, search_path)))
   ok <- TRUE
   con
+}
+
+# Schemas an engine keeps for itself (mirrors the server's db_connect.SYSTEM_SCHEMAS).
+.linkr_system_schemas <- c(
+  "information_schema", "pg_catalog", "pg_toast", "mysql", "sys", "performance_schema", "__internal_schema"
+)
+
+# The default schema, then every other data schema of the attach, so bare and
+# `schema.table` names resolve the way they do in the app's SQL editor.
+.linkr_external_search_path <- function(con, default) {
+  schemas <- .linkr_dbi("dbGetQuery")(con, paste(
+    "SELECT schema_name FROM information_schema.schemata",
+    "WHERE catalog_name = 'ext' ORDER BY schema_name"
+  ))$schema_name
+  lowered <- tolower(schemas)
+  schemas <- schemas[!(lowered %in% .linkr_system_schemas) & !startsWith(lowered, "pg_temp") & !startsWith(lowered, "pg_toast")]
+  if (!is.null(default) && nzchar(default)) {
+    hit <- schemas[tolower(schemas) == tolower(default)]
+    first <- if (length(hit) > 0) hit[[1]] else default
+    schemas <- c(first, setdiff(schemas, first))
+  }
+  quoted <- vapply(
+    schemas, function(s) as.character(.linkr_dbi("dbQuoteIdentifier")(con, s)), character(1)
+  )
+  paste(c("memory", paste0("ext.", quoted)), collapse = ",")
 }

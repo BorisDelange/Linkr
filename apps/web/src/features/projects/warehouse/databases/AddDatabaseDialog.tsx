@@ -43,6 +43,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   DEFAULT_DATABASE_LOCATION,
@@ -76,9 +77,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { foldAccents } from '@/lib/fold-accents'
-import { DEFAULT_PORTS, ENGINE_LABELS, parsePort } from '@/lib/database-engines'
+import { DEFAULT_PORTS, ENGINE_LABELS, databaseIsSchema, parsePort } from '@/lib/database-engines'
 
-type DbTab = 'general' | 'connection' | 'metadata' | 'attribution'
+export type DatabaseDialogTab = 'general' | 'connection' | 'metadata' | 'attribution'
+type DbTab = DatabaseDialogTab
 
 interface AddDatabaseDialogProps {
   open: boolean
@@ -87,6 +89,8 @@ interface AddDatabaseDialogProps {
   projectUid?: string
   /** When provided, the dialog opens in edit mode for this data source. */
   editingSource?: DataSource | null
+  /** The tab an edit opens on (default General): a connection problem opens Connection. */
+  initialTab?: DatabaseDialogTab
 }
 
 const sourceTypes: {
@@ -141,6 +145,7 @@ export function AddDatabaseDialog({
   onOpenChange,
   projectUid,
   editingSource,
+  initialTab = 'general',
 }: AddDatabaseDialogProps) {
   const { t } = useTranslation()
   const language = useAppStore((s) => s.language)
@@ -201,7 +206,7 @@ export function AddDatabaseDialog({
       setDescription(localizedRaw(editingSource.description, language))
       setSelectedType(editingSource.sourceType)
       setStep(2)
-      setDbTab('general')
+      setDbTab(initialTab)
       if (editingSource.sourceType === 'database') {
         const config = editingSource.connectionConfig as DatabaseConnectionConfig
         setDbEngine(config.engine)
@@ -219,8 +224,9 @@ export function AddDatabaseDialog({
         if (config.host) setDbHost(config.host)
         if (config.port) setDbPort(String(config.port))
         setDbFlightPort(config.flightPort ? String(config.flightPort) : '')
-        if (config.database) setDbDatabase(config.database)
-        if (config.schema) setDbSchema(config.schema)
+        const defaultSchema = databaseIsSchema(config.engine) ? config.schema || config.database : config.database
+        if (defaultSchema) setDbDatabase(defaultSchema)
+        if (config.schema && !databaseIsSchema(config.engine)) setDbSchema(config.schema)
         setDbAllowWrites(!!config.allowWrites)
         const located = databaseLocationOf(config.managedPath)
         setFileLocation(located)
@@ -241,7 +247,7 @@ export function AddDatabaseDialog({
       setSchemaPresetId(initial)
       setInitialPresetId(initial)
     }
-  }, [open, editingSource, language, customPresets])
+  }, [open, editingSource, language, customPresets, initialTab])
 
   // Common fields
   const [name, setName] = useState('')
@@ -411,7 +417,7 @@ export function AddDatabaseDialog({
                     host: dbHost,
                     port: dbPortValue ?? undefined,
                     database: dbDatabase,
-                    schema: dbSchema || undefined,
+                    schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
                     username: dbUsername || undefined,
                     password: dbPassword || undefined,
                     ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
@@ -489,7 +495,7 @@ export function AddDatabaseDialog({
               host: dbHost,
               port: dbPortValue ?? undefined,
               database: dbDatabase,
-              schema: dbSchema || undefined,
+              schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
               username: dbUsername || undefined,
               // Only send a password when the user typed one — an empty field
               // leaves the stored (encrypted) credential untouched server-side.
@@ -542,7 +548,7 @@ export function AddDatabaseDialog({
                 host: dbHost,
                 port: dbPortValue ?? undefined,
                 database: dbDatabase,
-                schema: dbSchema || undefined,
+                schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
                 username: dbUsername || undefined,
                 password: dbPassword || undefined,
                 ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
@@ -1071,14 +1077,42 @@ export function AddDatabaseDialog({
                       />
                       {dbPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
                     </div>
-                    <div className="space-y-2">
-                      <Label>{t('databases.field_database')}</Label>
-                      <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>{t('databases.field_schema')}</Label>
-                      <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder={dbEngine === 'postgresql' ? 'public' : undefined} />
-                    </div>
+                    {dbEngine === 'doris' && (
+                      <div className="space-y-2">
+                        <Label>{t('databases.field_flight_port')}</Label>
+                        <Input
+                          value={dbFlightPort}
+                          onChange={(e) => setDbFlightPort(e.target.value)}
+                          placeholder="8070"
+                          inputMode="numeric"
+                          aria-invalid={dbFlightPortInvalid}
+                        />
+                        {dbFlightPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
+                      </div>
+                    )}
+                    {databaseIsSchema(dbEngine) ? (
+                      <div className={cn('space-y-2', dbEngine !== 'doris' && 'col-span-full')}>
+                        <Label className="flex items-center gap-1.5">
+                          {t('databases.field_default_schema')}
+                          <FieldInfo text={t('databases.field_default_schema_hint_mysql')} />
+                        </Label>
+                        <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="space-y-2">
+                          <Label>{t('databases.field_database')}</Label>
+                          <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label className="flex items-center gap-1.5">
+                            {t('databases.field_default_schema')}
+                            <FieldInfo text={t('databases.field_default_schema_hint_postgresql')} />
+                          </Label>
+                          <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder="public" />
+                        </div>
+                      </>
+                    )}
                     <div className="space-y-2">
                       <Label>{t('databases.field_username')}</Label>
                       <Input value={dbUsername} onChange={(e) => setDbUsername(e.target.value)} />
@@ -1088,22 +1122,9 @@ export function AddDatabaseDialog({
                       <PasswordInput value={dbPassword} onChange={(e) => setDbPassword(e.target.value)} />
                     </div>
                     {dbEngine === 'doris' && (
-                      <>
-                        <div className="space-y-2">
-                          <Label>{t('databases.field_flight_port')}</Label>
-                          <Input
-                            value={dbFlightPort}
-                            onChange={(e) => setDbFlightPort(e.target.value)}
-                            placeholder="8070"
-                            inputMode="numeric"
-                            aria-invalid={dbFlightPortInvalid}
-                          />
-                          {dbFlightPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
-                        </div>
-                        <p className="col-span-full text-xs text-muted-foreground">
-                          {t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}
-                        </p>
-                      </>
+                      <p className="col-span-full text-xs text-muted-foreground">
+                        {t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}
+                      </p>
                     )}
                     {isServerMode() && (
                       <p className="col-span-full text-xs text-muted-foreground">

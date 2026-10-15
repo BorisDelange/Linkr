@@ -7,7 +7,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { buildDataSourceFolder, downloadBlob, slugify } from '@/lib/entity-io'
-import { AddDatabaseDialog } from './AddDatabaseDialog'
+import { AddDatabaseDialog, type DatabaseDialogTab } from './AddDatabaseDialog'
 import type { DataSource, GitRemoteConfig } from '@/types'
 import type { EntityDocsAccessors } from '@/components/ui/entity-actions-menu'
 
@@ -19,7 +19,7 @@ export interface DatabaseActions {
   getGitRemote: (item: DataSource) => GitRemoteConfig | null
   onSaveGitRemote: (item: DataSource, config: GitRemoteConfig | null) => Promise<void>
   exportSupportsIncludeData: boolean
-  renderEditDialog: (props: { item: DataSource; onOpenChange: (open: boolean) => void }) => React.ReactNode
+  renderEditDialog: (props: { item: DataSource; onOpenChange: (open: boolean) => void; initialTab?: DatabaseDialogTab }) => React.ReactNode
   deleteConfirmTitleKey: string
   deleteConfirmDescriptionKey: string
   docs: EntityDocsAccessors<DataSource>
@@ -67,8 +67,8 @@ export function useDatabaseActions(): DatabaseActions {
     getGitRemote: (source) => source.gitRemoteConfig ?? null,
     onSaveGitRemote,
     exportSupportsIncludeData: false,
-    renderEditDialog: ({ item, onOpenChange }) => (
-      <AddDatabaseDialog open onOpenChange={onOpenChange} editingSource={item} />
+    renderEditDialog: ({ item, onOpenChange, initialTab }) => (
+      <AddDatabaseDialog open onOpenChange={onOpenChange} editingSource={item} initialTab={initialTab} />
     ),
     deleteConfirmTitleKey: 'databases.remove_confirm_title',
     deleteConfirmDescriptionKey: 'databases.remove_confirm_description',

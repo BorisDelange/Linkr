@@ -18,6 +18,15 @@ export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
   oracle: 'Oracle',
 }
 
+/** MySQL and Doris have no level between the server and the schema: what they
+ *  call a database is a schema, and one connection reads them all. Their form
+ *  has a single field, the default schema, kept under `database` — the key their
+ *  DSN already reads, so a database saved before keeps its value and its logins.
+ *  The server reads `schema` before `database` for them (`db_connect._scope`). */
+export function databaseIsSchema(engine: DatabaseEngine | undefined): boolean {
+  return engine === 'mysql' || engine === 'doris'
+}
+
 /** Doris answers the MySQL protocol on its FE query port, not on 3306. */
 export const DEFAULT_PORTS: Partial<Record<DatabaseEngine, string>> = {
   postgresql: '5432',

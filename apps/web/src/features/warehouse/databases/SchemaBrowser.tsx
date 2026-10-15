@@ -11,6 +11,7 @@ import {
   ArrowUp,
   ArrowDown,
   ChevronsUpDown,
+  Play,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer,
@@ -195,9 +196,12 @@ interface Props {
   toolbarExtra?: React.ReactNode
   /** Whether the column-statistics panel starts open. Default true. */
   defaultStatsVisible?: boolean
+  /** Shows a "first 10 rows" button that hands its SELECT to the caller, which
+   *  runs it somewhere — the database page, in its SQL tab. */
+  onQueryRows?: (sql: string) => void
 }
 
-export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defaultStatsVisible = true }: Props) {
+export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defaultStatsVisible = true, onQueryRows }: Props) {
   const { t, i18n } = useTranslation()
 
   const [tables, setTables] = useState<string[]>([])
@@ -625,6 +629,23 @@ export function SchemaBrowser({ dataSourceId, tableQualifier, toolbarExtra, defa
             </Tooltip>
 
             {selectedTable && columns.length > 0 && <CopySelectButton getSql={buildSelectSql} />}
+            {selectedTable && columns.length > 0 && onQueryRows && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm-tight"
+                    onClick={() => {
+                      const sql = buildSelectSql()
+                      if (sql) onQueryRows(`${sql}\nLIMIT 10`)
+                    }}
+                  >
+                    <Play size={12} />
+                    {t('etl.query_first_rows')}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{t('etl.query_first_rows_tooltip')}</TooltipContent>
+              </Tooltip>
+            )}
 
             <div className="mx-0.5 h-4 w-px bg-border" />
 

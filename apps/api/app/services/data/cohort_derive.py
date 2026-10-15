@@ -34,10 +34,10 @@ import duckdb
 from app.services.data.db_connect import (
     _alias_role,
     _attach_role,
-    attach_dsn,
-    _engine_spec,
     _dsn,
+    _engine_spec,
     _ext_dir,
+    _external_search_path,
     _forbid_file_access,
     _group_parquet,
     _lock_down_user_sql,
@@ -48,6 +48,8 @@ from app.services.data.db_connect import (
     _split_statements,
     _sql_path,
     _strip_leading_noise,
+    attach_dsn,
+    is_system_schema,
 )
 
 LEVELS = ("patient", "visit", "visit_detail")
@@ -269,12 +271,16 @@ class SourceSpec:
     spec: dict
 
     @property
-    def default_schema(self) -> str:
-        # An external database exposes one schema (the configured scope); a file
-        # or a Parquet folder puts its tables in `main`.
+    def default_schema(self) -> str | None:
+        # An external database's is the configured one, if any (every other schema
+        # is read too); a file or a Parquet folder puts its tables in `main`.
         if self.spec.get("kind") == "external":
             return _scope(self.spec["config"])
         return "main"
+
+    def is_default(self, schema: str) -> bool:
+        # DuckDB matches names regardless of case, and so may the configured one.
+        return self.default_schema is not None and schema.lower() == self.default_schema.lower()
 
 
 def _connect() -> duckdb.DuckDBPyConnection:
@@ -285,24 +291,21 @@ def _connect() -> duckdb.DuckDBPyConnection:
 
 def _source_tables(con: duckdb.DuckDBPyConnection, source: SourceSpec) -> list[tuple[str, str, list[str]]]:
     """`(schema, table, columns)` for every table of the attached source."""
-    if source.spec.get("kind") == "external":
-        where, params = "table_catalog = 'source' AND table_schema = ?", [source.default_schema]
-    else:
-        where, params = "table_catalog = 'source' AND table_schema NOT IN ('information_schema', 'pg_catalog')", []
     rows = con.execute(
-        f"SELECT table_schema, table_name, column_name FROM information_schema.columns WHERE {where} "
-        "ORDER BY table_schema, table_name, ordinal_position",
-        params,
+        "SELECT table_schema, table_name, column_name FROM information_schema.columns "
+        "WHERE table_catalog = 'source' ORDER BY table_schema, table_name, ordinal_position",
     ).fetchall()
     out: dict[tuple[str, str], list[str]] = {}
     for schema, table, column in rows:
+        if is_system_schema(str(schema)):
+            continue
         out.setdefault((str(schema), str(table)), []).append(str(column))
     return [(s, t, cols) for (s, t), cols in out.items()]
 
 
 def _source_search_path(con: duckdb.DuckDBPyConnection, source: SourceSpec) -> str:
     if source.spec.get("kind") == "external":
-        return f"source.{source.default_schema}"
+        return _external_search_path(con, source.spec["config"], catalog="source", head=())
     return ",".join(["source", *_role_schema_path(con)])
 
 
@@ -363,7 +366,7 @@ def plan(source: SourceSpec, mapping: dict, level: str) -> list[dict]:
     for schema, table, columns in tables:
         how = classify(columns, level, ids)
         out.append({
-            "schema": None if schema == source.default_schema else schema,
+            "schema": None if source.is_default(schema) else schema,
             "table": table,
             "filter": how[0] if how else None,
             "column": how[1] if how else None,
@@ -515,8 +518,8 @@ def derive(
                     "this source spreads its tables over several schemas "
                     f"({', '.join(sorted(declared))}); derive it into a new database instead"
                 )
-            tables = [t for t in tables if t[0] == source.default_schema]
-        schemas = {s for s, _, _ in tables if s != source.default_schema}
+            tables = [t for t in tables if source.is_default(t[0])]
+        schemas = {s for s, _, _ in tables if not source.is_default(s)}
 
         con.register("_members_arrow", members)
         con.execute("CREATE TEMP TABLE _members AS SELECT * FROM _members_arrow")
@@ -557,7 +560,7 @@ def derive(
             if how and how[0] == "parent_visit" and not ids.visit_detail_table:
                 how = None
             src = f'"source"."{_require_ident(schema, "schema name")}"."{_require_ident(table, "table name")}"'
-            dest_schema = target.schema or ("main" if schema == source.default_schema else schema)
+            dest_schema = target.schema or ("main" if source.is_default(schema) else schema)
             dest = f'target."{dest_schema}"."{_require_ident(table, "table name")}"'
             where = ""
             if how:

@@ -102,6 +102,20 @@ class RemoteQuery:
     columns: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class RemoteTable:
+    """A table as the remote catalogue spells it, with its columns lower-cased
+    and their types as SQL type names."""
+    schema: str
+    name: str
+    columns: dict[str, str]
+
+
+# `(schema, table)` → the remote table, or None when the database has no such
+# table. `schema` is None for a bare name: the lookup applies the default schema.
+TableLookup = Callable[[str | None, str], RemoteTable | None]
+
+
 def dialect_of(engine: str) -> str | None:
     return _DIALECTS.get(engine)
 
@@ -198,7 +212,7 @@ def _date_part(node: exp.Expression) -> exp.Expression:
     return exp.Extract(this=exp.var(args[0].this.upper()), expression=args[1].copy())
 
 
-def _unpad(columns: Callable[[str], dict[str, str] | None]) -> Callable[[exp.Expression], exp.Expression]:
+def _unpad(lookup: TableLookup) -> Callable[[exp.Expression], exp.Expression]:
     """The class relations read a table as
     `(SELECT * FROM t UNION ALL BY NAME SELECT NULL AS "c", … WHERE false) e`,
     so a mapped column the table lacks reads as NULL. `BY NAME` is DuckDB's:
@@ -223,9 +237,10 @@ def _unpad(columns: Callable[[str], dict[str, str] | None]) -> Callable[[exp.Exp
         if not is_padding:
             raise NotPortable("UNION BY NAME")
         table = left.args["from_"].this
-        present = columns(table.name)
-        if present is None:
+        remote = lookup(table.text("db") or None, table.name)
+        if remote is None:
             raise NotPortable(f"unknown columns of {table.name}")
+        present = remote.columns
         projection = [
             exp.column(e.alias, quoted=True) if e.alias.lower() in present
             else exp.alias_(exp.Null(), e.alias, quoted=True)
@@ -237,25 +252,27 @@ def _unpad(columns: Callable[[str], dict[str, str] | None]) -> Callable[[exp.Exp
     return transform
 
 
-def _scope_tables(tree: exp.Expression, scope: str) -> list[str]:
-    """Drop the ATTACH's prefix (`ext.<scope>.t`) and list the base tables read.
-    A table in any other schema or catalog is not ours to read."""
+def _scope_tables(tree: exp.Expression, lookup: TableLookup) -> list[RemoteTable]:
+    """Drop the ATTACH's catalog (`ext.<schema>.t`), put every base table read in
+    its remote schema — the default one for a bare name — and list them. A table
+    in another catalog, or one the remote catalogue lacks, is not ours to read."""
     ctes = {cte.alias_or_name.lower() for cte in tree.find_all(exp.CTE)}
-    names: list[str] = []
+    found: list[RemoteTable] = []
     for table in tree.find_all(exp.Table):
         db, catalog = table.text("db"), table.text("catalog")
         if not db and table.name.lower() in ctes:
             continue
         if catalog and catalog.lower() != "ext":
             raise NotPortable(f"table in catalog {catalog}")
-        if db and db.lower() != scope.lower():
-            raise NotPortable(f"table in schema {db}")
         if not table.name:
             raise NotPortable("a table function")
+        remote = lookup(db or None, table.name)
+        if remote is None:
+            raise NotPortable(f"unknown table {db + '.' if db else ''}{table.name}")
         table.set("catalog", None)
-        table.set("db", None)
-        names.append(table.name)
-    return names
+        table.set("db", exp.to_identifier(remote.schema))
+        found.append(remote)
+    return found
 
 
 def _require_named_columns(tree: exp.Expression) -> None:
@@ -274,18 +291,15 @@ def _require_named_columns(tree: exp.Expression) -> None:
 # --- Types and the portable subset -------------------------------------------
 
 
-def _typed(tree: exp.Expression, scope: str, tables: list[str], columns: Callable[[str], dict[str, str] | None]) -> exp.Expression:
+def _typed(tree: exp.Expression, tables: list[RemoteTable]) -> exp.Expression:
     """The tree with every column qualified and every expression typed, from the
     remote catalogue: what the typed rules read."""
-    schema: dict[str, dict[str, str]] = {}
-    for name in tables:
-        cols = columns(name)
-        if cols is None:
-            raise NotPortable(f"unknown table {name}")
-        schema[name] = cols
+    schema: dict[str, dict[str, dict[str, str]]] = {}
+    for table in tables:
+        schema.setdefault(table.schema, {})[table.name] = table.columns
     try:
-        tree = qualify(tree, schema={scope: schema}, db=scope, dialect="duckdb", validate_qualify_columns=True)
-        return annotate_types(tree, schema={scope: schema}, dialect="duckdb")
+        tree = qualify(tree, schema=schema, dialect="duckdb", validate_qualify_columns=True)
+        return annotate_types(tree, schema=schema, dialect="duckdb")
     except Exception as exc:  # anything the optimizer cannot type stays local
         raise NotPortable(f"untyped: {exc}") from exc
 
@@ -438,13 +452,11 @@ def _output_names(tree: exp.Expression) -> tuple[str, ...]:
     return names
 
 
-def to_remote(
-    sql: str, engine: str, scope: str, columns: Callable[[str], dict[str, str] | None],
-) -> RemoteQuery:
+def to_remote(sql: str, engine: str, lookup: TableLookup) -> RemoteQuery:
     """`sql` (DuckDB) as the remote engine's SQL, or `NotPortable`.
 
-    `columns(table)` gives a table's columns in the scope, lower-cased, with
-    their type as a SQL type name — or None when the table is unknown."""
+    `lookup` resolves each table the query reads (TableLookup), so a query may
+    join tables of several schemas of the database."""
     dialect = dialect_of(engine)
     if dialect is None:
         raise NotPortable(f"no pushdown for {engine}")
@@ -459,7 +471,7 @@ def to_remote(
     for cte in tree.find_all(exp.CTE):
         cte.set("materialized", None)
     tree = (
-        tree.transform(_unpad(columns))
+        tree.transform(_unpad(lookup))
         .transform(_unfilter)
         .transform(_ungroup_all)
         .transform(_unnest_pair)
@@ -468,15 +480,20 @@ def to_remote(
         .transform(_typed_patient_key)
     )
     _require_named_columns(tree)
-    tables = _scope_tables(tree, scope)
-    tree = _typed(tree, scope, tables, columns)
+    tables = _scope_tables(tree, lookup)
+    tree = _typed(tree, tables)
     _check_portable(tree)
     names = _output_names(tree)
     if engine == "doris":
         tree = tree.transform(_doris)
     elif any(isinstance(n, (exp.Anonymous, exp.Median, exp.PercentileCont)) for n in tree.walk()):
         raise NotPortable("no spelling of a DuckDB function")
+    # qualify lower-cases every name (DuckDB's are case-insensitive); the remote
+    # catalogue's spelling is put back, since Doris and Postgres names are not.
+    spelled = {(t.schema.lower(), t.name.lower()): t for t in tables}
     for table in tree.find_all(exp.Table):
-        if table.args.get("db") is not None:
-            table.set("db", exp.to_identifier(scope, quoted=True))
+        remote = spelled.get((table.text("db").lower(), table.name.lower())) if table.args.get("db") else None
+        if remote is not None:
+            table.set("db", exp.to_identifier(remote.schema, quoted=True))
+            table.set("this", exp.to_identifier(remote.name, quoted=True))
     return RemoteQuery(tree.sql(dialect=dialect), names)

@@ -12,6 +12,7 @@ import { BoxPlot } from '@/components/charts/box-plot'
 import { niceTicks, tightHistogramScale } from '@/lib/chart-ticks'
 import { cn } from '@/lib/utils'
 import type { SourceConceptRow } from '../MappingEditorTab'
+import { TruncatedText } from '@/components/ui/truncated-text'
 
 interface ConceptDetailViewProps {
   concept: SourceConceptRow
@@ -118,7 +119,7 @@ export function ConceptDetailView({ concept, onBack }: ConceptDetailViewProps) {
                   {textFields.map((item) => (
                     <tr key={item.label}>
                       <td className="whitespace-nowrap pr-4 py-0.5 text-muted-foreground align-top">{item.label}</td>
-                      <td className="py-0.5 font-medium" title={item.value}>{item.value}</td>
+                      <td className="py-0.5 font-medium">{item.value}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -455,8 +456,8 @@ export function SectionRenderer({ section }: { section: Section }) {
             <tbody>
               {section.rows.map((row, i) => (
                 <tr key={i} className="border-b last:border-0">
-                  <td className="max-w-[120px] truncate py-1 pr-3 text-muted-foreground" title={row.label}>{row.label}</td>
-                  <td className="max-w-[180px] truncate py-1 font-medium" title={row.value}>{row.value}</td>
+                  <td className="max-w-[120px] py-1 pr-3 text-muted-foreground"><TruncatedText text={row.label} /></td>
+                  <td className="max-w-[180px] py-1 font-medium"><TruncatedText text={row.value} /></td>
                 </tr>
               ))}
             </tbody>
@@ -487,8 +488,8 @@ export function SectionRenderer({ section }: { section: Section }) {
                     const val = row[col.key]
                     const display = col.key === 'percentage' && val != null ? `${val}%` : String(val ?? '')
                     return (
-                      <td key={col.key} className={`max-w-[180px] truncate py-1 pr-3 ${col.align === 'right' ? 'text-right tabular-nums' : ''}`} title={display}>
-                        {display}
+                      <td key={col.key} className={`max-w-[180px] py-1 pr-3 ${col.align === 'right' ? 'text-right tabular-nums' : ''}`}>
+                        <TruncatedText text={display} />
                       </td>
                     )
                   })}

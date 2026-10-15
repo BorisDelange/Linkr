@@ -2,6 +2,8 @@
 READ_ONLY (Doris rejects `START TRANSACTION READ ONLY`), so a login that can write
 must be refused instead."""
 
+import json
+import os
 import time
 
 import duckdb
@@ -47,6 +49,12 @@ def test_doris_dsn_uses_the_mysql_keys():
 
 def test_doris_scope_is_its_database():
     assert db_connect._scope(DORIS) == "omop"
+    assert db_connect._scope({**DORIS, "schema": "core"}) == "core"
+
+
+def test_without_a_default_schema_mysql_has_none_and_postgres_public():
+    assert db_connect._scope({**DORIS, "database": None}) is None
+    assert db_connect._scope({"engine": "postgresql", "database": "warehouse"}) == "public"
 
 
 def test_doris_recipe_is_not_read_only_attach():
@@ -175,23 +183,42 @@ def test_a_run_time_failure_is_not_a_dead_pooled_connection(pushed):
     assert len(uses) == 1 and len(setups) == 1
 
 
-def test_the_scope_columns_cache_is_per_login():
+class _CatalogueCon:
+    """Answers the information_schema.columns passthrough with `rows`."""
+
+    def __init__(self, *rows):
+        self.rows = list(rows)
+
+    def execute(self, sql):
+        return self
+
+    def fetchall(self):
+        return self.rows
+
+
+def test_the_remote_tables_cache_is_per_login():
     """Two logins may see different tables of the same database."""
-    class Con:
-        def __init__(self, table):
-            self.table = table
-
-        def execute(self, sql):
-            return self
-
-        def fetchall(self):
-            return [(self.table, "id", "bigint")]
-
     pushdown._remote_columns_cache.clear()
     try:
-        assert pushdown._scope_columns(Con("a"), DORIS) == {"a": {"id": "BIGINT"}}
-        assert pushdown._scope_columns(Con("b"), {**DORIS, "username": "other"}) == {"b": {"id": "BIGINT"}}
-        assert pushdown._scope_columns(Con("c"), DORIS) == {"a": {"id": "BIGINT"}}
+        assert list(pushdown._remote_tables(_CatalogueCon(("omop", "a", "id", "bigint")), DORIS)) == [("omop", "a")]
+        other = {**DORIS, "username": "other"}
+        assert list(pushdown._remote_tables(_CatalogueCon(("omop", "b", "id", "bigint")), other)) == [("omop", "b")]
+        assert list(pushdown._remote_tables(_CatalogueCon(("omop", "c", "id", "bigint")), DORIS)) == [("omop", "a")]
+    finally:
+        pushdown._remote_columns_cache.clear()
+
+
+def test_the_remote_tables_span_every_data_schema_but_the_system_ones():
+    pushdown._remote_columns_cache.clear()
+    try:
+        con = _CatalogueCon(
+            ("CORE", "patient", "id", "bigint"), ("VOCAB", "concept", "code", "varchar"), ("mysql", "user", "Host", "char"),
+        )
+        lookup = pushdown._table_lookup(con, {**DORIS, "database": "CORE"})
+        assert lookup(None, "PATIENT").schema == "CORE"
+        assert lookup("vocab", "concept").columns == {"code": "VARCHAR"}
+        assert lookup("mysql", "user") is None
+        assert lookup(None, "concept") is None
     finally:
         pushdown._remote_columns_cache.clear()
 
@@ -209,3 +236,52 @@ def test_a_cancelled_pushed_down_query_kills_it_remotely_and_reads_as_cancelled(
         pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run_cancelled)
     time.sleep(0.05)  # the kill runs on its own thread
     assert killed == [42]
+
+
+def test_the_search_path_lists_every_data_schema_default_first():
+    """A preset naming a second schema (`vocab.concept`) read "schema does not
+    exist" while the default schema alone was on the path."""
+    con = duckdb.connect()
+    try:
+        con.execute("ATTACH ':memory:' AS ext")
+        for schema in ("CORE", "VOCAB", "mysql", "sys"):
+            con.execute(f'CREATE SCHEMA ext."{schema}"')
+        con.execute('CREATE TABLE ext."CORE".patient AS SELECT 1 AS id')
+        con.execute('CREATE TABLE ext."VOCAB".concept AS SELECT 2 AS id')
+        path = db_connect._external_search_path(con, {**DORIS, "database": "core"})
+        assert path.startswith('memory,ext."CORE",')
+        assert 'ext."mysql"' not in path and 'ext."sys"' not in path
+        con.execute(f"SET search_path='{path}'")
+        assert con.execute("SELECT id FROM patient").fetchall() == [(1,)]
+        assert con.execute("SELECT id FROM vocab.concept").fetchall() == [(2,)]
+    finally:
+        con.close()
+
+
+# Opt-in live test against a Doris holding two databases, for example the
+# all-in-one image (`docker run -p 19030:9030 apache/doris:all-in-one-4.1.3`)
+# seeded with CLIN_CORE.patient(patient_id, …), CLIN_CORE.event(patient_id,
+# concept_code, …), CLIN_VOCAB.concept(concept_code, label) and a SELECT-only login:
+#   LINKR_TEST_DORIS='{"engine":"doris","host":"127.0.0.1","port":19030,
+#                      "database":"CLIN_CORE","username":"reader","password":"reader"}'
+_LIVE_DORIS = os.environ.get("LINKR_TEST_DORIS")
+
+
+@pytest.mark.skipif(not _LIVE_DORIS, reason="set LINKR_TEST_DORIS to run the live Doris tests")
+@pytest.mark.parametrize("push", [False, True])
+def test_live_doris_joins_two_databases(push):
+    config = json.loads(_LIVE_DORIS or "{}")
+    sql = (
+        "SELECT c.label, COUNT(*) AS n FROM event e "
+        "JOIN CLIN_VOCAB.concept c ON c.concept_code = e.concept_code GROUP BY c.label ORDER BY c.label"
+    )
+    rows = db_connect.query_external(config, config.get("password"), sql, pushdown=push)
+    assert rows and all(set(r) == {"label", "n"} for r in rows)
+
+
+@pytest.mark.skipif(not _LIVE_DORIS, reason="set LINKR_TEST_DORIS to run the live Doris tests")
+def test_live_doris_introspection_names_the_other_databases_tables():
+    config = json.loads(_LIVE_DORIS or "{}")
+    names = {t["name"] for t in db_connect.introspect_external(config, config.get("password"))}
+    assert {"patient", "event", "CLIN_VOCAB.concept"} <= names
+    assert not any(n.lower().startswith(("mysql.", "information_schema.")) for n in names)

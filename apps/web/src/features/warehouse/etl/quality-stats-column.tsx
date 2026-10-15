@@ -202,7 +202,7 @@ export function QueryErrorNotice({ text, error, onRetry }: { text: string; error
         </pre>
       )}
       action={(
-        <Button variant="outline" size="sm" onClick={onRetry}>
+        <Button size="sm" onClick={onRetry}>
           <RefreshCw size={12} />
           {t('etl.quality_retry')}
         </Button>

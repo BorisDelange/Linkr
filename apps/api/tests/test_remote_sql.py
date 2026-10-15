@@ -9,7 +9,7 @@ of docs/planning/doris-plan.md."""
 import duckdb
 import pytest
 
-from app.services.data.remote_sql import NotPortable, to_remote
+from app.services.data.remote_sql import NotPortable, RemoteTable, to_remote
 
 TABLES = {
     "measurement": {
@@ -21,8 +21,16 @@ TABLES = {
 }
 
 
+
+
+def lookup(schema: str | None, table: str) -> RemoteTable | None:
+    """The tables above, in the default schema `omop`."""
+    cols = TABLES.get(table.lower()) if (schema or "omop").lower() == "omop" else None
+    return RemoteTable("omop", table.lower(), cols) if cols else None
+
+
 def doris(sql: str) -> str:
-    return to_remote(sql, "doris", "omop", TABLES.get).sql
+    return to_remote(sql, "doris", lookup).sql
 
 
 def as_duckdb(remote: str) -> str:
@@ -55,7 +63,7 @@ def test_aggregate_is_translated_and_scoped():
 
 
 def test_result_columns_keep_duckdb_names():
-    q = to_remote("SELECT m.measurement_concept_id, COUNT(*) AS n FROM measurement m GROUP BY 1", "doris", "omop", TABLES.get)
+    q = to_remote("SELECT m.measurement_concept_id, COUNT(*) AS n FROM measurement m GROUP BY 1", "doris", lookup)
     assert q.columns == ("measurement_concept_id", "n")
 
 
@@ -220,8 +228,8 @@ def test_literals_and_identifiers_are_re_escaped_for_doris(sql, expected):
 
 @pytest.mark.parametrize("sql, reason", [
     ("SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value = 'x'; DROP TABLE measurement", "single SELECT"),
-    ("SELECT table_name AS t FROM information_schema.tables", "schema information_schema"),
-    ("SELECT COUNT(*) AS n FROM mysql.user", "schema mysql"),
+    ("SELECT table_name AS t FROM information_schema.tables", "unknown table information_schema.tables"),
+    ("SELECT COUNT(*) AS n FROM mysql.user", "unknown table mysql.user"),
     ("SELECT n FROM memory.main.counts", "catalog memory"),
     ("SELECT x AS x FROM read_parquet('/etc/passwd') t(x)", "table function"),
     ("SELECT x AS x FROM mysql_execute('ext', 'DROP TABLE t') t(x)", "table function"),
@@ -237,12 +245,45 @@ def test_outside_the_scope_or_the_grammar(sql, reason):
         doris(sql)
 
 
+CATALOGUE = {
+    ("core", "patient"): RemoteTable("CORE", "Patient", {"patient_id": "BIGINT", "gender": "VARCHAR"}),
+    ("vocab", "concept"): RemoteTable("VOCAB", "concept", {"concept_code": "VARCHAR", "label": "VARCHAR"}),
+    ("core", "event"): RemoteTable("CORE", "event", {"patient_id": "BIGINT", "concept_code": "VARCHAR"}),
+}
+
+
+def several_schemas(default: str | None):
+    def lookup(schema: str | None, table: str) -> RemoteTable | None:
+        schema = schema or default
+        return CATALOGUE.get((schema.lower(), table.lower())) if schema else None
+    return lookup
+
+
+def test_a_join_across_schemas_names_each_table_in_its_own_schema():
+    out = to_remote(
+        "SELECT c.label, COUNT(*) AS n FROM event e JOIN vocab.concept c ON c.concept_code = e.concept_code GROUP BY c.label",
+        "doris", several_schemas("core"),
+    ).sql
+    assert "FROM `CORE`.`event`" in out
+    assert "JOIN `VOCAB`.`concept`" in out
+
+
+def test_the_remote_spelling_of_a_name_is_put_back():
+    out = to_remote("SELECT COUNT(*) AS n FROM ext.core.patient", "doris", several_schemas(None)).sql
+    assert "FROM `CORE`.`Patient`" in out
+
+
+def test_a_bare_name_without_a_default_schema_stays_local():
+    with pytest.raises(NotPortable, match="unknown table patient"):
+        to_remote("SELECT COUNT(*) AS n FROM patient", "doris", several_schemas(None))
+
+
 def test_mysql_is_not_translated():
     """MySQL compares text case-insensitively by default: not the same answer."""
     with pytest.raises(NotPortable):
-        to_remote("SELECT COUNT(*) AS n FROM measurement", "mysql", "omop", TABLES.get)
+        to_remote("SELECT COUNT(*) AS n FROM measurement", "mysql", lookup)
 
 
 def test_postgres_has_no_spelling_of_duckdb_functions():
     with pytest.raises(NotPortable):
-        to_remote("SELECT MEDIAN(value_as_number) AS m FROM measurement", "postgresql", "cdm", TABLES.get)
+        to_remote("SELECT MEDIAN(value_as_number) AS m FROM measurement", "postgresql", lookup)

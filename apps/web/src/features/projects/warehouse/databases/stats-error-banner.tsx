@@ -83,7 +83,6 @@ function RetryButton({ onRetry, retrying }: { onRetry: () => void; retrying: boo
   const busy = retrying || pressed
   return (
     <Button
-      variant="outline"
       size="sm"
       onClick={() => { setPressed(true); onRetry() }}
       disabled={busy}

@@ -447,7 +447,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
           title={t('concept_mapping.extract_no_schema_title')}
           description={t('concept_mapping.extract_no_schema_description')}
           action={wsUid && (
-            <Button asChild variant="outline" size="sm-tight">
+            <Button asChild size="sm-tight">
               <Link to={paths.warehouseDatabase(wsUid, dataSource.id)}>
                 <Network size={12} />
                 {t('concept_mapping.extract_no_schema_open')}

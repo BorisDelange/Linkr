@@ -19,9 +19,9 @@ from app.services.data import db_connect, flight, query_cancel, remote_sql
 
 logger = logging.getLogger(__name__)
 
-# A scope's columns change only with the remote schema: re-read after this long.
+# The remote catalogue changes only with the remote schema: re-read after this long.
 _REMOTE_COLUMNS_TTL = 300.0
-_remote_columns_cache: dict[tuple, tuple[float, dict[str, dict[str, str]]]] = {}
+_remote_columns_cache: dict[tuple, tuple[float, dict[tuple[str, str], remote_sql.RemoteTable]]] = {}
 _remote_columns_lock = threading.Lock()
 
 # What the audit line keeps of the SQL sent to the database (core/audit _DETAIL_MAX).
@@ -44,13 +44,12 @@ def _remote_type(data_type: str) -> str:
     return _REMOTE_TYPE_ALIASES.get(name, name.upper())
 
 
-def _scope_columns(con: duckdb.DuckDBPyConnection, config: dict) -> dict[str, dict[str, str]]:
-    """Table → {column: type} of the source's scope, lower-cased, from its own
-    information_schema."""
+def _remote_tables(con: duckdb.DuckDBPyConnection, config: dict) -> dict[tuple[str, str], remote_sql.RemoteTable]:
+    """`(schema, table)` lower-cased → the table, for every data schema the login
+    reads, from the database's own information_schema."""
     spec = db_connect._engine_spec(config)
-    scope = db_connect._scope(config)
     key = (
-        config.get("engine"), config.get("host"), config.get("port"), config.get("database"), scope,
+        config.get("engine"), config.get("host"), config.get("port"), config.get("database"),
         config.get("username"),
     )
     with _remote_columns_lock:
@@ -58,17 +57,34 @@ def _scope_columns(con: duckdb.DuckDBPyConnection, config: dict) -> dict[str, di
     if hit and time.monotonic() - hit[0] < _REMOTE_COLUMNS_TTL:
         return hit[1]
     inner = (
-        "SELECT table_name, column_name, data_type FROM information_schema.columns "
-        f"WHERE table_schema = ''{scope}''"
+        "SELECT table_schema, table_name, column_name, data_type FROM information_schema.columns "
+        f"WHERE table_schema NOT IN ({db_connect._SYSTEM_SCHEMAS_NESTED})"
     )
-    columns: dict[str, dict[str, str]] = {}
-    for table, column, data_type in con.execute(
+    tables: dict[tuple[str, str], remote_sql.RemoteTable] = {}
+    for schema, table, column, data_type in con.execute(
         f"SELECT * FROM {spec['query_fn']}('{db_connect._ATTACH_ALIAS}', '{inner}')"
     ).fetchall():
-        columns.setdefault(str(table).lower(), {})[str(column).lower()] = _remote_type(data_type)
+        if db_connect.is_system_schema(str(schema)):
+            continue
+        ref = (str(schema).lower(), str(table).lower())
+        if ref not in tables:
+            tables[ref] = remote_sql.RemoteTable(str(schema), str(table), {})
+        tables[ref].columns[str(column).lower()] = _remote_type(data_type)
     with _remote_columns_lock:
-        _remote_columns_cache[key] = (time.monotonic(), columns)
-    return columns
+        _remote_columns_cache[key] = (time.monotonic(), tables)
+    return tables
+
+
+def _table_lookup(con: duckdb.DuckDBPyConnection, config: dict) -> remote_sql.TableLookup:
+    default = db_connect._scope(config)
+
+    def lookup(schema: str | None, table: str) -> remote_sql.RemoteTable | None:
+        schema = schema or default
+        if schema is None:
+            return None
+        return _remote_tables(con, config).get((schema.lower(), table.lower()))
+
+    return lookup
 
 
 # How the mysql extension reports a statement the server rejected before running
@@ -83,10 +99,7 @@ def _pushed_down(con: duckdb.DuckDBPyConnection, config: dict, sql: str) -> remo
     if engine not in remote_sql.PUSHDOWN_ENGINES:
         return None
     try:
-        return remote_sql.to_remote(
-            sql, engine, db_connect._scope(config),
-            lambda table: _scope_columns(con, config).get(table.lower()),
-        )
+        return remote_sql.to_remote(sql, engine, _table_lookup(con, config))
     except remote_sql.NotPortable as exc:
         logger.debug("query not pushed down (%s)", exc)
         return None
@@ -103,15 +116,18 @@ def _passthrough(config: dict, remote: remote_sql.RemoteQuery) -> str:
 
 
 def _flight_probe(con: duckdb.DuckDBPyConnection, config: dict) -> str | None:
-    """One row of a table of the scope, in the engine's SQL (see flight.problem)."""
-    tables = sorted(_scope_columns(con, config))
+    """One row of a table of the database, in the engine's SQL (see flight.problem).
+    A table of the default schema when it has one."""
+    tables = sorted(_remote_tables(con, config).items())
     if not tables:
         return None
+    default = (db_connect._scope(config) or "").lower()
+    table = next((t for (schema, _), t in tables if schema == default), tables[0][1])
 
     def quote(name: str) -> str:
         return "`" + name.replace("`", "``") + "`"
 
-    return f"SELECT 1 AS one FROM {quote(db_connect._scope(config))}.{quote(tables[0])} LIMIT 1"
+    return f"SELECT 1 AS one FROM {quote(table.schema)}.{quote(table.name)} LIMIT 1"
 
 
 def flight_problem(config: dict, password: str | None) -> tuple[str, str | None] | None:

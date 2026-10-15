@@ -671,7 +671,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                           {textFields.map((item) => (
                             <tr key={item.label}>
                               <td className="whitespace-nowrap pr-4 py-0.5 text-muted-foreground align-top">{item.label}</td>
-                              <td className="py-0.5 font-medium" title={item.value}>{item.value}</td>
+                              <td className="py-0.5 font-medium">{item.value}</td>
                             </tr>
                           ))}
                         </tbody>

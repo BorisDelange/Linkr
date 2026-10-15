@@ -119,3 +119,20 @@ def test_parquet_tables_with_a_schema_open_as_schema_views(tmp_path):
         assert con.execute("SELECT id FROM patients").fetchone() == (1,)
     finally:
         con.close()
+
+
+def test_external_search_path_lists_every_data_schema_default_first():
+    duckdb = pytest.importorskip("duckdb")
+    con = duckdb.connect()
+    try:
+        con.execute("ATTACH ':memory:' AS ext")
+        for schema in ("CORE", "VOCAB", "mysql"):
+            con.execute(f'CREATE SCHEMA ext."{schema}"')
+        con.execute('CREATE TABLE ext."VOCAB".concept AS SELECT 2 AS id')
+        path = _databases._external_search_path(con, "core")
+        assert path.startswith('memory,ext."CORE",')
+        assert "mysql" not in path
+        con.execute(f"SET search_path = {_databases._quote(path)}")
+        assert con.execute("SELECT id FROM vocab.concept").fetchall() == [(2,)]
+    finally:
+        con.close()
