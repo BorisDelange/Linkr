@@ -51,6 +51,17 @@ class RemoteQueryFailed(RuntimeError):
     duckdb.IOException on purpose: connection_pool takes that for a dead
     connection and runs the query again on a fresh one."""
 
+
+# The mysql extension quotes the whole statement into its error, and DuckDB then
+# adds the passthrough call it came from: tens of KB around a one-line reason.
+_DUCKDB_CONTEXT = re.compile(r"\n+LINE \d+:.*", re.S)
+
+
+def _database_error(exc: Exception, sql: str) -> str:
+    """The database's reason for failing `sql`, without the echoed statement."""
+    message = str(exc).replace(f' "{sql}"', "", 1)
+    return _DUCKDB_CONTEXT.sub("", message).strip()
+
 # Remote type names (information_schema.data_type) as the SQL types remote_sql
 # reasons on. Doris suffixes its newer storage formats (datetimev2, decimalv3).
 _REMOTE_TYPE_ALIASES = {"string": "TEXT", "largeint": "HUGEINT", "datetime": "TIMESTAMP"}
@@ -181,7 +192,7 @@ def _run_over_flight(
             if flight.is_transport_error(exc):
                 raise flight.Unreachable(str(exc).splitlines()[0], flight.status_of(exc)) from exc
             if isinstance(exc, duckdb.IOException):
-                raise RemoteQueryFailed(str(exc)) from exc
+                raise RemoteQueryFailed(_database_error(exc, remote.sql)) from exc
             raise
         finally:
             con.unregister(view)
@@ -241,10 +252,11 @@ def _with_pushdown(
     try:
         result = _run_killable(con, config, password, _passthrough(config, remote), run)
     except duckdb.IOException as exc:
-        if _REMOTE_PREPARE_FAILED not in str(exc):
-            raise RemoteQueryFailed(str(exc)) from exc
-        logger.warning("pushed-down query refused by the database, ran it locally: %s", exc)
-        _record("linkr", f"refused by the database: {str(exc).splitlines()[0]}")
+        reason = _database_error(exc, remote.sql)
+        if _REMOTE_PREPARE_FAILED not in reason:
+            raise RemoteQueryFailed(reason) from exc
+        logger.warning("pushed-down query refused by the database, ran it locally: %s", reason)
+        _record("linkr", f"refused by the database: {reason.splitlines()[0]}")
         return run(sql)
     _record("database")
     return result
@@ -258,14 +270,15 @@ def run_native(
     native mode, for what DuckDB cannot spell (Doris' `MATCH_ANY` on an inverted
     index). Safe for the same reason the pushdown is: the login is read-only
     (db_connect._require_read_only_doris_login). An error is the database's own."""
-    literal = sql.strip().rstrip(";").replace("'", "''")
+    statement = sql.strip().rstrip(";")
+    literal = statement.replace("'", "''")
     passthrough = f"SELECT * FROM {db_connect._engine_spec(config)['query_fn']}('{db_connect._ATTACH_ALIAS}', '{literal}')"
     logger.info("native query on %s: %s", config.get("host"), sql[:_LOGGED_SQL_MAX])
     _record("database")
     try:
         return _run_killable(con, config, password, passthrough, run)
     except duckdb.IOException as exc:
-        raise RemoteQueryFailed(str(exc)) from exc
+        raise RemoteQueryFailed(_database_error(exc, statement)) from exc
 
 
 def _run_killable(

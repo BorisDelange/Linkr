@@ -159,6 +159,20 @@ def test_a_query_that_failed_running_is_not_retried_locally(pushed):
     assert isinstance(failed.value.__cause__, duckdb.IOException)
 
 
+def test_a_failure_reads_without_the_statement_it_echoes(pushed):
+    """The mysql extension quotes the whole statement, then DuckDB the call it
+    came from: tens of KB the user would scroll to reach the reason."""
+    def run(q: str):
+        raise duckdb.IOException(
+            'IO Error: Failed to execute MySQL query "REMOTE": errCode = 2, detailMessage = MEM_LIMIT_EXCEEDED'
+            "\n\n\nLINE 1: SELECT * FROM mysql_query('ext', 'REMOTE')\n       ^"
+        )
+
+    with pytest.raises(pushdown.RemoteQueryFailed) as failed:
+        pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", run)
+    assert str(failed.value) == "IO Error: Failed to execute MySQL query: errCode = 2, detailMessage = MEM_LIMIT_EXCEEDED"
+
+
 def test_a_run_time_failure_is_not_a_dead_pooled_connection(pushed):
     """connection_pool re-attaches and runs `use` again on an IOException; a
     statement Doris failed must not be run a second time that way."""

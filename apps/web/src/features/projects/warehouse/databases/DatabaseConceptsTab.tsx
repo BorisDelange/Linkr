@@ -171,7 +171,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
           {live.error && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
               <AlertCircle size={14} className="mt-px shrink-0" />
-              <span className="min-w-0 break-words">{live.error}</span>
+              <span className="max-h-32 min-w-0 flex-1 overflow-y-auto whitespace-pre-wrap break-words">{live.error}</span>
             </div>
           )}
         </Card>
