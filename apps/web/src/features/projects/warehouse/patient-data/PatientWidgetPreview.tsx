@@ -19,8 +19,9 @@ interface PatientWidgetPreviewProps {
 /** The widget itself, rendered with the current (draft) config against the selected patient, so
  *  the preview follows edits before they are saved — or before the widget even exists. */
 export function PatientWidgetPreview({ pluginId, widgetId, config }: PatientWidgetPreviewProps) {
-  const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
-  const personId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
+  const { projectUid, dataSourceId, schemaMapping, paused } = usePatientChartContext()
+  const selected = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
+  const personId = paused ? null : selected
   const visitOccurrenceId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
   const visitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
   const { t } = useTranslation()

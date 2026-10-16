@@ -20,8 +20,9 @@ interface ResultsPanelProps {
   onCancel?: () => void
   onExportCsv: () => void
   /** A tab reviewing the result's patients, where the host has a board to
-   *  show them through (a database's cohorts). Rendered only while it is open. */
-  renderPatients?: (result: CohortExecutionResult) => ReactNode
+   *  show them through (a database's cohorts). Rendered only while it is open;
+   *  with no result too (null), so its widgets can be removed without a run. */
+  renderPatients?: (result: CohortExecutionResult | null) => ReactNode
   /** A tab browsing every table of the database, filtered on the cohort. */
   renderTables?: () => ReactNode
   /** A tab browsing the database's schema, unfiltered. */
@@ -131,6 +132,20 @@ export function ResultsPanel({
           <div className="min-h-0 flex-1 overflow-hidden">
             <ResultsTable rows={output.rows} rawHeaders emptyMessage={t('cohorts.results_output_none')} />
           </div>
+        </div>
+      )
+    }
+    if (tab === 'patients' && renderPatients && !result) {
+      return (
+        <div className="flex h-full flex-col">
+          <div className="flex shrink-0 items-center gap-2 border-b bg-muted/40 px-4 py-1.5 text-[10px] text-muted-foreground">
+            {loading && <Loader2 size={12} className="animate-spin" />}
+            <span className="min-w-0 flex-1 truncate" title={errorText ?? undefined}>
+              {loading ? t('cohorts.executing') : errorText ? t('cohorts.results_failed') : t('cohorts.patients_not_run')}
+            </span>
+            {!loading && <Button size="xs" onClick={onExecute}>{t('cohorts.execute')}</Button>}
+          </div>
+          <div className="min-h-0 flex-1 overflow-hidden">{renderPatients(null)}</div>
         </div>
       )
     }

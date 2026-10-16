@@ -101,6 +101,11 @@ function WidgetContent({
   widget: PatientDashboardWidget
   onConfigureConcepts?: () => void
 }) {
+  const { t } = useTranslation()
+  const { paused } = usePatientChartContext()
+  if (paused) {
+    return <p className="flex h-full items-center justify-center p-2 text-center text-xs text-muted-foreground">{t('cohorts.patients_widget_paused')}</p>
+  }
   const plugin = getPlugin(widget.pluginId)
   if (!plugin) {
     return (

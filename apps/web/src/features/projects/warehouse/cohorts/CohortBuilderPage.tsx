@@ -540,7 +540,7 @@ export function CohortBuilder() {
                         dataSourceId={activeSource.id}
                         cohort={cohort}
                         schemaMapping={mapping}
-                        rows={r.rows}
+                        rows={r?.rows ?? null}
                       />
                     )
                   : undefined

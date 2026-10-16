@@ -15,6 +15,10 @@ interface PatientChartContextValue {
   /** False where R/Python widgets cannot run: in server mode code runs in a
    *  project's session, and a database's board has no project. */
   codeWidgets?: boolean
+  /** Widgets keep their place, title and settings but run nothing — a cohort's
+   *  board before the cohort has run, so a widget can be removed or edited
+   *  without loading it. */
+  paused?: boolean
 }
 
 export const PatientChartContext = createContext<PatientChartContextValue>({

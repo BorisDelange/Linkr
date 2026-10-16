@@ -25,8 +25,9 @@ interface CohortPatientsPanelProps {
   cohort: Cohort
   schemaMapping: SchemaMapping
   /** The rows of the last execution (`id` at the cohort's level, `patient_id`
-   *  beside it below patient level). */
-  rows: Record<string, unknown>[]
+   *  beside it below patient level); null before any — the board is then shown
+   *  with its widgets paused, to rearrange or remove them without running them. */
+  rows: Record<string, unknown>[] | null
 }
 
 /**
@@ -75,8 +76,8 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
   // whatever the cohort is written in (custom SQL, a unit-stay level).
   const listedCohort = useMemo<Cohort>(() => {
     const idColumn = level === 'event' ? 'patient_id' : cohortIdColumn(level)
-    const ids = rows.map((r) => String(r[idColumn]))
-    const patientIds = [...new Set(rows.map((r) => String(r.patient_id)))]
+    const ids = (rows ?? []).map((r) => String(r[idColumn]))
+    const patientIds = [...new Set((rows ?? []).map((r) => String(r.patient_id)))]
     return {
       ...cohort,
       materialization: {
@@ -108,6 +109,7 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
   }
 
   const boardId = board?.id
+  const paused = rows === null
   const context = useMemo(() => ({
     projectUid: selectionKey,
     boardId,
@@ -117,7 +119,8 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
     // In server mode, R/Python runs in a project's session: only a project's
     // board has one.
     codeWidgets: inProject || !isServerMode(),
-  }), [selectionKey, boardId, dataSourceId, schemaMapping, can, inProject])
+    paused,
+  }), [selectionKey, boardId, dataSourceId, schemaMapping, can, inProject, paused])
 
   if (!loaded) {
     return (
