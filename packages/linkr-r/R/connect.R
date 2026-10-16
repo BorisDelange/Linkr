@@ -138,7 +138,7 @@ linkr_connect <- function(alias, read_only = TRUE) {
   con
 }
 
-# Schemas an engine keeps for itself (mirrors the server's db_connect.SYSTEM_SCHEMAS).
+# Schemas an engine keeps for itself (mirrors the server's db_schemas.SYSTEM_SCHEMAS).
 .linkr_system_schemas <- c(
   "information_schema", "pg_catalog", "pg_toast", "mysql", "sys", "performance_schema", "__internal_schema"
 )

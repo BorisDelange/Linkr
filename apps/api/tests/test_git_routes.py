@@ -422,3 +422,27 @@ async def test_clone_and_verify_need_a_write_permission(client, db, tmp_path):
         assert (await client.post(f"{API}/git/{route}", headers=carol, json={"url": url, "workspaceId": ws, **extra})).status_code == 403
         assert (await client.post(f"{API}/git/{route}", headers=bob, json={"url": url, "workspaceId": ws, **extra})).status_code == 200
         assert (await client.post(f"{API}/git/{route}", headers=admin, json={"url": url, **extra})).status_code == 200
+
+
+async def test_catalog_file_needs_a_write_permission_somewhere(client, db, monkeypatch):
+    from app.services import catalog_remote_service
+
+    async def fake_fetch(url, branch, file, token):
+        return b'{"schemaVersion":1}'
+
+    monkeypatch.setattr(catalog_remote_service, "fetch_file", fake_fetch)
+    admin = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    bob = await _user(client, db, "bob")
+    carol = await _user(client, db, "carol")
+    dave = await _user(client, db, "dave")
+    bob_id = (await client.get(f"{API}/auth/me", headers=bob)).json()["id"]
+    carol_id = (await client.get(f"{API}/auth/me", headers=carol)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": bob_id, "role": "editor"})
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": carol_id, "role": "viewer"})
+    query = "url=https://gitlab.chu.fr/g/catalog&branch=main&file=catalog.json"
+
+    assert (await client.get(f"{API}/git/catalog-file?{query}", headers=dave)).status_code == 403
+    assert (await client.get(f"{API}/git/catalog-file?{query}", headers=carol)).status_code == 403
+    assert (await client.get(f"{API}/git/catalog-file?{query}", headers=bob)).status_code == 200
+    assert (await client.get(f"{API}/git/catalog-file?{query}", headers=admin)).status_code == 200

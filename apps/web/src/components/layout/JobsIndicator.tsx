@@ -103,7 +103,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   useEffect(() => {
     if (!logJobId) return
     let live = true
-    getJob(logJobId)
+    getJob(logJobId, { withInput: true })
       .then((j) => { if (live) setInput({ jobId: logJobId, text: j.input ?? null }) })
       .catch(() => { if (live) setInput({ jobId: logJobId, text: null }) })
     return () => { live = false }

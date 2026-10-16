@@ -354,7 +354,7 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSc
             <section key={sec.id} className="space-y-2">
               <div className="flex min-h-7 items-center gap-1.5">
                 {dot(sec.tone)}
-                <SectionLabel>{sec.label}</SectionLabel>
+                <h3 className="text-sm font-semibold">{sec.label}</h3>
                 <div className="flex-1" />
                 {/* Lifted, not spaced: more room between the button and the blocks
                     without pushing the blocks away from the title. */}

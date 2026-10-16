@@ -7,32 +7,42 @@ import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { columnLabel } from '@/lib/format-helpers'
-import type { ColumnDescriptor, ConceptFilters, ConceptFilterValue } from './concept-queries'
+import { filterText, type ColumnDescriptor, type ConceptFilters, type ConceptFilterValue } from './concept-queries'
 
 interface ConceptPickerToolbarProps {
   availableColumns: ColumnDescriptor[]
   filters: ConceptFilters
   filterOptions: Record<string, string[]>
   onFilterChange: (key: string, value: ConceptFilterValue) => void
+  /** Controls ahead of the filters (e.g. the database the list reads). */
+  leading?: ReactNode
   /** Extra controls after the search (e.g. importing a saved list). */
   children?: ReactNode
 }
 
-/** The Concepts page's filters popover and fuzzy search, with the same
- *  controls, order and sizing: for the concept pickers and a database's
- *  Concepts tab. */
+/** The concept lists' filters popover and fuzzy search: the project Concepts
+ *  page, a database's Concepts tab and the concept pickers. */
 export function ConceptPickerToolbar({
   availableColumns,
   filters,
   filterOptions,
   onFilterChange,
+  leading,
   children,
 }: ConceptPickerToolbarProps) {
   const { t } = useTranslation()
 
   // Typed locally, committed on Enter / the Search button: a keystroke-debounced
   // query would fire a full fuzzy scan over the dictionary per character.
-  const [pendingSearch, setPendingSearch] = useState('')
+  // Starts from, and follows, the committed search: a scope that keeps its
+  // filters across remounts would otherwise filter on a term the box hides.
+  const committedSearch = filterText(filters._searchFuzzy) ?? ''
+  const [pendingSearch, setPendingSearch] = useState(committedSearch)
+  const [shownSearch, setShownSearch] = useState(committedSearch)
+  if (committedSearch !== shownSearch) {
+    setShownSearch(committedSearch)
+    setPendingSearch(committedSearch)
+  }
   const commitSearch = () => onFilterChange('_searchFuzzy', pendingSearch.trim() || null)
   const clearSearch = () => {
     setPendingSearch('')
@@ -59,6 +69,7 @@ export function ConceptPickerToolbar({
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex shrink-0 items-center gap-1.5 border-b px-3 py-2">
+        {leading}
         <Popover>
           <Tooltip>
             <TooltipTrigger asChild>

@@ -31,7 +31,7 @@ from typing import NamedTuple
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core import audit, database
+from app.core import audit, database, deferred
 from app.models.data_source import DataSource
 from app.services import data_source_service
 from app.services.data import db_connect, query_cancel
@@ -212,7 +212,8 @@ async def _watch_progress(tag: tuple[str, str], report) -> None:
 async def _run_one(job_id, source_id, runner, q, tag, launched_by) -> list[dict] | None:
     token = query_cancel.current_query.set(tag)
     cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL)
-    try:
+
+    async def run() -> list[dict] | None:
         # One access-log line per query, as through `/query`.
         with audit.job_scope(job_id, "query", launched_by):
             async with database.async_session() as db:
@@ -220,10 +221,11 @@ async def _run_one(job_id, source_id, runner, q, tag, launched_by) -> list[dict]
                 if source is None:
                     raise ValueError("the database no longer exists")
                 return await runner(db, source, q)
-    except asyncio.CancelledError:
-        # The task stops here, but the query runs on in its thread: interrupt it.
-        query_cancel.cancel(*tag)
-        raise
+
+    try:
+        # Cancelled, the query runs on in its thread: interrupted, and waited for,
+        # so the lane's next job does not start beside it.
+        return await deferred.until_stopped(run(), lambda: query_cancel.cancel(*tag))
     finally:
         query_cancel.current_query.reset(token)
         db_connect.row_cap.reset(cap)

@@ -144,7 +144,7 @@ describe('buildOverviewTileDensityQuery', () => {
 
 describe('what a database can compute itself (remote_sql)', () => {
   it('casts no column the relation leaves empty: a cast of an untyped NULL keeps the query in Linkr', () => {
-    const bare = mappingV1ToV2({ ...mapping_V1, eventTables: { Measurement: { ...mapping_V1.eventTables.Measurement, valueStringColumn: undefined } } } as unknown as SchemaMappingV1)
+    const bare = mappingV1ToV2({ ...mapping_V1, eventTables: { Measurement: { ...mapping_V1.eventTables!.Measurement, valueStringColumn: undefined } } } as unknown as SchemaMappingV1)
     const sql = buildOverviewEventsQuery(bare, ...args)!
     expect(sql).toContain('NULL AS value_string')
     expect(sql).toContain('NULL AS route')

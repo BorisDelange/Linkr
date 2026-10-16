@@ -60,6 +60,9 @@ export function usePatientData(
    * place of the one picked in the board's selector.
    */
   fixedCohort?: Cohort,
+  /** A paused board (a cohort's, before it has run) loads nothing and acts as
+   *  if no patient were selected, without clearing the stored selection. */
+  { paused = false }: { paused?: boolean } = {},
 ) {
   const {
     selectedCohortId,
@@ -75,9 +78,9 @@ export function usePatientData(
   const cohorts = getProjectCohorts(projectUid)
 
   const cohortId = fixedCohort ? fixedCohort.id : (selectedCohortId[projectUid] ?? null)
-  const patientId = selectedPatientId[projectUid] ?? null
-  const visitId = selectedVisitId[projectUid] ?? null
-  const visitDetailId = selectedVisitDetailId[projectUid] ?? null
+  const patientId = paused ? null : (selectedPatientId[projectUid] ?? null)
+  const visitId = paused ? null : (selectedVisitId[projectUid] ?? null)
+  const visitDetailId = paused ? null : (selectedVisitDetailId[projectUid] ?? null)
 
   const selectedCohort: Cohort | null = fixedCohort
     ?? (cohortId ? (cohorts.find((c) => c.id === cohortId) ?? null) : null)
@@ -103,6 +106,11 @@ export function usePatientData(
   const loadPatients = useCallback(
     async (page: number) => {
       if (!dataSourceId || !schemaMapping) return
+      if (paused) {
+        setPatients([])
+        setPatientCount(0)
+        return
+      }
       const cacheKey = `${membershipKey}-${filtersKey}-${page}`
       const cached = patientCacheRef.current.get(cacheKey)
       if (cached) {
@@ -141,7 +149,7 @@ export function usePatientData(
         setPatientsLoading(false)
       }
     },
-    [dataSourceId, schemaMapping, selectedCohort, membershipKey, filtersKey, patientFilters],
+    [dataSourceId, schemaMapping, selectedCohort, membershipKey, filtersKey, patientFilters, paused],
   )
 
   // Load patients when page/cohort/filters change

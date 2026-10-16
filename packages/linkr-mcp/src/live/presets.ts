@@ -50,12 +50,48 @@ const INPUT_TO_SPEC: [keyof RelationInput, string][] = [
   ['gender_values', 'genderValues'],
 ]
 
+const isText = (v: unknown): v is string => typeof v === 'string' && v.trim() !== ''
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+/** Why a `from` or a join cannot be stored — the app's sanitizer would drop it without a word. */
+function tableProblem(what: string, t: unknown): string | null {
+  if (!isObject(t)) return `${what} must be an object {schema?, table, alias}.`
+  if (!isText(t.table) || !isText(t.alias)) return `${what} needs a table and an alias.`
+  if (t.schema !== undefined && typeof t.schema !== 'string') return `${what}: schema must be a string.`
+  return null
+}
+
+function joinsProblem(joins: unknown): string | null {
+  if (!Array.isArray(joins)) return 'joins must be an array of {schema?, table, alias, type, on}.'
+  for (const [i, j] of joins.entries()) {
+    const what = `joins[${i}]`
+    const problem = tableProblem(what, j)
+    if (problem) return problem
+    const { type, on } = j as Record<string, unknown>
+    if (type !== 'left' && type !== 'inner') return `${what}: type must be "left" or "inner".`
+    const pairs = Array.isArray(on) && on.length > 0
+      && on.every((p) => Array.isArray(p) && p.length === 2 && p.every(isText))
+    if (!pairs) return `${what}: on must be column pairs, [["a.col", "b.col"], …].`
+  }
+  return null
+}
+
 /**
- * The relation as it will be stored: the input laid over the current spec (or a
- * new one), its key or label set from the relation key. Clearing the SQL also
- * clears the columns measured on it.
+ * The relation as it will be stored — the input laid over the current spec (or
+ * a new one), its key or label set from the relation key — or why the input is
+ * malformed. Clearing or changing the SQL drops the columns measured on it,
+ * unless sql_columns comes with it: they no longer describe it.
  */
-export function buildRelationSpec(rk: RelationKey, input: RelationInput, current: RelationSpec | undefined): RelationSpec {
+export function buildRelationSpec(rk: RelationKey, input: RelationInput, current: RelationSpec | undefined): RelationSpec | string {
+  if (input.from != null) {
+    const problem = tableProblem('from', input.from)
+    if (problem) return problem
+  }
+  if (input.joins != null) {
+    const problem = joinsProblem(input.joins)
+    if (problem) return problem
+  }
+  const sqlChanged = isText(input.custom_sql) && input.custom_sql.trim() !== (current?.customSql ?? '').trim()
   const out: Record<string, unknown> = { ...(current ?? {}) }
   for (const [from, to] of INPUT_TO_SPEC) {
     if (!(from in input) || input[from] === undefined) continue
@@ -63,7 +99,7 @@ export function buildRelationSpec(rk: RelationKey, input: RelationInput, current
     if (v === null || (typeof v === 'string' && !v.trim())) delete out[to]
     else out[to] = v
   }
-  if (!out.customSql) delete out.sqlColumns
+  if (!out.customSql || (sqlChanged && input.sql_columns == null)) delete out.sqlColumns
   if (rk.list === 'concepts') out.key = rk.name
   if (rk.list === 'events' || rk.list === 'drugs') out.label = rk.name
   if (rk.list !== 'drugs') delete out.drugKind
@@ -97,6 +133,20 @@ export function relationProblems(mapping: SchemaMapping, rk: RelationKey): strin
   return problems
 }
 
+/** The event / drug relations reading concept dictionary `key`: by name, or
+ *  implicitly because they name none and it is the first dictionary. */
+export function dictionaryUsers(mapping: SchemaMapping, key: string): { named: string[]; byDefault: string[] } {
+  const users = [
+    ...(mapping.events ?? []).map((e) => ({ e, list: 'events' })),
+    ...(mapping.drugs ?? []).map((e) => ({ e, list: 'drugs' })),
+  ]
+  const first = mapping.concepts?.[0]?.key === key
+  return {
+    named: users.filter(({ e }) => e.conceptDictionaryKey === key).map(({ e, list }) => `${list}.${e.label}`),
+    byDefault: first ? users.filter(({ e }) => !e.conceptDictionaryKey).map(({ e, list }) => `${list}.${e.label}`) : [],
+  }
+}
+
 const qualified = (t: { schema?: string; table: string }) => (t.schema ? `${t.schema}.${t.table}` : t.table)
 
 function fieldText(v: FieldSpec): string {
@@ -120,7 +170,7 @@ export function relationText(cls: ClassName, key: string, spec: RelationSpec, fu
   }
   if (!s.customSql?.trim() || full) {
     if (s.from) lines.push(`  from ${qualified(s.from)} ${s.from.alias}`)
-    for (const j of s.joins ?? []) lines.push(`  ${j.type} join ${qualified(j)} ${j.alias} on ${j.on.map(([a, b]) => `${a} = ${b}`).join(' and ')}`)
+    for (const j of s.joins ?? []) lines.push(`  ${j.type} join ${qualified(j)} ${j.alias} on ${(j.on ?? []).map(([a, b]) => `${a} = ${b}`).join(' and ')}`)
     if (s.where?.trim()) lines.push(`  where ${s.where.trim()}`)
     const fields = Object.entries(s.fields ?? {})
     if (fields.length) lines.push(`  fields: ${fields.map(([f, v]) => `${f} ← ${fieldText(v)}`).join(', ')}`)

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core import audit
 from app.config import settings
 from app.core.database import async_session
+from app.core.redact import redact_secrets
 from app.models.job import Job
 
 # Live tasks by job id, so cancel() can reach a running job's asyncio.Task.
@@ -92,12 +93,13 @@ def lane_slot(lane: str) -> asyncio.Semaphore:
     return _sem(lane)
 
 
-async def adopt(job_id: str, task: asyncio.Task) -> None:
-    """Make an already running task a job: cancellable from the panel, its status
+async def adopt(job_id: str, task: asyncio.Task, *, running: bool = True) -> None:
+    """Make an already started task a job: cancellable from the panel, its status
     following the task's end. For work that became long only once started (a
-    deferred request, core/deferred)."""
+    deferred request, core/deferred). Not `running` yet (it waits in its lane):
+    queued, until `mark_running`."""
     # Written before the end can be: the two must not race.
-    await _set(job_id, status="running")
+    await _set(job_id, status="running" if running else "queued")
     _tasks[job_id] = task
 
     def finished(t: asyncio.Task) -> None:
@@ -105,7 +107,7 @@ async def adopt(job_id: str, task: asyncio.Task) -> None:
         if t.cancelled():
             fields = {"status": "cancelled"}
         elif t.exception() is not None:
-            fields = {"status": "error", "log_tail": str(t.exception())[-4000:]}
+            fields = {"status": "error", "log_tail": redact_secrets(str(t.exception()))[-4000:]}
         else:
             fields = {"status": "done", "progress": 100}
         # Held until written: the loop keeps only a weak reference to a task.
@@ -117,6 +119,11 @@ async def adopt(job_id: str, task: asyncio.Task) -> None:
         finished(task)
     else:
         task.add_done_callback(finished)
+
+
+async def mark_running(job_id: str) -> None:
+    """An adopted job that waited in its lane got its slot."""
+    await _set(job_id, status="running")
 
 
 async def run_now(job_id: str, body) -> None:
@@ -156,6 +163,8 @@ class JobHandle:
         self.job_id = job_id
 
     async def log(self, line: str) -> None:
+        # A driver's error quotes the DSN it was given, password included.
+        line = redact_secrets(line)
         async with async_session() as db:
             job = await db.get(Job, self.job_id)
             if job is None:
@@ -172,6 +181,14 @@ class JobHandle:
         await _set(self.job_id, progress=max(0, min(100, pct)))
 
     async def set_result(self, result: dict) -> None:
+        """`error`/`errors` carry a driver's text, redacted like the log."""
+        if isinstance(result.get("error"), str):
+            result = {**result, "error": redact_secrets(result["error"])}
+        if isinstance(result.get("errors"), dict):
+            result = {
+                **result,
+                "errors": {k: redact_secrets(v) if isinstance(v, str) else v for k, v in result["errors"].items()},
+            }
         await _set(self.job_id, result=result)
 
 

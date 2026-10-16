@@ -6,9 +6,6 @@ import {
   BookOpen,
   RefreshCw,
   PanelRight,
-  SlidersHorizontal,
-  Search,
-  X,
   Plus,
   List,
   Settings,
@@ -20,9 +17,6 @@ import { useProjectSource } from '@/stores/data-source-store'
 import { DatabaseSelect } from '@/components/ui/database-select'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -41,8 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { columnLabel } from '@/lib/format-helpers'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
 import { useConceptListStore } from '@/stores/concept-list-store'
@@ -64,6 +57,7 @@ import {
 } from './concepts/concept-queries'
 import { packSetNames, unpackSetNames } from './concepts/concept-set-names'
 import { ConceptTable } from './concepts/ConceptTable'
+import { ConceptPickerToolbar } from './concepts/ConceptPickerToolbar'
 import { ConceptCountNotice } from './concepts/ConceptCountNotice'
 import { AbsentRelationsNotice } from './concepts/AbsentRelationsNotice'
 import { ConceptDetail } from './concepts/ConceptDetail'
@@ -112,15 +106,6 @@ export function ConceptsPage() {
   } = useConcepts(mappedSource?.id, mappedSource?.schemaMapping, 'project')
 
   const [detailVisible, setDetailVisible] = useState(true)
-
-  // Toolbar search: typed locally, committed on Enter / the Search button so a
-  // fuzzy scan over the whole dictionary doesn't fire on every keystroke.
-  const [pendingSearch, setPendingSearch] = useState('')
-  const commitSearch = () => updateFilter('_searchFuzzy', pendingSearch.trim() || null)
-  const clearSearch = () => {
-    setPendingSearch('')
-    if (filters._searchFuzzy) updateFilter('_searchFuzzy', null)
-  }
 
   const [listOpen, setListOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -337,23 +322,6 @@ export function ConceptsPage() {
     [filterOptions, conceptSetOptions],
   )
 
-  const filterableColumns = useMemo(
-    () => availableColumns.filter((c) => c.filterable && (allFilterOptions[c.id]?.length ?? 0) > 0),
-    [availableColumns, allFilterOptions],
-  )
-  const selectedFilterValues = (columnId: string) => {
-    const raw = filters[columnId]
-    return Array.isArray(raw) ? raw : raw ? [raw] : []
-  }
-  const standardOptionLabel = (value: string) =>
-    value === 'S' ? t('concepts.standard_s')
-      : value === 'C' ? t('concepts.standard_c')
-        : t('concepts.standard_non')
-  const activeFilterCount = filterableColumns.reduce(
-    (n, col) => n + (selectedFilterValues(col.id).length > 0 ? 1 : 0),
-    0,
-  )
-
   const sourceId = mappedSource?.id
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     () =>
@@ -427,10 +395,14 @@ export function ConceptsPage() {
     <div className="flex h-full flex-col">
       {/* Slim action bar. No title/description: the sidebar already names the
           page, so they only cost vertical space. */}
-      <TooltipProvider delayDuration={300}>
-        <div className="flex items-center gap-1.5 border-b px-3 py-2">
-          {/* Which database the page reads, ahead of the filters: it decides what
-              they even have to filter. */}
+      <ConceptPickerToolbar
+        availableColumns={availableColumns}
+        filters={filters}
+        filterOptions={allFilterOptions}
+        onFilterChange={updateFilter}
+        // Which database the page reads, ahead of the filters: it decides what
+        // they even have to filter.
+        leading={
           <DatabaseSelect
             workspaceId={wsUid}
             projectUid={uid}
@@ -446,240 +418,162 @@ export function ConceptsPage() {
             icon
             className="w-44 shrink-0"
           />
-
-          {/* Filters popover — the column dropdowns, gathered in one place like
-              the mapping editor's source-concepts toolbar. */}
-          <Popover>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className={`h-8 w-8 shrink-0 ${activeFilterCount > 0 ? 'text-primary' : ''}`}
-                  >
-                    <SlidersHorizontal size={14} />
-                  </Button>
-                </PopoverTrigger>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">{t('common.filters')}</TooltipContent>
-            </Tooltip>
-            <PopoverContent
-              align="start"
-              className="w-[280px] space-y-3 p-3"
-              onCloseAutoFocus={(e) => e.preventDefault()}
+        }
+      >
+        {/* Concept list: add the selected concept, then open the list. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              className="h-8 w-8 shrink-0"
+              disabled={pendingAdditions.length === 0}
+              onClick={addSelectedToList}
+              aria-label={t('concept_mapping.add_to_list')}
             >
-              {filterableColumns.length === 0 ? (
-                <p className="text-xs text-muted-foreground">{t('concepts.no_filters')}</p>
-              ) : (
-                filterableColumns.map((col) => (
-                  <div key={col.id} className="space-y-1">
-                    <p className="text-[11px] font-medium text-muted-foreground">
-                      {columnLabel(col.id)}
-                    </p>
-                    <MultiSelectFilter
-                      value={selectedFilterValues(col.id)}
-                      options={(allFilterOptions[col.id] ?? []).map((v) =>
-                        col.id === 'standard_concept'
-                          ? { value: v, label: standardOptionLabel(v) }
-                          : v,
-                      )}
-                      placeholder={columnLabel(col.id)}
-                      onChange={(next) => updateFilter(col.id, next.length ? next : null)}
-                      triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
-                      popoverWidthClass="w-[300px]"
-                    />
-                  </div>
-                ))
-              )}
-            </PopoverContent>
-          </Popover>
+              <Plus size={14} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {activeList
+              ? t('concepts.add_to_named_list', {
+                  name: localized(activeList.name, i18n.language) || t('concepts.list_untitled'),
+                  count: pendingAdditions.length,
+                })
+              : t('concept_mapping.add_to_list')}
+          </TooltipContent>
+        </Tooltip>
 
-          {/* Fuzzy search — commits on Enter or the Search button, like the
-              mapping editor (a keystroke-debounced query over 1.5M rows would
-              fire a full fuzzy scan per character). */}
-          <div className="relative min-w-0 flex-1">
-            <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              className="h-8 pl-8 pr-7 text-xs"
-              value={pendingSearch}
-              onChange={(e) => setPendingSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); commitSearch() }
-                else if (e.key === 'Escape') { e.preventDefault(); clearSearch() }
-              }}
-              placeholder={t('concepts.search_concepts')}
-            />
-            {pendingSearch && (
-              <button
-                type="button"
-                onClick={clearSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                aria-label={t('common.clear')}
-              >
-                <X size={12} />
-              </button>
-            )}
-          </div>
-          <Button size="sm" variant="outline" className="h-8 shrink-0 text-xs" onClick={commitSearch}>
-            {t('common.search')}
-          </Button>
-
-          {/* Concept list: add the selected concept, then open the list. */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon-sm"
-                variant="outline"
-                className="h-8 w-8 shrink-0"
-                disabled={pendingAdditions.length === 0}
-                onClick={addSelectedToList}
-                aria-label={t('concept_mapping.add_to_list')}
-              >
-                <Plus size={14} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">
-              {activeList
-                ? t('concepts.add_to_named_list', {
-                    name: localized(activeList.name, i18n.language) || t('concepts.list_untitled'),
-                    count: pendingAdditions.length,
-                  })
-                : t('concept_mapping.add_to_list')}
-            </TooltipContent>
-          </Tooltip>
-
-          {/* Pick a different destination list, or create one, without leaving
-              the toolbar. The plain + keeps filling the active list. */}
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                size="icon-sm"
-                variant="outline"
-                className="h-8 w-6 shrink-0 px-0"
-                disabled={pendingAdditions.length === 0}
-                aria-label={t('concepts.list_choose')}
-              >
-                <ChevronDown size={12} />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-[220px]">
-              <DropdownMenuLabel className="text-xs">
-                {t('concepts.list_add_to')}
-              </DropdownMenuLabel>
-              {projectLists.map((l) => (
-                <DropdownMenuItem
-                  key={l.id}
-                  className="text-xs"
-                  onClick={() => addToList(l)}
-                >
-                  {l.id === activeListId && <Check size={12} className="mr-1" />}
-                  <span className="truncate">
-                    {localized(l.name, i18n.language) || t('concepts.list_untitled')}
-                  </span>
-                  <span className="ml-auto text-[10px] text-muted-foreground">
-                    {l.items.length}
-                  </span>
-                </DropdownMenuItem>
-              ))}
-              {projectLists.length > 0 && <DropdownMenuSeparator />}
+        {/* Pick a different destination list, or create one, without leaving
+            the toolbar. The plain + keeps filling the active list. */}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              className="h-8 w-6 shrink-0 px-0"
+              disabled={pendingAdditions.length === 0}
+              aria-label={t('concepts.list_choose')}
+            >
+              <ChevronDown size={12} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-[220px]">
+            <DropdownMenuLabel className="text-xs">
+              {t('concepts.list_add_to')}
+            </DropdownMenuLabel>
+            {projectLists.map((l) => (
               <DropdownMenuItem
+                key={l.id}
                 className="text-xs"
-                onClick={() => { setEditingList(null); setEditOpen(true) }}
+                onClick={() => addToList(l)}
               >
-                <Plus size={12} className="mr-1" />
-                {t('concepts.list_new')}
+                {l.id === activeListId && <Check size={12} className="mr-1" />}
+                <span className="truncate">
+                  {localized(l.name, i18n.language) || t('concepts.list_untitled')}
+                </span>
+                <span className="ml-auto text-[10px] text-muted-foreground">
+                  {l.items.length}
+                </span>
               </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            ))}
+            {projectLists.length > 0 && <DropdownMenuSeparator />}
+            <DropdownMenuItem
+              className="text-xs"
+              onClick={() => { setEditingList(null); setEditOpen(true) }}
+            >
+              <Plus size={12} className="mr-1" />
+              {t('concepts.list_new')}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="outline"
+              className="relative h-8 w-8 shrink-0"
+              onClick={() => setListOpen(true)}
+              aria-label={t('concept_mapping.view_list')}
+            >
+              <List size={14} />
+              {activeListRows.length > 0 && (
+                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-primary-foreground">
+                  {activeListRows.length}
+                </span>
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {t('concept_mapping.view_list')}
+          </TooltipContent>
+        </Tooltip>
+
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {/* Three groups: search + concept list, then refresh (front-only: in
+              server mode the counts are run from the database's Concepts tab)… */}
+          {!count.enabled && (
+            <>
+              <div className="mx-0.5 h-4 w-px bg-border" />
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 text-xs"
+                onClick={refresh}
+              >
+                <RefreshCw size={12} />
+                {t('concepts.refresh')}
+              </Button>
+            </>
+          )}
+          {count.enabled && count.refreshedAt && (
+            <span className="text-[10px] text-muted-foreground">
+              {t('concepts.last_refreshed', {
+                date: new Date(count.refreshedAt).toLocaleString(i18n.language, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }),
+              })}
+            </span>
+          )}
+
+          {/* …then the view options. */}
+          <div className="mx-0.5 h-4 w-px bg-border" />
+
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
+                variant="ghost"
                 size="icon-sm"
-                variant="outline"
-                className="relative h-8 w-8 shrink-0"
-                onClick={() => setListOpen(true)}
-                aria-label={t('concept_mapping.view_list')}
+                className="h-8 w-8"
+                onClick={() => setSettingsOpen(true)}
+                aria-label={t('concepts.settings_title')}
               >
-                <List size={14} />
-                {activeListRows.length > 0 && (
-                  <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-primary-foreground">
-                    {activeListRows.length}
-                  </span>
-                )}
+                <Settings size={14} />
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">
-              {t('concept_mapping.view_list')}
+              {t('concepts.settings_title')}
             </TooltipContent>
           </Tooltip>
 
-          <div className="ml-auto flex shrink-0 items-center gap-2">
-            {/* Three groups: search + concept list, then refresh (front-only: in
-                server mode the counts are run from the database's Concepts tab)… */}
-            {!count.enabled && (
-              <>
-                <div className="mx-0.5 h-4 w-px bg-border" />
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-8 gap-1 text-xs"
-                  onClick={refresh}
-                >
-                  <RefreshCw size={12} />
-                  {t('concepts.refresh')}
-                </Button>
-              </>
-            )}
-            {count.enabled && count.refreshedAt && (
-              <span className="text-[10px] text-muted-foreground">
-                {t('concepts.last_refreshed', {
-                  date: new Date(count.refreshedAt).toLocaleString(i18n.language, {
-                    dateStyle: 'medium',
-                    timeStyle: 'short',
-                  }),
-                })}
-              </span>
-            )}
-
-            {/* …then the view options. */}
-            <div className="mx-0.5 h-4 w-px bg-border" />
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="h-8 w-8"
-                  onClick={() => setSettingsOpen(true)}
-                  aria-label={t('concepts.settings_title')}
-                >
-                  <Settings size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                {t('concepts.settings_title')}
-              </TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant={detailVisible ? 'secondary' : 'ghost'}
-                  size="icon-sm"
-                  className="h-8 w-8"
-                  onClick={() => setDetailVisible(!detailVisible)}
-                >
-                  <PanelRight size={14} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">
-                {t('etl.profiling_toggle_stats')}
-              </TooltipContent>
-            </Tooltip>
-          </div>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant={detailVisible ? 'secondary' : 'ghost'}
+                size="icon-sm"
+                className="h-8 w-8"
+                onClick={() => setDetailVisible(!detailVisible)}
+              >
+                <PanelRight size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="text-xs">
+              {t('etl.profiling_toggle_stats')}
+            </TooltipContent>
+          </Tooltip>
         </div>
-      </TooltipProvider>
+      </ConceptPickerToolbar>
 
       <AbsentRelationsNotice dataSourceId={mappedSource?.id} mapping={mappedSource?.schemaMapping} className="mx-4 mt-2" />
       <ConceptCountNotice count={count} dataSourceId={mappedSource?.id} className="mx-4 mt-2" />

@@ -1,0 +1,89 @@
+{
+  "_comment": "Shared label-filter parity fixture. Consumed by apps/web fuzzy-search.test.ts (buildLabelFilterSql must emit `sql`; labelMatcher must keep `expected`) and apps/api tests/test_label_filter.py (label_filter_sql must emit `sql`; its SQL run on DuckDB over `rows` must keep `expected`), so the TS and Python twins can't drift.",
+  "sqlCases": [
+    {
+      "term": "note  d'évol",
+      "column": "concept_name",
+      "from": "concepts",
+      "sql": "((contains(strip_accents(LOWER(concept_name)), strip_accents(LOWER('note'))) AND contains(strip_accents(LOWER(concept_name)), strip_accents(LOWER('d''évol')))) OR (NOT EXISTS (SELECT 1 FROM concepts _lf WHERE contains(strip_accents(LOWER(_lf.concept_name)), strip_accents(LOWER('note'))) AND contains(strip_accents(LOWER(_lf.concept_name)), strip_accents(LOWER('d''évol')))) AND jaro_winkler_similarity(strip_accents(LOWER(concept_name)), strip_accents(LOWER('note d''évol'))) >= 0.85))"
+    },
+    {
+      "term": "x",
+      "column": "concept_name",
+      "from": "linkr_concept_concept",
+      "alias": "c",
+      "sql": "((contains(strip_accents(LOWER(c.concept_name)), strip_accents(LOWER('x')))) OR (NOT EXISTS (SELECT 1 FROM linkr_concept_concept _lf WHERE contains(strip_accents(LOWER(_lf.concept_name)), strip_accents(LOWER('x')))) AND jaro_winkler_similarity(strip_accents(LOWER(c.concept_name)), strip_accents(LOWER('x'))) >= 0.85))"
+    },
+    {
+      "term": " 100% taux_brut ",
+      "column": "source_concept_name",
+      "from": "(SELECT source_concept_name FROM a UNION ALL SELECT source_concept_name FROM b)",
+      "sql": "((contains(strip_accents(LOWER(source_concept_name)), strip_accents(LOWER('100%'))) AND contains(strip_accents(LOWER(source_concept_name)), strip_accents(LOWER('taux_brut')))) OR (NOT EXISTS (SELECT 1 FROM (SELECT source_concept_name FROM a UNION ALL SELECT source_concept_name FROM b) _lf WHERE contains(strip_accents(LOWER(_lf.source_concept_name)), strip_accents(LOWER('100%'))) AND contains(strip_accents(LOWER(_lf.source_concept_name)), strip_accents(LOWER('taux_brut')))) AND jaro_winkler_similarity(strip_accents(LOWER(source_concept_name)), strip_accents(LOWER('100% taux_brut'))) >= 0.85))"
+    }
+  ],
+  "rows": [
+    "Note d'évolution",
+    "Antécédents",
+    "Antecedents medicaux",
+    "Conclusion",
+    "SpO2 100%",
+    "taux_brut",
+    "tauxAbrut"
+  ],
+  "filterCases": [
+    {
+      "term": "EVOLUTION note",
+      "expected": [
+        "Note d'évolution"
+      ]
+    },
+    {
+      "term": "d'évol",
+      "expected": [
+        "Note d'évolution"
+      ]
+    },
+    {
+      "term": "antecedents",
+      "expected": [
+        "Antécédents",
+        "Antecedents medicaux"
+      ]
+    },
+    {
+      "term": "médicaux ANTÉCÉDENTS",
+      "expected": [
+        "Antecedents medicaux"
+      ]
+    },
+    {
+      "term": "antecedant",
+      "expected": [
+        "Antécédents",
+        "Antecedents medicaux"
+      ]
+    },
+    {
+      "term": "100%",
+      "expected": [
+        "SpO2 100%"
+      ]
+    },
+    {
+      "term": "%",
+      "expected": [
+        "SpO2 100%"
+      ]
+    },
+    {
+      "term": "taux_brut",
+      "expected": [
+        "taux_brut"
+      ]
+    },
+    {
+      "term": "creatinine",
+      "expected": []
+    }
+  ]
+}

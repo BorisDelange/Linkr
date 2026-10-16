@@ -20,13 +20,14 @@ import { GitErrorInline } from '@/components/versioning/GitErrorInline'
 import { PrivateRepoFields } from '@/components/versioning/PrivateRepoFields'
 import { useHostToken } from '@/hooks/use-host-token'
 import { privateTokenMissing } from '@/lib/git-host'
-import { gitSetHostToken } from '@/lib/api/git'
+import { GitRemoteError, gitVerifyRemote, type GitErrorCode } from '@/lib/api/git'
 import { cleanLocalized, localized, localizedRaw, seedLocalizedForEditing, setLocalized } from '@/lib/localized'
 import { DEFAULT_CATALOG_BRANCH, DEFAULT_CATALOG_URL, parseCatalogUrl } from '@/lib/catalog/remote'
 import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, type CatalogConfig } from '@/lib/catalog/settings'
 import type { LocalizedString } from '@/types'
 import { useCatalogSourcesStore } from '@/stores/catalog-sources-store'
 import { useAppStore } from '@/stores/app-store'
+import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 interface CatalogSourcesDialogProps {
   open: boolean
@@ -53,7 +54,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
   const [deleting, setDeleting] = useState<CatalogConfig | null>(null)
   const [draft, setDraft] = useState<CatalogDraft>(() => draftOf(null, language))
   const [saving, setSaving] = useState(false)
-  const [saveError, setSaveError] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<{ detail: string; code?: GitErrorCode } | null>(null)
 
   const startEditing = (catalog: CatalogConfig | 'new') => {
     setDraft(draftOf(catalog === 'new' ? null : catalog, language))
@@ -74,8 +75,10 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
     setSaveError(null)
     try {
       // The token goes to the account, keyed by host — never into the catalog list,
-      // which sits in this browser's storage.
-      if (draft.private && draft.token.trim()) await gitSetHostToken(draftSource.repoUrl, draft.token.trim())
+      // which sits in this browser's storage. Verifying stores it only once the repo
+      // answers to it, so a mistyped token cannot replace the host's working one.
+      const token = draft.private ? draft.token.trim() : ''
+      if (token) await gitVerifyRemote(draftSource.repoUrl, token, getActiveWorkspaceId())
       save({
         id: editing === 'new' ? crypto.randomUUID() : editing.id,
         // The other language may stay blank: `localized` falls back to this one.
@@ -83,15 +86,17 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
         url: draftSource.repoUrl,
         branch: draftSource.branch,
         ...(draft.private && { private: true }),
-      })
+      }, !!token)
     } catch (err) {
-      setSaveError(err instanceof Error ? err.message : String(err))
+      setSaveError(err instanceof GitRemoteError
+        ? { detail: err.rawMessage, code: err.code }
+        : { detail: err instanceof Error ? err.message : String(err) })
     } finally {
       setSaving(false)
     }
   }
 
-  const save = (catalog: CatalogConfig) => {
+  const save = (catalog: CatalogConfig, tokenChanged: boolean) => {
     const previous = catalogs.find((c) => c.id === catalog.id)
     setCatalogs(
       previous ? catalogs.map((c) => (c.id === catalog.id ? catalog : c)) : [...catalogs, catalog],
@@ -100,7 +105,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
     )
     const repointed = !previous || previous.url !== catalog.url || previous.branch !== catalog.branch
       || !!previous.private !== !!catalog.private
-    if (repointed) requestLoad(catalog.id)
+    if (repointed || tokenChanged) requestLoad(catalog.id)
     setEditing(null)
   }
 
@@ -151,7 +156,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
               host={draftSource?.host ?? parseCatalogUrl(draft.url)?.host ?? null}
               hasToken={hasToken}
             />
-            {saveError && <GitErrorInline detail={saveError} />}
+            {saveError && <GitErrorInline detail={saveError.detail} code={saveError.code} />}
           </>
         ) : (
           <div className="space-y-3">

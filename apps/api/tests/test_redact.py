@@ -1,4 +1,6 @@
 """core/redact: the password a driver quotes back in its error never travels on."""
+import asyncio
+
 import duckdb
 import pytest
 
@@ -47,3 +49,57 @@ def test_the_access_log_never_keeps_it():
         assert "S3cret" not in audit._current.get()["error"]
     finally:
         audit._current.reset(token)
+
+
+def test_an_escaped_newline_does_not_end_the_password():
+    out = redact_secrets('at "host=h password=ab\\\ncdSECRET user=u": refused')
+    assert "SECRET" not in out and "password=***" in out
+
+
+def test_the_server_log_never_keeps_it():
+    import logging
+
+    from app.core.logging import RedactSecrets, _redact_event
+
+    record = logging.LogRecord("app.x", logging.INFO, __file__, 1, "query failed: %s", (POSTGRES,), None)
+    try:
+        raise duckdb.IOException(POSTGRES)
+    except duckdb.IOException:
+        import sys
+
+        record.exc_info = sys.exc_info()
+    assert RedactSecrets().filter(record)
+    line = logging.Formatter("%(message)s").format(record)
+    assert "S3cret" not in line and "password=***" in line and "IOException" in line
+    assert "S3cret" not in str(_redact_event(None, "error", {"event": "unhandled_error", "exception": POSTGRES}))
+
+
+async def test_a_jobs_log_and_error_never_keep_it(db, engine, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from app.core.security import hash_password
+    from app.models.user import User
+    from app.models.workspace import Workspace
+    from app.services.execution import jobs
+
+    monkeypatch.setattr(jobs, "async_session", async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False))
+    db.add(Workspace(id="ws1"))
+    db.add(User(id=1, username="u", password_hash=hash_password("x"), role="user"))
+    await db.commit()
+    job = await jobs.create(db, None, 1, "query", "Q", workspace_id="ws1")
+    handle = jobs.JobHandle(job.id)
+    await handle.log(POSTGRES)
+    await handle.set_result({"done": [], "error": POSTGRES, "errors": {"u0": POSTGRES}})
+    await db.refresh(job)
+    assert "S3cret" not in job.log_tail and "S3cret" not in str(job.result)
+    assert job.result["done"] == []
+
+    async def failing():
+        raise duckdb.IOException(POSTGRES)
+
+    task = asyncio.create_task(failing())
+    await asyncio.gather(task, return_exceptions=True)
+    await jobs.adopt(job.id, task)
+    await asyncio.gather(*jobs._status_writes)
+    await db.refresh(job)
+    assert job.status == "error" and "S3cret" not in job.log_tail

@@ -470,12 +470,24 @@ def _doris(node: exp.Expression) -> exp.Expression:
     return node
 
 
+# Doris' bare DATETIME is DATETIME(0): a cast to it drops the sub-seconds DuckDB's
+# TIMESTAMP (microseconds) keeps.
+_DORIS_DATETIME_SCALE = {T.TIMESTAMP: 6, T.TIMESTAMPNTZ: 6, T.DATETIME: 6, T.TIMESTAMP_S: 0, T.TIMESTAMP_MS: 3, T.TIMESTAMP_NS: 6}
+
+
 class _LinkrDoris(Doris):
     """Doris, with DuckDB's `//` spelled as its own integer division (sqlglot
-    writes `CAST(a / b AS INT)`: a double, then a 32-bit integer)."""
+    writes `CAST(a / b AS INT)`: a double, then a 32-bit integer), and DuckDB's
+    timestamps as a DATETIME of the same precision."""
 
     class Generator(Doris.Generator):
         TRANSFORMS = {**Doris.Generator.TRANSFORMS, exp.IntDiv: lambda self, e: self.binary(e, "DIV")}
+
+        def datatype_sql(self, expression: exp.DataType) -> str:
+            scale = _DORIS_DATETIME_SCALE.get(expression.this)
+            if scale is not None and not expression.expressions:
+                return f"DATETIME({scale})"
+            return super().datatype_sql(expression)
 
 
 def _output_names(tree: exp.Expression) -> tuple[str, ...]:
@@ -483,7 +495,12 @@ def _output_names(tree: exp.Expression) -> tuple[str, ...]:
     while isinstance(select, exp.Union):
         select = select.this
     names = tuple(e.alias_or_name for e in select.expressions)
-    if any(isinstance(e, exp.Star) for e in select.expressions) or len({n.lower() for n in names}) != len(names):
+    # `p.*` is a Column whose `this` is a Star: as unnamed as a bare `*`.
+    starred = any(
+        isinstance(e, exp.Star) or (isinstance(e, exp.Column) and isinstance(e.this, exp.Star))
+        for e in select.expressions
+    )
+    if starred or len({n.lower() for n in names}) != len(names):
         raise NotPortable("result columns not named one by one")
     return names
 

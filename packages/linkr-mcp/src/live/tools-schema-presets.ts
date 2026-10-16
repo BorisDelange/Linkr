@@ -10,7 +10,7 @@ import type { CustomSchemaPreset, DataSource } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { formatRows } from './cohorts.js'
 import {
-  applyPresetParts, buildRelationSpec, parseRelationKey, presetText, putRelation, relationProblems, relationText,
+  applyPresetParts, buildRelationSpec, dictionaryUsers, parseRelationKey, presetText, putRelation, relationProblems, relationText,
   type PresetPartsInput, type RelationInput, type RelationKey,
 } from './presets.js'
 import { DESTRUCTIVE, READ, WRITE, api, failure, guard, text, type Server } from './shared.js'
@@ -121,6 +121,7 @@ function editedMapping(base: SchemaMapping, args: SpecArgs): { mapping: SchemaMa
   if (typeof rk === 'string') return rk
   const current = specAt(base, rk.key)
   const spec = buildRelationSpec(rk, specInput(args), current)
+  if (typeof spec === 'string') return `${rk.key} cannot be ${current ? 'saved' : 'added'} as given: ${spec}`
   const mapping = putRelation(base, rk, spec)
   const problems = relationProblems(mapping, rk)
   if (problems.length) return `${rk.key} cannot be ${current ? 'saved' : 'added'} as given:\n${problems.map((p) => `- ${p}`).join('\n')}`
@@ -225,7 +226,7 @@ export function registerSchemaPresetTools(server: Server): void {
     try {
       const [{ n }] = await run(`SELECT count(*) AS n FROM ${rel.name}`) as { n: number }[]
       lines.push(`Rows: ${n}.`)
-      const rows = await run(`SELECT * FROM ${rel.name} LIMIT ${Math.min(Math.max(args.max_rows ?? 10, 1), 100)}`)
+      const rows = await run(`SELECT * FROM ${rel.name} LIMIT ${Math.min(Math.max(Math.floor(args.max_rows ?? 10), 1), 100)}`)
       lines.push(formatRows(rows, rows.length))
     } catch (e) {
       lines.push(`✗ The relation does not run: ${(e as Error).message}`)
@@ -279,7 +280,8 @@ export function registerSchemaPresetTools(server: Server): void {
   server.registerTool('remove_schema_relation', {
     description:
       'Remove one relation from a schema preset (an event or drug relation, a concept dictionary, or a singleton '
-      + 'class such as note). Cohorts or widgets naming an event / drug label then find nothing under it.',
+      + 'class such as note). Cohorts or widgets naming an event / drug label then find nothing under it. A concept '
+      + 'dictionary an event or drug relation names (concept_dictionary_key) is refused until they point elsewhere.',
     annotations: DESTRUCTIVE,
     inputSchema: fromJsonSchema<{ preset_id: string; relation: string }>({
       type: 'object',
@@ -293,8 +295,18 @@ export function registerSchemaPresetTools(server: Server): void {
     if (typeof rk === 'string') return failure(rk)
     const m = sanitizeSchemaMapping(preset.mapping)
     if (!specAt(m, rk.key)) return failure(`No relation ${rk.key} in "${name(m.presetLabel)}".`)
-    const after = await savePreset(preset, { mapping: withSpec(m, rk.key, undefined) })
-    return text(`${rk.key} removed from "${name(m.presetLabel)}".\n${after}`)
+    const users = rk.list === 'concepts' ? dictionaryUsers(m, rk.name!) : { named: [], byDefault: [] }
+    if (users.named.length) {
+      return failure(`${rk.key} not removed: ${users.named.join(', ')} read their concepts from it (concept_dictionary_key). `
+        + 'Point them at another dictionary, or "none", with set_schema_relation first.')
+    }
+    const mapping = withSpec(m, rk.key, undefined)
+    const next = mapping.concepts?.[0]?.key
+    const notes = users.byDefault.length
+      ? [`${users.byDefault.join(', ')} named no dictionary and read this one, the first: they now read ${next ? `concepts.${next}` : 'none'}.`]
+      : []
+    const after = await savePreset(preset, { mapping })
+    return text([`${rk.key} removed from "${name(m.presetLabel)}".`, ...notes, after].join('\n'))
   }))
 
   server.registerTool('update_schema_preset', {

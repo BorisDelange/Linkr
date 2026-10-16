@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   buildCachePageQuery,
   buildCacheCountQuery,
+  buildConceptsCountQuery,
   computeAvailableColumns,
   NULL_FILTER_VALUE,
   VALIDITY_COLUMNS,
@@ -219,5 +220,26 @@ describe('concept list order', () => {
       .toContain('ORDER BY "record_count" DESC, concept_id LIMIT 50 OFFSET 50')
     expect(buildCachePageQuery({}, COLS, 0, 50, { columnId: 'concept_id', desc: false }))
       .toContain('ORDER BY "concept_id" ASC LIMIT')
+  })
+})
+
+describe('Name filter over several dictionaries', () => {
+  const two: ConceptDictionary[] = [
+    { key: 'concept', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name' },
+    { key: 'd_items', table: 'd_items', idColumn: 'itemid', nameColumn: 'label' },
+  ]
+  const mapping = mappingV1ToV2({ presetId: 't', presetLabel: { en: 't' }, conceptTables: two })
+  const [a, b] = conceptRelations(mapping)
+
+  it('falls back on a typo only when no active dictionary holds the words', () => {
+    const sql = buildConceptsCountQuery(mapping, { _searchText: 'antecedant' }, computeAvailableColumns(conceptRelations(mapping)))!
+    const scope = `NOT EXISTS (SELECT 1 FROM (SELECT concept_name FROM ${a.name} UNION ALL SELECT concept_name FROM ${b.name}) _lf`
+    expect(sql.split(scope)).toHaveLength(3)
+  })
+
+  it('reads the one dictionary a dictionary filter keeps', () => {
+    const sql = buildConceptsCountQuery(mapping, { _searchText: 'x', _dict_key: ['d_items'] }, computeAvailableColumns(conceptRelations(mapping)))!
+    expect(sql).toContain(`NOT EXISTS (SELECT 1 FROM ${b.name} _lf`)
+    expect(sql).not.toContain('UNION ALL')
   })
 })

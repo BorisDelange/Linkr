@@ -6,7 +6,7 @@ ide:read, matching the IDE permission model. Build runs as a tracked, cancellabl
 job (see services.execution.jobs); a env's spec (manifest+lockfile) is versioned
 in the project git while the materialised venv/library is machine-local."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -446,15 +446,18 @@ async def clear_finished_workspace_jobs(
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,
+    with_input: bool = Query(alias="withInput", default=False),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """One job, for a client that started it and follows it without the panel
-    (an agent polling a derivation). Only the owner may read it, like cancel."""
+    (an agent polling a derivation). Only the owner may read it, like cancel.
+    Its input (up to 200 KB) only `withInput`: a follower polls every second or so."""
     job = await db.get(Job, job_id)
     if job is None or job.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Job not found")
-    return JobResponse.model_validate(job, from_attributes=True)
+    response = JobResponse.model_validate(job, from_attributes=True)
+    return response if with_input else response.model_copy(update={"input": None})
 
 
 @router.post("/jobs/{job_id}/cancel", status_code=status.HTTP_204_NO_CONTENT)

@@ -21,15 +21,22 @@ from pathlib import Path
 
 import duckdb
 
-from app.config import settings
+from app.config import DUCKDB_MEMORY_LIMIT_RE, settings
 from app.core.redact import redact_secrets
 from app.services.data import connection_pool, file_reader, query_cancel
 from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import check_db_host
+from app.services.data.db_schemas import (
+    _ATTACH_ALIAS,
+    _MYSQL_PROTOCOL,
+    _SAFE_IDENT,
+    _SYSTEM_SCHEMAS_NESTED,
+    _external_search_path,
+    _scope,
+    is_system_schema,
+)
 
 logger = logging.getLogger(__name__)
-
-_ATTACH_ALIAS = "ext"
 
 # Safety cap on rows returned to the browser. The UI paginates/displays far less;
 # an uncapped SELECT * on a huge table would otherwise overwhelm the response.
@@ -57,7 +64,6 @@ _ENGINES = {
     "doris": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "read_only": False},
 }
 EXTERNAL_ENGINES = tuple(_ENGINES)
-_MYSQL_PROTOCOL = ("mysql", "doris")
 
 
 def _engine_spec(config: dict) -> dict:
@@ -74,16 +80,6 @@ def _ext_dir() -> str:
     return d.as_posix()
 
 
-# A DuckDB catalog / schema / table identifier we are willing to interpolate
-# into SQL. Role names come from client `roles` keys and table names from
-# uploaded Parquet filenames, so both are untrusted and must match this before
-# being quoted into ATTACH / CREATE VIEW.
-# re.ASCII, because IGNORECASE on a str pattern enables Unicode case-folding:
-# `[a-z]` then also matches İ (U+0130), ı (U+0131), ſ (U+017F) and K (U+212A).
-# None of them can break out of the quoting, so this was never an injection
-# vector — but a name could validate here and not round-trip under DuckDB's own
-# case-insensitive matching.
-_SAFE_IDENT = re.compile(r"[a-z_][a-z0-9_]*", re.IGNORECASE | re.ASCII)
 # What ends a `--` comment for DuckDB. A bare \r counts: see _line_comment_end.
 _LINE_END_RE = re.compile(r"\r\n|[\r\n]")
 
@@ -142,26 +138,34 @@ def _forbid_file_access(con: duckdb.DuckDBPyConnection, readable: list[str] | No
 
 
 _MEMORY_SHARE = 0.6
+_CGROUP_MEMORY_FILES = ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes")
 
 
-def _container_memory() -> int | None:
-    """Bytes the process may use: the cgroup's cap when there is one, else RAM."""
-    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
-        try:
-            raw = Path(path).read_text().strip()
-        except OSError:
-            continue
-        # "max" (v2) or a huge number (v1) mean no cap.
-        if raw.isdigit() and int(raw) < 1 << 60:
-            return int(raw)
+def _physical_memory() -> int | None:
     try:
         return os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
     except (ValueError, OSError, AttributeError):
         return None
 
 
+def _container_memory(cgroup_files: tuple[str, ...] = _CGROUP_MEMORY_FILES) -> int | None:
+    """Bytes the process may use: the cgroup's cap when there is one, else RAM.
+    cgroup v2 writes "max" for no cap, v1 a page-rounded 2^63 (9223372036854771712):
+    a cap at or above the RAM caps nothing."""
+    ram = _physical_memory()
+    for path in cgroup_files:
+        try:
+            raw = Path(path).read_text().strip()
+        except OSError:
+            continue
+        if raw.isdigit() and int(raw) > 0 and int(raw) < (ram or 1 << 60):
+            return int(raw)
+    return ram
+
+
 def memory_limit() -> str | None:
-    """The `memory_limit` given to every DuckDB opened here (settings.duckdb_memory_limit)."""
+    """The `memory_limit` of each DuckDB `_open()` creates — per instance, not a
+    total across them (settings.duckdb_memory_limit, else a share of the container)."""
     if settings.duckdb_memory_limit:
         return settings.duckdb_memory_limit
     total = _container_memory()
@@ -170,7 +174,8 @@ def memory_limit() -> str | None:
 
 def _open() -> duckdb.DuckDBPyConnection:
     """A new in-memory DuckDB, held under `memory_limit()` so it spills to disk
-    rather than get the container killed, its query progress readable."""
+    rather than get the container killed, its query progress readable. Only the
+    instances opened here get the limit."""
     con = duckdb.connect()
     limit = memory_limit()
     if limit:
@@ -183,7 +188,9 @@ def _open() -> duckdb.DuckDBPyConnection:
 
 
 def _require_memory(value: str) -> str:
-    if not re.fullmatch(r"\d+(\.\d+)?\s*[KMGT]i?B", value.strip(), re.IGNORECASE):
+    """Checked again where it is spliced into SQL: settings validates it at
+    startup, but a test or a caller may set it afterwards."""
+    if not DUCKDB_MEMORY_LIMIT_RE.fullmatch(value.strip()):
         raise ValueError(f"invalid DuckDB memory limit: {value!r}")
     return value.strip()
 
@@ -265,69 +272,6 @@ def _dsn(config: dict, password: str | None) -> str:
         if app_name := config.get("application_name"):
             parts.append(f"application_name={_dsn_value(app_name)}")
     return " ".join(parts)
-
-
-def _scope(config: dict) -> str | None:
-    """The default schema: where a bare table name (`FROM patient`) resolves. A
-    MySQL/Doris `database` is a schema here, so `database` stands in for it when
-    `schema` is blank; MySQL/Doris have no default otherwise, Postgres has
-    `public`. Every other schema stays readable as `schema.table`
-    (_external_search_path). Validated as a plain identifier since it is
-    interpolated into SQL below."""
-    is_mysql = config.get("engine") in _MYSQL_PROTOCOL
-    scope = (config.get("schema") or config.get("database")) if is_mysql else (config.get("schema") or "public")
-    if not scope:
-        return None
-    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", scope):
-        raise ValueError(f"invalid schema/database name: {scope!r}")
-    return scope
-
-
-# Schemas an engine keeps for itself. Never data a preset names, and on the
-# search path they would put `mysql.user` next to the warehouse's own tables.
-# Mirrored by the R/Python client libraries (linkr-py _databases, linkr-r connect).
-SYSTEM_SCHEMAS = frozenset({
-    "information_schema", "pg_catalog", "pg_toast", "mysql", "sys", "performance_schema", "__internal_schema",
-})
-
-
-# The list as the SQL of a passthrough query, itself inside a DuckDB literal.
-_SYSTEM_SCHEMAS_NESTED = ", ".join(f"''{name}''" for name in sorted(SYSTEM_SCHEMAS))
-
-
-def is_system_schema(name: str) -> bool:
-    lowered = name.lower()
-    return lowered in SYSTEM_SCHEMAS or lowered.startswith(("pg_temp", "pg_toast"))
-
-
-def _data_schemas(con: duckdb.DuckDBPyConnection, catalog: str) -> list[str]:
-    """The schemas of an attached external database that hold data, sorted. A
-    MySQL/Doris `database` is a DuckDB schema of the attach, and the attach sees
-    every one the login may read, whatever database the DSN names."""
-    rows = con.execute(
-        "SELECT schema_name FROM information_schema.schemata WHERE catalog_name = ? ORDER BY schema_name",
-        [catalog],
-    ).fetchall()
-    return [str(r[0]) for r in rows if not is_system_schema(str(r[0]))]
-
-
-def _external_search_path(
-    con: duckdb.DuckDBPyConnection, config: dict, catalog: str = _ATTACH_ALIAS, head: tuple[str, ...] = ("memory",),
-) -> str:
-    """`head`, the default schema, then every other data schema of the attach.
-
-    DuckDB looks a two-part name (`vocab.concept`) up only through the
-    schemas the search path lists: with the default schema alone, a preset naming
-    a second schema read "schema does not exist" although the attach held it. A
-    bare name two schemas hold resolves to the default, then alphabetically.
-    A name that is not a plain identifier is left off, reachable fully qualified."""
-    default = _scope(config)
-    schemas = _data_schemas(con, catalog)
-    ordered = schemas
-    if default:
-        match = next((s for s in schemas if s.lower() == default.lower()), default)
-        ordered = [match, *(s for s in schemas if s != match)]
-    return ",".join([*head, *(f'{catalog}."{s}"' for s in ordered if _SAFE_IDENT.fullmatch(s))])
 
 
 def attach_recipe(config: dict, password: str | None) -> dict:
@@ -867,38 +811,8 @@ def query_external(
     return connection_pool.run_pooled(pool_key, _setup, _read)
 
 
-class _AttachedOnUse:
-    """A connection opened and attached on its first statement, if any."""
-
-    def __init__(self, setup: Callable[[], duckdb.DuckDBPyConnection]):
-        self._setup, self._con = setup, None
-
-    def execute(self, *args):
-        if self._con is None:
-            self._con = self._setup()
-        return self._con.execute(*args)
-
-    def close(self) -> None:
-        if self._con is not None:
-            self._con.close()
-
-
 def plan_external(config: dict, password: str | None, sql: str) -> None:
-    """Who would compute `sql` (remote.plan), without running it — and off the
-    pooled connection, which a long query may hold: a connection of its own,
-    opened only when the database's columns are not cached."""
-    spec = _engine_spec(config)
-
-    def setup() -> duckdb.DuckDBPyConnection:
-        con = _connect(spec["extension"])
-        _attach(con, config, password)
-        return con
-
-    con = _AttachedOnUse(setup)
-    try:
-        remote.plan(con, config, sql)
-    finally:
-        con.close()
+    remote.plan_external(config, password, sql)
 
 
 def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None:

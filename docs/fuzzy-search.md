@@ -33,6 +33,10 @@ Per-token JW (matching individual words against individual words) produced bad f
 
 ## Column filter on a label (`buildLabelFilterSql`)
 
-A datatable's Name column filter runs on every keystroke (debounced), so it does not rank: every word must appear, in any order, folded like the rest. Only when **no** row contains them does it fall back on Jaro-Winkler ≥ `JW_FILTER_THRESHOLD` (0.85, stricter than the ranked search: a typo, not a loose neighbour) against the whole term — `NOT EXISTS (… words …)`, which DuckDB evaluates once. Measured on 2 M concepts: 50–160 ms, as fast as the `ILIKE` it replaced, which ignored accents.
+A datatable's Name column filter runs on every keystroke (debounced), so it does not rank: every word must appear, in any order, folded like the rest, and taken literally (`contains(…)`, not `LIKE`: a typed `%` or `_` is a character, as in the in-memory `labelMatcher`). Only when **no** row contains them does it fall back on Jaro-Winkler ≥ `JW_FILTER_THRESHOLD` (0.85, stricter than the ranked search: a typo, not a loose neighbour) against the whole term — `NOT EXISTS (… words …)`, which DuckDB evaluates once.
+
+- **What the EXISTS looks at.** The `from` the caller passes, without the caller's other filters: a term that only matches rows another column filter (vocabulary, domain…) hides still counts as "something matches", so no typo fallback — the list is then empty rather than showing near misses. On a concept list with several dictionaries, `from` is the union of the active dictionaries' labels, so either all of them filter exactly or all of them fall back.
+- **Cost.** Measured on 2 M concepts: 50–160 ms when something matches (the EXISTS stops at the first hit), as fast as the `ILIKE` it replaced, which ignored accents. A term nothing contains costs two scans: the EXISTS reads all of `from`, then the Jaro-Winkler pass reads it again.
+- **Server twin.** The mapping projects' global summary filters its source/target name columns server-side with `label_filter_sql` (`apps/api/app/services/data/global_table_service.py`), which emits the same SQL text; `apps/web/src/lib/label-filter.fixture.json` holds the shared cases, and `apps/api/tests/test_label_filter.py` runs them on DuckDB.
 
 If you add a new fuzzy search anywhere in the app, route it through this helper so the UX stays consistent.

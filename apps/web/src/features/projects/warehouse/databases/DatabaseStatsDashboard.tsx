@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import { Fragment, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, RefreshCw, Square, Users, Activity, BarChart3, Table } from 'lucide-react'
 import {
@@ -8,17 +8,14 @@ import {
 import { Button } from '@/components/ui/button'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useDebouncedValue } from '@/hooks/use-debounced-value'
-import { getStorage } from '@/lib/storage'
 import { isServerMode } from '@/lib/api-client'
 import { ParquetLayoutNotice } from './ParquetLayoutNotice'
 import { StatsErrorBanner } from './stats-error-banner'
-import { computeDatabaseStats, statsJobName, streamTableCounts, type StatsPhase } from '@/lib/duckdb/database-stats'
-import { hasRememberedJob } from '@/lib/duckdb/run-query-job'
-import { useDataSourceStore } from '@/stores/data-source-store'
-import { localized } from '@/lib/localized'
+import { useDatabaseStats } from './use-database-stats'
+
+// DatabaseDetailPage reads the statistics through the same hook.
 import type {
-  DatabaseStatsCache, AgePyramidBucket, AdmissionTimelineBucket,
+  AgePyramidBucket, AdmissionTimelineBucket,
   DescriptiveStats, GenderDistribution, SchemaMapping, TableRowCount,
 } from '@/types'
 
@@ -29,168 +26,6 @@ interface DatabaseStatsDashboardProps {
   /** False when no data model is attached: patient/visit figures cannot be
    *  derived, but per-table row counts still can. */
   hasMappedSchema?: boolean
-}
-
-// Shared across hook instances: the sheet mounts useDatabaseStats twice (summary
-// cards + table list). Without this, both would launch the full recompute at
-// once for the same source. Keyed by dataSourceId → the in-flight refresh promise.
-const _inFlight = new Map<string, Promise<void>>()
-/** The stop of each in-flight refresh, shared the same way. */
-const _controllers = new Map<string, AbortController>()
-const BUSY_DELAY_MS = 400
-
-export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
-  const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isStopping, setIsStopping] = useState(false)
-  const [error, setError] = useState<unknown>(null)
-  const [cacheLoaded, setCacheLoaded] = useState(false)
-  const cacheRef = useRef<DatabaseStatsCache | null>(null)
-  cacheRef.current = cache
-  const autoRefreshed = useRef(false)
-
-  const { t, i18n } = useTranslation()
-  const sourceName = useDataSourceStore((s) => s.dataSources.find((d) => d.id === dataSourceId)?.name)
-  const jobLabel = t('databases.stats_job', { name: sourceName ? localized(sourceName, i18n.language) : dataSourceId })
-  const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
-  const recordRowCounts = useDataSourceStore((s) => s.recordRowCounts)
-  const keepCounts = useCallback((stats: DatabaseStatsCache) => {
-    if (!schemaMapping.patient) return
-    recordRowCounts(dataSourceId, {
-      patientCount: stats.summary.patientCount,
-      visitCount: schemaMapping.visit ? stats.summary.visitCount : undefined,
-    }).catch(() => {})
-  }, [dataSourceId, schemaMapping, recordRowCounts])
-  const keepCountsRef = useRef(keepCounts)
-  keepCountsRef.current = keepCounts
-
-  useEffect(() => {
-    autoRefreshed.current = false
-    setCacheLoaded(false)
-    setCache(null)
-    getStorage().databaseStatsCache.get(dataSourceId).then((cached) => {
-      if (cached) {
-        setCache(cached)
-        // Backfills the card of a database whose statistics predate the counts
-        // being kept on the source.
-        keepCountsRef.current(cached)
-      }
-      setCacheLoaded(true)
-    })
-  }, [dataSourceId])
-
-  /** `resume`: only follow the job of that phase a closed tab left (server
-   *  mode) — the statistics, then the table counts as a refresh does; or the
-   *  table counts alone. */
-  const compute = useCallback(async (resume?: StatsPhase) => {
-    setIsLoading(true)
-    // The error stays up through the retry and goes only once it succeeds: a
-    // retry refused at once would otherwise flash the band away and back.
-    try {
-      // Dedupe across the sheet's two hook instances: only one compute runs per
-      // source. The owner streams live updates into its own state; a concurrent
-      // instance awaits the shared promise, then loads the final cache from IDB.
-      const existing = _inFlight.get(dataSourceId)
-      if (existing) {
-        await existing
-        const cached = await getStorage().databaseStatsCache.get(dataSourceId)
-        if (cached) setCache(cached)
-        setError(null)
-        return
-      }
-
-      const controller = new AbortController()
-      const { signal } = controller
-      _controllers.set(dataSourceId, controller)
-      const previous = cacheRef.current
-      const run = (async () => {
-        await ensureMounted(dataSourceId)
-        // Fast block first (patients/visits/age/gender/timeline) — renders in a
-        // few seconds. Persist it right away so switching tabs (which unmounts
-        // this panel) reloads from cache instead of recomputing from zero.
-        let stats: DatabaseStatsCache
-        if (resume === 'counts' && previous) {
-          stats = previous
-        } else {
-          stats = await computeDatabaseStats(dataSourceId, schemaMapping, { signal, label: jobLabel, resumeOnly: resume === 'stats' })
-          setCache(stats)
-          setError(null)
-          await getStorage().databaseStatsCache.save(stats)
-          keepCounts(stats)
-        }
-
-        // Per-table counts stream in afterwards, batch by batch, persisting after
-        // each batch so a mid-stream tab switch keeps the counts gathered so far.
-        // They start from the previous counts and replace them table by table,
-        // so a stopped run keeps the old count of every table it did not reach.
-        let running: DatabaseStatsCache = { ...stats, tableCounts: previous?.tableCounts ?? [] }
-        await streamTableCounts(dataSourceId, schemaMapping, (batch) => {
-          const fresh = new Set(batch.map((c) => c.tableName))
-          running = {
-            ...running,
-            tableCounts: [...running.tableCounts.filter((c) => !fresh.has(c.tableName)), ...batch]
-              .sort((a, b) => b.rowCount - a.rowCount),
-          }
-          setCache(running)
-          getStorage().databaseStatsCache.save(running).catch(() => {})
-        }, { signal, label: jobLabel, resumeOnly: resume === 'counts' })
-      })()
-      _inFlight.set(dataSourceId, run)
-      try {
-        await run
-      } finally {
-        _inFlight.delete(dataSourceId)
-        _controllers.delete(dataSourceId)
-      }
-    } catch (err) {
-      if (!(err instanceof DOMException && err.name === 'AbortError')) {
-        console.error('Failed to compute database stats:', err)
-        setError(err)
-      }
-    } finally {
-      setIsLoading(false)
-      setIsStopping(false)
-    }
-  }, [dataSourceId, schemaMapping, ensureMounted, keepCounts, jobLabel])
-  const refresh = useCallback(() => compute(), [compute])
-
-  // A computation a closed tab left on the server: follow it rather than lose it.
-  const resumed = useRef<string | null>(null)
-  useEffect(() => {
-    if (!isServerMode() || !cacheLoaded || resumed.current === dataSourceId || _inFlight.has(dataSourceId)) return
-    resumed.current = dataSourceId
-    if (hasRememberedJob(statsJobName(dataSourceId, 'stats'))) void compute('stats')
-    else if (hasRememberedJob(statsJobName(dataSourceId, 'counts'))) void compute('counts')
-  }, [cacheLoaded, dataSourceId, compute])
-
-  /** Stop the refresh: the queries in flight are cancelled (server mode
-   *  interrupts them), and what was already computed stays. */
-  const stop = useCallback(() => {
-    const controller = _controllers.get(dataSourceId)
-    if (!controller || controller.signal.aborted) return
-    setIsStopping(true)
-    controller.abort()
-  }, [dataSourceId])
-
-  // Auto-compute stats only in front-only mode. In server mode the source may be
-  // a database of billions of rows, so we never run COUNT(*) automatically — the
-  // user triggers computation explicitly via refresh() ("Load statistics").
-  useEffect(() => {
-    if (isServerMode()) return
-    if (!cacheLoaded || isLoading || autoRefreshed.current) return
-    if (sourceStatus && sourceStatus !== 'connected') return
-    if (!cache || !cache.genderDistribution) {
-      autoRefreshed.current = true
-      refresh()
-    }
-  }, [cache, cacheLoaded, isLoading, refresh, sourceStatus])
-
-  // `cacheLoaded`: the stored statistics have been looked up — until then an
-  // empty `cache` means "not read yet", not "never computed".
-  // Shown busy only once a run has lasted a moment: one that fails at once (an
-  // ETL run holding the database) flipped Refresh to Stop and back in a blink.
-  const settledLoading = useDebouncedValue(isLoading, BUSY_DELAY_MS)
-  return { cache, isLoading: isLoading && settledLoading, isStopping, error, refresh, stop, cacheLoaded }
 }
 
 export function DatabaseStatsDashboard({

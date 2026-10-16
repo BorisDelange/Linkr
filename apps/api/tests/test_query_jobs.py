@@ -132,17 +132,13 @@ async def test_cancel_interrupts_the_query_and_frees_the_lane(client, monkeypatc
     r = await client.post(f"{API}/jobs/{slow['id']}/cancel", headers=headers)
     assert r.status_code == 204
     await _settle(slow["id"])
+    # The DuckDB query itself stopped before the job ended, not only the task
+    # awaiting it: the lane's next job does not start beside it.
+    assert f"job:{slow['id']}" not in query_cancel._running
     assert (await _job(client, headers, ws, slow["id"]))["status"] == "cancelled"
-    # The DuckDB query itself stopped, not only the task awaiting it.
-    await asyncio.wait_for(_gone(f"job:{slow['id']}"), 5.0)
 
     await _settle(queued["id"])
     assert (await _job(client, headers, ws, queued["id"]))["status"] == "done"
-
-
-async def _gone(query_id: str) -> None:
-    while query_id in query_cancel._running:
-        await asyncio.sleep(0.02)
 
 
 async def test_clearing_finished_jobs_drops_their_results(client):
@@ -290,3 +286,14 @@ async def test_keep_going_records_a_failing_query_and_runs_the_next(client):
     assert set(job["result"]["ms"]) == {"c0", "c1"}
     ok = await client.get(f"{API}/data-sources/{ds}/query-jobs/{job['id']}/results/c1", headers=headers)
     assert ok.json() == {"rows": [{"n": 10}]}
+
+
+async def test_a_job_polled_by_id_carries_its_input_only_when_asked(client):
+    headers = await _admin(client)
+    _, ds = await _source(client, headers)
+    job = await _start(client, headers, ds, [("u0", "SELECT 1 AS one")])
+    await _settle(job["id"])
+    polled = (await client.get(f"{API}/jobs/{job['id']}", headers=headers)).json()
+    assert polled["input"] is None and polled["status"] == "done"
+    full = (await client.get(f"{API}/jobs/{job['id']}?withInput=true", headers=headers)).json()
+    assert "SELECT 1 AS one" in full["input"]

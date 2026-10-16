@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { planQuery } from '@/lib/duckdb/engine'
+import { LruMap } from '@/lib/lru-map'
 
 export type SlowQueriesState =
   | { state: 'checking' }
@@ -7,7 +8,7 @@ export type SlowQueriesState =
   /** One of the queries would read the database's tables whole; `reason` says what kept it from the database. */
   | { state: 'slow'; reason: string | null }
 
-const plans = new Map<string, Promise<SlowQueriesState>>()
+const plans = new LruMap<string, Promise<SlowQueriesState>>(200)
 
 /** Whether any of `sqls` would be computed by Linkr from whole tables (planQuery),
  *  asked once per database and set of queries. A failed check counts as fast:

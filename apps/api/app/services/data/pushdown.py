@@ -271,15 +271,134 @@ def plan(con, config: dict, sql: str) -> None:
         _record("database")
 
 
+class _AttachedOnUse:
+    """A connection opened and attached on its first statement, if any."""
+
+    def __init__(self, setup: Callable[[], duckdb.DuckDBPyConnection]):
+        self._setup, self._con = setup, None
+
+    def execute(self, *args):
+        if self._con is None:
+            self._con = self._setup()
+        return self._con.execute(*args)
+
+    def close(self) -> None:
+        if self._con is not None:
+            self._con.close()
+
+
+def plan_external(config: dict, password: str | None, sql: str) -> None:
+    """Who would compute `sql` (`plan`), without running it — and off the
+    pooled connection, which a long query may hold: a connection of its own,
+    opened only when the database's columns are not cached."""
+    spec = db_connect._engine_spec(config)
+
+    def setup() -> duckdb.DuckDBPyConnection:
+        con = db_connect._connect(spec["extension"])
+        db_connect._attach(con, config, password)
+        return con
+
+    con = _AttachedOnUse(setup)
+    try:
+        plan(con, config, sql)
+    finally:
+        con.close()
+
+
+class NativeRefused(ValueError):
+    """Native SQL that is not one plain read of the database."""
+
+
+# Doris table functions that read files or other systems with the login's rights.
+_NATIVE_TABLE_FUNCTIONS = re.compile(r"\b(s3|hdfs|local|http_stream|query)\s*\(", re.IGNORECASE)
+_NATIVE_START = re.compile(r"\s*\(*\s*(select|with)\b", re.IGNORECASE)
+
+
+def _native_code(sql: str) -> str:
+    """`sql` with every string literal emptied and every comment blanked, as
+    Doris' lexer reads them (strings with backslash escapes and doubled quotes,
+    backtick identifiers, `--` and nested `/* */` comments). What Doris might
+    read otherwise is refused, since text taken for a comment here would run
+    there: a `#`, a backslash in a `--` comment, a `/*` inside a comment, an
+    unterminated string. A hint `/*+ … */` is lexed by Doris as SQL, so it is
+    kept as SQL."""
+    out: list[str] = []
+    i, n = 0, len(sql)
+    while i < n:
+        c = sql[i]
+        if c in "'\"`":
+            j = i + 1
+            while True:
+                if j >= n:
+                    raise NativeRefused("native SQL: unterminated quote")
+                if sql[j] == "\\" and c != "`":
+                    j += 2
+                    continue
+                if sql[j] == c:
+                    if j + 1 < n and sql[j + 1] == c:
+                        j += 2
+                        continue
+                    break
+                j += 1
+            out.append(c + c)
+            i = j + 1
+        elif sql.startswith("--", i):
+            end = sql.find("\n", i)
+            end = n if end < 0 else end
+            if "\\" in sql[i:end]:
+                raise NativeRefused("native SQL: a backslash in a comment")
+            out.append(" ")
+            i = end
+        elif sql.startswith("/*+", i):
+            out.append(" ")
+            i += 3
+        elif sql.startswith("/*", i):
+            end = sql.find("*/", i + 2)
+            if end < 0 or "/*" in sql[i + 2:end]:
+                raise NativeRefused("native SQL: an unterminated or nested comment")
+            out.append(" ")
+            i = end + 2
+        elif c == "#":
+            raise NativeRefused("native SQL: '#' outside a string")
+        else:
+            out.append(c)
+            i += 1
+    return "".join(out)
+
+
+def _native_statement(sql: str) -> str:
+    """`sql` without its trailing `;`, when it is one SELECT (or WITH … SELECT)
+    that leaves nothing behind: no second statement, no `INTO` (OUTFILE, a
+    variable), no `:=`, no table function reading outside the database. A
+    SET or USE would outlive the query on the pooled connection."""
+    statement = sql.strip()
+    while statement.endswith(";"):
+        statement = statement[:-1].rstrip()
+    code = _native_code(statement)
+    if not _NATIVE_START.match(code):
+        raise NativeRefused("native SQL must be a single SELECT")
+    if ";" in code:
+        raise NativeRefused("native SQL must be a single statement")
+    if re.search(r"\binto\b", code, re.IGNORECASE):
+        raise NativeRefused("native SQL cannot write: INTO is refused")
+    if ":=" in code:
+        raise NativeRefused("native SQL cannot set a variable")
+    found = _NATIVE_TABLE_FUNCTIONS.search(code)
+    if found:
+        raise NativeRefused(f"native SQL cannot read outside the database: {found.group(1)}()")
+    return statement
+
+
 def run_native(
     con: duckdb.DuckDBPyConnection, config: dict, password: str | None, sql: str,
     run: Callable[[str], object],
 ):
     """`sql` in the database's own dialect, sent as written — the SQL console's
     native mode, for what DuckDB cannot spell (Doris' `MATCH_ANY` on an inverted
-    index). Safe for the same reason the pushdown is: the login is read-only
-    (db_connect._require_read_only_doris_login). An error is the database's own."""
-    statement = sql.strip().rstrip(";")
+    index). The login is read-only (db_connect._require_read_only_doris_login);
+    on top of that only one plain SELECT is sent (`_native_statement`). An error
+    is the database's own."""
+    statement = _native_statement(sql)
     literal = statement.replace("'", "''")
     passthrough = f"SELECT * FROM {db_connect._engine_spec(config)['query_fn']}('{db_connect._ATTACH_ALIAS}', '{literal}')"
     logger.info("native query on %s: %s", config.get("host"), sql[:_LOGGED_SQL_MAX])

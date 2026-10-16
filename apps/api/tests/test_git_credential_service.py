@@ -35,6 +35,40 @@ def test_host_of(url, expected):
     assert svc.host_of(url) == expected
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "gitlab.com:x@evil.com/g/repo",
+        "gitlab.com:443@evil.com/g/r",
+        "gitlab.com:@evil.com/a",
+        "gitlab.com/g/repo",
+        "https://gitlab.com/g/repo/-/tree/main",
+    ],
+)
+def test_host_of_is_the_host_git_contacts(url):
+    """The token is chosen by the host of the URL git will actually contact."""
+    from urllib.parse import urlsplit
+
+    from app.services.git_service import _clean_url
+
+    assert svc.host_of(url) == urlsplit(_clean_url(url)).hostname
+
+
+@pytest.mark.parametrize("url", ["gitlab:x@evil/g", "host:a@b:c"])
+def test_host_of_refuses_ambiguous_schemeless(url):
+    assert svc.host_of(url) is None
+
+
+async def test_token_is_not_sent_to_a_host_smuggled_after_a_colon(db):
+    user = await _user(db, "mallory-target")
+    await svc.set_token(db, user, "gitlab.com", "glpat-secret")
+    for url in ("gitlab.com:x@evil.com/g/repo", "gitlab.com:443@evil.com/g/r", "gitlab.com:@evil.com/a"):
+        assert await svc.token_for_url(db, user, url) is None
+    assert await svc.token_for_url(db, user, "git@gitlab.com:g/r.git") == "glpat-secret"
+    assert await svc.token_for_url(db, user, "https://gitlab.com/g/r") == "glpat-secret"
+    assert await svc.token_for_url(db, user, "gitlab.com/g/r") == "glpat-secret"
+
+
 async def test_set_get_roundtrip_is_encrypted(db):
     user = await _user(db, "alice")
     await svc.set_token_for_url(db, user, "https://gitlab.com/a/b.git", "glpat-secret")

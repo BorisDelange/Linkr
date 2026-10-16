@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { META_FILE, freshId, idOf, isSameEntity, resolveInstallIdentity, type ExistingRow } from './install'
+import { META_FILE, freshId, idOf, isCloneableChildUrl, isSameEntity, resolveInstallIdentity, type ExistingRow } from './install'
 import { ENTRY_TYPES, type CatalogEntry } from './types'
 
 function entry(overrides: Partial<CatalogEntry> = {}): CatalogEntry {
@@ -169,6 +169,26 @@ describe('META_FILE', () => {
       expect(candidates, type).toBeDefined()
       expect(candidates.length, type).toBeGreaterThan(0)
       expect(candidates.every((c) => c.endsWith('.json')), type).toBe(true)
+    }
+  })
+})
+
+describe('isCloneableChildUrl', () => {
+  it('accepts https, ssh:// and scp-style remotes', () => {
+    expect(isCloneableChildUrl('https://framagit.org/interhop/linkr/repo')).toBe(true)
+    expect(isCloneableChildUrl('ssh://git@framagit.org/g/r.git')).toBe(true)
+    expect(isCloneableChildUrl('git@framagit.org:g/r.git')).toBe(true)
+  })
+
+  it('refuses a schemeless host that smuggles another host after a colon', () => {
+    expect(isCloneableChildUrl('gitlab.com:x@evil.com/g/repo')).toBe(false)
+    expect(isCloneableChildUrl('gitlab.com:443@evil.com/g/r')).toBe(false)
+    expect(isCloneableChildUrl('gitlab.com:@evil.com/a')).toBe(false)
+  })
+
+  it('refuses other schemes, local paths and non-strings', () => {
+    for (const url of ['http://gitlab.com/g/r', 'file:///srv/repo', '/srv/repo', 'ext::sh -c id', 'gitlab.com/g/r', '', undefined, 42]) {
+      expect(isCloneableChildUrl(url)).toBe(false)
     }
   })
 })

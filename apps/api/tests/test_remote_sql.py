@@ -134,6 +134,14 @@ def test_a_hand_written_relation_selecting_a_star_is_not_unpadded():
               'UNION ALL BY NAME SELECT NULL AS "unit" WHERE false) e')
 
 
+def test_a_hand_written_relation_selecting_a_qualified_star_is_not_unpadded():
+    """`p.*` names no column one by one: read as present, every padding column
+    would be rewritten as NULL."""
+    with pytest.raises(NotPortable, match="result columns"):
+        doris('SELECT e.person_id AS p FROM (SELECT * FROM (SELECT p.* FROM person p) _src '
+              'UNION ALL BY NAME SELECT NULL AS "person_id" WHERE false) e')
+
+
 @pytest.mark.parametrize("sql", [
     "SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value LIKE 'm%'",
     "SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value NOT LIKE '_g'",
@@ -170,9 +178,25 @@ def test_an_iso_date_literal_is_portable(con):
     """`DATE '2020-01-01'` is a cast of a string literal: the one spelling every
     engine reads alike."""
     q = "SELECT COUNT(*) AS n FROM measurement WHERE measurement_date >= DATE '2020-02-01' AND measurement_datetime < TIMESTAMP '2021-01-01 00:00:00'"
-    assert "CAST('2020-02-01' AS DATE)" in doris(q) and "CAST('2021-01-01 00:00:00' AS DATETIME)" in doris(q)
+    assert "CAST('2020-02-01' AS DATE)" in doris(q) and "CAST('2021-01-01 00:00:00' AS DATETIME(6))" in doris(q)
     assert same_rows(con, q)
     assert same_rows(con, "SELECT person_id AS p FROM measurement WHERE measurement_date = CAST('2020-01-01' AS DATE)")
+
+
+@pytest.mark.parametrize(("duckdb_type", "doris_type"), [
+    ("TIMESTAMP", "DATETIME(6)"), ("DATETIME", "DATETIME(6)"), ("TIMESTAMP_MS", "DATETIME(3)"),
+    ("TIMESTAMP_S", "DATETIME(0)"), ("TIMESTAMP_NS", "DATETIME(6)"),
+])
+def test_a_timestamp_keeps_its_precision_on_doris(duckdb_type, doris_type):
+    """Doris' bare DATETIME is DATETIME(0): it would drop DuckDB's microseconds."""
+    out = doris(f"SELECT CAST(measurement_date AS {duckdb_type}) AS t FROM measurement")
+    assert f"AS {doris_type})" in out
+
+
+def test_a_timestamp_literal_keeps_its_sub_seconds(con):
+    q = "SELECT COUNT(*) AS n FROM measurement WHERE measurement_datetime > TIMESTAMP '2020-01-01 10:00:00.5'"
+    assert "CAST('2020-01-01 10:00:00.5' AS DATETIME(6))" in doris(q)
+    assert same_rows(con, q)
 
 
 @pytest.mark.parametrize("literal", ["DATE 'epoch'", "DATE '2020-1-5'", "TIMESTAMP '2020-01-01T10:00:00'", "CAST(unit_source_value AS DATE)"])
@@ -192,7 +216,7 @@ def test_a_time_becomes_a_number_through_an_exact_microsecond_difference():
     session's zone: the overview's buckets count microseconds from a literal."""
     out = doris("SELECT DATE_DIFF('microsecond', TIMESTAMP '1970-01-01 00:00:00', measurement_datetime) // 3600000000 AS h "
                 "FROM measurement")
-    assert "MICROSECONDS_DIFF(`measurement`.`measurement_datetime`, CAST('1970-01-01 00:00:00' AS DATETIME)) DIV 3600000000" in out
+    assert "MICROSECONDS_DIFF(`measurement`.`measurement_datetime`, CAST('1970-01-01 00:00:00' AS DATETIME(6))) DIV 3600000000" in out
 
 
 def test_integer_division_reads_back_alike(con):

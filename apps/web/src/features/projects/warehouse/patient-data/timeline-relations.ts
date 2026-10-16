@@ -1,8 +1,9 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations } from '@/lib/schema-classes/relations'
 import { countedRelationSignature } from '@/features/projects/warehouse/concepts/concept-count-plan'
-import { getCountedRelations, type CountedRelation } from '@/lib/api/concept-cache'
+import { getConceptCacheStatus, getCountedRelations, type ConceptCacheStatus, type CountedRelation } from '@/lib/api/concept-cache'
 import { isServerMode } from '@/lib/api-client'
+import { LruMap } from '@/lib/lru-map'
 
 /**
  * The event relations a patient's timeline of some concepts can leave out: those
@@ -26,7 +27,9 @@ export function relationsWithout(mapping: SchemaMapping, counted: readonly Count
 }
 
 const MEMO_MS = 60_000
-const memo = new Map<string, { at: number; relations: Promise<CountedRelation[]> }>()
+const MEMO_MAX = 200
+const memo = new LruMap<string, { at: number; relations: Promise<CountedRelation[]> }>(MEMO_MAX)
+const countedAtMemo = new LruMap<string, { at: number; countedAt: Promise<string | null> }>(MEMO_MAX)
 
 /** relationsWithout for a server database, asked once a minute per concept set.
  *  Empty — every relation read — when the server cannot tell. */
@@ -48,4 +51,23 @@ export async function timelineRelationsWithout(
     memo.delete(key)
     return new Set()
   }
+}
+
+/** When the counts the timeline narrows on were taken: the run's end, else its
+ *  last unit (a paused run's record units can already narrow it). */
+export function countedAtOf(status: ConceptCacheStatus | null): string | null {
+  const run = status?.run
+  if (!run) return null
+  if (run.manifest.finishedAt) return run.manifest.finishedAt
+  return run.lastUnitAt != null ? new Date(run.lastUnitAt * 1000).toISOString() : null
+}
+
+/** countedAtOf for a server database, asked once a minute. */
+export function relationsCountedAt(sourceId: string): Promise<string | null> {
+  let hit = countedAtMemo.get(sourceId)
+  if (!hit || Date.now() - hit.at > MEMO_MS) {
+    hit = { at: Date.now(), countedAt: getConceptCacheStatus(sourceId).then(countedAtOf, () => null) }
+    countedAtMemo.set(sourceId, hit)
+  }
+  return hit.countedAt
 }

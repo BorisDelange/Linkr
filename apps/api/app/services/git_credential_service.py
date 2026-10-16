@@ -18,7 +18,7 @@ from app.models.user import User
 
 # scp-style ssh remote: [user@]host:path (no scheme). The host is between an
 # optional "user@" and the first ":". Rejects a leading "/" (that's a path, not scp).
-_SCP_RE = re.compile(r'^(?:[^@/]+@)?(?P<host>[^:/]+):(?!/)')
+_SCP_RE = re.compile(r'^(?:[^@/:]+@)?(?P<host>[^:/@]+):(?!/)')
 
 
 def secret_context(user_id: int, host: str) -> str:
@@ -31,10 +31,17 @@ def host_of(url: str) -> str | None:
 
     Handles http(s):// and ssh:// (via the netloc) and scp-style git@host:path.
     Returns None when no host can be determined.
+
+    The host is read from the URL as git_service will contact it (`_clean_url`),
+    never from the string as written: a schemeless `gitlab.com:x@evil.com/g/r`
+    is cleaned to https://…@evil.com, and a token chosen for gitlab.com would be
+    injected into a request to evil.com.
     """
     from urllib.parse import urlsplit
 
-    url = (url or "").strip()
+    from app.services.git_service import _clean_url
+
+    url = _clean_url(url or "")
     if not url:
         return None
 
@@ -50,6 +57,10 @@ def host_of(url: str) -> str | None:
             return f"{host}:{parts.port}"
         return host
 
+    # Schemeless with an "@" after the first ":" is no scp remote git would read
+    # the same way we do; refuse it rather than guess its host.
+    if "@" in url.partition(":")[2]:
+        return None
     m = _SCP_RE.match(url)
     if m:
         return m.group("host").lower()

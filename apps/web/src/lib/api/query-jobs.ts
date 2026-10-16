@@ -5,7 +5,7 @@
  * each result once the job lists it done.
  */
 
-import { apiRequest } from '@/lib/api-client'
+import { ApiError, apiRequest } from '@/lib/api-client'
 import { cancelJob, type Job } from './environments'
 
 /** What a query job reports on its row; the rows themselves are fetched by key. */
@@ -34,6 +34,9 @@ export interface QueryJobItem {
 }
 
 const POLL_MS = 1500
+/** Waits between retries of a poll the network or the gateway failed: about a
+ *  minute in all, the time a proxy restart or a dropped connection takes. */
+const RETRY_MS = [1000, 2000, 4000, 8000, 15000, 30000]
 
 /** `keepGoing`: a failing query does not end the job; its error comes with its key. */
 export function startQueryJob(
@@ -48,8 +51,9 @@ export function startQueryJob(
   })
 }
 
-export function getJob(jobId: string): Promise<Job> {
-  return apiRequest<Job>(`/jobs/${encodeURIComponent(jobId)}`)
+/** `withInput`: also what the job runs (up to 200 KB) — for the panel's Input tab, not a poll. */
+export function getJob(jobId: string, { withInput = false }: { withInput?: boolean } = {}): Promise<Job> {
+  return apiRequest<Job>(`/jobs/${encodeURIComponent(jobId)}${withInput ? '?withInput=true' : ''}`)
 }
 
 export async function queryJobRows(dataSourceId: string, jobId: string, key: string): Promise<Record<string, unknown>[]> {
@@ -101,14 +105,14 @@ export async function followQueryJob(
   try {
     for (;;) {
       signal.throwIfAborted()
-      const job = await getJob(jobId)
+      const job = await retrying(() => getJob(jobId), signal)
       const progress = job.result as QueryJobProgress | null | undefined
       const done = new Set(progress?.done ?? [])
       while (delivered < keys.length && done.has(keys[delivered])) {
         signal.throwIfAborted()
         const key = keys[delivered]
         const error = progress?.errors?.[key] ?? null
-        const rows = fetchRows && error == null ? await queryJobRows(dataSourceId, jobId, key) : []
+        const rows = fetchRows && error == null ? await retrying(() => queryJobRows(dataSourceId, jobId, key), signal) : []
         await onRows(delivered, rows, { ms: progress?.ms?.[key] ?? null, error })
         delivered++
       }
@@ -122,6 +126,27 @@ export async function followQueryJob(
   } catch (err) {
     if (signal.aborted) await cancelJob(jobId).catch(() => {})
     throw err
+  }
+}
+
+/** The job is no more on the server: cleared from the panel, or lost with its results. */
+export const isJobGone = (err: unknown) => err instanceof ApiError && err.status === 404
+
+/** A failure that says nothing of the job: the request did not reach the API. */
+function isTransient(err: unknown): boolean {
+  if (err instanceof ApiError) return err.status === 502 || err.status === 503 || err.status === 504
+  // fetch rejects with a TypeError when the network fails.
+  return err instanceof TypeError
+}
+
+async function retrying<T>(request: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await request()
+    } catch (err) {
+      if (signal.aborted || attempt >= RETRY_MS.length || !isTransient(err)) throw err
+      await sleep(RETRY_MS[attempt], signal)
+    }
   }
 }
 

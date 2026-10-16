@@ -13,7 +13,9 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { timelineRelationsWithout } from '../timeline-relations'
+import { relationsCountedAt, timelineRelationsWithout } from '../timeline-relations'
+import { eventRelations } from '@/lib/schema-classes/relations'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { isPlottable, useDatasetSeries } from './use-dataset-series'
 import { datasetSeriesKey, datasetSeriesKeyId, timelineDatasets } from '@/lib/patient-data/dataset-timeline'
 import { conceptColorHex } from '@/lib/concept-colors'
@@ -217,6 +219,8 @@ export function TimelineWidget({
   const gutterRef = useRef<number | null>(null)
   const [omopData, setOmopData] = useState<TimelineRow[]>([])
   const [loading, setLoading] = useState(false)
+  /** The event relations the concept count let this timeline leave out. */
+  const [skipped, setSkipped] = useState<{ labels: string[]; countedAt: string | null } | null>(null)
 
   // A dataset plotted on the same axis as the concepts — the point of the feature:
   // a hand-collected variable (ventilation start/end, say) read against what the
@@ -265,6 +269,7 @@ export function TimelineWidget({
       conceptIds.length === 0
     ) {
       setOmopData([])
+      setSkipped(null)
       setLoading(false)
       return
     }
@@ -281,6 +286,13 @@ export function TimelineWidget({
       timelineRelationsWithout(dataSourceId, schemaMapping, conceptIds)
         .then((without) => {
           if (cancelled) return null
+          const labels = eventRelations(schemaMapping).filter((e) => without.has(e.name)).map((e) => e.key ?? e.name)
+          if (labels.length === 0) setSkipped(null)
+          else {
+            void relationsCountedAt(dataSourceId).then((countedAt) => {
+              if (!cancelled) setSkipped({ labels, countedAt })
+            })
+          }
           const sql = buildTimelineQuery(schemaMapping, conceptIds, patientId, scope, without)
           return sql ? queryDataSource(dataSourceId, sql, { signal: controller.signal }) : []
         })
@@ -818,6 +830,17 @@ export function TimelineWidget({
             gutter={gutter}
           />
         </div>
+      )}
+      {skipped && patientId && !loading && (
+        <p
+          className="absolute bottom-0 right-1 z-[5] max-w-[60%] truncate rounded bg-background/80 px-1 text-[10px] text-muted-foreground"
+          title={skipped.labels.join(', ')}
+        >
+          {t('patient_data.timeline_relations_skipped', {
+            count: skipped.labels.length,
+            date: skipped.countedAt ? formatDateTimeLocale(skipped.countedAt, i18n.language) : '—',
+          })}
+        </p>
       )}
       {/* Overlay for empty/loading states */}
       {overlayMessage && (

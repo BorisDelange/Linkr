@@ -133,3 +133,50 @@ async def test_a_job_that_ends_hands_its_result_to_the_poll(client, monkeypatch)
     await asyncio.sleep(0.05)
     assert deferred.poll(str(me), task_id) == {"ok": True}
     assert await _status(client, headers, ws, task_id, "done") == "done"
+
+
+async def test_work_waiting_in_its_lane_shows_queued_until_it_has_its_slot(client, monkeypatch):
+    from app.config import settings
+    from app.services.execution import jobs
+
+    monkeypatch.setattr(jobs, "_semaphores", {})
+    monkeypatch.setattr(settings, "max_heavy_queries", 1)
+    headers, ws, me = await _workspace(client)
+    gate = asyncio.Event()
+
+    async def slow():
+        await gate.wait()
+        return {"ok": True}
+
+    slot = jobs.lane_slot("heavy_query")
+    await slot.acquire()  # a heavy job holds the lane
+    pending = await deferred.respond(str(me), slow, deferred.AsJob("Export", workspace_id=ws, lane="heavy_query"))
+    task_id = __import__("json").loads(pending.body)["deferredTaskId"]
+    assert await _status(client, headers, ws, task_id, "queued", tries=5) == "queued"
+
+    slot.release()
+    assert await _status(client, headers, ws, task_id, "running") == "running"
+    gate.set()
+    await asyncio.sleep(0.05)
+    assert deferred.poll(str(me), task_id) == {"ok": True}
+    assert await _status(client, headers, ws, task_id, "done") == "done"
+
+
+async def test_until_stopped_waits_for_the_stopped_work_to_end():
+    ended = asyncio.Event()
+    stop = asyncio.Event()
+
+    async def query():
+        # Like a DuckDB thread: a cancel does not reach it, only `stop` does.
+        try:
+            await asyncio.shield(stop.wait())
+        finally:
+            ended.set()
+        raise RuntimeError("interrupted")
+
+    caller = asyncio.create_task(deferred.until_stopped(query(), stop.set))
+    await asyncio.sleep(0)
+    caller.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await caller
+    assert ended.is_set()

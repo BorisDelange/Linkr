@@ -64,10 +64,8 @@ import {
   type CompactStatus,
 } from '@/lib/api/data-sources'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
-import {
-  DatabaseStatsDashboard,
-  useDatabaseStats,
-} from './DatabaseStatsDashboard'
+import { DatabaseStatsDashboard } from './DatabaseStatsDashboard'
+import { useDatabaseStats } from './use-database-stats'
 import { StatsErrorBanner } from './stats-error-banner'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'

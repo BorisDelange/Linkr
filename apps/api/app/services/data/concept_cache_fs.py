@@ -130,12 +130,38 @@ def run_status(source_id: str, principal: str) -> dict | None:
     }
 
 
+def _complete_record_units(source_id: str, principal: str) -> list:
+    """The record unit files of the event tables whose every record unit the
+    manifest plans is done. An event table has one unit per concept column
+    (`records-<i>-std`, `records-<i>-src`), and both name the same relation: with
+    one alone, the concepts only the other column holds would read as absent."""
+    try:
+        manifest = json.loads((_run_dir(source_id, principal) / "manifest.json").read_text())
+    except (FileNotFoundError, ValueError):
+        return []
+    units = manifest.get("units") if isinstance(manifest, dict) else None
+    if not isinstance(units, list):
+        return []
+    planned: dict[str, set[str]] = {}
+    for unit in units:
+        key = unit.get("key") if isinstance(unit, dict) else None
+        if isinstance(key, str) and key.startswith("records-"):
+            planned.setdefault(key.rsplit("-", 1)[0], set()).add(key)
+    done = {f.stem: f for f in _unit_files(source_id, principal)}
+    return [
+        done[key]
+        for keys in planned.values() if keys <= done.keys()
+        for key in sorted(keys)
+    ]
+
+
 def counted_relations(source_id: str, principal: str, concept_ids: list[str]) -> list[dict]:
     """The event relations the record units of the last run counted — each with
     the signature of its SQL when counted and whether it holds any of
     `concept_ids` — so a query for those concepts can leave out the relations
-    that hold none. Units of an older build name no relation: none is reported."""
-    files = [f for f in _unit_files(source_id, principal) if f.stem.startswith("records-")]
+    that hold none. Only an event table counted on every column it is planned
+    for is reported; units of an older build name no relation and report none."""
+    files = _complete_record_units(source_id, principal)
     if not files:
         return []
     paths = ", ".join("'" + db_connect._sql_path(f.as_posix()) + "'" for f in files)

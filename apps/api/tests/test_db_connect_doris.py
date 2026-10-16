@@ -245,6 +245,47 @@ def test_a_failed_native_query_is_the_database_error(execution):
         pushdown.run_native(_IdCon(), DORIS, None, "SELECT 1", run)
 
 
+@pytest.mark.parametrize("sql", [
+    "select x from t",
+    "  -- a note\n/* about it */ WITH a AS (SELECT 1 AS x) SELECT x FROM a;;",
+    "(SELECT 1) UNION ALL (SELECT 2)",
+    "SELECT ';' AS s, 'INTO OUTFILE' AS t, `into` FROM t WHERE x MATCH_ANY 'it\\'s; DROP'",
+    "SELECT /*+ SET_VAR(query_timeout = 10) */ x FROM t",
+])
+def test_native_sql_accepts_one_plain_select(sql):
+    assert pushdown._native_statement(sql) == sql.strip().rstrip(";")
+
+
+@pytest.mark.parametrize(("sql", "reason"), [
+    ("SET query_timeout = 1", "single SELECT"),
+    ("USE other_db", "single SELECT"),
+    ("/* SELECT */ SET a = 1", "single SELECT"),
+    ("INSERT INTO t SELECT 1", "single SELECT"),
+    ("SELECT 1; SET query_timeout = 1", "single statement"),
+    ("SELECT 1 -- it's\n; SET a = 1 -- '", "single statement"),
+    ("SELECT * FROM t INTO OUTFILE 's3://bucket/x'", "INTO"),
+    ("SELECT 1 INTO @v", "INTO"),
+    ("SELECT @v := 1", "variable"),
+    ("SELECT * FROM S3('uri' = 's3://b/x')", "outside the database"),
+    ("SELECT * FROM local ('file_path' = 'x')", "outside the database"),
+    ("SELECT /*+ x */ 1 ; SET a = 1", "single statement"),
+    ("SELECT 1 # comment\n", "'#'"),
+    ("SELECT 1 -- a \\\n; SET a = 1", "backslash"),
+    ("SELECT 1 /* a /* b */ ; SET a = 1 */", "nested"),
+    ("SELECT 'unterminated", "unterminated"),
+    ("SELECT 'a\\'; SET a = 1", "unterminated"),
+])
+def test_native_sql_refuses_what_is_not_one_plain_select(sql, reason):
+    ran: list[str] = []
+    with pytest.raises(pushdown.NativeRefused, match=reason):
+        pushdown.run_native(_IdCon(), DORIS, None, sql, ran.append)
+    assert ran == []
+
+
+def test_native_refusal_is_a_bad_request():
+    assert issubclass(pushdown.NativeRefused, ValueError)
+
+
 def test_native_sql_is_refused_for_an_engine_the_pushdown_does_not_serve():
     with pytest.raises(ValueError, match="native SQL"):
         db_connect.query_external({**DORIS, "engine": "postgresql"}, None, "SELECT 1", native=True)

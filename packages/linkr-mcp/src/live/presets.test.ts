@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { SchemaMapping } from '@/types/schema-mapping'
+import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
 import {
-  applyPresetParts, buildRelationSpec, parseRelationKey, presetText, putRelation, relationProblems, type RelationKey,
+  applyPresetParts, buildRelationSpec, dictionaryUsers, parseRelationKey, presetText, putRelation, relationProblems, relationText,
+  type RelationKey,
 } from './presets.js'
 
 const base: SchemaMapping = {
@@ -36,7 +37,7 @@ describe('building a relation', () => {
     const current = base.events![0]
     const spec = buildRelationSpec(key('events.Facts'), { where: "e.context NOT LIKE 'MED:%'", fields: undefined }, current)
     expect(spec).toEqual({ ...current, where: "e.context NOT LIKE 'MED:%'" })
-    expect(buildRelationSpec(key('events.Facts'), { where: null }, spec)).toEqual(current)
+    expect(buildRelationSpec(key('events.Facts'), { where: null }, spec as RelationSpec)).toEqual(current)
   })
 
   it('names the relation from its key and drops what its class does not take', () => {
@@ -48,6 +49,50 @@ describe('building a relation', () => {
   it('forgets the measured columns with the SQL they were measured on', () => {
     const spec = buildRelationSpec(key('note'), { custom_sql: null }, { customSql: 'SELECT 1', sqlColumns: ['note_id'] })
     expect(spec).toEqual({})
+  })
+
+  it('forgets them when the SQL changes without them, so the contract is checked again', () => {
+    const current = { customSql: 'SELECT 1 AS note_id', sqlColumns: ['note_id'] }
+    expect(buildRelationSpec(key('note'), { custom_sql: 'SELECT 2 AS note_id' }, current)).toEqual({ customSql: 'SELECT 2 AS note_id' })
+    expect(buildRelationSpec(key('note'), { custom_sql: ' SELECT 1 AS note_id ' }, current)).toEqual({ ...current, customSql: ' SELECT 1 AS note_id ' })
+    expect(buildRelationSpec(key('note'), { custom_sql: 'SELECT 2 AS note_id', sql_columns: ['note_id'] }, current))
+      .toEqual({ customSql: 'SELECT 2 AS note_id', sqlColumns: ['note_id'] })
+    expect(buildRelationSpec(key('note'), { where: 'true' }, current)).toEqual({ ...current, where: 'true' })
+  })
+
+  it('refuses a malformed from or join, which the sanitizer would drop silently', () => {
+    const rk = key('events.Facts')
+    expect(buildRelationSpec(rk, { from: { table: 'facts' } as never }, undefined)).toMatch(/from needs a table and an alias/)
+    expect(buildRelationSpec(rk, { from: 'facts' as never }, undefined)).toMatch(/from must be an object/)
+    expect(buildRelationSpec(rk, { joins: {} as never }, undefined)).toMatch(/joins must be an array/)
+    const join = { type: 'left', table: 't', alias: 't', on: [['e.a', 't.a']] }
+    expect(typeof buildRelationSpec(rk, { joins: [join] as never }, undefined)).toBe('object')
+    expect(buildRelationSpec(rk, { joins: [{ ...join, on: undefined }] as never }, undefined)).toMatch(/joins\[0\]: on must be column pairs/)
+    expect(buildRelationSpec(rk, { joins: [{ ...join, on: [['e.a']] }] as never }, undefined)).toMatch(/on must be column pairs/)
+    expect(buildRelationSpec(rk, { joins: [{ ...join, type: 'outer' }] as never }, undefined)).toMatch(/type must be "left" or "inner"/)
+    expect(buildRelationSpec(rk, { joins: [{ ...join, alias: '' }] as never }, undefined)).toMatch(/joins\[0\] needs a table and an alias/)
+    expect(buildRelationSpec(rk, { joins: null, from: null }, base.events![0])).not.toHaveProperty('from')
+  })
+})
+
+describe('reading a relation', () => {
+  it('reads a stored join that has no on', () => {
+    const spec = { ...base.events![0], joins: [{ type: 'left', table: 't', alias: 't' }] } as never
+    expect(relationText('event', 'events.Facts', spec, false)).toContain('  left join t t on ')
+  })
+})
+
+describe('the users of a concept dictionary', () => {
+  const m: SchemaMapping = {
+    ...base,
+    concepts: [...base.concepts!, { key: 'icd', from: { table: 'icd', alias: 'i' }, fields: { concept_id: 'i.id', concept_name: 'i.label' } }],
+    events: [...base.events!, { label: 'Dx', conceptDictionaryKey: 'icd', customSql: 'SELECT 1' }],
+    drugs: [{ label: 'Admin', drugKind: 'administration', conceptDictionaryKey: 'none', customSql: 'SELECT 1' }],
+  }
+
+  it('lists the relations naming it, and those reading it as the first dictionary', () => {
+    expect(dictionaryUsers(m, 'icd')).toEqual({ named: ['events.Dx'], byDefault: [] })
+    expect(dictionaryUsers(m, 'concept')).toEqual({ named: [], byDefault: ['events.Facts'] })
   })
 })
 

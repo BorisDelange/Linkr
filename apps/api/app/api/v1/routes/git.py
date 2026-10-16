@@ -1258,6 +1258,18 @@ async def _check_may_fetch(db: AsyncSession, user: User, workspace_id: str | Non
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions")
 
 
+async def _check_may_fetch_for_some_workspace(db: AsyncSession, user: User) -> None:
+    """`_check_may_fetch` for a read tied to no workspace yet (a catalog index,
+    browsed before choosing where to install): whoever could install somewhere."""
+    if await has_global_permission(db, user, "workspaces:write"):
+        return
+    for workspace in await workspace_service.list_for_user(db, user):
+        perms = await effective_workspace_permissions(db, workspace.id, user)
+        if any(p.endswith(":write") for p in perms):
+            return
+    raise HTTPException(status.HTTP_403_FORBIDDEN, "Insufficient permissions")
+
+
 @router.post("/verify-remote", response_model=GitVerifyResponse)
 async def verify_remote(
     body: GitVerifyRequest,
@@ -1379,11 +1391,13 @@ async def get_catalog_file(
     """
     from fastapi.responses import Response
 
+    await _check_may_fetch_for_some_workspace(db, user)
     token = await git_credential_service.token_for_url(db, user, url)
     try:
         data = await catalog_remote_service.fetch_file(url, branch, file, token)
     except catalog_remote_service.CatalogFetchError as exc:
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, {"code": exc.kind}) from exc
+    audit.bind(action="download", detail=f"git catalog file {_without_credentials(url)} {file} ({len(data)} bytes)")
     return Response(content=data, media_type="application/json")
 
 

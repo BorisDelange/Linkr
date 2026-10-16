@@ -291,7 +291,8 @@ def test_counted_relations_say_which_relations_hold_the_concepts(duckdb_source, 
     """Records name their relation; the patient units and a unit of an older
     build (no relation) are not reported."""
     config, files = duckdb_source
-    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    units = [{"key": k, "step": "records"} for k in ("records-0-std", "records-1-std", "records-2-std")]
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "units": units}, reset=True)
     for i, (rel, cond) in enumerate([("ev_a", "concept_id = 1"), ("ev_b", "concept_id = 2")]):
         sql = (
             f"SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count,"
@@ -315,6 +316,33 @@ def test_counted_relations_say_which_relations_hold_the_concepts(duckdb_source, 
 def test_counted_relations_of_units_that_name_none(duckdb_source, data_dir):
     config, files = duckdb_source
     assert concept_cache_fs.counted_relations("src", "", ["1"]) == []
-    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "units": [{"key": "records-0-std", "step": "records"}]}, reset=True)
     concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0-std", "r1")
+    assert concept_cache_fs.counted_relations("src", "", ["1"]) == []
+
+
+def _relation_unit(column: str) -> str:
+    return (
+        f"SELECT 'd' AS dict_key, {column} AS concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count,"
+        f" 'ev' AS relation, 'sig' AS relation_sig FROM ext.measurement GROUP BY {column}"
+    )
+
+
+def test_a_relation_counted_on_one_of_its_columns_is_not_reported(duckdb_source, data_dir):
+    """The standard and source units name one relation: with the source unit not
+    done yet, a concept only it holds would read as absent and drop the relation."""
+    config, files = duckdb_source
+    units = [{"key": "records-0-std", "step": "records"}, {"key": "records-0-src", "step": "records"}]
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "units": units}, reset=True)
+    concept_cache_fs.write_unit(config, None, files, [], _relation_unit("concept_id"), "src", "", "records-0-std", "r1")
+    assert concept_cache_fs.counted_relations("src", "", ["999"]) == []
+
+    concept_cache_fs.write_unit(config, None, files, [], _relation_unit("concept_id"), "src", "", "records-0-src", "r1")
+    assert concept_cache_fs.counted_relations("src", "", ["999"]) == [{"relation": "ev", "signature": "sig", "holds": False}]
+
+
+def test_counted_relations_without_planned_units_report_none(duckdb_source, data_dir):
+    config, files = duckdb_source
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    concept_cache_fs.write_unit(config, None, files, [], _relation_unit("concept_id"), "src", "", "records-0-std", "r1")
     assert concept_cache_fs.counted_relations("src", "", ["1"]) == []

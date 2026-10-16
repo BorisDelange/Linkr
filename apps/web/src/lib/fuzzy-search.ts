@@ -189,17 +189,22 @@ export const JW_FILTER_THRESHOLD = 0.85
 
 /**
  * A datatable column filter on a label (the Name column of a concept list):
- * every word of `term`, in any order, accents and case aside. When no row of
- * `from` contains them, the labels close to the whole term instead — a typo
- * ("antecedant" → "Antécédents"). Same cost as an ILIKE when something matches
- * (one pass; DuckDB evaluates the uncorrelated EXISTS once): 50-150 ms on 2 M
- * concepts. `column` is the label as `from`'s rows name it, unqualified.
+ * every word of `term`, in any order, accents and case aside, taken literally
+ * (`%` and `_` are characters, not wildcards). When no row of `from` contains
+ * them, the labels close to the whole term instead — a typo ("antecedant" →
+ * "Antécédents"). `from` is a relation or a parenthesised subquery; the EXISTS
+ * reads it without the caller's other filters. Same cost as an ILIKE when
+ * something matches (DuckDB evaluates the uncorrelated EXISTS once and stops at
+ * the first hit): 50-150 ms on 2 M concepts; a term nothing contains costs two
+ * scans. `column` is the label as `from`'s rows name it, unqualified.
+ * Python twin: `label_filter_sql` in apps/api/app/services/data/global_table_service.py
+ * (same SQL text, shared cases in label-filter.fixture.json).
  */
 export function buildLabelFilterSql(term: string, column: string, from: string, alias?: string): string | null {
   const words = term.trim().split(/\s+/).filter(Boolean)
   if (words.length === 0) return null
   const contains = (col: string) =>
-    words.map((w) => `${foldSql(col)} LIKE ${foldSql(`'%${esc(w)}%'`)}`).join(' AND ')
+    words.map((w) => `contains(${foldSql(col)}, ${foldSql(`'${esc(w)}'`)})`).join(' AND ')
   const own = alias ? `${alias}.${column}` : column
   const q = foldSql(`'${esc(words.join(' '))}'`)
   return `((${contains(own)}) OR (NOT EXISTS (SELECT 1 FROM ${from} _lf WHERE ${contains(`_lf.${column}`)})`

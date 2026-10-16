@@ -12,6 +12,7 @@ from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_session_user
 from app.core.permissions import check_workspace_permission
+from app.core.redact import redact_secrets
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.job import Job
@@ -275,7 +276,7 @@ async def delete_data_source(
     except Exception as e:  # noqa: BLE001 — a failed drop keeps the database, and says why
         if not delete_data:
             raise
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"could not remove its data: {e}") from e
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"could not remove its data: {redact_secrets(str(e))}") from e
 
 
 @router.post("/{source_id}/query", response_model=QueryResult)
@@ -300,34 +301,33 @@ async def query_data_source(
     # interrupted or it holds the database's pooled connection until it ends.
     query_id = body.query_id or uuid.uuid4().hex
 
+    async def run() -> list[dict]:
+        async with deferred.session() as session:
+            fresh = await data_source_service.get(session, source_id)
+            if fresh is None:
+                raise HTTPException(status.HTTP_404_NOT_FOUND, "Data source not found")
+            if body.plan:
+                await data_source_service.plan_query(fresh, login, body.sql)
+                return []
+            return await data_source_service.query(
+                session, fresh, login, body.sql, pushdown=body.pushdown, native=body.native,
+            )
+
     async def work():
         tag = query_cancel.current_query.set((query_id, str(user.id)))
         cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
         execution: dict = {}
         recorded = pushdown.execution.set(execution)
         try:
-            async with deferred.session() as session:
-                fresh = await data_source_service.get(session, source_id)
-                if fresh is None:
-                    raise HTTPException(status.HTTP_404_NOT_FOUND, "Data source not found")
-                if body.plan:
-                    await data_source_service.plan_query(fresh, login, body.sql)
-                    rows = []
-                else:
-                    rows = await data_source_service.query(
-                        session, fresh, login, body.sql, pushdown=body.pushdown, native=body.native,
-                    )
-        except asyncio.CancelledError:
-            query_cancel.cancel(query_id, str(user.id))
-            raise
+            rows = await deferred.until_stopped(run(), lambda: query_cancel.cancel(query_id, str(user.id)))
         except (query_cancel.QueryCancelled, duckdb.InterruptException):
             raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
         except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
         except HTTPException:
             raise
         except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
         finally:
             query_cancel.current_query.reset(tag)
             if cap is not None:
@@ -605,7 +605,7 @@ async def create_from_ddl(
     try:
         await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
     except Exception as e:  # noqa: BLE001 — a bad DDL is a client error
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
     config["managed"] = True
     config.pop("inMemory", None)
     return await data_source_service.update(
@@ -638,14 +638,14 @@ async def etl_run(
                     session, target, body.sql, roles, user.id, body.mapping_data
                 )
         except ValueError as e:
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
         except db_connect.EtlRunCancelled:
             # Stopped (`…/etl-run/stop`, the jobs panel): not a failed script.
             raise
         except HTTPException:
             raise
         except Exception as e:  # noqa: BLE001 — surface SQL errors to the client
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
         return QueryResult(rows=rows)
 
     # The MCP's way to run a script: past `deferred.WAIT_SECONDS` it goes on as a
@@ -733,7 +733,7 @@ def _connection_error(
     So only an instance admin reads it in the reply; everyone else gets "Connection
     failed" and a reference, and the text goes to the access log and the server
     log, where that reference finds it."""
-    text = str(error)
+    text = redact_secrets(str(error))
     logger.info("%s of %s failed: %s", action, source.id if source else "a new connection", text)
     audit.bind(
         action=action, error=text,
@@ -783,7 +783,7 @@ async def get_data_source_schema(
         # instance admins only (_connection_error).
         if _reaches_the_network(source):
             raise HTTPException(status.HTTP_502_BAD_GATEWAY, _connection_error(user, "introspect", e, source)) from e
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, str(e)) from e
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, redact_secrets(str(e))) from e
 
 
 @router.get("/{source_id}/connection-info", response_model=DatabaseConnectionInfo)
@@ -950,11 +950,11 @@ async def assemble_concept_cache(
     try:
         mtime = await data_source_service.assemble_concept_cache(db, source, login, body.select_sql)
     except ValueError as e:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
     except HTTPException:
         raise
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
     principal = _principal(source, user)
     return ConceptCacheStatus(
         exists=True, refreshed_at=mtime, run=concept_cache_fs.run_status(source_id, principal),
@@ -976,7 +976,7 @@ async def query_concept_cache(
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No concept cache")
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
     return ConceptPageResult(rows=rows)
 
 

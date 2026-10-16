@@ -153,7 +153,7 @@ def _open_external(db: dict) -> "duckdb.DuckDBPyConnection":
     return con
 
 
-# Schemas an engine keeps for itself (mirrors the server's db_connect.SYSTEM_SCHEMAS).
+# Schemas an engine keeps for itself (mirrors the server's db_schemas.SYSTEM_SCHEMAS).
 _SYSTEM_SCHEMAS = frozenset({
     "information_schema", "pg_catalog", "pg_toast", "mysql", "sys", "performance_schema", "__internal_schema",
 })

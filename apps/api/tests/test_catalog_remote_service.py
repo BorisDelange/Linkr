@@ -76,3 +76,42 @@ async def test_internal_hosts_stay_blocked(monkeypatch):
     monkeypatch.setattr(git_service, "_LOCAL_REMOTES_ALLOWED", False)
     with pytest.raises(git_service.GitError):
         await git_service.read_remote_file("https://127.0.0.1/g/repo", "main", "catalog.json", "t", 100)
+
+
+def _remote_with_entries(tmp_path, allow_filter: bool) -> str:
+    work = tmp_path / "work-entries"
+    (work / "entries").mkdir(parents=True)
+    _git(work, "init", "-b", "main")
+    (work / "catalog-index.json").write_text('{"schemaVersion":1}')
+    for i in range(5):
+        (work / "entries" / f"e{i}.json").write_text(f'{{"id":{i}}}')
+    _git(work, "add", ".")
+    _git(work, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-m", "entries")
+    bare = tmp_path / "entries.git"
+    subprocess.run(["git", "clone", "--bare", str(work), str(bare)], check=True, capture_output=True)
+    if allow_filter:
+        _git(bare, "config", "uploadpack.allowFilter", "true")
+        _git(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
+    return f"file://{bare}"
+
+
+@pytest.mark.parametrize("allow_filter", [True, False])
+async def test_reads_only_the_one_blob_when_the_server_allows_it(tmp_path, monkeypatch, allow_filter):
+    import shutil
+
+    url = _remote_with_entries(tmp_path, allow_filter)
+    kept: list = []
+    rmtree = shutil.rmtree
+    monkeypatch.setattr(shutil, "rmtree", lambda p, **_k: kept.append(p))
+
+    content = await git_service.read_remote_file(url, "main", "catalog-index.json", "t", 1000)
+    monkeypatch.setattr(shutil, "rmtree", rmtree)
+
+    assert content == b'{"schemaVersion":1}'
+    missing = subprocess.run(
+        ["git", "-C", str(kept[0] / "repo"), "rev-list", "--objects", "--missing=print", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    rmtree(kept[0], ignore_errors=True)
+    missing_blobs = [line for line in missing.splitlines() if line.startswith("?")]
+    assert len(missing_blobs) == (5 if allow_filter else 0)

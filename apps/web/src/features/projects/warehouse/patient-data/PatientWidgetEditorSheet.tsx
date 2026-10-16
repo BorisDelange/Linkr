@@ -37,9 +37,8 @@ import type { PluginConfigField } from '@/types/plugin'
 import { copyText } from '@/lib/clipboard'
 import { TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
 import { eventRelations } from '@/lib/schema-classes/relations'
-import { getConceptCacheStatus } from '@/lib/api/concept-cache'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
-import { timelineRelationsWithout } from './timeline-relations'
+import { relationsCountedAt, timelineRelationsWithout } from './timeline-relations'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 interface PatientWidgetEditorSheetProps {
@@ -515,11 +514,11 @@ function SkippedRelationsNote({ sourceId, mapping, conceptIds }: { sourceId: str
     let cancelled = false
     void Promise.all([
       timelineRelationsWithout(sourceId, mapping, conceptIds),
-      getConceptCacheStatus(sourceId).catch(() => null),
-    ]).then(([without, status]) => {
+      relationsCountedAt(sourceId),
+    ]).then(([without, countedAt]) => {
       if (cancelled) return
       const labels = eventRelations(mapping).filter((e) => without.has(e.name)).map((e) => e.key ?? e.name)
-      setSkipped({ labels, countedAt: status?.run?.manifest.finishedAt ?? null })
+      setSkipped({ labels, countedAt })
     })
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps

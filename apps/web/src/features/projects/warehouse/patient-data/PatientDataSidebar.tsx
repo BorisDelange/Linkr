@@ -58,7 +58,7 @@ interface PatientDataSidebarProps {
 
 export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
   const { t, i18n } = useTranslation()
-  const { projectUid, boardId, dataSourceId, schemaMapping } = usePatientChartContext()
+  const { projectUid, boardId, dataSourceId, schemaMapping, paused } = usePatientChartContext()
   const { setSelectedCohort } = usePatientChartStore()
 
   const {
@@ -95,7 +95,7 @@ export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
     detailIndex,
     goPrevVisitDetail,
     goNextVisitDetail,
-  } = usePatientData(dataSourceId, schemaMapping, projectUid, cohort)
+  } = usePatientData(dataSourceId, schemaMapping, projectUid, cohort, { paused })
 
   const totalPages = Math.ceil(patientCount / patientPageSize)
   const genderValues = schemaMapping?.patient?.genderValues

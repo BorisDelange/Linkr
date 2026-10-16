@@ -1852,7 +1852,10 @@ async def read_remote_file(url: str, branch: str, path: str, token: str | None, 
         try:
             cleaned = _clean_url(url)
             _reject_internal_host(cleaned)
-            args = ["clone", "--depth", "1", "--single-branch", "--no-checkout"]
+            # A partial clone brings commit and trees only; the one blob read below
+            # is then fetched on demand. A server without partial clone ignores the
+            # filter (with a warning) and sends the whole tip, which still works.
+            args = ["clone", "--depth", "1", "--single-branch", "--no-checkout", "--filter=blob:none"]
             if branch:
                 args += ["--branch", branch]
             args += [_with_credentials(cleaned, token), str(tmp / "repo")]
@@ -1862,9 +1865,9 @@ async def read_remote_file(url: str, branch: str, path: str, token: str | None, 
             if proc.returncode != 0:
                 raise _failure(proc.stderr.strip(), token, [cleaned])
             repo = tmp / "repo"
-            size = _run(repo, "cat-file", "-s", f"HEAD:{path}", check=False).strip()
-            if not size.isdigit():
+            if not _run(repo, "rev-parse", "--verify", "--quiet", f"HEAD:{path}", check=False).strip():
                 return None
+            size = _run(repo, "cat-file", "-s", f"HEAD:{path}", token=token).strip()
             if int(size) > max_bytes:
                 raise GitError(f"{path} is larger than {max_bytes} bytes", "unknown")
             blob = subprocess.run(

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fuzzyTextMatch, buildFuzzySearchSql, buildLabelFilterSql, labelMatcher, JW_FUZZY_THRESHOLD, JW_FILTER_THRESHOLD } from './fuzzy-search'
+import labelFixture from './label-filter.fixture.json'
 
 describe('fuzzyTextMatch', () => {
   it('matches exactly', () => {
@@ -87,20 +88,33 @@ describe('buildFuzzySearchSql', () => {
 describe('buildLabelFilterSql', () => {
   it('folds every word, and falls back on the whole term only when none matches', () => {
     const sql = buildLabelFilterSql("note  d'évol", 'concept_name', 'concepts')!
-    expect(sql).toContain("strip_accents(LOWER(concept_name)) LIKE strip_accents(LOWER('%note%'))")
-    expect(sql).toContain("strip_accents(LOWER('%d''évol%'))")
-    expect(sql).toContain('NOT EXISTS (SELECT 1 FROM concepts _lf WHERE strip_accents(LOWER(_lf.concept_name))')
+    expect(sql).toContain("contains(strip_accents(LOWER(concept_name)), strip_accents(LOWER('note')))")
+    expect(sql).toContain("strip_accents(LOWER('d''évol'))")
+    expect(sql).toContain('NOT EXISTS (SELECT 1 FROM concepts _lf WHERE contains(strip_accents(LOWER(_lf.concept_name))')
     expect(sql).toContain(`jaro_winkler_similarity(strip_accents(LOWER(concept_name)), strip_accents(LOWER('note d''évol'))) >= ${JW_FILTER_THRESHOLD}`)
+  })
+
+  it('takes % and _ literally, as labelMatcher does', () => {
+    const sql = buildLabelFilterSql('100% a_b', 'concept_name', 'concepts')!
+    expect(sql).not.toContain('LIKE')
+    expect(sql).toContain("strip_accents(LOWER('100%'))")
+    expect(sql).toContain("strip_accents(LOWER('a_b'))")
   })
 
   it('qualifies the row being filtered, not the subquery', () => {
     const sql = buildLabelFilterSql('x', 'concept_name', 'linkr_concept_concept', 'c')!
     expect(sql).toContain('LOWER(c.concept_name)')
-    expect(sql).toContain('FROM linkr_concept_concept _lf WHERE strip_accents(LOWER(_lf.concept_name))')
+    expect(sql).toContain('FROM linkr_concept_concept _lf WHERE contains(strip_accents(LOWER(_lf.concept_name))')
   })
 
   it('is no filter for a blank term', () => {
     expect(buildLabelFilterSql('  ', 'concept_name', 'concepts')).toBeNull()
+  })
+
+  // The Python twin (label_filter_sql, test_label_filter.py) checks the same
+  // strings and runs them on DuckDB over the fixture rows.
+  it.each(labelFixture.sqlCases)('emits the SQL the server twin emits for "$term"', (c) => {
+    expect(buildLabelFilterSql(c.term, c.column, c.from, 'alias' in c ? c.alias : undefined)).toBe(c.sql)
   })
 })
 
@@ -120,5 +134,10 @@ describe('labelMatcher', () => {
   it('falls back on names close to the term only when none holds its words', () => {
     expect(keep('antecedant')).toEqual(['Antécédents', 'Antecedents medicaux'])
     expect(keep('antecedant', { typos: false })).toEqual([])
+  })
+
+  it.each(labelFixture.filterCases)('keeps the rows the SQL keeps on DuckDB for "$term"', ({ term, expected }) => {
+    const all = labelFixture.rows
+    expect(all.filter(labelMatcher(all, (r) => r, term))).toEqual(expected)
   })
 })

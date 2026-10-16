@@ -112,12 +112,10 @@ export interface SourceConceptFilters {
   suggestionCategoryKeys?: string[]
 }
 
-/** Local wrapper around the shared `buildFuzzySearchSql` helper for source-
- *  concepts queries. Source tables only have a single human-readable column
- *  (`concept_name`); we ignore code/id tiers. */
+/** The shared `buildFuzzySearchSql` over a source-concepts query: name, code
+ *  and id tiers, as the search placeholder says. A source id may be text (a
+ *  file's own column): compared as a number only where it is one. */
 function fuzzySearchClauses(term: string, column: string = 'concept_name'): { rankExpr: string; where: string } | null {
-  // Name, code or id, as the placeholder says. A source id may be text
-  // (a file's own column): compared as a number only where it is one.
   const sql = buildFuzzySearchSql(term, { nameColumn: column, codeColumn: 'concept_code', idColumn: 'TRY_CAST(concept_id AS BIGINT)' })
   if (!sql) return null
   return { rankExpr: sql.rankExpr, where: sql.where }

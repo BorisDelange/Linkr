@@ -557,6 +557,18 @@ async function installWorkspaceEntry(
   }
 }
 
+const SCP_REMOTE = /^[\w.+-]+@[\w.-]+:(?!\/\/)\S+$/
+
+/**
+ * Whether a git-linked child's `url` may be cloned. The URL comes from the
+ * published repo, so it is untrusted: only https, ssh:// or scp-style
+ * `user@host:path`, the forms the server's host check reads the way git does.
+ */
+export function isCloneableChildUrl(url: unknown): url is string {
+  if (typeof url !== 'string') return false
+  return /^https:\/\/[^\s]+$/i.test(url) || /^ssh:\/\/[^\s]+$/i.test(url) || SCP_REMOTE.test(url)
+}
+
 /** Pull each git-linked child's content in. Returns the ones that did not make it. */
 async function cloneWorkspaceChildren(
   parsed: ParsedWorkspaceZip,
@@ -578,6 +590,10 @@ async function cloneWorkspaceChildren(
     'database': () => storage.dataSources.getAll(),
   }
   for (const child of collectGitLinkedEntities(parsed)) {
+    if (!isCloneableChildUrl(child.url)) {
+      failed.push({ name: child.name, reason: 'Its repository URL is not an https:// or ssh address.' })
+      continue
+    }
     // The row the import actually wrote, answered the way the import decided it:
     // by lineage, falling back to the id map for a child whose manifest has none.
     let id = idMap.get(`${child.type}:${child.id}`) ?? child.id

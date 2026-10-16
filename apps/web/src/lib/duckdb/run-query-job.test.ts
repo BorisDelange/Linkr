@@ -9,10 +9,14 @@ vi.stubGlobal('localStorage', {
 })
 const startQueryJob = vi.fn(async () => ({ id: 'new' }))
 const followQueryJob = vi.fn()
+const cancelJob = vi.fn(async (_id: string) => {})
+const GONE = Object.assign(new Error('Job not found'), { gone: true })
 vi.mock('@/lib/api/query-jobs', () => ({
   startQueryJob: (...a: unknown[]) => (startQueryJob as (...x: unknown[]) => unknown)(...a),
   followQueryJob: (...a: unknown[]) => followQueryJob(...a),
+  isJobGone: (err: unknown) => (err as { gone?: boolean }).gone === true,
 }))
+vi.mock('@/lib/api/environments', () => ({ cancelJob: (id: string) => cancelJob(id) }))
 vi.mock('./engine', () => ({ prepareQuerySql: async (_ds: string, sql: string) => sql }))
 
 const { runQueryJob, hasRememberedJob } = await import('./run-query-job')
@@ -27,6 +31,7 @@ beforeEach(() => {
   store.clear()
   startQueryJob.mockClear()
   followQueryJob.mockReset()
+  cancelJob.mockClear()
 })
 
 describe('runQueryJob', () => {
@@ -48,21 +53,58 @@ describe('runQueryJob', () => {
     expect(followQueryJob.mock.calls[0][1]).toBe('old')
   })
 
-  it('does not follow a job started for other queries, and a resume with nothing to follow starts nothing', async () => {
+  it('cancels a job started for other queries rather than follow it, and a resume with nothing to follow starts nothing', async () => {
     store.set('linkr:query-job:n', JSON.stringify({ jobId: 'old', signature: 'other' }))
     expect(await run({ resumeOnly: true })).toBeNull()
     expect(startQueryJob).not.toHaveBeenCalled()
+    expect(cancelJob).toHaveBeenCalledWith('old')
     expect(hasRememberedJob('n')).toBe(false)
   })
 
   it('starts over when the remembered job is gone', async () => {
     store.set('linkr:query-job:n', JSON.stringify({ jobId: 'old', signature: 'sig' }))
-    followQueryJob.mockRejectedValueOnce(new Error('404')).mockResolvedValueOnce(done)
+    followQueryJob.mockRejectedValueOnce(GONE).mockResolvedValueOnce(done)
     expect(await run()).toEqual(done)
     expect(startQueryJob).toHaveBeenCalledOnce()
-    // Resuming only, a gone job ends the resume quietly.
+    expect(cancelJob).not.toHaveBeenCalled()
+    // Resuming only, a gone job ends the resume quietly, and is forgotten.
     store.set('linkr:query-job:n', JSON.stringify({ jobId: 'old', signature: 'sig' }))
-    followQueryJob.mockRejectedValueOnce(new Error('404'))
+    followQueryJob.mockRejectedValueOnce(GONE)
     expect(await run({ resumeOnly: true })).toBeNull()
+    expect(hasRememberedJob('n')).toBe(false)
+  })
+
+  it('keeps the job remembered when following it fails while it may still run', async () => {
+    followQueryJob.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    await expect(run()).rejects.toThrow('Failed to fetch')
+    expect(readStored()).toEqual({ jobId: 'new', signature: 'sig' })
+    // A resume that cannot reach it either leaves it for the next one.
+    followQueryJob.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    expect(await run({ resumeOnly: true })).toBeNull()
+    expect(readStored()?.jobId).toBe('new')
+  })
+
+  it('cancels a remembered job it could not follow before starting another', async () => {
+    store.set('linkr:query-job:n', JSON.stringify({ jobId: 'old', signature: 'sig' }))
+    followQueryJob.mockRejectedValueOnce(new Error('500')).mockResolvedValueOnce(done)
+    expect(await run()).toEqual(done)
+    expect(cancelJob).toHaveBeenCalledWith('old')
+    expect(startQueryJob).toHaveBeenCalledOnce()
+    expect(hasRememberedJob('n')).toBe(false)
+  })
+
+  it('forgets the job once aborted (the follower cancels it)', async () => {
+    const controller = new AbortController()
+    followQueryJob.mockImplementationOnce(async () => {
+      controller.abort()
+      throw new DOMException('aborted', 'AbortError')
+    })
+    await expect(run({ signal: controller.signal })).rejects.toThrow('aborted')
+    expect(hasRememberedJob('n')).toBe(false)
   })
 })
+
+function readStored(): { jobId: string; signature: string } | null {
+  const raw = store.get('linkr:query-job:n')
+  return raw ? JSON.parse(raw) : null
+}

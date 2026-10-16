@@ -4,7 +4,8 @@
  * heavy queries never run at once, and closing the tab leaves the job running.
  */
 
-import { followQueryJob, startQueryJob } from '@/lib/api/query-jobs'
+import { cancelJob } from '@/lib/api/environments'
+import { followQueryJob, isJobGone, startQueryJob } from '@/lib/api/query-jobs'
 import { prepareQuerySql } from './engine'
 import { CatalogPhaseCancelled, type CatalogPhase, type CatalogPhaseExecutor, type CatalogPhaseQuery } from './catalog-run'
 
@@ -35,6 +36,8 @@ export function jobExecutor(dataSourceId: string, label: (phase: CatalogPhase) =
         await follow(resumeJob)
       } catch (err) {
         if (signal.aborted) throw err
+        // Still there but not followed: the new job must not wait behind it in the lane.
+        if (!isJobGone(err)) await cancelJob(resumeJob).catch(() => {})
       }
       if (pending.length === 0) return
     }

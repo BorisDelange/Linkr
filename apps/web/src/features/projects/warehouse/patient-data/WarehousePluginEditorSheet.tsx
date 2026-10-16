@@ -72,7 +72,7 @@ function EditorContent({
 }) {
   const { t, i18n } = useTranslation()
   const lang = i18n.language as 'en' | 'fr'
-  const { dataSourceId, schemaMapping, projectUid } = usePatientChartContext()
+  const { dataSourceId, schemaMapping, projectUid, paused } = usePatientChartContext()
   const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
   const updateWidgetLanguage = usePatientChartStore((s) => s.updateWidgetLanguage)
 
@@ -109,10 +109,11 @@ function EditorContent({
   const conceptIds = (pluginConfig.conceptIds as number[] | undefined) ?? []
 
   // Patient context
-  const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId[projectUid] ?? null)
-  const selectedVisitId = usePatientChartStore((s) => s.selectedVisitId[projectUid] ?? null)
-  const { scope } = usePatientScope(projectUid, dataSourceId, schemaMapping)
-  const selectedVisitDetailId = usePatientChartStore((s) => s.selectedVisitDetailId[projectUid] ?? null)
+  // A paused board runs nothing, the editor's Run included: no patient to run on.
+  const selectedPatientId = usePatientChartStore((s) => (paused ? null : s.selectedPatientId[projectUid] ?? null))
+  const selectedVisitId = usePatientChartStore((s) => (paused ? null : s.selectedVisitId[projectUid] ?? null))
+  const { scope } = usePatientScope(projectUid, paused ? undefined : dataSourceId, schemaMapping)
+  const selectedVisitDetailId = usePatientChartStore((s) => (paused ? null : s.selectedVisitDetailId[projectUid] ?? null))
 
   // Execution state
   const [result, setResult] = useState<RuntimeOutput | null>(null)
@@ -316,7 +317,7 @@ function EditorContent({
         <div className="ml-auto flex items-center gap-1">
           {!selectedPatientId && (
             <span className="text-[10px] text-muted-foreground mr-1">
-              {t('patient_data.select_patient_first')}
+              {paused ? t('cohorts.patients_widget_paused') : t('patient_data.select_patient_first')}
             </span>
           )}
           <Button

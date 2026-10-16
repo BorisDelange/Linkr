@@ -136,7 +136,7 @@ export type ConceptFilters = Record<string, ConceptFilterValue>
 export const NULL_FILTER_VALUE = '__null__'
 
 /** Read a filter that is always single-valued (the `_search*` keys). */
-function filterText(value: ConceptFilterValue): string | null {
+export function filterText(value: ConceptFilterValue): string | null {
   return typeof value === 'string' ? value : null
 }
 
@@ -194,7 +194,21 @@ function fuzzyClause(
   })
 }
 
-function buildWhereClause(dict: ClassRelation, filters: ConceptFilters, allColumns: ColumnDescriptor[], alias?: string): string {
+/** The labels the Name filter's typo fallback looks for its words in: every
+ *  active dictionary, so one holding the words keeps another from falling back. */
+function labelScope(dicts: readonly ClassRelation[]): string {
+  return dicts.length === 1
+    ? dicts[0].name
+    : `(${dicts.map((d) => `SELECT concept_name FROM ${d.name}`).join(' UNION ALL ')})`
+}
+
+function buildWhereClause(
+  dict: ClassRelation,
+  filters: ConceptFilters,
+  allColumns: ColumnDescriptor[],
+  alias?: string,
+  labels: string = dict.name,
+): string {
   const p = alias ? `${alias}.` : ''
   const conditions: string[] = []
 
@@ -205,7 +219,7 @@ function buildWhereClause(dict: ClassRelation, filters: ConceptFilters, allColum
   }
 
   // Name column filter: every word, accents and case aside; a typo when nothing matches.
-  const name = buildLabelFilterSql(filterText(filters._searchText) ?? '', 'concept_name', dict.name, alias)
+  const name = buildLabelFilterSql(filterText(filters._searchText) ?? '', 'concept_name', labels, alias)
   if (name) conditions.push(name)
 
   // Search by code
@@ -337,7 +351,7 @@ function buildSelectForDict(
   filters: ConceptFilters,
   mapping: SchemaMapping,
   counts: CountsSource,
-  extraWhere?: string,
+  { extraWhere, labels }: { extraWhere?: string; labels?: string } = {},
 ): string {
   const held = (col: 'record_count' | 'patient_count') => has(dict, col)
   const needsCounts = !held('record_count') || !held('patient_count')
@@ -350,7 +364,7 @@ function buildSelectForDict(
     held(col) ? `c.${col}::BIGINT AS ${col}`
       : !hasCounts ? (counts.kind === 'inline' ? `0::BIGINT AS ${col}` : `NULL::BIGINT AS ${col}`)
         : complete ? `COALESCE(_counts.${col}, 0) AS ${col}` : `_counts.${col} AS ${col}`
-  const filterWhere = buildWhereClause(dict, filters, allColumns, 'c')
+  const filterWhere = buildWhereClause(dict, filters, allColumns, 'c', labels)
   const where = extraWhere ? (filterWhere ? `${filterWhere} AND ${extraWhere}` : `WHERE ${extraWhere}`) : filterWhere
 
   const cols: string[] = ['c.concept_id', 'c.concept_name']
@@ -401,7 +415,8 @@ export function buildConceptsQuery(
   const dicts = activeDicts(mapping, filters)
   if (dicts.length === 0) return null
   const offset = page * pageSize
-  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, counts))
+  const labels = labelScope(dicts)
+  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, counts, { labels }))
 
   // ORDER BY — all columns including record_count and patient_count. An explicit
   // sort wins; otherwise a fuzzy search orders by relevance (best tier first).
@@ -444,7 +459,8 @@ export function buildConceptsCountQuery(
 ): string | null {
   const dicts = activeDicts(mapping, filters)
   if (dicts.length === 0) return null
-  const parts = dicts.map((dict) => `SELECT COUNT(*)::INTEGER AS cnt FROM ${dict.name} ${buildWhereClause(dict, filters, allColumns)}`)
+  const labels = labelScope(dicts)
+  const parts = dicts.map((dict) => `SELECT COUNT(*)::INTEGER AS cnt FROM ${dict.name} ${buildWhereClause(dict, filters, allColumns, undefined, labels)}`)
   if (parts.length === 1) return parts[0]
   return `SELECT SUM(cnt)::INTEGER AS cnt FROM (${parts.join(' UNION ALL ')}) _counts`
 }
@@ -573,7 +589,7 @@ export function buildConceptFullQuery(
   if (dicts.length === 0) return null
   const columns = computeAvailableColumns(conceptRelations(mapping))
   const match = `c.concept_id = ${Number(conceptId)}`
-  const parts = dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, { kind: 'none' }, match))
+  const parts = dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, { kind: 'none' }, { extraWhere: match }))
   return `${parts.join(' UNION ALL ')} LIMIT 1`
 }
 

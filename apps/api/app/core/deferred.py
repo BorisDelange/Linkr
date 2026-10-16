@@ -24,12 +24,13 @@ first response is sent. Check permissions before calling ``respond``.
 """
 
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, TypeVar
 
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
@@ -44,6 +45,23 @@ _KEEP_SECONDS = 600.0
 # Work keeps running after its client gives up, so without a cap one user could
 # pile up any number of multi-minute imports. Counts the work past WAIT_SECONDS.
 MAX_RUNNING_PER_USER = 4
+
+
+T = TypeVar("T")
+
+
+async def until_stopped(work: Awaitable[T], stop: Callable[[], object]) -> T:
+    """Await `work`; when cancelled, `stop` it and wait for it to end before the
+    cancellation goes on. A query runs in a thread a cancel does not reach: left
+    behind, it would go on holding its lane slot and its connection."""
+    task = asyncio.ensure_future(work)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        stop()
+        with contextlib.suppress(BaseException):
+            await task
+        raise
 
 
 @dataclass
@@ -121,10 +139,13 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
             "Too many long-running requests in progress; wait for one to finish.",
         )
 
+    started = _Started(as_job is None or as_job.lane is None)
+
     async def run() -> Any:
-        if as_job is None or as_job.lane is None:
+        if started.now:
             return await work()
         async with jobs.lane_slot(as_job.lane):
+            await started.mark()
             return await work()
 
     task = asyncio.create_task(run())
@@ -140,13 +161,32 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
         # An entity outside any project and workspace (a user's own settings) has
         # no panel to show in: it stays a plain deferred request.
         if as_job is not None and (as_job.project_uid or as_job.workspace_id):
-            task_id = await _as_job(user_id, task, as_job)
+            task_id = await _as_job(user_id, task, as_job, started)
         _tasks[task_id] = _Entry(user_id=user_id, task=task)
         return _pending_response(task_id)
 
 
-async def _as_job(user_id: str, task: asyncio.Task, as_job: AsJob) -> str:
-    """Record running work as a job of the panel; its status follows the task."""
+@dataclass
+class _Started:
+    """Whether the work has its lane slot yet, and the job showing it, if any:
+    adopted while it waits, the job is queued, and runs once the slot is taken."""
+
+    now: bool
+    job_id: str | None = None
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    async def mark(self) -> None:
+        from app.services.execution import jobs
+
+        # Under the lock: adopt's first write and this one must not cross.
+        async with self.lock:
+            self.now = True
+            if self.job_id is not None:
+                await jobs.mark_running(self.job_id)
+
+
+async def _as_job(user_id: str, task: asyncio.Task, as_job: AsJob, started: _Started) -> str:
+    """Record long work as a job of the panel; its status follows the task."""
     from app.services.execution import jobs
 
     async with session() as db:
@@ -154,9 +194,10 @@ async def _as_job(user_id: str, task: asyncio.Task, as_job: AsJob) -> str:
             db, as_job.project_uid, int(user_id), "task", as_job.label, workspace_id=as_job.workspace_id,
             input=as_job.input,
         )
-    job_id = job.id
-    await jobs.adopt(job_id, task)
-    return job_id
+    async with started.lock:
+        started.job_id = job.id
+        await jobs.adopt(job.id, task, running=started.now)
+    return job.id
 
 
 def poll(user_id: str, task_id: str) -> Any:

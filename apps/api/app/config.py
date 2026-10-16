@@ -1,12 +1,15 @@
+import re
 from functools import cached_property
 from pathlib import Path
 
-from pydantic import AliasChoices, Field
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings
 
 # apps/api/.env — resolved absolutely so it loads regardless of the working
 # directory uvicorn is launched from (config.py lives at apps/api/app/config.py).
 _ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
+DUCKDB_MEMORY_LIMIT_RE = re.compile(r"\d+(\.\d+)?\s*[KMGT]i?B", re.IGNORECASE)
 
 
 class Settings(BaseSettings):
@@ -115,10 +118,19 @@ class Settings(BaseSettings):
     # big ones together can get the container killed. Own queue: never waits on,
     # nor holds up, an env build.
     max_heavy_queries: int = 1
-    # Memory each DuckDB that reads a database may use before spilling to disk
-    # (e.g. "3GB"). Empty: 60 % of the container's memory. DuckDB's own default
-    # (80 %) leaves too little for the API itself, and the container is killed.
+    # Memory one DuckDB instance opened by db_connect._open (a query, a unit, a
+    # materialization over a database) may use before spilling to disk, e.g.
+    # "3GB". Per instance, not in total: two heavy queries at once may each take
+    # it. Empty: 60 % of the container's memory. DuckDB's own default (80 %)
+    # leaves too little for the API itself, and the container is killed.
     duckdb_memory_limit: str = ""
+
+    @field_validator("duckdb_memory_limit")
+    @classmethod
+    def _memory_limit_is_a_size(cls, value: str) -> str:
+        if value.strip() and not DUCKDB_MEMORY_LIMIT_RE.fullmatch(value.strip()):
+            raise ValueError(f"LINKR_DUCKDB_MEMORY_LIMIT must be a size such as 3GB or 512MiB, not {value!r}")
+        return value.strip()
 
     # Data
     data_dir: str = "~/.linkr"

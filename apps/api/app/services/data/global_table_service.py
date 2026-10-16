@@ -428,6 +428,32 @@ def _fuzzy_search(q: str) -> tuple[str, str]:
     return where, rank_expr
 
 
+# Twin of buildLabelFilterSql (apps/web/src/lib/fuzzy-search.ts): it must emit
+# the same SQL text — the shared cases live in apps/web/src/lib/label-filter.fixture.json.
+JW_FILTER_THRESHOLD = 0.85
+
+
+def label_filter_sql(term: str, column: str, source: str, alias: str | None = None) -> str | None:
+    """A column filter on a label: every word, in any order, folded and taken
+    literally; only when no row of `source` holds them, the labels whose
+    Jaro-Winkler to the whole term reaches JW_FILTER_THRESHOLD (a typo)."""
+    words = term.split()
+    if not words:
+        return None
+
+    def contains(col: str) -> str:
+        return " AND ".join(
+            f"contains({_fold(col)}, {_fold(chr(39) + _esc(w) + chr(39))})" for w in words
+        )
+
+    own = f"{alias}.{column}" if alias else column
+    q = _fold(f"'{_esc(' '.join(words))}'")
+    return (
+        f"(({contains(own)}) OR (NOT EXISTS (SELECT 1 FROM {source} _lf WHERE {contains(f'_lf.{column}')})"
+        f" AND jaro_winkler_similarity({_fold(own)}, {q}) >= {JW_FILTER_THRESHOLD}))"
+    )
+
+
 def _where(filters: dict, mode: str) -> str:
     clauses: list[str] = []
     q = (filters.get("globalSearch") or "").strip()
@@ -463,14 +489,16 @@ def _where(filters: dict, mode: str) -> str:
         vals = ",".join(f"'{_esc(str(x))}'" for x in values if x != "")
         if vals:
             clauses.append(f"{col} IN ({vals})")
+    code = filters.get("sourceConceptCode")
+    if code:
+        clauses.append(f"LOWER(source_concept_code) LIKE LOWER('%{_esc(str(code))}%')")
     for key, col in (
-        ("sourceConceptCode", "source_concept_code"),
         ("sourceConceptName", "source_concept_name"),
         ("targetConceptName", "target_concept_name"),
     ):
-        v = filters.get(key)
-        if v:
-            clauses.append(f"LOWER({col}) LIKE LOWER('%{_esc(str(v))}%')")
+        label = label_filter_sql(str(filters.get(key) or ""), col, "g")
+        if label:
+            clauses.append(label)
     # Assigned source-concept-id: the column is the RESOLVED integer id; match it as
     # text so a partial id filters (mirrors the code/name substring filters). Without
     # this the filter value was silently ignored (the column had a sort mapping but
