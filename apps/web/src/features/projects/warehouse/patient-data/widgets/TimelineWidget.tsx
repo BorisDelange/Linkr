@@ -13,6 +13,7 @@ import {
 } from '@/stores/patient-chart-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
+import { timelineRelationsWithout } from '../timeline-relations'
 import { isPlottable, useDatasetSeries } from './use-dataset-series'
 import { datasetSeriesKey, datasetSeriesKeyId, timelineDatasets } from '@/lib/patient-data/dataset-timeline'
 import { conceptColorHex } from '@/lib/concept-colors'
@@ -275,20 +276,12 @@ export function TimelineWidget({
     // stay changes the scope three times in quick succession; one fetch for the
     // last of them avoids a visible reload / "No data" flash.
     const timer = setTimeout(() => {
-      const sql = buildTimelineQuery(
-        schemaMapping,
-        conceptIds,
-        patientId,
-        scope,
-      )
-
-      if (!sql) {
-        setOmopData([])
-        setLoading(false)
-        return
-      }
-
-      queryDataSource(dataSourceId, sql)
+      timelineRelationsWithout(dataSourceId, schemaMapping, conceptIds)
+        .then((without) => {
+          if (cancelled) return null
+          const sql = buildTimelineQuery(schemaMapping, conceptIds, patientId, scope, without)
+          return sql ? queryDataSource(dataSourceId, sql) : []
+        })
         .then((rows) => {
           if (!cancelled) setOmopData((rows as unknown as TimelineRow[]) ?? [])
         })

@@ -544,7 +544,7 @@ Clinical tables: `measurement`, `condition_occurrence`, `drug_exposure`, `proced
 
 - Always query both `<table>_concept_id` AND `<table>_source_concept_id` (OR condition).
 - Domain mapping: `domainTableMap` in `concept-queries.ts` → `{ table, column, sourceColumn }`.
-- Concept counts: precomputed stats cache queried via `queryConceptCache()` (`lib/api/concept-cache.ts`); single-concept detail via `buildDomainCountQuery()` in `concept-queries.ts`.
+- Concept counts: precomputed stats cache queried via `queryConceptCache()` (`lib/api/concept-cache.ts`); single-concept detail via `buildDomainCountQuery()` in `concept-queries.ts`. Record units name their event relation and a signature of its SQL (`relation`, `relation_sig`, `countedRelationSignature`); `POST …/concept-cache/relations {conceptIds}` says which counted relations hold any of them, and the patient timeline leaves out the others (`timeline-relations.ts`, server mode). A relation not counted, or counted under SQL it no longer has, is always read; rows loaded after the count are not seen until the next one.
 - Measurement extras: distribution (min/max/mean/median/std) + histogram (DuckDB binning).
 
 ### Local codes: CONCEPT / CONCEPT_RELATIONSHIP, not SOURCE_TO_CONCEPT_MAP (as-built)

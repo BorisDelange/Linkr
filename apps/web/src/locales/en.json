@@ -1917,6 +1917,7 @@
     "tab_settings": "Settings",
     "no_settings": "This widget has no settings.",
     "sql_read_only": "Read-only — this widget's layout expects fixed columns.",
+    "sql_run_without": "Run without {{relations}}: none of the selected concepts there, per the concept count of {{date}}.",
     "sql_none": "This widget runs no SQL query.",
     "sql_unavailable": "No query could be built. The schema mapping is missing:",
     "timeline_y_zero": "Y axis starts at zero",

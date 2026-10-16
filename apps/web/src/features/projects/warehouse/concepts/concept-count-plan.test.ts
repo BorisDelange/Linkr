@@ -8,12 +8,13 @@ import {
   findConceptIdTypeMismatches,
   conceptCountProgress,
   conceptCountSignature,
+  countedRelationSignature,
   planConceptCountUnits,
   stepJobItems,
   type ConceptCountManifest,
 } from './concept-count-plan'
 import { buildConceptsAssembleQuery, buildConceptsQuery, computeAvailableColumns, CONCEPT_COUNTS_VIEW } from './concept-queries'
-import { conceptRelations } from '@/lib/schema-classes/relations'
+import { conceptRelations, eventRelations } from '@/lib/schema-classes/relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 
 const v1 = {
@@ -79,7 +80,6 @@ describe('conceptCountSignature', () => {
       ...v1,
       eventTables: { ...v1.eventTables, Measurement: { ...v1.eventTables.Measurement, conceptIdColumn: 'measurement_type_concept_id' } },
     } as unknown as SchemaMappingV1)
-    expect(planConceptCountUnits(renamed, [{}]).map((u) => u.sql)).toEqual(units.map((u) => u.sql))
     expect(conceptCountSignature(units, renamed)).not.toBe(conceptCountSignature(units, mapping))
   })
 
@@ -88,6 +88,22 @@ describe('conceptCountSignature', () => {
     const before = conceptCountSignature(units, mapping, ['person', 'concept', 'measurement'])
     expect(before).not.toBe(conceptCountSignature(units, mapping))
     expect(conceptCountSignature(units, mapping, ['person', 'concept', 'measurement', 'condition_occurrence'])).toBe(conceptCountSignature(units, mapping))
+  })
+})
+
+describe('record units name their relation', () => {
+  it("with the signature of the relation's SQL, which a mapping change moves", () => {
+    const sql = planConceptCountUnits(mapping, [{}]).find((u) => u.key === 'records-0-std')!.sql
+    const measurement = eventRelations(mapping).find((e) => e.key === 'Measurement')!
+    const dict = conceptRelations(mapping).find((d) => d.name === measurement.dictionary)!
+    expect(sql).toContain(`'${measurement.name}' AS relation, '${countedRelationSignature(measurement, dict)}' AS relation_sig`)
+
+    const renamed = mappingV1ToV2({
+      ...v1,
+      eventTables: { ...v1.eventTables, Measurement: { ...v1.eventTables.Measurement, conceptIdColumn: 'measurement_type_concept_id' } },
+    } as unknown as SchemaMappingV1)
+    const moved = eventRelations(renamed).find((e) => e.key === 'Measurement')!
+    expect(countedRelationSignature(moved, conceptRelations(renamed)[0])).not.toBe(countedRelationSignature(measurement, dict))
   })
 })
 

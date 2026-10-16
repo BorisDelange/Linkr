@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react'
+import { useState, useCallback, useMemo, useEffect, useRef, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -35,6 +35,12 @@ import { cn } from '@/lib/utils'
 import type { PatientDashboardWidget } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 import { copyText } from '@/lib/clipboard'
+import { TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
+import { eventRelations } from '@/lib/schema-classes/relations'
+import { getConceptCacheStatus } from '@/lib/api/concept-cache'
+import { formatDateTimeLocale } from '@/lib/format-helpers'
+import { timelineRelationsWithout } from './timeline-relations'
+import type { SchemaMapping } from '@/types/schema-mapping'
 
 interface PatientWidgetEditorSheetProps {
   widgetId: string | null
@@ -333,6 +339,9 @@ function EditorContent({
                   onChange={(v) => setDraftSql(v)}
                   onSave={handleSave}
                   lang={lang}
+                  note={widget.pluginId === TIMELINE_PLUGIN_ID && draftSql == null && dataSourceId && schemaMapping && (
+                    <SkippedRelationsNote sourceId={dataSourceId} mapping={schemaMapping} conceptIds={conceptIds} />
+                  )}
                 />
               )}
             </div>
@@ -403,6 +412,7 @@ function SqlTab({
   onChange,
   onSave,
   lang,
+  note,
 }: {
   queries: ReturnType<typeof buildWidgetQueries>
   editable: boolean
@@ -412,6 +422,8 @@ function SqlTab({
    *  the editor has focus — it has to be wired through the editor's own command. */
   onSave: () => void
   lang: string
+  /** Under the editor: how the query runs differently from what it shows. */
+  note?: ReactNode
 }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
@@ -440,6 +452,7 @@ function SqlTab({
           language="sql"
           height="100%"
         />
+        {note}
       </div>
     )
   }
@@ -488,3 +501,35 @@ function MissingMapping({ missing }: { missing: string }) {
   )
 }
 
+
+/** The relations the timeline leaves out when it runs this generated SQL, and
+ *  the count that says they hold none of the concepts (timeline-relations.ts). */
+function SkippedRelationsNote({ sourceId, mapping, conceptIds }: { sourceId: string; mapping: SchemaMapping; conceptIds: number[] }) {
+  const { t, i18n } = useTranslation()
+  const [skipped, setSkipped] = useState<{ labels: string[]; countedAt: string | null } | null>(null)
+  const key = conceptIds.join(',')
+
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all([
+      timelineRelationsWithout(sourceId, mapping, conceptIds),
+      getConceptCacheStatus(sourceId).catch(() => null),
+    ]).then(([without, status]) => {
+      if (cancelled) return
+      const labels = eventRelations(mapping).filter((e) => without.has(e.name)).map((e) => e.key ?? e.name)
+      setSkipped({ labels, countedAt: status?.run?.manifest.finishedAt ?? null })
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceId, mapping, key])
+
+  if (!skipped || skipped.labels.length === 0) return null
+  return (
+    <p className="shrink-0 text-xs text-muted-foreground">
+      {t('patient_data.sql_run_without', {
+        relations: skipped.labels.join(', '),
+        date: skipped.countedAt ? formatDateTimeLocale(skipped.countedAt, i18n.language) : '—',
+      })}
+    </p>
+  )
+}

@@ -37,6 +37,8 @@ import shutil
 import threading
 import uuid
 
+import duckdb
+
 from app.config import settings
 from app.services.data import db_connect
 
@@ -126,6 +128,32 @@ def run_status(source_id: str, principal: str) -> dict | None:
         "done_units": [f.stem for f in files],
         "last_unit_at": max((f.stat().st_mtime for f in files), default=None),
     }
+
+
+def counted_relations(source_id: str, principal: str, concept_ids: list[str]) -> list[dict]:
+    """The event relations the record units of the last run counted — each with
+    the signature of its SQL when counted and whether it holds any of
+    `concept_ids` — so a query for those concepts can leave out the relations
+    that hold none. Units of an older build name no relation: none is reported."""
+    files = [f for f in _unit_files(source_id, principal) if f.stem.startswith("records-")]
+    if not files:
+        return []
+    paths = ", ".join("'" + db_connect._sql_path(f.as_posix()) + "'" for f in files)
+    con = db_connect._open()
+    try:
+        rows = con.execute(
+            f"""SELECT relation, relation_sig,
+                  bool_or(CAST(concept_id AS VARCHAR) IN (SELECT unnest(?::VARCHAR[]))) AS holds
+                FROM read_parquet([{paths}], union_by_name = true)
+                WHERE relation IS NOT NULL
+                GROUP BY relation, relation_sig""",
+            [concept_ids],
+        ).fetchall()
+    except duckdb.BinderException:
+        return []
+    finally:
+        con.close()
+    return [{"relation": r, "signature": sig, "holds": bool(holds)} for r, sig, holds in rows]
 
 
 def write_manifest(source_id: str, principal: str, manifest: dict, reset: bool) -> None:

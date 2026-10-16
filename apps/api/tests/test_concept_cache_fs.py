@@ -285,3 +285,36 @@ def test_a_manifest_write_sweeps_leftover_unit_files(data_dir):
     (units / "records-0.parquet.tmp-1-abc").write_text("x")
     concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=False)
     assert not list(units.iterdir())
+
+
+def test_counted_relations_say_which_relations_hold_the_concepts(duckdb_source, data_dir):
+    """Records name their relation; the patient units and a unit of an older
+    build (no relation) are not reported."""
+    config, files = duckdb_source
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    for i, (rel, cond) in enumerate([("ev_a", "concept_id = 1"), ("ev_b", "concept_id = 2")]):
+        sql = (
+            f"SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count,"
+            f" '{rel}' AS relation, 'sig-{rel}' AS relation_sig FROM ext.measurement WHERE {cond} GROUP BY concept_id"
+        )
+        concept_cache_fs.write_unit(config, None, files, [], sql, "src", "", f"records-{i}-std", "r1")
+    concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-2-std", "r1")
+    patients = (
+        "SELECT 'd' AS dict_key, concept_id, NULL::BIGINT AS record_count, COUNT(DISTINCT person_id)::BIGINT AS patient_count"
+        " FROM ext.measurement GROUP BY concept_id"
+    )
+    concept_cache_fs.write_unit(config, None, files, [], patients, "src", "", "patients-1-of-1", "r1")
+
+    got = sorted(concept_cache_fs.counted_relations("src", "", ["2"]), key=lambda r: r["relation"])
+    assert got == [
+        {"relation": "ev_a", "signature": "sig-ev_a", "holds": False},
+        {"relation": "ev_b", "signature": "sig-ev_b", "holds": True},
+    ]
+
+
+def test_counted_relations_of_units_that_name_none(duckdb_source, data_dir):
+    config, files = duckdb_source
+    assert concept_cache_fs.counted_relations("src", "", ["1"]) == []
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
+    concept_cache_fs.write_unit(config, None, files, [], _UNIT.format(pc="NULL::BIGINT"), "src", "", "records-0-std", "r1")
+    assert concept_cache_fs.counted_relations("src", "", ["1"]) == []

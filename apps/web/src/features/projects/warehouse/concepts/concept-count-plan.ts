@@ -28,7 +28,7 @@ import { deterministicId } from '@/lib/deterministic-id'
 import { escSql as esc } from '@/lib/format-helpers'
 
 /** Bumped when the unit SQL changes, so a paused run of an older build restarts. */
-export const CONCEPT_COUNT_VERSION = 2
+export const CONCEPT_COUNT_VERSION = 3
 
 /**
  * Event rows per patient slice of the `patients` step. A slice's time is mostly
@@ -90,10 +90,21 @@ const idByCode = (dict: ClassRelation) => `(
   GROUP BY concept_terminology, concept_code
 )`
 
-/** Rows of one event table naming each concept, standard or source column. */
+/**
+ * Of what a record unit counted: the event relation's SQL and its dictionary's.
+ * The counts say which relations hold a concept (timeline-relations.ts); a
+ * relation whose SQL has changed since is read as if never counted.
+ */
+export function countedRelationSignature(event: ClassRelation, dict: ClassRelation): string {
+  return deterministicId('counted-relation', `${event.sql}\n${dict.sql}`)
+}
+
+/** Rows of one event table naming each concept, standard or source column —
+ *  with the relation they come from. */
 export function buildRecordUnitSql(event: ClassRelation, dict: ClassRelation, column: 'concept_id' | 'source_concept_id'): string {
+  const relation = `'${esc(event.name)}' AS relation, '${countedRelationSignature(event, dict)}' AS relation_sig`
   if (column === 'concept_id' && countsByCode(event)) {
-    return `SELECT ${dictKeyLit(dict)} AS dict_key, d.concept_id AS concept_id, SUM(g.n)::BIGINT AS record_count, NULL::BIGINT AS patient_count
+    return `SELECT ${dictKeyLit(dict)} AS dict_key, d.concept_id AS concept_id, SUM(g.n)::BIGINT AS record_count, NULL::BIGINT AS patient_count, ${relation}
 FROM (
   SELECT e.concept_terminology, e.concept_code, COUNT(*) AS n
   FROM ${codesRelation(event.name)} e
@@ -105,7 +116,7 @@ GROUP BY d.concept_id`
   }
   // A source column repeating the standard one would count the row twice for that concept.
   const repeat = column === 'source_concept_id' ? ' AND e.source_concept_id IS DISTINCT FROM e.concept_id' : ''
-  return `SELECT ${dictKeyLit(dict)} AS dict_key, e.${column} AS concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count
+  return `SELECT ${dictKeyLit(dict)} AS dict_key, e.${column} AS concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count, ${relation}
 FROM ${event.name} e
 WHERE e.${column} IS NOT NULL${repeat}
 GROUP BY e.${column}`

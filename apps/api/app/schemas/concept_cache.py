@@ -55,6 +55,24 @@ class ConceptPageResult(CamelModel):
     rows: list[dict]
 
 
+class ConceptRelationsRequest(CamelModel):
+    concept_ids: list[int | str] = Field(min_length=1, max_length=10_000)
+
+
+class CountedRelation(CamelModel):
+    """An event relation the last counting run counted the records of."""
+
+    relation: str
+    # Of the relation's SQL when it was counted: a mapping changed since makes it stale.
+    signature: str | None = None
+    # Whether it holds any of the requested concepts.
+    holds: bool
+
+
+class ConceptRelationsResult(CamelModel):
+    relations: list[CountedRelation]
+
+
 class ConceptStatsSave(CamelModel):
     stats: dict
 

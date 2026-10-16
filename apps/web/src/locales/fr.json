@@ -1917,6 +1917,7 @@
     "tab_settings": "Paramètres",
     "no_settings": "Ce widget n'a pas de paramètres.",
     "sql_read_only": "Lecture seule — la mise en page de ce widget attend des colonnes fixes.",
+    "sql_run_without": "Exécutée sans {{relations}} : aucun des concepts choisis d'après le décompte des concepts du {{date}}.",
     "sql_none": "Ce widget n'exécute aucune requête SQL.",
     "sql_unavailable": "Aucune requête n'a pu être construite. Il manque dans le mapping :",
     "timeline_y_zero": "Axe Y commence à zéro",

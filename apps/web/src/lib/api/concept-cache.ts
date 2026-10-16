@@ -66,6 +66,24 @@ export async function queryConceptCache(
   return res.rows
 }
 
+/** An event relation the last counting run counted the records of. */
+export interface CountedRelation {
+  relation: string
+  /** Of its SQL and its dictionary's when counted (countedRelationSignature). */
+  signature: string | null
+  /** Whether it holds any of the concepts asked about. */
+  holds: boolean
+}
+
+/** The relations the last counting run counted, and which hold any of `conceptIds`. */
+export async function getCountedRelations(sourceId: string, conceptIds: readonly number[]): Promise<CountedRelation[]> {
+  const res = await apiRequest<{ relations: CountedRelation[] }>(`${base(sourceId)}/relations`, {
+    method: 'POST',
+    body: JSON.stringify({ conceptIds }),
+  })
+  return res.relations
+}
+
 /** Shared cached detail-panel stats for one concept (undefined if not cached). */
 export async function getConceptStats<T>(
   sourceId: string,

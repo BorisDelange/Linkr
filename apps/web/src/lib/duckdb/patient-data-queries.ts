@@ -265,6 +265,8 @@ export function buildTimelineQuery(
   conceptIds: number[],
   patientId: string,
   scope: PatientScope | null,
+  /** Event relations known to hold none of the concepts (timeline-relations.ts). */
+  without?: ReadonlySet<string>,
 ): string | null {
   if (conceptIds.length === 0) return null
   if (!validateIntegerIds(conceptIds)) return null
@@ -272,6 +274,7 @@ export function buildTimelineQuery(
   const parts: string[] = []
 
   for (const event of eventRelations(mapping)) {
+    if (without?.has(event.name)) continue
     if (!has(event, 'patient_id') || !has(event, 'start_datetime')) continue
     // A table with neither kind of value has nothing to put on a timeline.
     if (!has(event, 'value_number') && !has(event, 'value_string')) continue

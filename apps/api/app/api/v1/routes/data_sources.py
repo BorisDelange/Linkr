@@ -23,6 +23,8 @@ from app.schemas.concept_cache import (
     ConceptUnitsJobRequest,
     ConceptPageRequest,
     ConceptPageResult,
+    ConceptRelationsRequest,
+    ConceptRelationsResult,
     ConceptStatsResponse,
     ConceptStatsSave,
 )
@@ -972,6 +974,21 @@ async def query_concept_cache(
     except Exception as e:  # noqa: BLE001
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
     return ConceptPageResult(rows=rows)
+
+
+@router.post("/{source_id}/concept-cache/relations", response_model=ConceptRelationsResult)
+async def concept_cache_relations(
+    source_id: str,
+    body: ConceptRelationsRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The event relations the last counting run counted, and which of them hold
+    any of `conceptIds` — a patient's timeline then reads only those."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    ids = [str(i) for i in body.concept_ids]
+    relations = await asyncio.to_thread(concept_cache_fs.counted_relations, source_id, _principal(source, user), ids)
+    return ConceptRelationsResult(relations=relations)
 
 
 @router.get(
