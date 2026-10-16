@@ -157,6 +157,8 @@ export interface StartCatalogRunInput {
   mapping: SchemaMapping
   /** Mount the database before the first query; the one step that must succeed. */
   ensureMounted: () => Promise<void>
+  /** The tables the database has, read once it is mounted. */
+  tables?: () => Promise<readonly string[] | null>
   query: CatalogQuery
   /**
    * Where a resume picks up, or null for a fresh start. The cache carries every
@@ -225,6 +227,7 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
       catalog: input.catalog,
       mapping: input.mapping,
       query: input.query,
+      tables: await input.tables?.(),
       resumeFrom: input.resumeFrom?.cache ?? null,
       persist: input.persist,
       executor: input.executor,

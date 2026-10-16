@@ -31,6 +31,10 @@ export interface AbsentRelation {
 interface Presence {
   relations: ClassRelation[]
   absent: AbsentRelation[]
+  /** The mapping without its joins on a missing table; same relation names. */
+  mapping: SchemaMapping
+  /** Spec keys of the relations left with nothing to read. */
+  empty: ReadonlySet<string>
 }
 
 const cache = new WeakMap<SchemaMapping, Map<string, Presence>>()
@@ -66,18 +70,18 @@ function presence(mapping: SchemaMapping, tables: readonly string[]): Presence {
     if (!empty) pruned.set(spec, { ...spec, joins: (spec.joins ?? []).filter((j) => !missingJoins.includes(j)) })
   }
 
-  let relations = classRelations(mapping)
-  if (absent.length > 0) {
-    const empty = new Set(absent.filter((a) => a.empty).map((a) => a.specKey))
-    // Same specs in the same order: the relation names come out the same.
-    const source = pruned.size ? withSpecs(mapping, pruned) : mapping
-    relations = classRelations(source).map((r) => {
+  const empty = new Set(absent.filter((a) => a.empty).map((a) => a.specKey))
+  // Same specs in the same order: the relation names come out the same.
+  const source = pruned.size ? withSpecs(mapping, pruned) : mapping
+  let relations = classRelations(source)
+  if (empty.size > 0) {
+    relations = relations.map((r) => {
       if (!empty.has(r.specKey)) return r
       const none = emptyRelationSql(r)
       return { ...r, sql: none, ...(r.codeSql != null ? { codeSql: none } : {}) }
     })
   }
-  const out = { relations, absent }
+  const out = { relations, absent, mapping: source, empty }
   byTables.set(key, out)
   return out
 }
@@ -115,6 +119,13 @@ export function emptyRelationSql(rel: ClassRelation): string {
 /** Every relation of the mapping, as it runs on a database holding `tables`. */
 export function relationsPresentIn(mapping: SchemaMapping, tables: readonly string[]): ClassRelation[] {
   return presence(mapping, tables).relations
+}
+
+/** The mapping as it runs on a database holding `tables`: its joins on a
+ *  missing table dropped, and which relations have nothing left to read. */
+export function presentMapping(mapping: SchemaMapping, tables: readonly string[]): { mapping: SchemaMapping; empty: ReadonlySet<string> } {
+  const { mapping: present, empty } = presence(mapping, tables)
+  return { mapping: present, empty }
 }
 
 /** The relations reading a table the database does not have. */

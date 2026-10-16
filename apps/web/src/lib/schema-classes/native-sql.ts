@@ -18,7 +18,8 @@
 import { quoteIdent } from '@/lib/format-helpers'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { RELATION_PREFIX } from './contracts'
-import { blankSqlLiterals, inlineRelation, type InlineRelation } from './relations'
+import { blankSqlLiterals, classRelations, codesRelation, inlineRelation, type InlineRelation } from './relations'
+import { emptyRelationSql, presentMapping } from './presence'
 
 /** A relation in a FROM or a JOIN: `linkr_x` or `linkr_x alias`. */
 const FROM_ITEM = new RegExp(
@@ -115,7 +116,7 @@ export function namesRelation(sql: string): boolean {
   return new RegExp(`(?<![\\w."])${RELATION_PREFIX}`, 'i').test(blankSqlLiterals(sql))
 }
 
-export function toNativeSql(sql: string, mapping: SchemaMapping): string | null {
+export function toNativeSql(sql: string, mapping: SchemaMapping, tables?: readonly string[] | null): string | null {
   const blanked = blankSqlLiterals(sql)
   const groups = parenGroups(blanked)
 
@@ -154,10 +155,22 @@ export function toNativeSql(sql: string, mapping: SchemaMapping): string | null 
     if (!used.has(item.relation)) used.set(item.relation, new Set())
     used.get(item.relation)!.add(column)
   }
+  // `tables`: what the database has — a relation reading a table it lacks
+  // stands as an empty SELECT, a LEFT JOIN on one is left out (`presence.ts`).
+  const present = tables ? presentMapping(mapping, tables) : null
+  const emptied = new Map<string, string>()
+  for (const r of present ? classRelations(present.mapping) : []) {
+    if (!present!.empty.has(r.specKey)) continue
+    emptied.set(r.name, emptyRelationSql(r))
+    emptied.set(codesRelation(r.name), emptyRelationSql(r))
+  }
   const inlines = new Map<string, InlineRelation>()
   for (const { relation } of items) {
     if (inlines.has(relation)) continue
-    const inline = inlineRelation(mapping, relation, used.get(relation) ?? new Set())
+    const none = emptied.get(relation)
+    const inline = none != null
+      ? { kind: 'subquery' as const, sql: none }
+      : inlineRelation(present?.mapping ?? mapping, relation, used.get(relation) ?? new Set())
     if (!inline) return null
     inlines.set(relation, inline)
   }

@@ -221,4 +221,10 @@ describe('size of a (terminology, code) thesaurus', () => {
     expect(sql).not.toContain('linkr_event_')
     expect(sql).not.toContain('thesaurus')
   })
+
+  it('counts no row for an event on a table the database lacks, rather than naming it', () => {
+    const sql = buildSizeQuery(thesaurus, ['persons', 'thesaurus'])!
+    expect(sql).not.toMatch(/\bfacts\b/)
+    expect(sql).toContain('WHERE false')
+  })
 })

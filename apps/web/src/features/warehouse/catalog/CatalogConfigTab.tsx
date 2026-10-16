@@ -26,7 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useCatalogStore } from '@/stores/catalog-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { getStorage } from '@/lib/storage'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { queryDataSource, sourceTables } from '@/lib/duckdb/engine'
 import { isServerMode } from '@/lib/api-client'
 import { localized } from '@/lib/localized'
 import { jobExecutor } from '@/lib/duckdb/catalog-job-executor'
@@ -214,6 +214,7 @@ export function CatalogConfigTab({ catalog }: Props) {
       catalog,
       mapping,
       ensureMounted: () => ensureMounted(catalog.dataSourceId).then(() => {}),
+      tables: () => sourceTables(catalog.dataSourceId),
       query: (sql, signal) => queryDataSource(catalog.dataSourceId, sql, { signal, allRows: true, heavy: true }),
       executor: isServerMode()
         ? jobExecutor(catalog.dataSourceId, (phase) => t(`data_catalog.job_${phase}`, { name: localized(catalog.name, i18n.language) }))

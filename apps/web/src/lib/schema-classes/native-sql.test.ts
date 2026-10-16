@@ -144,3 +144,17 @@ describe('an event keyed by (terminology, code)', () => {
     expect(sql).toMatch(/LEFT JOIN \(\s*SELECT concept_terminology, concept_code, min\(concept_id\) AS concept_id\s*FROM \(\s*SELECT[\s\S]*d\."id" AS concept_id[\s\S]*FROM "thesaurus" d\s*\)\s*GROUP BY concept_terminology, concept_code\s*\) _dict ON _ev\.concept_terminology = _dict\.concept_terminology AND _ev\.concept_code = _dict\.concept_code/)
   })
 })
+
+describe('a database lacking a table', () => {
+  it('reads a relation on a missing table as an empty SELECT', () => {
+    const sql = toNativeSql('SELECT COUNT(*) AS n FROM linkr_event_vitals', mimic, ['hosp.patients', 'hosp.labevents'])!
+    noRelation(sql)
+    expect(sql).not.toContain('chartevents')
+    expect(sql).toContain('WHERE false')
+  })
+
+  it('reads a relation whose table is there as before', () => {
+    expect(toNativeSql('SELECT COUNT(*) AS n FROM linkr_event_labs', mimic, ['hosp.labevents']))
+      .toBe(toNativeSql('SELECT COUNT(*) AS n FROM linkr_event_labs', mimic))
+  })
+})

@@ -94,14 +94,16 @@ const whereRange = (column: string, range?: PatientRange | null) => {
   return c ? ` WHERE ${c}` : ''
 }
 
-/** Event rows and patients: whether the warehouse is large enough to be counted in slices. */
-export function buildSizeQuery(mapping: SchemaMapping): string | null {
+/** Event rows and patients: whether the warehouse is large enough to be counted
+ *  in slices. `tables`: what the database has, so an event on a missing table
+ *  counts no row instead of failing the query. */
+export function buildSizeQuery(mapping: SchemaMapping, tables?: readonly string[] | null): string | null {
   const patient = classRelation(mapping, 'patient')
   if (!patient) return null
   // Written on the source tables: an event keyed by (terminology, code) reads its
   // concept_id through the whole dictionary (resolveConceptId), a join a row
   // count has no use for — on 75 M rows, it ran Doris out of memory.
-  const events = eventRelations(mapping).map((e) => `(${toNativeSql(`SELECT COUNT(*) AS n FROM ${e.name}`, mapping) ?? `SELECT COUNT(*) FROM ${e.name}`})`)
+  const events = eventRelations(mapping).map((e) => `(${toNativeSql(`SELECT COUNT(*) AS n FROM ${e.name}`, mapping, tables) ?? `SELECT COUNT(*) FROM ${e.name}`})`)
   return `SELECT
   (SELECT COUNT(*) FROM ${patient.name})::BIGINT AS patients,
   (${events.length ? events.join(' + ') : '0'})::BIGINT AS event_rows`

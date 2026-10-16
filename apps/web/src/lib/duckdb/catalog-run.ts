@@ -95,6 +95,8 @@ export interface CatalogComputationInput {
   catalog: DataCatalog
   mapping: SchemaMapping
   query: CatalogQuery
+  /** The tables the database has, when known: sizing leaves out the rest. */
+  tables?: readonly string[] | null
   /** A paused run's cache to resume from, or null for a fresh start. */
   resumeFrom: CatalogResultCache | null
   /** Write the cache back after each save point, so a later call resumes. */
@@ -173,7 +175,7 @@ export async function runCatalogComputation(
     } else {
       hooks.step?.('sizing')
       hooks.progress?.(0, { sizing: { done: 0, total: 1 } }, null)
-      state.slices = await planSlices(mapping, query, signal)
+      state.slices = await planSlices(mapping, query, signal, undefined, input.tables)
     }
     const sized = { sizing: { done: 1, total: 1 } }
 

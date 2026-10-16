@@ -110,6 +110,7 @@ async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortS
     (sql, s) => queryDataSource(dataSourceId, sql, { signal: s, allRows: true }),
     signal,
     CONCEPT_SLICE_ROWS,
+    await sourceTables(dataSourceId),
   )
 }
 

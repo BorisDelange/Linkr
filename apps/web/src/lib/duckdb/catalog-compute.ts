@@ -201,8 +201,9 @@ export async function planSlices(
   query: CatalogQuery,
   signal?: AbortSignal,
   sliceRows = SLICE_EVENT_ROWS,
+  tables?: readonly string[] | null,
 ): Promise<SerializedRange[]> {
-  const sizeSql = buildSizeQuery(mapping)
+  const sizeSql = buildSizeQuery(mapping, tables)
   if (!sizeSql) throw new Error(MISSING_MAPPING)
   const size = (await query(sizeSql, signal))[0] ?? {}
   const eventRows = Number(size.event_rows ?? 0)
