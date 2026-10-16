@@ -6,6 +6,7 @@ import {
   ageBucketExpr,
   buildConceptCountQueries,
   buildPatientBoundsQuery,
+  buildSizeQuery,
   buildTotalsQuery,
   rangeCondition,
   buildCrossingEstimateQuery,
@@ -198,5 +199,26 @@ describe('patient slices', () => {
     expect(sql).toContain('((rn - 1) * 4 < n * 1 AND rn * 4 >= n * 1)')
     expect(sql).toContain('((rn - 1) * 4 < n * 3 AND rn * 4 >= n * 3)')
     expect(buildPatientBoundsQuery(mapping, 1)).toBeNull()
+  })
+})
+
+describe('size of a (terminology, code) thesaurus', () => {
+  const thesaurus = mappingV1ToV2({
+    presetId: 'eav',
+    presetLabel: { en: 'EAV' },
+    patientTable: { table: 'persons', idColumn: 'pid' },
+    conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+    eventTables: {
+      Data: { table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code', patientIdColumn: 'pid' },
+    },
+  } as never)
+
+  it('counts the event rows on their table, without the dictionary lookup', () => {
+    // The relation looks its concept_id up in the whole dictionary; a row count
+    // has no use for it, and on 75 M rows it ran Doris out of memory.
+    const sql = buildSizeQuery(thesaurus)!
+    expect(sql).toContain('(SELECT COUNT(*) AS n FROM facts e)')
+    expect(sql).not.toContain('linkr_event_')
+    expect(sql).not.toContain('thesaurus')
   })
 })

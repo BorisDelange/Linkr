@@ -59,10 +59,6 @@ import { getStorage } from '@/lib/storage'
 import { ConceptSetDetailSheet } from '@/features/warehouse/concept-mapping/ConceptSetDetailSheet'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import {
-  hasValueColumnForDict,
-  buildDomainCountQuery,
-  buildValueDistributionQuery,
-  buildValueHistogramQuery,
   DEFAULT_HIDDEN_COLUMNS,
   CONCEPT_SET_COLUMNS,
 } from './concepts/concept-queries'
@@ -71,6 +67,7 @@ import { ConceptTable } from './concepts/ConceptTable'
 import { ConceptCountNotice } from './concepts/ConceptCountNotice'
 import { AbsentRelationsNotice } from './concepts/AbsentRelationsNotice'
 import { ConceptDetail } from './concepts/ConceptDetail'
+import { useConceptStatsSql } from './concepts/use-concept-stats-sql'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useConceptsDatabase } from './concepts/use-concepts-database'
 
@@ -376,38 +373,9 @@ export function ConceptsPage() {
 
   }, [sourceId])
 
-  // Compute hasValueColumn for the selected concept's dict
-  const hasValueCol = useMemo(() => {
-    if (!mappedSource?.schemaMapping || selectedConceptId === null) return false
-    const row = concepts.find((c) => c.concept_id === selectedConceptId)
-    const dictKey = (row?._dict_key as string) ?? mappedSource.schemaMapping.concepts?.[0]?.key
-    if (!dictKey) return false
-    return hasValueColumnForDict(mappedSource.schemaMapping, dictKey)
-  }, [mappedSource?.schemaMapping, selectedConceptId, concepts])
-
-  // The statements behind the stats panel, rebuilt for display from the same
-  // pure builders the loader calls — never a transcript of what ran (in server
-  // mode a shared cache may answer without querying at all), so the dialog says
-  // so. `excludeOutliers` is a dependency: it changes the histogram's SQL.
-  const statsSql = useMemo<{ titleKey: string; sql: string }[]>(() => {
-    const mapping = mappedSource?.schemaMapping
-    if (!mapping || selectedConceptId === null) return []
-    const row = concepts.find((c) => c.concept_id === selectedConceptId)
-    const dictKey = (row?._dict_key as string) ?? mapping.concepts?.[0]?.key
-    if (!dictKey) return []
-
-    const parts: { titleKey: string; sql: string }[] = []
-    const count = buildDomainCountQuery(mapping, dictKey, selectedConceptId)
-    if (count) parts.push({ titleKey: 'concepts.stats_sql_count', sql: count })
-    if (hasValueColumnForDict(mapping, dictKey)) {
-      // Same order as the panel: histogram, then the summary numbers.
-      const hist = buildValueHistogramQuery(mapping, dictKey, selectedConceptId, 20, excludeOutliers)
-      if (hist) parts.push({ titleKey: 'concepts.stats_sql_histogram', sql: hist })
-      const dist = buildValueDistributionQuery(mapping, dictKey, selectedConceptId)
-      if (dist) parts.push({ titleKey: 'concepts.stats_sql_distribution', sql: dist })
-    }
-    return parts
-  }, [mappedSource?.schemaMapping, selectedConceptId, concepts, excludeOutliers])
+  const { hasValueColumn: hasValueCol, statsSql } = useConceptStatsSql(
+    mappedSource?.schemaMapping, concepts, selectedConceptId, excludeOutliers,
+  )
 
   // No data source
   if (!mappedSource) {

@@ -104,6 +104,8 @@ class AsJob:
     project_uid: str | None = None
     workspace_id: str | None = None
     lane: str | None = None
+    # What the work runs (a query's SQL), shown with the job.
+    input: str | None = None
 
 
 async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJob | None = None) -> Any:
@@ -150,6 +152,7 @@ async def _as_job(user_id: str, task: asyncio.Task, as_job: AsJob) -> str:
     async with session() as db:
         job = await jobs.create(
             db, as_job.project_uid, int(user_id), "task", as_job.label, workspace_id=as_job.workspace_id,
+            input=as_job.input,
         )
     job_id = job.id
     await jobs.adopt(job_id, task)

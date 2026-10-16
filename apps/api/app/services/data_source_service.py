@@ -1172,16 +1172,16 @@ def _audit(source: DataSource, action: str, detail: str | None = None) -> None:
 
 async def query(
     db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool = False,
-    pushdown: bool = False,
+    pushdown: bool = False, native: bool = False,
 ):
     """Run read-only SQL server-side: ATTACH a network DB with the caller's own
     `login` (see database_credential_service.resolve_login) or a local
     DuckDB/SQLite file from the blob store. JSON-ready rows, capped; or, with
     `arrow`, the whole result as an Arrow table. Logged (core/audit).
-    `pushdown`: see db_connect.query_external."""
+    `pushdown`, `native`: see db_connect.query_external."""
     _audit(source, "query", sql)
     try:
-        result = await _query(db, source, login, sql, arrow, pushdown)
+        result = await _query(db, source, login, sql, arrow, pushdown, native)
     except Exception as exc:
         audit.bind(error=str(exc))
         raise
@@ -1189,15 +1189,20 @@ async def query(
     return result
 
 
-async def _query(db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool, pushdown: bool = False):
+async def _query(
+    db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool,
+    pushdown: bool = False, native: bool = False,
+):
     config = dict(source.connection_config or {})
     engine = config.get("engine")
+    if native and engine not in _EXTERNAL_ENGINES:
+        raise ValueError("native SQL needs an external database")
     if engine in _EXTERNAL_ENGINES:
         if login is None:
             raise database_credential_service.CredentialRequired(source)
         return await asyncio.to_thread(
             db_connect.query_external, with_login(config, login), login.password, sql,
-            pool_key(source, login), arrow, pushdown,
+            pool_key(source, login), arrow, pushdown, native,
         )
     if is_managed(source):
         # Server-owned file: nothing in the blob store, read it where it lives.

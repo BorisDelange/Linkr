@@ -4,6 +4,7 @@ import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, Square, Trash2 } from '
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { isServerMode } from '@/lib/api-client'
 import { CodeViewer } from '@/components/editor/CodeViewer'
@@ -13,6 +14,7 @@ import { formatDuration } from '@/lib/format-helpers'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, listWorkspaceJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type Job } from '@/lib/api/environments'
+import { getJob } from '@/lib/api/query-jobs'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 
@@ -95,6 +97,20 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     return () => { cancelled = true; clearInterval(id) }
   }, [enabled, projectUid, wsUid, reloadTick])
 
+  // The input travels only with the single job, fetched once the modal opens.
+  const [input, setInput] = useState<{ jobId: string; text: string | null } | null>(null)
+  const [logTab, setLogTab] = useState<'output' | 'input'>('output')
+  useEffect(() => {
+    if (!logJobId) return
+    let live = true
+    getJob(logJobId)
+      .then((j) => { if (live) setInput({ jobId: logJobId, text: j.input ?? null }) })
+      .catch(() => { if (live) setInput({ jobId: logJobId, text: null }) })
+    return () => { live = false }
+  }, [logJobId])
+  const jobInput = input && input.jobId === logJobId ? input.text : null
+  const showInput = logTab === 'input' && !!jobInput
+
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length
 
   if (!enabled) return null
@@ -158,7 +174,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
               {/* Click the row to open the full log in a modal. */}
               <button
                 className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                onClick={() => { setLogJobId(job.id); setPopoverOpen(false) }}
+                onClick={() => { setLogJobId(job.id); setLogTab('output'); setPopoverOpen(false) }}
                 title={t('jobs.show_log')}
               >
                 <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">{formatJobTime(job.createdAt)}</span>
@@ -214,15 +230,29 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         {logJob && (
           <div className="flex items-center gap-3">
             {ACTIVE.has(logJob.status) && (
-              <Button size="sm" variant="destructive" onClick={() => void onCancel(logJob.id)}>
-                <Square size={14} />
+              <Button size="xs" variant="destructive" className="gap-1" onClick={() => void onCancel(logJob.id)}>
+                <Square size={12} />
                 {t('jobs.stop')}
               </Button>
             )}
             <JobDuration job={logJob} className="text-xs text-muted-foreground" />
+            {jobInput && (
+              <Tabs value={logTab} onValueChange={(v) => setLogTab(v as 'output' | 'input')} className="ml-auto">
+                <TabsList variant="line">
+                  <TabsTrigger value="input" className="text-xs">{t('jobs.tab_input')}</TabsTrigger>
+                  <TabsTrigger value="output" className="text-xs">{t('jobs.tab_output')}</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
           </div>
         )}
-        {logJob?.result ? (
+        {showInput && logJob ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 overflow-hidden rounded border">
+              <CodeViewer value={jobInput} language={logJob.kind === 'run' ? 'plaintext' : 'sql'} height="100%" />
+            </div>
+          </div>
+        ) : logJob?.result ? (
           // With artifacts the body scrolls: log at a fixed share, figures below.
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
             {logJob.logTail ? <JobLogView text={logJob.logTail} height={320} /> : <NoLog />}

@@ -113,7 +113,9 @@ describe('classRelations (converted v1 mapping)', () => {
 
   it('resolves a composite-key event concept_id to its dictionary id', () => {
     const ev = eventRelation(thesaurus, 'Data')!
-    expect(ev.sql).toMatch(/^SELECT _ev\.\* REPLACE \(_dict\.concept_id AS concept_id\)/)
+    // Every column listed, not DuckDB's `_ev.* REPLACE (…)`: an external database runs it too.
+    expect(ev.sql).toMatch(/^SELECT _ev\.patient_id, _dict\.concept_id AS concept_id, _ev\.start_datetime, /)
+    expect(ev.sql).not.toContain('REPLACE')
     // A pair the dictionary repeats keeps one id, so the join cannot multiply rows.
     expect(ev.sql).toContain(`LEFT JOIN (
   SELECT concept_terminology, concept_code, min(concept_id) AS concept_id

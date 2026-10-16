@@ -64,6 +64,20 @@ def tracking(con: duckdb.DuckDBPyConnection) -> Iterator[None]:
             _running.pop(query_id, None)
 
 
+def raise_if_cancelled() -> None:
+    """Raise QueryCancelled when the current request's query was cancelled before
+    it started — for a wait (the pooled connection's lock) to end at once rather
+    than when the query it waits behind does."""
+    tag = current_query.get()
+    if tag is None:
+        return
+    with _lock:
+        early = _cancelled_early.get(tag[0])
+        if early is not None and early[0] == tag[1]:
+            del _cancelled_early[tag[0]]
+            raise QueryCancelled(tag[0])
+
+
 def cancel(query_id: str, owner: str) -> bool:
     """Interrupt `owner`'s query `query_id`. True when a running query was hit."""
     now = time.monotonic()

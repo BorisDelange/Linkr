@@ -210,3 +210,14 @@ describe('concept-set (data dictionary) columns', () => {
     expect(sql).not.toContain('WHERE')
   })
 })
+
+describe('concept list order', () => {
+  it('breaks ties on concept_id, so pages neither repeat nor skip a concept', () => {
+    // Before any count every record_count is NULL: sorted on it alone, the rows
+    // come in any order and an OFFSET page is a different draw each time.
+    expect(buildCachePageQuery({}, COLS, 1, 50, { columnId: 'record_count', desc: true }))
+      .toContain('ORDER BY "record_count" DESC, concept_id LIMIT 50 OFFSET 50')
+    expect(buildCachePageQuery({}, COLS, 0, 50, { columnId: 'concept_id', desc: false }))
+      .toContain('ORDER BY "concept_id" ASC LIMIT')
+  })
+})

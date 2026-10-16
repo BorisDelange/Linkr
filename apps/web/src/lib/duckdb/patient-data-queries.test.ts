@@ -310,3 +310,37 @@ describe('timeline query', () => {
     expect(sql).toContain('IN (3027018)')
   })
 })
+
+// An event keyed by (terminology, code) reads its concept_id through the whole
+// dictionary (resolveConceptId). The timeline joins only the dictionary rows of
+// the chosen concepts instead, so the filter lands on the event's own columns —
+// on a warehouse of tens of millions of rows, the difference between seconds and
+// minutes.
+describe('timeline query on a (terminology, code) thesaurus', () => {
+  const thesaurus = mappingV1ToV2({
+    presetId: 'eav',
+    presetLabel: { en: 'EAV' },
+    conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+    eventTables: {
+      Data: {
+        table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code',
+        patientIdColumn: 'pid', valueColumn: 'num', dateColumn: 'at',
+      },
+    },
+  } as never)
+  const sql = buildTimelineQuery(thesaurus, [42, 43], 'p1', null)!
+
+  it('joins the chosen concepts on their code, not the resolved concept_id', () => {
+    expect(sql).not.toContain('e.concept_id IN')
+    expect(sql).toContain(`INNER JOIN (
+  SELECT concept_terminology, concept_code, MIN(concept_id) AS concept_id, MIN(concept_name) AS concept_name
+  FROM linkr_concept_thes
+  WHERE concept_id IN (42, 43)
+  GROUP BY concept_terminology, concept_code
+) c ON e.concept_terminology = c.concept_terminology AND e.concept_code = c.concept_code`)
+  })
+
+  it('reports the dictionary id it matched', () => {
+    expect(sql).toMatch(/^SELECT c\.concept_id,/)
+  })
+})

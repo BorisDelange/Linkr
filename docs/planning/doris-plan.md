@@ -78,6 +78,29 @@ sur l'`ATTACH`. Banc de comparaison : annexe B.
 Postgres local, mêmes unités : 0,65 → 0,37 s pour « records », mais 0,48 → **3,16 s**
 pour « patients » (`COUNT(DISTINCT)` mono-cœur) — d'où Postgres non déporté (§3.2).
 
+### 1.5 Un mapping à SQL écrit à la main, à l'échelle (mesuré le 2026-10-15)
+
+Banc : Doris 4.1.3 all-in-one, entrepôt EAV synthétique (dictionnaire à clé
+composite terminologie + code), 75 M lignes d'événements, 2 M concepts ; timeline
+d'un patient, deux concepts (une mesure, un médicament).
+
+| Requête timeline | Temps |
+|---|---|
+| Avant : rien de déporté (`LIKE`, `LOWER`, `* REPLACE`, `CAST(DOUBLE AS VARCHAR)` hors liste blanche) → `ATTACH` | **> 12 min** (interrompue) |
+| Liste blanche élargie + mapping réécrit, requête inchangée | 4–11 s |
+| + timeline jointe aux seules lignes du dictionnaire des concepts choisis | **≈ 1,5 s** (0,75 s dans Doris) |
+
+- Le dictionnaire entier était lu trois fois par branche : relation à clé composite
+  (`resolveConceptId`, `GROUP BY` sur tout le dictionnaire) puis jointure du nom.
+- Sans statistiques (`ANALYZE TABLE`), Doris joint d'abord la grosse table au code
+  du concept puis filtre le patient : 10 s au lieu de 0,25 s. Un entrepôt en service
+  les collecte ; une base chargée à la main pour un banc, non.
+- `CAST(DOUBLE AS VARCHAR)` reste refusé à raison : Doris écrit `2`, `0.3`,
+  `99999999999999.91` là où DuckDB écrit `2.0`, `0.30000000000000004`, `99999999999999.9`.
+  Un mapping qui en a besoin (texte d'une dose) n'est pas déporté.
+- Écrire le mapping pour le filtre patient : grouper aussi par `patient_id` et le
+  joindre, pour que le filtre traverse les `GROUP BY`.
+
 ---
 
 ## 2. Construit (2026-10-09, branche `feature/doris`)
@@ -105,6 +128,31 @@ Décisions prises en chemin (anciennes questions du §5) : compte en lecture seu
 
 ## 3. Reste à faire
 
+### 3.0 Construit le 2026-10-15 (branche `feature/doris-timeline`)
+
+- Liste blanche : `LIKE` / `NOT LIKE` (motif littéral sans `\`), `LOWER` / `UPPER`
+  du texte ; remplissage d'une relation en SQL écrit à la main (`FROM (<sql>) _src`)
+  réécrit d'après les colonnes que ce SQL nomme.
+- `resolveConceptId` liste ses colonnes au lieu de `_ev.* REPLACE (…)`.
+- Timeline : sur une relation à clé composite, jointure aux lignes du dictionnaire des
+  concepts choisis, sur (terminologie, code).
+- Console SQL : calcul déporté demandé aussi pour le SQL de l'utilisateur (même
+  résultat par construction) ; badge « Calculée par Doris / par Linkr » avec la
+  raison du repli (`QueryResult.execution`) ; mode « SQL Doris natif »
+  (`QueryRequest.native`, `pushdown.run_native`).
+- Relations à clé composite : forme « par code » (`<relation>__codes`, `codeSql`),
+  sans la résolution du `concept_id`. Les unités « records » y groupent par
+  (terminologie, code) puis résolvent les seuls codes trouvés : ×6 sur 49 M lignes
+  (mêmes comptes, vérifié). Pas les unités « patients » : grouper (code, patient)
+  d'abord a mesuré plus lent. Planification : vérification de type sautée sur clé
+  composite, taille comptée sur les tables sources (`toNativeSql`).
+- Restent lents à l'échelle : la jointure `signal` × `document` et le SQL des
+  administrations (26 s pour les compter) — à revoir dans le mapping.
+- 🔒 À trancher : un compte réduit à `SELECT_PRIV` peut encore `SELECT … INTO OUTFILE
+  's3://…'` et lire `s3()` / `hdfs()` / `local()` — déjà possible avant via
+  `mysql_query('ext', '…')` dans la console. À fermer côté Doris (pas de S3/HDFS
+  joignable depuis les BE, `enable_outfile_to_local=false`) ou côté Linkr.
+
 ### 3.1 À tester dans l'app (Doris de l'annexe A)
 
 - Ajouter une database Doris : compte `linkr_ro` accepté, `root` refusé avec le motif.
@@ -120,8 +168,8 @@ Décisions prises en chemin (anciennes questions du §5) : compte en lecture seu
    l'auront qu'à la prochaine release.
 2. **Postgres** : traduit mais non déporté (`PUSHDOWN_ENGINES`). À mesurer sur un vrai
    Postgres distant (réseau) avant de l'activer, éventuellement par type de requête.
-3. **SQL écrit par l'utilisateur** : la liste blanche le rendrait sûr et identique ;
-   le déporter aussi (éditeurs SQL, `create_dataset_from_query`) ?
+3. **SQL écrit par l'utilisateur** : déporté dans la console SQL (§3.0) ; le déporter
+   aussi ailleurs (éditeurs SQL, `create_dataset_from_query`) ?
 4. **Librairies R / Python** : `remote_query()` ?
 5. **Dériver une database depuis une cohorte** : `IN (SELECT … FROM _members)` sur
    une table locale n'est pas poussé ; chaque table source est rapatriée en entier,

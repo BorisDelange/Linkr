@@ -174,6 +174,8 @@ class JobResponse(CamelModel):
     status: str  # queued | running | done | error | cancelled
     progress: int
     log_tail: str
+    # Only on `GET /jobs/{id}`: the lists the panel polls leave it out.
+    input: str | None = None
     # A 'run' job's collected artifacts: {"figures": [...], "table": {...}, "html"}.
     # None for other kinds / before completion.
     result: dict | None = None

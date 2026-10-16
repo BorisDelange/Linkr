@@ -1,7 +1,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { isProtected, protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import { RELATION_PREFIX } from './contracts'
-import { classRelations, type ClassRelation } from './relations'
+import { classRelations, withCodesRelations, type ClassRelation } from './relations'
 import { relationsPresentIn } from './presence'
 
 // Matches a relation name used as an identifier: `linkr_visit`, `linkr_event_lab_events`.
@@ -96,7 +96,7 @@ export function withClassRelations(sql: string, mapping: SchemaMapping | undefin
   const wanted = referencedRelations(sql)
   for (const name of definedRelations(sql)) wanted.delete(name)
   if (wanted.size === 0) return sql
-  const relations = tables ? relationsPresentIn(mapping, tables) : classRelations(mapping)
+  const relations = withCodesRelations(tables ? relationsPresentIn(mapping, tables) : classRelations(mapping))
   const ctes = relationsInDependencyOrder(relations, wanted, definedRelations(sql))
     .map((r) => `${r.name} AS NOT MATERIALIZED (\n${r.sql}\n)`)
   if (ctes.length === 0) return sql

@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Allotment } from 'allotment'
+import 'allotment/dist/style.css'
 import { AlertCircle, Pause, Play, RotateCcw } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import type { VisibilityState } from '@tanstack/react-table'
@@ -15,6 +17,8 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useConcepts } from '../concepts/use-concepts'
 import { ConceptTable } from '../concepts/ConceptTable'
+import { ConceptDetail } from '../concepts/ConceptDetail'
+import { useConceptStatsSql } from '../concepts/use-concept-stats-sql'
 import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
 import { clearConceptCountError } from '../concepts/concept-count-runner'
 import type { ConceptCountStepProgress } from '../concepts/concept-count-plan'
@@ -41,6 +45,10 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
     () => Object.fromEntries(DEFAULT_HIDDEN_COLUMNS.map((id) => [id, false])),
   )
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const { selectedConceptId, setSelectedConceptId } = concepts
+  const { hasValueColumn, statsSql } = useConceptStatsSql(
+    schemaMapping, concepts.concepts, selectedConceptId, concepts.excludeOutliers,
+  )
 
   const { live, progress } = count
   const running = live.running
@@ -71,8 +79,16 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
       ...(live.phase === 'patients' ? { startedAt: live.phaseStartedAt, reading: live.reading } : {}),
     },
   ]
-  if (running && (live.phase === 'planning' || live.phase === 'assembling')) {
-    steps.push({ id: live.phase, label: t(`concepts.count_phase_${live.phase}`), status: 'active' })
+  if (running && live.phase === 'planning') {
+    steps.push({
+      id: live.phase,
+      label: t('concepts.count_phase_planning'),
+      status: 'active',
+      startedAt: live.phaseStartedAt,
+      ...(live.planningStep ? { detail: t(`concepts.count_planning_${live.planningStep}`) } : {}),
+    })
+  } else if (running && live.phase === 'assembling') {
+    steps.push({ id: live.phase, label: t('concepts.count_phase_assembling'), status: 'active' })
   }
 
   const date = (iso: string | null) => (iso ? new Date(iso).toLocaleString(i18n.language, { dateStyle: 'medium', timeStyle: 'short' }) : '')
@@ -166,31 +182,48 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
       )}
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-card">
-        <ConceptTable
-          concepts={concepts.concepts}
-          totalCount={concepts.totalCount}
-          page={concepts.page}
-          pageSize={concepts.pageSize}
-          totalPages={concepts.totalPages}
-          isLoading={concepts.isLoading}
-          selectedConceptId={null}
-          availableColumns={concepts.availableColumns}
-          filters={concepts.filters}
-          filterOptions={concepts.filterOptions}
-          sorting={concepts.sorting}
-          columnVisibility={columnVisibility}
-          onColumnVisibilityChange={setColumnVisibility}
-          onFilterChange={concepts.updateFilter}
-          onSortingChange={concepts.updateSorting}
-          onSelect={() => {}}
-          selectedConceptIds={selectedIds}
-          onSelectedConceptIdsChange={setSelectedIds}
-          onPageChange={concepts.setPage}
-          onPageSizeChange={(size) => {
-            concepts.setPageSize(size)
-            concepts.setPage(0)
-          }}
-        />
+        <Allotment>
+          <Allotment.Pane minSize={400}>
+            <ConceptTable
+              concepts={concepts.concepts}
+              totalCount={concepts.totalCount}
+              page={concepts.page}
+              pageSize={concepts.pageSize}
+              totalPages={concepts.totalPages}
+              isLoading={concepts.isLoading}
+              selectedConceptId={selectedConceptId}
+              availableColumns={concepts.availableColumns}
+              filters={concepts.filters}
+              filterOptions={concepts.filterOptions}
+              sorting={concepts.sorting}
+              columnVisibility={columnVisibility}
+              onColumnVisibilityChange={setColumnVisibility}
+              onFilterChange={concepts.updateFilter}
+              onSortingChange={concepts.updateSorting}
+              onSelect={(id) => setSelectedConceptId((prev) => (prev === id ? null : id))}
+              selectedConceptIds={selectedIds}
+              onSelectedConceptIdsChange={setSelectedIds}
+              onPageChange={concepts.setPage}
+              onPageSizeChange={(size) => {
+                concepts.setPageSize(size)
+                concepts.setPage(0)
+              }}
+            />
+          </Allotment.Pane>
+          <Allotment.Pane minSize={300} preferredSize={380} visible={selectedConceptId !== null}>
+            <ConceptDetail
+              concept={concepts.selectedConcept}
+              availableColumns={concepts.availableColumns}
+              stats={concepts.conceptStats}
+              statsLoading={concepts.conceptStatsLoading}
+              hasValueColumn={hasValueColumn}
+              excludeOutliers={concepts.excludeOutliers}
+              statsEnabled={concepts.statsEnabled}
+              statsSql={statsSql}
+              onClose={() => setSelectedConceptId(null)}
+            />
+          </Allotment.Pane>
+        </Allotment>
       </div>
 
       <AlertDialog open={confirmRestart} onOpenChange={setConfirmRestart}>

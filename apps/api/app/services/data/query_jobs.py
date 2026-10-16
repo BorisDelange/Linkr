@@ -136,7 +136,10 @@ async def start(
 
     A failing query ends the job, unless `keep_going`: its error is then kept by
     its key and the next one runs (a rule set's checks, each judged alone)."""
-    job = await jobs.create(db, None, user_id, kind="query", label=label, workspace_id=workspace_id)
+    job = await jobs.create(
+        db, None, user_id, kind="query", label=label, workspace_id=workspace_id,
+        input="\n\n".join(f"-- {q.key}\n{q.sql.strip()};" for q in queries),
+    )
     job_id = job.id
     # Tags the query in flight so a cancel can interrupt it (query_cancel).
     tag = (f"job:{job_id}", str(user_id))

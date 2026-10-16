@@ -41,17 +41,34 @@ export function testConnectionOnServer(
  * The server-mode counterpart to engine.queryDataSource — the raw tables never
  * reach the browser, only the result rows.
  */
+/** Who computed a query on an external database: the database itself (pushed
+ *  down, or native SQL), or Linkr's DuckDB over the connection — then `reason`
+ *  says what kept it from the database. */
+export interface QueryExecution {
+  computedBy: 'database' | 'linkr'
+  reason: string | null
+}
+
 export async function queryDataSourceOnServer(
   dataSourceId: string,
   sql: string,
-  { signal, allRows, pushdown, heavy }: { signal?: AbortSignal; allRows?: boolean; pushdown?: boolean; heavy?: boolean } = {},
+  { signal, allRows, pushdown, native, heavy, onExecution }: {
+    signal?: AbortSignal; allRows?: boolean; pushdown?: boolean; native?: boolean; heavy?: boolean
+    onExecution?: (execution: QueryExecution) => void
+  } = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await cancellableOnServer(dataSourceId, signal, (queryId) =>
-    apiRequest<{ rows: Record<string, unknown>[] }>(
+    apiRequest<{ rows: Record<string, unknown>[]; execution?: QueryExecution | null }>(
       `/data-sources/${dataSourceId}/query`,
-      { method: 'POST', body: JSON.stringify({ sql, allRows, pushdown, ...(heavy ? { heavy } : {}), ...(queryId ? { queryId } : {}) }) },
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          sql, allRows, pushdown, ...(native ? { native } : {}), ...(heavy ? { heavy } : {}), ...(queryId ? { queryId } : {}),
+        }),
+      },
     ),
   )
+  if (res.execution) onExecution?.(res.execution)
   return res.rows
 }
 

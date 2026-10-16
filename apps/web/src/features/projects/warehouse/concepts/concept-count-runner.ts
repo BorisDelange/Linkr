@@ -45,12 +45,17 @@ import {
 
 export type ConceptCountPhase = 'planning' | 'records' | 'patients' | 'assembling'
 
+/** What planning is on: the id types check, the database's size and its patient
+ *  slices, then the run's registration. */
+export type ConceptCountPlanningStep = 'ids' | 'size' | 'save'
+
 export interface ConceptCountSnapshot extends RunSnapshotBase {
   phase: ConceptCountPhase | null
   records: ConceptCountStepProgress
   patients: ConceptCountStepProgress
   /** When the step under way began (epoch ms). */
   phaseStartedAt: number | null
+  planningStep: ConceptCountPlanningStep | null
   /** Percent of its data the unit in flight has read, when the database can tell. */
   reading: number | null
   /** Bumped at each assembly, so a watching list reloads. */
@@ -85,6 +90,7 @@ const IDLE: ConceptCountSnapshot = {
   records: { done: 0, total: 0 },
   patients: { done: 0, total: 0 },
   phaseStartedAt: null,
+  planningStep: null,
   reading: null,
   assembled: 0,
 }
@@ -120,7 +126,7 @@ async function execute(
   signal: AbortSignal,
   emit: (patch: Partial<ConceptCountSnapshot>, immediate?: boolean) => void,
 ): Promise<void> {
-  emit({ phase: 'planning', phaseStartedAt: Date.now() }, true)
+  emit({ phase: 'planning', phaseStartedAt: Date.now(), planningStep: 'ids' }, true)
   await checkConceptIdTypes(dataSourceId, mapping, signal)
   const status = await getConceptCacheStatus(dataSourceId)
   // Units run on the server as sent, outside queryDataSource: the relations go
@@ -137,7 +143,9 @@ async function execute(
     for (const key of status.run.doneUnits) done.add(key)
     unassembled = status.run.lastUnitAt != null && (status.refreshedAt == null || status.run.lastUnitAt > status.refreshedAt)
   } else {
+    emit({ planningStep: 'size' }, true)
     const slices = await plan(dataSourceId, mapping, signal)
+    emit({ planningStep: 'save' }, true)
     units = planConceptCountUnits(mapping, slices)
     manifest = {
       runId: crypto.randomUUID(),

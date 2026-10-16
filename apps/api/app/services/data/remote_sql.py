@@ -49,7 +49,7 @@ _ALLOWED: tuple[type[exp.Expression], ...] = (
     exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Is, exp.Not, exp.And, exp.Or,
     exp.In, exp.Between, exp.NullSafeEQ, exp.NullSafeNEQ,
     exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Neg, exp.Round,
-    exp.Case, exp.If, exp.Coalesce, exp.Nullif, exp.Trim, exp.DPipe,
+    exp.Case, exp.If, exp.Coalesce, exp.Nullif, exp.Trim, exp.DPipe, exp.Like, exp.Lower, exp.Upper,
     exp.Count, exp.Sum, exp.Min, exp.Max, exp.Avg, exp.Distinct,
     exp.Window, exp.RowNumber, exp.Median, exp.PercentileCont,
     exp.Extract, exp.Year, exp.Quarter, exp.Month, exp.Day,
@@ -216,7 +216,9 @@ def _unpad(lookup: TableLookup) -> Callable[[exp.Expression], exp.Expression]:
     """The class relations read a table as
     `(SELECT * FROM t UNION ALL BY NAME SELECT NULL AS "c", … WHERE false) e`,
     so a mapped column the table lacks reads as NULL. `BY NAME` is DuckDB's:
-    rewrite it as `(SELECT c, NULL AS d FROM t) e` from the table's real columns."""
+    rewrite it as `(SELECT c, NULL AS d FROM t) e` from the table's real columns —
+    or, for a relation's hand-written SQL (`FROM (<sql>) _src`), from the columns
+    that SQL names."""
 
     def transform(node: exp.Expression) -> exp.Expression:
         if not isinstance(node, exp.Subquery) or not isinstance(node.this, exp.Union):
@@ -230,17 +232,20 @@ def _unpad(lookup: TableLookup) -> Callable[[exp.Expression], exp.Expression]:
             isinstance(left, exp.Select)
             and len(left.expressions) == 1 and isinstance(left.expressions[0], exp.Star)
             and isinstance(left.args.get("from_"), exp.From)
-            and isinstance(left.args["from_"].this, exp.Table)
+            and isinstance(left.args["from_"].this, (exp.Table, exp.Subquery))
             and where is not None and isinstance(where.this, exp.Boolean) and where.this.this is False
             and all(isinstance(e, exp.Alias) and isinstance(e.this, exp.Null) for e in right.expressions)
         )
         if not is_padding:
             raise NotPortable("UNION BY NAME")
         table = left.args["from_"].this
-        remote = lookup(table.text("db") or None, table.name)
-        if remote is None:
-            raise NotPortable(f"unknown columns of {table.name}")
-        present = remote.columns
+        if isinstance(table, exp.Subquery):
+            present = {name.lower() for name in _output_names(table.this)}
+        else:
+            remote = lookup(table.text("db") or None, table.name)
+            if remote is None:
+                raise NotPortable(f"unknown columns of {table.name}")
+            present = remote.columns
         projection = [
             exp.column(e.alias, quoted=True) if e.alias.lower() in present
             else exp.alias_(exp.Null(), e.alias, quoted=True)
@@ -352,6 +357,10 @@ def _check_node(node: exp.Expression) -> None:
     if isinstance(node, exp.Cast):
         if _is_patient_key(node.this) and node.to.this in _INTEGER:
             return
+        # A NULL is one whatever its type: the typed blank of a column a query
+        # leaves empty (the concept list's counts before any count).
+        if isinstance(node.this, exp.Null):
+            return
         target, source = node.to.this, _type(node.this)
         if target in _TEMPORAL and _is_iso_literal(node.this):
             return
@@ -382,6 +391,15 @@ def _check_node(node: exp.Expression) -> None:
         fmt = node.args.get("format")
         if _type(node.this) not in _TEMPORAL or not isinstance(fmt, exp.Literal) or not _PORTABLE_TIME_FORMAT.fullmatch(fmt.this):
             raise NotPortable("STRFTIME")
+    elif isinstance(node, exp.Like):
+        # Doris reads `\` in a pattern as an escape, DuckDB as a character.
+        pattern = node.expression
+        if (_type(node.this) not in _TEXT or not isinstance(pattern, exp.Literal) or not pattern.is_string
+                or "\\" in pattern.this):
+            raise NotPortable("LIKE")
+    elif isinstance(node, (exp.Lower, exp.Upper)):
+        if _type(node.this) not in _TEXT:
+            raise NotPortable(f"{type(node).__name__} of a non-text")
     elif isinstance(node, exp.Trim):
         if node.args.get("expression") is not None or node.args.get("position"):
             raise NotPortable("TRIM of other characters")

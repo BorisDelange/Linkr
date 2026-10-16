@@ -25,13 +25,15 @@ long as it stays warm — the same trust boundary as the request that opened it.
 password or host never keeps serving through a stale handle.
 """
 
+import contextlib
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 
 import duckdb
 
 from app.config import settings
+from app.services.data import query_cancel
 
 
 class _Entry:
@@ -76,6 +78,22 @@ def _close_quietly(con: duckdb.DuckDBPyConnection) -> None:
         pass
 
 
+# How often a query waiting for its connection looks whether it was cancelled.
+_CANCEL_POLL_S = 0.2
+
+
+@contextlib.contextmanager
+def _waiting_for(lock: threading.Lock) -> Iterator[None]:
+    """Hold `lock`; a query cancelled while it waits for it gives up at once
+    (query_cancel.QueryCancelled) instead of once the one ahead of it ends."""
+    while not lock.acquire(timeout=_CANCEL_POLL_S):
+        query_cancel.raise_if_cancelled()
+    try:
+        yield
+    finally:
+        lock.release()
+
+
 def run_pooled(
     key: str,
     setup: Callable[[], duckdb.DuckDBPyConnection],
@@ -96,7 +114,7 @@ def run_pooled(
             entry = _Entry(setup())
             _registry[key] = entry
 
-    with entry.lock:
+    with _waiting_for(entry.lock):
         entry.last_used = time.monotonic()
         try:
             return use(entry.con)
@@ -112,7 +130,7 @@ def run_pooled(
             with _registry_lock:
                 new_entry = _Entry(fresh)
                 _registry[key] = new_entry
-            with new_entry.lock:
+            with _waiting_for(new_entry.lock):
                 new_entry.last_used = time.monotonic()
                 return use(new_entry.con)
 

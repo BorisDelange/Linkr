@@ -816,7 +816,7 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
 
 def query_external(
     config: dict, password: str | None, sql: str, pool_key: str | None = None,
-    arrow: bool = False, pushdown: bool = False,
+    arrow: bool = False, pushdown: bool = False, native: bool = False,
 ):
     """Run SQL against the attached source and return rows as dicts.
 
@@ -833,9 +833,14 @@ def query_external(
     test_connection, where reuse would defeat the point).
 
     `pushdown`: let the external database compute the query when it is portable
-    (remote_sql) — for the app's own aggregates, never for a user's SQL.
+    (remote_sql). It admits only SQL whose result is the same on both sides, so a
+    user's SQL may ask for it too.
+    `native`: `sql` is the database's own SQL, sent as written (pushdown.run_native);
+    only for an engine the pushdown serves.
     """
     spec = _engine_spec(config)
+    if native and config.get("engine") not in remote.remote_sql.PUSHDOWN_ENGINES:
+        raise ValueError(f"native SQL is not available for {config.get('engine')}")
 
     def _setup() -> duckdb.DuckDBPyConnection:
         con = _connect(spec["extension"])
@@ -845,6 +850,8 @@ def query_external(
 
     def _read(con: duckdb.DuckDBPyConnection):
         search_path = _external_search_path(con, config)
+        if native:
+            return remote.run_native(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow))
         if not pushdown:
             return _run_read(con, search_path, sql, arrow)
         bulk = arrow or row_cap.get() > MAX_QUERY_ROWS

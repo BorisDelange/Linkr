@@ -404,7 +404,7 @@ async def list_jobs(
     first — feeds the StatusBar jobs panel. Per-user."""
     await _require_ide(db, project_uid, user, "read")
     rows = await jobs.list_active(db, project_uid, user.id)
-    return [JobResponse.model_validate(j, from_attributes=True) for j in rows]
+    return [JobResponse.model_validate(j, from_attributes=True).model_copy(update={"input": None}) for j in rows]
 
 
 @router.delete("/projects/{project_uid}/jobs", status_code=status.HTTP_204_NO_CONTENT)
@@ -429,7 +429,7 @@ async def list_workspace_jobs(
     newest first — the StatusBar panel outside a project. Per-user."""
     await check_workspace_permission(db, workspace_id, user, "databases:read")
     rows = await jobs.list_active(db, None, user.id, workspace_id=workspace_id)
-    return [JobResponse.model_validate(j, from_attributes=True) for j in rows]
+    return [JobResponse.model_validate(j, from_attributes=True).model_copy(update={"input": None}) for j in rows]
 
 
 @router.delete("/workspaces/{workspace_id}/jobs", status_code=status.HTTP_204_NO_CONTENT)

@@ -31,7 +31,7 @@ async def start(
     await environments.ensure_ready(db, project_uid, language, user_id)
     env = await environments.resolve(db, project_uid, language)
 
-    job = await jobs.create(db, project_uid, user_id, kind="run", label=label)
+    job = await jobs.create(db, project_uid, user_id, kind="run", label=label, input=code)
 
     async def body(handle: jobs.JobHandle) -> None:
         audit.bind(action="run_code", project_uid=project_uid, detail=code)

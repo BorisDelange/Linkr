@@ -71,7 +71,11 @@ function presence(mapping: SchemaMapping, tables: readonly string[]): Presence {
     const empty = new Set(absent.filter((a) => a.empty).map((a) => a.specKey))
     // Same specs in the same order: the relation names come out the same.
     const source = pruned.size ? withSpecs(mapping, pruned) : mapping
-    relations = classRelations(source).map((r) => (empty.has(r.specKey) ? { ...r, sql: emptyRelationSql(r) } : r))
+    relations = classRelations(source).map((r) => {
+      if (!empty.has(r.specKey)) return r
+      const none = emptyRelationSql(r)
+      return { ...r, sql: none, ...(r.codeSql != null ? { codeSql: none } : {}) }
+    })
   }
   const out = { relations, absent }
   byTables.set(key, out)

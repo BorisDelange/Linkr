@@ -115,9 +115,43 @@ def test_class_relation_padding_reads_missing_columns_as_null():
     assert "UNION" not in out
 
 
+def test_hand_written_relation_padding_reads_the_columns_its_sql_names(con):
+    sql = (
+        'SELECT e."unit" AS unit, e."route" AS route '
+        'FROM (SELECT * FROM (SELECT unit_source_value AS unit, person_id FROM measurement) _src '
+        'UNION ALL BY NAME SELECT NULL AS "unit", NULL AS "route" WHERE false) e'
+    )
+    out = doris(sql)
+    assert "UNION" not in out
+    assert "NULL AS `route`" in out
+    assert same_rows(con, sql)
+
+
+def test_a_hand_written_relation_selecting_a_star_is_not_unpadded():
+    with pytest.raises(NotPortable, match="result columns"):
+        doris('SELECT e."unit" AS unit FROM (SELECT * FROM (SELECT * FROM measurement) _src '
+              'UNION ALL BY NAME SELECT NULL AS "unit" WHERE false) e')
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value LIKE 'm%'",
+    "SELECT COUNT(*) AS n FROM measurement WHERE unit_source_value NOT LIKE '_g'",
+    "SELECT COUNT(*) AS n FROM measurement WHERE LOWER(unit_source_value) = 'mg' OR UPPER(unit_source_value) = 'G'",
+])
+def test_like_and_case_folding_of_text_are_portable(con, sql):
+    # Both engines match case-sensitively; only a backslash differs (an escape in Doris).
+    assert same_rows(con, sql)
+
+
 def test_padding_of_an_unknown_table_is_not_portable():
     with pytest.raises(NotPortable):
         doris('SELECT e.x AS x FROM (SELECT * FROM "nope" UNION ALL BY NAME SELECT NULL AS "x" WHERE false) e')
+
+
+def test_a_typed_null_is_portable(con):
+    # The concept list's counts, before any count: NULL::BIGINT, the same everywhere.
+    assert "CAST(NULL AS BIGINT)" in doris("SELECT CAST(NULL AS BIGINT) AS n FROM measurement")
+    assert same_rows(con, "SELECT person_id, CAST(NULL AS BIGINT) AS n FROM measurement")
 
 
 def test_text_cast_of_an_integer_or_a_date_is_portable():
@@ -193,7 +227,12 @@ def test_percentile_of_a_decimal_is_not_portable():
     "SELECT person_id AS p FROM measurement UNION ALL BY NAME SELECT person_id AS p FROM person",
     "SELECT n FROM memory.main.counts",
     "SELECT person_id AS p FROM other.measurement",
-    "SELECT unit_source_value AS u FROM measurement WHERE unit_source_value LIKE 'm%'",
+    "SELECT unit_source_value AS u FROM measurement WHERE unit_source_value LIKE 'm\\_%'",
+    "SELECT unit_source_value AS u FROM measurement WHERE unit_source_value LIKE 'm!_%' ESCAPE '!'",
+    "SELECT unit_source_value AS u FROM measurement WHERE unit_source_value LIKE unit_source_value",
+    "SELECT unit_source_value AS u FROM measurement WHERE unit_source_value ILIKE 'M%'",
+    "SELECT person_id AS p FROM measurement WHERE person_id LIKE '1%'",
+    "SELECT LOWER(person_id) AS p FROM measurement",
     "SELECT nope AS n FROM measurement",
     "SELECT 1 AS a; SELECT 2 AS b",
     "INSERT INTO measurement VALUES (1)",

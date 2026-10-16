@@ -8,6 +8,13 @@ export function isExternalEngine(engine: unknown): boolean {
   return (EXTERNAL_ENGINES as readonly unknown[]).includes(engine)
 }
 
+/** Engines that compute Linkr's queries themselves when the server finds them
+ *  portable, and take native SQL. Mirrors `PUSHDOWN_ENGINES` in
+ *  `apps/api/app/services/data/remote_sql.py`. */
+export function computesQueries(engine: unknown): boolean {
+  return engine === 'doris'
+}
+
 export const ENGINE_LABELS: Record<DatabaseEngine, string> = {
   duckdb: 'DuckDB',
   postgresql: 'PostgreSQL',

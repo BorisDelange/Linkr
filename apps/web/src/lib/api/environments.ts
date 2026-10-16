@@ -114,6 +114,9 @@ export interface Job {
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   progress: number
   logTail: string
+  /** What it was given to run (its SQL, its code). Only on a single job
+   *  (`getJob`): the polled lists leave it out. */
+  input?: string | null
   /** A 'run' job's artifacts. A 'derive' job carries a `DerivationJobResult`. */
   result?: JobResult | null
   createdAt: string

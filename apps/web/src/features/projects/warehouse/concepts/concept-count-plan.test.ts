@@ -14,6 +14,7 @@ import {
 } from './concept-count-plan'
 import { buildConceptsAssembleQuery, buildConceptsQuery, computeAvailableColumns, CONCEPT_COUNTS_VIEW } from './concept-queries'
 import { conceptRelations } from '@/lib/schema-classes/relations'
+import { withClassRelations } from '@/lib/schema-classes/inject'
 
 const v1 = {
   patientTable: { table: 'person', idColumn: 'person_id', birthYearColumn: 'year_of_birth', genderColumn: 'gender_concept_id' },
@@ -290,5 +291,47 @@ describe('stepJobItems', () => {
     items.forEach((it, i) => {
       if (it.key.startsWith('assemble-')) expect(items[i - 1].key.startsWith('u')).toBe(true)
     })
+  })
+})
+
+describe('concept id types on a (terminology, code) thesaurus', () => {
+  it('checks nothing: the event reads the dictionary id itself', () => {
+    // The check read the relation's first row — through a join of the whole
+    // dictionary, which over an attached database pulled both tables.
+    const thesaurus = mappingV1ToV2({
+      presetId: 'eav',
+      presetLabel: { en: 'EAV' },
+      patientTable: { table: 'persons', idColumn: 'pid' },
+      conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+      eventTables: {
+        Data: { table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code', patientIdColumn: 'pid' },
+      },
+    } as never)
+    expect(buildConceptIdTypesSql(thesaurus)).toBeNull()
+  })
+})
+
+describe('record units on a (terminology, code) thesaurus', () => {
+  const thesaurus = mappingV1ToV2({
+    presetId: 'eav',
+    presetLabel: { en: 'EAV' },
+    patientTable: { table: 'persons', idColumn: 'pid' },
+    conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+    eventTables: {
+      Data: { table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code', patientIdColumn: 'pid' },
+    },
+  } as never)
+  const records = planConceptCountUnits(thesaurus, [{}]).find((u) => u.step === 'records')!
+
+  it('counts on the codes, then looks up the ids of the codes found', () => {
+    expect(records.sql).toContain('FROM linkr_event_data__codes e\n  GROUP BY e.concept_terminology, e.concept_code')
+    expect(records.sql).toContain('SUM(g.n)::BIGINT AS record_count')
+  })
+
+  it('injects the codes relation: the event before its concept_id lookup', () => {
+    const sql = withClassRelations(records.sql, thesaurus)
+    const codes = sql.slice(sql.indexOf('linkr_event_data__codes AS NOT MATERIALIZED ('), sql.indexOf(')\nSELECT'))
+    expect(codes).toContain('"facts"')
+    expect(codes).not.toContain('_dict')
   })
 })

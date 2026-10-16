@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import uuid
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -49,6 +50,7 @@ from app.schemas.data_source import (
     QueryCancelResult,
     QueryJobRequest,
     QueryRequest,
+    QueryExecution,
     QueryResult,
     TestConnectionRequest,
     TestConnectionResult,
@@ -64,7 +66,7 @@ from app.services import (
     notification_service,
     stats_cache_service,
 )
-from app.services.data import concept_cache_fs, etl_jobs, connection_pool, db_connect, managed_db, query_cancel, query_jobs
+from app.services.data import concept_cache_fs, etl_jobs, connection_pool, db_connect, managed_db, pushdown, query_cancel, query_jobs
 from app.services.execution import jobs
 from app.schemas.execution import JobResponse
 
@@ -291,15 +293,27 @@ async def query_data_source(
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
 
+    # Tagged even when the client did not ask: a job cancelled from the panel
+    # cancels this coroutine, not the thread running the query, which must be
+    # interrupted or it holds the database's pooled connection until it ends.
+    query_id = body.query_id or uuid.uuid4().hex
+
     async def work():
-        tag = query_cancel.current_query.set((body.query_id, str(user.id))) if body.query_id else None
+        tag = query_cancel.current_query.set((query_id, str(user.id)))
         cap = db_connect.row_cap.set(db_connect.MAX_QUERY_ROWS_ALL) if body.all_rows else None
+        execution: dict = {}
+        recorded = pushdown.execution.set(execution)
         try:
             async with deferred.session() as session:
                 fresh = await data_source_service.get(session, source_id)
                 if fresh is None:
                     raise HTTPException(status.HTTP_404_NOT_FOUND, "Data source not found")
-                rows = await data_source_service.query(session, fresh, login, body.sql, pushdown=body.pushdown)
+                rows = await data_source_service.query(
+                    session, fresh, login, body.sql, pushdown=body.pushdown, native=body.native,
+                )
+        except asyncio.CancelledError:
+            query_cancel.cancel(query_id, str(user.id))
+            raise
         except (query_cancel.QueryCancelled, duckdb.InterruptException):
             raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
         except ValueError as e:
@@ -309,15 +323,15 @@ async def query_data_source(
         except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(e))
         finally:
-            if tag is not None:
-                query_cancel.current_query.reset(tag)
+            query_cancel.current_query.reset(tag)
             if cap is not None:
                 db_connect.row_cap.reset(cap)
-        return QueryResult(rows=rows)
+            pushdown.execution.reset(recorded)
+        return QueryResult(rows=rows, execution=QueryExecution(**execution) if execution else None)
 
     # Heavy: it waits its turn behind the heavy jobs, from the start, job or not.
     as_job = deferred.AsJob(
-        "SQL query", workspace_id=source.workspace_id, lane="heavy_query" if body.heavy else None,
+        "SQL query", workspace_id=source.workspace_id, lane="heavy_query" if body.heavy else None, input=body.sql,
     )
     return await deferred.respond(user.id, work, as_job)
 

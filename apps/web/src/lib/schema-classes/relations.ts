@@ -32,6 +32,10 @@ export interface ClassRelation {
   /** Event: joins its dictionary on (concept_terminology, concept_code) rather
    *  than concept_id — a thesaurus where a code is only unique per terminology. */
   compositeConceptKey?: boolean
+  /** Composite-key event: the relation before its concept_id lookup — queried as
+   *  `codesRelation(name)`, its concept_id is the code. For what reads only the
+   *  codes and the rows, then looks up the few ids it needs. */
+  codeSql?: string
   /** Concept: `extra_<alias>` columns, keyed by the mapping's alias. */
   extras?: Readonly<Record<string, string>>
 }
@@ -78,6 +82,21 @@ export function conceptRelation(mapping: SchemaMapping, key: string): ClassRelat
 
 export function drugRelation(mapping: SchemaMapping, label: string): ClassRelation | undefined {
   return drugRelations(mapping).find((r) => r.key === label)
+}
+
+// A relation name never holds a double underscore (`slug`), so this one cannot
+// collide with a relation of the mapping.
+const CODES_SUFFIX = '__codes'
+
+/** The name a composite-key event's `codeSql` is queried by. */
+export function codesRelation(name: string): string {
+  return `${name}${CODES_SUFFIX}`
+}
+
+/** The relations a statement can name: every relation, and the codes form of
+ *  each composite-key event (`codesRelation`). */
+export function withCodesRelations(relations: ClassRelation[]): ClassRelation[] {
+  return relations.flatMap((r) => (r.codeSql == null ? [r] : [r, { ...r, name: codesRelation(r.name), sql: r.codeSql, codeSql: undefined }]))
 }
 
 /** The concept dictionary an event relation joins, if any. */
@@ -445,9 +464,10 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
     const composite = !!dict && ['concept_terminology', 'concept_code'].every((c) => compiled.mapped.has(c) && dict.mapped.has(c))
     rels.push({
       name, cls, key: spec.label, specKey: `${cls}s.${spec.label}`,
-      sql: composite ? resolveConceptId(compiled.sql, dict.name) : compiled.sql,
+      sql: composite ? resolveConceptId(compiled.sql, dict.name, CLASS_CONTRACTS[cls].map((c) => c.name)) : compiled.sql,
       mapped: compiled.mapped, custom: compiled.custom, problems: compiled.problems,
       dictionary, compositeConceptKey: composite, tables: specTables(spec),
+      ...(composite ? { codeSql: compiled.sql } : {}),
     })
   }
   for (const spec of mapping.events ?? []) addEvent('event', spec, deriveEvent(spec))
@@ -462,9 +482,13 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
  * it up once here. A dictionary may repeat a (terminology, code) pair, so it is
  * reduced to one id per pair — the smallest — before the join, which then cannot
  * multiply rows. A code the dictionary lacks reads a NULL concept_id.
+ *
+ * `columns`: what `eventSql` selects, in order — listed rather than `_ev.*
+ * REPLACE (…)`, DuckDB's own spelling, so that an external database can run it.
  */
-function resolveConceptId(eventSql: string, dictName: string): string {
-  return `SELECT _ev.* REPLACE (_dict.concept_id AS concept_id)
+function resolveConceptId(eventSql: string, dictName: string, columns: readonly string[]): string {
+  const select = columns.map((c) => (c === 'concept_id' ? '_dict.concept_id AS concept_id' : `_ev.${c}`))
+  return `SELECT ${select.join(', ')}
 FROM (
 ${eventSql}
 ) _ev
@@ -532,11 +556,15 @@ export type InlineRelation =
   | { kind: 'subquery'; sql: string }
 
 export function inlineRelation(mapping: SchemaMapping, name: string, used: ReadonlySet<string>): InlineRelation | null {
-  const rel = classRelations(mapping).find((r) => r.name === name)
+  const codes = name.endsWith(CODES_SUFFIX)
+  const base = codes ? name.slice(0, -CODES_SUFFIX.length) : name
+  const rel = classRelations(mapping).find((r) => r.name === base && (!codes || r.codeSql != null))
   const parts = rel && compileParts(mapping, rel.specKey)
   if (!rel || !parts) return null
   const { cls, spec, derive, fixed } = parts
-  if (rel.compositeConceptKey && used.has('concept_id')) return inlineCompositeEvent(mapping, rel, parts, used)
+  // `COUNT(*)` reads no column, but a SELECT needs one.
+  if (used.size === 0) used = new Set([CLASS_CONTRACTS[cls][0].name])
+  if (rel.compositeConceptKey && used.has('concept_id') && !codes) return inlineCompositeEvent(mapping, rel, parts, used)
   if (!rel.custom && spec.from && !spec.joins?.length && !spec.where?.trim()) {
     const visual = visualExprs(cls, { ...spec, customSql: null }, derive, true)
     if (visual) {
@@ -570,7 +598,9 @@ function inlineCompositeEvent(
   const subquery = (p: NonNullable<ReturnType<typeof compileParts>>, only: ReadonlySet<string>) => p.spec.customSql?.trim()
     ? compileCustom(p.cls, p.spec, p.fixed, only).sql
     : compileVisual(p.cls, { ...p.spec, customSql: null }, p.derive, true, false, only)?.sql
-  const eventSql = subquery(parts, new Set([...used, 'concept_terminology', 'concept_code']))
+  const selected = new Set([...used, 'concept_terminology', 'concept_code'])
+  const eventSql = subquery(parts, selected)
   const dictSql = subquery(dictParts, CONCEPT_KEY)
-  return eventSql && dictSql ? { kind: 'subquery', sql: resolveConceptId(eventSql, `(\n${dictSql}\n)`) } : null
+  const columns = CLASS_CONTRACTS[parts.cls].map((c) => c.name).filter((c) => selected.has(c))
+  return eventSql && dictSql ? { kind: 'subquery', sql: resolveConceptId(eventSql, `(\n${dictSql}\n)`, columns) } : null
 }

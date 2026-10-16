@@ -4,7 +4,7 @@
 import type * as duckdb from '@duckdb/duckdb-wasm'
 import { Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
-import { fetchDataSourceSchema, queryDataSourceOnServer } from '@/lib/api/data-sources'
+import { fetchDataSourceSchema, queryDataSourceOnServer, type QueryExecution } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
@@ -607,10 +607,14 @@ export interface QueryOptions {
   /**
    * Server mode, external database: let it compute the query itself when the
    * server finds it portable (`remote_sql.py`) — same answer, without pulling
-   * every row of an aggregate. On by default for the app's own queries; pass
-   * `false` for SQL a user wrote.
+   * every row of an aggregate. On by default; the server only pushes down SQL
+   * whose result is the same either way.
    */
   pushdown?: boolean
+  /** Server mode, Doris: `sql` is the database's own SQL, sent as written. */
+  native?: boolean
+  /** Server mode, external database: who computed the query, and why not the database. */
+  onExecution?: (execution: QueryExecution) => void
   /**
    * Server mode: a heavy query of the app's own (an estimate, a report, a
    * profile). It waits its turn in the server's heavy-query lane, so it never
@@ -639,9 +643,9 @@ export async function queryDataSource(
   sql: string,
   options: QueryOptions = {},
 ): Promise<Record<string, unknown>[]> {
-  const { signal, allRows, pushdown = true, heavy } = options
+  const { signal, allRows, pushdown = true, native, heavy, onExecution } = options
   signal?.throwIfAborted()
-  sql = await prepareQuerySql(dataSourceId, sql)
+  if (!native) sql = await prepareQuerySql(dataSourceId, sql)
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.
@@ -651,7 +655,7 @@ export async function queryDataSource(
     if (dataSourceId.startsWith('filesrc_')) {
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
-    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, heavy })
+    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, native, heavy, onExecution })
   }
   // Wait for the source to be in DuckDB before naming its schema. Callers used
   // to have to do this themselves, and the ones that forgot raced the mount on

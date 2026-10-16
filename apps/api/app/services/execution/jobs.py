@@ -39,6 +39,17 @@ def _sem(lane: str) -> asyncio.Semaphore:
     return _semaphores[lane]
 
 
+# A concept count's job carries thousands of unit queries: the panel shows the
+# beginning, which is what tells one run from another.
+INPUT_MAX = 200_000
+
+
+def capped_input(text: str | None) -> str | None:
+    if not text:
+        return None
+    return text if len(text) <= INPUT_MAX else text[:INPUT_MAX] + f"\n\n… ({len(text) - INPUT_MAX:,} more characters)"
+
+
 async def create(
     db: AsyncSession,
     project_uid: str | None,
@@ -47,8 +58,10 @@ async def create(
     label: str,
     *,
     workspace_id: str | None = None,
+    input: str | None = None,
 ) -> Job:
-    """A queued job owned by a project, or — `project_uid` None — by a workspace."""
+    """A queued job owned by a project, or — `project_uid` None — by a workspace.
+    `input`: what it runs (its SQL, its code), kept for the panel."""
     if (project_uid is None) == (workspace_id is None):
         raise ValueError("a job belongs to exactly one project or one workspace")
     job = Job(
@@ -58,6 +71,7 @@ async def create(
         kind=kind,
         label=label,
         status="queued",
+        input=capped_input(input),
     )
     db.add(job)
     await db.commit()

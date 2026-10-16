@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Code2 } from 'lucide-react'
+import { Code2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -23,6 +23,8 @@ interface ConceptDetailProps {
   statsEnabled: boolean
   /** The statements behind the stats panel, in execution order. */
   statsSql?: { titleKey: string; sql: string }[]
+  /** Shows a close button in the header, for hosts that hide the pane when nothing is selected. */
+  onClose?: () => void
 }
 
 function MetaRow({ label, value }: { label: string; value: string | null | undefined }) {
@@ -43,6 +45,7 @@ export function ConceptDetail({
   excludeOutliers,
   statsEnabled,
   statsSql = [],
+  onClose,
 }: ConceptDetailProps) {
   const { t } = useTranslation()
   const [sqlOpen, setSqlOpen] = useState(false)
@@ -93,27 +96,42 @@ export function ConceptDetail({
                 {conceptCode}
               </Badge>
             )}
-            {statsSql.length > 0 && (
-              // The page's provider closes above the detail pane, so the tooltip
-              // needs its own here.
-              <TooltipProvider delayDuration={300}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      className="ml-auto shrink-0"
-                      onClick={() => setSqlOpen(true)}
-                      aria-label={t('concepts.stats_sql_title')}
-                    >
-                      <Code2 size={14} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="left" className="text-xs">
-                    {t('concepts.stats_sql_title')}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
+            {(statsSql.length > 0 || onClose) && (
+              <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                {statsSql.length > 0 && (
+                  // The page's provider closes above the detail pane, so the tooltip
+                  // needs its own here.
+                  <TooltipProvider delayDuration={300}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon-sm"
+                          className="shrink-0"
+                          onClick={() => setSqlOpen(true)}
+                          aria-label={t('concepts.stats_sql_title')}
+                        >
+                          <Code2 size={14} />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="left" className="text-xs">
+                        {t('concepts.stats_sql_title')}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                )}
+                {onClose && (
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0"
+                    onClick={onClose}
+                    aria-label={t('common.close')}
+                  >
+                    <X size={14} />
+                  </Button>
+                )}
+              </div>
             )}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">

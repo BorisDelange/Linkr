@@ -3,6 +3,7 @@ import { DEFAULT_CATALOG_COUNTS, type CatalogCounts, type CatalogVariableId, typ
 import { escSql as esc } from '@/lib/format-helpers'
 import { classRelation, conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { fieldColumn } from '@/lib/schema-classes/spec'
+import { toNativeSql } from '@/lib/schema-classes/native-sql'
 import { ageBucketLabels, canonicalCrossing, OTHER_MODALITY } from '@/lib/data-catalog/config'
 import { KEY_SPACE, patientKeySql } from '@/lib/data-catalog/perturbation'
 
@@ -97,7 +98,10 @@ const whereRange = (column: string, range?: PatientRange | null) => {
 export function buildSizeQuery(mapping: SchemaMapping): string | null {
   const patient = classRelation(mapping, 'patient')
   if (!patient) return null
-  const events = eventRelations(mapping).map((e) => `(SELECT COUNT(*) FROM ${e.name})`)
+  // Written on the source tables: an event keyed by (terminology, code) reads its
+  // concept_id through the whole dictionary (resolveConceptId), a join a row
+  // count has no use for — on 75 M rows, it ran Doris out of memory.
+  const events = eventRelations(mapping).map((e) => `(${toNativeSql(`SELECT COUNT(*) AS n FROM ${e.name}`, mapping) ?? `SELECT COUNT(*) FROM ${e.name}`})`)
   return `SELECT
   (SELECT COUNT(*) FROM ${patient.name})::BIGINT AS patients,
   (${events.length ? events.join(' + ') : '0'})::BIGINT AS event_rows`

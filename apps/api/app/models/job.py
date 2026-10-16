@@ -36,6 +36,9 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     # queued | running | done | error | cancelled
     progress: Mapped[int] = mapped_column(Integer, default=0)  # 0–100, best-effort
     log_tail: Mapped[str] = mapped_column(Text, default="")
+    # What it was given to run — its SQL, its code — for the panel to show beside
+    # the output. Capped (jobs.INPUT_MAX); NULL when it has none worth showing.
+    input: Mapped[str | None] = mapped_column(Text, nullable=True)
     # For a 'run' job: the batch run's artifacts collected at the end —
     # {"figures": [...], "table": {...}|None, "html": ...}. NULL for other kinds.
     result: Mapped[dict | None] = mapped_column(JSONB_or_JSON, nullable=True)

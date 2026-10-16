@@ -283,9 +283,16 @@ export function buildTimelineQuery(
     if (event.dictionary === null) continue
 
     const dict = dictionaryOf(mapping, event)
-    const conceptMatch = has(event, 'source_concept_id')
-      ? `e.concept_id IN (${idList}) OR e.source_concept_id IN (${idList})`
-      : `e.concept_id IN (${idList})`
+    // An event keyed by (terminology, code) reads its concept_id through the
+    // whole dictionary (relations.ts, resolveConceptId). Joining the dictionary
+    // rows of the chosen concepts instead — a handful — filters on the event's
+    // own columns, which the scan applies, and names the concept on the way.
+    const byCode = !!dict && !!event.compositeConceptKey
+    const conceptMatch = byCode
+      ? null
+      : has(event, 'source_concept_id')
+        ? `e.concept_id IN (${idList}) OR e.source_concept_id IN (${idList})`
+        : `e.concept_id IN (${idList})`
     const visitFilter = scope ? eventScopeCondition(mapping, event, scope) : ''
 
     // Unit and route, resolved the way the overview does it — a bare figure says
@@ -310,9 +317,16 @@ export function buildTimelineQuery(
       .join(' OR ')
 
     const nameExpr = dict ? 'c.concept_name' : 'CAST(e.concept_id AS VARCHAR)'
-    const join = dict ? `\nINNER JOIN ${dict.name} c ON ${conceptJoinOn(event, 'e', 'c')}` : ''
+    const join = byCode
+      ? `\nINNER JOIN (
+  SELECT concept_terminology, concept_code, MIN(concept_id) AS concept_id, MIN(concept_name) AS concept_name
+  FROM ${dict.name}
+  WHERE concept_id IN (${idList})
+  GROUP BY concept_terminology, concept_code
+) c ON ${conceptJoinOn(event, 'e', 'c')}`
+      : dict ? `\nINNER JOIN ${dict.name} c ON ${conceptJoinOn(event, 'e', 'c')}` : ''
 
-    parts.push(`SELECT e.concept_id,
+    parts.push(`SELECT ${byCode ? 'c' : 'e'}.concept_id,
   ${nameExpr} AS concept_name,
   e.value_number AS value,
   e.value_string,
@@ -324,8 +338,7 @@ export function buildTimelineQuery(
   e.start_datetime AS event_date,
   e.end_datetime AS end_date
 FROM ${event.name} e${join}${unitJoin}${routeJoin}
-WHERE e.patient_id = '${escSql(patientId)}'
-  AND (${conceptMatch})
+WHERE e.patient_id = '${escSql(patientId)}'${conceptMatch ? `\n  AND (${conceptMatch})` : ''}
   AND (${presence})${visitFilter}`)
   }
 

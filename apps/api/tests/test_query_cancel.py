@@ -158,3 +158,51 @@ def test_progress_reads_how_far_a_running_query_has_read():
     assert "rows" in outcome
     assert seen and all(0 < v <= 100 for v in seen)
     assert query_cancel.progress("q4", "7") is None
+
+
+def test_a_query_waiting_for_its_pooled_connection_gives_up_when_cancelled():
+    """The connection of a database is used by one query at a time. One cancelled
+    while it waits behind a long one must end now, not when the long one does."""
+    from app.services.data import connection_pool
+
+    con = duckdb.connect()
+    ahead: dict = {}
+    release = threading.Event()
+
+    def long_use(c):
+        release.wait(10)
+        return []
+
+    holder = threading.Thread(target=connection_pool.run_pooled, args=("cancel-wait", lambda: con, long_use))
+    holder.start()
+    time.sleep(0.1)
+
+    def waiting():
+        query_cancel.current_query.set(("q-wait", "7"))
+        try:
+            connection_pool.run_pooled("cancel-wait", lambda: con, lambda c: [])
+        except BaseException as exc:  # noqa: BLE001 — recorded for the assertion
+            ahead["error"] = exc
+
+    waiter = threading.Thread(target=contextvars.copy_context().run, args=(waiting,))
+    waiter.start()
+    time.sleep(0.1)
+    try:
+        assert query_cancel.cancel("q-wait", "7") is False
+        waiter.join(2)
+        assert not waiter.is_alive()
+        assert isinstance(ahead.get("error"), query_cancel.QueryCancelled)
+    finally:
+        release.set()
+        holder.join(5)
+        connection_pool.clear()
+
+
+def test_a_cancel_for_a_waiting_query_of_another_user_is_ignored():
+    query_cancel.cancel("q-other", "8")
+    query_cancel.current_query.set(("q-other", "7"))
+    try:
+        query_cancel.raise_if_cancelled()
+    finally:
+        query_cancel.current_query.set(None)
+        query_cancel._cancelled_early.pop("q-other", None)

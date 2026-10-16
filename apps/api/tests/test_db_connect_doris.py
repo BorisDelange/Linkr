@@ -9,7 +9,7 @@ import time
 import duckdb
 import pytest
 
-from app.services.data import connection_pool, db_connect, pushdown, query_cancel
+from app.services.data import connection_pool, db_connect, pushdown, query_cancel, remote_sql
 from app.services.data.remote_sql import RemoteQuery
 
 DORIS = {"engine": "doris", "host": "doris.internal", "port": 9030, "database": "omop", "username": "reader"}
@@ -181,6 +181,59 @@ def test_a_run_time_failure_is_not_a_dead_pooled_connection(pushed):
     finally:
         connection_pool.clear()
     assert len(uses) == 1 and len(setups) == 1
+
+
+@pytest.fixture
+def execution():
+    holder: dict = {}
+    token = pushdown.execution.set(holder)
+    yield holder
+    pushdown.execution.reset(token)
+
+
+def test_who_computed_the_query_is_recorded(pushed, execution):
+    pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", lambda q: "rows")
+    assert execution == {"computedBy": "database", "reason": None}
+
+    def refused(q: str):
+        if q == "REMOTE":
+            raise duckdb.IOException('Failed to prepare MySQL query "…": Unknown function\nmore')
+        return "rows"
+
+    pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", refused)
+    assert execution == {
+        "computedBy": "linkr", "reason": 'refused by the database: Failed to prepare MySQL query "…": Unknown function',
+    }
+
+
+def test_why_a_query_was_not_pushed_down_is_recorded(monkeypatch, execution):
+    def not_portable(sql, engine, lookup):
+        raise remote_sql.NotPortable("unparsed: Unexpected token \x1b[4mMATCH\x1b[0m\n  select …")
+
+    monkeypatch.setattr(pushdown, "_table_lookup", lambda con, config: None)
+    monkeypatch.setattr(remote_sql, "to_remote", not_portable)
+    assert pushdown._with_pushdown(_IdCon(), DORIS, None, "LOCAL", lambda q: q) == "LOCAL"
+    assert execution == {"computedBy": "linkr", "reason": "unparsed: Unexpected token MATCH"}
+
+
+def test_native_sql_is_sent_as_written_through_the_passthrough(execution):
+    ran: list[str] = []
+    pushdown.run_native(_IdCon(), DORIS, None, "SELECT x FROM t WHERE x MATCH_ANY 'it''s';", ran.append)
+    assert ran == ["SELECT * FROM mysql_query('ext', 'SELECT x FROM t WHERE x MATCH_ANY ''it''''s''')"]
+    assert execution == {"computedBy": "database", "reason": None}
+
+
+def test_a_failed_native_query_is_the_database_error(execution):
+    def run(q: str):
+        raise duckdb.IOException('Failed to prepare MySQL query "…": no viable alternative')
+
+    with pytest.raises(pushdown.RemoteQueryFailed, match="no viable alternative"):
+        pushdown.run_native(_IdCon(), DORIS, None, "SELECT 1", run)
+
+
+def test_native_sql_is_refused_for_an_engine_the_pushdown_does_not_serve():
+    with pytest.raises(ValueError, match="native SQL"):
+        db_connect.query_external({**DORIS, "engine": "postgresql"}, None, "SELECT 1", native=True)
 
 
 class _CatalogueCon:

@@ -386,6 +386,13 @@ function buildSelectForDict(
   return `SELECT ${cols.join(', ')} FROM ${dict.name} c ${joinClause} ${where}`
 }
 
+/** The user's sort, then concept_id: rows that tie — every count NULL before a
+ *  count — otherwise come in any order, and an OFFSET page repeats or skips some. */
+function sortedBy(sorting: ConceptSorting): string {
+  const sort = `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
+  return sorting.columnId === 'concept_id' ? sort : `${sort}, concept_id`
+}
+
 export function buildConceptsQuery(
   mapping: SchemaMapping,
   filters: ConceptFilters,
@@ -404,7 +411,7 @@ export function buildConceptsQuery(
   // sort wins; otherwise a fuzzy search orders by relevance (best tier first).
   let orderBy = 'concept_id'
   if (sorting) {
-    orderBy = `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
+    orderBy = sortedBy(sorting)
   } else if (aliasedFuzzyRank(filters, allColumns)) {
     orderBy = `${aliasedFuzzyRank(filters, allColumns)}, concept_name`
   }
@@ -534,7 +541,7 @@ export function buildCachePageQuery(
   const where = buildCacheWhere(filters, allColumns)
   const rank = aliasedFuzzyRank(filters, allColumns)
   const orderBy = sorting
-    ? `"${sorting.columnId}" ${sorting.desc ? 'DESC' : 'ASC'}`
+    ? sortedBy(sorting)
     : rank
       ? `${rank}, concept_name`
       : 'concept_id'

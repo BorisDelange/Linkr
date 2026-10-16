@@ -1,5 +1,6 @@
 import re
 from datetime import datetime
+from typing import Literal
 
 from pydantic import Field, field_validator
 
@@ -173,6 +174,9 @@ class QueryRequest(CamelModel):
     # SQL; the server accepts it for any SQL, since the translation admits only a
     # portable SELECT subset over the scope — anything else runs as before.
     pushdown: bool = False
+    # The database's own SQL, sent as written (Doris only): the SQL console's
+    # native mode, for what DuckDB cannot spell.
+    native: bool = False
     # A heavy query of the app's own (an estimate, a report, a profile): it waits
     # its turn in the heavy-query lane, so it never runs beside another heavy one.
     heavy: bool = False
@@ -205,8 +209,18 @@ class QueryCancelResult(CamelModel):
     cancelled: bool
 
 
+class QueryExecution(CamelModel):
+    """Who computed the query (services/data/pushdown.execution)."""
+    computed_by: Literal["database", "linkr"]
+    # Why it was not pushed down to the database: what remote_sql refused, or the
+    # database's own refusal.
+    reason: str | None = None
+
+
 class QueryResult(CamelModel):
     rows: list[dict]
+    # Set for a database the pushdown serves.
+    execution: QueryExecution | None = None
 
 
 class FlightStatus(CamelModel):

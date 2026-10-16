@@ -6,6 +6,7 @@ The orchestration of db_connect's `query_external` / `materialize_parquet`;
 the ATTACH itself stays in db_connect.
 """
 
+import contextvars
 import logging
 import re
 import threading
@@ -26,6 +27,23 @@ _remote_columns_lock = threading.Lock()
 
 # What the audit line keeps of the SQL sent to the database (core/audit _DETAIL_MAX).
 _LOGGED_SQL_MAX = 2000
+
+# sqlglot underlines the token it stopped at with terminal escapes.
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")
+
+
+# How the request's query ran, for the SQL console to say: `computedBy` is
+# "database" (pushed down, or native) or "linkr" (DuckDB over the ATTACH), with
+# the `reason` it was not pushed down. The request installs the dict; the worker
+# thread fills it — asyncio.to_thread copies the context, not the dict.
+execution: contextvars.ContextVar[dict | None] = contextvars.ContextVar("pushdown_execution", default=None)
+
+
+def _record(computed_by: str, reason: str | None = None) -> None:
+    holder = execution.get()
+    if holder is not None:
+        holder.clear()
+        holder.update(computedBy=computed_by, reason=reason)
 
 
 class RemoteQueryFailed(RuntimeError):
@@ -101,7 +119,8 @@ def _pushed_down(con: duckdb.DuckDBPyConnection, config: dict, sql: str) -> remo
     try:
         return remote_sql.to_remote(sql, engine, _table_lookup(con, config))
     except remote_sql.NotPortable as exc:
-        logger.debug("query not pushed down (%s)", exc)
+        logger.info("query not pushed down (%s)", exc)
+        _record("linkr", _ANSI.sub("", str(exc)).splitlines()[0])
         return None
 
 
@@ -214,9 +233,47 @@ def _with_pushdown(
     logger.info("pushed down to %s: %s", config.get("host"), remote.sql[:_LOGGED_SQL_MAX])
     if bulk and flight.port(config) is not None and flight.problem(config, password, _flight_probe(con, config)) is None:
         try:
-            return _run_over_flight(con, config, password, remote, run)
+            result = _run_over_flight(con, config, password, remote, run)
+            _record("database")
+            return result
         except flight.Unreachable as exc:
             flight.record(config, (exc.status, str(exc)[:300]))
+    try:
+        result = _run_killable(con, config, password, _passthrough(config, remote), run)
+    except duckdb.IOException as exc:
+        if _REMOTE_PREPARE_FAILED not in str(exc):
+            raise RemoteQueryFailed(str(exc)) from exc
+        logger.warning("pushed-down query refused by the database, ran it locally: %s", exc)
+        _record("linkr", f"refused by the database: {str(exc).splitlines()[0]}")
+        return run(sql)
+    _record("database")
+    return result
+
+
+def run_native(
+    con: duckdb.DuckDBPyConnection, config: dict, password: str | None, sql: str,
+    run: Callable[[str], object],
+):
+    """`sql` in the database's own dialect, sent as written — the SQL console's
+    native mode, for what DuckDB cannot spell (Doris' `MATCH_ANY` on an inverted
+    index). Safe for the same reason the pushdown is: the login is read-only
+    (db_connect._require_read_only_doris_login). An error is the database's own."""
+    literal = sql.strip().rstrip(";").replace("'", "''")
+    passthrough = f"SELECT * FROM {db_connect._engine_spec(config)['query_fn']}('{db_connect._ATTACH_ALIAS}', '{literal}')"
+    logger.info("native query on %s: %s", config.get("host"), sql[:_LOGGED_SQL_MAX])
+    _record("database")
+    try:
+        return _run_killable(con, config, password, passthrough, run)
+    except duckdb.IOException as exc:
+        raise RemoteQueryFailed(str(exc)) from exc
+
+
+def _run_killable(
+    con: duckdb.DuckDBPyConnection, config: dict, password: str | None, passthrough: str,
+    run: Callable[[str], object],
+):
+    """`run` a passthrough statement, stopped on the database's side when the
+    query is cancelled (_RemoteKill)."""
     query_fn = db_connect._engine_spec(config)["query_fn"]
     connection_id = con.execute(
         f"SELECT * FROM {query_fn}('{db_connect._ATTACH_ALIAS}', 'SELECT CONNECTION_ID() AS id')"
@@ -224,13 +281,10 @@ def _with_pushdown(
     kill = _RemoteKill(config, password, int(connection_id))
     try:
         with query_cancel.on_cancel(kill):
-            return run(_passthrough(config, remote))
+            return run(passthrough)
     except duckdb.IOException as exc:
         if kill.fired:
             raise duckdb.InterruptException("query cancelled") from exc
-        if _REMOTE_PREPARE_FAILED not in str(exc):
-            raise RemoteQueryFailed(str(exc)) from exc
-        logger.warning("pushed-down query refused by the database, ran it locally: %s", exc)
-        return run(sql)
+        raise
     finally:
         kill.done = True

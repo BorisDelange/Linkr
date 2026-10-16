@@ -1012,23 +1012,23 @@ function OverviewTab({
           action={(!configuring || retesting) && (
             <div className="flex items-center gap-2">
               {onEditConnection && (
-                <Button size="sm-tight" variant="outline" onClick={onEditConnection} disabled={retesting || rebuilding}>
-                  <Pencil size={12} />
+                <Button size="sm" variant="outline" onClick={onEditConnection} disabled={retesting || rebuilding}>
+                  <Pencil size={14} />
                   {t('databases.edit_connection')}
                 </Button>
               )}
               {/* The non-destructive way out, which fixes every transient cause;
                   the rebuild beside it is the last resort. */}
-              <Button size="sm-tight" onClick={handleRetest} disabled={retesting || rebuilding}>
-                {retesting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+              <Button size="sm" onClick={handleRetest} disabled={retesting || rebuilding}>
+                {retesting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
                 {t('databases.test_connection_again')}
               </Button>
               {canWrite && canRebuild && (
                 // Confirmed, never immediate: the rebuild drops whatever the file
                 // holds, and a database that merely failed to connect may still
                 // carry every row it was loaded with.
-                <Button size="sm-tight" variant="destructive" onClick={() => setConfirmRebuild(true)} disabled={rebuilding || retesting}>
-                  {rebuilding && <Loader2 size={12} className="animate-spin" />}
+                <Button size="sm" variant="destructive" onClick={() => setConfirmRebuild(true)} disabled={rebuilding || retesting}>
+                  {rebuilding && <Loader2 size={14} className="animate-spin" />}
                   {t('databases.rebuild_from_schema')}
                 </Button>
               )}
