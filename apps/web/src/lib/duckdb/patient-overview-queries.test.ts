@@ -122,9 +122,13 @@ describe('an event table can declare it has no dictionary', () => {
 describe('buildOverviewTileDensityQuery', () => {
   it('buckets on absolute time, over a half-open tile', () => {
     const sql = buildOverviewTileDensityQuery(mapping, 'p1', NO_SCOPE, [{ key: 'k', table: 'Measurement', conceptIds: [] }], 4096, '2128-01-01T00:00:00.000Z', '2128-01-02T00:00:00.000Z')!
-    expect(sql).toContain('FLOOR(EPOCH_MS(CAST(e.start_datetime AS TIMESTAMP)) / 4096)')
-    expect(sql).toContain("e.start_datetime >= TIMESTAMP '2128-01-01T00:00:00.000Z'")
-    expect(sql).toContain("e.start_datetime < TIMESTAMP '2128-01-02T00:00:00.000Z'")
+    // floor(epoch_ms / 4096) without EPOCH_MS or FLOOR, which a database would
+    // not compute as DuckDB does (remote_sql): the query would stay in Linkr.
+    expect(sql).toContain("DATE_DIFF('microsecond', TIMESTAMP '1970-01-01 00:00:00', CAST(e.start_datetime AS TIMESTAMP)) // 1000 >= 0")
+    expect(sql).toContain('// 4096')
+    expect(sql).not.toMatch(/EPOCH_MS|FLOOR/)
+    expect(sql).toContain("e.start_datetime >= TIMESTAMP '2128-01-01 00:00:00.000'")
+    expect(sql).toContain("e.start_datetime < TIMESTAMP '2128-01-02 00:00:00.000'")
     expect(sql).not.toContain('concept_id AS VARCHAR) IN')
   })
 
@@ -135,5 +139,21 @@ describe('buildOverviewTileDensityQuery', () => {
     ], 4096, '2128-01-01', '2128-01-02')!
     expect(sql.split('UNION ALL')).toHaveLength(2)
     expect(sql).toContain("IN ('2', '3')")
+  })
+})
+
+describe('what a database can compute itself (remote_sql)', () => {
+  it('casts no column the relation leaves empty: a cast of an untyped NULL keeps the query in Linkr', () => {
+    const bare = mappingV1ToV2({ ...mapping_V1, eventTables: { Measurement: { ...mapping_V1.eventTables.Measurement, valueStringColumn: undefined } } } as unknown as SchemaMappingV1)
+    const sql = buildOverviewEventsQuery(bare, ...args)!
+    expect(sql).toContain('NULL AS value_string')
+    expect(sql).toContain('NULL AS route')
+    expect(sql).toContain('NULL AS rate_unit')
+  })
+
+  it('writes times as both engines read them, not ISO T…Z', () => {
+    const sql = buildOverviewEventsQuery(mapping, 'p1', NO_SCOPE, 'Measurement', ['1'], '2128-01-01T10:00:00.000Z', '2128-01-02T00:00:00.000Z', 5)!
+    expect(sql).toContain("TIMESTAMP '2128-01-01 10:00:00.000'")
+    expect(sql).not.toMatch(/T\d{2}:|Z'/)
   })
 })

@@ -180,6 +180,9 @@ class QueryRequest(CamelModel):
     # A heavy query of the app's own (an estimate, a report, a profile): it waits
     # its turn in the heavy-query lane, so it never runs beside another heavy one.
     heavy: bool = False
+    # Do not run it: answer only who would compute it (`execution`), so a widget
+    # can ask before a query that would read the database's tables whole.
+    plan: bool = False
 
 
 class QueryJobItem(CamelModel):

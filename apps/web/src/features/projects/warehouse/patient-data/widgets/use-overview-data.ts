@@ -63,10 +63,14 @@ export function useOverviewData({
 
     const tasks: (() => Promise<void>)[] = []
     const dense: OverviewRow[] = []
+    const eventRows: OverviewRow[] = []
     for (const row of shown) {
       const key = rowCacheKey(row)
       if (row.conceptIds.length > 0 && wantsEvents(row, view, bounds, plotW)) {
-        if (cache.needsEvents(key, view.lo, view.hi)) tasks.push(() => fetchEvents(row, key))
+        if (cache.needsEvents(key, view.lo, view.hi)) {
+          eventRows.push(row)
+          tasks.push(() => fetchEvents(row, key))
+        }
         const w = cache.eventsFor(key, view.lo, view.hi)
         if (!w?.truncated) continue
       }
@@ -85,6 +89,17 @@ export function useOverviewData({
     const controller = new AbortController()
     const signal = controller.signal
 
+    // Marked as soon as they are due, debounce included, and unmarked as each
+    // read ends or the view moves on.
+    const due = new Set<string>()
+    const mark = (keys: string[]) => {
+      for (const k of keys) { due.add(k); cache.pending.add(k) }
+    }
+    const unmark = (keys: string[]) => {
+      for (const k of keys) { due.delete(k); cache.pending.delete(k) }
+      repaint()
+    }
+
     async function fetchEvents(row: OverviewRow, key: string) {
       const win = eventWindowFor(view!.lo, view!.hi)
       const from = isoOrNull(win.lo)
@@ -92,7 +107,7 @@ export function useOverviewData({
       const sql = from && to
         ? buildOverviewEventsQuery(schemaMapping!, selectedPatientId!, scope, row.table, row.conceptIds, from, to, EVENT_FETCH_LIMIT)
         : null
-      if (!sql) return
+      if (!sql) return unmark([key])
       try {
         const raw = await queryDataSource(dataSourceId!, sql, { signal })
         cache.putEvents(key, { ...win, events: raw.map(toOverviewEvent), truncated: raw.length >= EVENT_FETCH_LIMIT })
@@ -104,6 +119,8 @@ export function useOverviewData({
         // broken column behind a plausible figure, so the failure is reported.
         console.warn('[patient-overview] events query failed for', row.label, err)
         cache.putEvents(key, { ...win, events: [], truncated: false })
+      } finally {
+        if (!signal.aborted) unmark([key])
       }
     }
 
@@ -114,7 +131,8 @@ export function useOverviewData({
         ? buildOverviewTileDensityQuery(schemaMapping!, selectedPatientId!, scope,
           missing.map((row) => ({ key: rowCacheKey(row), table: row.table, conceptIds: row.conceptIds })), bucketMs, from, to)
         : null
-      if (!sql) return
+      const keys = missing.map(rowCacheKey)
+      if (!sql) return unmark(keys)
       try {
         const raw = await queryDataSource(dataSourceId!, sql, { signal })
         const counts = new Map(missing.map((row) => [rowCacheKey(row), new Float64Array((lastTile - firstTile + 1) * TILE_BUCKETS)]))
@@ -133,13 +151,18 @@ export function useOverviewData({
         repaint()
       } catch (err) {
         if (!signal.aborted) console.warn('[patient-overview] density query failed', err)
+      } finally {
+        if (!signal.aborted) unmark(keys)
       }
     }
 
+    mark([...eventRows.map(rowCacheKey), ...missing.map(rowCacheKey)])
+    repaint()
     const timer = setTimeout(() => void runLimited(tasks, 4, signal), 150)
     return () => {
       clearTimeout(timer)
       controller.abort()
+      for (const k of due) cache.pending.delete(k)
     }
   }, [visible, view, bounds, rows, hiddenRef, dataRef, dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint])
 }

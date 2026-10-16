@@ -352,3 +352,31 @@ def test_live_doris_introspection_names_the_other_databases_tables():
     names = {t["name"] for t in db_connect.introspect_external(config, config.get("password"))}
     assert {"patient", "event", "CLIN_VOCAB.concept"} <= names
     assert not any(n.lower().startswith(("mysql.", "information_schema.")) for n in names)
+
+
+_real_pushed_down = pushdown._pushed_down
+
+
+def test_a_plan_says_who_would_compute_without_running(monkeypatch, execution):
+    monkeypatch.setattr(pushdown, "_pushed_down", lambda con, config, sql: RemoteQuery("REMOTE", ("n",)))
+    pushdown.plan(None, DORIS, "SELECT 1")
+    assert execution == {"computedBy": "database", "reason": None}
+
+    def not_portable(sql, engine, lookup):
+        raise remote_sql.NotPortable("Least")
+
+    monkeypatch.setattr(pushdown, "_pushed_down", _real_pushed_down)
+    monkeypatch.setattr(pushdown, "_table_lookup", lambda con, config: None)
+    monkeypatch.setattr(remote_sql, "to_remote", not_portable)
+    pushdown.plan(None, DORIS, "SELECT 1")
+    assert execution == {"computedBy": "linkr", "reason": "Least"}
+
+
+def test_a_plan_opens_no_connection_when_the_columns_are_cached(monkeypatch, execution):
+    def no_connection(*args):
+        raise AssertionError("connected")
+
+    monkeypatch.setattr(db_connect, "_connect", no_connection)
+    monkeypatch.setattr(pushdown, "_pushed_down", lambda con, config, sql: RemoteQuery("REMOTE", ("n",)))
+    db_connect.plan_external(DORIS, None, "SELECT 1")
+    assert execution["computedBy"] == "database"

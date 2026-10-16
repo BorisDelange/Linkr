@@ -4,7 +4,7 @@
 import type * as duckdb from '@duckdb/duckdb-wasm'
 import { Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
-import { fetchDataSourceSchema, queryDataSourceOnServer, type QueryExecution } from '@/lib/api/data-sources'
+import { fetchDataSourceSchema, planQueryOnServer, queryDataSourceOnServer, type QueryExecution } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { RELATION_PREFIX } from '@/lib/schema-classes/contracts'
@@ -635,6 +635,16 @@ export async function prepareQuerySql(dataSourceId: string, sql: string): Promis
     return injectClassRelations(sql, mapping, await sourceTables(dataSourceId))
   }
   return sql
+}
+
+/**
+ * Who would compute `sql` — the database, or Linkr from every row of the tables
+ * it reads (`computedBy: 'linkr'`, minutes on a large warehouse) — asked without
+ * running it. Null where that cannot happen: front-only mode, local files.
+ */
+export async function planQuery(dataSourceId: string, sql: string): Promise<QueryExecution | null> {
+  if (!isServerMode() || dataSourceId.startsWith('filesrc_')) return null
+  return planQueryOnServer(dataSourceId, await prepareQuerySql(dataSourceId, sql))
 }
 
 /** Run an arbitrary SQL query against a data source schema. */

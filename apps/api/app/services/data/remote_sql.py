@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.doris import Doris
 from sqlglot.optimizer.annotate_types import annotate_types
 from sqlglot.optimizer.qualify import qualify
 
@@ -48,7 +49,7 @@ _ALLOWED: tuple[type[exp.Expression], ...] = (
     exp.Cast, exp.DataType,
     exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE, exp.Is, exp.Not, exp.And, exp.Or,
     exp.In, exp.Between, exp.NullSafeEQ, exp.NullSafeNEQ,
-    exp.Add, exp.Sub, exp.Mul, exp.Div, exp.Mod, exp.Neg, exp.Round,
+    exp.Add, exp.Sub, exp.Mul, exp.Div, exp.IntDiv, exp.Mod, exp.Neg, exp.Round,
     exp.Case, exp.If, exp.Coalesce, exp.Nullif, exp.Trim, exp.DPipe, exp.Like, exp.Lower, exp.Upper,
     exp.Count, exp.Sum, exp.Min, exp.Max, exp.Avg, exp.Distinct,
     exp.Window, exp.RowNumber, exp.Median, exp.PercentileCont,
@@ -376,8 +377,11 @@ def _check_node(node: exp.Expression) -> None:
         if node.this.name.upper() not in _DATE_UNITS or _type(node.expression) not in _TEMPORAL:
             raise NotPortable("EXTRACT")
     elif isinstance(node, exp.DateDiff):
+        # Days, or microseconds — an exact difference on both sides, which is how
+        # a time becomes a number (Doris' UNIX_TIMESTAMP reads the session's zone).
         unit = node.args.get("unit")
-        if not unit or unit.name.upper() != "DAY" or not all(_type(a) in _TEMPORAL for a in (node.this, node.expression)):
+        if (not unit or unit.name.upper() not in ("DAY", "MICROSECOND")
+                or not all(_type(a) in _TEMPORAL for a in (node.this, node.expression))):
             raise NotPortable("DATE_DIFF")
     elif isinstance(node, exp.Interval):
         unit = node.args.get("unit")
@@ -406,6 +410,10 @@ def _check_node(node: exp.Expression) -> None:
     elif isinstance(node, exp.Mod):
         if not _is_patient_key(node) and not (_type(node.this) in _INTEGER and _type(node.expression) in _INTEGER):
             raise NotPortable("modulo")
+    elif isinstance(node, exp.IntDiv):
+        # Both truncate toward zero, and both give NULL for a zero divisor.
+        if not (_type(node.this) in _INTEGER and _type(node.expression) in _INTEGER):
+            raise NotPortable("integer division")
     elif isinstance(node, exp.Div):
         if not (_type(node.this) in _NUMERIC and _type(node.expression) in _NUMERIC):
             raise NotPortable("division")
@@ -454,10 +462,20 @@ def _doris(node: exp.Expression) -> exp.Expression:
         hex_le = exp.Concat(expressions=[_hex_byte(md5, at) for at in (23, 21, 19, 17)])
         conv = exp.Anonymous(this="CONV", expressions=[hex_le, exp.Literal.number(16), exp.Literal.number(10)])
         return exp.cast(conv, exp.DataType.build("BIGINT"))
+    if isinstance(node, exp.DateDiff) and node.args["unit"].name.upper() == "MICROSECOND":
+        return exp.Anonymous(this="MICROSECONDS_DIFF", expressions=[node.this.copy(), node.expression.copy()])
     if isinstance(node, exp.Extract) and _is_age_years(node):
         later, earlier = (a.copy() for a in node.expression.expressions)
         return exp.Anonymous(this="TIMESTAMPDIFF", expressions=[exp.var("YEAR"), earlier, later])
     return node
+
+
+class _LinkrDoris(Doris):
+    """Doris, with DuckDB's `//` spelled as its own integer division (sqlglot
+    writes `CAST(a / b AS INT)`: a double, then a 32-bit integer)."""
+
+    class Generator(Doris.Generator):
+        TRANSFORMS = {**Doris.Generator.TRANSFORMS, exp.IntDiv: lambda self, e: self.binary(e, "DIV")}
 
 
 def _output_names(tree: exp.Expression) -> tuple[str, ...]:
@@ -514,4 +532,4 @@ def to_remote(sql: str, engine: str, lookup: TableLookup) -> RemoteQuery:
         if remote is not None:
             table.set("db", exp.to_identifier(remote.schema, quoted=True))
             table.set("this", exp.to_identifier(remote.name, quoted=True))
-    return RemoteQuery(tree.sql(dialect=dialect), names)
+    return RemoteQuery(tree.sql(dialect=_LinkrDoris if engine == "doris" else dialect), names)

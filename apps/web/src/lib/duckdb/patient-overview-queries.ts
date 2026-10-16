@@ -159,8 +159,8 @@ export function buildOverviewDensityQuery(
   COUNT(*) AS n
 FROM ${event!.name} e
 WHERE e.patient_id = '${escSql(patientId)}'
-  AND e.start_datetime >= TIMESTAMP '${escSql(from)}'
-  AND e.start_datetime <= TIMESTAMP '${escSql(to)}'${visitFilter}${conceptFilter}
+  AND e.start_datetime >= ${timestamp(from)}
+  AND e.start_datetime <= ${timestamp(to)}${visitFilter}${conceptFilter}
 GROUP BY 1, 2`)
   }
 
@@ -193,12 +193,12 @@ export function buildOverviewTileDensityQuery(
     const event = eventRelation(mapping, row.table)
     if (!has(event, 'start_datetime') || !has(event, 'patient_id')) continue
     parts.push(`SELECT '${escSql(row.key)}' AS row_key,
-  CAST(FLOOR(EPOCH_MS(CAST(e.start_datetime AS TIMESTAMP)) / ${width}) AS BIGINT) AS bucket,
+  ${floorDiv(`${EPOCH_MICROS('CAST(e.start_datetime AS TIMESTAMP)')} // 1000`, width)} AS bucket,
   COUNT(*) AS n
 FROM ${event!.name} e
 WHERE e.patient_id = '${escSql(patientId)}'
-  AND e.start_datetime >= TIMESTAMP '${escSql(from)}'
-  AND e.start_datetime < TIMESTAMP '${escSql(to)}'${eventScopeCondition(mapping, event!, scope)}${buildConceptFilter(row.conceptIds)}
+  AND e.start_datetime >= ${timestamp(from)}
+  AND e.start_datetime < ${timestamp(to)}${eventScopeCondition(mapping, event!, scope)}${buildConceptFilter(row.conceptIds)}
 GROUP BY 1, 2`)
   }
   if (parts.length === 0) return null
@@ -251,17 +251,17 @@ export function buildOverviewEventsQuery(
   // An event overlapping the window matters even if it started before it — a
   // drip running across the whole view would otherwise vanish when zoomed into.
   const overlap = has(event, 'end_datetime')
-    ? `e.start_datetime <= TIMESTAMP '${escSql(to)}'
-  AND COALESCE(e.end_datetime, e.start_datetime) >= TIMESTAMP '${escSql(from)}'`
-    : `e.start_datetime >= TIMESTAMP '${escSql(from)}'
-  AND e.start_datetime <= TIMESTAMP '${escSql(to)}'`
+    ? `e.start_datetime <= ${timestamp(to)}
+  AND COALESCE(e.end_datetime, e.start_datetime) >= ${timestamp(from)}`
+    : `e.start_datetime >= ${timestamp(from)}
+  AND e.start_datetime <= ${timestamp(to)}`
 
   return `SELECT CAST(e.concept_id AS VARCHAR) AS concept_id,
   e.start_datetime AS event_start,
   e.end_datetime AS event_end,
   e.value_number,
-  CAST(e.value_string AS VARCHAR) AS value_string,
-  CAST(${routeExpr} AS VARCHAR) AS route,
+  ${has(event, 'value_string') ? 'CAST(e.value_string AS VARCHAR)' : 'NULL'} AS value_string,
+  ${routeExpr === 'NULL' ? 'NULL' : `CAST(${routeExpr} AS VARCHAR)`} AS route,
   ${has(event, 'rate_value') ? 'e.rate_value' : 'NULL'} AS rate_value,
   ${has(event, 'rate_unit') ? 'CAST(e.rate_unit AS VARCHAR)' : 'NULL'} AS rate_unit
 FROM ${event.name} e${routeJoin}
@@ -340,11 +340,31 @@ export function overviewSupportsClasses(mapping: SchemaMapping): boolean {
   return conceptRelations(mapping).some((d) => !!classColumn(d))
 }
 
-/** Bucket index of a timestamp within [from, to], clamped to the last bucket. */
+/*
+ * Times become numbers through exact microsecond differences and integer
+ * division only: a database computes them as DuckDB does (remote_sql), where
+ * EPOCH, FLOOR or LEAST would keep the query in Linkr — reading the patient's
+ * tables whole from the database.
+ */
+
+/** A time literal both engines read: `2024-03-01 10:00:00.000`, not ISO's T…Z. */
+function timestamp(iso: string): string {
+  return `TIMESTAMP '${escSql(iso.replace('T', ' ').replace(/Z$/, ''))}'`
+}
+
+const EPOCH_MICROS = (col: string) => `DATE_DIFF('microsecond', TIMESTAMP '1970-01-01 00:00:00', ${col})`
+
+/** floor(x / d) for an integer x and a positive integer d — `//` truncates. */
+function floorDiv(x: string, d: number): string {
+  return `CASE WHEN ${x} >= 0 THEN ${x} // ${d} ELSE -((-(${x}) - 1) // ${d}) - 1 END`
+}
+
+/** Bucket index of a timestamp at or after `from` within [from, to], the last
+ *  bucket holding `to` itself. */
 function bucketExpr(col: string, from: string, to: string, n: number): string {
-  const span = `(EPOCH(TIMESTAMP '${escSql(to)}') - EPOCH(TIMESTAMP '${escSql(from)}'))`
-  return `LEAST(${n - 1}, GREATEST(0, CAST(
-    (EPOCH(${col}) - EPOCH(TIMESTAMP '${escSql(from)}')) / NULLIF(${span}, 0) * ${n} AS INTEGER)))`
+  const span = `DATE_DIFF('microsecond', ${timestamp(from)}, ${timestamp(to)})`
+  const index = `DATE_DIFF('microsecond', ${timestamp(from)}, ${col}) * ${n} // ${span}`
+  return `CASE WHEN ${span} <= 0 THEN 0 WHEN ${index} > ${n - 1} THEN ${n - 1} ELSE ${index} END`
 }
 
 function buildConceptFilter(conceptIds?: string[]): string {

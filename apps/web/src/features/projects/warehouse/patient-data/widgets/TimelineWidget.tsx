@@ -270,6 +270,8 @@ export function TimelineWidget({
     }
 
     let cancelled = false
+    // Another patient or scope: the server stops the previous query.
+    const controller = new AbortController()
     setLoading(true)
 
     // Debounce the fetch: picking a patient, then a hospitalisation, then a
@@ -280,12 +282,13 @@ export function TimelineWidget({
         .then((without) => {
           if (cancelled) return null
           const sql = buildTimelineQuery(schemaMapping, conceptIds, patientId, scope, without)
-          return sql ? queryDataSource(dataSourceId, sql) : []
+          return sql ? queryDataSource(dataSourceId, sql, { signal: controller.signal }) : []
         })
         .then((rows) => {
           if (!cancelled) setOmopData((rows as unknown as TimelineRow[]) ?? [])
         })
         .catch((err) => {
+          if (controller.signal.aborted) return
           console.error('Timeline query failed:', err)
           if (!cancelled) setOmopData([])
         })
@@ -297,6 +300,7 @@ export function TimelineWidget({
     return () => {
       cancelled = true
       clearTimeout(timer)
+      controller.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, scope, conceptIdsKey])

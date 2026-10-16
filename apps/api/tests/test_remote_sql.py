@@ -35,7 +35,8 @@ def doris(sql: str) -> str:
 
 def as_duckdb(remote: str) -> str:
     """A Doris translation read back by DuckDB, for the rewrites both can run."""
-    return remote.replace("`omop`.", "").replace("`", '"').replace(" <=> ", " IS NOT DISTINCT FROM ")
+    return (remote.replace("`omop`.", "").replace("`", '"').replace(" <=> ", " IS NOT DISTINCT FROM ")
+            .replace(" DIV ", " // "))
 
 
 @pytest.fixture
@@ -186,6 +187,18 @@ def test_dates_extract_and_differ_the_same_way():
     assert "EXTRACT(YEAR FROM" in out and "DATEDIFF(" in out and "INTERVAL '60' DAY" in out
 
 
+def test_a_time_becomes_a_number_through_an_exact_microsecond_difference():
+    """DuckDB's EPOCH reads a naive timestamp as UTC, Doris' UNIX_TIMESTAMP in the
+    session's zone: the overview's buckets count microseconds from a literal."""
+    out = doris("SELECT DATE_DIFF('microsecond', TIMESTAMP '1970-01-01 00:00:00', measurement_datetime) // 3600000000 AS h "
+                "FROM measurement")
+    assert "MICROSECONDS_DIFF(`measurement`.`measurement_datetime`, CAST('1970-01-01 00:00:00' AS DATETIME)) DIV 3600000000" in out
+
+
+def test_integer_division_reads_back_alike(con):
+    assert same_rows(con, "SELECT person_id // 2 AS a, (-person_id) // 2 AS b, person_id // 0 AS c FROM measurement")
+
+
 def test_age_in_years_becomes_timestampdiff():
     out = doris("SELECT EXTRACT(YEAR FROM AGE(m.measurement_datetime, p.birth_datetime)) AS age "
                 "FROM measurement m JOIN person p ON p.person_id = m.person_id")
@@ -224,6 +237,8 @@ def test_percentile_of_a_decimal_is_not_portable():
     "SELECT SUM(value_as_number) OVER (ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s FROM measurement",
     "SELECT STRFTIME(measurement_date, '%M') AS m FROM measurement",
     "SELECT EPOCH(measurement_datetime) AS e FROM measurement",
+    "SELECT DATE_DIFF('second', measurement_date, measurement_datetime) AS d FROM measurement",
+    "SELECT value_as_number // 2 AS h FROM measurement",
     "SELECT person_id AS p FROM measurement UNION ALL BY NAME SELECT person_id AS p FROM person",
     "SELECT n FROM memory.main.counts",
     "SELECT person_id AS p FROM other.measurement",

@@ -1189,6 +1189,17 @@ async def query(
     return result
 
 
+async def plan_query(source: DataSource, login: Login | None, sql: str) -> None:
+    """Records who would compute `sql` (pushdown.execution) without running it:
+    only an external database the pushdown serves has a say, the rest is local."""
+    config = dict(source.connection_config or {})
+    if config.get("engine") not in _EXTERNAL_ENGINES:
+        return
+    if login is None:
+        raise database_credential_service.CredentialRequired(source)
+    await asyncio.to_thread(db_connect.plan_external, with_login(config, login), login.password, sql)
+
+
 async def _query(
     db: AsyncSession, source: DataSource, login: Login | None, sql: str, arrow: bool,
     pushdown: bool = False, native: bool = False,

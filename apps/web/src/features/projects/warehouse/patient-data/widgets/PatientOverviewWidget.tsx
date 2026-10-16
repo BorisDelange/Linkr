@@ -14,6 +14,9 @@ import { overviewSupportsClasses, overviewUnitTableLabel } from '@/lib/duckdb/pa
 import { usePatientScope } from '../use-patient-scope'
 import { useOverviewRecord } from './use-overview-record'
 import { useOverviewData } from './use-overview-data'
+import { overviewProbeQueries } from './overview-plan'
+import { useSlowQueries } from '../use-slow-queries'
+import { SlowQueryGate } from '../SlowQueryGate'
 import { OverviewDataCache } from './overview-tiles'
 import { buildOverviewRows, type OverviewConceptRow, type OverviewRow } from './overview-layout'
 import { CategoryMenu, ConceptCopyMenu, HoverTip, Message, type TipContent } from './overview-popups'
@@ -41,6 +44,10 @@ interface PatientOverviewWidgetProps {
  * Everything is driven by the schema mapping, so the same widget runs on OMOP
  * CDM and MIMIC-IV without knowing either model's table names.
  */
+/** Widgets the user asked to load although their queries read whole tables:
+ *  for the session, so a tab switch does not ask again. */
+const forcedWidgets = new Set<string>()
+
 export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidgetProps) {
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
@@ -167,10 +174,19 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   // (see lib/duckdb/patient-scope.ts for why a stay is matched by time).
   const { scope, ready: scopeReady } = usePatientScope(projectUid, dataSourceId, schemaMapping)
 
+  // A query the database cannot compute itself is computed by Linkr from every
+  // row of the tables it reads: minutes on a large warehouse. Asked before the
+  // first record loads; such a widget then loads only once the user asks.
+  const probes = useMemo(() => (schemaMapping ? overviewProbeQueries(schemaMapping, scope) : null), [schemaMapping, scope])
+  const plan = useSlowQueries(dataSourceId, probes)
+  const [forced, setForced] = useState(() => forcedWidgets.has(widgetId))
+  const gated = plan.state === 'slow' && !forced
+  const load = visible && plan.state !== 'checking' && !gated
+
   // --- Load the record ------------------------------------------------------
 
   const { concepts, units, death, bounds, loading, error, setError, overview } = useOverviewRecord({
-    visible, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope,
+    visible: load, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope,
     showUnitStays, showDeath, setViewRaw, paintFailedRef, dataRef,
   })
   // An aggregate row's dot has to name the concept it came from, which the row
@@ -254,7 +270,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   }, [concepts])
 
   useOverviewData({
-    visible, view, bounds, rows: layout.rows, hiddenRef, dataRef,
+    visible: load, view, bounds, rows: layout.rows, hiddenRef, dataRef,
     dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint,
   })
 
@@ -617,7 +633,11 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
 
   const message = !selectedPatientId
     ? t('patient_data.select_patient_first')
-    : error
+    : gated
+      ? null
+      : plan.state === 'checking'
+        ? t('patient_data.overview_loading')
+        : error
       ? error
       : loading && concepts.length === 0
         ? t('patient_data.overview_loading')
@@ -625,7 +645,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
           ? t('patient_data.overview_no_data')
           : null
 
-  const hasCanvas = !message
+  const hasCanvas = !message && !gated
   useEffect(() => {
     const canvas = canvasRef.current
     if (!hasCanvas || !canvas) return
@@ -647,7 +667,15 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   // hit-testing it — tooltips then land on the wrong row, or on nothing.
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-hidden">
-      {message ? (
+      {gated && selectedPatientId ? (
+        <SlowQueryGate
+          reason={plan.state === 'slow' ? plan.reason : null}
+          onRun={() => {
+            forcedWidgets.add(widgetId)
+            setForced(true)
+          }}
+        />
+      ) : message ? (
         <Message text={message} tone={error ? 'error' : undefined} />
       ) : (
         <canvas

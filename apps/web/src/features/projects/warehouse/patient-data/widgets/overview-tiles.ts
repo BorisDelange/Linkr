@@ -73,10 +73,13 @@ export interface EventWindow {
 export class OverviewDataCache {
   private tiles = new Map<string, Float64Array>()
   private windows = new Map<string, EventWindow[]>()
+  /** Rows (cache keys) with a read in flight: the painter marks them loading. */
+  readonly pending = new Set<string>()
 
   clear(): void {
     this.tiles.clear()
     this.windows.clear()
+    this.pending.clear()
   }
 
   hasTile(rowKey: string, bucketMs: number, tile: number): boolean {

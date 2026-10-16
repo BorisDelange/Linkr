@@ -262,6 +262,15 @@ def _with_pushdown(
     return result
 
 
+def plan(con, config: dict, sql: str) -> None:
+    """Records who would compute `sql` — the database or Linkr (`execution`) —
+    without running it: what a caller weighs before a query that would read the
+    database's tables whole. `con` is only read when the database's columns are
+    not cached."""
+    if _pushed_down(con, config, sql) is not None:
+        _record("database")
+
+
 def run_native(
     con: duckdb.DuckDBPyConnection, config: dict, password: str | None, sql: str,
     run: Callable[[str], object],

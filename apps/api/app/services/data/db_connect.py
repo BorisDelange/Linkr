@@ -867,6 +867,40 @@ def query_external(
     return connection_pool.run_pooled(pool_key, _setup, _read)
 
 
+class _AttachedOnUse:
+    """A connection opened and attached on its first statement, if any."""
+
+    def __init__(self, setup: Callable[[], duckdb.DuckDBPyConnection]):
+        self._setup, self._con = setup, None
+
+    def execute(self, *args):
+        if self._con is None:
+            self._con = self._setup()
+        return self._con.execute(*args)
+
+    def close(self) -> None:
+        if self._con is not None:
+            self._con.close()
+
+
+def plan_external(config: dict, password: str | None, sql: str) -> None:
+    """Who would compute `sql` (remote.plan), without running it — and off the
+    pooled connection, which a long query may hold: a connection of its own,
+    opened only when the database's columns are not cached."""
+    spec = _engine_spec(config)
+
+    def setup() -> duckdb.DuckDBPyConnection:
+        con = _connect(spec["extension"])
+        _attach(con, config, password)
+        return con
+
+    con = _AttachedOnUse(setup)
+    try:
+        remote.plan(con, config, sql)
+    finally:
+        con.close()
+
+
 def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None:
     """ATTACH a local database file read-only. DuckDB files attach natively;
     SQLite needs the sqlite extension."""

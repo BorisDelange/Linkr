@@ -64,6 +64,10 @@ export function useOverviewRecord({
       return
     }
     let cancelled = false
+    // Another patient, visit or setting: the server stops this one's queries,
+    // which would otherwise hold the database's connection until they end.
+    const controller = new AbortController()
+    const { signal } = controller
     setLoading(true)
     setError(null)
     paintFailedRef.current = false
@@ -93,7 +97,7 @@ export function useOverviewRecord({
       )
       if (!sql) return
       try {
-        const raw = await queryDataSource(dataSourceId, sql)
+        const raw = await queryDataSource(dataSourceId, sql, { signal })
         if (cancelled) return
         const counts = new Float64Array(RANGE_BUCKETS)
         let max = 0
@@ -106,7 +110,7 @@ export function useOverviewRecord({
         setOverview({ counts, max })
       } catch {
         // The strip simply stays empty; it is navigation aid, not data.
-        setOverview(null)
+        if (!cancelled) setOverview(null)
       }
     }
 
@@ -115,7 +119,7 @@ export function useOverviewRecord({
         const invSql = buildOverviewInventoryQuery(
           schemaMapping, selectedPatientId, scope,
         )
-        const inv = invSql ? await queryDataSource(dataSourceId, invSql) : []
+        const inv = invSql ? await queryDataSource(dataSourceId, invSql, { signal }) : []
         if (cancelled) return
 
         const rows: OverviewConceptRow[] = inv.map((r) => ({
@@ -144,7 +148,7 @@ export function useOverviewRecord({
         if (showUnitStays) {
           const sql = buildOverviewUnitStaysQuery(schemaMapping, selectedPatientId, selectedVisitId)
           if (sql) {
-            const raw = await queryDataSource(dataSourceId, sql)
+            const raw = await queryDataSource(dataSourceId, sql, { signal })
             if (cancelled) return
             stays = raw
               .map((r) => ({
@@ -166,7 +170,7 @@ export function useOverviewRecord({
         if (showDeath) {
           const sql = buildOverviewDeathQuery(schemaMapping, selectedPatientId)
           if (sql) {
-            const raw = await queryDataSource(dataSourceId, sql)
+            const raw = await queryDataSource(dataSourceId, sql, { signal })
             if (cancelled) return
             deathMs = raw.length ? toMs(raw[0].death_date) : null
             if (deathMs != null) {
@@ -212,6 +216,7 @@ export function useOverviewRecord({
     void run()
     return () => {
       cancelled = true
+      controller.abort()
     }
   }, [visible, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope, showUnitStays, showDeath, setViewRaw, paintFailedRef, dataRef])
 

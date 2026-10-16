@@ -310,9 +310,13 @@ async def query_data_source(
                 fresh = await data_source_service.get(session, source_id)
                 if fresh is None:
                     raise HTTPException(status.HTTP_404_NOT_FOUND, "Data source not found")
-                rows = await data_source_service.query(
-                    session, fresh, login, body.sql, pushdown=body.pushdown, native=body.native,
-                )
+                if body.plan:
+                    await data_source_service.plan_query(fresh, login, body.sql)
+                    rows = []
+                else:
+                    rows = await data_source_service.query(
+                        session, fresh, login, body.sql, pushdown=body.pushdown, native=body.native,
+                    )
         except asyncio.CancelledError:
             query_cancel.cancel(query_id, str(user.id))
             raise

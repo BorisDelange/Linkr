@@ -36,6 +36,16 @@ export function testConnectionOnServer(
   })
 }
 
+/** Who would compute `sql` on the server (`execution`), asked without running it.
+ *  Null where the server has no say: a database the pushdown does not serve. */
+export async function planQueryOnServer(dataSourceId: string, sql: string): Promise<QueryExecution | null> {
+  const res = await apiRequest<{ execution?: QueryExecution | null }>(`/data-sources/${dataSourceId}/query`, {
+    method: 'POST',
+    body: JSON.stringify({ sql, pushdown: true, plan: true }),
+  })
+  return res.execution ?? null
+}
+
 /**
  * Run read-only SQL against an external source server-side and return the rows.
  * The server-mode counterpart to engine.queryDataSource — the raw tables never

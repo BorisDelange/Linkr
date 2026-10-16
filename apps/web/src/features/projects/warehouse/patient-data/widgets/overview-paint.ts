@@ -221,6 +221,26 @@ export function paintOverview(
           : dataRef.current.pixelCounts(key, lo, view.hi, nb, bucketMs) ?? new Float64Array(nb)
         drawDensity(ctx, counts, y, rowH, plotL, plotW / nb, colour)
       }
+      // A read in flight: a dashed line under the row, and a word where the row
+      // has nothing to show yet — an empty row would read as "no data".
+      if (dataRef.current.pending.has(key)) {
+        ctx.save()
+        ctx.strokeStyle = colour
+        ctx.globalAlpha = 0.6
+        ctx.setLineDash([4, 4])
+        ctx.beginPath()
+        ctx.moveTo(plotL, y + rowH - 1.5)
+        ctx.lineTo(plotL + plotW, y + rowH - 1.5)
+        ctx.stroke()
+        if (level === 'density' && !counts?.some((n) => n > 0)) {
+          ctx.globalAlpha = 1
+          ctx.font = metaFont
+          ctx.textAlign = 'left'
+          ctx.fillStyle = '#94a3b8'
+          ctx.fillText(t('patient_data.overview_row_loading'), plotL + 6, y + rowH / 2)
+        }
+        ctx.restore()
+      }
     }
     ctx.restore()
 
