@@ -15,12 +15,22 @@ import type { DatabaseStatsCache, SchemaMapping } from '@/types'
 const _inFlight = new Map<string, Promise<void>>()
 /** The stop of each in-flight refresh, shared the same way. */
 const _controllers = new Map<string, AbortController>()
+/** Every mounted instance per source, fed the live statistics of a refresh any
+ *  of them started — a tab left and reopened mid-run shows the run, not a
+ *  fresh "Load statistics" that would start a second one. */
+const _listeners = new Map<string, Set<(stats: DatabaseStatsCache) => void>>()
+
+function publish(dataSourceId: string, stats: DatabaseStatsCache) {
+  for (const listener of _listeners.get(dataSourceId) ?? []) listener(stats)
+}
 const BUSY_DELAY_MS = 400
 
 export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapping, sourceStatus?: string) {
   const [cache, setCache] = useState<DatabaseStatsCache | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isStopping, setIsStopping] = useState(false)
+  // Mounted mid-run: busy from the first render, so the debounce below does not
+  // show Refresh before Stop.
+  const [isLoading, setIsLoading] = useState(() => _inFlight.has(dataSourceId))
+  const [isStopping, setIsStopping] = useState(() => !!_controllers.get(dataSourceId)?.signal.aborted)
   const [error, setError] = useState<unknown>(null)
   const [cacheLoaded, setCacheLoaded] = useState(false)
   const cacheRef = useRef<DatabaseStatsCache | null>(null)
@@ -55,6 +65,10 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
       }
       setCacheLoaded(true)
     })
+    const listeners = _listeners.get(dataSourceId) ?? new Set()
+    _listeners.set(dataSourceId, listeners)
+    listeners.add(setCache)
+    return () => { listeners.delete(setCache) }
   }, [dataSourceId])
 
   /** `resume`: only follow the job of that phase a closed tab left (server
@@ -91,7 +105,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
           stats = previous
         } else {
           stats = await computeDatabaseStats(dataSourceId, schemaMapping, { signal, label: jobLabel, resumeOnly: resume === 'stats' })
-          setCache(stats)
+          publish(dataSourceId, stats)
           setError(null)
           await getStorage().databaseStatsCache.save(stats)
           keepCounts(stats)
@@ -109,7 +123,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
             tableCounts: [...running.tableCounts.filter((c) => !fresh.has(c.tableName)), ...batch]
               .sort((a, b) => b.rowCount - a.rowCount),
           }
-          setCache(running)
+          publish(dataSourceId, running)
           getStorage().databaseStatsCache.save(running).catch(() => {})
         }, { signal, label: jobLabel, resumeOnly: resume === 'counts' })
       })()
@@ -131,6 +145,12 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     }
   }, [dataSourceId, schemaMapping, ensureMounted, keepCounts, jobLabel])
   const refresh = useCallback(() => compute(), [compute])
+
+  // A refresh already running when this instance mounts: follow it.
+  useEffect(() => {
+    if (!_inFlight.has(dataSourceId)) return
+    void compute()
+  }, [dataSourceId, compute])
 
   // A computation a closed tab left on the server: follow it rather than lose it.
   const resumed = useRef<string | null>(null)

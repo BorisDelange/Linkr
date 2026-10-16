@@ -1074,7 +1074,7 @@ function OverviewTab({
           title={t('databases.stats_not_computed')}
           description={t('databases.stats_not_computed_hint')}
           action={(
-            <Button size="sm" onClick={refreshStats} disabled={statsLoading}>
+            <Button size="sm" onClick={() => { void refreshStats(); onSeeStatistics() }} disabled={statsLoading}>
               <BarChart3 size={14} />
               {t('databases.load_statistics')}
             </Button>
