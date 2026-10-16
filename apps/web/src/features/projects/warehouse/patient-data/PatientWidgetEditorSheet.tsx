@@ -445,13 +445,15 @@ function SqlTab({
     if (!q.sql && q.missing) return <MissingMapping missing={q.missing} />
     return (
       <div className="flex h-full flex-col gap-2">
-        <CodeEditor
-          value={value}
-          onChange={(v) => onChange(v ?? '')}
-          onSave={onSave}
-          language="sql"
-          height="100%"
-        />
+        <div className="min-h-0 flex-1">
+          <CodeEditor
+            value={value}
+            onChange={(v) => onChange(v ?? '')}
+            onSave={onSave}
+            language="sql"
+            height="100%"
+          />
+        </div>
         {note}
       </div>
     )
