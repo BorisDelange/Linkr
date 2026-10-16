@@ -12,13 +12,13 @@ import {
   buildValueDistributionQuery,
   buildValueHistogramQuery,
   hasValueColumnForDict,
-} from '../concepts/concept-queries'
-import { ConceptStatsPanel } from '../concepts/ConceptStatsPanel'
+} from './concept-queries'
+import { ConceptStatsPanel } from './ConceptStatsPanel'
 import type {
   ConceptStats,
   MeasurementDistribution,
   HistogramBin,
-} from '../concepts/use-concepts'
+} from './use-concepts'
 
 /** Same P1–P99 clip the Concepts page applies by default, so both histograms
  *  for one concept are the same shape rather than one raw and one clipped. */

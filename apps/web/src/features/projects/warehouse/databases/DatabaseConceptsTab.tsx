@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -16,10 +16,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import { useConcepts } from '../concepts/use-concepts'
+import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
 import { ConceptTable } from '../concepts/ConceptTable'
 import { ConceptPickerToolbar } from '../concepts/ConceptPickerToolbar'
 import { ConceptDetail } from '../concepts/ConceptDetail'
+import { ConceptStatsPopover } from '../concepts/ConceptStatsPopover'
 import { useConceptStatsSql } from '../concepts/use-concept-stats-sql'
 import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
 import { clearConceptCountError } from '../concepts/concept-count-runner'
@@ -48,6 +49,21 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   )
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const { selectedConceptId, setSelectedConceptId } = concepts
+  // Stable identity: ConceptTable rebuilds its columns whenever `rowAction` changes.
+  const defaultDictKey = schemaMapping.concepts?.[0]?.key ?? ''
+  const rowAction = useMemo(
+    () => ({
+      render: (row: ConceptRow) => (
+        <ConceptStatsPopover
+          dataSourceId={dataSourceId}
+          schemaMapping={schemaMapping}
+          conceptId={row.concept_id}
+          dictKey={(row._dict_key as string) ?? defaultDictKey}
+        />
+      ),
+    }),
+    [dataSourceId, schemaMapping, defaultDictKey],
+  )
   const { hasValueColumn, statsSql } = useConceptStatsSql(
     schemaMapping, concepts.concepts, selectedConceptId, concepts.excludeOutliers,
   )
@@ -250,6 +266,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
                   concepts.setPageSize(size)
                   concepts.setPage(0)
                 }}
+                rowAction={rowAction}
               />
             </Allotment.Pane>
             <Allotment.Pane minSize={300} preferredSize={380} visible={selectedConceptId !== null}>
