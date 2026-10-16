@@ -27,7 +27,7 @@ import {
   EMPTY_FILTERS,
   NULL_FILTER_VALUE,
 } from './concept-queries'
-import type { ConceptFilters, ConceptFilterValue, ConceptSorting } from './concept-queries'
+import type { ConceptFilters, ConceptFilterValue, ConceptSorting, SearchMatching } from './concept-queries'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -192,6 +192,10 @@ export function useConcepts(
   const count = useConceptCount(dataSourceId, schemaMapping)
   const cacheReady = count.exists
   const cacheChecked = count.checked
+  // Without the cache, the list is read from the database itself, and a remote
+  // one cannot run the fuzzy match: it would bring the whole dictionary through
+  // Linkr on every search. So it matches strictly there.
+  const searchMatching: SearchMatching = isServerMode() && !cacheReady ? 'strict' : 'fuzzy'
   const [frontVersion, setFrontVersion] = useState(0)
   // Re-runs the loads when a run may have assembled a newer list. It is NOT the
   // cache key: it bumps on every status probe, so a picker reopened under the
@@ -414,10 +418,10 @@ export function useConcepts(
     const conceptsSql = server
       ? buildCachePageQuery(effectiveFilters, availableColumns, page, pageSize, sorting)
       : buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting,
-        isServerMode() ? { kind: 'none' } : { kind: 'inline' })
+        isServerMode() ? { kind: 'none' } : { kind: 'inline' }, searchMatching)
     const countSql = server
       ? buildCacheCountQuery(effectiveFilters, availableColumns)
-      : buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
+      : buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns, searchMatching)
     if (!conceptsSql || !countSql || !resultCache) {
       setConcepts([])
       setTotalCount(0)
@@ -674,6 +678,7 @@ export function useConcepts(
     conceptStatsLoading,
     refresh,
     count,
+    searchMatching,
     statsEnabled,
     setStatsEnabled,
     excludeOutliers,

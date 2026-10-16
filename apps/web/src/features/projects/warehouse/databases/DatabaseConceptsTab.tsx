@@ -9,6 +9,7 @@ import type { VisibilityState } from '@tanstack/react-table'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { NoticeBanner } from '@/components/ui/notice-banner'
 import { Progress } from '@/components/ui/progress'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { RunSteps, type RunStepItem, type RunStepStatus } from '@/components/ui/run-steps'
@@ -119,7 +120,8 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
     ? t('concepts.count_running')
     : complete
       ? t('concepts.count_complete', { date: date(progress.finishedAt) })
-      : partial
+      // Paused before anything was assembled: no list yet, so no counts and a strict search.
+      : partial && count.exists
         ? (recordsDone && patients.done === 0 ? t('concepts.count_records_done') : t('concepts.count_paused'))
         : t('concepts.count_none')
 
@@ -227,12 +229,13 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
       )}
 
       {count.held && isServerMode() && (
-        <p className="shrink-0 text-xs text-muted-foreground">{t('concepts.count_held')}</p>
+        <NoticeBanner tone="warning" title={t('concepts.count_held')} description={t('concepts.search_strict')} className="shrink-0" />
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-card">
-        {/* Over every field — name, code, id — and tolerant of typos and
-            accents; the Name column's own filter covers the name alone. */}
+        {/* Over every field — name, code, id — and, once the list is cached,
+            tolerant of typos and accents; the Name column's own filter covers
+            the name alone. */}
         <ConceptPickerToolbar
           availableColumns={concepts.availableColumns}
           filters={concepts.filters}

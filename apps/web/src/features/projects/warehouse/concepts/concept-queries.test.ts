@@ -3,6 +3,7 @@ import {
   buildCachePageQuery,
   buildCacheCountQuery,
   buildConceptsCountQuery,
+  buildConceptsQuery,
   computeAvailableColumns,
   NULL_FILTER_VALUE,
   VALIDITY_COLUMNS,
@@ -241,5 +242,33 @@ describe('Name filter over several dictionaries', () => {
     const sql = buildConceptsCountQuery(mapping, { _searchText: 'x', _dict_key: ['d_items'] }, computeAvailableColumns(conceptRelations(mapping)))!
     expect(sql).toContain(`NOT EXISTS (SELECT 1 FROM ${b.name} _lf`)
     expect(sql).not.toContain('UNION ALL')
+  })
+})
+
+describe('strict search, for a list read straight from the database', () => {
+  const mapping = mappingV1ToV2({ presetId: 't', presetLabel: { en: 't' }, conceptTables: [
+    { key: 'concept', table: 'concept', idColumn: 'concept_id', nameColumn: 'concept_name', codeColumn: 'concept_code' },
+  ] })
+  const cols = computeAvailableColumns(conceptRelations(mapping))
+  const filters = { _searchFuzzy: 'Intra cranienne', _searchText: 'Hémo', _searchCode: 'AB', _searchId: '12' }
+
+  it('asks nothing a remote database lacks', () => {
+    const page = buildConceptsQuery(mapping, filters, cols, 0, 50, null, { kind: 'none' }, 'strict')!
+    const count = buildConceptsCountQuery(mapping, filters, cols, 'strict')!
+    for (const sql of [page, count]) {
+      expect(sql).not.toMatch(/jaro_winkler|strip_accents|ILIKE|contains\(/i)
+    }
+  })
+
+  it('keeps every word, as typed, case aside', () => {
+    const sql = buildConceptsCountQuery(mapping, filters, cols, 'strict')!
+    expect(sql).toContain("LOWER(concept_name) LIKE '%intra%'")
+    expect(sql).toContain("LOWER(concept_name) LIKE '%cranienne%'")
+    expect(sql).toContain("LOWER(concept_name) LIKE '%hémo%'")
+    expect(sql).toContain("LOWER(concept_code) LIKE '%ab%'")
+  })
+
+  it('stays fuzzy by default', () => {
+    expect(buildConceptsCountQuery(mapping, filters, cols)).toContain('jaro_winkler_similarity')
   })
 })

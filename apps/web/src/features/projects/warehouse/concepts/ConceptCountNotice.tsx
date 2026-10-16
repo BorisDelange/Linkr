@@ -4,6 +4,7 @@ import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { NoticeBanner } from '@/components/ui/notice-banner'
 import { paths } from '@/lib/paths'
+import { isServerMode } from '@/lib/api-client'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import type { ConceptCountView } from './use-concept-count'
 
@@ -16,7 +17,8 @@ function conceptsTabHref(wsUid: string, projectUid: string | undefined, dataSour
 /**
  * What a view listing a database's concepts says when their counts are not
  * complete — never computed, partial, running or failed — with the way to the
- * database's Concepts tab, the one place the counting is run from.
+ * database's Concepts tab, the one place the counting is run from. A dictionary
+ * holding its own counts has none to compute, nor a cache: its search is strict.
  */
 export function ConceptCountNotice({
   count,
@@ -30,6 +32,9 @@ export function ConceptCountNotice({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid, projectUid } = useResolvedParams()
+  if (count.held && isServerMode() && dataSourceId) {
+    return <NoticeBanner tone="warning" title={t('concepts.count_held')} description={t('concepts.search_strict')} className={className} />
+  }
   if (!count.enabled || !count.checked || !dataSourceId) return null
 
   const { live, progress } = count

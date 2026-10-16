@@ -652,7 +652,7 @@
     "count_failed": "Counting the concepts failed: {{error}}",
     "count_id_type_mismatch": "The concept ids of “{{event}}” ({{eventType}}) and of its dictionary ({{dictionaryType}}) cannot be compared: one is text, the other a number, and the text holds “{{code}}”, which is not a number. In the schema mapping, the event's concept id must be the column the dictionary's id refers to — or map the terminology and the code on both sides to join on them.",
     "count_running": "Counting the concepts…",
-    "count_none": "Concepts not counted: the Records and Patients columns stay empty.",
+    "count_none": "Concepts not counted: the Records and Patients columns stay empty, and the search is strict — no typo or accent tolerance — until they are.",
     "count_partial": "The counts are incomplete",
     "count_paused": "Paused — the counts shown are partial.",
     "count_complete": "Counted on {{date}}",
@@ -677,6 +677,7 @@
     "count_start_patients": "Count patients",
     "count_records_done": "Rows counted — patients not yet.",
     "count_held": "Row and patient counts come from the concept table: nothing to count.",
+    "search_strict": "The concepts are read straight from the database, so the search is strict: every word as typed, case aside, with no typo or accent tolerance.",
     "count_scope_records": "Rows",
     "count_scope_all": "Rows and patients"
   },

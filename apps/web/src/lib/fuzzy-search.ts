@@ -234,3 +234,53 @@ export function labelMatcher<T>(
   const q = words.join(' ')
   return (row) => jaroWinkler(fold(label(row) ?? ''), q) >= JW_FILTER_THRESHOLD
 }
+
+// ---------------------------------------------------------------------------
+// Strict matching — what a remote database computes itself
+// ---------------------------------------------------------------------------
+
+/** `LOWER(col) LIKE 'pattern'`, the pattern lowercased here: the one text match
+ *  a remote database (Doris…) runs as is. No accent folding — `strip_accents`
+ *  has no portable equivalent — and a typed `%` or `_` is a wildcard. */
+export function lowerLikeSql(col: string, pattern: string): string {
+  return `LOWER(${col}) LIKE '${esc(pattern.toLowerCase())}'`
+}
+
+export interface StrictSearchSql {
+  where: string
+  /** Lower = better: exact name or code, then a name starting with the term, then the rest. */
+  rankExpr: string
+}
+
+/**
+ * The toolbar search without the fuzzy tiers, for a list read straight from a
+ * database that cannot rank by Jaro-Winkler: every word in the name or the
+ * code, case aside, or the exact id. Null for an empty term.
+ */
+export function buildStrictSearchSql(term: string, cols: FuzzySearchColumns): StrictSearchSql | null {
+  const trimmed = term.trim()
+  if (!trimmed) return null
+  const p = cols.alias ? `${cols.alias}.` : ''
+  const name = `${p}${cols.nameColumn}`
+  const code = cols.codeColumn ? `${p}${cols.codeColumn}` : null
+  const words = trimmed.split(/\s+/).filter(Boolean)
+  const all = words.map((w) => {
+    const onName = lowerLikeSql(name, `%${w}%`)
+    return code ? `(${onName} OR ${lowerLikeSql(code, `%${w}%`)})` : onName
+  }).join(' AND ')
+  const byId = /^\d+$/.test(trimmed) && cols.idColumn ? `${p}${cols.idColumn} = ${trimmed}` : null
+  const exact = code ? `(${lowerLikeSql(name, trimmed)} OR ${lowerLikeSql(code, trimmed)})` : lowerLikeSql(name, trimmed)
+  return {
+    where: byId ? `(${byId} OR (${all}))` : `(${all})`,
+    rankExpr: `(CASE ${byId ? `WHEN ${byId} THEN 0 ` : ''}WHEN ${exact} THEN 1 WHEN ${lowerLikeSql(name, `${trimmed}%`)} THEN 2 ELSE 3 END)`,
+  }
+}
+
+/** buildLabelFilterSql without its typo fallback nor accent folding: every word
+ *  in the label, case aside. */
+export function buildStrictLabelFilterSql(term: string, column: string, alias?: string): string | null {
+  const words = term.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return null
+  const col = alias ? `${alias}.${column}` : column
+  return `(${words.map((w) => lowerLikeSql(col, `%${w}%`)).join(' AND ')})`
+}
