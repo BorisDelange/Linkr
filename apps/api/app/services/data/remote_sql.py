@@ -55,11 +55,12 @@ _ALLOWED: tuple[type[exp.Expression], ...] = (
     exp.Window, exp.RowNumber, exp.Median, exp.PercentileCont,
     exp.Extract, exp.Year, exp.Quarter, exp.Month, exp.Day,
     exp.DateDiff, exp.Interval, exp.TimeToStr,
+    exp.GroupConcat, exp.ConcatWs, exp.Chr, exp.Substring, exp.Length, exp.StartsWith, exp.Exists,
     # Admitted only in the shapes `_check_node` recognises and `_doris` rewrites.
     exp.Anonymous,
 )
 
-_AGGREGATES = (exp.Count, exp.Sum, exp.Min, exp.Max, exp.Avg)
+_AGGREGATES = (exp.Count, exp.Sum, exp.Min, exp.Max, exp.Avg, exp.GroupConcat)
 
 T = exp.DataType.Type
 _INTEGER = {T.TINYINT, T.SMALLINT, T.MEDIUMINT, T.INT, T.BIGINT, T.INT128, T.UTINYINT, T.USMALLINT, T.UMEDIUMINT, T.UINT, T.UBIGINT, T.UINT128}
@@ -82,8 +83,9 @@ _DATE_UNITS = {"YEAR", "QUARTER", "MONTH", "DAY"}
 # every engine reads alike. DuckDB also takes 'epoch', '2020-1-5' or a T
 # separator, which Doris does not.
 _ISO_DATETIME = re.compile(r"\d{4}-\d{2}-\d{2}( \d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?)?")
-# STRFTIME formats whose tokens mean the same to MySQL's DATE_FORMAT.
-_PORTABLE_TIME_FORMAT = re.compile(r"(%[Ymd]|[-/ ._:])*")
+# STRFTIME formats whose tokens mean the same to MySQL's DATE_FORMAT, once
+# sqlglot has spelled DuckDB's minutes (%M) as MySQL's (%i).
+_PORTABLE_TIME_FORMAT = re.compile(r"(%[YmdHMS]|[-/ ._:])*")
 
 # The catalog's patient key (lib/data-catalog/perturbation.ts): md5_number_lower
 # reads the md5's last 8 bytes little-endian; mod 2^32 keeps its first 4.
@@ -131,7 +133,9 @@ def _unfilter(node: exp.Expression) -> exp.Expression:
         return node
     agg = node.this.copy()
     cond = node.expression.this
-    target = agg.this
+    # STRING_AGG(x ORDER BY o): the value is the ORDER's operand.
+    holder = agg.this if isinstance(agg, exp.GroupConcat) and isinstance(agg.this, exp.Order) else agg
+    target = holder.this
     distinct = isinstance(target, exp.Distinct)
     if distinct:
         if len(target.expressions) != 1:
@@ -139,7 +143,7 @@ def _unfilter(node: exp.Expression) -> exp.Expression:
         target = target.expressions[0]
     value = exp.Literal.number(1) if isinstance(target, exp.Star) or target is None else target
     case = exp.Case(ifs=[exp.If(this=cond.copy(), true=value.copy())])
-    agg.set("this", exp.Distinct(expressions=[case]) if distinct else case)
+    holder.set("this", exp.Distinct(expressions=[case]) if distinct else case)
     return agg
 
 
@@ -211,6 +215,57 @@ def _date_part(node: exp.Expression) -> exp.Expression:
     if len(args) != 2 or not (isinstance(args[0], exp.Literal) and args[0].is_string):
         raise NotPortable("DATE_PART")
     return exp.Extract(this=exp.var(args[0].this.upper()), expression=args[1].copy())
+
+
+def _literal_int(node: exp.Expression) -> int | None:
+    """An integer the expression is whatever the row: a literal, the LENGTH of a
+    string literal, or a sum of those."""
+    if isinstance(node, exp.Literal) and node.is_int:
+        return int(node.this)
+    if isinstance(node, exp.Length) and isinstance(node.this, exp.Literal) and node.this.is_string:
+        return len(node.this.this)
+    if isinstance(node, exp.Add):
+        a, b = _literal_int(node.this), _literal_int(node.expression)
+        return None if a is None or b is None else a + b
+    return None
+
+
+def _fold_lengths(node: exp.Expression) -> exp.Expression:
+    """A SUBSTR position written `LENGTH('PREFIX:') + 1`, as the literal it is."""
+    if not isinstance(node, exp.Substring):
+        return node
+    for arg in ("start", "length"):
+        bound = node.args.get(arg)
+        value = _literal_int(bound) if bound is not None else None
+        if value is not None:
+            node.set(arg, exp.Literal.number(value))
+    return node
+
+
+def _values_rows(node: exp.Expression) -> exp.Expression:
+    """`WITH s(a, b) AS (VALUES (…), (…))` → `WITH s AS (SELECT … AS a, … AS b
+    UNION ALL SELECT …)`: Doris has no VALUES list. Literal rows only."""
+    if not isinstance(node, exp.CTE):
+        return node
+    select = node.this
+    values = select.args.get("from_").this if isinstance(select, exp.Select) and select.args.get("from_") else None
+    if not isinstance(values, exp.Values):
+        return node
+    if len(select.expressions) != 1 or not isinstance(select.expressions[0], exp.Star) or len(select.args) > 2:
+        raise NotPortable("VALUES")
+    names = node.args["alias"].columns or (values.alias_column_names and [exp.to_identifier(n) for n in values.alias_column_names])
+    rows = values.expressions
+    if not names or not rows or any(
+        not isinstance(r, exp.Tuple) or len(r.expressions) != len(names)
+        or not all(isinstance(v, (exp.Literal, exp.Boolean, exp.Null)) for v in r.expressions)
+        for r in rows
+    ):
+        raise NotPortable("VALUES")
+    selects = [exp.select(*(exp.alias_(v.copy(), n.name) for v, n in zip(r.expressions, names))) for r in rows]
+    union = selects[0]
+    for nxt in selects[1:]:
+        union = exp.union(union, nxt, distinct=False)
+    return exp.CTE(this=union, alias=exp.TableAlias(this=node.args["alias"].this.copy()))
 
 
 def _unpad(lookup: TableLookup) -> Callable[[exp.Expression], exp.Expression]:
@@ -429,6 +484,31 @@ def _check_node(node: exp.Expression) -> None:
             isinstance(fraction, exp.Literal) and fraction.is_number and 0 <= float(fraction.this) <= 1
         ):
             raise NotPortable("percentile at other than one fraction")
+    elif isinstance(node, exp.Chr):
+        # One ASCII character: Doris' CHAR(n) is a byte, DuckDB's CHR a code point.
+        code = node.expressions[0] if len(node.expressions) == 1 else None
+        if not (isinstance(code, exp.Literal) and code.is_int and 1 <= int(code.this) <= 127):
+            raise NotPortable("CHR")
+    elif isinstance(node, exp.GroupConcat):
+        value = node.this.this if isinstance(node.this, exp.Order) else node.this
+        separator = node.args.get("separator")
+        if isinstance(value, exp.Distinct) or _type(value) not in _TEXT | _NULL or (
+                separator is not None and _type(separator) not in _TEXT):
+            raise NotPortable("STRING_AGG")
+    elif isinstance(node, exp.ConcatWs):
+        # Both skip NULL operands; a number would print otherwise on each side.
+        if not all(_type(a) in _TEXT | _NULL for a in node.expressions):
+            raise NotPortable("CONCAT_WS of a non-text")
+    elif isinstance(node, exp.Substring):
+        # Positions as literals from 1: DuckDB and Doris differ on 0 and below.
+        bounds = [node.args.get("start"), node.args.get("length")]
+        if _type(node.this) not in _TEXT or not all(
+                b is None or (isinstance(b, exp.Literal) and b.is_int and int(b.this) >= 1)
+                for b in bounds) or bounds[0] is None:
+            raise NotPortable("SUBSTRING")
+    elif isinstance(node, (exp.Length, exp.StartsWith)):
+        if not all(_type(a) in _TEXT for a in (node.this, node.args.get("expression")) if a is not None):
+            raise NotPortable(f"{type(node).__name__} of a non-text")
     elif isinstance(node, exp.Anonymous):
         parent = node.parent
         if not ((node.name.lower() == "md5_number_lower" and _is_patient_key(parent))
@@ -477,17 +557,58 @@ _DORIS_DATETIME_SCALE = {T.TIMESTAMP: 6, T.TIMESTAMPNTZ: 6, T.DATETIME: 6, T.TIM
 
 class _LinkrDoris(Doris):
     """Doris, with DuckDB's `//` spelled as its own integer division (sqlglot
-    writes `CAST(a / b AS INT)`: a double, then a 32-bit integer), and DuckDB's
-    timestamps as a DATETIME of the same precision."""
+    writes `CAST(a / b AS INT)`: a double, then a 32-bit integer), STRING_AGG with
+    its separator kept, and DuckDB's timestamps as a DATETIME of the same precision."""
 
     class Generator(Doris.Generator):
-        TRANSFORMS = {**Doris.Generator.TRANSFORMS, exp.IntDiv: lambda self, e: self.binary(e, "DIV")}
+        TRANSFORMS = {
+            **Doris.Generator.TRANSFORMS,
+            exp.IntDiv: lambda self, e: self.binary(e, "DIV"),
+            exp.GroupConcat: lambda self, e: self.groupconcat_sql(e),
+        }
+
+        def groupconcat_sql(self, expression: exp.GroupConcat) -> str:
+            # `GROUP_CONCAT(x ORDER BY o, sep)`, sqlglot's spelling, has Doris drop
+            # the separator for its default — which is ', ', not DuckDB's ','.
+            value = expression.this
+            order = ""
+            if isinstance(value, exp.Order):
+                ordering = value.copy()
+                ordering.set("this", None)
+                order = self.sql(ordering)
+                value = value.this
+            separator = expression.args.get("separator") or exp.Literal.string(",")
+            return f"GROUP_CONCAT({self.sql(value)}{order} SEPARATOR {self.sql(separator)})"
 
         def datatype_sql(self, expression: exp.DataType) -> str:
             scale = _DORIS_DATETIME_SCALE.get(expression.this)
             if scale is not None and not expression.expressions:
                 return f"DATETIME({scale})"
             return super().datatype_sql(expression)
+
+
+def _hoist_ctes(tree: exp.Expression) -> exp.Expression:
+    """A WITH inside a subquery or a CTE, moved to the statement's own WITH —
+    Doris accepts WITH only at the top. A CTE reads no outer column, so it means
+    the same there; each lands before the CTE that held it, which may read it."""
+    while True:
+        nested = next((w for w in tree.find_all(exp.With) if w.parent is not tree), None)
+        if nested is None:
+            return tree
+        top = tree.args.get("with_")
+        taken = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE) if c.parent is not nested}
+        moved = [c.copy() for c in nested.expressions]
+        if any(c.alias_or_name.lower() in taken for c in moved) or nested.args.get("recursive"):
+            raise NotPortable("nested WITH")
+        holder = nested.find_ancestor(exp.CTE)
+        while holder is not None and holder.parent is not top:
+            holder = holder.find_ancestor(exp.CTE)
+        nested.pop()
+        if top is None:
+            tree.set("with_", exp.With(expressions=moved))
+            continue
+        at = top.expressions.index(holder) if holder is not None else len(top.expressions)
+        top.set("expressions", top.expressions[:at] + moved + top.expressions[at:])
 
 
 def _output_names(tree: exp.Expression) -> tuple[str, ...]:
@@ -529,6 +650,8 @@ def to_remote(sql: str, engine: str, lookup: TableLookup) -> RemoteQuery:
         .transform(_ungroup_all)
         .transform(_unnest_pair)
         .transform(_date_part)
+        .transform(_fold_lengths)
+        .transform(_values_rows)
         .transform(_within_group)
         .transform(_typed_patient_key)
     )
@@ -538,7 +661,7 @@ def to_remote(sql: str, engine: str, lookup: TableLookup) -> RemoteQuery:
     _check_portable(tree)
     names = _output_names(tree)
     if engine == "doris":
-        tree = tree.transform(_doris)
+        tree = _hoist_ctes(tree.transform(_doris))
     elif any(isinstance(n, (exp.Anonymous, exp.Median, exp.PercentileCont)) for n in tree.walk()):
         raise NotPortable("no spelling of a DuckDB function")
     # qualify lower-cases every name (DuckDB's are case-insensitive); the remote

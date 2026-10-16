@@ -259,7 +259,14 @@ def test_percentile_of_a_decimal_is_not_portable():
     "SELECT mode(unit_source_value) AS m FROM measurement",
     "SELECT COUNT(DISTINCT (person_id, measurement_concept_id)) AS n FROM measurement",
     "SELECT SUM(value_as_number) OVER (ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS s FROM measurement",
-    "SELECT STRFTIME(measurement_date, '%M') AS m FROM measurement",
+    "SELECT STRFTIME(measurement_datetime, '%B') AS m FROM measurement",
+    "SELECT STRING_AGG(DISTINCT unit_source_value, ',') AS u FROM measurement",
+    "SELECT STRING_AGG(person_id, ',') AS u FROM measurement",
+    "SELECT CONCAT_WS(',', unit_source_value, person_id) AS u FROM measurement",
+    "SELECT CHR(233) AS c FROM measurement",
+    "SELECT SUBSTR(unit_source_value, 0) AS u FROM measurement",
+    "SELECT SUBSTR(unit_source_value, person_id) AS u FROM measurement",
+    "SELECT * FROM (VALUES (person_id)) v(p)",
     "SELECT EPOCH(measurement_datetime) AS e FROM measurement",
     "SELECT DATE_DIFF('second', measurement_date, measurement_datetime) AS d FROM measurement",
     "SELECT value_as_number // 2 AS h FROM measurement",
@@ -365,3 +372,58 @@ def test_mysql_is_not_translated():
 def test_postgres_has_no_spelling_of_duckdb_functions():
     with pytest.raises(NotPortable):
         to_remote("SELECT MEDIAN(value_as_number) AS m FROM measurement", "postgresql", lookup)
+
+
+# --- Text assembly: what a hand-written note relation uses -------------------
+
+
+def test_string_agg_keeps_its_order_and_separator():
+    # sqlglot's own `GROUP_CONCAT(x ORDER BY o, sep)` has Doris drop the separator.
+    sql = doris("SELECT person_id, STRING_AGG(unit_source_value, CHR(10) || CHR(10) ORDER BY measurement_date DESC) AS u "
+                "FROM measurement GROUP BY person_id")
+    assert "ORDER BY `measurement`.`measurement_date` DESC SEPARATOR CONCAT(CHAR(10), CHAR(10)))" in sql
+
+
+def test_string_agg_without_a_separator_says_duckdbs_comma():
+    # Doris' own default is ', '.
+    assert "SEPARATOR ',')" in doris("SELECT STRING_AGG(unit_source_value) AS u FROM measurement")
+
+
+def test_a_filtered_string_agg_reads_its_rows_through_a_case():
+    sql = doris("SELECT STRING_AGG(unit_source_value, ',' ORDER BY person_id) FILTER (WHERE person_id > 1) AS u FROM measurement")
+    assert "GROUP_CONCAT(CASE WHEN `measurement`.`person_id` > 1 THEN `measurement`.`unit_source_value` END ORDER BY" in sql
+
+
+def test_text_functions_are_spelled_for_doris():
+    sql = doris("SELECT CONCAT_WS('|', unit_source_value, 'x') AS a, LENGTH(unit_source_value) AS b, "
+                "STARTS_WITH(unit_source_value, 'm') AS c, SUBSTR(unit_source_value, LENGTH('m:') + 1) AS d, "
+                "STRFTIME(measurement_datetime, '%d-%m-%Y %H:%M') AS e FROM measurement")
+    for part in ("CONCAT_WS('|'", "CHAR_LENGTH(", "STARTS_WITH(", "SUBSTRING(`measurement`.`unit_source_value`, 3)",
+                 "DATE_FORMAT(`measurement`.`measurement_datetime`, '%d-%m-%Y %H:%i')"):
+        assert part in sql
+
+
+def test_a_values_list_becomes_a_union_of_literal_rows():
+    sql = doris("WITH s(code, label) AS (VALUES ('mg', 'milligram'), ('g', 'gram')) "
+                "SELECT m.person_id AS p, s.label AS l FROM measurement m JOIN s ON s.code = m.unit_source_value")
+    assert "VALUES" not in sql
+    assert "SELECT 'mg' AS `code`, 'milligram' AS `label` UNION ALL SELECT 'g' AS `code`, 'gram' AS `label`" in sql
+
+
+def test_a_nested_with_moves_before_the_cte_holding_it():
+    sql = doris("WITH a AS (SELECT * FROM (WITH b AS (SELECT person_id FROM measurement) SELECT person_id FROM b) x) "
+                "SELECT person_id AS p FROM a")
+    assert sql.startswith("WITH `b` AS (")
+    assert sql.index("`b` AS (") < sql.index("`a` AS (")
+    assert sql.count("WITH") == 1
+
+
+def test_a_nested_with_reusing_a_name_stays_local():
+    with pytest.raises(NotPortable, match="nested WITH"):
+        doris("WITH b AS (SELECT person_id FROM person), a AS (SELECT * FROM (WITH b AS (SELECT person_id FROM measurement) "
+              "SELECT person_id FROM b) x) SELECT a.person_id AS p FROM a JOIN b ON a.person_id = b.person_id")
+
+
+def test_exists_is_kept():
+    sql = doris("SELECT person_id AS p FROM person WHERE EXISTS (SELECT 1 FROM measurement m WHERE m.person_id = person.person_id)")
+    assert "WHERE EXISTS(SELECT 1" in sql
