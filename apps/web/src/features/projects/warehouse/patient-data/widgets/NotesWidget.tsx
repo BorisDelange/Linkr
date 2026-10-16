@@ -15,9 +15,9 @@ import { cn } from '@/lib/utils'
 import { useDebouncedValue } from '@/hooks/use-debounced-value'
 import { usePatientChartContext } from '../PatientChartContext'
 import { usePatientScope } from '../use-patient-scope'
-import { useTabVisible } from '../TabVisibilityContext'
+import { useLoadedKey, useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore, type NotesConfig } from '@/stores/patient-chart-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { patientQuery } from '../patient-prefetch'
 import { sanitizeHtml } from '@/lib/sanitize'
 import { buildNotesQuery } from '@/lib/duckdb/patient-data-queries'
 import { formatDate as fmtDate } from '@/lib/format-helpers'
@@ -267,6 +267,7 @@ export function NotesWidget({
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   const visible = useTabVisible()
+  const loaded = useLoadedKey()
   // Narrow selectors: see PatientSummaryWidget.
   const widgets = usePatientChartStore((s) => s.widgets)
   const updateWidgetConfig = usePatientChartStore((s) => s.updateWidgetConfig)
@@ -304,24 +305,27 @@ export function NotesWidget({
     // A selected hospitalisation or stay whose dates are still being read.
     if (!scopeReady) return
     if (!dataSourceId || !schemaMapping || !patientId) {
+      loaded.set('')
       setNotes([])
       return
     }
-
-    let cancelled = false
-    setLoading(true)
 
     const sql = buildNotesQuery(schemaMapping, patientId, scope)
     if (!sql) {
+      loaded.set('')
       setNotes([])
-      setLoading(false)
       return
     }
+    const key = `${dataSourceId}\n${sql}`
+    if (loaded.has(key)) return
 
-    queryDataSource(dataSourceId, sql)
+    let cancelled = false
+    setLoading(true)
+    patientQuery(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled) {
           const noteRows = (rows as unknown as NoteRow[]) ?? []
+          loaded.set(key)
           setNotes(noteRows)
           if (noteRows.length > 0) {
             setSelectedNoteId(noteRows[0].note_id)
@@ -338,7 +342,7 @@ export function NotesWidget({
     return () => {
       cancelled = true
     }
-  }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, scope])
+  }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, scope, loaded])
 
   // Reset selection when notes change
   useEffect(() => {

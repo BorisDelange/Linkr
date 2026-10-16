@@ -8,6 +8,7 @@ import { hasRememberedJob } from '@/lib/duckdb/run-query-job'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
 import type { DatabaseStatsCache, SchemaMapping } from '@/types'
+import { clearPatientQueries } from '../patient-data/patient-prefetch'
 
 // Shared across hook instances: the sheet mounts useDatabaseStats twice (summary
 // cards + table list). Without this, both would launch the full recompute at
@@ -94,6 +95,9 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
       const controller = new AbortController()
       const { signal } = controller
       _controllers.set(dataSourceId, controller)
+      // Statistics are recomputed when the data is taken to have changed: the
+      // patient rows kept for the session may no longer be what it holds.
+      if (!resume) clearPatientQueries(dataSourceId)
       const previous = cacheRef.current
       const run = (async () => {
         await ensureMounted(dataSourceId)

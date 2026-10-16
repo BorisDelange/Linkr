@@ -4,6 +4,7 @@ import type { Cohort } from '@/types'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
+import { patientQuery, setPrefetchPatients } from './patient-prefetch'
 import {
   buildPatientListQuery,
   buildPatientCountQuery,
@@ -46,6 +47,9 @@ export interface PatientDemographics {
   visit_count?: number
   death_date?: string | null
 }
+
+/** How long a page change waits before reading the page, so paging fast reads once. */
+const PAGE_DEBOUNCE_MS = 250
 
 // ---------------------------------------------------------------------------
 // Hook
@@ -99,12 +103,13 @@ export function usePatientData(
   const [patientsLoading, setPatientsLoading] = useState(false)
   const patientPageSize = 50
   const patientCacheRef = useRef<Map<string, { rows: PatientRow[]; count: number }>>(new Map())
+  const patientCountCacheRef = useRef<Map<string, number>>(new Map())
   // When prev/next crosses a page boundary, remember which edge patient of the
   // newly loaded page to auto-select once it arrives.
   const pendingEdgeSelectRef = useRef<'first' | 'last' | null>(null)
 
   const loadPatients = useCallback(
-    async (page: number) => {
+    async (page: number, signal?: AbortSignal) => {
       if (!dataSourceId || !schemaMapping) return
       if (paused) {
         setPatients([])
@@ -129,33 +134,57 @@ export function usePatientData(
           patientFilters,
         )
         const countSql = buildPatientCountQuery(schemaMapping, selectedCohort, patientFilters)
+        // The count is the cohort's and the filters', the same on every page.
+        const countKey = `${membershipKey}-${filtersKey}`
+        const knownCount = patientCountCacheRef.current.get(countKey)
 
         const [rows, countResult] = await Promise.all([
-          listSql ? queryDataSource(dataSourceId, listSql) : [],
-          countSql ? queryDataSource(dataSourceId, countSql) : [],
+          listSql ? queryDataSource(dataSourceId, listSql, { signal }) : [],
+          knownCount != null ? null : countSql ? queryDataSource(dataSourceId, countSql, { signal }) : [],
         ])
+        if (signal?.aborted) return
 
         const patientRows = (rows as PatientRow[]) ?? []
-        const count = Number((countResult as Record<string, unknown>[])?.[0]?.cnt ?? 0)
+        const count = knownCount ?? Number((countResult as Record<string, unknown>[] | null)?.[0]?.cnt ?? 0)
+        patientCountCacheRef.current.set(countKey, count)
 
         setPatients(patientRows)
         setPatientCount(count)
         patientCacheRef.current.set(cacheKey, { rows: patientRows, count })
       } catch (err) {
+        if (signal?.aborted) return
         console.error('Failed to load patients:', err)
         setPatients([])
         setPatientCount(0)
       } finally {
-        setPatientsLoading(false)
+        if (!signal?.aborted) setPatientsLoading(false)
       }
     },
     [dataSourceId, schemaMapping, selectedCohort, membershipKey, filtersKey, patientFilters, paused],
   )
 
-  // Load patients when page/cohort/filters change
+  // The patient after this one on the page, read ahead while this one is shown.
+  const nextPatientId = (() => {
+    const at = patients.findIndex((p) => String(p.patient_id) === patientId)
+    return at >= 0 && at < patients.length - 1 ? String(patients[at + 1].patient_id) : null
+  })()
   useEffect(() => {
-    loadPatients(patientPage)
-  }, [loadPatients, patientPage])
+    setPrefetchPatients(dataSourceId ?? null, patientId, nextPatientId)
+  }, [dataSourceId, patientId, nextPatientId])
+  useEffect(() => () => setPrefetchPatients(null, null, null), [])
+
+  // Load patients when page/cohort/filters change. Paging fast through the list
+  // asks for each page on the way: only the one it stops on is read, after a
+  // pause, and a page left before its rows arrive is stopped on the server.
+  useEffect(() => {
+    const controller = new AbortController()
+    const cached = patientCacheRef.current.has(`${membershipKey}-${filtersKey}-${patientPage}`)
+    const timer = setTimeout(() => void loadPatients(patientPage, controller.signal), cached ? 0 : PAGE_DEBOUNCE_MS)
+    return () => {
+      clearTimeout(timer)
+      controller.abort()
+    }
+  }, [loadPatients, patientPage, membershipKey, filtersKey])
 
   // After a page change driven by prev/next at a boundary, select the edge
   // patient of the freshly loaded page so navigation continues seamlessly.
@@ -171,6 +200,7 @@ export function usePatientData(
   useEffect(() => {
     setPatientPage(0)
     patientCacheRef.current.clear()
+    patientCountCacheRef.current.clear()
   }, [membershipKey, filtersKey])
 
   // A cohort's own tab opens on its first patient, so its board shows someone
@@ -199,7 +229,7 @@ export function usePatientData(
       return
     }
 
-    queryDataSource(dataSourceId, sql)
+    patientQuery(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled) {
           // rows come from a dynamic SQL query shaped to match VisitRow
@@ -243,7 +273,7 @@ export function usePatientData(
       return
     }
 
-    queryDataSource(dataSourceId, sql)
+    patientQuery(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled) {
           // rows come from a dynamic SQL query shaped to match VisitDetailRow
@@ -279,7 +309,7 @@ export function usePatientData(
       return
     }
 
-    queryDataSource(dataSourceId, sql)
+    patientQuery(dataSourceId, sql)
       .then((rows) => {
         if (!cancelled && rows.length > 0) {
           // row comes from a dynamic SQL query shaped to match PatientDemographics

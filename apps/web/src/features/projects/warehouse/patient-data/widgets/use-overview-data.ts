@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { PatientScope } from '@/lib/duckdb/patient-scope'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { patientQuery } from '../patient-prefetch'
 import { buildOverviewEventsQuery, buildOverviewTileDensityQuery } from '@/lib/duckdb/patient-overview-queries'
 import { toMs } from '@/lib/duckdb/value-coercion'
 import {
@@ -109,7 +109,7 @@ export function useOverviewData({
         : null
       if (!sql) return unmark([key])
       try {
-        const raw = await queryDataSource(dataSourceId!, sql, { signal })
+        const raw = await patientQuery(dataSourceId!, sql, { signal })
         cache.putEvents(key, { ...win, events: raw.map(toOverviewEvent), truncated: raw.length >= EVENT_FETCH_LIMIT })
         repaint()
       } catch (err) {
@@ -134,7 +134,7 @@ export function useOverviewData({
       const keys = missing.map(rowCacheKey)
       if (!sql) return unmark(keys)
       try {
-        const raw = await queryDataSource(dataSourceId!, sql, { signal })
+        const raw = await patientQuery(dataSourceId!, sql, { signal })
         const counts = new Map(missing.map((row) => [rowCacheKey(row), new Float64Array((lastTile - firstTile + 1) * TILE_BUCKETS)]))
         const first = firstTile * TILE_BUCKETS
         for (const r of raw) {

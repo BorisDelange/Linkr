@@ -12,7 +12,7 @@ import { deterministicId } from '@/lib/deterministic-id'
 import { cohortBoardKey, usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientChartTabBar } from '@/features/projects/warehouse/patient-data/PatientChartTabBar'
-import { PatientChartGrid } from '@/features/projects/warehouse/patient-data/PatientChartGrid'
+import { BoardTabGrids } from '@/features/projects/warehouse/patient-data/BoardTabGrids'
 import { AddPatientWidgetDialog } from '@/features/projects/warehouse/patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from '@/features/projects/warehouse/patient-data/PatientDataSettingsDialog'
 import { PatientDataSidebar } from '@/features/projects/warehouse/patient-data/PatientDataSidebar'
@@ -97,10 +97,6 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
     [board?.id, tabs],
   )
   const currentTabId = activeTabId ?? boardTabs[0]?.id
-  const tabWidgets = useMemo(
-    () => (currentTabId ? widgets.filter((w) => w.tabId === currentTabId) : []),
-    [widgets, currentTabId],
-  )
 
   const startConfiguring = async () => {
     await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
@@ -187,18 +183,14 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
               </div>
               {/* The tab bar stays on an empty tab: it is how to reach the others. */}
               <div className="min-h-0 flex-1 overflow-hidden">
-                {tabWidgets.length > 0 ? (
-                  <PatientChartGrid
-                    widgets={tabWidgets}
-                    tabs={boardTabs}
-                    editMode={editMode}
-                    hideTitleBars={(board.showWidgetTitles ?? true) === false}
-                    widgetSpacing={board.widgetSpacing}
-                    fitToHeight={board.fitToHeight ?? true}
-                  />
-                ) : (
-                  emptyBoard
-                )}
+                <BoardTabGrids
+                  board={board}
+                  tabs={boardTabs}
+                  widgets={widgets}
+                  currentTabId={currentTabId}
+                  editMode={editMode}
+                  empty={emptyBoard}
+                />
               </div>
             </div>
           ) : (

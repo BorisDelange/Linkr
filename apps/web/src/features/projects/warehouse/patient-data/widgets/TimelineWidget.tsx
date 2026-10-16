@@ -6,12 +6,12 @@ import { Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { usePatientChartContext } from '../PatientChartContext'
 import { usePatientScope } from '../use-patient-scope'
-import { useTabVisible } from '../TabVisibilityContext'
+import { identity, useLoadedKey, useTabVisible } from '../TabVisibilityContext'
 import {
   usePatientChartStore,
   type TimelineConfig,
 } from '@/stores/patient-chart-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { patientQuery } from '../patient-prefetch'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
 import { relationsCountedAt, timelineRelationsWithout } from '../timeline-relations'
 import { eventRelations } from '@/lib/schema-classes/relations'
@@ -148,6 +148,7 @@ export function TimelineWidget({
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   const visible = useTabVisible()
+  const loaded = useLoadedKey()
   // Narrow selectors: a bare usePatientChartStore() re-renders every timeline on
   // the grid whenever any widget or selection changes.
   const widget = usePatientChartStore((s) => s.widgets.find((w) => w.id === widgetId))
@@ -268,11 +269,15 @@ export function TimelineWidget({
       !patientId ||
       conceptIds.length === 0
     ) {
+      loaded.set('')
       setOmopData([])
       setSkipped(null)
       setLoading(false)
       return
     }
+
+    const key = [dataSourceId, identity(schemaMapping), patientId, JSON.stringify(scope), conceptIdsKey].join('\n')
+    if (loaded.has(key)) return
 
     let cancelled = false
     // Another patient or scope: the server stops the previous query.
@@ -294,10 +299,12 @@ export function TimelineWidget({
             })
           }
           const sql = buildTimelineQuery(schemaMapping, conceptIds, patientId, scope, without)
-          return sql ? queryDataSource(dataSourceId, sql, { signal: controller.signal }) : []
+          return sql ? patientQuery(dataSourceId, sql, { signal: controller.signal }) : []
         })
         .then((rows) => {
-          if (!cancelled) setOmopData((rows as unknown as TimelineRow[]) ?? [])
+          if (cancelled) return
+          loaded.set(key)
+          setOmopData((rows as unknown as TimelineRow[]) ?? [])
         })
         .catch((err) => {
           if (controller.signal.aborted) return
@@ -315,7 +322,7 @@ export function TimelineWidget({
       controller.abort()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, scope, conceptIdsKey])
+  }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, scope, conceptIdsKey, loaded])
 
   // Reshape data for dygraphs: Array<[Date, number|null, ...]>
   const { chartData, conceptNames, conceptIdByName } = useMemo(() => {

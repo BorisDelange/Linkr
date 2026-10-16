@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { patientQuery } from '../patient-prefetch'
+import { identity, useLoadedKey } from '../TabVisibilityContext'
 import {
   buildOverviewInventoryQuery,
   buildOverviewUnitStaysQuery,
@@ -47,6 +48,7 @@ export function useOverviewRecord({
   /** The bounds of the record currently loaded, read during the load itself —
    *  where the `bounds` state is still the previous render's value. */
   const boundsRef = useRef<{ lo: number; hi: number } | null>(null)
+  const loaded = useLoadedKey()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [overview, setOverview] = useState<OverviewDensity | null>(null)
@@ -56,6 +58,7 @@ export function useOverviewRecord({
     // A selected hospitalisation or stay whose dates are still being read.
     if (!scopeReady) return
     if (!dataSourceId || !schemaMapping || !selectedPatientId) {
+      loaded.set('')
       setConcepts([])
       setUnits([])
       setDeath(null)
@@ -63,6 +66,8 @@ export function useOverviewRecord({
       setBounds(null)
       return
     }
+    const key = [dataSourceId, identity(schemaMapping), selectedPatientId, selectedVisitId, JSON.stringify(scope), showUnitStays, showDeath].join('\n')
+    if (loaded.has(key)) return
     let cancelled = false
     // Another patient, visit or setting: the server stops this one's queries,
     // which would otherwise hold the database's connection until they end.
@@ -97,7 +102,7 @@ export function useOverviewRecord({
       )
       if (!sql) return
       try {
-        const raw = await queryDataSource(dataSourceId, sql, { signal })
+        const raw = await patientQuery(dataSourceId, sql, { signal })
         if (cancelled) return
         const counts = new Float64Array(RANGE_BUCKETS)
         let max = 0
@@ -119,7 +124,7 @@ export function useOverviewRecord({
         const invSql = buildOverviewInventoryQuery(
           schemaMapping, selectedPatientId, scope,
         )
-        const inv = invSql ? await queryDataSource(dataSourceId, invSql, { signal }) : []
+        const inv = invSql ? await patientQuery(dataSourceId, invSql, { signal }) : []
         if (cancelled) return
 
         const rows: OverviewConceptRow[] = inv.map((r) => ({
@@ -148,7 +153,7 @@ export function useOverviewRecord({
         if (showUnitStays) {
           const sql = buildOverviewUnitStaysQuery(schemaMapping, selectedPatientId, selectedVisitId)
           if (sql) {
-            const raw = await queryDataSource(dataSourceId, sql, { signal })
+            const raw = await patientQuery(dataSourceId, sql, { signal })
             if (cancelled) return
             stays = raw
               .map((r) => ({
@@ -170,7 +175,7 @@ export function useOverviewRecord({
         if (showDeath) {
           const sql = buildOverviewDeathQuery(schemaMapping, selectedPatientId)
           if (sql) {
-            const raw = await queryDataSource(dataSourceId, sql, { signal })
+            const raw = await patientQuery(dataSourceId, sql, { signal })
             if (cancelled) return
             deathMs = raw.length ? toMs(raw[0].death_date) : null
             if (deathMs != null) {
@@ -181,6 +186,7 @@ export function useOverviewRecord({
         }
 
         if (cancelled) return
+        loaded.set(key)
         setConcepts(rows)
         setUnits(stays)
         setDeath(deathMs)
@@ -218,7 +224,7 @@ export function useOverviewRecord({
       cancelled = true
       controller.abort()
     }
-  }, [visible, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope, showUnitStays, showDeath, setViewRaw, paintFailedRef, dataRef])
+  }, [visible, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope, showUnitStays, showDeath, setViewRaw, paintFailedRef, dataRef, loaded])
 
   return { concepts, units, death, bounds, loading, error, setError, overview }
 }

@@ -13,9 +13,9 @@ import {
   TooltipProvider,
 } from '@/components/ui/tooltip'
 import { usePatientChartContext } from '../PatientChartContext'
-import { useTabVisible } from '../TabVisibilityContext'
+import { useLoadedKey, useTabVisible } from '../TabVisibilityContext'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
-import { queryDataSource } from '@/lib/duckdb/engine'
+import { patientQuery } from '../patient-prefetch'
 import {
   buildPatientSummaryQuery,
   buildPatientVisitSummaryQuery,
@@ -737,6 +737,7 @@ export function PatientSummaryWidget() {
   const { t, i18n } = useTranslation()
   const { projectUid, dataSourceId, schemaMapping } = usePatientChartContext()
   const visible = useTabVisible()
+  const loaded = useLoadedKey()
   // Narrow selectors: a bare usePatientChartStore() re-renders this widget on every
   // unrelated widget/board change.
   const selectedPatientId = usePatientChartStore((s) => s.selectedPatientId)
@@ -752,42 +753,47 @@ export function PatientSummaryWidget() {
     // we already have so revealing the tab doesn't force a refetch.
     if (!visible) return
     if (!dataSourceId || !schemaMapping || !patientId) {
+      loaded.set('')
       setSummary(null)
       setVisits([])
       return
     }
+    const summSql = buildPatientSummaryQuery(schemaMapping, patientId)
+    const visitSql = buildPatientVisitSummaryQuery(schemaMapping, patientId)
+    const key = [dataSourceId, summSql, visitSql].join('\n')
+    if (loaded.has(key)) return
     let cancelled = false
 
-    // Fetch summary
-    const summSql = buildPatientSummaryQuery(schemaMapping, patientId)
-    if (summSql) {
-      queryDataSource(dataSourceId, summSql)
+    const summaryRead = summSql
+      ? patientQuery(dataSourceId, summSql)
         .then((rows) => {
           // SQL result rows are dynamically shaped; trust the query's column layout
           if (!cancelled && rows.length > 0) setSummary(rows[0] as unknown as SummaryRow)
         })
         .catch(() => {
           if (!cancelled) setSummary(null)
+          throw new Error('summary')
         })
-    }
-
-    // Fetch visit list
-    const visitSql = buildPatientVisitSummaryQuery(schemaMapping, patientId)
-    if (visitSql) {
-      queryDataSource(dataSourceId, visitSql)
+      : Promise.resolve()
+    const visitsRead = visitSql
+      ? patientQuery(dataSourceId, visitSql)
         .then((rows) => {
           // SQL result rows are dynamically shaped; trust the query's column layout
           if (!cancelled) setVisits(rows as unknown as VisitRow[])
         })
         .catch(() => {
           if (!cancelled) setVisits([])
+          throw new Error('visits')
         })
-    }
+      : Promise.resolve()
+    Promise.all([summaryRead, visitsRead]).then(() => {
+      if (!cancelled) loaded.set(key)
+    }, () => {})
 
     return () => {
       cancelled = true
     }
-  }, [visible, dataSourceId, schemaMapping, patientId])
+  }, [visible, dataSourceId, schemaMapping, patientId, loaded])
 
   const gv = schemaMapping?.patient?.genderValues
   const formatGender = (g: string | undefined) => fmtGender(g, gv, t)
