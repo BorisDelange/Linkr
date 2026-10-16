@@ -647,15 +647,37 @@ export async function planQuery(dataSourceId: string, sql: string): Promise<Quer
   return planQueryOnServer(dataSourceId, await prepareQuerySql(dataSourceId, sql))
 }
 
+const MISSING_TABLE = /Table with name \S+ does not exist|Table '[^']+' doesn't exist/
+
 /** Run an arbitrary SQL query against a data source schema. */
 export async function queryDataSource(
   dataSourceId: string,
   sql: string,
   options: QueryOptions = {},
 ): Promise<Record<string, unknown>[]> {
+  if (options.native) return runOnSource(dataSourceId, sql, options)
+  const prepared = await prepareQuerySql(dataSourceId, sql)
+  try {
+    return await runOnSource(dataSourceId, prepared, options)
+  } catch (e) {
+    // The table list the relations were pruned against is cached: a table
+    // dropped since still reads as present. Retried only when a fresh list
+    // writes the query differently.
+    if (!MISSING_TABLE.test(String(e))) throw e
+    forgetSourceTables(dataSourceId)
+    const fresh = await prepareQuerySql(dataSourceId, sql)
+    if (fresh === prepared) throw e
+    return runOnSource(dataSourceId, fresh, options)
+  }
+}
+
+async function runOnSource(
+  dataSourceId: string,
+  sql: string,
+  options: QueryOptions,
+): Promise<Record<string, unknown>[]> {
   const { signal, allRows, pushdown = true, native, heavy, onExecution } = options
   signal?.throwIfAborted()
-  if (!native) sql = await prepareQuerySql(dataSourceId, sql)
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
   // Front-only mode keeps the in-browser DuckDB-WASM path below.

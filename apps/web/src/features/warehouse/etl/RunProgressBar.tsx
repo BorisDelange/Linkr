@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { formatDuration } from '@/lib/format-helpers'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -118,7 +119,7 @@ export function RunProgressBar({ files, onGoToStatement }: Props) {
   )
 }
 
-/** Ticking "1m 04s" since `startedAt`, while a run is in progress. */
+/** Ticking elapsed time since `startedAt`, while a run is in progress. */
 function useElapsed(startedAt: string | undefined, running: boolean): string | null {
   const [now, setNow] = useState(() => Date.now())
 
@@ -129,7 +130,5 @@ function useElapsed(startedAt: string | undefined, running: boolean): string | n
   }, [running, startedAt])
 
   if (!startedAt) return null
-  const seconds = Math.max(0, Math.floor((now - new Date(startedAt).getTime()) / 1000))
-  if (seconds < 60) return `${seconds}s`
-  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+  return formatDuration(Math.max(1000, now - new Date(startedAt).getTime()))
 }

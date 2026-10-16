@@ -276,7 +276,7 @@ export function naturalCompare(a: string, b: string): number {
  * coarsens as the run gets longer — the user prefers "1min30s" over a bare
  * "1min":
  *   < 1s   → "820ms"
- *   < 1min → "6.6s"   (one decimal)
+ *   < 1min → "6s"     (whole seconds: a decimal is noise at this scale)
  *   < 1h   → "1min30s"
  *   ≥ 1h   → "2h05min"
  *
@@ -286,7 +286,7 @@ export function naturalCompare(a: string, b: string): number {
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`
   const totalSec = ms / 1000
-  if (totalSec < 60) return `${totalSec.toFixed(1)}s`
+  if (totalSec < 60) return `${Math.floor(totalSec)}s`
   const totalMin = Math.floor(totalSec / 60)
   if (totalMin < 60) {
     const sec = Math.floor(totalSec % 60)

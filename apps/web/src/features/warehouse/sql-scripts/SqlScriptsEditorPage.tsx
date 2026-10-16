@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react'
-import { formatSqlCell } from '@/lib/format-helpers'
+import { formatDuration, formatSqlCell } from '@/lib/format-helpers'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -270,7 +270,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           timestamp: start,
           duration,
           success: true,
-          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${duration}ms`,
+          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${formatDuration(duration)}`,
           code: sql,
         })
         if (rows.length > 0) {
@@ -1341,7 +1341,7 @@ function SqlResultCard({ result }: { result: SqlExecutionResult }) {
           </span>
           {result.duration > 0 && (
             <span className="text-[10px] text-muted-foreground">
-              {result.duration >= 1000 ? `${(result.duration / 1000).toFixed(1)}s` : `${result.duration}ms`}
+              {formatDuration(result.duration)}
             </span>
           )}
         </div>

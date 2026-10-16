@@ -54,14 +54,15 @@ MAX_QUERY_ROWS_ALL = 2_000_000
 row_cap: contextvars.ContextVar[int] = contextvars.ContextVar("row_cap", default=MAX_QUERY_ROWS)
 
 # Per-engine wiring: the DuckDB extension, the ATTACH TYPE, the passthrough
-# query function used to read the source's own information_schema, and whether
-# the ATTACH can be READ_ONLY. Doris speaks the MySQL protocol but rejects the
-# `START TRANSACTION READ ONLY` a READ_ONLY attach sends, so it attaches writable
-# and the login itself must be read-only (_require_read_only_doris_login).
+# query function used to read the source's own information_schema, the call that
+# drops the scanner's cached catalog, and whether the ATTACH can be READ_ONLY.
+# Doris speaks the MySQL protocol but rejects the `START TRANSACTION READ ONLY`
+# a READ_ONLY attach sends, so it attaches writable and the login itself must be
+# read-only (_require_read_only_doris_login).
 _ENGINES = {
-    "postgresql": {"extension": "postgres", "type": "postgres", "query_fn": "postgres_query", "read_only": True},
-    "mysql": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "read_only": True},
-    "doris": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "read_only": False},
+    "postgresql": {"extension": "postgres", "type": "postgres", "query_fn": "postgres_query", "clear_cache": "pg_clear_cache", "read_only": True},
+    "mysql": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "clear_cache": "mysql_clear_cache", "read_only": True},
+    "doris": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "clear_cache": "mysql_clear_cache", "read_only": False},
 }
 EXTERNAL_ENGINES = tuple(_ENGINES)
 
@@ -793,6 +794,18 @@ def query_external(
         return con
 
     def _read(con: duckdb.DuckDBPyConnection):
+        try:
+            return _read_once(con)
+        except duckdb.CatalogException as e:
+            # The scanner lists a schema's tables once per ATTACH: on a warm
+            # connection, a table created since reads as missing while the
+            # introspection (a fresh connection) lists it, so the app keeps it.
+            if "Table with name" not in str(e):
+                raise
+            con.execute(f"CALL {spec['clear_cache']}()")
+            return _read_once(con)
+
+    def _read_once(con: duckdb.DuckDBPyConnection):
         search_path = _external_search_path(con, config)
         if native:
             return remote.run_native(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow))

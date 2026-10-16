@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatDuration } from '@/lib/format-helpers'
 import { useTranslation } from 'react-i18next'
 import { ShieldCheck, Code2, Copy, Check, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -102,7 +103,7 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
           <div className="space-y-1 border-t pt-3">
             <StatRow label={t('data_quality.detail_violated_rows')} value={result.violatedRows.toLocaleString()} />
             <StatRow label={t('data_quality.detail_total_rows')} value={result.totalRows.toLocaleString()} />
-            <StatRow label={t('data_quality.detail_execution_time')} value={`${result.executionTimeMs} ms`} />
+            <StatRow label={t('data_quality.detail_execution_time')} value={formatDuration(result.executionTimeMs)} />
             {check.tableName && <StatRow label={t('data_quality.col_table')} value={check.tableName} />}
           </div>
 

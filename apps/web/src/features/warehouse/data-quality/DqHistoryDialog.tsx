@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatDuration } from '@/lib/format-helpers'
 import { useTranslation } from 'react-i18next'
 import { History, CheckCircle2, XCircle, Loader2, Trash2, RotateCcw } from 'lucide-react'
 import {
@@ -95,7 +96,7 @@ export function DqHistoryDialog({ open, onOpenChange, ruleSetId, onRestore }: Pr
                       <div className="mt-0.5 flex items-center gap-3 text-[10px] text-muted-foreground">
                         <span>{t('data_quality.history_checks', { passed: entry.passed, total: entry.totalChecks - entry.notApplicable })}</span>
                         {entry.durationMs != null && (
-                          <span>{t('data_quality.history_duration', { duration: (entry.durationMs / 1000).toFixed(1) })}</span>
+                          <span>{formatDuration(entry.durationMs)}</span>
                         )}
                         {entry.failed > 0 && <span className="text-red-600 dark:text-red-400">{t('data_quality.history_failed', { count: entry.failed })}</span>}
                       </div>

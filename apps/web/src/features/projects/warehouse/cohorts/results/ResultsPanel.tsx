@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
 import { CUSTOM_SQL_NO_ID } from '@/lib/duckdb/cohort-query'
+import { formatDuration } from '@/lib/format-helpers'
 import type { CohortExecutionResult, CustomSqlOutput } from '@/types'
 import { useState, type ReactNode } from 'react'
 
@@ -126,8 +127,8 @@ export function ResultsPanel({
         <div className="flex h-full flex-col">
           <p className="shrink-0 border-b bg-muted/40 px-4 py-1.5 text-[10px] text-muted-foreground">
             {output.truncated
-              ? t('cohorts.results_output_truncated', { count: output.rows.length, ms: output.durationMs })
-              : t('cohorts.results_output_rows', { count: output.rows.length, ms: output.durationMs })}
+              ? t('cohorts.results_output_truncated', { count: output.rows.length, duration: formatDuration(output.durationMs) })
+              : t('cohorts.results_output_rows', { count: output.rows.length, duration: formatDuration(output.durationMs) })}
           </p>
           <div className="min-h-0 flex-1 overflow-hidden">
             <ResultsTable rows={output.rows} rawHeaders emptyMessage={t('cohorts.results_output_none')} />
@@ -214,7 +215,7 @@ export function ResultsPanel({
                 </Badge>
               )}
               <div className="flex-1" />
-              <span className="text-[10px] text-muted-foreground">{result.durationMs}ms</span>
+              <span className="text-[10px] text-muted-foreground">{formatDuration(result.durationMs)}</span>
               <Button variant="ghost" size="sm" onClick={onExportCsv} className="h-6 gap-1 text-xs">
                 <Download size={12} />
                 CSV

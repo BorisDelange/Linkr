@@ -421,3 +421,42 @@ def test_a_plan_opens_no_connection_when_the_columns_are_cached(monkeypatch, exe
     monkeypatch.setattr(pushdown, "_pushed_down", lambda con, config, sql: RemoteQuery("REMOTE", ("n",)))
     db_connect.plan_external(DORIS, None, "SELECT 1")
     assert execution["computedBy"] == "database"
+
+
+# --- Stale scanner catalog ---------------------------------------------------
+
+
+@pytest.fixture
+def local_read(monkeypatch):
+    """query_external over a `_FakeCon`, `_run_read` answered by `answers`."""
+    con = _FakeCon()
+    con.close = lambda: None
+    answers: list = []
+    monkeypatch.setattr(db_connect, "_connect", lambda extension: con)
+    monkeypatch.setattr(db_connect, "_attach", lambda con, config, password: None)
+    monkeypatch.setattr(db_connect, "_forbid_file_access", lambda con: None)
+    monkeypatch.setattr(db_connect, "_external_search_path", lambda con, config: "ext")
+
+    def run_read(con, search_path, sql, arrow):
+        answer = answers.pop(0)
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    monkeypatch.setattr(db_connect, "_run_read", run_read)
+    return con, answers
+
+
+def test_a_table_created_since_the_attach_is_read_after_clearing_the_cache(local_read):
+    con, answers = local_read
+    answers += [duckdb.CatalogException("Catalog Error: Table with name t does not exist!"), "rows"]
+    assert db_connect.query_external(DORIS, None, "SELECT * FROM t") == "rows"
+    assert con.sql == ["CALL mysql_clear_cache()"]
+
+
+def test_another_catalog_error_is_not_retried(local_read):
+    con, answers = local_read
+    answers += [duckdb.CatalogException("Catalog Error: Scalar Function with name f does not exist!"), "rows"]
+    with pytest.raises(duckdb.CatalogException):
+        db_connect.query_external(DORIS, None, "SELECT f()")
+    assert con.sql == []

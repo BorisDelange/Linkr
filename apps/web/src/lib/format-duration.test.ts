@@ -8,10 +8,10 @@ describe('formatDuration', () => {
     expect(formatDuration(999)).toBe('999ms')
   })
 
-  it('seconds keep one decimal of precision', () => {
-    expect(formatDuration(1000)).toBe('1.0s')
-    expect(formatDuration(6600)).toBe('6.6s')
-    expect(formatDuration(59_900)).toBe('59.9s')
+  it('seconds are whole', () => {
+    expect(formatDuration(1000)).toBe('1s')
+    expect(formatDuration(6500)).toBe('6s')
+    expect(formatDuration(59_900)).toBe('59s')
   })
 
   it('minutes keep the seconds (1min30s is more precise than 1min)', () => {

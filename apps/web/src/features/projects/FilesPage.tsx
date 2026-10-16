@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo, lazy, Suspense } from 'react'
-import { formatSqlCell } from '@/lib/format-helpers'
+import { formatDuration, formatSqlCell } from '@/lib/format-helpers'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
@@ -565,7 +565,7 @@ export function FilesPage() {
           timestamp: start,
           duration,
           success: true,
-          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${duration}ms`,
+          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${formatDuration(duration)}`,
           code: sql,
         })
 
@@ -712,7 +712,7 @@ export function FilesPage() {
             // tell "it ran but warned" (amber) from "it raised" (red).
             success: !result.failed,
             warned: !result.failed && (sawStderr || !!result.stderr),
-            output: warning + (streamed || `Executed in ${duration}ms`),
+            output: warning + (streamed || `Executed in ${formatDuration(duration)}`),
             installOffer,
           })
           addFiguresAndTable(result)
@@ -733,7 +733,7 @@ export function FilesPage() {
           warned: !failed && !!result.stderr,
           output: failed
             ? result.stderr
-            : [result.stdout, result.stderr].filter(Boolean).join('\n') || `Executed in ${duration}ms`,
+            : [result.stdout, result.stderr].filter(Boolean).join('\n') || `Executed in ${formatDuration(duration)}`,
         })
         addFiguresAndTable(result)
       } catch (err) {
