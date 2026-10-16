@@ -181,3 +181,51 @@ export function buildFuzzySearchSql(term: string, cols: FuzzySearchColumns): Fuz
 
   return { where, rankExpr, tierClauses }
 }
+
+/** Column filters fall back on Jaro-Winkler only when nothing contains the
+ *  words, so they can afford to be stricter than the ranked search: a typo,
+ *  not a loose neighbour. */
+export const JW_FILTER_THRESHOLD = 0.85
+
+/**
+ * A datatable column filter on a label (the Name column of a concept list):
+ * every word of `term`, in any order, accents and case aside. When no row of
+ * `from` contains them, the labels close to the whole term instead — a typo
+ * ("antecedant" → "Antécédents"). Same cost as an ILIKE when something matches
+ * (one pass; DuckDB evaluates the uncorrelated EXISTS once): 50-150 ms on 2 M
+ * concepts. `column` is the label as `from`'s rows name it, unqualified.
+ */
+export function buildLabelFilterSql(term: string, column: string, from: string, alias?: string): string | null {
+  const words = term.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) return null
+  const contains = (col: string) =>
+    words.map((w) => `${foldSql(col)} LIKE ${foldSql(`'%${esc(w)}%'`)}`).join(' AND ')
+  const own = alias ? `${alias}.${column}` : column
+  const q = foldSql(`'${esc(words.join(' '))}'`)
+  return `((${contains(own)}) OR (NOT EXISTS (SELECT 1 FROM ${from} _lf WHERE ${contains(`_lf.${column}`)})`
+    + ` AND jaro_winkler_similarity(${foldSql(own)}, ${q}) >= ${JW_FILTER_THRESHOLD}))`
+}
+
+/**
+ * buildLabelFilterSql for rows held in memory: a predicate keeping the rows
+ * whose label holds every word of `term` — or, when none of `rows` does, those
+ * close to the whole term (`typos`; off for a column that may hold codes or
+ * ids, where a near miss is another thing). Built once per filtering pass,
+ * since the fallback depends on every row.
+ */
+export function labelMatcher<T>(
+  rows: readonly T[],
+  label: (row: T) => string | null | undefined,
+  term: string | null | undefined,
+  { typos = true }: { typos?: boolean } = {},
+): (row: T) => boolean {
+  const words = fold(term ?? '').split(/\s+/).filter(Boolean)
+  if (words.length === 0) return () => true
+  const contains = (row: T) => {
+    const v = fold(label(row) ?? '')
+    return words.every((w) => v.includes(w))
+  }
+  if (!typos || rows.some(contains)) return contains
+  const q = words.join(' ')
+  return (row) => jaroWinkler(fold(label(row) ?? ''), q) >= JW_FILTER_THRESHOLD
+}

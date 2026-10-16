@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fuzzyTextMatch, buildFuzzySearchSql, JW_FUZZY_THRESHOLD } from './fuzzy-search'
+import { fuzzyTextMatch, buildFuzzySearchSql, buildLabelFilterSql, labelMatcher, JW_FUZZY_THRESHOLD, JW_FILTER_THRESHOLD } from './fuzzy-search'
 
 describe('fuzzyTextMatch', () => {
   it('matches exactly', () => {
@@ -81,5 +81,44 @@ describe('buildFuzzySearchSql', () => {
   it('embeds the tuned JW threshold in the fuzzy tier', () => {
     const sql = buildFuzzySearchSql('abc', { nameColumn: 'concept_name' })
     expect(sql!.where).toContain(String(JW_FUZZY_THRESHOLD))
+  })
+})
+
+describe('buildLabelFilterSql', () => {
+  it('folds every word, and falls back on the whole term only when none matches', () => {
+    const sql = buildLabelFilterSql("note  d'évol", 'concept_name', 'concepts')!
+    expect(sql).toContain("strip_accents(LOWER(concept_name)) LIKE strip_accents(LOWER('%note%'))")
+    expect(sql).toContain("strip_accents(LOWER('%d''évol%'))")
+    expect(sql).toContain('NOT EXISTS (SELECT 1 FROM concepts _lf WHERE strip_accents(LOWER(_lf.concept_name))')
+    expect(sql).toContain(`jaro_winkler_similarity(strip_accents(LOWER(concept_name)), strip_accents(LOWER('note d''évol'))) >= ${JW_FILTER_THRESHOLD}`)
+  })
+
+  it('qualifies the row being filtered, not the subquery', () => {
+    const sql = buildLabelFilterSql('x', 'concept_name', 'linkr_concept_concept', 'c')!
+    expect(sql).toContain('LOWER(c.concept_name)')
+    expect(sql).toContain('FROM linkr_concept_concept _lf WHERE strip_accents(LOWER(_lf.concept_name))')
+  })
+
+  it('is no filter for a blank term', () => {
+    expect(buildLabelFilterSql('  ', 'concept_name', 'concepts')).toBeNull()
+  })
+})
+
+describe('labelMatcher', () => {
+  const rows = ["Note d'évolution", 'Antécédents', 'Antecedents medicaux', 'Conclusion']
+  const keep = (term: string, opts?: { typos?: boolean }) => rows.filter(labelMatcher(rows, (r) => r, term, opts))
+
+  it('keeps every row for a blank term', () => {
+    expect(keep('  ')).toEqual(rows)
+  })
+
+  it('needs every word, in any order, accents and case aside', () => {
+    expect(keep('EVOLUTION note')).toEqual(["Note d'évolution"])
+    expect(keep('antecedents')).toEqual(['Antécédents', 'Antecedents medicaux'])
+  })
+
+  it('falls back on names close to the term only when none holds its words', () => {
+    expect(keep('antecedant')).toEqual(['Antécédents', 'Antecedents medicaux'])
+    expect(keep('antecedant', { typos: false })).toEqual([])
   })
 })

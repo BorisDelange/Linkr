@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { AlertCircle, Pause, Play, RotateCcw } from 'lucide-react'
+import { AlertCircle, ChevronDown, ChevronUp, Pause, Play, RotateCcw, X } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
+import { useSessionDismissal } from '@/hooks/use-session-dismissal'
 import type { VisibilityState } from '@tanstack/react-table'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { Button } from '@/components/ui/button'
@@ -17,6 +18,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useConcepts } from '../concepts/use-concepts'
 import { ConceptTable } from '../concepts/ConceptTable'
+import { ConceptPickerToolbar } from '../concepts/ConceptPickerToolbar'
 import { ConceptDetail } from '../concepts/ConceptDetail'
 import { useConceptStatsSql } from '../concepts/use-concept-stats-sql'
 import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
@@ -60,6 +62,11 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const partial = !running && progress.state === 'partial'
   const percent = complete ? 100 : total ? (doneUnits / total) * 100 : 0
   const recordsDone = records.total > 0 && records.done === records.total
+  // A finished count is one line, opened on demand; closed, it stays closed
+  // until the session ends or another count finishes.
+  const [expanded, setExpanded] = useState(false)
+  const [completeDismissed, dismissComplete] = useSessionDismissal(`concept-count-complete:${dataSourceId}:${progress.finishedAt}`)
+  const compact = complete && !expanded && !live.error
 
   const stepStatus = (step: ConceptCountStepProgress, active: boolean): RunStepStatus =>
     step.total > 0 && step.done === step.total ? 'done' : active ? 'active' : 'pending'
@@ -107,23 +114,49 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
 
   return (
     <div className="flex h-full flex-col gap-3 px-6 pb-1.5">
-      {count.enabled && (
-        <Card className="flex shrink-0 flex-col gap-2 p-5">
+      {count.enabled && !(complete && completeDismissed && !live.error) && (
+        <Card className={compact ? 'flex shrink-0 flex-col px-4 py-1.5' : 'flex shrink-0 flex-col gap-2 p-5'}>
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs text-muted-foreground">{statusText}</span>
-            {total > 0 && (
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {t('concepts.count_steps', {
-                  records: records.done,
-                  recordsTotal: records.total,
-                  patients: patients.done,
-                  patientsTotal: patients.total,
-                })}
-              </span>
-            )}
+            <div className="flex items-center gap-1">
+              {total > 0 && !compact && (
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {t('concepts.count_steps', {
+                    records: records.done,
+                    recordsTotal: records.total,
+                    patients: patients.done,
+                    patientsTotal: patients.total,
+                  })}
+                </span>
+              )}
+              {complete && !live.error && (
+                <>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="ml-2 text-muted-foreground"
+                    onClick={() => setExpanded((v) => !v)}
+                    aria-label={expanded ? t('common.hide_details') : t('common.show_details')}
+                    title={expanded ? t('common.hide_details') : t('common.show_details')}
+                  >
+                    {expanded ? <ChevronUp /> : <ChevronDown />}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="text-muted-foreground"
+                    onClick={dismissComplete}
+                    aria-label={t('common.close')}
+                    title={t('common.close')}
+                  >
+                    <X />
+                  </Button>
+                </>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          {!compact && <div className="flex items-center gap-2">
             <Progress value={percent} className="flex-1" indicatorClassName={complete ? 'bg-foreground' : undefined} />
             {!readOnly && (
               <>
@@ -166,7 +199,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
                 )}
               </>
             )}
-          </div>
+          </div>}
           {(running || partial) && <RunSteps steps={steps} className="mt-2" />}
           {live.error && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
@@ -181,49 +214,59 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
         <p className="shrink-0 text-xs text-muted-foreground">{t('concepts.count_held')}</p>
       )}
 
-      <div className="min-h-0 flex-1 overflow-hidden rounded-md border bg-card">
-        <Allotment>
-          <Allotment.Pane minSize={400}>
-            <ConceptTable
-              concepts={concepts.concepts}
-              totalCount={concepts.totalCount}
-              page={concepts.page}
-              pageSize={concepts.pageSize}
-              totalPages={concepts.totalPages}
-              isLoading={concepts.isLoading}
-              selectedConceptId={selectedConceptId}
-              availableColumns={concepts.availableColumns}
-              filters={concepts.filters}
-              filterOptions={concepts.filterOptions}
-              sorting={concepts.sorting}
-              columnVisibility={columnVisibility}
-              onColumnVisibilityChange={setColumnVisibility}
-              onFilterChange={concepts.updateFilter}
-              onSortingChange={concepts.updateSorting}
-              onSelect={(id) => setSelectedConceptId((prev) => (prev === id ? null : id))}
-              selectedConceptIds={selectedIds}
-              onSelectedConceptIdsChange={setSelectedIds}
-              onPageChange={concepts.setPage}
-              onPageSizeChange={(size) => {
-                concepts.setPageSize(size)
-                concepts.setPage(0)
-              }}
-            />
-          </Allotment.Pane>
-          <Allotment.Pane minSize={300} preferredSize={380} visible={selectedConceptId !== null}>
-            <ConceptDetail
-              concept={concepts.selectedConcept}
-              availableColumns={concepts.availableColumns}
-              stats={concepts.conceptStats}
-              statsLoading={concepts.conceptStatsLoading}
-              hasValueColumn={hasValueColumn}
-              excludeOutliers={concepts.excludeOutliers}
-              statsEnabled={concepts.statsEnabled}
-              statsSql={statsSql}
-              onClose={() => setSelectedConceptId(null)}
-            />
-          </Allotment.Pane>
-        </Allotment>
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-card">
+        {/* Over every field — name, code, id — and tolerant of typos and
+            accents; the Name column's own filter covers the name alone. */}
+        <ConceptPickerToolbar
+          availableColumns={concepts.availableColumns}
+          filters={concepts.filters}
+          filterOptions={concepts.filterOptions}
+          onFilterChange={concepts.updateFilter}
+        />
+        <div className="min-h-0 flex-1">
+          <Allotment>
+            <Allotment.Pane minSize={400}>
+              <ConceptTable
+                concepts={concepts.concepts}
+                totalCount={concepts.totalCount}
+                page={concepts.page}
+                pageSize={concepts.pageSize}
+                totalPages={concepts.totalPages}
+                isLoading={concepts.isLoading}
+                selectedConceptId={selectedConceptId}
+                availableColumns={concepts.availableColumns}
+                filters={concepts.filters}
+                filterOptions={concepts.filterOptions}
+                sorting={concepts.sorting}
+                columnVisibility={columnVisibility}
+                onColumnVisibilityChange={setColumnVisibility}
+                onFilterChange={concepts.updateFilter}
+                onSortingChange={concepts.updateSorting}
+                onSelect={(id) => setSelectedConceptId((prev) => (prev === id ? null : id))}
+                selectedConceptIds={selectedIds}
+                onSelectedConceptIdsChange={setSelectedIds}
+                onPageChange={concepts.setPage}
+                onPageSizeChange={(size) => {
+                  concepts.setPageSize(size)
+                  concepts.setPage(0)
+                }}
+              />
+            </Allotment.Pane>
+            <Allotment.Pane minSize={300} preferredSize={380} visible={selectedConceptId !== null}>
+              <ConceptDetail
+                concept={concepts.selectedConcept}
+                availableColumns={concepts.availableColumns}
+                stats={concepts.conceptStats}
+                statsLoading={concepts.conceptStatsLoading}
+                hasValueColumn={hasValueColumn}
+                excludeOutliers={concepts.excludeOutliers}
+                statsEnabled={concepts.statsEnabled}
+                statsSql={statsSql}
+                onClose={() => setSelectedConceptId(null)}
+              />
+            </Allotment.Pane>
+          </Allotment>
+        </div>
       </div>
 
       <AlertDialog open={confirmRestart} onOpenChange={setConfirmRestart}>

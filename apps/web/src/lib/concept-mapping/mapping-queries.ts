@@ -2,7 +2,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { escSql as esc } from '@/lib/format-helpers'
 import { hashedConceptId } from './hashed-concept-id'
-import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
+import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 import { conceptRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
 
 /** A mapped dictionary with its relation. The mapping is still read for what
@@ -116,7 +116,9 @@ export interface SourceConceptFilters {
  *  concepts queries. Source tables only have a single human-readable column
  *  (`concept_name`); we ignore code/id tiers. */
 function fuzzySearchClauses(term: string, column: string = 'concept_name'): { rankExpr: string; where: string } | null {
-  const sql = buildFuzzySearchSql(term, { nameColumn: column })
+  // Name, code or id, as the placeholder says. A source id may be text
+  // (a file's own column): compared as a number only where it is one.
+  const sql = buildFuzzySearchSql(term, { nameColumn: column, codeColumn: 'concept_code', idColumn: 'TRY_CAST(concept_id AS BIGINT)' })
   if (!sql) return null
   return { rankExpr: sql.rankExpr, where: sql.where }
 }
@@ -180,10 +182,8 @@ function tupleInClause(keys: string[]): string | null {
 
 function buildWhereClause(filters: SourceConceptFilters): string {
   const conditions: string[] = []
-  if (filters.searchText) {
-    const term = esc(filters.searchText)
-    conditions.push(`LOWER(concept_name) LIKE LOWER('%${term}%')`)
-  }
+  const name = buildLabelFilterSql(filters.searchText ?? '', 'concept_name', 'source_concepts')
+  if (name) conditions.push(name)
   if (filters.registryIdKeys) {
     // Registry-backed id: the search was already resolved to concepts. No match
     // means no row, never "ignore the filter".

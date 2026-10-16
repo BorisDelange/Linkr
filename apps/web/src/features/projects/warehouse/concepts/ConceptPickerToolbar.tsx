@@ -18,8 +18,9 @@ interface ConceptPickerToolbarProps {
   children?: ReactNode
 }
 
-/** The concept pickers' toolbar: the Concepts page's filters popover and fuzzy
- *  search, with the same controls, order and sizing. */
+/** The Concepts page's filters popover and fuzzy search, with the same
+ *  controls, order and sizing: for the concept pickers and a database's
+ *  Concepts tab. */
 export function ConceptPickerToolbar({
   availableColumns,
   filters,

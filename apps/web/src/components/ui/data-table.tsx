@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, type ReactNode } from 'react'
+import { labelMatcher } from '@/lib/fuzzy-search'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -459,10 +460,9 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
       if (f instanceof Set) {
         if (f.size) rows = rows.filter((r) => f.has(c.display ? c.display(r) : String(c.accessor(r) ?? '')))
       } else if (f) {
-        const q = f.toLowerCase()
-        rows = rows.filter((r) =>
-          (c.display ? c.display(r) : String(c.accessor(r) ?? '')).toLowerCase().includes(q),
-        )
+        // Every word, in any order, accents and case aside. No typo fallback:
+        // a text column may hold codes or ids.
+        rows = rows.filter(labelMatcher(rows, (r) => (c.display ? c.display(r) : String(c.accessor(r) ?? '')), f, { typos: false }))
       }
     }
     if (sorting) {

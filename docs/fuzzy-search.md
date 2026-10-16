@@ -27,7 +27,12 @@ Per-token JW (matching individual words against individual words) produced bad f
 
 ## Where It's Used
 
-- Source-concept search bar in `MappingEditorTab` → `buildFileSourceConceptsQuery`
+- Source-concept search bar in `MappingEditorTab` → `buildFileSourceConceptsQuery` (name, code or id)
 - OHDSI target/browse search → `buildStandardConceptSearchQuery`, `buildStandardConceptSearchCountQuery`
+- The concept lists' search field (`_searchFuzzy`: project Concepts page, a database's Concepts tab, the concept pickers) → `concept-queries.ts`
+
+## Column filter on a label (`buildLabelFilterSql`)
+
+A datatable's Name column filter runs on every keystroke (debounced), so it does not rank: every word must appear, in any order, folded like the rest. Only when **no** row contains them does it fall back on Jaro-Winkler ≥ `JW_FILTER_THRESHOLD` (0.85, stricter than the ranked search: a typo, not a loose neighbour) against the whole term — `NOT EXISTS (… words …)`, which DuckDB evaluates once. Measured on 2 M concepts: 50–160 ms, as fast as the `ILIKE` it replaced, which ignored accents.
 
 If you add a new fuzzy search anywhere in the app, route it through this helper so the UX stays consistent.

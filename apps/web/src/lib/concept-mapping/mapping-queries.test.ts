@@ -229,3 +229,13 @@ describe('buildFileSourceConceptsQuery — pagination is a stable window', () =>
     expect(q({}, { columnId: 'record_count', desc: true })).toContain('LIMIT 50 OFFSET 50')
   })
 })
+
+describe('source concept search', () => {
+  it('searches the name, the code and the id, as its placeholder says', () => {
+    const sql = buildFileSourceConceptsQuery({ searchTextFuzzy: '4242' } as never, null, 50, 0)
+    expect(sql).toContain('LOWER(concept_name)')
+    expect(sql).toContain('LOWER(concept_code)')
+    // A file's own id column may be text: compared as a number only where it is one.
+    expect(sql).toContain('TRY_CAST(concept_id AS BIGINT) = 4242')
+  })
+})

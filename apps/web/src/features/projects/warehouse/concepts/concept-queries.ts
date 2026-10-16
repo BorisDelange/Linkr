@@ -1,7 +1,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql as esc } from '@/lib/format-helpers'
-import { buildFuzzySearchSql, type FuzzySearchSql } from '@/lib/fuzzy-search'
+import { buildFuzzySearchSql, buildLabelFilterSql, type FuzzySearchSql } from '@/lib/fuzzy-search'
 
 // ---------------------------------------------------------------------------
 // Column descriptors
@@ -204,13 +204,9 @@ function buildWhereClause(dict: ClassRelation, filters: ConceptFilters, allColum
     conditions.push(`CAST(${p}concept_id AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
   }
 
-  // Search by name (multi-word fuzzy)
-  const searchText = filterText(filters._searchText)
-  if (searchText?.trim()) {
-    const words = searchText.trim().split(/\s+/).filter(Boolean)
-    const wordConditions = words.map((w) => `${p}concept_name ILIKE '%${esc(w)}%'`)
-    conditions.push(words.length === 1 ? wordConditions[0] : `(${wordConditions.join(' AND ')})`)
-  }
+  // Name column filter: every word, accents and case aside; a typo when nothing matches.
+  const name = buildLabelFilterSql(filterText(filters._searchText) ?? '', 'concept_name', dict.name, alias)
+  if (name) conditions.push(name)
 
   // Search by code
   const searchCode = filterText(filters._searchCode)
@@ -494,12 +490,8 @@ function buildCacheWhere(filters: ConceptFilters, allColumns: ColumnDescriptor[]
     conditions.push(`CAST("concept_id" AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
   }
 
-  const searchText = filterText(filters._searchText)
-  if (searchText?.trim()) {
-    const words = searchText.trim().split(/\s+/).filter(Boolean)
-    const parts = words.map((w) => `"concept_name" ILIKE '%${esc(w)}%'`)
-    if (parts.length) conditions.push(`(${parts.join(' AND ')})`)
-  }
+  const name = buildLabelFilterSql(filterText(filters._searchText) ?? '', 'concept_name', 'concepts')
+  if (name) conditions.push(name)
 
   const searchCode = filterText(filters._searchCode)
   if (searchCode?.trim()) {

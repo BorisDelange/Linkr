@@ -82,7 +82,7 @@ import { effectiveMappingStatus, isMappingLocked, resolveDisplayedSourceConceptI
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
 import { EquivalenceMenuItems } from './components/EquivalenceMenuItems'
 import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-badge'
-import { fuzzyTextMatch } from '@/lib/fuzzy-search'
+import { fuzzyTextMatch, labelMatcher } from '@/lib/fuzzy-search'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
 import { localized } from '@/lib/localized'
@@ -1170,17 +1170,21 @@ export function MappingsTab({ project }: MappingsTabProps) {
   }, [allDisplayMappings, currentUser, mappingsVersion])
 
   // Apply column filters + status popover filter (client-side)
-  const filtered = useMemo(() => allDisplayMappings.filter((m) => {
+  const filtered = useMemo(() => {
     const f = colFilters
+    // Accents and case aside; a typo when no mapping holds the words.
+    const sourceName = labelMatcher(allDisplayMappings, (m) => m.sourceConceptName, f.sourceConceptName)
+    const targetName = labelMatcher(allDisplayMappings, (m) => m.targetConceptName, f.targetConceptName)
+    return allDisplayMappings.filter((m) => {
     // Matched against the id actually shown: for a registry-backed project the
     // stored sourceConceptId is a row-number index nobody sees, so filtering on
     // it would reject the very value the user copied off the column.
     if (f.sourceConceptId && !String(resolveSourceConceptId(m) ?? '').includes(f.sourceConceptId)) return false
-    if (f.sourceConceptName && !m.sourceConceptName.toLowerCase().includes(f.sourceConceptName.toLowerCase())) return false
+    if (!sourceName(m)) return false
     if (f.sourceConceptCode && !(m.sourceConceptCode || String(m.sourceConceptId)).toLowerCase().includes(f.sourceConceptCode.toLowerCase())) return false
     if (f.sourceVocabularyId?.length && !f.sourceVocabularyId.includes(m.sourceVocabularyId)) return false
     if (f.sourceCategoryId?.length && !f.sourceCategoryId.includes(m.sourceCategoryId ?? '')) return false
-    if (f.targetConceptName && !m.targetConceptName.toLowerCase().includes(f.targetConceptName.toLowerCase())) return false
+    if (!targetName(m)) return false
     if (f.targetConceptId && !String(m.targetConceptId).includes(f.targetConceptId)) return false
     if (f.targetVocabularyId?.length && !f.targetVocabularyId.includes(m.targetVocabularyId)) return false
     if (f.targetDomainId?.length && !f.targetDomainId.includes(m.targetDomainId ?? '')) return false
@@ -1210,7 +1214,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
       if (approvalRule === 'no_rejections' && rejectedCount > 0) return false
     }
     return true
-  }), [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived, resolveSourceConceptId])
+  })
+  }, [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived, resolveSourceConceptId])
 
   /** Frozen row order: captured the first time a filter/sort combination is applied
    *  and reused as long as those settings stay the same, so a vote that changes a
@@ -1588,6 +1593,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
   const bulkFilteredCandidates = useMemo<BulkCandidateRow[]>(() => {
     const f = bulkFilters
     const g = f.globalSearch.trim()
+    const sourceName = labelMatcher(bulkCandidates, (r) => r.sourceConceptName, f.sourceName)
+    const targetName = labelMatcher(bulkCandidates, (r) => r.targetConceptName, f.targetName)
     return bulkCandidates.filter((r) => {
       if (g) {
         // Fuzzy match on source name OR target name (canonical rules — see lib/fuzzy-search).
@@ -1596,10 +1603,10 @@ export function MappingsTab({ project }: MappingsTabProps) {
       if (f.sourceProjectIds.length > 0 && !f.sourceProjectIds.includes(r.sourceProjectId)) return false
       if (f.sourceVocabIds.length > 0 && !f.sourceVocabIds.includes(r.sourceVocabularyId)) return false
       if (f.sourceCode && !r.sourceConceptCode.toLowerCase().includes(f.sourceCode.toLowerCase())) return false
-      if (f.sourceName && !r.sourceConceptName.toLowerCase().includes(f.sourceName.toLowerCase())) return false
+      if (!sourceName(r)) return false
       if (f.targetVocabIds.length > 0 && !f.targetVocabIds.includes(r.targetVocabularyId)) return false
       if (f.targetId && !String(r.targetConceptId).includes(f.targetId)) return false
-      if (f.targetName && !r.targetConceptName.toLowerCase().includes(f.targetName.toLowerCase())) return false
+      if (!targetName(r)) return false
       if (f.statuses.length > 0 && !f.statuses.includes(r.status)) return false
       if (f.equivalences.length > 0 && !f.equivalences.includes(r.equivalence)) return false
       return true

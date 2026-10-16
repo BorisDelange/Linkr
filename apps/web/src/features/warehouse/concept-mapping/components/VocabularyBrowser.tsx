@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
+import { labelMatcher } from '@/lib/fuzzy-search'
 import { useTranslation } from 'react-i18next'
 import {
   flexRender,
@@ -360,9 +361,10 @@ export function VocabularyBrowser({ dataSourceId }: VocabularyBrowserProps) {
   // Apply inline column filters first, then sort.
   const filteredBrowseResults = useMemo(() => {
     const f = browseColFilters
+    const name = labelMatcher(browseResults, (r) => String(r.concept_name ?? ''), f.concept_name)
     return browseResults.filter((r) => {
       if (f.concept_id && !String(r.concept_id ?? '').includes(f.concept_id)) return false
-      if (f.concept_name && !String(r.concept_name ?? '').toLowerCase().includes(f.concept_name.toLowerCase())) return false
+      if (!name(r)) return false
       if (f.concept_code && !String(r.concept_code ?? '').toLowerCase().includes(f.concept_code.toLowerCase())) return false
       if (f.vocabulary_id?.length && !f.vocabulary_id.includes(String(r.vocabulary_id ?? ''))) return false
       if (f.domain_id?.length && !f.domain_id.includes(String(r.domain_id ?? ''))) return false

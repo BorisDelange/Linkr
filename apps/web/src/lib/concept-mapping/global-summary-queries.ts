@@ -7,7 +7,7 @@
  */
 import { getDuckDB } from '@/lib/duckdb/engine'
 import { localized } from '@/lib/localized'
-import { buildFuzzySearchSql } from '@/lib/fuzzy-search'
+import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 import type { ConceptMapping, MappingProject } from '@/types'
 
 /* ------------------------------------------------------------------ */
@@ -320,13 +320,15 @@ function buildFlatWhere(f: GlobalTableFilters): string {
   if (srcVocab) clauses.push(srcVocab)
   if (f.sourceConceptId) clauses.push(`CAST(COALESCE(resolved_source_concept_id, 0) AS VARCHAR) LIKE '%${esc(f.sourceConceptId)}%'`)
   if (f.sourceConceptCode) clauses.push(`LOWER(source_concept_code) LIKE LOWER('%${esc(f.sourceConceptCode)}%')`)
-  if (f.sourceConceptName) clauses.push(`LOWER(source_concept_name) LIKE LOWER('%${esc(f.sourceConceptName)}%')`)
+  const sourceName = buildLabelFilterSql(f.sourceConceptName ?? '', 'source_concept_name', 'global_flat')
+  if (sourceName) clauses.push(sourceName)
   const equiv = inClause('equivalence', f.equivalence)
   if (equiv) clauses.push(equiv)
   const tgtVocab = inClause('target_vocabulary_id', f.targetVocabularyId)
   if (tgtVocab) clauses.push(tgtVocab)
   if (f.targetConceptId) clauses.push(`CAST(target_concept_id AS VARCHAR) LIKE '%${esc(f.targetConceptId)}%'`)
-  if (f.targetConceptName) clauses.push(`LOWER(target_concept_name) LIKE LOWER('%${esc(f.targetConceptName)}%')`)
+  const targetName = buildLabelFilterSql(f.targetConceptName ?? '', 'target_concept_name', 'global_flat')
+  if (targetName) clauses.push(targetName)
   return clauses.length ? ' WHERE ' + clauses.join(' AND ') : ''
 }
 
@@ -346,13 +348,15 @@ function buildDedupWhere(f: GlobalTableFilters): string {
   // builder above; was missing here, so the filter did nothing in badge mode).
   if (f.sourceConceptId) clauses.push(`CAST(COALESCE(resolved_source_concept_id, 0) AS VARCHAR) LIKE '%${esc(f.sourceConceptId)}%'`)
   if (f.sourceConceptCode) clauses.push(`LOWER(source_concept_code) LIKE LOWER('%${esc(f.sourceConceptCode)}%')`)
-  if (f.sourceConceptName) clauses.push(`LOWER(source_concept_name) LIKE LOWER('%${esc(f.sourceConceptName)}%')`)
+  const sourceName = buildLabelFilterSql(f.sourceConceptName ?? '', 'source_concept_name', 'global_dedup')
+  if (sourceName) clauses.push(sourceName)
   const equiv = inClause('equivalence', f.equivalence)
   if (equiv) clauses.push(equiv)
   const tgtVocab = inClause('target_vocabulary_id', f.targetVocabularyId)
   if (tgtVocab) clauses.push(tgtVocab)
   if (f.targetConceptId) clauses.push(`CAST(target_concept_id AS VARCHAR) LIKE '%${esc(f.targetConceptId)}%'`)
-  if (f.targetConceptName) clauses.push(`LOWER(target_concept_name) LIKE LOWER('%${esc(f.targetConceptName)}%')`)
+  const targetName = buildLabelFilterSql(f.targetConceptName ?? '', 'target_concept_name', 'global_dedup')
+  if (targetName) clauses.push(targetName)
   return clauses.length ? ' WHERE ' + clauses.join(' AND ') : ''
 }
 

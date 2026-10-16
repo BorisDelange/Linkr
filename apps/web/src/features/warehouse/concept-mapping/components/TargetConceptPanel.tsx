@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, useTransition } from 'react'
+import { labelMatcher } from '@/lib/fuzzy-search'
 import { has } from '@/lib/schema-classes/relations'
 import { useTranslation } from 'react-i18next'
 import {
@@ -574,6 +575,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   const filteredResolved = useMemo(() => {
     const q = resolvedSearch.trim().toLowerCase()
     const f = resolvedFilters
+    const name = labelMatcher(resolvedConcepts, (c) => c.conceptName, f.name)
     return resolvedConcepts.filter((c) => {
       if (q && !(
         c.conceptName.toLowerCase().includes(q) ||
@@ -581,7 +583,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
         c.vocabularyId.toLowerCase().includes(q) ||
         c.domainId.toLowerCase().includes(q)
       )) return false
-      if (f.name && !c.conceptName.toLowerCase().includes(f.name.toLowerCase())) return false
+      if (!name(c)) return false
       if (f.id && !String(c.conceptId).includes(f.id)) return false
       if (f.code && !c.conceptCode?.toLowerCase().includes(f.code.toLowerCase())) return false
       if (f.vocab?.size && !f.vocab.has(c.vocabularyId)) return false
@@ -1578,10 +1580,11 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   const [searchColFilters, setSearchColFilters] = useState<SearchColumnFilters>({})
 
   // Apply inline filters to search results
+  const searchName = labelMatcher(searchResults, (r) => r.concept_name, searchColFilters.concept_name)
   const filteredSearchResults = searchResults.filter((r) => {
     const f = searchColFilters
     if (f.concept_id && !String(r.concept_id).includes(f.concept_id)) return false
-    if (f.concept_name && !r.concept_name.toLowerCase().includes(f.concept_name.toLowerCase())) return false
+    if (!searchName(r)) return false
     if (f.concept_code && !r.concept_code.toLowerCase().includes(f.concept_code.toLowerCase())) return false
     if (f.vocabulary_id?.size && !f.vocabulary_id.has(r.vocabulary_id ?? '')) return false
     if (f.domain_id?.size && !f.domain_id.has(r.domain_id ?? '')) return false
