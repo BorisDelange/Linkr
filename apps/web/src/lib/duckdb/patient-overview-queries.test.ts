@@ -157,3 +157,34 @@ describe('what a database can compute itself (remote_sql)', () => {
     expect(sql).not.toMatch(/T\d{2}:|Z'/)
   })
 })
+
+describe('the inventory of an event keyed by (terminology, code)', () => {
+  const thesaurus = mappingV1ToV2({
+    presetId: 'eav',
+    presetLabel: { en: 'EAV' },
+    patientTable: { table: 'persons', idColumn: 'pid' },
+    conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+    eventTables: {
+      Data: { table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code', patientIdColumn: 'pid', dateColumn: 'at', unitColumn: 'unit' },
+    },
+  } as never)
+  const sql = buildOverviewInventoryQuery(thesaurus, 'p1', NO_SCOPE)!
+
+  it('counts the codes first, then reads the dictionary once for them', () => {
+    // The relation itself looks every row's id up in the whole dictionary.
+    expect(sql).toContain('FROM linkr_event_data__codes e')
+    expect(sql).not.toMatch(/FROM linkr_event_data e\b/)
+    expect(sql.match(/LEFT JOIN linkr_concept_thes c ON/g)).toHaveLength(1)
+  })
+
+  it('keeps the rows of the general form: one per concept id, units counted from their groups', () => {
+    expect(sql).toMatch(/GROUP BY g\.concept_id\n/)
+    expect(sql).toContain('MIN(c.concept_id) AS concept_id')
+    expect(sql).toContain('COUNT(DISTINCT g.unit) AS unit_count')
+    expect(sql).toContain('SUM(g.n) AS event_count')
+  })
+
+  it('still runs once its relations are written in', () => {
+    expect(withClassRelations(sql, thesaurus)).toContain('linkr_event_data__codes AS NOT MATERIALIZED')
+  })
+})

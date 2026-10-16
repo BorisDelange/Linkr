@@ -1,5 +1,5 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
-import { classRelation, conceptJoinOn, conceptRelations, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { classRelation, codesRelation, conceptJoinOn, conceptRelations, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { specTables } from '@/lib/schema-classes/spec'
 import { escSql } from '@/lib/format-helpers'
 import { eventScopeCondition, type PatientScope } from './patient-scope'
@@ -71,6 +71,7 @@ function buildInventoryPart(
   if (!has(event, 'start_datetime') || !has(event, 'patient_id')) return null
 
   const dict = dictionaryOf(mapping, event)
+  if (dict && event.compositeConceptKey && event.codeSql != null) return buildCodesInventoryPart(mapping, event, dict, patientId, scope)
   const visitFilter = eventScopeCondition(mapping, event, scope)
   const durational = has(event, 'end_datetime')
   // Unit of measure: the standardised concept when the schema maps one, with the
@@ -120,6 +121,78 @@ FROM ${event.name} e${join}
 WHERE e.patient_id = '${escSql(patientId)}'
   AND e.start_datetime IS NOT NULL${visitFilter}
 GROUP BY e.concept_id`
+}
+
+/**
+ * The inventory of an event keyed by (terminology, code), counted on its codes
+ * before any dictionary is read. Its relation looks each row's concept_id up in
+ * the whole dictionary, and a second join fetched the names: on a dictionary of
+ * millions of concepts, the query of the whole figure took over a gigabyte of
+ * the database's memory. Here the patient's rows are grouped first — a few
+ * hundred codes — and only those are looked up, once.
+ *
+ * Same rows as the general form: grouped at the end by the concept_id the
+ * relation would give (the smallest id of the pair, NULL for a code the
+ * dictionary lacks), units counted from their own groups.
+ */
+function buildCodesInventoryPart(
+  mapping: SchemaMapping,
+  event: ClassRelation,
+  dict: ClassRelation,
+  patientId: string,
+  scope: PatientScope,
+): string {
+  const visitFilter = eventScopeCondition(mapping, event, scope)
+  const durational = has(event, 'end_datetime')
+  const unitCols = [has(event, 'unit') ? 'unit' : null, has(event, 'unit_concept_id') ? 'unit_concept_id' : null]
+    .filter((c): c is string => !!c)
+  const groupCols = ['concept_terminology', 'concept_code', ...unitCols]
+  const classCol = classColumn(dict)
+  const hasCode = has(dict, 'concept_code')
+  const unitJoin = unitCols.includes('unit_concept_id') ? `\nLEFT JOIN ${dict.name} uc ON uc.concept_id = g.unit_concept_id` : ''
+  const srcUnit = unitCols.includes('unit') ? 'g.unit' : null
+  const stdUnit = unitJoin ? 'g.unit_name' : null
+  const unitExpr = srcUnit && stdUnit
+    ? `COALESCE(MAX(${srcUnit}), MAX(${stdUnit}))`
+    : srcUnit || stdUnit ? `MAX(${srcUnit ?? stdUnit})` : 'NULL'
+  const unitCountArg = srcUnit && stdUnit ? `COALESCE(${srcUnit}, ${stdUnit})` : (srcUnit ?? stdUnit)
+
+  const counted = `SELECT ${groupCols.map((c) => `e.${c}`).join(', ')},
+    COUNT(*) AS n,
+    MIN(e.start_datetime) AS first_event,
+    MAX(COALESCE(${durational ? 'e.end_datetime' : 'NULL'}, e.start_datetime)) AS last_event
+  FROM ${codesRelation(event.name)} e
+  WHERE e.patient_id = '${escSql(patientId)}'
+    AND e.start_datetime IS NOT NULL${visitFilter}
+  GROUP BY ${groupCols.map((c) => `e.${c}`).join(', ')}`
+  // One row per counted group, with what the dictionary says of its code.
+  const resolved = `SELECT ${groupCols.map((c) => `g.${c}`).join(', ')}, g.n, g.first_event, g.last_event,
+    MIN(c.concept_id) AS concept_id,
+    MAX(c.concept_name) AS concept_name,
+    ${hasCode ? 'MAX(c.concept_code)' : 'NULL'} AS dict_code,
+    ${classCol ? `MAX(CAST(c.${classCol} AS VARCHAR))` : 'NULL'} AS concept_class${stdUnit ? ',\n    MAX(uc.concept_name) AS unit_name' : ''}
+  FROM (
+  ${counted}
+  ) g
+  LEFT JOIN ${dict.name} c ON ${conceptJoinOn(event, 'g', 'c')}${unitJoin}
+  GROUP BY ${groupCols.map((c) => `g.${c}`).join(', ')}, g.n, g.first_event, g.last_event`
+
+  return `SELECT '${escSql(event.key ?? '')}' AS table_label,
+  CAST(g.concept_id AS VARCHAR) AS concept_id,
+  MAX(g.concept_name) AS concept_name,
+  MAX(g.dict_code) AS concept_code,
+  MAX(g.concept_class) AS concept_class,
+  ${unitExpr} AS unit,
+  ${unitCountArg ? `COUNT(DISTINCT ${unitCountArg})` : '0'} AS unit_count,
+  SUM(g.n) AS event_count,
+  MIN(g.first_event) AS first_event,
+  MAX(g.last_event) AS last_event,
+  ${durational ? 'TRUE' : 'FALSE'} AS durational,
+  ${event.cls === 'drug' ? 'TRUE' : 'FALSE'} AS is_drug
+FROM (
+${resolved}
+) g
+GROUP BY g.concept_id`
 }
 
 /**
