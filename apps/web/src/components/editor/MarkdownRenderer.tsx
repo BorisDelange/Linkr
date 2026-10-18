@@ -6,7 +6,6 @@ import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize, { defaultSchema } from 'rehype-sanitize'
 import 'katex/dist/katex.min.css'
-import { ExternalLink } from 'lucide-react'
 import { markdownComponents, processCallouts } from '@/components/editor/markdown-components'
 import { foldAccents } from '@/lib/fold-accents'
 
@@ -220,28 +219,8 @@ export function MarkdownRenderer({
       }
       return <code {...props}>{children}</code>
     },
-    // An off-site link opens in a new tab and says so, so following a reference
-    // never loses the page underneath. In-page anchors (the TOC, heading links)
-    // and app-relative links keep navigating in place.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    a: ({ node: _node, href, children, ...props }: any) => {
-      const isExternal = typeof href === 'string' && /^(https?|mailto):/i.test(href)
-      if (!isExternal) return <a href={href} {...props}>{children}</a>
-      return (
-        <a
-          href={href}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-baseline gap-1"
-          {...props}
-        >
-          {children}
-          <ExternalLink size={11} className="ml-px shrink-0 translate-y-px opacity-70" aria-hidden />
-        </a>
-      )
-    },
-    // Images come from the shared `markdownComponents` (spread below), so the
-    // click-to-enlarge and the width cap stay defined in exactly one place.
+    // Images and off-site links come from the shared `markdownComponents`
+    // (spread below), so they behave the same in every markdown view.
     // Add IDs to headings for TOC linking
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     h1: ({ children, ...props }: any) => {

@@ -1,4 +1,4 @@
-import { Info, Lightbulb, AlertTriangle, AlertCircle } from 'lucide-react'
+import { Info, Lightbulb, AlertTriangle, AlertCircle, ExternalLink } from 'lucide-react'
 import { ZoomableImage } from '@/components/ImageLightbox'
 import { SectionLabel } from '@/components/ui/section-label'
 
@@ -67,6 +67,26 @@ const calloutLabels: Record<string, string> = {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const markdownComponents: Record<string, any> = {
+  // An off-site link opens in a new tab and says so, so following a reference
+  // never loses the page underneath. In-page anchors (the TOC, heading links)
+  // and app-relative links keep navigating in place.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  a: ({ node: _node, href, children, ...props }: any) => {
+    const isExternal = typeof href === 'string' && /^(https?|mailto):/i.test(href)
+    if (!isExternal) return <a href={href} {...props}>{children}</a>
+    return (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-baseline gap-1"
+        {...props}
+      >
+        {children}
+        <ExternalLink size={11} className="ml-px shrink-0 translate-y-px opacity-70" aria-hidden />
+      </a>
+    )
+  },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   img: ({ node: _node, className, ...props }: any) => (
     <ZoomableImage {...props} className={className ? `${IMG_CLASS} ${className}` : IMG_CLASS} />
