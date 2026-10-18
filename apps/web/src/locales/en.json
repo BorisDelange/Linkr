@@ -3604,9 +3604,20 @@
       "script": "Script",
       "concept_list": "Concept list",
       "mapping_project": "Mapping project",
-      "database": "Database"
+      "database": "Database",
+      "etl_pipeline": "ETL pipeline"
     },
     "part": {
+      "script": {
+        "created": "Script « {{name}} » added",
+        "updated": "Script « {{name}} » modified",
+        "deleted": "Script « {{name}} » deleted"
+      },
+      "folder": {
+        "created": "Folder « {{name}} » added",
+        "updated": "Folder « {{name}} » modified",
+        "deleted": "Folder « {{name}} » deleted"
+      },
       "widget": {
         "created": "Widget « {{name}} » added",
         "updated": "Widget « {{name}} » modified",

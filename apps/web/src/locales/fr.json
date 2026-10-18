@@ -3604,9 +3604,20 @@
       "script": "Script",
       "concept_list": "Liste de concepts",
       "mapping_project": "Projet de mapping",
-      "database": "Base de données"
+      "database": "Base de données",
+      "etl_pipeline": "Pipeline ETL"
     },
     "part": {
+      "script": {
+        "created": "Script « {{name}} » ajouté",
+        "updated": "Script « {{name}} » modifié",
+        "deleted": "Script « {{name}} » supprimé"
+      },
+      "folder": {
+        "created": "Dossier « {{name}} » ajouté",
+        "updated": "Dossier « {{name}} » modifié",
+        "deleted": "Dossier « {{name}} » supprimé"
+      },
       "widget": {
         "created": "Widget « {{name}} » ajouté",
         "updated": "Widget « {{name}} » modifié",

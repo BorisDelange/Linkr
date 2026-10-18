@@ -9,6 +9,7 @@ import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useDatasetStore } from '@/stores/dataset-store'
+import { useEtlStore } from '@/stores/etl-store'
 import { useFileStore } from '@/stores/file-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 
@@ -29,6 +30,11 @@ const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
     if (e.projectUid && store.activeProjectUid === e.projectUid) await store.reloadDatasetsFromDisk(e.projectUid)
   },
   database: (e) => useDataSourceStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
+  etl_pipeline: (e) => useEtlStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
+  etl_run: async (e) => {
+    const etl = useEtlStore.getState()
+    if (etl.activePipelineId === e.entityId) await etl.loadRunHistory(e.entityId)
+  },
   mapping_project: async (e) => {
     const mappings = useConceptMappingStore.getState()
     if (mappings.activeProjectId === e.entityId) await mappings.loadProjectMappings(e.entityId, { force: true })

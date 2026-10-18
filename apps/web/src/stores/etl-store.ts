@@ -44,6 +44,9 @@ interface EtlState {
   createPipeline: (pipeline: EtlPipeline) => Promise<void>
   updatePipeline: (id: string, changes: Partial<EtlPipeline>) => Promise<void>
   deletePipeline: (id: string) => Promise<void>
+  /** Re-read a pipeline and, when it is the open one, its files, after a change
+   *  made elsewhere (an agent over MCP). Unsaved edits in the editor are kept. */
+  applyRemoteChange: (id: string, deleted: boolean) => Promise<void>
 
   // File management (scoped to active pipeline)
   files: EtlFile[]
@@ -235,6 +238,45 @@ export const useEtlStore = create<EtlState>((set, get) => ({
       files: s.activePipelineId === id ? [] : s.files,
       activePipelineId: s.activePipelineId === id ? null : s.activePipelineId,
     }))
+  },
+
+  applyRemoteChange: async (id, deleted) => {
+    const storage = getStorage()
+    const pipeline = deleted ? undefined : await storage.etlPipelines.getById(id)
+    set((s) => {
+      const others = s.etlPipelines.filter((p) => p.id !== id)
+      if (pipeline) {
+        const index = s.etlPipelines.findIndex((p) => p.id === id)
+        return { etlPipelines: index < 0 ? [...others, pipeline] : s.etlPipelines.map((p) => (p.id === id ? pipeline : p)) }
+      }
+      return s.activePipelineId === id
+        ? { etlPipelines: others, files: [], activePipelineId: null, openFileIds: [], selectedFileId: null }
+        : { etlPipelines: others }
+    })
+    if (!pipeline || get().activePipelineId !== id) return
+    const stored = await storage.etlFiles.getByPipeline(id)
+    if (get().activePipelineId !== id) return
+    set((s) => {
+      const dirty = new Map([...s._dirtyMap].filter(([fid]) => s.isFileDirty(fid)))
+      const local = new Map(s.files.map((f) => [f.id, f]))
+      // A file the user is editing keeps their text; what the agent wrote becomes
+      // the version a Revert goes back to.
+      const files = stored.map((f) => {
+        if (!dirty.has(f.id)) return f
+        dirty.set(f.id, f.content ?? '')
+        return { ...f, content: local.get(f.id)?.content }
+      })
+      const ids = new Set(files.map((f) => f.id))
+      for (const fid of dirty.keys()) if (!ids.has(fid)) dirty.delete(fid)
+      const openFileIds = s.openFileIds.filter((fid) => ids.has(fid))
+      return {
+        files: files.sort(compareEtlFilesByOrder),
+        openFileIds,
+        selectedFileId: s.selectedFileId && ids.has(s.selectedFileId) ? s.selectedFileId : openFileIds[0] ?? null,
+        _dirtyMap: dirty,
+        _dirtyVersion: s._dirtyVersion + 1,
+      }
+    })
   },
 
   // --- File management ---

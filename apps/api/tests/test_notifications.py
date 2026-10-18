@@ -132,3 +132,74 @@ async def test_scripts_and_concept_lists_written_by_an_agent_are_notified(client
     assert r.status_code == 201
     latest = (await _list(client, headers))[0]
     assert (latest["entityType"], latest["action"], latest["label"]) == ("concept_list", "created", {"en": "Labs"})
+
+
+async def test_etl_writes_by_an_agent_are_notified_and_undoable(client):
+    from tests.test_etl_pipelines import _pipeline, _workspace
+
+    headers = await _admin_headers(client)
+    agent = {**headers, **MCP}
+    ws = await _workspace(client, headers)
+    await _pipeline(client, headers, ws)
+    folder = {"id": "f0", "pipelineId": "p1", "name": "sql", "type": "folder"}
+    await client.post(f"{API}/etl-files", headers=headers, json=folder)
+    assert await _list(client, headers) == []
+
+    script = {"id": "f1", "pipelineId": "p1", "name": "42_eras.sql", "parentId": "f0", "content": "SELECT 1"}
+    assert (await client.post(f"{API}/etl-files", headers=agent, json=script)).status_code == 201
+    await client.patch(f"{API}/etl-files/f1", headers=agent, json={"content": "SELECT 2"})
+    updated, created = await _list(client, headers)
+    assert (created["entityType"], created["entityId"], created["label"]) == ("etl_pipeline", "p1", {"en": "ETL"})
+    assert created["detail"] == {
+        "workspaceId": ws, "part": "script", "action": "created", "name": "sql/42_eras.sql", "fileId": "f1",
+    }
+    assert updated["detail"]["action"] == "updated" and updated["undoable"] and not created["undoable"]
+
+    # Rewriting the same content, or only moving the script in the run order:
+    # nothing to tell the user.
+    await client.patch(f"{API}/etl-files/f1", headers=agent, json={"content": "SELECT 2"})
+    await client.patch(f"{API}/etl-files/f1", headers=agent, json={"order": 5})
+    await client.patch(f"{API}/etl-pipelines/p1", headers=agent, json={"config": {"excludedFiles": []}})
+    assert len(await _list(client, headers)) == 2
+
+    assert (await _undo(client, headers, updated["id"])).status_code == 204
+    files = (await client.get(f"{API}/etl-pipelines/p1/files", headers=headers)).json()
+    assert next(f for f in files if f["id"] == "f1")["content"] == "SELECT 1"
+
+    await client.delete(f"{API}/etl-files/f1", headers=agent)
+    deleted = (await _list(client, headers))[0]
+    assert deleted["detail"]["action"] == "deleted" and deleted["undoable"]
+    await _undo(client, headers, deleted["id"])
+    files = (await client.get(f"{API}/etl-pipelines/p1/files", headers=headers)).json()
+    restored = next(f for f in files if f["id"] == "f1")
+    assert (restored["content"], restored["parentId"], restored["order"]) == ("SELECT 1", "f0", 5)
+
+    await client.patch(f"{API}/etl-pipelines/p1", headers=agent, json={"name": {"en": "Renamed"}})
+    renamed = (await _list(client, headers))[0]
+    assert renamed["label"] == {"en": "Renamed"} and renamed["detail"] == {"workspaceId": ws}
+    await _undo(client, headers, renamed["id"])
+    assert (await client.get(f"{API}/etl-pipelines/p1", headers=headers)).json()["name"] == {"en": "ETL"}
+
+
+async def test_an_etl_run_refreshes_but_does_not_notify(client):
+    from tests.test_etl_pipelines import _pipeline, _workspace
+
+    headers = await _admin_headers(client)
+    agent = {**headers, **MCP}
+    ws = await _workspace(client, headers)
+    await _pipeline(client, headers, ws)
+    queue = notification_hub.subscribe(1)
+    try:
+        run = {"id": "r1", "pipelineId": "p1", "startedAt": "2026-10-18T10:00:00Z", "status": "running"}
+        assert (await client.post(f"{API}/etl-runs", headers=agent, json=run)).status_code == 201
+        event = queue.get_nowait()
+        assert (event["entityType"], event["entityId"]) == ("etl_run", "p1") and "notification" not in event
+    finally:
+        notification_hub.unsubscribe(1, queue)
+    assert await _list(client, headers) == []
+
+    await client.post(f"{API}/etl-pipelines", headers=agent, json={"id": "p2", "workspaceId": ws, "name": {"en": "New"}})
+    created = (await _list(client, headers))[0]
+    assert created["action"] == "created" and created["undoable"]
+    await _undo(client, headers, created["id"])
+    assert (await client.get(f"{API}/etl-pipelines/p2", headers=headers)).status_code == 404

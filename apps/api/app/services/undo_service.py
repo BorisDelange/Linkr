@@ -9,16 +9,29 @@ edit made on top of it.
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.permissions import check_project_permission
+from app.core.permissions import check_project_permission, check_workspace_permission
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.cohort import CohortCreate, CohortResponse, CohortUpdate
 from app.schemas.dashboard import (
-    DashboardCreate, DashboardResponse, DashboardTabCreate, DashboardTabResponse,
-    DashboardTabUpdate, DashboardUpdate, DashboardWidgetCreate, DashboardWidgetResponse,
+    DashboardCreate,
+    DashboardResponse,
+    DashboardTabCreate,
+    DashboardTabResponse,
+    DashboardTabUpdate,
+    DashboardUpdate,
+    DashboardWidgetCreate,
+    DashboardWidgetResponse,
     DashboardWidgetUpdate,
 )
-from app.services import cohort_access, cohort_service, dashboard_service, project_fs
+from app.schemas.etl_pipeline import EtlFileCreate, EtlFileUpdate, EtlPipelineUpdate
+from app.services import (
+    cohort_access,
+    cohort_service,
+    dashboard_service,
+    etl_pipeline_service,
+    project_fs,
+)
 
 # --- Snapshots (taken by the routes before they write) ----------------------
 
@@ -133,6 +146,40 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
             await dashboard_service.update_tab(db, row, DashboardTabUpdate(**_fields(snap, DashboardTabUpdate)))
         else:
             await dashboard_service.update_widget(db, row, DashboardWidgetUpdate(**_fields(snap, DashboardWidgetUpdate)))
+        return False
+
+    if kind == "etl_pipeline":
+        pipeline = await etl_pipeline_service.get(db, target)
+        if pipeline is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "The pipeline no longer exists")
+        if op == "delete":
+            await check_workspace_permission(db, pipeline.workspace_id, user, "etl:delete")
+            await etl_pipeline_service.delete(db, pipeline)
+            return True
+        await check_workspace_permission(db, pipeline.workspace_id, user, "etl:write")
+        await etl_pipeline_service.update(db, pipeline, EtlPipelineUpdate(**_fields(snap, EtlPipelineUpdate)))
+        return False
+
+    if kind == "etl_file":
+        # The notification is about the pipeline, so whatever happens to the file
+        # the pipeline is still there: never "gone".
+        pipeline_id = snap.get("pipeline_id") if op == "recreate" else None
+        node = None
+        if op != "recreate":
+            node = await etl_pipeline_service.get_file(db, target)
+            if node is None:
+                raise HTTPException(status.HTTP_409_CONFLICT, "The file no longer exists")
+            pipeline_id = node.pipeline_id
+        pipeline = await etl_pipeline_service.get(db, pipeline_id) if pipeline_id else None
+        if pipeline is None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "The pipeline no longer exists")
+        await check_workspace_permission(db, pipeline.workspace_id, user, "etl:delete" if op == "delete" else "etl:write")
+        if op == "recreate":
+            await etl_pipeline_service.create_file(db, EtlFileCreate(**_fields(snap, EtlFileCreate)))
+        elif op == "delete":
+            await etl_pipeline_service.delete_file(db, node)
+        else:
+            await etl_pipeline_service.update_file(db, node, EtlFileUpdate(**_fields(snap, EtlFileUpdate)))
         return False
 
     if kind == "dataset" and op == "delete":

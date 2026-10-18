@@ -28,15 +28,18 @@ export interface MappingNotificationItem {
 const DETAIL_DIALOG_PARTS = new Set<NotificationDetail['part']>(['suggestions', 'mappings'])
 
 export const hasDetailDialog = (n: AppNotification) =>
-  !!n.detail && DETAIL_DIALOG_PARTS.has(n.detail.part) && (n.detail.items?.length ?? 0) > 0
+  !!n.detail?.part && DETAIL_DIALOG_PARTS.has(n.detail.part) && (n.detail.items?.length ?? 0) > 0
 
 /** What changed inside the entity, when not the entity itself: a dashboard's
  *  widget or tab, the concepts a mapping write added (first few, plus a count),
- *  or how a database's derivation from a cohort went (`name` the cohort). */
+ *  how a database's derivation from a cohort went (`name` the cohort), or which
+ *  file of an ETL pipeline changed (`name` its path). No `part` when only
+ *  `workspaceId` is carried, for an entity outside any project. */
 export interface NotificationDetail {
-  part: 'widget' | 'tab' | 'suggestions' | 'mappings' | 'materialization' | 'derivation'
-  action: 'created' | 'updated' | 'deleted' | 'started' | 'done' | 'failed'
-  name: LocalizedString
+  part?: 'widget' | 'tab' | 'suggestions' | 'mappings' | 'materialization' | 'derivation' | 'script' | 'folder'
+  action?: 'created' | 'updated' | 'deleted' | 'started' | 'done' | 'failed'
+  name?: LocalizedString
+  fileId?: string
   count?: number
   workspaceId?: string
   items?: MappingNotificationItem[]

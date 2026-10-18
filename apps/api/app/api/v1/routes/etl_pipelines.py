@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -18,7 +19,7 @@ from app.schemas.etl_pipeline import (
     EtlRunHistoryUpdate,
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
-from app.services import etl_pipeline_service, stats_cache_service
+from app.services import etl_pipeline_service, notification_service, stats_cache_service
 
 router = APIRouter(tags=["etl-pipelines"])
 
@@ -57,6 +58,79 @@ async def _load_run(
     return run
 
 
+# --- Notifications (writes by an external client, e.g. an agent over MCP) ---
+
+# Fields a write sets as a side effect of something else (a run's outcome, the
+# versioning marks re-saved after a file write, the run order a reorder rewrites
+# one script at a time): the open tab refreshes, the bell stays quiet.
+_PIPELINE_SIDE_FIELDS = {"config", "status", "last_run_at", "last_run_duration_ms"}
+_FILE_SIDE_FIELDS = {"order"}
+
+# A snapshot lives in the notification row: past this size a change is still
+# notified but cannot be undone (mapping exports can weigh megabytes).
+_MAX_UNDO_CHARS = 1_000_000
+
+
+def _previous(row, changes: dict) -> dict:
+    """The values `changes` actually alters, as they were before the write."""
+    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
+
+
+def _small(snapshot: dict) -> bool:
+    return all(not isinstance(v, str) or len(v) <= _MAX_UNDO_CHARS for v in snapshot.values())
+
+
+def _undo(kind: str, op: str, row_id: str, snapshot: dict | None = None) -> dict | None:
+    if snapshot is not None:
+        snapshot = jsonable_encoder(snapshot)
+        if not _small(snapshot):
+            return None
+    return {"kind": kind, "op": op, "id": row_id, **({"snapshot": snapshot} if snapshot is not None else {})}
+
+
+async def _file_path(db: AsyncSession, node: EtlFile) -> str:
+    by_id = {f.id: f for f in await etl_pipeline_service.list_files(db, node.pipeline_id)}
+    parts, seen, current = [node.name], {node.id}, by_id.get(node.parent_id or "")
+    while current is not None and current.id not in seen:
+        parts.append(current.name)
+        seen.add(current.id)
+        current = by_id.get(current.parent_id or "")
+    return "/".join(reversed(parts))
+
+
+async def _notify(
+    db: AsyncSession,
+    request: Request,
+    user: User,
+    action: str,
+    pipeline: EtlPipeline,
+    *,
+    file: tuple[str, str, str, str] | None = None,
+    undo: dict | None = None,
+    notify: bool = True,
+) -> None:
+    """One change to a pipeline or, with `file` = (action, path, type, id), to one
+    of its files. The workspace travels in `detail`: the bell links there, and a
+    pipeline has no project."""
+    detail: dict = {"workspaceId": pipeline.workspace_id}
+    if file is not None:
+        file_action, path, kind, file_id = file
+        detail.update(part="folder" if kind == "folder" else "script", action=file_action, name=path, fileId=file_id)
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action=action,
+        entity_type="etl_pipeline", entity_id=pipeline.id, project_uid=None,
+        label=pipeline.name, detail=detail, undo=undo, notify=notify,
+    )
+
+
+async def _notify_runs(db: AsyncSession, request: Request, user: User, pipeline_id: str) -> None:
+    """A run is an execution, not an edit: refresh the open history, no notification."""
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action="updated",
+        entity_type="etl_run", entity_id=pipeline_id, project_uid=None, label=None, notify=False,
+    )
+
+
 # --- Pipelines -------------------------------------------------------------
 
 @router.get(_PIPE, response_model=list[EtlPipelineResponse])
@@ -83,11 +157,14 @@ async def list_pipelines(
 @router.post(_PIPE, response_model=EtlPipelineResponse, status_code=status.HTTP_201_CREATED)
 async def create_pipeline(
     body: EtlPipelineCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "etl:write")
-    return await etl_pipeline_service.create(db, body)
+    pipeline = await etl_pipeline_service.create(db, body)
+    await _notify(db, request, user, "created", pipeline, undo=_undo("etl_pipeline", "delete", pipeline.id))
+    return pipeline
 
 
 @router.get(_PIPE + "/{pipeline_id}", response_model=EtlPipelineResponse)
@@ -103,21 +180,35 @@ async def get_pipeline(
 async def update_pipeline(
     pipeline_id: str,
     body: EtlPipelineUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     pipeline = await _load_pipeline(db, pipeline_id, user, "etl:write")
-    return await etl_pipeline_service.update(db, pipeline, body)
+    before = _previous(pipeline, body.model_dump(exclude_unset=True))
+    pipeline = await etl_pipeline_service.update(db, pipeline, body)
+    if before:
+        # git_remote_config carries a sealed token: never copied into a snapshot.
+        undoable = "git_remote_config" not in before and "created_at" not in before
+        await _notify(
+            db, request, user, "updated", pipeline,
+            undo=_undo("etl_pipeline", "restore", pipeline.id, before) if undoable else None,
+            notify=not before.keys() <= _PIPELINE_SIDE_FIELDS,
+        )
+    return pipeline
 
 
 @router.delete(_PIPE + "/{pipeline_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_pipeline(
     pipeline_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     pipeline = await _load_pipeline(db, pipeline_id, user, "etl:delete")
     await etl_pipeline_service.delete(db, pipeline)
+    # Not undoable: the scripts and run history go with it.
+    await _notify(db, request, user, "deleted", pipeline)
 
 
 # --- Files -----------------------------------------------------------------
@@ -135,42 +226,72 @@ async def list_files(
 @router.delete(_PIPE + "/{pipeline_id}/files", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_files_for_pipeline(
     pipeline_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_pipeline(db, pipeline_id, user, "etl:delete")
+    pipeline = await _load_pipeline(db, pipeline_id, user, "etl:delete")
     await etl_pipeline_service.delete_files_for_pipeline(db, pipeline_id)
+    # Only ever the first half of deleting the pipeline, which is notified itself.
+    await _notify(db, request, user, "updated", pipeline, notify=False)
 
 
 @router.post(_FILE, response_model=EtlFileResponse, status_code=status.HTTP_201_CREATED)
 async def create_file(
     body: EtlFileCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_pipeline(db, body.pipeline_id, user, "etl:write")
-    return await etl_pipeline_service.create_file(db, body)
+    pipeline = await _load_pipeline(db, body.pipeline_id, user, "etl:write")
+    node = await etl_pipeline_service.create_file(db, body)
+    await _notify(
+        db, request, user, "updated", pipeline,
+        file=("created", await _file_path(db, node), node.type, node.id),
+        undo=_undo("etl_file", "delete", node.id),
+    )
+    return node
 
 
 @router.patch(_FILE + "/{file_id}", response_model=EtlFileResponse)
 async def update_file(
     file_id: str,
     body: EtlFileUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     node = await _load_file(db, file_id, user, "etl:write")
-    return await etl_pipeline_service.update_file(db, node, body)
+    before = _previous(node, body.model_dump(exclude_unset=True))
+    node = await etl_pipeline_service.update_file(db, node, body)
+    if before:
+        pipeline = await etl_pipeline_service.get(db, node.pipeline_id)
+        await _notify(
+            db, request, user, "updated", pipeline,
+            file=("updated", await _file_path(db, node), node.type, node.id),
+            undo=_undo("etl_file", "restore", node.id, before),
+            notify=not before.keys() <= _FILE_SIDE_FIELDS,
+        )
+    return node
 
 
 @router.delete(_FILE + "/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_file(
     file_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     node = await _load_file(db, file_id, user, "etl:delete")
+    pipeline = await etl_pipeline_service.get(db, node.pipeline_id)
+    path, kind = await _file_path(db, node), node.type
+    snapshot = EtlFileResponse.model_validate(node).model_dump()
     await etl_pipeline_service.delete_file(db, node)
+    await _notify(
+        db, request, user, "updated", pipeline,
+        file=("deleted", path, kind, file_id),
+        undo=_undo("etl_file", "recreate", file_id, snapshot),
+    )
 
 
 # --- Run history -----------------------------------------------------------
@@ -188,44 +309,55 @@ async def list_runs(
 @router.post(_RUN, response_model=EtlRunHistoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_run(
     body: EtlRunHistoryCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     # Authorized through the pipeline's workspace, which is why pipeline_id is
     # required on the schema rather than optional.
     await _load_pipeline(db, body.pipeline_id, user, "etl:write")
-    return await etl_pipeline_service.create_run(db, body, user_id=user.id)
+    run = await etl_pipeline_service.create_run(db, body, user_id=user.id)
+    await _notify_runs(db, request, user, body.pipeline_id)
+    return run
 
 
 @router.patch(_RUN + "/{run_id}", response_model=EtlRunHistoryResponse)
 async def update_run(
     run_id: str,
     body: EtlRunHistoryUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     run = await _load_run(db, run_id, user, "etl:write")
-    return await etl_pipeline_service.update_run(db, run, body)
+    run = await etl_pipeline_service.update_run(db, run, body)
+    await _notify_runs(db, request, user, run.pipeline_id)
+    return run
 
 
 @router.delete(_RUN + "/{run_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_run(
     run_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     run = await _load_run(db, run_id, user, "etl:delete")
+    pipeline_id = run.pipeline_id
     await etl_pipeline_service.delete_run(db, run)
+    await _notify_runs(db, request, user, pipeline_id)
 
 
 @router.delete(_PIPE + "/{pipeline_id}/runs", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_runs_for_pipeline(
     pipeline_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _load_pipeline(db, pipeline_id, user, "etl:delete")
     await etl_pipeline_service.delete_runs_for_pipeline(db, pipeline_id)
+    await _notify_runs(db, request, user, pipeline_id)
 
 
 # --- Quality-check cache ---------------------------------------------------

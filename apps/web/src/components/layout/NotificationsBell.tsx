@@ -10,6 +10,7 @@ import { paths } from '@/lib/paths'
 import { cn } from '@/lib/utils'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { useEtlStore } from '@/stores/etl-store'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
@@ -76,6 +77,13 @@ export function NotificationsBell() {
       if (!workspaceId) return null
       return paths.warehouseDatabase(workspaceId, n.entityId, sources.map((d) => d.id))
     }
+    if (n.entityType === 'etl_pipeline') {
+      const workspaceId = useEtlStore.getState().etlPipelines.find((p) => p.id === n.entityId)?.workspaceId
+        ?? n.detail?.workspaceId
+      if (!workspaceId) return null
+      const base = paths.warehouseEtlPipeline(workspaceId, n.entityId)
+      return n.detail?.part === 'script' ? `${base}?tab=scripts` : base
+    }
     if (!n.projectUid) return null
     const project = useAppStore.getState()._projectsRaw.find((p) => p.uid === n.projectUid)
     if (!project?.workspaceId) return null
@@ -85,6 +93,14 @@ export function NotificationsBell() {
     if (n.entityType === 'script') return paths.ide(project.workspaceId, n.projectUid)
     if (n.entityType === 'concept_list') return paths.concepts(project.workspaceId, n.projectUid)
     return null
+  }
+
+  const openTarget = (n: AppNotification, href: string) => {
+    // A script still there opens in the editor, not just its pipeline.
+    if (n.entityType === 'etl_pipeline' && n.detail?.part === 'script' && n.detail.action !== 'deleted' && n.detail.fileId) {
+      useEtlStore.getState().selectFile(n.detail.fileId)
+    }
+    navigate(href)
   }
 
   return (
@@ -123,7 +139,7 @@ export function NotificationsBell() {
                 <li key={n.id} className="group flex items-start gap-1">
                   <button
                     disabled={!href}
-                    onClick={() => { if (href) { setOpen(false); navigate(href) } }}
+                    onClick={() => { if (href) { setOpen(false); openTarget(n, href) } }}
                     className={cn(
                       'flex min-w-0 flex-1 items-start gap-2 rounded px-1.5 py-1.5 text-left',
                       href ? 'hover:bg-muted/60' : 'cursor-default',
@@ -137,7 +153,7 @@ export function NotificationsBell() {
                         {t(`notifications.entity.${n.entityType}`, { defaultValue: n.entityType })}{' '}
                         <span className="font-medium">« {localized(n.label, i18n.language) || n.entityId} »</span>
                       </span>
-                      {n.detail && (
+                      {n.detail?.part && (
                         <span className="block truncate text-muted-foreground">
                           {t(`notifications.part.${n.detail.part}.${n.detail.action}`, {
                             name: localized(n.detail.name, i18n.language),
@@ -199,7 +215,7 @@ export function NotificationsBell() {
         notification={detailOf}
         onOpenChange={(next) => { if (!next) setDetailOf(null) }}
         href={detailOf ? target(detailOf) : null}
-        onOpen={(href) => { setDetailOf(null); navigate(href) }}
+        onOpen={(href) => { setDetailOf(null); if (detailOf) openTarget(detailOf, href) }}
       />
     </Popover>
   )
