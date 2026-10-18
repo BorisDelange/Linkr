@@ -89,39 +89,6 @@ const ATHENA_COLUMNS: Record<string, string[]> = {
 const DATE_COLUMNS = new Set(['valid_start_date', 'valid_end_date'])
 
 /**
- * The vocabulary tables the prune rewrites instead of DELETEing from, with the
- * id columns to keep on and the NOT NULL columns of the CDM 5.4 DDL.
- *
- * The constraints are listed because DuckDB has no dynamic DDL: `query()` is a
- * table function and rejects an ALTER, so they cannot be read back from
- * duckdb_columns() at run time and have to be spelled out.
- */
-const REWRITTEN_VOCAB_TABLES: {
-  table: string
-  idColumns: string[]
-  notNull: string[]
-}[] = [
-  {
-    table: 'concept_relationship',
-    idColumns: ['concept_id_1', 'concept_id_2'],
-    notNull: ['concept_id_1', 'concept_id_2', 'relationship_id', 'valid_start_date', 'valid_end_date'],
-  },
-  {
-    table: 'concept_ancestor',
-    idColumns: ['ancestor_concept_id', 'descendant_concept_id'],
-    notNull: [
-      'ancestor_concept_id', 'descendant_concept_id',
-      'min_levels_of_separation', 'max_levels_of_separation',
-    ],
-  },
-  {
-    table: 'concept_synonym',
-    idColumns: ['concept_id'],
-    notNull: ['concept_id', 'concept_synonym_name', 'language_concept_id'],
-  },
-]
-
-/**
  * Explicit select list for an ATHENA table, normalising the date columns.
  *
  * `try_strptime` returns NULL instead of raising when the text is not YYYYMMDD,
@@ -166,8 +133,7 @@ export const VOCAB_CORE_TABLES = [
 /**
  * drug_strength columns pointing at concept, in DDL order. The ingredient and
  * unit columns matter as much as drug_concept_id: every one of them is a
- * foreign key to concept, so a row survives the prune only if all five targets
- * do.
+ * foreign key to concept, so a row is copied only if all five targets are.
  */
 const DRUG_STRENGTH_CONCEPT_COLUMNS = [
   'drug_concept_id', 'ingredient_concept_id', 'amount_unit_concept_id',
@@ -175,9 +141,21 @@ const DRUG_STRENGTH_CONCEPT_COLUMNS = [
 ] as const
 
 /**
+ * The OMOP-generated vocabularies that describe the vocabulary itself: one
+ * concept per vocabulary, domain, concept class and relationship type, the CDM's
+ * tables and fields (`cdm_source.cdm_version_concept_id`, fact_relationship's
+ * domains), plus 'Metadata' and 'None'. About 2,500 concepts, all OHDSI's own:
+ * the fill copies them whole, so the metadata tables' *_concept_id columns
+ * always resolve.
+ */
+export const OMOP_METADATA_VOCABULARIES = [
+  'Vocabulary', 'Domain', 'Concept Class', 'Relationship', 'CDM', 'Metadata', 'None',
+] as const
+
+/**
  * OMOP vocabulary tables. Excluded when scanning for used concepts: they
- * reference concepts to describe them, so counting those references would keep
- * every concept alive and prune nothing.
+ * reference concepts to describe them, so counting those references would pull
+ * in concepts no CDM row uses.
  */
 const OMOP_VOCAB_TABLES = [
   'concept', 'concept_ancestor', 'concept_class', 'concept_relationship',
@@ -186,12 +164,19 @@ const OMOP_VOCAB_TABLES = [
 ]
 
 /**
- * Build the script that cuts the vocabulary down to what the CDM actually uses.
+ * Build the script that copies into the target the part of the vocabulary the
+ * CDM actually uses.
  *
- * Runs AFTER the CDM tables are populated: it reads them to find out which
- * concepts were written. The vocabulary is copied whole beforehand, because a
- * 'Maps to' can land on any vocabulary and leaving one out writes CDM rows whose
- * concept_id is missing from the concept table. Copy everything, then prune.
+ * The vocabulary script only loads what the mapping project knows (its local
+ * concepts and the standard concepts they map to). Everything else a CDM row
+ * can point at — the standard concept an ICD or NDC code resolves to through
+ * `vocab.`, a type concept, a drug era's ingredient — is only known once the
+ * CDM tables are filled, so this runs AFTER them, and before anything that
+ * checks concept_ids against target.concept (tests, cdm_source).
+ *
+ * Copying the whole reference up front and pruning it at the end gave the same
+ * result, but loaded ~10M concepts and ~140M relationship/ancestor rows into
+ * the target first: past the memory limit on an indexed DuckDB target.
  *
  * The used-concept scan reads duckdb_columns() rather than a fixed column list:
  * every `*_concept_id` of every clinical table counts, including the
@@ -202,32 +187,35 @@ const OMOP_VOCAB_TABLES = [
  * target is an ATTACHed database on the server and a schema in the browser
  * engine.
  *
- * Kept: the used concepts, their ancestors (so hierarchical queries still
- * resolve), and everything they relate to.
- *
- * Aborts when the scan finds no referenced concept: the DELETEs keep what the
- * scan found, so an empty scan would empty the vocabulary rather than prune
- * nothing.
+ * Copied: the used concepts, their ancestors (so hierarchical queries still
+ * resolve), everything they relate to, the ingredients and units of the drugs
+ * in use, and the metadata vocabularies and tables whole. Re-runnable on its
+ * own: concept, concept_relationship and vocabulary only receive what is
+ * missing, the other tables are rebuilt.
  */
-export function buildPruneVocabularyScript(): string {
+export function buildFillVocabularyScript(
+  vocabSchema = VOCAB_ROLE_PREFIX,
+  availableTables?: Iterable<string>,
+): string {
   const parts: string[] = []
   const T = TARGET
+  const vs = vocabSchema
+  const available = availableTables
+    ? new Set([...availableTables].map((t) => t.toLowerCase()))
+    : new Set<string>(VOCAB_CORE_TABLES)
+  const has = (table: string) => available.has(table)
   const vocabList = OMOP_VOCAB_TABLES.map((t) => `'${t}'`).join(', ')
 
   parts.push('-- Auto-generated by the Vocabulary tab')
   parts.push('--')
-  parts.push('-- Reduce the OMOP vocabulary to the concepts the CDM tables reference.')
-  parts.push('-- Run after the CDM tables are populated, before any cleanup step.')
+  parts.push('-- Copy into the target the part of the OMOP vocabulary the CDM tables use.')
+  parts.push('-- Run after the CDM tables are populated (eras included), and before any')
+  parts.push('-- step that checks concept_ids against target.concept (tests, cdm_source).')
   parts.push('--')
-  parts.push('-- Disable this script while mappings are still being added: a concept')
-  parts.push('-- dropped here has to be reloaded from the reference before it can be')
-  parts.push('-- mapped again.')
-  parts.push('--')
-  parts.push('-- It stops with an error if no CDM table references a concept, rather')
-  parts.push('-- than pruning everything.')
+  parts.push('-- It stops with an error if no CDM table references a concept: that means')
+  parts.push('-- it ran before the tables were filled.')
   parts.push('')
 
-  // 1. Concepts the CDM actually references.
   parts.push('-- =================================================================')
   parts.push('-- 1. Concepts referenced by the CDM tables')
   parts.push('-- =================================================================')
@@ -262,28 +250,25 @@ export function buildPruneVocabularyScript(): string {
   parts.push(`CREATE OR REPLACE TABLE ${T}.tmp_used_concepts AS`)
   parts.push(`SELECT DISTINCT concept_id`)
   parts.push(`FROM query(getvariable('linkr_used_concepts_sql'))`)
-  // 0 is excluded from the *used* set, not from the kept one: it stands for "no
-  // matching concept", so expanding its ancestors and relations in step 2 would
-  // pull in a closure that means nothing. Step 2 adds it back as a fixed concept.
+  // 0 is excluded from the *used* set, not from the copied one: it stands for
+  // "no matching concept", so expanding its ancestors and relations in step 2
+  // would pull in a closure that means nothing. Step 2 adds it back as a fixed
+  // concept.
   parts.push('WHERE concept_id IS NOT NULL AND concept_id <> 0;')
   parts.push('')
-  // Stop rather than delete everything. Every DELETE below is
-  // `NOT IN (SELECT ... FROM tmp_keep_concepts)`, so an empty scan does not prune
-  // "nothing" — it prunes the WHOLE vocabulary, silently and with no error. That
-  // is what an empty scan means in practice: the script ran before the CDM tables
-  // were populated (wrong order, or a run that stopped early). Recovering means
-  // re-copying the vocabulary from the reference, so fail loudly instead.
-  parts.push('-- Refuse to run on an empty scan: see the note on the DELETEs below.')
+  // An empty scan means the script ran before the CDM tables were populated
+  // (wrong order, or a run that stopped early). It would then copy almost
+  // nothing, and the tests downstream would report every concept_id as missing
+  // — fail here instead, where the cause is plain.
+  parts.push('-- Refuse to run on an empty scan: the CDM tables are not filled yet.')
   parts.push(`SELECT CASE WHEN (SELECT count(*) FROM ${T}.tmp_used_concepts) = 0`)
   parts.push("    THEN error('No concept is referenced by the CDM tables. "
-    + "Run this script AFTER the tables are populated: pruning now would delete "
-    + "the entire vocabulary.')")
+    + "Run this script AFTER the tables are populated.')")
   parts.push('    END;')
   parts.push('')
 
-  // 2. Closure: ancestors + related concepts.
   parts.push('-- =================================================================')
-  parts.push('-- 2. Concepts to keep: used, their ancestors, and their relations')
+  parts.push('-- 2. Concepts to copy: used, their ancestors, and their relations')
   parts.push('-- =================================================================')
   parts.push('')
   parts.push(`CREATE OR REPLACE TABLE ${T}.tmp_keep_concepts AS`)
@@ -291,105 +276,130 @@ export function buildPruneVocabularyScript(): string {
   parts.push(`    SELECT concept_id FROM ${T}.tmp_used_concepts`)
   parts.push('    UNION')
   // The concepts the ETL writes as literals. 0 above all: every unmapped row
-  // carries concept_id = 0, and no *_concept_id column points at the others'
-  // rows either (they sit in gender_concept_id, *_type_concept_id and the like,
-  // which the step 1 scan does read - but a CDM with no death row, say, never
-  // mentions 32817). Pruning them leaves those columns pointing at a concept
-  // that is gone: a broken foreign key on every unmapped fact.
+  // carries concept_id = 0, and it is deliberately absent from the used set.
   parts.push('    -- Concepts the ETL scripts reference as literals.')
   parts.push(`    SELECT UNNEST([${ETL_FIXED_CONCEPT_IDS.join(', ')}]) AS concept_id`)
   parts.push('    UNION')
   parts.push('    -- Ancestors, so a query on a parent concept still finds its descendants.')
   parts.push('    SELECT a.ancestor_concept_id')
-  parts.push(`    FROM ${T}.concept_ancestor a`)
+  parts.push(`    FROM ${vs}.concept_ancestor a`)
   parts.push(`    INNER JOIN ${T}.tmp_used_concepts u ON u.concept_id = a.descendant_concept_id`)
   parts.push('    UNION')
-  parts.push('    -- Everything a used concept relates to, source mappings included.')
+  parts.push('    -- Everything a used concept relates to.')
   parts.push('    SELECT cr.concept_id_2')
-  parts.push(`    FROM ${T}.concept_relationship cr`)
+  parts.push(`    FROM ${vs}.concept_relationship cr`)
   parts.push(`    INNER JOIN ${T}.tmp_used_concepts u ON u.concept_id = cr.concept_id_1`)
-  // Without this the drugs that survive lose their strength rows: the
-  // ingredient and unit concepts drug_strength points at are described by that
-  // table, never referenced by a CDM column, so the scan in step 1 never sees
-  // them and the DELETE below would drop every row.
+  // The ingredient and unit concepts drug_strength points at are described by
+  // that table, never referenced by a CDM column, so the scan in step 1 never
+  // sees them: without this the drugs in use lose their strength rows.
+  if (has('drug_strength')) {
+    parts.push('    UNION')
+    parts.push('    -- Ingredients and units of the drugs in use, so their drug_strength rows come along.')
+    parts.push(`    SELECT UNNEST([${DRUG_STRENGTH_CONCEPT_COLUMNS.map((c) => `ds.${c}`).join(', ')}]) AS concept_id`)
+    parts.push(`    FROM ${vs}.drug_strength ds`)
+    parts.push(`    INNER JOIN ${T}.tmp_used_concepts u ON u.concept_id = ds.drug_concept_id`)
+  }
   parts.push('    UNION')
-  parts.push('    -- Ingredients and units of the drugs in use, so their drug_strength rows survive.')
-  parts.push(`    SELECT UNNEST([${DRUG_STRENGTH_CONCEPT_COLUMNS.map((c) => `ds.${c}`).join(', ')}]) AS concept_id`)
-  parts.push(`    FROM ${T}.drug_strength ds`)
-  parts.push(`    INNER JOIN ${T}.tmp_used_concepts u ON u.concept_id = ds.drug_concept_id`)
+  parts.push('    -- The metadata vocabularies, whole.')
+  parts.push(`    SELECT m.concept_id FROM ${vs}.concept m`)
+  parts.push(`    WHERE m.vocabulary_id IN (${OMOP_METADATA_VOCABULARIES.map((v) => `'${v}'`).join(', ')})`)
   parts.push(')')
-  // The unit columns of drug_strength are nullable, and one NULL in this table
-  // makes every `NOT IN (SELECT ... FROM tmp_keep_concepts)` below evaluate to
-  // NULL: no row is ever deleted and the prune silently does nothing.
   parts.push('WHERE concept_id IS NOT NULL;')
   parts.push('')
 
-  // 3. Prune.
   parts.push('-- =================================================================')
-  parts.push('-- 3. Prune the vocabulary tables')
+  parts.push('-- 3. Concepts and their relationships')
   parts.push('-- =================================================================')
   parts.push('')
-  // Kept by rewriting the table, not by DELETEing what falls out. These tables
-  // are the big ones — a full ATHENA concept_ancestor is ~85M rows and the prune
-  // drops ~70M of them — and deleting a large majority costs far more than
-  // writing the minority that survives: measured on that table, 135s to DELETE
-  // against 1.1s to rewrite, for byte-identical output. SEMI JOIN rather than
-  // `IN (…)` so each id column is one hash join.
-  //
-  // CREATE OR REPLACE builds a fresh table, which does NOT inherit the original
-  // NOT NULL constraints — hence the ALTER after each one. Without them the CDM
-  // ends up laxer than its own DDL, silently.
-  for (const { table, idColumns, notNull } of REWRITTEN_VOCAB_TABLES) {
-    parts.push(`CREATE OR REPLACE TABLE ${T}.${table} AS`)
-    parts.push(`SELECT t.* FROM ${T}.${table} t`)
-    idColumns.forEach((col, i) => {
-      parts.push(`SEMI JOIN ${T}.tmp_keep_concepts k${i} ON k${i}.concept_id = t.${col}`)
-    })
-    parts[parts.length - 1] += ';'
-    for (const col of notNull) {
-      parts.push(`ALTER TABLE ${T}.${table} ALTER COLUMN ${col} SET NOT NULL;`)
+  // ANTI JOIN on what the target already holds: the vocabulary script loaded the
+  // mapping project's concepts, and a re-run of this script alone must not
+  // duplicate them.
+  parts.push(`INSERT INTO ${T}.concept`)
+  parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
+  parts.push(`FROM ${vs}.concept c`)
+  parts.push(`SEMI JOIN ${T}.tmp_keep_concepts k ON k.concept_id = c.concept_id`)
+  parts.push(`ANTI JOIN ${T}.concept t ON t.concept_id = c.concept_id;`)
+  parts.push('')
+  // Both ends in target.concept: each one is a foreign key. The target already
+  // holds the mapping project's own 'Maps to' rows, kept by the ANTI JOIN.
+  parts.push(`INSERT INTO ${T}.concept_relationship`)
+  parts.push(`SELECT ${athenaSelectList('concept_relationship', 'cr')}`)
+  parts.push(`FROM ${vs}.concept_relationship cr`)
+  parts.push(`SEMI JOIN ${T}.concept c1 ON c1.concept_id = cr.concept_id_1`)
+  parts.push(`SEMI JOIN ${T}.concept c2 ON c2.concept_id = cr.concept_id_2`)
+  parts.push(`ANTI JOIN ${T}.concept_relationship t`)
+  parts.push('    ON  t.concept_id_1 = cr.concept_id_1')
+  parts.push('    AND t.concept_id_2 = cr.concept_id_2')
+  parts.push('    AND t.relationship_id = cr.relationship_id;')
+  parts.push('')
+
+  parts.push('-- =================================================================')
+  parts.push('-- 4. Tables that describe the copied concepts')
+  parts.push('-- =================================================================')
+  parts.push('')
+  parts.push(`TRUNCATE ${T}.concept_ancestor;`)
+  parts.push(`INSERT INTO ${T}.concept_ancestor`)
+  parts.push('SELECT ca.*')
+  parts.push(`FROM ${vs}.concept_ancestor ca`)
+  parts.push(`SEMI JOIN ${T}.concept c1 ON c1.concept_id = ca.ancestor_concept_id`)
+  parts.push(`SEMI JOIN ${T}.concept c2 ON c2.concept_id = ca.descendant_concept_id;`)
+  parts.push('')
+  parts.push(`TRUNCATE ${T}.concept_synonym;`)
+  parts.push(`INSERT INTO ${T}.concept_synonym`)
+  parts.push('SELECT cs.*')
+  parts.push(`FROM ${vs}.concept_synonym cs`)
+  parts.push(`SEMI JOIN ${T}.concept c ON c.concept_id = cs.concept_id;`)
+  parts.push('')
+  // Every concept column has to hold, not just the drug: the ingredient and unit
+  // columns are foreign keys to concept too. The unit columns are nullable — a
+  // NULL breaks no key, hence the IS NULL escape on each.
+  parts.push(`TRUNCATE ${T}.drug_strength;`)
+  if (has('drug_strength')) {
+    parts.push(`INSERT INTO ${T}.drug_strength`)
+    parts.push(`SELECT ${athenaSelectList('drug_strength', 'dstr')}`)
+    parts.push(`FROM ${vs}.drug_strength dstr`)
+    parts.push(DRUG_STRENGTH_CONCEPT_COLUMNS.map((col, i) =>
+      `${i === 0 ? 'WHERE' : '  AND'} (dstr.${col} IS NULL`
+      + ` OR dstr.${col} IN (SELECT concept_id FROM ${T}.concept))`,
+    ).join('\n') + ';')
+  } else {
+    parts.push(skipped('drug_strength', vs))
+  }
+  parts.push('')
+
+  parts.push('-- =================================================================')
+  parts.push('-- 5. Metadata tables, whole')
+  parts.push('-- =================================================================')
+  parts.push('')
+  // Copied whole, like the metadata concepts they point at: a few hundred rows
+  // that describe the reference, including the 'None' row carrying the bundle
+  // release that cdm_source reads. `vocabulary` is added to, not rebuilt: the
+  // vocabulary script already wrote the mapping project's own vocabularies.
+  if (has('vocabulary')) {
+    parts.push(`INSERT INTO ${T}.vocabulary`)
+    parts.push('SELECT v.*')
+    parts.push(`FROM ${vs}.vocabulary v`)
+    parts.push(`WHERE v.vocabulary_id NOT IN (SELECT vocabulary_id FROM ${T}.vocabulary);`)
+  } else {
+    parts.push(skipped('vocabulary', vs))
+  }
+  parts.push('')
+  for (const { table, alias } of [
+    { table: 'domain', alias: 'd' },
+    { table: 'concept_class', alias: 'cc' },
+    { table: 'relationship', alias: 'r' },
+  ]) {
+    parts.push(`TRUNCATE ${T}.${table};`)
+    if (has(table)) {
+      parts.push(`INSERT INTO ${T}.${table}`)
+      parts.push(`SELECT ${alias}.*`)
+      parts.push(`FROM ${vs}.${table} ${alias};`)
+    } else {
+      parts.push(skipped(table, vs))
     }
     parts.push('')
   }
 
-  // `concept` stays a DELETE: only ~650k rows fall out of it here, so the
-  // rewrite would buy little, and it is the table whose constraints the rest of
-  // the CDM leans on hardest.
-  parts.push(`DELETE FROM ${T}.concept`)
-  parts.push(`WHERE concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
-  parts.push('')
-  // Every concept column has to hold, not just the drug: the others are foreign
-  // keys to concept too, so a row kept on drug_concept_id alone would point at
-  // an ingredient or unit this same script just deleted. The unit columns are
-  // nullable — a NULL breaks no key, hence the IS NOT NULL guard on each.
-  parts.push(`DELETE FROM ${T}.drug_strength`)
-  parts.push(DRUG_STRENGTH_CONCEPT_COLUMNS.map((col, i) =>
-    `${i === 0 ? 'WHERE' : '   OR'} (${col} IS NOT NULL`
-    + ` AND ${col} NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts))`,
-  ).join('\n') + ';')
-  parts.push('')
-
-  // 4. Metadata tables follow whatever is left.
-  parts.push('-- =================================================================')
-  parts.push('-- 4. Metadata tables, realigned on what is left')
-  parts.push('-- =================================================================')
-  parts.push('')
-  // 'None' owns no concept of its own: it is the row that carries the
-  // vocabulary bundle release, which cdm_source reads. Pruning on concept
-  // ownership alone would delete it and lose that provenance.
-  parts.push(`DELETE FROM ${T}.vocabulary`)
-  parts.push(`WHERE vocabulary_id NOT IN (SELECT DISTINCT vocabulary_id FROM ${T}.concept)`)
-  parts.push(`  AND vocabulary_id <> 'None';`)
-  parts.push('')
-  parts.push(`DELETE FROM ${T}.domain`)
-  parts.push(`WHERE domain_id NOT IN (SELECT DISTINCT domain_id FROM ${T}.concept);`)
-  parts.push('')
-  parts.push(`DELETE FROM ${T}.concept_class`)
-  parts.push(`WHERE concept_class_id NOT IN (SELECT DISTINCT concept_class_id FROM ${T}.concept);`)
-  parts.push('')
-  parts.push(`DELETE FROM ${T}.relationship`)
-  parts.push(`WHERE relationship_id NOT IN (SELECT DISTINCT relationship_id FROM ${T}.concept_relationship);`)
-  parts.push('')
   parts.push(`DROP TABLE IF EXISTS ${T}.tmp_used_concepts;`)
   parts.push(`DROP TABLE IF EXISTS ${T}.tmp_keep_concepts;`)
   parts.push('')
@@ -398,12 +408,17 @@ export function buildPruneVocabularyScript(): string {
 }
 
 /**
- * Build the full vocabulary SQL script that:
- * 1. Populates source_to_concept_map from mappings
- * 2. Copies ATHENA concepts into local concept table
- * 3. Generates source concepts (concept_id > 2B)
- * 4. Copies concept_relationship, concept_ancestor
- * 5. Copies whichever vocabulary metadata tables are available
+ * Build the vocabulary SQL script, run first, that loads what the mapping
+ * project knows:
+ * 1. source_to_concept_map from the mappings (STCM modes)
+ * 2. the standard concepts the mappings point at, the fixed concepts, the
+ *    source concepts (concept_id > 2B) and their custom vocabularies
+ * 3. the mappings' 'Maps to' / 'Mapped from' rows
+ * 4. vocabulary entries for the custom vocabularies
+ *
+ * Nothing else from the reference: the rest of what the CDM uses is only known
+ * once its tables are filled, and `buildFillVocabularyScript` copies it then.
+ * The other vocabulary tables are left to that script, which rebuilds them.
  *
  * `availableTables` lists what the vocabulary reference holds. Parts that would
  * read a missing table are skipped with a comment rather than emitted and left
@@ -450,7 +465,7 @@ export function buildVocabularyScriptWithIds(
     parts.push('--')
     parts.push('-- Mappings are carried as CONCEPT + CONCEPT_RELATIONSHIP (OMOP v5).')
     if (mode === 'ccr+stcm') {
-      parts.push('-- source_to_concept_map is then DERIVED from those tables (PART 6).')
+      parts.push('-- source_to_concept_map is then DERIVED from those tables (PART 5).')
     }
   }
   parts.push('')
@@ -505,7 +520,7 @@ export function buildVocabularyScriptWithIds(
       parts.push(`);`)
     } else {
       // No mappings: no targets to pull in. A bare INSERT would copy the whole
-      // reference here, which 2b does deliberately a few lines below.
+      // reference.
       parts.push(`WHERE FALSE;`)
     }
   } else {
@@ -520,41 +535,17 @@ export function buildVocabularyScriptWithIds(
     parts.push(`);`)
   }
 
-  // 2b. Every concept the reference holds
-  parts.push('')
-  parts.push('-- 2b. Every concept from the vocabulary reference')
-  parts.push('--')
-  parts.push('-- Copied without a vocabulary filter on purpose. A \'Maps to\' can leave')
-  parts.push('-- whichever vocabularies the ETL reads directly - an ICD code resolving to')
-  parts.push('-- OMOP Extension, an NDC to CVX - and any vocabulary left out produces CDM')
-  parts.push('-- rows whose concept_id is absent from the concept table: a broken foreign')
-  parts.push('-- key rather than a missing row. Prune afterwards, once the CDM tables')
-  parts.push('-- show which concepts are actually used.')
-  parts.push(`INSERT INTO ${TARGET}.concept`)
-  parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
-  parts.push(`FROM ${vs}.concept c`)
-  parts.push(`WHERE c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
-
-  // 2c. Operator concepts (Meas Value Operator domain)
-  parts.push('')
-  parts.push('-- 2c. Operator concepts (<=, >=, <, >, =)')
-  parts.push(`INSERT INTO ${TARGET}.concept`)
-  parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
-  parts.push(`FROM ${vs}.concept c`)
-  parts.push(`WHERE c.domain_id = 'Meas Value Operator'`)
-  parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
-
-  // 2d. Hard-coded concept IDs
+  // 2b. Hard-coded concept IDs
   const fixedIds = ETL_FIXED_CONCEPT_IDS.join(', ')
   parts.push('')
-  parts.push('-- 2d. Hard-coded concept IDs (gender, type concepts, etc.)')
+  parts.push('-- 2b. Hard-coded concept IDs (gender, type concepts, etc.)')
   parts.push(`INSERT INTO ${TARGET}.concept`)
   parts.push(`SELECT ${athenaSelectList('concept', 'c')}`)
   parts.push(`FROM ${vs}.concept c`)
   parts.push(`WHERE c.concept_id IN (${fixedIds})`)
   parts.push(`  AND c.concept_id NOT IN (SELECT concept_id FROM ${TARGET}.concept);`)
 
-  // 2e. Source concepts, with the ids the mapping project holds.
+  // 2c. Source concepts, with the ids the mapping project holds.
   //
   // These used to be numbered at generation time
   // (`${SOURCE_CONCEPT_ID_BASE} + ROW_NUMBER() OVER (ORDER BY …)`), which meant adding or
@@ -563,7 +554,7 @@ export function buildVocabularyScriptWithIds(
   // referenced the wrong concept. They are assigned once, stored on the mapping
   // and reused here — see lib/concept-mapping/source-concept-ids.
   parts.push('')
-  parts.push('-- 2e. Source concepts (concept_id > 2 000 000 000)')
+  parts.push('-- 2c. Source concepts (concept_id > 2 000 000 000)')
   parts.push('--')
   parts.push('-- The ids come from the mapping project, which keeps them for the life of the')
   parts.push('-- project: re-generating this script after adding or removing mappings leaves')
@@ -602,12 +593,9 @@ export function buildVocabularyScriptWithIds(
     }
   }
 
-  // 2f. source_to_concept_map already carries these ids (PART 1 writes them), so
-  // there is nothing left to back-fill here.
-
-  // 2g. Vocabulary concepts for custom source vocabularies
+  // 2d. Vocabulary concepts for custom source vocabularies
   parts.push('')
-  parts.push('-- 2g. Vocabulary concepts for custom source vocabularies')
+  parts.push('-- 2d. Vocabulary concepts for custom source vocabularies')
   parts.push(`INSERT INTO ${TARGET}.concept (concept_id, concept_name, domain_id, vocabulary_id, concept_class_id, standard_concept, concept_code, valid_start_date, valid_end_date, invalid_reason)`)
   parts.push(`SELECT`)
   parts.push(`    (SELECT COALESCE(MAX(concept_id), ${SOURCE_CONCEPT_ID_BASE}) FROM ${TARGET}.concept WHERE concept_id >= ${SOURCE_CONCEPT_ID_BASE}) + ROW_NUMBER() OVER (ORDER BY sv.source_vocabulary_id) AS concept_id,`)
@@ -656,15 +644,8 @@ export function buildVocabularyScriptWithIds(
   parts.push('-- =================================================================')
   parts.push('')
   parts.push(`TRUNCATE ${TARGET}.concept_relationship;`)
-  parts.push(`INSERT INTO ${TARGET}.concept_relationship`)
-  parts.push(`SELECT ${athenaSelectList('concept_relationship', 'cr')}`)
-  parts.push(`FROM ${vs}.concept_relationship cr`)
-  parts.push(`WHERE cr.concept_id_1 IN (SELECT concept_id FROM ${TARGET}.concept)`)
-  parts.push(`  AND cr.concept_id_2 IN (SELECT concept_id FROM ${TARGET}.concept);`)
-
-  // 3b. Custom concept_relationship: "Maps to" and "Mapped from" for source concepts
   parts.push('')
-  parts.push('-- 3b. Custom concept_relationship (Maps to + Mapped from) for source concepts')
+  parts.push('-- Maps to + Mapped from of the source concepts')
   if (usesCcr) {
     // Both directions are already in the CSV, so there is nothing to derive and
     // no `> 2 billion` guard to apply — the file holds exactly these rows.
@@ -704,46 +685,14 @@ export function buildVocabularyScriptWithIds(
   }
 
   // =========================================================================
-  // PART 4: concept_ancestor
+  // PART 4: vocabulary entries of the custom vocabularies
   // =========================================================================
   parts.push('')
   parts.push('-- =================================================================')
-  parts.push('-- PART 4: concept_ancestor')
+  parts.push('-- PART 4: vocabulary entries of the custom vocabularies')
   parts.push('-- =================================================================')
   parts.push('')
-  parts.push(`TRUNCATE ${TARGET}.concept_ancestor;`)
-  parts.push(`INSERT INTO ${TARGET}.concept_ancestor`)
-  parts.push(`SELECT ca.*`)
-  parts.push(`FROM ${vs}.concept_ancestor ca`)
-  parts.push(`WHERE ca.ancestor_concept_id IN (SELECT concept_id FROM ${TARGET}.concept)`)
-  parts.push(`  AND ca.descendant_concept_id IN (SELECT concept_id FROM ${TARGET}.concept);`)
-
-  // =========================================================================
-  // PART 5: metadata tables
-  // =========================================================================
-  parts.push('')
-  parts.push('-- =================================================================')
-  parts.push('-- PART 5: metadata tables')
-  parts.push('-- =================================================================')
-  parts.push('')
-
-  // vocabulary
-  if (has('vocabulary')) {
-    parts.push(`TRUNCATE ${TARGET}.vocabulary;`)
-    parts.push(`INSERT INTO ${TARGET}.vocabulary`)
-    parts.push(`SELECT v.*`)
-    parts.push(`FROM ${vs}.vocabulary v`)
-    parts.push(`WHERE v.vocabulary_id IN (SELECT DISTINCT vocabulary_id FROM ${TARGET}.concept);`)
-  } else {
-    parts.push(skipped('vocabulary', vs))
-    // The custom entries below are still worth inserting, so clear the table
-    // here instead — otherwise a re-run would duplicate them.
-    parts.push(`TRUNCATE ${TARGET}.vocabulary;`)
-  }
-  parts.push('')
-
-  // Custom vocabulary entries for source vocabularies
-  parts.push('-- Custom vocabulary entries for source vocabularies (concept_id > 2B)')
+  parts.push(`TRUNCATE ${TARGET}.vocabulary;`)
   parts.push(`INSERT INTO ${TARGET}.vocabulary (vocabulary_id, vocabulary_name, vocabulary_reference, vocabulary_version, vocabulary_concept_id)`)
   parts.push(`SELECT`)
   parts.push(`    vc.concept_code     AS vocabulary_id,`)
@@ -754,86 +703,16 @@ export function buildVocabularyScriptWithIds(
   parts.push(`FROM ${TARGET}.concept vc`)
   parts.push(`WHERE vc.domain_id = 'Metadata'`)
   parts.push(`  AND vc.concept_class_id = 'Vocabulary'`)
-  parts.push(`  AND vc.concept_id >= ${SOURCE_CONCEPT_ID_BASE}`)
-  parts.push(`  AND vc.concept_code NOT IN (SELECT vocabulary_id FROM ${TARGET}.vocabulary);`)
+  parts.push(`  AND vc.concept_id >= ${SOURCE_CONCEPT_ID_BASE};`)
   parts.push('')
-
-  // domain
-  if (has('domain')) {
-    parts.push(`TRUNCATE ${TARGET}.domain;`)
-    parts.push(`INSERT INTO ${TARGET}.domain`)
-    parts.push(`SELECT d.*`)
-    parts.push(`FROM ${vs}.domain d`)
-    parts.push(`WHERE d.domain_id IN (SELECT DISTINCT domain_id FROM ${TARGET}.concept);`)
-  } else {
-    parts.push(skipped('domain', vs))
-  }
-  parts.push('')
-
-  // concept_class
-  if (has('concept_class')) {
-    parts.push(`TRUNCATE ${TARGET}.concept_class;`)
-    parts.push(`INSERT INTO ${TARGET}.concept_class`)
-    parts.push(`SELECT cc.*`)
-    parts.push(`FROM ${vs}.concept_class cc`)
-    parts.push(`WHERE cc.concept_class_id IN (SELECT DISTINCT concept_class_id FROM ${TARGET}.concept);`)
-  } else {
-    parts.push(skipped('concept_class', vs))
-  }
-  parts.push('')
-
-  // relationship
-  if (has('relationship')) {
-    parts.push(`TRUNCATE ${TARGET}.relationship;`)
-    parts.push(`INSERT INTO ${TARGET}.relationship`)
-    parts.push(`SELECT r.*`)
-    parts.push(`FROM ${vs}.relationship r`)
-    parts.push(`WHERE r.relationship_id IN (SELECT DISTINCT relationship_id FROM ${TARGET}.concept_relationship);`)
-  } else {
-    parts.push(skipped('relationship', vs))
-  }
-  parts.push('')
-
-  // concept_synonym
-  if (has('concept_synonym')) {
-    parts.push(`TRUNCATE ${TARGET}.concept_synonym;`)
-    parts.push(`INSERT INTO ${TARGET}.concept_synonym`)
-    parts.push(`SELECT cs.*`)
-    parts.push(`FROM ${vs}.concept_synonym cs`)
-    parts.push(`WHERE cs.concept_id IN (SELECT concept_id FROM ${TARGET}.concept);`)
-  } else {
-    parts.push(skipped('concept_synonym', vs))
-  }
-  parts.push('')
-
-  // drug_strength
-  if (has('drug_strength')) {
-    parts.push('-- drug_strength: dosage of the drug concepts, needed to compute')
-    parts.push('-- quantities and to resolve an ingredient from a clinical drug.')
-    parts.push('--')
-    parts.push('-- Filtered on every concept column, not on drug_concept_id alone: the')
-    parts.push('-- ingredient and unit columns are foreign keys to concept as well, and a')
-    parts.push('-- row whose ingredient was not copied is a broken key. The unit columns')
-    parts.push('-- are nullable, so NULL passes.')
-    parts.push(`TRUNCATE ${TARGET}.drug_strength;`)
-    parts.push(`INSERT INTO ${TARGET}.drug_strength`)
-    parts.push(`SELECT ${athenaSelectList('drug_strength', 'dstr')}`)
-    parts.push(`FROM ${vs}.drug_strength dstr`)
-    parts.push(DRUG_STRENGTH_CONCEPT_COLUMNS.map((col, i) =>
-      `${i === 0 ? 'WHERE' : '  AND'} (dstr.${col} IS NULL`
-      + ` OR dstr.${col} IN (SELECT concept_id FROM ${TARGET}.concept))`,
-    ).join('\n') + ';')
-  } else {
-    parts.push(skipped('drug_strength', vs))
-  }
 
   // =========================================================================
-  // PART 6: source_to_concept_map, derived from C/CR
+  // PART 5: source_to_concept_map, derived from C/CR
   // =========================================================================
   if (mode === 'ccr+stcm') {
     parts.push('')
     parts.push('-- =================================================================')
-    parts.push('-- PART 6: source_to_concept_map, derived from CONCEPT/CONCEPT_RELATIONSHIP')
+    parts.push('-- PART 5: source_to_concept_map, derived from CONCEPT/CONCEPT_RELATIONSHIP')
     parts.push('-- =================================================================')
     parts.push('--')
     parts.push('-- STCM is legacy (not an official vocabulary table since CDM 5.3), kept')

@@ -4201,7 +4201,7 @@
     "vocab_mode_stcm": "SOURCE_TO_CONCEPT_MAP",
     "vocab_artefact_csv": "Mapping export (CSV)",
     "vocab_artefact_script": "Vocabulary script",
-    "vocab_artefact_prune": "Prune script",
+    "vocab_artefact_fill": "Vocabulary fill script",
     "vocab_artefact_up_to_date": "Already up to date — tick to rewrite anyway",
     "vocab_artefact_edited": "Differs from what would be generated — tick to overwrite",
     "vocab_generated": "{{count}} mappings written to {{files}}.",

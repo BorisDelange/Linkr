@@ -401,7 +401,7 @@ statistics, schema, cohorts, readme, license and versioning.
 - **Databases**: a source database and a target database. The target is created
   beforehand from an OMOP preset's DDL.
 - **Vocabulary**: an optional mapping project, whose Vocabulary tab generates
-  `00_vocabulary.sql` / `99_prune_vocabulary.sql` (C/CR or STCM, source concepts
+  `00_vocabulary.sql` / `89_fill_vocabulary.sql` (C/CR or STCM, source concepts
   from 2 billion).
 - **Scripts**: an ordered tree of SQL/R/Python scripts **written by hand**,
   addressing `source.` / `target.` / `vocab.`, resolved at run time. No generator

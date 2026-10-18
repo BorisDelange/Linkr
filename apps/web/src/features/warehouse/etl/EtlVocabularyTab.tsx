@@ -23,7 +23,7 @@ import { localized } from '@/lib/localized'
 import { buildPointer } from '@/lib/import-identity'
 import {
   buildVocabularyScriptWithIds,
-  buildPruneVocabularyScript,
+  buildFillVocabularyScript,
   type VocabularyMode,
 } from './build-vocabulary-script'
 import { buildCcrCsvs, stcmFromCcr, syntheticMappingsForUnmapped, SYNTHETIC_MAPPING_ID } from '@/lib/concept-mapping/ccr-export'
@@ -45,7 +45,7 @@ import { vocabularyReadiness } from './vocabulary-readiness'
 import type { ConceptMapping, EffectiveMappingStatus, EtlFile, EtlVocabularyConfig } from '@/types'
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
-const PRUNE_SCRIPT_NAME = '99_prune_vocabulary.sql'
+const FILL_SCRIPT_NAME = '89_fill_vocabulary.sql'
 
 /** Every export this tab owns — the set it may delete when the mode changes. */
 const ALL_MAPPING_EXPORTS = new Set<string>([
@@ -55,21 +55,19 @@ const ALL_MAPPING_EXPORTS = new Set<string>([
 /**
  * Where each generated script sits in the run order.
  *
- * These two names are imposed on every pipeline, so they bracket the run and
- * leave the whole middle to the user. The vocabulary script fills the concept
- * tables, so it runs before everything (-1). The prune reads the CDM tables to
- * see which concepts were written, so it runs last (99): after the user's own
- * tests and provenance steps, and after any cleanup that drops staging tables
- * — a staging table left in place would be scanned for *_concept_id columns
- * and keep concepts alive that no CDM row references.
+ * The vocabulary script loads the mapping project's concepts, which the CDM
+ * scripts join, so it runs before everything (-1). The fill reads the CDM
+ * tables to see which concepts were written, so it is created last; it belongs
+ * before any step that checks concept_ids against target.concept (tests,
+ * cdm_source), which only the user can place — hence the 89_ in its name.
  */
 const VOCAB_SCRIPT_ORDER = -1
-const PRUNE_SCRIPT_ORDER = 99
+const FILL_SCRIPT_ORDER = 99
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
 /** The artefacts the Vocabulary tab can write — see `generate` below. */
-type Artefact = 'csv' | 'script' | 'prune'
+type Artefact = 'csv' | 'script' | 'fill'
 
 const STATUSES: EffectiveMappingStatus[] = ['approved', 'rejected', 'flagged', 'disputed', 'unchecked', 'ignored']
 
@@ -81,7 +79,7 @@ interface Props {
  * Create or update a generated pipeline script with the given SQL content.
  *
  * `order` decides where it sits in the run: the vocabulary script at -1 runs
- * before every user script (0+), while the prune script has to run after them —
+ * before every user script (0+), while the fill script has to run after them —
  * it reads the CDM tables to find out which concepts were written.
  */
 async function upsertGeneratedScript(
@@ -312,8 +310,10 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   }, [pipeline, updatePipeline])
 
   const selected = useMemo(
-    () => new Set<Artefact>((vocabConfig?.artefacts as Artefact[] | undefined)
-      ?? ['csv', 'script', 'prune']),
+    // 'prune' is what the fill script was called before it replaced the prune.
+    () => new Set<Artefact>((vocabConfig?.artefacts as string[] | undefined)
+      ?.map((a) => (a === 'prune' ? 'fill' : a) as Artefact)
+      ?? ['csv', 'script', 'fill']),
     [vocabConfig?.artefacts],
   )
   /** Edited or up-to-date artefacts the user ticked back, accepting the rewrite. */
@@ -583,16 +583,16 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     return {
       csv: parts.some((p) => p === undefined) ? undefined : parts.join('\n'),
       script: atRoot(VOCAB_SCRIPT_NAME),
-      prune: atRoot(PRUNE_SCRIPT_NAME),
+      fill: atRoot(FILL_SCRIPT_NAME),
     } satisfies Record<Artefact, string | undefined>
   }, [files, pipelineId, modeExports])
 
   const editedScripts = useMemo(() => {
     const edited = new Set<Artefact>()
 
-    if (storedArtefacts.prune !== undefined
-      && storedArtefacts.prune !== buildPruneVocabularyScript()) {
-      edited.add('prune')
+    if (storedArtefacts.fill !== undefined && vocabSchema
+      && storedArtefacts.fill !== buildFillVocabularyScript(undefined, vocabTables)) {
+      edited.add('fill')
     }
 
     // The other two are built from the mappings; with none selected, or with the
@@ -627,9 +627,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
   const upToDateArtefacts = useMemo(() => {
     const fresh = new Set<Artefact>()
     const compared = (a: Artefact) =>
-      a === 'prune' ? true
+      a === 'fill' ? !!vocabSchema
         : exportedMappings.length > 0 && !sourceConceptsPending && (a === 'csv' || !!vocabSchema)
-    for (const a of ['csv', 'script', 'prune'] as const) {
+    for (const a of ['csv', 'script', 'fill'] as const) {
       if (storedArtefacts[a] !== undefined && compared(a) && !editedScripts.has(a)) fresh.add(a)
     }
     return fresh
@@ -670,10 +670,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
    */
   const generate = useCallback(async () => {
     if (!selectedProjectId || exportedMappings.length === 0 || effectiveSelected.size === 0) return
-    // Only the vocabulary script reads the reference; the CSV is built purely
-    // from the mappings and the prune script only reads the target, so both must
-    // stay available when no ATHENA import exists.
-    if (effectiveSelected.has('script') && !vocabSchema) {
+    // Both scripts read the reference; the CSV is built purely from the
+    // mappings, so it stays available when no ATHENA import exists.
+    if ((effectiveSelected.has('script') || effectiveSelected.has('fill')) && !vocabSchema) {
       setResult({
         success: false,
         count: 0,
@@ -713,9 +712,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
       if (effectiveSelected.has('script')) {
         await upsertGeneratedScript(pipelineId, VOCAB_SCRIPT_NAME, sql, VOCAB_SCRIPT_ORDER)
       }
-      if (effectiveSelected.has('prune')) {
+      if (effectiveSelected.has('fill')) {
         await upsertGeneratedScript(
-          pipelineId, PRUNE_SCRIPT_NAME, buildPruneVocabularyScript(), PRUNE_SCRIPT_ORDER,
+          pipelineId, FILL_SCRIPT_NAME, buildFillVocabularyScript(undefined, vocabTables), FILL_SCRIPT_ORDER,
         )
       }
       setResult({ success: true, count: exportedMappings.length, written: [...effectiveSelected] })
@@ -727,8 +726,8 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     }
   }, [selectedProjectId, exportedMappings, idAllocationPool, pipelineId, vocabSchema, vocabTables, effectiveSelected, updateMapping, mode, t])
 
-  // The CSV and the prune script need no vocabulary reference; only the
-  // vocabulary script does, and it adds its own condition. Generating while the
+  // The CSV needs no vocabulary reference; the two scripts do, and add their
+  // own condition. Generating while the
   // dictionary is still loading would write the mapped part only.
   const cannotGenerate = !selectedProjectId || exportedMappings.length === 0
     || sourceConceptsPending || !canWrite
@@ -913,13 +912,13 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
               {([
                 { id: 'csv' as const, label: t('etl.vocab_artefact_csv'), hint: modeExports.map(mappingExportPath).join(' + '), icon: Table2 },
                 { id: 'script' as const, label: t('etl.vocab_artefact_script'), hint: VOCAB_SCRIPT_NAME, icon: FileCode },
-                { id: 'prune' as const, label: t('etl.vocab_artefact_prune'), hint: PRUNE_SCRIPT_NAME, icon: FileCode },
+                { id: 'fill' as const, label: t('etl.vocab_artefact_fill'), hint: FILL_SCRIPT_NAME, icon: FileCode },
               ]).map(({ id, label, hint, icon: Icon }) => (
                 <label key={id} className="flex cursor-pointer items-start gap-2">
                   <Checkbox
                     checked={effectiveSelected.has(id)}
                     onCheckedChange={() => toggleArtefact(id, effectiveSelected.has(id))}
-                    disabled={creating || (id === 'script' && !vocabSchema)}
+                    disabled={creating || (id !== 'csv' && !vocabSchema)}
                     className="mt-0.5"
                   />
                   <span className="min-w-0 flex-1">
@@ -975,7 +974,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                   files: (result.written ?? []).map((a) => (
                     a === 'csv' ? modeExports.map(mappingExportPath).join(', ')
                       : a === 'script' ? VOCAB_SCRIPT_NAME
-                        : PRUNE_SCRIPT_NAME
+                        : FILL_SCRIPT_NAME
                   )).join(', '),
                 })}
               </span>

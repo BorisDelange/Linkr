@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import {
   ETL_FIXED_CONCEPT_IDS,
+  OMOP_METADATA_VOCABULARIES,
   athenaSelectList,
   buildCustomVocabularyScript,
-  buildPruneVocabularyScript,
+  buildFillVocabularyScript,
   buildVocabularyScript,
   buildVocabularyScriptWithIds,
 } from './build-vocabulary-script'
@@ -36,11 +37,14 @@ const TARGET_TABLES = [
   'concept_class', 'source_to_concept_map', 'vocabulary', 'domain', 'relationship',
 ]
 
-/** A vocabulary reference holding every table an ATHENA download can carry. */
-const FULL = buildVocabularyScript([MAPPING], undefined, [
+/** Every table an ATHENA download can carry. */
+const ATHENA_TABLES = [
   'concept', 'concept_ancestor', 'concept_relationship', 'concept_synonym',
   'vocabulary', 'domain', 'concept_class', 'relationship', 'drug_strength',
-])
+]
+
+/** The fill script against a reference holding every ATHENA table. */
+const FULL_FILL = buildFillVocabularyScript(undefined, ATHENA_TABLES)
 
 /** drug_strength columns that are foreign keys to concept. */
 const DRUG_STRENGTH_CONCEPT_COLS = [
@@ -53,7 +57,6 @@ describe('buildVocabularyScript', () => {
 
   it('reads the ATHENA reference through the vocab role', () => {
     expect(sql).toContain('FROM vocab.concept ')
-    expect(sql).toContain('FROM vocab.concept_relationship ')
     expect(sql).not.toMatch(/\bds_[0-9a-f_]{8}/i)
   })
 
@@ -68,7 +71,7 @@ describe('buildVocabularyScript', () => {
         expect(modeSql).not.toMatch(new RegExp(`UPDATE ${table}\\b`))
       }
       expect(modeSql).toContain('TRUNCATE target.concept;')
-      expect(modeSql).toContain('INSERT INTO target.concept_ancestor')
+      expect(modeSql).toContain('TRUNCATE target.concept_relationship;')
     }
   })
 
@@ -96,17 +99,26 @@ describe('buildVocabularyScript', () => {
     expect(sql).toContain('vocabulary_id')
   })
 
-  it('copies the concept table without filtering on vocabulary_id', () => {
-    // A 'Maps to' can land outside whatever vocabularies the ETL reads
-    // directly (ICD -> OMOP Extension, NDC -> CVX). Filtering the copy left
-    // those targets out and the CDM ended up with concept_ids absent from
-    // target.concept - a broken foreign key. 99_prune_vocabulary.sql cuts the
-    // table back down once the CDM says which concepts are used.
-    const copy = sql.slice(sql.indexOf('-- 2b.'), sql.indexOf('-- 2c.'))
-    expect(copy).toContain('INSERT INTO target.concept')
-    expect(copy).not.toMatch(/WHERE c\.vocabulary_id IN \(/)
-    expect(copy).not.toContain("'OMOP Extension'")
-    expect(copy).not.toContain("'ICD10CM'")
+  it('copies from the reference only what the mapping project knows', () => {
+    // Copying the whole reference here (~10M concepts, then ~140M relationship
+    // and ancestor rows) ran an indexed DuckDB target out of memory. The rest
+    // of what the CDM uses is copied by the fill script, once it is known.
+    for (const mode of ['ccr', 'ccr+stcm', 'stcm'] as const) {
+      const full = buildVocabularyScript([MAPPING], undefined, ATHENA_TABLES, mode)
+      const code = full.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
+      for (const t of ['concept_relationship', 'concept_ancestor', 'concept_synonym', 'drug_strength', 'domain', 'concept_class', 'relationship']) {
+        expect(code).not.toContain(`vocab.${t}`)
+      }
+      expect(code).not.toMatch(/FROM vocab\.concept c\nWHERE c\.concept_id NOT IN/)
+      expect(code).not.toContain("'Meas Value Operator'")
+    }
+  })
+
+  it('leaves the tables the fill script owns alone', () => {
+    const full = buildVocabularyScript([MAPPING], undefined, ATHENA_TABLES)
+    for (const t of ['concept_ancestor', 'concept_synonym', 'drug_strength', 'domain', 'concept_class', 'relationship']) {
+      expect(full).not.toMatch(new RegExp(`target\\.${t}\\b`))
+    }
   })
 
   it('allocates custom-vocabulary concept ids with COALESCE so an empty target does not NULL them', () => {
@@ -117,8 +129,8 @@ describe('buildVocabularyScript', () => {
   })
 })
 
-describe('buildPruneVocabularyScript', () => {
-  const sql = buildPruneVocabularyScript()
+describe('buildFillVocabularyScript', () => {
+  const sql = FULL_FILL
 
   it('finds the used concepts from the schema, not a fixed column list', () => {
     // A hand-written list of *_concept_id columns missed half of them (43 vs the
@@ -135,7 +147,7 @@ describe('buildPruneVocabularyScript', () => {
 
   it('skips the vocabulary tables when scanning for used concepts', () => {
     // They reference concepts in order to describe them, so counting those
-    // references would keep every concept alive and prune nothing.
+    // references would copy concepts no CDM row uses.
     expect(sql).toMatch(/table_name NOT IN \([^)]*'concept'[^)]*\)/)
     expect(sql).toMatch(/table_name NOT IN \([^)]*'concept_ancestor'[^)]*\)/)
   })
@@ -148,58 +160,46 @@ describe('buildPruneVocabularyScript', () => {
     expect(sql).not.toMatch(/FROM query\(\s*\(SELECT/)
   })
 
-  it('aborts instead of pruning when no concept is referenced', () => {
-    // Every DELETE keeps what the scan found, so an empty scan does not prune
-    // nothing — it deletes the WHOLE vocabulary, silently. Verified against real
-    // DuckDB: without this guard, a run before the CDM tables are populated took
-    // the concept table from 5 rows to 0 with no error. The script is generated
-    // enabled and ordered last, so a wrong run order is the expected way in.
-    expect(sql).toContain('error(')
+  it('aborts when no concept is referenced, before copying anything', () => {
+    // An empty scan means it ran before the CDM tables were filled; carrying on
+    // would leave every concept_id dangling for the tests to report.
     const guard = sql.indexOf('error(')
-    const firstDelete = sql.indexOf('DELETE FROM target.')
     expect(guard).toBeGreaterThan(-1)
-    expect(guard).toBeLessThan(firstDelete)
+    expect(guard).toBeLessThan(sql.indexOf('INSERT INTO target.concept'))
   })
 
-  it('keeps ancestors and related concepts, not just the used ones', () => {
-    // Dropping ancestors breaks hierarchical queries ("everything under
-    // Diabetes"), and dropping relations breaks source-to-standard traceability.
+  it('expands the used concepts through the reference, not the target', () => {
+    // The target holds only the mapping project's concepts at this point, so
+    // reading ancestors and relations there would find almost nothing.
+    expect(sql).toContain('FROM vocab.concept_ancestor a')
+    expect(sql).toContain('FROM vocab.concept_relationship cr\n    INNER JOIN target.tmp_used_concepts')
     expect(sql).toContain('a.ancestor_concept_id')
     expect(sql).toContain('cr.concept_id_2')
   })
 
-  it('prunes the vocabulary tables only', () => {
-    const deleted = [...sql.matchAll(/DELETE FROM target\.(\w+)/g)].map((m) => m[1])
-    // The big tables are pruned by rewriting them to what survives, which is far
-    // cheaper than deleting the majority that does not — so a table is pruned by
-    // one mechanism or the other, and both count here.
-    const rewritten = [...sql.matchAll(/CREATE OR REPLACE TABLE target\.(\w+) AS/g)].map((m) => m[1])
-    const pruned = [...deleted, ...rewritten]
-    expect(pruned).toContain('concept')
-    expect(pruned).toContain('concept_ancestor')
-    // Touching a clinical table here would silently drop patient data — by
-    // either mechanism: a rewrite that missed its filter empties one just as a
-    // DELETE would.
-    for (const clinical of ['person', 'measurement', 'condition_occurrence', 'drug_exposure']) {
-      expect(pruned).not.toContain(clinical)
-    }
+  it('adds only the missing concepts and relationships, so it can re-run', () => {
+    // The vocabulary script already loaded the mapping project's concepts and
+    // 'Maps to' rows; a plain INSERT would duplicate them on a re-run.
+    expect(sql).toContain('ANTI JOIN target.concept t ON t.concept_id = c.concept_id;')
+    expect(sql).toMatch(/ANTI JOIN target\.concept_relationship t\s+ON\s+t\.concept_id_1 = cr\.concept_id_1/)
+    expect(sql).not.toContain('TRUNCATE target.concept;')
+    expect(sql).not.toContain('TRUNCATE target.concept_relationship;')
   })
 
-  it('restores the NOT NULL constraints a rewrite drops', () => {
-    // CREATE OR REPLACE builds a fresh table that does NOT inherit them, so
-    // without the ALTERs the CDM ends up laxer than its own DDL, silently.
-    // DuckDB has no dynamic DDL — query() is a table function and rejects an
-    // ALTER — so they cannot be read back from the catalogue at run time.
-    for (const { table, notNull } of [
-      { table: 'concept_relationship', notNull: ['concept_id_1', 'relationship_id'] },
-      { table: 'concept_ancestor', notNull: ['ancestor_concept_id', 'min_levels_of_separation'] },
-      { table: 'concept_synonym', notNull: ['concept_id', 'concept_synonym_name'] },
-    ]) {
-      expect(sql).toContain(`CREATE OR REPLACE TABLE target.${table} AS`)
-      for (const col of notNull) {
-        expect(sql).toContain(`ALTER TABLE target.${table} ALTER COLUMN ${col} SET NOT NULL;`)
-      }
+  it('keeps every foreign key of the copied relationship and ancestor rows', () => {
+    expect(sql).toContain('SEMI JOIN target.concept c1 ON c1.concept_id = cr.concept_id_1')
+    expect(sql).toContain('SEMI JOIN target.concept c2 ON c2.concept_id = cr.concept_id_2')
+    expect(sql).toContain('SEMI JOIN target.concept c1 ON c1.concept_id = ca.ancestor_concept_id')
+    expect(sql).toContain('SEMI JOIN target.concept c2 ON c2.concept_id = ca.descendant_concept_id')
+  })
+
+  it('never touches a clinical table', () => {
+    // A write here would silently alter patient data.
+    const written = [...sql.matchAll(/(?:INSERT INTO|TRUNCATE|DELETE FROM|CREATE OR REPLACE TABLE) target\.(\w+)/g)].map((m) => m[1])
+    for (const clinical of ['person', 'measurement', 'condition_occurrence', 'drug_exposure', 'drug_era']) {
+      expect(written).not.toContain(clinical)
     }
+    expect(sql).not.toContain('DELETE FROM')
   })
 
   it('splits into separate statements', () => {
@@ -211,11 +211,30 @@ describe('buildPruneVocabularyScript', () => {
     expect(sql).not.toContain("ESCAPE '\\'")
   })
 
-  it('keeps the None vocabulary row', () => {
-    // 'None' carries the vocabulary bundle release and owns no concept, so a
-    // prune on concept ownership alone deleted it — and cdm_source then fell
-    // back to the SNOMED edition dates instead of the bundle version.
-    expect(sql).toMatch(/DELETE FROM target\.vocabulary[\s\S]*?vocabulary_id <> 'None';/)
+  it('copies the metadata vocabularies whole', () => {
+    // The metadata tables' *_concept_id columns, cdm_source's CDM version and
+    // fact_relationship's domains all point into them, and no CDM row scan
+    // would find most of them.
+    const keep = sql.slice(sql.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts'))
+    const keepStatement = keep.slice(0, keep.indexOf(';'))
+    expect(keepStatement).toContain(
+      `WHERE m.vocabulary_id IN (${OMOP_METADATA_VOCABULARIES.map((v) => `'${v}'`).join(', ')})`,
+    )
+    expect(OMOP_METADATA_VOCABULARIES).toContain('CDM')
+    expect(OMOP_METADATA_VOCABULARIES).toContain('Relationship')
+  })
+
+  it('copies the metadata tables whole, the None row included', () => {
+    // 'None' carries the vocabulary bundle release that cdm_source reads.
+    expect(sql).toMatch(/INSERT INTO target\.vocabulary\nSELECT v\.\*\nFROM vocab\.vocabulary v\nWHERE v\.vocabulary_id NOT IN/)
+    for (const [table, alias] of [['domain', 'd'], ['concept_class', 'cc'], ['relationship', 'r']]) {
+      expect(sql).toContain(`INSERT INTO target.${table}\nSELECT ${alias}.*\nFROM vocab.${table} ${alias};`)
+    }
+  })
+
+  it('keeps the custom vocabulary entries the vocabulary script wrote', () => {
+    expect(sql).not.toContain('TRUNCATE target.vocabulary;')
+    expect(sql).toContain('WHERE v.vocabulary_id NOT IN (SELECT vocabulary_id FROM target.vocabulary);')
   })
 
   it('drops its temporary tables', () => {
@@ -230,14 +249,17 @@ describe('ATHENA date columns', () => {
   it('never copies the ATHENA tables positionally', () => {
     // `SELECT c.*` put a YYYYMMDD BIGINT into a DATE column, which DuckDB
     // refuses ("Unimplemented type for cast (BIGINT -> DATE)").
-    expect(sql).not.toContain('SELECT c.*')
-    expect(sql).not.toContain('SELECT cr.*')
+    for (const script of [sql, FULL_FILL]) {
+      expect(script).not.toContain('SELECT c.*')
+      expect(script).not.toContain('SELECT cr.*')
+    }
   })
 
   it('converts the date columns of every copied table', () => {
     for (const col of ['valid_start_date', 'valid_end_date']) {
       expect(sql).toContain(`try_strptime(CAST(c.${col} AS VARCHAR), '%Y%m%d')`)
-      expect(sql).toContain(`try_strptime(CAST(cr.${col} AS VARCHAR), '%Y%m%d')`)
+      expect(FULL_FILL).toContain(`try_strptime(CAST(c.${col} AS VARCHAR), '%Y%m%d')`)
+      expect(FULL_FILL).toContain(`try_strptime(CAST(cr.${col} AS VARCHAR), '%Y%m%d')`)
     }
   })
 
@@ -358,18 +380,21 @@ describe('vocabulary references missing the metadata tables', () => {
   // ("Table with name vocabulary does not exist").
   const CORE = ['concept', 'concept_ancestor', 'concept_relationship', 'concept_synonym']
   const sql = buildVocabularyScript([MAPPING], undefined, CORE)
+  const fill = buildFillVocabularyScript(undefined, CORE)
+  const code = (script: string) => script.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
 
   it('never reads a table the reference does not have', () => {
     // Comments still name the skipped table, so assert on executable lines only.
-    const code = sql.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n')
-    for (const t of ['vocabulary', 'domain', 'concept_class', 'relationship', 'drug_strength']) {
-      expect(code).not.toContain(`vocab.${t}`)
+    for (const script of [sql, fill]) {
+      for (const t of ['vocabulary', 'domain', 'concept_class', 'relationship', 'drug_strength']) {
+        expect(code(script)).not.toContain(`vocab.${t}`)
+      }
     }
   })
 
   it('still copies the tables it does have', () => {
-    expect(sql).toContain('FROM vocab.concept ')
-    expect(sql).toContain('FROM vocab.concept_synonym ')
+    expect(fill).toContain('FROM vocab.concept ')
+    expect(fill).toContain('FROM vocab.concept_synonym ')
   })
 
   it('drops the ATHENA filter from the custom-vocabulary insert', () => {
@@ -383,71 +408,69 @@ describe('vocabulary references missing the metadata tables', () => {
     expect(sql).toContain('TRUNCATE target.vocabulary;')
   })
 
+  it('still clears the tables it cannot refill', () => {
+    // Left alone they would keep a previous run's rows, pointing at concepts
+    // this run may not have copied.
+    for (const t of ['drug_strength', 'domain', 'concept_class', 'relationship']) {
+      expect(fill).toContain(`TRUNCATE target.${t};`)
+    }
+  })
+
   it('says which parts were skipped', () => {
-    expect(sql).toContain('-- Skipped: vocab.vocabulary is not part of this vocabulary reference.')
+    expect(fill).toContain('-- Skipped: vocab.vocabulary is not part of this vocabulary reference.')
   })
 
   it('emits every part when the reference is complete', () => {
-    expect(FULL).toContain('FROM vocab.vocabulary v')
-    expect(FULL).toContain('FROM vocab.domain d')
-    expect(FULL).not.toContain('-- Skipped:')
+    expect(FULL_FILL).toContain('FROM vocab.vocabulary v')
+    expect(FULL_FILL).toContain('FROM vocab.domain d')
+    expect(FULL_FILL).not.toContain('-- Skipped:')
   })
 })
 
 describe('drug_strength', () => {
-  it('is copied from the reference, and cleared first like every other table', () => {
-    expect(FULL).toContain('TRUNCATE target.drug_strength;')
-    expect(FULL).toContain('INSERT INTO target.drug_strength')
-    expect(FULL).toContain('FROM vocab.drug_strength dstr')
+  it('is copied by the fill script, and cleared first', () => {
+    expect(FULL_FILL).toContain('TRUNCATE target.drug_strength;')
+    expect(FULL_FILL).toContain('INSERT INTO target.drug_strength')
+    expect(FULL_FILL).toContain('FROM vocab.drug_strength dstr')
   })
 
   it('normalises the ATHENA date columns instead of copying positionally', () => {
     // ATHENA's CSV-derived parquet types them as BIGINT (20100401); a bare
     // SELECT * then fails the implicit cast on INSERT.
-    expect(FULL).not.toContain('SELECT dstr.*')
-    expect(FULL).toContain("try_strptime(CAST(dstr.valid_start_date AS VARCHAR), '%Y%m%d')")
-    expect(FULL).toContain('dstr.box_size')
+    expect(FULL_FILL).not.toContain('SELECT dstr.*')
+    expect(FULL_FILL).toContain("try_strptime(CAST(dstr.valid_start_date AS VARCHAR), '%Y%m%d')")
+    expect(FULL_FILL).toContain('dstr.box_size')
   })
 
-  it('copies only rows whose every concept column survived, NULL units aside', () => {
+  it('copies only rows whose every concept column was copied, NULL units aside', () => {
     // Each of the five is a foreign key to concept: keeping a row on
     // drug_concept_id alone leaves a broken key on its ingredient or unit.
     for (const col of DRUG_STRENGTH_CONCEPT_COLS) {
-      expect(FULL).toContain(
+      expect(FULL_FILL).toContain(
         `(dstr.${col} IS NULL OR dstr.${col} IN (SELECT concept_id FROM target.concept))`,
       )
     }
   })
-})
 
-describe('buildPruneVocabularyScript', () => {
-  const sql = buildPruneVocabularyScript()
-
-  it('keeps the ingredients and units of the drugs the CDM uses', () => {
+  it('pulls in the ingredients and units of the drugs the CDM uses', () => {
     // They are described by drug_strength and referenced by no CDM column, so
-    // the used-concept scan never sees them: without this the prune deletes
-    // every drug_strength row of every drug it just kept.
-    expect(sql).toContain('FROM target.drug_strength ds')
-    expect(sql).toContain(
+    // the used-concept scan never sees them: without this every drug_strength
+    // row of every drug in use would be dropped.
+    expect(FULL_FILL).toContain('FROM vocab.drug_strength ds')
+    expect(FULL_FILL).toContain(
       'SELECT UNNEST([ds.drug_concept_id, ds.ingredient_concept_id, ds.amount_unit_concept_id,'
       + ' ds.numerator_unit_concept_id, ds.denominator_unit_concept_id]) AS concept_id',
     )
   })
+})
+
+describe('concepts to copy', () => {
+  const keep = FULL_FILL.slice(FULL_FILL.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts'))
+  const keepStatement = keep.slice(0, keep.indexOf(';'))
 
   it('never lets a NULL into tmp_keep_concepts', () => {
-    // The unit columns are nullable, and one NULL makes every
-    // `NOT IN (SELECT ... FROM tmp_keep_concepts)` evaluate to NULL: nothing is
-    // deleted and the prune silently does nothing.
-    const keep = sql.slice(sql.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts'))
-    expect(keep.slice(0, keep.indexOf(';'))).toContain('WHERE concept_id IS NOT NULL')
-  })
-
-  it('prunes drug_strength on every concept column, not just the drug', () => {
-    for (const col of DRUG_STRENGTH_CONCEPT_COLS) {
-      expect(sql).toContain(
-        `(${col} IS NOT NULL AND ${col} NOT IN (SELECT concept_id FROM target.tmp_keep_concepts))`,
-      )
-    }
+    // The unit columns of drug_strength are nullable.
+    expect(keepStatement).toContain('WHERE concept_id IS NOT NULL')
   })
 
   it('never writes a NULL concept_name, whichever path builds concept', () => {
@@ -467,13 +490,11 @@ describe('buildPruneVocabularyScript', () => {
     )
   })
 
-  it('keeps the concepts the ETL writes as literals', () => {
-    // Concept 0 above all: every unmapped row carries concept_id = 0, so pruning
-    // it turns each one into a broken foreign key. It is deliberately absent
-    // from tmp_used_concepts — expanding the closure of "no matching concept"
-    // means nothing — which is exactly why it has to be kept here instead.
-    const keep = sql.slice(sql.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts'))
-    expect(keep.slice(0, keep.indexOf(';'))).toContain(
+  it('includes the concepts the ETL writes as literals', () => {
+    // Concept 0 above all: every unmapped row carries concept_id = 0. It is
+    // deliberately absent from tmp_used_concepts — expanding the closure of
+    // "no matching concept" means nothing — which is why it is added here.
+    expect(keepStatement).toContain(
       `SELECT UNNEST([${ETL_FIXED_CONCEPT_IDS.join(', ')}]) AS concept_id`,
     )
     expect(ETL_FIXED_CONCEPT_IDS).toContain(0)
@@ -498,30 +519,29 @@ describe('buildCustomVocabularyScript', () => {
 })
 
 describe('clearing tables', () => {
-  const ALL_TABLES = [
-    'concept', 'concept_relationship', 'concept_ancestor', 'concept_synonym',
-    'vocabulary', 'domain', 'concept_class', 'relationship',
-  ]
-
   it('truncates rather than deleting, everywhere', () => {
     // Every clear wipes a whole table, and DELETE journals row by row — on
     // concept / concept_relationship that dominated the script's runtime.
-    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ALL_TABLES)
+    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ATHENA_TABLES)
     expect(sql).not.toContain('DELETE FROM')
-    for (const table of [...ALL_TABLES, 'concept_ancestor']) {
+    for (const table of ['concept', 'concept_relationship', 'vocabulary']) {
       expect(sql).toContain(`TRUNCATE target.${table};`)
+    }
+    expect(FULL_FILL).not.toContain('DELETE FROM')
+    for (const table of ['concept_ancestor', 'concept_synonym', 'drug_strength', 'domain', 'concept_class', 'relationship']) {
+      expect(FULL_FILL).toContain(`TRUNCATE target.${table};`)
     }
   })
 
   it('leaves source_to_concept_map alone in ccr mode', () => {
     // A pipeline may fill that table by other means; C/CR does not own it.
-    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ALL_TABLES, undefined, 'ccr')
+    const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ATHENA_TABLES, undefined, 'ccr')
     expect(sql).not.toContain('TRUNCATE target.source_to_concept_map;')
   })
 
   it('truncates source_to_concept_map in the modes that write it', () => {
     for (const mode of ['stcm', 'ccr+stcm'] as const) {
-      const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ALL_TABLES, undefined, mode)
+      const { sql } = buildVocabularyScriptWithIds([MAPPING], undefined, ATHENA_TABLES, undefined, mode)
       expect(sql).toContain('TRUNCATE target.source_to_concept_map;')
       expect(sql).not.toContain('DELETE FROM')
     }
@@ -610,7 +630,7 @@ describe('vocabulary mode', () => {
     })
 
     it('derives STCM from the tables, not from a CSV', () => {
-      expect(sql).toContain('PART 6')
+      expect(sql).toContain('PART 5')
       expect(sql).toContain('INSERT INTO target.source_to_concept_map')
       expect(sql).not.toContain("read_csv('mapping.source_to_concept_map'")
     })
@@ -629,7 +649,7 @@ describe('vocabulary mode', () => {
     it('runs the derivation after concept_relationship is filled', () => {
       // It reads target.concept_relationship, so PART 3 has to have run.
       expect(sql.indexOf('-- PART 3: concept_relationship'))
-        .toBeLessThan(sql.indexOf('-- PART 6: source_to_concept_map'))
+        .toBeLessThan(sql.indexOf('-- PART 5: source_to_concept_map'))
     })
   })
 })

@@ -4201,7 +4201,7 @@
     "vocab_mode_stcm": "SOURCE_TO_CONCEPT_MAP",
     "vocab_artefact_csv": "Export des alignements (CSV)",
     "vocab_artefact_script": "Script de vocabulaire",
-    "vocab_artefact_prune": "Script d'élagage",
+    "vocab_artefact_fill": "Script de remplissage du vocabulaire",
     "vocab_artefact_up_to_date": "Déjà à jour — cochez pour réécrire quand même",
     "vocab_artefact_edited": "Diffère de ce qui serait généré — cochez pour écraser",
     "vocab_generated": "{{count}} alignements écrits dans {{files}}.",
