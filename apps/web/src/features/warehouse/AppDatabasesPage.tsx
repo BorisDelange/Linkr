@@ -189,28 +189,6 @@ function CreateFromPresetDialog({
         </span>
       }
     >
-          <FormField label={t('databases.schema_preset')} required>
-            {({ id }) => (
-              <>
-                <Select value={selectedPresetId} onValueChange={setSelectedPresetId}>
-                  <SelectTrigger id={id}>
-                    <SelectValue placeholder={t('databases.select_preset')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {presetsWithDDL.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {presetsWithDDL.length === 0 && (
-                  <p className="text-xs text-muted-foreground">{t('databases.no_presets_with_ddl')}</p>
-                )}
-              </>
-            )}
-          </FormField>
-
           <FormField label={t('databases.database_name')} required>
             {({ id }) => (
               <Input
@@ -237,6 +215,28 @@ function CreateFromPresetDialog({
                 placeholder="mimic_iv_raw"
                 className="font-mono text-xs"
               />
+            )}
+          </FormField>
+
+          <FormField label={t('databases.schema_preset')} required>
+            {({ id }) => (
+              <>
+                <Select value={selectedPresetId} onValueChange={setSelectedPresetId}>
+                  <SelectTrigger id={id}>
+                    <SelectValue placeholder={t('databases.select_preset')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {presetsWithDDL.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {presetsWithDDL.length === 0 && (
+                  <p className="text-xs text-muted-foreground">{t('databases.no_presets_with_ddl')}</p>
+                )}
+              </>
             )}
           </FormField>
 
