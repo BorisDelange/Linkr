@@ -306,11 +306,13 @@ Keep the subject concise; put extra detail in the body if needed.
 
 ## Tests
 
-See `.claude/skills/write-tests/SKILL.md`. Short version:
+Test stable contracts, not volatile UI.
 
-- Test **pure, critical logic** (SQL escaping/validation, OMOP query builders, fuzzy-search, import/export, format helpers). These contracts are stable.
-- Do **not** unit-test volatile React components — they churn every iteration and the tests rot. Cover them via manual/E2E checks instead.
-- When you change a tested function, update its test **in the same change**. A test is part of the contract, not a separate chore.
+- Test **pure, critical logic** (SQL escaping/validation, OMOP query builders, fuzzy-search, import/export round-trips, schema/DDL transforms, stats helpers, format helpers). These contracts are stable. The bar is not a coverage percentage: every function that could silently corrupt data, leak via SQL or produce a clinically wrong number has at least one adversarial test.
+- Do **not** unit-test volatile React components, store wiring, hooks, or anything needing the DOM or a live DuckDB/Pyodide/WebR runtime — they churn every iteration and the tests rot. Cover them by driving the app in a browser (the `browser-check` skill) instead. Logic that would need heavy mocking should first be extracted into a pure function, then tested.
+- For a query builder, assert on the **structure** of the generated SQL (term escaped, alias applied, tiers present), not on a full string match.
+- Co-locate `foo.ts` → `foo.test.ts`, import `describe`/`it`/`expect` from `vitest` explicitly, one `describe` per function and one `it` per named behaviour. No network, filesystem or real DB: inline small literal fixtures. Reference style: `lib/format-helpers.test.ts`, `lib/fuzzy-search.test.ts`.
+- When you change a tested function, update its test **in the same change** — a failing test asks whether you meant to change the contract. Delete a function, delete its test. A test edited every week is testing something volatile: push the logic down or drop the test.
 
 Two rules the review log keeps re-learning:
 

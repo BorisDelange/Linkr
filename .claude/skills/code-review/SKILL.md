@@ -54,7 +54,7 @@ Go file by file through the diff. For **each** finding, record: file:line, sever
 - Flag dead code, commented-out code, leftover debug.
 
 ### 5. Tests
-- For any new/changed **pure critical logic** (SQL builders, escaping, OMOP queries, fuzzy-search, import/export, format helpers), is there a matching test? If not, flag it and offer to write it (`.claude/skills/write-tests/`).
+- For any new/changed **pure critical logic** (SQL builders, escaping, OMOP queries, fuzzy-search, import/export, format helpers), is there a matching test? If not, flag it and offer to write it (rules: `docs/conventions.md` § Tests).
 - Run `cd apps/web && npm run test` and report pass/fail.
 
 ## Step 2 — Verify, don't assume

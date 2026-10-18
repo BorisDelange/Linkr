@@ -1,5 +1,5 @@
 ---
-name: verify
+name: browser-check
 description: Build and drive the Linkr web app in a real browser to observe a change working — client-only (WASM) boot, seeding, DuckDB mounting, warehouse pages. Use when verifying a frontend change at its real surface rather than through tests.
 ---
 
