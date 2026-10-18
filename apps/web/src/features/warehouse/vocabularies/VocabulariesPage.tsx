@@ -123,12 +123,16 @@ function VocabularySection({ workspaceId, section }: { workspaceId: string; sect
                   icon={Library}
                   title={t('vocabulary_library.empty_title')}
                   description={t('vocabulary_library.empty_description')}
+                  action={(
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setSearchParams(canWrite ? { tab: 'library', import: '1' } : { tab: 'library' }, { replace: true })}
+                    >
+                      {t('vocabularies.go_to_library')}
+                    </Button>
+                  )}
                 />
-                <div className="flex justify-center pb-6">
-                  <Button size="sm" variant="outline" onClick={() => setTab('library')}>
-                    {t('vocabularies.go_to_library')}
-                  </Button>
-                </div>
               </Card>
             )}
           </div>
