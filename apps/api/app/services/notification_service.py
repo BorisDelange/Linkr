@@ -51,6 +51,8 @@ async def record_change(
         "entityType": entity_type,
         "entityId": entity_id,
         "projectUid": project_uid,
+        # Lets an open tab re-read a workspace-scoped list without a notification.
+        "workspaceId": (detail or {}).get("workspaceId"),
     }
     if notify:
         row = Notification(

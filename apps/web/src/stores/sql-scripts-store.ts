@@ -4,6 +4,7 @@ import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
 import { prunedConfigForTree, renameVersioningMark } from '@/lib/entity-versioning'
 import { treeNodePath } from '@/lib/entity-tree'
+import { mergeRemoteFiles } from '@/lib/remote-files-merge'
 import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
 /** A file's path inside its collection — the key the versioning marks use. */
@@ -58,6 +59,9 @@ interface SqlScriptsState {
   createCollection: (collection: SqlScriptCollection) => Promise<void>
   updateCollection: (id: string, changes: Partial<SqlScriptCollection>) => Promise<void>
   deleteCollection: (id: string) => Promise<void>
+  /** Re-read a collection and, when it is the open one, its files, after a change
+   *  made elsewhere (an agent over MCP). Unsaved edits in the editor are kept. */
+  applyRemoteChange: (id: string, deleted: boolean) => Promise<void>
 
   // File management (scoped to active collection)
   files: SqlScriptFile[]
@@ -182,6 +186,28 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
         activeCollectionId: s.activeCollectionId === id ? null : s.activeCollectionId,
         _outputByCollection: map,
       }
+    })
+  },
+
+  applyRemoteChange: async (id, deleted) => {
+    const storage = getStorage()
+    const collection = deleted ? undefined : await storage.sqlScriptCollections.getById(id)
+    set((s) => {
+      const others = s.collections.filter((c) => c.id !== id)
+      if (collection) {
+        const index = s.collections.findIndex((c) => c.id === id)
+        return { collections: index < 0 ? [...others, collection] : s.collections.map((c) => (c.id === id ? collection : c)) }
+      }
+      return s.activeCollectionId === id
+        ? { collections: others, files: [], activeCollectionId: null, openFileIds: [], selectedFileId: null }
+        : { collections: others }
+    })
+    if (!collection || get().activeCollectionId !== id) return
+    const stored = await storage.sqlScriptFiles.getByCollection(id)
+    if (get().activeCollectionId !== id) return
+    set((s) => {
+      const merged = mergeRemoteFiles(s, stored, s.isFileDirty)
+      return { ...merged, files: merged.files.sort((a, b) => a.order - b.order), _dirtyVersion: s._dirtyVersion + 1 }
     })
   },
 

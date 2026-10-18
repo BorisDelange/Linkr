@@ -36,10 +36,14 @@ export const hasDetailDialog = (n: AppNotification) =>
  *  file of an ETL pipeline changed (`name` its path). No `part` when only
  *  `workspaceId` is carried, for an entity outside any project. */
 export interface NotificationDetail {
-  part?: 'widget' | 'tab' | 'suggestions' | 'mappings' | 'materialization' | 'derivation' | 'script' | 'folder'
-  action?: 'created' | 'updated' | 'deleted' | 'started' | 'done' | 'failed'
+  part?:
+    | 'widget' | 'tab' | 'suggestions' | 'mappings' | 'materialization' | 'derivation' | 'script' | 'folder'
+    | 'file' | 'range' | 'entries' | 'relation' | 'database' | 'check' | 'node' | 'analysis'
+  action?: 'created' | 'updated' | 'deleted' | 'replaced' | 'linked' | 'unlinked' | 'started' | 'done' | 'failed'
   name?: LocalizedString
   fileId?: string
+  dataSourceId?: string
+  cohortId?: string
   count?: number
   workspaceId?: string
   items?: MappingNotificationItem[]
@@ -71,6 +75,8 @@ export interface ChangeEvent {
   entityType: string
   entityId: string
   projectUid: string | null
+  /** The workspace of an entity outside any project, when the server knows it. */
+  workspaceId?: string | null
   notification?: AppNotification
 }
 

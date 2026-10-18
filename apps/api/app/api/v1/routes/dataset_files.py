@@ -293,6 +293,7 @@ async def preview_dataset_path(
 @router.post("/import", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
 async def import_dataset(
     body: DsImport,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -322,6 +323,8 @@ async def import_dataset(
             # dataset. Roll back the file we just copied so a retry starts clean.
             dst.unlink(missing_ok=True)
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Import failed: {e}")
+        async with deferred.session() as session:
+            await _notify_dataset(session, request, user, "created", body.project_uid, body.path)
         return DsNodeResponse(
             id=project_fs.node_id("ds", body.path),
             name=body.path.rsplit("/", 1)[-1], type="file",
@@ -335,6 +338,7 @@ async def import_dataset(
 @router.post("/create-empty", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
 async def create_empty_dataset(
     body: DsCreateEmpty,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -381,6 +385,7 @@ async def create_empty_dataset(
     except (ValueError, RuntimeError, duckdb.Error) as e:
         dst.unlink(missing_ok=True)
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"Create failed: {e}")
+    await _notify_dataset(db, request, user, "created", body.project_uid, body.path)
     return _file_node(body.project_uid, body.path)
 
 
@@ -451,10 +456,16 @@ async def create_dataset_from_query(
 
 async def _notify_dataset(
     db: AsyncSession, request: Request, user: User, action: str, project_uid: str, path: str,
+    part: tuple[str, str, str] | None = None,
 ) -> None:
+    """With `part` = (part, action, name), what changed inside the dataset (a
+    folder is reported as its own part)."""
+    detail = None
+    if part is not None:
+        detail = {"part": part[0], "action": part[1], "name": {"en": part[2]}}
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action=action,
-        entity_type="dataset", entity_id=path, project_uid=project_uid, label=path,
+        entity_type="dataset", entity_id=path, project_uid=project_uid, label=path, detail=detail,
     )
 
 
@@ -479,6 +490,7 @@ def _file_node(project_uid: str, path: str) -> DsNodeResponse:
 @router.post("/reimport", response_model=DsNodeResponse)
 async def reimport_dataset(
     body: DsReimport,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -494,6 +506,9 @@ async def reimport_dataset(
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Dataset not found")
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+        # Its own session: past `deferred.WAIT_SECONDS` the request's is gone.
+        async with deferred.session() as session:
+            await _notify_dataset(session, request, user, "updated", body.project_uid, body.path)
         return _file_node(body.project_uid, body.path)
 
     return await deferred.respond(user.id, work, deferred.AsJob(f"Re-import {body.path}", project_uid=body.project_uid))
@@ -579,14 +594,21 @@ async def duplicate_dataset(
 @router.post("/folder", response_model=DsNodeResponse, status_code=status.HTTP_201_CREATED)
 async def create_folder(
     body: DsCreateFolder,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_project(db, body.project_uid, user, "datasets:write")
     try:
-        project_fs.dataset_path(body.project_uid, body.path).mkdir(parents=True, exist_ok=True)
+        folder = project_fs.dataset_path(body.project_uid, body.path)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
+    existed = folder.is_dir()
+    folder.mkdir(parents=True, exist_ok=True)
+    if not existed:
+        await _notify_dataset(
+            db, request, user, "created", body.project_uid, body.path, ("folder", "created", body.path),
+        )
     return DsNodeResponse(
         id=project_fs.node_id("ds", body.path),
         name=body.path.rsplit("/", 1)[-1], type="folder",
@@ -679,17 +701,23 @@ async def list_analyses(
 @router.post("/analyses", response_model=DatasetAnalysisResponse, status_code=status.HTTP_201_CREATED)
 async def create_analysis(
     body: DatasetAnalysisCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_project(db, body.project_uid, user, "datasets:write")
-    return await dataset_service.create_analysis(db, body)
+    a = await dataset_service.create_analysis(db, body)
+    await _notify_dataset(
+        db, request, user, "updated", a.project_uid, a.dataset_path, ("analysis", "created", a.name),
+    )
+    return a
 
 
 @router.patch("/analyses/{analysis_id}", response_model=DatasetAnalysisResponse)
 async def update_analysis(
     analysis_id: str,
     body: DatasetAnalysisUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -697,12 +725,19 @@ async def update_analysis(
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await _check_project(db, a.project_uid, user, "datasets:write")
-    return await dataset_service.update_analysis(db, a, body)
+    changed = any(getattr(a, k) != v for k, v in body.model_dump(exclude_unset=True).items())
+    a = await dataset_service.update_analysis(db, a, body)
+    if changed:
+        await _notify_dataset(
+            db, request, user, "updated", a.project_uid, a.dataset_path, ("analysis", "updated", a.name),
+        )
+    return a
 
 
 @router.delete("/analyses/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_analysis(
     analysis_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -710,4 +745,6 @@ async def delete_analysis(
     if a is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await _check_project(db, a.project_uid, user, "datasets:delete")
+    project_uid, path, name = a.project_uid, a.dataset_path, a.name
     await dataset_service.delete_analysis(db, a)
+    await _notify_dataset(db, request, user, "updated", project_uid, path, ("analysis", "deleted", name))

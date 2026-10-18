@@ -3605,7 +3605,18 @@
       "concept_list": "Liste de concepts",
       "mapping_project": "Projet de mapping",
       "database": "Base de données",
-      "etl_pipeline": "Pipeline ETL"
+      "etl_pipeline": "Pipeline ETL",
+      "sql_collection": "Collection de scripts",
+      "wiki_page": "Page du wiki",
+      "user_plugin": "Plugin",
+      "schema_preset": "Schéma",
+      "source_concept_ids": "IDs de concepts sources",
+      "workspace": "Workspace",
+      "project": "Projet",
+      "data_catalog": "Catalogue de données",
+      "dq_rule_set": "Jeu de règles qualité",
+      "patient_board": "Tableau patient",
+      "project_pipeline": "Pipeline"
     },
     "part": {
       "script": {
@@ -3636,7 +3647,11 @@
       },
       "mappings": {
         "created_one": "{{count}} alignement ajouté",
-        "created_other": "{{count}} alignements ajoutés"
+        "created_other": "{{count}} alignements ajoutés",
+        "updated_one": "{{count}} alignement modifié",
+        "updated_other": "{{count}} alignements modifiés",
+        "deleted_one": "{{count}} alignement supprimé",
+        "deleted_other": "{{count}} alignements supprimés"
       },
       "materialization": {
         "created_one": "Composition figée : {{count}} membre",
@@ -3648,6 +3663,58 @@
         "done_one": "Créée à partir de la cohorte « {{name}} » ({{count}} patient)",
         "done_other": "Créée à partir de la cohorte « {{name}} » ({{count}} patients)",
         "failed": "Échec de la création à partir de la cohorte « {{name}} »"
+      },
+      "file": {
+        "created": "Fichier « {{name}} » ajouté",
+        "updated": "Fichier « {{name}} » modifié",
+        "deleted": "Fichier « {{name}} » supprimé"
+      },
+      "range": {
+        "created": "Plage {{name}} réservée",
+        "updated": "Plage modifiée : {{name}}"
+      },
+      "entries": {
+        "created_one": "{{count}} ID attribué ({{name}})",
+        "created_other": "{{count}} IDs attribués ({{name}})"
+      },
+      "relation": {
+        "created": "Relation « {{name}} » ajoutée",
+        "updated": "Relation « {{name}} » modifiée",
+        "deleted": "Relation « {{name}} » retirée",
+        "created_one": "Relation « {{name}} » ajoutée",
+        "created_other": "{{count}} relations ajoutées",
+        "updated_one": "Relation « {{name}} » modifiée",
+        "updated_other": "{{count}} relations modifiées",
+        "deleted_one": "Relation « {{name}} » retirée",
+        "deleted_other": "{{count}} relations retirées"
+      },
+      "database": {
+        "linked": "Base « {{name}} » liée",
+        "unlinked": "Base « {{name}} » déliée"
+      },
+      "check": {
+        "created": "Contrôle « {{name}} » ajouté",
+        "updated": "Contrôle « {{name}} » modifié",
+        "deleted": "Contrôle « {{name}} » supprimé",
+        "replaced": "Contrôles remplacés",
+        "created_one": "{{count}} contrôle ajouté",
+        "created_other": "{{count}} contrôles ajoutés",
+        "updated_one": "{{count}} contrôle modifié",
+        "updated_other": "{{count}} contrôles modifiés",
+        "deleted_one": "{{count}} contrôle supprimé",
+        "deleted_other": "{{count}} contrôles supprimés",
+        "replaced_one": "{{count}} contrôle importé",
+        "replaced_other": "{{count}} contrôles importés"
+      },
+      "node": {
+        "created": "Nœud « {{name}} » ajouté",
+        "updated": "Nœud « {{name}} » modifié",
+        "deleted": "Nœud « {{name}} » supprimé"
+      },
+      "analysis": {
+        "created": "Analyse « {{name}} » ajoutée",
+        "updated": "Analyse « {{name}} » modifiée",
+        "deleted": "Analyse « {{name}} » supprimée"
       }
     },
     "action": {

@@ -1,17 +1,50 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_workspace_permission, require_project_permission
+from app.models.data_source import DataSource
 from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
-from app.services import fs_browser, project_service
+from app.services import fs_browser, notification_service, project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+# --- Notifications (writes by an external client, e.g. an agent over MCP) ---
+
+# The versioning marks (`config`) and remote, re-saved by the git flow: the open
+# page refreshes, the bell stays quiet.
+_SIDE_FIELDS = {"config", "git_remote_config"}
+_LINK_FIELDS = {"linked_data_source_ids", "linked_data_source_refs"}
+
+
+def _previous(row, changes: dict) -> dict:
+    """The values `changes` actually alters, as they were before the write."""
+    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
+
+
+async def _link_detail(db: AsyncSession, before: list[str] | None, after: list[str] | None) -> dict | None:
+    """One database linked or unlinked, as a part of the change; None for anything else."""
+    added, removed = set(after or []) - set(before or []), set(before or []) - set(after or [])
+    if len(added) + len(removed) != 1:
+        return None
+    database = await db.get(DataSource, next(iter(added or removed)))
+    return {"part": "database", "action": "linked" if added else "unlinked", "name": database.name if database else ""}
+
+
+async def _notify(
+    db: AsyncSession, request: Request, user: User, action: str, project: Project,
+    *, detail: dict | None = None, notify: bool = True,
+) -> None:
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action=action,
+        entity_type="project", entity_id=project.uid, project_uid=project.uid, label=project.name,
+        detail={"workspaceId": project.workspace_id, **(detail or {})}, notify=notify,
+    )
 
 
 @router.get("", response_model=list[ProjectResponse])
@@ -25,11 +58,14 @@ async def list_projects(
 @router.post("", response_model=ProjectResponse, status_code=status.HTTP_201_CREATED)
 async def create_project(
     body: ProjectCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await _check_target_workspace(db, body.workspace_id, user)
-    return await project_service.create(db, body, user)
+    project = await project_service.create(db, body, user)
+    await _notify(db, request, user, "created", project)
+    return project
 
 
 async def _check_target_workspace(db: AsyncSession, workspace_id: str | None, user: User) -> None:
@@ -95,6 +131,7 @@ async def export_zip(
 @router.patch("/{project_uid}", response_model=ProjectResponse)
 async def update_project(
     body: ProjectUpdate,
+    request: Request,
     project=Depends(require_project_permission("project-settings:write")),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -117,7 +154,14 @@ async def update_project(
                 fs_browser.validate_binding_path(path, scope)
             except fs_browser.FsBrowseError as exc:
                 raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    return await project_service.update(db, project, body)
+    before = _previous(project, fields)
+    project = await project_service.update(db, project, body)
+    if before:
+        link = None
+        if before.keys() <= _LINK_FIELDS and "linked_data_source_ids" in before:
+            link = await _link_detail(db, before["linked_data_source_ids"], project.linked_data_source_ids)
+        await _notify(db, request, user, "updated", project, detail=link, notify=not before.keys() <= _SIDE_FIELDS)
+    return project
 
 
 @router.delete("/{project_uid}", status_code=status.HTTP_204_NO_CONTENT)

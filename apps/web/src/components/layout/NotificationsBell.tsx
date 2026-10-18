@@ -11,6 +11,8 @@ import { cn } from '@/lib/utils'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useEtlStore } from '@/stores/etl-store'
+import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { useWikiStore } from '@/stores/wiki-store'
 import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
@@ -84,6 +86,28 @@ export function NotificationsBell() {
       const base = paths.warehouseEtlPipeline(workspaceId, n.entityId)
       return n.detail?.part === 'script' ? `${base}?tab=scripts` : base
     }
+    // Workspace-scoped entities: the server sends their workspace in `detail`.
+    const ws = n.detail?.workspaceId
+    if (ws) {
+      switch (n.entityType) {
+        case 'sql_collection': {
+          const base = paths.warehouseSqlCollection(ws, n.entityId)
+          return n.detail?.part === 'script' ? `${base}?tab=scripts` : base
+        }
+        case 'wiki_page': return paths.wiki(ws)
+        case 'user_plugin': return paths.plugins(ws)
+        case 'schema_preset': return paths.warehouseSchema(ws, n.entityId)
+        case 'source_concept_ids': return paths.warehouseConceptMappingOverview(ws, 'source-ids')
+        case 'workspace': return paths.workspaceHome(ws)
+        case 'data_catalog': return paths.warehouseDataCatalog(ws, n.entityId)
+        case 'dq_rule_set': return paths.warehouseDqRuleSet(ws, n.entityId)
+        case 'patient_board': {
+          if (n.projectUid || !n.detail?.dataSourceId) break
+          const sources = useDataSourceStore.getState().dataSources
+          return paths.warehouseDatabase(ws, n.detail.dataSourceId, sources.map((d) => d.id))
+        }
+      }
+    }
     if (!n.projectUid) return null
     const project = useAppStore.getState()._projectsRaw.find((p) => p.uid === n.projectUid)
     if (!project?.workspaceId) return null
@@ -92,14 +116,22 @@ export function NotificationsBell() {
     if (n.entityType === 'dataset') return paths.datasets(project.workspaceId, n.projectUid)
     if (n.entityType === 'script') return paths.ide(project.workspaceId, n.projectUid)
     if (n.entityType === 'concept_list') return paths.concepts(project.workspaceId, n.projectUid)
+    if (n.entityType === 'project') return paths.projectSummary(project.workspaceId, n.projectUid)
+    if (n.entityType === 'project_pipeline') return paths.projectPipeline(project.workspaceId, n.projectUid)
+    if (n.entityType === 'patient_board') {
+      return n.detail?.cohortId
+        ? paths.cohort(project.workspaceId, n.projectUid, n.detail.cohortId)
+        : paths.patientBoard(project.workspaceId, n.projectUid, n.entityId)
+    }
     return null
   }
 
   const openTarget = (n: AppNotification, href: string) => {
-    // A script still there opens in the editor, not just its pipeline.
-    if (n.entityType === 'etl_pipeline' && n.detail?.part === 'script' && n.detail.action !== 'deleted' && n.detail.fileId) {
-      useEtlStore.getState().selectFile(n.detail.fileId)
-    }
+    // A script or page still there opens itself, not just its container.
+    const fileId = n.detail?.part === 'script' && n.detail.action !== 'deleted' ? n.detail.fileId : undefined
+    if (fileId && n.entityType === 'etl_pipeline') useEtlStore.getState().selectFile(fileId)
+    if (fileId && n.entityType === 'sql_collection') useSqlScriptsStore.getState().selectFile(fileId)
+    if (n.entityType === 'wiki_page') useWikiStore.getState().setActivePage(n.entityId)
     navigate(href)
   }
 

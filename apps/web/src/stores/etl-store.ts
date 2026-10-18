@@ -5,6 +5,7 @@ import { localized, toLocalized } from '@/lib/localized'
 import { prunedConfigForTree, renameVersioningMark } from '@/lib/entity-versioning'
 import { treeNodePath } from '@/lib/entity-tree'
 import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
+import { mergeRemoteFiles } from '@/lib/remote-files-merge'
 import type { EtlPipeline, EtlFile, EtlRunLog, EtlRunHistoryEntry } from '@/types'
 
 /** A file's path inside its pipeline — the key the versioning marks use. */
@@ -257,25 +258,8 @@ export const useEtlStore = create<EtlState>((set, get) => ({
     const stored = await storage.etlFiles.getByPipeline(id)
     if (get().activePipelineId !== id) return
     set((s) => {
-      const dirty = new Map([...s._dirtyMap].filter(([fid]) => s.isFileDirty(fid)))
-      const local = new Map(s.files.map((f) => [f.id, f]))
-      // A file the user is editing keeps their text; what the agent wrote becomes
-      // the version a Revert goes back to.
-      const files = stored.map((f) => {
-        if (!dirty.has(f.id)) return f
-        dirty.set(f.id, f.content ?? '')
-        return { ...f, content: local.get(f.id)?.content }
-      })
-      const ids = new Set(files.map((f) => f.id))
-      for (const fid of dirty.keys()) if (!ids.has(fid)) dirty.delete(fid)
-      const openFileIds = s.openFileIds.filter((fid) => ids.has(fid))
-      return {
-        files: files.sort(compareEtlFilesByOrder),
-        openFileIds,
-        selectedFileId: s.selectedFileId && ids.has(s.selectedFileId) ? s.selectedFileId : openFileIds[0] ?? null,
-        _dirtyMap: dirty,
-        _dirtyVersion: s._dirtyVersion + 1,
-      }
+      const merged = mergeRemoteFiles(s, stored, s.isFileDirty)
+      return { ...merged, files: merged.files.sort(compareEtlFilesByOrder), _dirtyVersion: s._dirtyVersion + 1 }
     })
   },
 

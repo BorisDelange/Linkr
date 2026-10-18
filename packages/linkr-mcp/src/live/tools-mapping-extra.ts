@@ -41,7 +41,10 @@ const x = {
   deleteProjectMappings: (id: string) => api.request<void>('DELETE', `/mapping-projects/${enc(id)}/mappings`),
   updateMapping: (id: string, changes: Record<string, unknown>) =>
     api.request<ConceptMapping>('PATCH', `/concept-mappings/${enc(id)}`, changes),
-  deleteMapping: (id: string) => api.request<void>('DELETE', `/concept-mappings/${enc(id)}`),
+  // One request (and one notification in the user's bell) for the whole set.
+  updateMappings: (patches: ({ id: string } & Record<string, unknown>)[]) =>
+    api.request<void>('POST', '/concept-mappings/batch-update', { mappings: patches }),
+  deleteMappings: (ids: string[]) => api.request<void>('POST', '/concept-mappings/batch-delete', { ids }),
   ranges: (workspaceId: string) =>
     api.request<SourceConceptIdRange[]>('GET', `/source-concept-id-ranges?workspaceId=${enc(workspaceId)}`),
   saveRange: (range: Omit<SourceConceptIdRange, 'createdAt' | 'updatedAt'> & { createdAt?: string; updatedAt?: string }) =>
@@ -304,9 +307,9 @@ export function registerMappingExtraTools(server: Server): void {
     }).filter((e): e is string => !!e)
     if (errors.length) return failure(`Nothing written:\n- ${errors.join('\n- ')}`)
     const now = new Date().toISOString()
-    for (const id of new Set(mapping_ids)) {
-      await x.updateMapping(id, reviewPatch(byId.get(id)!, me.name, me.details, vote, comment, now, randomUUID))
-    }
+    await x.updateMappings([...new Set(mapping_ids)].map((id) => ({
+      id, ...reviewPatch(byId.get(id)!, me.name, me.details, vote, comment, now, randomUUID),
+    })))
     await refreshStats(p)
     return text(vote === 'clear'
       ? `Withdrew ${me.name}'s vote on ${new Set(mapping_ids).size} mapping(s).`
@@ -374,7 +377,7 @@ export function registerMappingExtraTools(server: Server): void {
         + 'Confirm with the user, then pass include_locked: true.')
     }
     const ids = [...new Set(mapping_ids)]
-    for (const id of ids) await x.deleteMapping(id)
+    await x.deleteMappings(ids)
     await refreshStats(p)
     return text(`Deleted ${ids.length} mapping(s).`)
   }))
