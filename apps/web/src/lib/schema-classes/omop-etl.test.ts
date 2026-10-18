@@ -47,10 +47,15 @@ describe('generateOmopEtl', () => {
 
   it("resolves concepts through the pipeline's vocabulary", () => {
     const ccr = script('50_drug_exposure.sql')
-    expect(ccr).toContain(`LEFT JOIN target.concept sc ON sc.vocabulary_id = 'drug_codes' AND sc.concept_code = c.concept_code`)
+    // The mapping project's own concepts first, from the target...
+    expect(ccr).toContain(`LEFT JOIN target.concept sc ON sc.vocabulary_id = 'drug_codes' AND sc.concept_code = c.concept_code AND sc.concept_id >= 2000000000`)
     expect(ccr).toContain(`relationship_id = 'Maps to'`)
-    expect(ccr).toContain('COALESCE(cr.concept_id_2, 0) AS drug_concept_id')
-    expect(ccr).toContain('COALESCE(sc.concept_id, 0) AS drug_source_concept_id')
+    // ...else the ATHENA reference: the target holds no other concept until the
+    // fill script runs, after the CDM tables.
+    expect(ccr).toContain(`LEFT JOIN vocab.concept vc ON sc.concept_id IS NULL AND vc.vocabulary_id = 'drug_codes' AND vc.concept_code = c.concept_code`)
+    expect(ccr).toContain(`LEFT JOIN vocab.concept_relationship vcr ON vcr.concept_id_1 = vc.concept_id AND vcr.relationship_id = 'Maps to'`)
+    expect(ccr).toContain('COALESCE(cr.concept_id_2, vcr.concept_id_2, 0) AS drug_concept_id')
+    expect(ccr).toContain('COALESCE(sc.concept_id, vc.concept_id, 0) AS drug_source_concept_id')
     expect(ccr).toContain('c.concept_code AS drug_source_value')
     expect(ccr).toContain('TODO(etl): drug_exposure_id is numbered per run')
 

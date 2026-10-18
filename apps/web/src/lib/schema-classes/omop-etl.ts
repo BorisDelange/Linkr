@@ -2,6 +2,7 @@ import type { ParsedColumn, ParsedTable } from '@/lib/ddl-parse'
 import type { RelationSpec, SchemaMapping } from '@/types/schema-mapping'
 import { escSql } from '@/lib/format-helpers'
 import { sourceConceptKeyExprs } from '@/lib/concept-mapping/mapping-queries'
+import { SOURCE_CONCEPT_ID_BASE } from '@/lib/concept-mapping/source-concept-ids'
 import type { ClassName } from './contracts'
 import { classRelation, classRelations, conceptJoinOn, eventRelations, has, type ClassRelation } from './relations'
 import { fieldRef, specEntries } from './spec'
@@ -17,8 +18,9 @@ import { withClassRelations } from './inject'
 // ---------------------------------------------------------------------------
 
 /** How a source concept becomes an OMOP concept_id. `ccr` and `stcm` read what
- *  the pipeline's generated vocabulary script wrote; `as-is` keeps the source
- *  ids, for a source already coded in the OMOP vocabularies. */
+ *  the pipeline's generated vocabulary script wrote (`ccr` falling back to the
+ *  ATHENA reference for codes the mapping project does not hold); `as-is` keeps
+ *  the source ids, for a source already coded in the OMOP vocabularies. */
 export type EtlConceptMode = 'ccr' | 'stcm' | 'as-is'
 
 export interface OmopEtlOptions {
@@ -53,6 +55,8 @@ export interface OmopEtlResult {
 }
 
 const TARGET = 'target'
+/** The pipeline's ATHENA reference, resolved at run time (lib/duckdb/role-prefix). */
+const VOCAB = 'vocab'
 const EHR_TYPE_CONCEPT = 32817
 
 /** A target relation, inverted: the OMOP column each contract column fills. */
@@ -194,11 +198,19 @@ function conceptParts(source: SchemaMapping, rel: ClassRelation, mode: EtlConcep
   }
   // One row per 'Maps to': a source concept mapped to two standard concepts
   // gives two OMOP rows, as the CDM conventions ask.
+  //
+  // The mapping project's own concepts (2 billion and up) are in the target as
+  // soon as the vocabulary script has run; a code it does not hold — one
+  // already in an ATHENA vocabulary, an ICD or a LOINC — resolves through
+  // `vocab.`, since the target only receives the rest of the vocabulary once
+  // the CDM tables are filled.
   return {
-    joins: `${dictJoin}\nLEFT JOIN ${TARGET}.concept sc ON sc.vocabulary_id = ${vocabulary} AND sc.concept_code = ${code}`
-      + `\nLEFT JOIN ${TARGET}.concept_relationship cr ON cr.concept_id_1 = sc.concept_id AND cr.relationship_id = 'Maps to'`,
-    id: 'COALESCE(cr.concept_id_2, 0)',
-    sourceId: 'COALESCE(sc.concept_id, 0)',
+    joins: `${dictJoin}\nLEFT JOIN ${TARGET}.concept sc ON sc.vocabulary_id = ${vocabulary} AND sc.concept_code = ${code} AND sc.concept_id >= ${SOURCE_CONCEPT_ID_BASE}`
+      + `\nLEFT JOIN ${TARGET}.concept_relationship cr ON cr.concept_id_1 = sc.concept_id AND cr.relationship_id = 'Maps to'`
+      + `\nLEFT JOIN ${VOCAB}.concept vc ON sc.concept_id IS NULL AND vc.vocabulary_id = ${vocabulary} AND vc.concept_code = ${code}`
+      + `\nLEFT JOIN ${VOCAB}.concept_relationship vcr ON vcr.concept_id_1 = vc.concept_id AND vcr.relationship_id = 'Maps to' AND vcr.invalid_reason IS NULL`,
+    id: 'COALESCE(cr.concept_id_2, vcr.concept_id_2, 0)',
+    sourceId: 'COALESCE(sc.concept_id, vc.concept_id, 0)',
     code,
   }
 }
