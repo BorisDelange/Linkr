@@ -5970,6 +5970,7 @@
     "data_loading": "Loading the catalog…",
     "data_unavailable": "The catalog could not be reached, so no default data is available right now. Your instance will start empty — you can install content later from the Catalog page.",
     "data_installed": "The demo workspace has been installed.",
+    "data_install_failed": "The default data could not be installed (the details are in the dialog). Your instance can start empty — you can install it later from the Catalog page.",
     "data_partial": "Some content could not be downloaded. What is missing is listed above; you can retry from the Catalog page.",
     "data_install": "Install the default data",
     "data_install_action": "Install and finish",

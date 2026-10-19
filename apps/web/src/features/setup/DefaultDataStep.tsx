@@ -19,9 +19,10 @@
  *
  * Skipping is a first-class answer, and so is a catalog that cannot be reached: an
  * instance with no network must still finish setup, so every failure path here ends
- * in "continue with an empty instance" rather than a dead end.
+ * in "continue with an empty instance" rather than a dead end. That includes a
+ * browser that reaches the catalog while the server, which clones, cannot (an SPE).
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, Loader2, PackageOpen, TriangleAlert } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -61,19 +62,34 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
   // one for this type.
   const install = useCatalogInstall('', (id) => setInstalledWorkspaceId(id ?? ''))
 
-  // Fetch on mount: see the header note. `load` is stable and `loaded` flips once,
-  // so this runs at most once per mount.
+  // A failed fetch leaves `loaded` false, so whether it was tried is kept here:
+  // until it settles the step can tell neither "unavailable" nor which action the
+  // button takes, and said "Start empty" before flipping to "Install and finish".
+  const requested = useRef(false)
+  const [tried, setTried] = useState(false)
+  const settled = loaded || tried
+
+  // Fetch on mount: see the header note.
   useEffect(() => {
-    if (!loaded && !loading) void load()
-  }, [loaded, loading, load])
+    if (loaded || requested.current) return
+    requested.current = true
+    void load().finally(() => setTried(true))
+  }, [loaded, load])
+
+  // An install that failed outright (not partially) turns the action into
+  // "Start empty"; ticking the box again asks for another try.
+  const failedOutright = !!install.failure && !install.failure.partial
+  const [retryAfter, setRetryAfter] = useState<object | null>(null)
+  const installWanted = wanted && !(failedOutright && install.failure !== retryAfter)
 
   const entry = findDefaultDataEntry(entries)
   // Not `!!installedWorkspaceId`: a successful install that reported no id back
   // stores '' — falsy, yet the workspace is genuinely in.
   const didInstall = installedWorkspaceId !== null
   /** No entry to install (catalog unreachable, or it publishes none). */
-  const unavailable = !loading && !entry
+  const unavailable = settled && !loading && !entry
   const busy = !!install.busyId || leaving
+  const pending = !settled || loading
 
   /** Record the decision, then leave. Recording is best-effort by design. */
   const finish = async (installed: boolean) => {
@@ -92,7 +108,7 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
    * user press a second one to confirm what they already chose.
    */
   const handleAction = async () => {
-    if (wanted && entry && !didInstall) {
+    if (installWanted && entry && !didInstall) {
       await install.install(entry)
       return
     }
@@ -110,7 +126,7 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
           {t('setup.data_description')}
         </p>
 
-        {loading && !loaded && (
+        {pending && (
           <div className="flex items-center gap-2 rounded-md border bg-muted/40 p-4 text-xs text-muted-foreground">
             <Loader2 size={14} className="animate-spin" />
             {t('setup.data_loading')}
@@ -130,12 +146,22 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
             className={`flex items-center gap-2 rounded-md border px-3 py-3 text-xs ${busy ? 'opacity-50' : 'cursor-pointer'}`}
           >
             <Checkbox
-              checked={wanted}
+              checked={installWanted}
               disabled={busy}
-              onCheckedChange={(v) => setWanted(v === true)}
+              onCheckedChange={(v) => {
+                setWanted(v === true)
+                if (failedOutright) setRetryAfter(install.failure)
+              }}
             />
             <span className="font-medium text-foreground">{t('setup.data_install')}</span>
           </label>
+        )}
+
+        {failedOutright && !installWanted && (
+          <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+            <TriangleAlert size={14} className="mt-px shrink-0 text-amber-600" />
+            {t('setup.data_install_failed')}
+          </div>
         )}
 
         {didInstall && (
@@ -156,13 +182,13 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
         )}
 
         <div className="flex items-center pt-5">
-          <Button size="sm" className="ml-auto" onClick={() => void handleAction()} disabled={busy}>
+          <Button size="sm" className="ml-auto" onClick={() => void handleAction()} disabled={busy || pending}>
             {busy && <Loader2 size={14} className="animate-spin" />}
             {/* The label states the outcome of the click, so the button reads on its
                 own: installing, finishing, or starting empty. */}
             {install.busyId
               ? t('setup.data_installing')
-              : wanted && entry && !didInstall
+              : installWanted && entry && !didInstall
                 ? t('setup.data_install_action')
                 : didInstall
                   ? t('setup.data_finish')

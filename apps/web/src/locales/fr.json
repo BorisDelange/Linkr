@@ -5970,6 +5970,7 @@
     "data_loading": "Chargement du catalogue…",
     "data_unavailable": "Le catalogue n'a pas pu être contacté, aucune donnée par défaut n'est disponible pour le moment. Votre instance démarrera vide — vous pourrez installer du contenu plus tard depuis la page Catalogue.",
     "data_installed": "L'espace de démonstration a été installé.",
+    "data_install_failed": "Les données par défaut n'ont pas pu être installées (le détail est dans la fenêtre). Votre instance peut démarrer vide — vous pourrez les installer plus tard depuis la page Catalogue.",
     "data_partial": "Une partie du contenu n'a pas pu être téléchargée. Ce qui manque est listé ci-dessus ; vous pouvez réessayer depuis la page Catalogue.",
     "data_install": "Importer les données par défaut",
     "data_install_action": "Installer et terminer",
