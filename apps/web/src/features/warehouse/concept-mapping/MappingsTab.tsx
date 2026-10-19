@@ -16,6 +16,8 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Kbd } from '@/components/ui/kbd'
+import { isTypingTarget } from '@/lib/utils'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { Badge } from '@/components/ui/badge'
@@ -424,6 +426,15 @@ const DETAIL_TABLE = 'w-full table-fixed text-xs'
 const DETAIL_COLS = <colgroup><col className="w-44" /><col /></colgroup>
 const DETAIL_LABEL_CELL = 'pr-4 py-1 text-muted-foreground align-top text-xs break-words'
 
+function ShortcutHint({ label, keys }: { label: string; keys: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      {label}
+      <Kbd>{keys}</Kbd>
+    </span>
+  )
+}
+
 interface SourceCounts { record_count: number; patient_count: number }
 /** undefined = still loading, null = no data available */
 interface SourceDetail { counts: SourceCounts | null; infoJson: Record<string, unknown> | null | undefined }
@@ -453,6 +464,37 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
   const commentsCount = (mapping.comments ?? []).length
   const reviewsCount = (mapping.reviews ?? []).length
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  const canGoPrev = !!onPrev && !!position && position.index > 1
+  const canGoNext = !!onNext && !!position && position.index < position.total
+  const canVote = !isOwn && canWrite
+
+  // ←/→ browse the list, A/R/F vote — the same actions as the header buttons,
+  // with the same enabled states. The Mappings tab stays mounted (hidden) when
+  // another tab is shown, hence the visibility check; an open dialog, menu or
+  // sheet keeps its keys.
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e)) return
+      if (!rootRef.current || rootRef.current.offsetParent === null) return
+      if (document.querySelector('[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return
+      let action: (() => void) | undefined
+      if (e.key === 'ArrowLeft') action = canGoPrev ? onPrev : undefined
+      else if (e.key === 'ArrowRight') action = canGoNext ? onNext : undefined
+      else if (!e.repeat) {
+        const key = e.key.toLowerCase()
+        if (key === 'a' && canVote) action = () => void onReview(mapping.id, 'approved')
+        else if (key === 'r' && canVote) action = () => void onReview(mapping.id, 'rejected')
+        else if (key === 'f') action = () => void onReview(mapping.id, 'flagged')
+      }
+      if (!action) return
+      e.preventDefault()
+      action()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [canGoPrev, canGoNext, canVote, onPrev, onNext, onReview, mapping.id])
 
   const formatDate = (iso?: string) => {
     if (!iso) return '—'
@@ -475,7 +517,7 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div ref={rootRef} className="flex h-full flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center gap-2 border-b px-4 py-2">
         <Button variant="ghost" size="icon-sm" onClick={onBack}>
@@ -517,12 +559,12 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
                   size="icon-sm"
                   className="size-7"
                   onClick={onPrev}
-                  disabled={!onPrev || position.index <= 1}
+                  disabled={!canGoPrev}
                 >
                   <ChevronLeft size={14} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.detail_prev')}</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs"><ShortcutHint label={t('concept_mapping.detail_prev')} keys="←" /></TooltipContent>
             </Tooltip>
             <span className="text-[11px] tabular-nums text-muted-foreground min-w-[3.5rem] text-center">
               {position.index} / {position.total}
@@ -534,12 +576,12 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
                   size="icon-sm"
                   className="size-7"
                   onClick={onNext}
-                  disabled={!onNext || position.index >= position.total}
+                  disabled={!canGoNext}
                 >
                   <ChevronRight size={14} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.detail_next')}</TooltipContent>
+              <TooltipContent side="bottom" className="text-xs"><ShortcutHint label={t('concept_mapping.detail_next')} keys="→" /></TooltipContent>
             </Tooltip>
             <span className="mx-1 h-5 w-px bg-border" />
           </div>
@@ -592,12 +634,12 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
                 size="icon-sm"
                 className={`size-7 ${myReview === 'approved' ? 'bg-green-600 text-white hover:bg-green-700' : 'hover:border-green-600 hover:text-green-600'}`}
                 onClick={() => onReview(mapping.id, 'approved')}
-                disabled={isOwn || !canWrite}
+                disabled={!canVote}
               >
                 <Check size={14} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.approve')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : <ShortcutHint label={t('concept_mapping.approve')} keys="A" />}</TooltipContent>
           </Tooltip>
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
@@ -606,12 +648,12 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
                 size="icon-sm"
                 className={`size-7 ${myReview === 'rejected' ? 'bg-red-600 text-white hover:bg-red-700' : 'hover:border-red-600 hover:text-red-600'}`}
                 onClick={() => onReview(mapping.id, 'rejected')}
-                disabled={isOwn || !canWrite}
+                disabled={!canVote}
               >
                 <X size={14} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : t('concept_mapping.reject')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs">{isOwn ? t('concept_mapping.cannot_review_own') : <ShortcutHint label={t('concept_mapping.reject')} keys="R" />}</TooltipContent>
           </Tooltip>
           <Tooltip delayDuration={300}>
             <TooltipTrigger asChild>
@@ -624,7 +666,7 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
                 <Flag size={14} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.flag')}</TooltipContent>
+            <TooltipContent side="bottom" className="text-xs"><ShortcutHint label={t('concept_mapping.flag')} keys="F" /></TooltipContent>
           </Tooltip>
           {canDelete && (
             <>
