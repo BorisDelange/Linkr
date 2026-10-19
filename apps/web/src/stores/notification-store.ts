@@ -10,6 +10,16 @@ import { useDashboardStore } from '@/stores/dashboard-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { useEtlStore } from '@/stores/etl-store'
+import { useAppStore } from '@/stores/app-store'
+import { useCatalogStore } from '@/stores/catalog-store'
+import { useDqStore } from '@/stores/dq-store'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
+import { usePipelineStore } from '@/stores/pipeline-store'
+import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { useSchemaPresetStore } from '@/stores/schema-preset-store'
+import { useSqlScriptsStore } from '@/stores/sql-scripts-store'
+import { useWikiStore } from '@/stores/wiki-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useFileStore } from '@/stores/file-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
 
@@ -35,7 +45,43 @@ const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
     const etl = useEtlStore.getState()
     if (etl.activePipelineId === e.entityId) await etl.loadRunHistory(e.entityId)
   },
+  sql_collection: (e) => useSqlScriptsStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
+  wiki_page: async (e) => {
+    const wiki = useWikiStore.getState()
+    if (e.workspaceId && wiki.currentWorkspaceId === e.workspaceId) await wiki.loadPages(e.workspaceId)
+  },
+  user_plugin: () => usePluginEditorStore.getState().refreshPluginList(),
+  schema_preset: async (e) => {
+    if (e.workspaceId && useWorkspaceStore.getState().activeWorkspaceId === e.workspaceId) {
+      await useSchemaPresetStore.getState().loadPresets(e.workspaceId)
+    }
+  },
+  workspace: () => useWorkspaceStore.getState().loadWorkspaces(),
+  project: () => useAppStore.getState().loadProjects(),
+  data_catalog: async (e) => {
+    const catalogs = useCatalogStore.getState()
+    await catalogs.loadCatalogs()
+    if (catalogs.resultCacheLoadedFor === e.entityId) await catalogs.loadResultCache(e.entityId)
+  },
+  dq_rule_set: async (e) => {
+    const dq = useDqStore.getState()
+    await dq.loadDqRuleSets()
+    if (dq.activeRuleSetId === e.entityId && e.action !== 'deleted') await dq.loadRuleSetChecks(e.entityId)
+  },
+  dq_run: async (e) => {
+    const dq = useDqStore.getState()
+    if (dq.activeRuleSetId === e.entityId) await dq.loadRunHistory(e.entityId)
+  },
+  patient_board: async (e) => {
+    const boards = usePatientChartStore.getState()
+    if (!e.projectUid || boards.activeProjectUid !== e.projectUid) return
+    // The loader skips a project it already holds: drop that before re-reading.
+    usePatientChartStore.setState({ loaded: false })
+    await boards.loadProjectDashboards(e.projectUid)
+  },
+  project_pipeline: () => usePipelineStore.getState().loadPipelines(),
   mapping_project: async (e) => {
+    if (!e.notification?.detail?.part) await useConceptMappingStore.getState().loadMappingProjects()
     const mappings = useConceptMappingStore.getState()
     if (mappings.activeProjectId === e.entityId) await mappings.loadProjectMappings(e.entityId, { force: true })
     await useSuggestionScoresStore.getState().reindexProject(e.entityId)
@@ -63,6 +109,9 @@ let wanted = false
 let attempt = 0
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 let lastContext: UiContext | null = null
+/** The newest notification the user has seen marked read: a list read that was
+ *  already in flight when they opened the bell must not bring those back unread. */
+let readThrough = 0
 
 const sendContext = () => {
   if (socket?.readyState === WebSocket.OPEN && lastContext) {
@@ -74,7 +123,8 @@ const countUnread = (items: AppNotification[]) => items.filter((n) => !n.readAt)
 
 export const useNotificationStore = create<NotificationState>((set, get) => {
   const reload = async () => {
-    const items = await listNotifications()
+    const items = (await listNotifications()).map((n) =>
+      !n.readAt && Date.parse(n.createdAt) <= readThrough ? { ...n, readAt: new Date(readThrough).toISOString() } : n)
     set({ items, unread: countUnread(items) })
   }
 
@@ -125,6 +175,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
 
     markAllRead: async () => {
       if (get().unread === 0) return
+      readThrough = Math.max(readThrough, ...get().items.map((n) => Date.parse(n.createdAt)))
       const now = new Date().toISOString()
       set((s) => ({ items: s.items.map((n) => (n.readAt ? n : { ...n, readAt: now })), unread: 0 }))
       await markNotificationsRead()

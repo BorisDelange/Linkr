@@ -3605,7 +3605,18 @@
       "concept_list": "Concept list",
       "mapping_project": "Mapping project",
       "database": "Database",
-      "etl_pipeline": "ETL pipeline"
+      "etl_pipeline": "ETL pipeline",
+      "sql_collection": "Script collection",
+      "wiki_page": "Wiki page",
+      "user_plugin": "Plugin",
+      "schema_preset": "Schema",
+      "source_concept_ids": "Source concept IDs",
+      "workspace": "Workspace",
+      "project": "Project",
+      "data_catalog": "Data catalog",
+      "dq_rule_set": "Data quality rule set",
+      "patient_board": "Patient board",
+      "project_pipeline": "Pipeline"
     },
     "part": {
       "script": {
@@ -3636,7 +3647,11 @@
       },
       "mappings": {
         "created_one": "{{count}} mapping added",
-        "created_other": "{{count}} mappings added"
+        "created_other": "{{count}} mappings added",
+        "updated_one": "{{count}} mapping modified",
+        "updated_other": "{{count}} mappings modified",
+        "deleted_one": "{{count}} mapping deleted",
+        "deleted_other": "{{count}} mappings deleted"
       },
       "materialization": {
         "created_one": "Membership frozen: {{count}} member",
@@ -3648,6 +3663,58 @@
         "done_one": "Built from cohort « {{name}} » ({{count}} patient)",
         "done_other": "Built from cohort « {{name}} » ({{count}} patients)",
         "failed": "Build from cohort « {{name}} » failed"
+      },
+      "file": {
+        "created": "File « {{name}} » added",
+        "updated": "File « {{name}} » modified",
+        "deleted": "File « {{name}} » deleted"
+      },
+      "range": {
+        "created": "Range {{name}} reserved",
+        "updated": "Range changed to {{name}}"
+      },
+      "entries": {
+        "created_one": "{{count}} ID assigned ({{name}})",
+        "created_other": "{{count}} IDs assigned ({{name}})"
+      },
+      "relation": {
+        "created": "Relation « {{name}} » added",
+        "updated": "Relation « {{name}} » modified",
+        "deleted": "Relation « {{name}} » removed",
+        "created_one": "Relation « {{name}} » added",
+        "created_other": "{{count}} relations added",
+        "updated_one": "Relation « {{name}} » modified",
+        "updated_other": "{{count}} relations modified",
+        "deleted_one": "Relation « {{name}} » removed",
+        "deleted_other": "{{count}} relations removed"
+      },
+      "database": {
+        "linked": "Database « {{name}} » linked",
+        "unlinked": "Database « {{name}} » unlinked"
+      },
+      "check": {
+        "created": "Check « {{name}} » added",
+        "updated": "Check « {{name}} » modified",
+        "deleted": "Check « {{name}} » deleted",
+        "replaced": "Checks replaced",
+        "created_one": "{{count}} check added",
+        "created_other": "{{count}} checks added",
+        "updated_one": "{{count}} check modified",
+        "updated_other": "{{count}} checks modified",
+        "deleted_one": "{{count}} check deleted",
+        "deleted_other": "{{count}} checks deleted",
+        "replaced_one": "{{count}} check imported",
+        "replaced_other": "{{count}} checks imported"
+      },
+      "node": {
+        "created": "Node « {{name}} » added",
+        "updated": "Node « {{name}} » modified",
+        "deleted": "Node « {{name}} » deleted"
+      },
+      "analysis": {
+        "created": "Analysis « {{name}} » added",
+        "updated": "Analysis « {{name}} » modified",
+        "deleted": "Analysis « {{name}} » deleted"
       }
     },
     "action": {

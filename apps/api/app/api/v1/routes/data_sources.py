@@ -117,6 +117,36 @@ def _stats_key(source: DataSource, user: User) -> str:
     return f"{source.id}:{principal}" if principal else source.id
 
 
+# --- Notifications (writes by an external client, e.g. an agent over MCP) ---
+
+# What a connection test or a build writes back, and the versioning remote the
+# git flow re-saves (sealed, so never equal to what was sent): the open page
+# refreshes, the bell stays quiet.
+_SIDE_FIELDS = {"status", "stats", "error_message", "git_remote_config"}
+
+
+def _previous(row, changes: dict) -> dict:
+    """The values `changes` actually alters, as they were before the write."""
+    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
+
+
+def _awaiting_build(source: DataSource) -> bool:
+    """A managed database whose file is not made yet: the row a create-from-ddl
+    or a derivation fills right after. Those announce the database; the empty
+    row before them does not, or every new database would be notified twice."""
+    return data_source_service.is_managed(source) and not managed_db.path_of(source.id, source.connection_config).exists()
+
+
+async def _notify(
+    db: AsyncSession, request: Request, user: User, action: str, source: DataSource, *, notify: bool = True,
+) -> None:
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action=action,
+        entity_type="database", entity_id=source.id, project_uid=None, label=source.name,
+        detail={"workspaceId": source.workspace_id} if source.workspace_id else None, notify=notify,
+    )
+
+
 @router.get("", response_model=list[DataSourceResponse])
 async def list_data_sources(
     workspace_id: str | None = Query(default=None, alias="workspaceId"),
@@ -144,17 +174,20 @@ async def list_data_sources(
 @router.post("", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
 async def create_data_source(
     body: DataSourceCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     if body.workspace_id is not None:
         await check_workspace_permission(db, body.workspace_id, user, "databases:write")
     try:
-        return await data_source_service.create(db, body, user)
+        source = await data_source_service.create(db, body, user)
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
     except data_source_service.AliasTaken as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    await _notify(db, request, user, "created", source, notify=not _awaiting_build(source))
+    return source
 
 
 @router.post("/test-connection", response_model=TestConnectionResult)
@@ -246,21 +279,27 @@ async def get_data_source(
 async def update_data_source(
     source_id: str,
     body: DataSourceUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     source = await _load_source(db, source_id, user, "databases:write")
+    before = _previous(source, body.model_dump(exclude_unset=True))
     try:
-        return await data_source_service.update(db, source, body, editor_id=user.id)
+        source = await data_source_service.update(db, source, body, editor_id=user.id)
     except fs_browser.FsBrowseError as exc:
         raise HTTPException(exc.status_code, str(exc)) from exc
     except data_source_service.AliasTaken as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, str(exc)) from exc
+    if before:
+        await _notify(db, request, user, "updated", source, notify=not before.keys() <= _SIDE_FIELDS)
+    return source
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_data_source(
     source_id: str,
+    request: Request,
     delete_data: bool = Query(default=False, alias="deleteData"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -268,6 +307,7 @@ async def delete_data_source(
     """`deleteData` also removes what Linkr created for the database — a file in
     a server folder, or the SQL schema a cohort was derived into."""
     source = await _load_source(db, source_id, user, "databases:delete")
+    announced = not _awaiting_build(source)
     login = None
     if delete_data and data_source_service.created_data(source) == "schema":
         login = await _login(db, source, user)
@@ -277,6 +317,7 @@ async def delete_data_source(
         if not delete_data:
             raise
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"could not remove its data: {redact_secrets(str(e))}") from e
+    await _notify(db, request, user, "deleted", source, notify=announced)
 
 
 @router.post("/{source_id}/query", response_model=QueryResult)
@@ -586,6 +627,7 @@ async def move_file(
 async def create_from_ddl(
     source_id: str,
     body: CreateFromDdlRequest,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -599,6 +641,7 @@ async def create_from_ddl(
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
     path = managed_db.path_of(source.id, config)
+    first_build = not path.exists()
     # A rebuild replaces a file a warm pooled connection may still hold attached
     # (browsing the database leaves one): DuckDB would refuse to open it again.
     connection_pool.invalidate(source.id)
@@ -608,9 +651,11 @@ async def create_from_ddl(
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
     config["managed"] = True
     config.pop("inMemory", None)
-    return await data_source_service.update(
+    source = await data_source_service.update(
         db, source, DataSourceUpdate(connection_config=config), managed_path_set=new_location
     )
+    await _notify(db, request, user, "created" if first_build else "updated", source)
+    return source
 
 
 @router.post("/{source_id}/etl-run", response_model=QueryResult)

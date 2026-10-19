@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from types import SimpleNamespace
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -24,7 +26,7 @@ from app.schemas.patient_dashboard import (
     PatientDashboardWidgetResponse,
     PatientDashboardWidgetUpdate,
 )
-from app.services import patient_dashboard_service
+from app.services import notification_service, patient_dashboard_service
 
 router = APIRouter(prefix="/patient-dashboards", tags=["patient-dashboards"])
 
@@ -108,6 +110,53 @@ async def _load_widget(
     return widget
 
 
+# --- Notifications (writes by an external client, e.g. an agent over MCP) ---
+
+# Ordering only (a reorder rewrites one row at a time): refresh, no notification.
+_ORDER_FIELDS = {"display_order"}
+
+
+def _previous(row, changes: dict) -> dict:
+    """The values `changes` actually alters, as they were before the write."""
+    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
+
+
+def _board_ref(board: PatientDashboard) -> SimpleNamespace:
+    """What a notification needs of a board, kept before a delete expires the row."""
+    return SimpleNamespace(
+        id=board.id, name=board.name, project_uid=board.project_uid,
+        owner_data_source_id=board.owner_data_source_id, owner_cohort_id=board.owner_cohort_id,
+    )
+
+
+async def _notify(
+    db: AsyncSession, request: Request, user: User, board: PatientDashboard | SimpleNamespace | None, action: str,
+    part: str | None = None, part_action: str | None = None, part_name: dict | str | None = None,
+    *, notify: bool = True,
+) -> None:
+    """A tab or widget change reads as the board updated, with what moved inside
+    it. A database's board has no project: its workspace and database travel in
+    `detail`, as does the cohort a cohort's board belongs to."""
+    if board is None:
+        return
+    detail: dict = {}
+    if board.owner_data_source_id:
+        source = await db.get(DataSource, board.owner_data_source_id)
+        detail.update(workspaceId=source.workspace_id if source else None, dataSourceId=board.owner_data_source_id)
+    if board.owner_cohort_id:
+        detail["cohortId"] = board.owner_cohort_id
+    if part is not None:
+        detail.update(
+            part=part, action=part_action,
+            name=part_name if isinstance(part_name, dict) else {"en": part_name or ""},
+        )
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action=action,
+        entity_type="patient_board", entity_id=board.id, project_uid=board.project_uid,
+        label=board.name, detail=detail or None, notify=notify,
+    )
+
+
 # --- Boards -----------------------------------------------------------------
 
 
@@ -132,6 +181,7 @@ async def list_dashboards(
 )
 async def create_dashboard(
     body: PatientDashboardCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -167,7 +217,9 @@ async def create_dashboard(
         if any(b.owner_cohort_id == cohort.id for b in boards):
             raise HTTPException(status.HTTP_409_CONFLICT, "this cohort already has its patient board")
         body.data_source_id = cohort.data_source_id or body.data_source_id
-    return await patient_dashboard_service.create(db, body)
+    board = await patient_dashboard_service.create(db, body)
+    await _notify(db, request, user, board, "created")
+    return board
 
 
 @router.get("/{dashboard_id}", response_model=PatientDashboardResponse)
@@ -183,21 +235,29 @@ async def get_dashboard(
 async def update_dashboard(
     dashboard_id: str,
     body: PatientDashboardUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     dashboard = await _load_dashboard(db, dashboard_id, user, "patient-data:write")
-    return await patient_dashboard_service.update(db, dashboard, body)
+    before = _previous(dashboard, body.model_dump(exclude_unset=True))
+    dashboard = await patient_dashboard_service.update(db, dashboard, body)
+    if before:
+        await _notify(db, request, user, dashboard, "updated", notify=not before.keys() <= _ORDER_FIELDS)
+    return dashboard
 
 
 @router.delete("/{dashboard_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_dashboard(
     dashboard_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     dashboard = await _load_dashboard(db, dashboard_id, user, "patient-data:delete")
+    ref = _board_ref(dashboard)
     await patient_dashboard_service.delete(db, dashboard)
+    await _notify(db, request, user, ref, "deleted")
 
 
 # --- Tabs -------------------------------------------------------------------
@@ -220,11 +280,14 @@ async def list_tabs(
 )
 async def create_tab(
     body: PatientDashboardTabCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_dashboard(db, body.patient_dashboard_id, user, "patient-data:write")
-    return await patient_dashboard_service.create_tab(db, body)
+    dashboard = await _load_dashboard(db, body.patient_dashboard_id, user, "patient-data:write")
+    tab = await patient_dashboard_service.create_tab(db, body)
+    await _notify(db, request, user, dashboard, "updated", "tab", "created", tab.name)
+    return tab
 
 
 @router.get("/tabs/{tab_id}", response_model=PatientDashboardTabResponse)
@@ -240,21 +303,32 @@ async def get_tab(
 async def update_tab(
     tab_id: str,
     body: PatientDashboardTabUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     tab = await _load_tab(db, tab_id, user, "patient-data:write")
-    return await patient_dashboard_service.update_tab(db, tab, body)
+    before = _previous(tab, body.model_dump(exclude_unset=True))
+    tab = await patient_dashboard_service.update_tab(db, tab, body)
+    if before:
+        dashboard = await patient_dashboard_service.get(db, tab.patient_dashboard_id)
+        await _notify(db, request, user, dashboard, "updated", "tab", "updated", tab.name,
+                      notify=not before.keys() <= _ORDER_FIELDS)
+    return tab
 
 
 @router.delete("/tabs/{tab_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_tab(
     tab_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     tab = await _load_tab(db, tab_id, user, "patient-data:delete")
+    dashboard_id, name = tab.patient_dashboard_id, tab.name
     await patient_dashboard_service.delete_tab(db, tab)
+    dashboard = await patient_dashboard_service.get(db, dashboard_id)
+    await _notify(db, request, user, dashboard, "updated", "tab", "deleted", name)
 
 
 @router.delete("/{dashboard_id}/tabs", status_code=status.HTTP_204_NO_CONTENT)
@@ -289,11 +363,15 @@ async def list_widgets(
 )
 async def create_widget(
     body: PatientDashboardWidgetCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_tab(db, body.tab_id, user, "patient-data:write")
-    return await patient_dashboard_service.create_widget(db, body)
+    tab = await _load_tab(db, body.tab_id, user, "patient-data:write")
+    widget = await patient_dashboard_service.create_widget(db, body)
+    dashboard = await patient_dashboard_service.get(db, tab.patient_dashboard_id)
+    await _notify(db, request, user, dashboard, "updated", "widget", "created", widget.name)
+    return widget
 
 
 @router.get("/widgets/{widget_id}", response_model=PatientDashboardWidgetResponse)
@@ -309,6 +387,7 @@ async def get_widget(
 async def update_widget(
     widget_id: str,
     body: PatientDashboardWidgetUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -320,17 +399,28 @@ async def update_widget(
         target = await _load_tab(db, body.tab_id, user, "patient-data:write")
         if source is None or target.patient_dashboard_id != source.patient_dashboard_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "A widget can only move to a tab of its own board")
-    return await patient_dashboard_service.update_widget(db, widget, body)
+    before = _previous(widget, body.model_dump(exclude_unset=True))
+    widget = await patient_dashboard_service.update_widget(db, widget, body)
+    if before:
+        tab = await patient_dashboard_service.get_tab(db, widget.tab_id)
+        dashboard = await patient_dashboard_service.get(db, tab.patient_dashboard_id) if tab else None
+        await _notify(db, request, user, dashboard, "updated", "widget", "updated", widget.name)
+    return widget
 
 
 @router.delete("/widgets/{widget_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_widget(
     widget_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     widget = await _load_widget(db, widget_id, user, "patient-data:delete")
+    tab = await patient_dashboard_service.get_tab(db, widget.tab_id)
+    name = widget.name
     await patient_dashboard_service.delete_widget(db, widget)
+    dashboard = await patient_dashboard_service.get(db, tab.patient_dashboard_id) if tab else None
+    await _notify(db, request, user, dashboard, "updated", "widget", "deleted", name)
 
 
 @router.delete("/tabs/{tab_id}/widgets", status_code=status.HTTP_204_NO_CONTENT)

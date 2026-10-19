@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useSearchParams } from 'react-router'
 import { BookOpen, Download, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -51,7 +52,9 @@ export function VocabularyLibraryPanel({ workspaceId, canWrite }: VocabularyLibr
   const removeDataSource = useDataSourceStore((s) => s.removeDataSource)
   const mappingProjects = useConceptMappingStore((s) => s.mappingProjects)
   const [vocabularies, setVocabularies] = useState<LibraryVocabulary[] | null>(null)
-  const [importOpen, setImportOpen] = useState(false)
+  const [searchParams, setSearchParams] = useSearchParams()
+  // `?import=1` arrives from the Browse tab's empty state: open the import dialog straight away.
+  const [importOpen, setImportOpen] = useState(() => canWrite && searchParams.get('import') === '1')
   const [importSource, setImportSource] = useState<ExportSource | undefined>()
   const [toRemove, setToRemove] = useState<LibraryVocabulary | null>(null)
   const [legacyToDelete, setLegacyToDelete] = useState<DataSource | null>(null)
@@ -66,6 +69,16 @@ export function VocabularyLibraryPanel({ workspaceId, canWrite }: VocabularyLibr
   // Front-only the inventory lives on the library data source: re-read it
   // whenever the store's sources change.
   useEffect(() => { reload() }, [reload, dataSources])
+
+  // Drop the flag once read, so a reload does not reopen the dialog.
+  useEffect(() => {
+    if (searchParams.get('import') !== '1') return
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev)
+      next.delete('import')
+      return next
+    }, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const legacy = useMemo(() => legacyVocabularyDatabases(dataSources, workspaceId), [dataSources, workspaceId])
   const releases = libraryReleases(vocabularies ?? [])

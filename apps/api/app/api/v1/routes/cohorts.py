@@ -95,9 +95,13 @@ async def update_cohort(
     cohort = await _load(db, cohort_id, user, "cohorts:write")
     if cohort.owner_data_source_id and "data_source_id" in body.model_fields_set:
         body.data_source_id = cohort.owner_data_source_id
-    changed = set(body.model_dump(exclude_unset=True))
+    # Only what the write actually alters: a run re-saving its count with an
+    # unchanged definition must not read as an edit.
+    changed = {k for k, v in body.model_dump(exclude_unset=True).items() if getattr(cohort, k) != v}
     before = undo_service.cohort_snapshot(cohort)
     cohort = await cohort_service.update(db, cohort, body)
+    if not changed:
+        return cohort
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="updated",
         entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,

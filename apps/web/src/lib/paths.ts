@@ -87,6 +87,8 @@ export const paths = {
   warehouseVocabularies: (wsUid: string, section?: 'ohdsi' | 'dictionaries', tab?: 'browse' | 'library') =>
     `${ws(wsUid)}/warehouse/vocabularies${section ? `/${section}` : ''}${section && tab ? `?tab=${tab}` : ''}`,
   warehouseConceptMapping: (wsUid: string) => `${ws(wsUid)}/warehouse/concept-mapping/projects`,
+  warehouseConceptMappingOverview: (wsUid: string, tab?: 'summary' | 'table' | 'source-ids' | 'export') =>
+    `${ws(wsUid)}/warehouse/concept-mapping/overview${tab ? `?tab=${tab}` : ''}`,
   warehouseConceptMappingProject: (wsUid: string, mappingProjectId: string) =>
     `${ws(wsUid)}/warehouse/concept-mapping/${shortenId(mappingProjectId)}`,
   warehouseSqlScripts: (wsUid: string) => `${ws(wsUid)}/warehouse/sql-scripts`,
@@ -96,5 +98,6 @@ export const paths = {
   warehouseDataCatalog: (wsUid: string, catalogId: string) =>
     `${ws(wsUid)}/warehouse/catalog/${shortenId(catalogId)}`,
   wiki: (wsUid: string) => `${ws(wsUid)}/wiki`,
+  projectPipeline: (wsUid: string, projectUid: string) => `${proj(wsUid, projectUid)}/pipeline`,
   plugins: (wsUid: string) => `${ws(wsUid)}/plugins`,
 } as const

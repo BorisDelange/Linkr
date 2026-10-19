@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -12,12 +12,34 @@ from app.schemas.source_concept_id import (
     SourceConceptIdRangeResponse,
     SourceConceptIdRangeSave,
 )
+from app.services import notification_service
 from app.services import source_concept_id_service as svc
 
 router = APIRouter(tags=["source-concept-ids"])
 
 _RANGES = "/source-concept-id-ranges"
 _ENTRIES = "/source-concept-id-entries"
+
+
+# --- Notifications (writes by an external client, e.g. an agent over MCP) ---
+
+# The cursor an assignment moves after each chunk of entries it saves: the open
+# tab refreshes, the bell stays quiet (the entries themselves are notified).
+_RANGE_SIDE_FIELDS = {"next_id", "total_concepts", "updated_at"}
+
+
+async def _notify(
+    db: AsyncSession, request: Request, user: User, workspace_id: str, badge_label: str,
+    detail: dict, *, notify: bool = True,
+) -> None:
+    """One change to a badge's source concept ids (its range or its entries). The
+    registry belongs to the workspace (the Source IDs tab of its mapping
+    projects), so the workspace travels in `detail` and the badge names it."""
+    await notification_service.record_change(
+        db, user=user, source=notification_service.client_source(request), action="updated",
+        entity_type="source_concept_ids", entity_id=badge_label, project_uid=None, label=badge_label,
+        detail={"workspaceId": workspace_id, **detail}, notify=notify,
+    )
 
 
 # --- Ranges ----------------------------------------------------------------
@@ -49,11 +71,24 @@ async def get_range(
 @router.put(_RANGES, response_model=SourceConceptIdRangeResponse)
 async def save_range(
     body: SourceConceptIdRangeSave,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
-    return await svc.save_range(db, body)
+    existing = await svc.get_range(db, body.workspace_id, body.badge_label)
+    changed = (
+        {k for k, v in body.model_dump().items() if getattr(existing, k) != v} if existing is not None else None
+    )
+    rng = await svc.save_range(db, body)
+    if changed is None or changed:
+        await _notify(
+            db, request, user, rng.workspace_id, rng.badge_label,
+            {"part": "range", "action": "created" if changed is None else "updated",
+             "name": f"{rng.range_start}–{rng.range_end}"},
+            notify=changed is None or not changed <= _RANGE_SIDE_FIELDS,
+        )
+    return rng
 
 
 @router.delete(_RANGES + "/{workspace_id}/{badge_label}", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,6 +153,7 @@ async def save_entry(
 @router.put(_ENTRIES + "/batch", status_code=status.HTTP_204_NO_CONTENT)
 async def save_entries_batch(
     body: SourceConceptIdEntryBatch,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -125,6 +161,14 @@ async def save_entries_batch(
     for ws in {e.workspace_id for e in body.entries}:
         await check_workspace_permission(db, ws, user, "concept-mapping:write")
     await svc.save_entries(db, body.entries)
+    by_badge: dict[tuple[str, str], list[int]] = {}
+    for e in body.entries:
+        by_badge.setdefault((e.workspace_id, e.badge_label), []).append(e.source_concept_id)
+    for (ws, badge), ids in by_badge.items():
+        await _notify(
+            db, request, user, ws, badge,
+            {"part": "entries", "action": "created", "name": f"{min(ids)}–{max(ids)}", "count": len(ids)},
+        )
 
 
 @router.delete(_ENTRIES, status_code=status.HTTP_204_NO_CONTENT)

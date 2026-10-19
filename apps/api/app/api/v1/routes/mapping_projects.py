@@ -72,27 +72,54 @@ async def _load_project(
     return project
 
 
+# --- Notifications (writes by an external client, e.g. an agent over MCP) ---
+
 # A write is at most a few hundred rows (the MCP caps a call at 200); the cap
 # only bounds what one notification row can hold.
 _NOTIFY_ITEMS = 500
 
+# Fields a write sets as a side effect (the stats a mapping write recomputes, the
+# versioning marks and link): the open tab refreshes, the bell stays quiet.
+_PROJECT_SIDE_FIELDS = {"stats", "versioned_score_methods", "git_remote_config"}
+
+
+def _previous(row, changes: dict) -> dict:
+    """The values `changes` actually alters, as they were before the write."""
+    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
+
+
+def _item(m) -> dict:
+    """A mapping as the notification's detail dialog lists it (source → target,
+    with the judgement); `m` is a ConceptMapping row or payload."""
+    return {
+        "sourceVocabularyId": m.source_vocabulary_id, "sourceCode": m.source_concept_code,
+        "sourceName": m.source_concept_name, "conceptId": m.target_concept_id,
+        "conceptName": m.target_concept_name, "equivalence": m.equivalence, "score": m.match_score,
+        "status": m.status,
+        "comment": next((c.get("text") for c in reversed(m.comments or []) if isinstance(c, dict)), None),
+    }
+
+
+def _items_detail(part: str, action: str, items: list[dict], count: int | None = None) -> dict:
+    n = count if count is not None else len(items)
+    return {
+        "part": part, "action": action, "name": str(n), "count": n,
+        "items": items[:_NOTIFY_ITEMS], "more": max(0, len(items) - _NOTIFY_ITEMS),
+    }
+
 
 async def _notify(
-    db: AsyncSession, request: Request, user: User, project: MappingProject, part: str,
-    items: list[dict], count: int | None = None,
+    db: AsyncSession, request: Request, user: User, action: str, project: MappingProject,
+    *, detail: dict | None = None, notify: bool = True,
 ) -> None:
-    """Record an agent's mapping write; `items` (source → target, with the
-    agent's judgement) feed the notification's detail dialog."""
+    """One change to a mapping project, or with `detail` to its mappings or
+    suggestions. The workspace travels in `detail`: the bell links there, and a
+    mapping project has no project."""
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request),
-        action="updated", entity_type="mapping_project", entity_id=project.id,
+        action=action, entity_type="mapping_project", entity_id=project.id,
         project_uid=None, label=project.name,
-        detail={
-            "part": part, "action": "created", "name": str(count if count is not None else len(items)),
-            "count": count if count is not None else len(items),
-            "workspaceId": project.workspace_id,
-            "items": items[:_NOTIFY_ITEMS], "more": max(0, len(items) - _NOTIFY_ITEMS),
-        },
+        detail={"workspaceId": project.workspace_id, **(detail or {})}, notify=notify,
     )
 
 
@@ -146,13 +173,16 @@ async def list_projects(
 )
 async def create_project(
     body: MappingProjectCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(
         db, body.workspace_id, user, "concept-mapping:write"
     )
-    return await svc.create(db, body, user)
+    project = await svc.create(db, body, user)
+    await _notify(db, request, user, "created", project)
+    return project
 
 
 @router.get(_PROJ + "/{project_id}", response_model=MappingProjectResponse)
@@ -168,21 +198,28 @@ async def get_project(
 async def update_project(
     project_id: str,
     body: MappingProjectUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _load_project(db, project_id, user, "concept-mapping:write")
-    return await svc.update(db, project, body)
+    before = _previous(project, body.model_dump(exclude_unset=True))
+    project = await svc.update(db, project, body)
+    if before:
+        await _notify(db, request, user, "updated", project, notify=not before.keys() <= _PROJECT_SIDE_FIELDS)
+    return project
 
 
 @router.delete(_PROJ + "/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     project = await _load_project(db, project_id, user, "concept-mapping:delete")
     await svc.delete(db, project)
+    await _notify(db, request, user, "deleted", project)
 
 
 # --- Cross-project overview Table (build cache once, then query pages) --------
@@ -569,7 +606,7 @@ async def append_scores(
              "equivalence": r.equivalence, "score": r.score, "comment": r.comment}
             for r in body.rows
         ]
-        await _notify(db, request, user, project, "suggestions", items, added)
+        await _notify(db, request, user, "updated", project, detail=_items_detail("suggestions", "created", items, added))
     index = await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha)))
     return {**index, "added": added, "skipped": skipped}
 
@@ -618,12 +655,9 @@ async def remove_scores(
             db, project,
             MappingProjectUpdate(scores_file_sha=sha, scores_file_name=project.scores_file_name if sha else None),
         )
-    await notification_service.record_change(
-        db, user=user, source=notification_service.client_source(request),
-        action="updated", entity_type="mapping_project", entity_id=project.id,
-        project_uid=None, label=project.name,
-        detail={"part": "suggestions", "action": "deleted", "name": str(removed), "count": removed,
-                "workspaceId": project.workspace_id},
+    await _notify(
+        db, request, user, "updated", project,
+        detail={"part": "suggestions", "action": "deleted", "name": str(removed), "count": removed},
     )
     index = await asyncio.to_thread(scores_service.build_index, project_id, str(blob_store.path_for(sha))) if sha else None
     return {"index": index, "removed": removed}
@@ -1012,11 +1046,14 @@ async def get_workspace_mapped_keys(
 @router.delete(_PROJ + "/{project_id}/mappings", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mappings_for_project(
     project_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_project(db, project_id, user, "concept-mapping:delete")
+    project = await _load_project(db, project_id, user, "concept-mapping:delete")
     await svc.delete_mappings_for_project(db, project_id)
+    # Only ever the first half of deleting the project, which is notified itself.
+    await _notify(db, request, user, "updated", project, notify=False)
 
 
 @router.post(
@@ -1024,11 +1061,14 @@ async def delete_mappings_for_project(
 )
 async def create_mapping(
     body: ConceptMappingCreate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _load_project(db, body.project_id, user, "concept-mapping:write")
-    return await svc.create_mapping(db, body)
+    project = await _load_project(db, body.project_id, user, "concept-mapping:write")
+    mapping = await svc.create_mapping(db, body)
+    await _notify(db, request, user, "updated", project, detail=_items_detail("mappings", "created", [_item(mapping)]))
+    return mapping
 
 
 @router.post(_MAP + "/batch", status_code=status.HTTP_204_NO_CONTENT)
@@ -1044,14 +1084,74 @@ async def create_mappings_batch(
     }
     await svc.create_mappings_batch(db, body.mappings)
     for pid, project in projects.items():
-        items = [
-            {"sourceVocabularyId": m.source_vocabulary_id, "sourceCode": m.source_concept_code,
-             "sourceName": m.source_concept_name, "conceptId": m.target_concept_id,
-             "conceptName": m.target_concept_name, "equivalence": m.equivalence, "score": m.match_score,
-             "status": m.status, "comment": next((c.get("text") for c in m.comments or [] if isinstance(c, dict)), None)}
-            for m in body.mappings if m.project_id == pid
-        ]
-        await _notify(db, request, user, project, "mappings", items)
+        items = [_item(m) for m in body.mappings if m.project_id == pid]
+        await _notify(db, request, user, "updated", project, detail=_items_detail("mappings", "created", items))
+
+
+class ConceptMappingPatch(ConceptMappingUpdate):
+    id: str
+
+
+class ConceptMappingBatchUpdate(CamelModel):
+    mappings: list[ConceptMappingPatch]
+
+
+class ConceptMappingBatchDelete(CamelModel):
+    ids: list[str]
+
+
+async def _load_mappings(
+    db: AsyncSession, ids: list[str], user: User, permission: str
+) -> tuple[list[ConceptMapping], dict[str, MappingProject]]:
+    """The mappings named by `ids` (all must exist), and their projects once each."""
+    mappings: list[ConceptMapping] = []
+    projects: dict[str, MappingProject] = {}
+    for mapping_id in dict.fromkeys(ids):
+        mapping = await svc.get_mapping(db, mapping_id)
+        if mapping is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Mapping {mapping_id} not found")
+        if mapping.project_id not in projects:
+            projects[mapping.project_id] = await _load_project(db, mapping.project_id, user, permission)
+        mappings.append(mapping)
+    return mappings, projects
+
+
+@router.post(_MAP + "/batch-update", status_code=status.HTTP_204_NO_CONTENT)
+async def update_mappings_batch(
+    body: ConceptMappingBatchUpdate,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Patch many mappings (e.g. one vote on a set): one notification per project."""
+    patches = {p.id: p for p in body.mappings}
+    mappings, projects = await _load_mappings(db, list(patches), user, "concept-mapping:write")
+    changed: dict[str, list[dict]] = {}
+    for mapping in mappings:
+        changes = patches[mapping.id].model_dump(exclude_unset=True, exclude={"id"})
+        if not _previous(mapping, changes):
+            continue
+        mapping = await svc.update_mapping(db, mapping, ConceptMappingUpdate(**changes))
+        changed.setdefault(mapping.project_id, []).append(_item(mapping))
+    for pid, items in changed.items():
+        await _notify(db, request, user, "updated", projects[pid], detail=_items_detail("mappings", "updated", items))
+
+
+@router.post(_MAP + "/batch-delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_mappings_batch(
+    body: ConceptMappingBatchDelete,
+    request: Request,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete many mappings by id: one notification per project."""
+    mappings, projects = await _load_mappings(db, body.ids, user, "concept-mapping:delete")
+    deleted: dict[str, list[dict]] = {}
+    for mapping in mappings:
+        deleted.setdefault(mapping.project_id, []).append(_item(mapping))
+        await svc.delete_mapping(db, mapping)
+    for pid, items in deleted.items():
+        await _notify(db, request, user, "updated", projects[pid], detail=_items_detail("mappings", "deleted", items))
 
 
 @router.post(_MAP + "/delete-by-projects", status_code=status.HTTP_204_NO_CONTENT)
@@ -1082,21 +1182,31 @@ async def delete_orphans(
 async def update_mapping(
     mapping_id: str,
     body: ConceptMappingUpdate,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     mapping = await _load_mapping(db, mapping_id, user, "concept-mapping:write")
-    return await svc.update_mapping(db, mapping, body)
+    before = _previous(mapping, body.model_dump(exclude_unset=True))
+    mapping = await svc.update_mapping(db, mapping, body)
+    if before:
+        project = await svc.get(db, mapping.project_id)
+        await _notify(db, request, user, "updated", project, detail=_items_detail("mappings", "updated", [_item(mapping)]))
+    return mapping
 
 
 @router.delete(_MAP + "/{mapping_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_mapping(
     mapping_id: str,
+    request: Request,
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     mapping = await _load_mapping(db, mapping_id, user, "concept-mapping:delete")
+    project = await svc.get(db, mapping.project_id)
+    item = _item(mapping)
     await svc.delete_mapping(db, mapping)
+    await _notify(db, request, user, "updated", project, detail=_items_detail("mappings", "deleted", [item]))
 
 
 # --- Service mappings ------------------------------------------------------
