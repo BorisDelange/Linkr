@@ -21,7 +21,7 @@ where its code lives. What deserves a unit test and how to write one is in
 `scripts/install-git-hooks.mjs`) runs the unit tiers, each only when the push
 touches what it guards: web tests, lint and typecheck for `apps/web`,
 `packages/linkr-format`, `packages/linkr-mcp`, `VERSION` (the export goldens pin
-it) and the root `package.json` / `package-lock.json`; the API suite for
+it) and the root `package.json` / `package-lock.json` / `turbo.json`; the API suite for
 `apps/api` and `VERSION`; each package's suite for itself, what it imports and
 `VERSION`. `LINKR_PREPUSH_ALL=1 git push` runs everything.
 The API suite runs in parallel (`pytest-xdist`, 4 workers, 120 s per test at most) and leaves out tests

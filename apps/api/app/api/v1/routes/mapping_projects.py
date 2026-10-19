@@ -1,6 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit, deferred
@@ -1091,13 +1090,7 @@ async def _load_mappings(
 ) -> tuple[list[ConceptMapping], dict[str, MappingProject]]:
     """The mappings named by `ids` (all must exist), and their projects once each,
     every project authorized before the caller writes anything."""
-    wanted = list(dict.fromkeys(ids))
-    rows = await db.execute(select(ConceptMapping).where(ConceptMapping.id.in_(wanted)))
-    by_id = {m.id: m for m in rows.scalars()}
-    missing = next((i for i in wanted if i not in by_id), None)
-    if missing is not None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Mapping {missing} not found")
-    mappings = [by_id[i] for i in wanted]
+    mappings = await svc.get_mappings(db, ids)
     projects: dict[str, MappingProject] = {}
     for mapping in mappings:
         if mapping.project_id not in projects:
@@ -1117,15 +1110,8 @@ async def update_mappings_batch(
     patches = {p.id: p for p in body.mappings}
     mappings, projects = await _load_mappings(db, list(patches), user, "concept-mapping:write")
     changed: dict[str, list[dict]] = {}
-    for mapping in mappings:
-        changes = patches[mapping.id].model_dump(exclude_unset=True, exclude={"id"})
-        if not change_tracking.changed_values(mapping, changes):
-            continue
-        for key, value in changes.items():
-            setattr(mapping, key, value)
+    for mapping in await svc.apply_patches(db, mappings, patches):
         changed.setdefault(mapping.project_id, []).append(_item(mapping))
-    if changed:
-        await db.commit()
     for pid, items in changed.items():
         await _notify(db, request, user, "updated", projects[pid], detail=_items_detail("mappings", "updated", items))
 
@@ -1142,8 +1128,7 @@ async def delete_mappings_batch(
     deleted: dict[str, list[dict]] = {}
     for mapping in mappings:
         deleted.setdefault(mapping.project_id, []).append(_item(mapping))
-        await db.delete(mapping)
-    await db.commit()
+    await svc.delete_mappings(db, mappings)
     for pid, items in deleted.items():
         await _notify(db, request, user, "updated", projects[pid], detail=_items_detail("mappings", "deleted", items))
 

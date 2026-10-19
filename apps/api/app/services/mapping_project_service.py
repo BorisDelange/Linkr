@@ -1,3 +1,5 @@
+from fastapi import HTTPException, status
+from pydantic import BaseModel
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +14,13 @@ from app.schemas.mapping_project import (
     ServiceMappingCreate,
     ServiceMappingUpdate,
 )
-from app.services import attachment_service, author_provenance, blob_store, git_secret
+from app.services import (
+    attachment_service,
+    author_provenance,
+    blob_store,
+    change_tracking,
+    git_secret,
+)
 from app.services.data.mapping_status import effective_mapping_status, source_key
 
 
@@ -108,6 +116,42 @@ async def list_mappings(db: AsyncSession, project_id: str) -> list[ConceptMappin
 
 async def get_mapping(db: AsyncSession, mapping_id: str) -> ConceptMapping | None:
     return await db.get(ConceptMapping, mapping_id)
+
+
+async def get_mappings(db: AsyncSession, ids: list[str]) -> list[ConceptMapping]:
+    """The mappings named by `ids`, in request order without repeats; 404 on the
+    first one that does not exist."""
+    wanted = list(dict.fromkeys(ids))
+    rows = await db.execute(select(ConceptMapping).where(ConceptMapping.id.in_(wanted)))
+    by_id = {m.id: m for m in rows.scalars()}
+    missing = next((i for i in wanted if i not in by_id), None)
+    if missing is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Mapping {missing} not found")
+    return [by_id[i] for i in wanted]
+
+
+async def apply_patches(
+    db: AsyncSession, mappings: list[ConceptMapping], patches: dict[str, BaseModel]
+) -> list[ConceptMapping]:
+    """Apply each mapping's patch (keyed by id, `id` field ignored) in one commit;
+    returns the mappings that actually changed."""
+    changed: list[ConceptMapping] = []
+    for mapping in mappings:
+        changes = patches[mapping.id].model_dump(exclude_unset=True, exclude={"id"})
+        if not change_tracking.changed_values(mapping, changes):
+            continue
+        for key, value in changes.items():
+            setattr(mapping, key, value)
+        changed.append(mapping)
+    if changed:
+        await db.commit()
+    return changed
+
+
+async def delete_mappings(db: AsyncSession, mappings: list[ConceptMapping]) -> None:
+    for mapping in mappings:
+        await db.delete(mapping)
+    await db.commit()
 
 
 # Columns needed to derive stats / mapped-keys — loading only these keeps the

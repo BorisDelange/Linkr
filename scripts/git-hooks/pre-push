@@ -5,7 +5,7 @@
 # guards (docs/testing.md § Pre-push), so a front-only push does not wait for
 # the API suite:
 #   web       unit tests + lint + typecheck   apps/web, packages/linkr-format, packages/linkr-mcp,
-#                                             VERSION, package.json, package-lock.json
+#                                             VERSION, package.json, package-lock.json, turbo.json
 #   api       pytest, in parallel             apps/api, VERSION
 #   format    @linkr/format tests             packages/linkr-format, apps/web/src, VERSION
 #   mcp       @linkr/mcp tests                packages/linkr-mcp, packages/linkr-format, apps/web/src, VERSION
@@ -66,8 +66,8 @@ fi
 
 # ── Web ───────────────────────────────────────────────────────────────────────
 # The export goldens pin VERSION (vitest.config.ts injects it); the root manifest
-# and lockfile decide what gets installed.
-if touches apps/web/ packages/linkr-format/ packages/linkr-mcp/ VERSION package.json package-lock.json; then
+# and lockfile decide what gets installed, turbo.json how the tasks run.
+if touches apps/web/ packages/linkr-format/ packages/linkr-mcp/ VERSION package.json package-lock.json turbo.json; then
   echo "▶ pre-push: web unit tests…"
   ( cd "$WEB" && npm run --silent test ) || fail "Web unit tests failed"
   echo "▶ pre-push: lint…"
