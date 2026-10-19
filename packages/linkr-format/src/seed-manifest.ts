@@ -183,7 +183,8 @@ export function buildSeedManifest(
   }
 
   // --- databases/: a database becomes a seedable entity only when the repo
-  //     actually ships rows (`data/*.parquet`). Without them there is nothing to
+  //     actually ships rows (`data/*.parquet`), or is an in-memory one (an ETL
+  //     target) whose DDL the loader mounts empty. Anything else has nothing to
   //     mount, so it stays metadata in internals and the workspace import writes
   //     the row like any other pointer. ---
   const dbInternals: string[] = []
@@ -210,7 +211,7 @@ export function buildSeedManifest(
       .filter((p) => p.startsWith(`${dir}/data/`) && p.endsWith('.parquet'))
       .map((p) => p.slice(`${dir}/data/`.length).replace(/\.parquet$/, ''))
       .sort()
-    if (!tables.length || !options.seedBaseUrl) continue
+    if (!options.seedBaseUrl) continue
 
     const meta = readJson<Record<string, unknown>>(tree, `${dir}/${manifest}`)
     const declared = meta.ok ? (meta.value as Record<string, unknown>) : {}
@@ -226,6 +227,9 @@ export function buildSeedManifest(
       ? { ...(baseMapping as Record<string, unknown>), ddl }
       : baseMapping
 
+    const inMemory = declared.inMemory === true && typeof (schema as { ddl?: unknown } | undefined)?.ddl === 'string'
+    if (!tables.length && !inMemory) continue
+
     entities.push({
       type: 'database',
       // Must match the row the workspace import wrote, which keys on the
@@ -237,8 +241,9 @@ export function buildSeedManifest(
       ...(schema ? { schema } : {}),
       ...(declared.schemaSource ? { schemaSource: declared.schemaSource } : {}),
       ...(declared.isVocabularyReference ? { isVocabularyReference: true } : {}),
-      parquetBase: `${options.seedBaseUrl.replace(/\/$/, '')}/${dir}/data`,
-      tables,
+      ...(tables.length
+        ? { parquetBase: `${options.seedBaseUrl.replace(/\/$/, '')}/${dir}/data`, tables }
+        : { inMemory: true }),
       ...options.databases?.[folder],
     })
   }

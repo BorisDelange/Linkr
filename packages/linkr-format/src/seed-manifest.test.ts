@@ -121,6 +121,36 @@ describe('buildSeedManifest — databases', () => {
     })
   })
 
+  // The demo's ETL target ships no rows, only its DDL: left metadata-only, it was
+  // never mounted, and every script of the demo pipeline failed on `target.`.
+  it('seeds an in-memory database from its DDL, with nothing to fetch', () => {
+    const m = buildSeedManifest(
+      workspace({
+        'databases/omop/entity.json': '{"entityId":"omop","alias":"omop","inMemory":true}',
+        'databases/omop/mapping.json': '{"patientTable":"person"}',
+        'databases/omop/schema.ddl': 'CREATE TABLE person (person_id INT);',
+      }),
+      { seedBaseUrl: '/data/seed/default' },
+    )
+    expect(m.entities).toEqual([{
+      type: 'database',
+      id: 'omop',
+      alias: 'omop',
+      name: 'omop',
+      schema: { patientTable: 'person', ddl: 'CREATE TABLE person (person_id INT);' },
+      inMemory: true,
+    }])
+    expect(m.internals?.databases).toEqual(['databases/omop/entity.json'])
+  })
+
+  it('leaves an in-memory database with no DDL as metadata: there is nothing to create', () => {
+    const m = buildSeedManifest(
+      workspace({ 'databases/omop/entity.json': '{"entityId":"omop","inMemory":true}' }),
+      { seedBaseUrl: '/data/seed/default' },
+    )
+    expect(m.entities).toEqual([])
+  })
+
   it('stays metadata-only when no base URL is given to build a fetchable path', () => {
     expect(buildSeedManifest(workspace(withData)).entities).toEqual([])
   })
