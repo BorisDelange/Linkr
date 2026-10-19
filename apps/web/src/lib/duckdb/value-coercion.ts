@@ -37,3 +37,16 @@ const NAIVE_DATETIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
 export function toDate(value: unknown): Date {
   return new Date(toMs(value) ?? 0)
 }
+
+const ARROW_BIG_NUM = Symbol.for('isArrowBigNum')
+
+/**
+ * A 128-bit Arrow value (DuckDB's HUGEINT — what `SUM` of an integer returns —
+ * and DECIMAL) as a number, `scale` digits after the point. Arrow hands these
+ * back as typed-array objects whose JSON form is a quoted string, so left as is
+ * they showed as `"\"15\""` and typed as text. Anything else is returned as is.
+ */
+export function fromArrowBigNum(value: unknown, scale = 0): unknown {
+  if (value == null || typeof value !== 'object' || !(ARROW_BIG_NUM in value)) return value
+  return (value as { valueOf(scale?: number): number }).valueOf(scale)
+}

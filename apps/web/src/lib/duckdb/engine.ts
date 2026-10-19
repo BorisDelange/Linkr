@@ -2,7 +2,7 @@
 // unconditionally. The runtime module is loaded on demand via `loadDuckDBModule()`
 // (dynamic import), so a server-mode build that never boots WASM ships without it.
 import type * as duckdb from '@duckdb/duckdb-wasm'
-import { Type as ArrowType } from 'apache-arrow'
+import { DataType, Type as ArrowType } from 'apache-arrow'
 import { isServerMode } from '@/lib/api-client'
 import { fetchDataSourceSchema, planQueryOnServer, queryDataSourceOnServer, type QueryExecution } from '@/lib/api/data-sources'
 import { queryFileSourceOnServer } from '@/lib/api/mapping-projects'
@@ -35,6 +35,7 @@ const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 // splitter and the role-prefix rewriter agree on what is a comment / literal /
 // dollar-quote (a `;` inside any of those must not split a statement).
 import { splitSqlStatements } from './sql-tokenizer'
+import { fromArrowBigNum } from './value-coercion'
 import { shouldGuardMount, isAttachedCatalog } from './mount-guard'
 export { splitSqlStatements }
 
@@ -739,13 +740,15 @@ async function runOnSource(
     // convert their BigInt epoch values to proper ISO date strings.
     const dateColumns = new Set<string>()
     const timestampColumns = new Set<string>()
+    const decimalScales = new Map<string, number>()
     for (const field of result.schema.fields) {
       const typeId = field.type.typeId
       if (typeId === ArrowType.Date) dateColumns.add(field.name)
       else if (typeId === ArrowType.Timestamp) timestampColumns.add(field.name)
+      else if (DataType.isDecimal(field.type)) decimalScales.set(field.name, field.type.scale)
     }
     return (result.toArray() as Record<string, unknown>[]).map((row) =>
-      coerceRow(row, dateColumns, timestampColumns),
+      coerceRow(row, dateColumns, timestampColumns, decimalScales),
     )
   } finally {
     await conn.close()
@@ -831,11 +834,12 @@ export async function queryDataSourceAll(
 
 // --- Helpers ---
 
-/** Convert BigInt values in a row to Number, and DATE/TIMESTAMP BigInts to ISO strings. */
+/** Convert BigInt and 128-bit values in a row to Number, and DATE/TIMESTAMP BigInts to ISO strings. */
 function coerceRow(
   row: Record<string, unknown>,
   dateColumns: Set<string>,
   timestampColumns: Set<string>,
+  decimalScales: Map<string, number>,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   for (const key in row) {
@@ -849,7 +853,7 @@ function coerceRow(
     } else if (typeof v === 'bigint') {
       out[key] = Number(v)
     } else {
-      out[key] = v
+      out[key] = fromArrowBigNum(v, decimalScales.get(key))
     }
   }
   return out

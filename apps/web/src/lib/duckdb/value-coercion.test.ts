@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { toMs, toDate } from './value-coercion'
+import { util } from 'apache-arrow'
+import { toMs, toDate, fromArrowBigNum } from './value-coercion'
 
 /**
  * The same timestamp reaches a widget in four different shapes depending on
@@ -58,5 +59,28 @@ describe('toDate', () => {
   it('falls back to the epoch, never to an Invalid Date', () => {
     expect(toDate('not a date').getTime()).toBe(0)
     expect(Number.isNaN(toDate(null).getTime())).toBe(false)
+  })
+})
+
+describe('fromArrowBigNum', () => {
+  /** A 128-bit value as Arrow returns it: four little-endian 32-bit words. */
+  const int128 = (words: number[]) => util.BN.new(new Uint32Array(words), true)
+
+  it('reads a HUGEINT as its number', () => {
+    expect(fromArrowBigNum(int128([15, 0, 0, 0]))).toBe(15)
+  })
+
+  it('keeps the sign of a negative value', () => {
+    expect(fromArrowBigNum(int128([0xfffffff1, 0xffffffff, 0xffffffff, 0xffffffff]))).toBe(-15)
+  })
+
+  it('places the decimal point of a DECIMAL by its scale', () => {
+    expect(fromArrowBigNum(int128([12345, 0, 0, 0]), 2)).toBe(123.45)
+  })
+
+  it('leaves every other value alone', () => {
+    for (const v of [null, undefined, 3, 'x', 10n, new Date(0), { a: 1 }, [1, 2]]) {
+      expect(fromArrowBigNum(v)).toBe(v)
+    }
   })
 })
