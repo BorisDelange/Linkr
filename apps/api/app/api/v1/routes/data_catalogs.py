@@ -14,7 +14,7 @@ from app.schemas.data_catalog import (
     DataCatalogUpdate,
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
-from app.services import data_catalog_service, notification_service, stats_cache_service
+from app.services import change_tracking, data_catalog_service, notification_service, stats_cache_service
 
 router = APIRouter(prefix="/data-catalogs", tags=["data-catalogs"])
 
@@ -28,11 +28,6 @@ _SIDE_FIELDS = {
     "counts", "status", "last_error", "last_computed_at", "last_compute_duration_ms", "computed_steps",
     "git_remote_config",
 }
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 async def _notify(
@@ -104,7 +99,7 @@ async def update_catalog(
     db: AsyncSession = Depends(get_db),
 ):
     catalog = await _load(db, catalog_id, user, "catalog:write")
-    before = _previous(catalog, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(catalog, body.model_dump(exclude_unset=True))
     catalog = await data_catalog_service.update(db, catalog, body)
     if before:
         await _notify(db, request, user, "updated", catalog, notify=not before.keys() <= _SIDE_FIELDS)

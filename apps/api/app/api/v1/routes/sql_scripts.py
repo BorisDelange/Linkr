@@ -14,7 +14,7 @@ from app.schemas.sql_script import (
     SqlScriptFileResponse,
     SqlScriptFileUpdate,
 )
-from app.services import notification_service, sql_script_service
+from app.services import change_tracking, notification_service, sql_script_service
 
 router = APIRouter(tags=["sql-scripts"])
 
@@ -51,19 +51,9 @@ _COLLECTION_SIDE_FIELDS = {"config"}
 _FILE_SIDE_FIELDS = {"order"}
 
 
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
-
-
 async def _file_path(db: AsyncSession, node: SqlScriptFile) -> str:
-    by_id = {f.id: f for f in await sql_script_service.list_files(db, node.collection_id)}
-    parts, seen, current = [node.name], {node.id}, by_id.get(node.parent_id or "")
-    while current is not None and current.id not in seen:
-        parts.append(current.name)
-        seen.add(current.id)
-        current = by_id.get(current.parent_id or "")
-    return "/".join(reversed(parts))
+    tree = await sql_script_service.list_tree(db, node.collection_id)
+    return change_tracking.tree_path(node.id, node.name, node.parent_id, tree)
 
 
 async def _notify(
@@ -81,8 +71,7 @@ async def _notify(
     and a collection has no project."""
     detail: dict = {"workspaceId": collection.workspace_id}
     if file is not None:
-        file_action, path, kind, file_id = file
-        detail.update(part="folder" if kind == "folder" else "script", action=file_action, name=path, fileId=file_id)
+        detail.update(change_tracking.file_detail(*file))
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action=action,
         entity_type="sql_collection", entity_id=collection.id, project_uid=None,
@@ -145,7 +134,7 @@ async def update_collection(
     db: AsyncSession = Depends(get_db),
 ):
     collection = await _load_collection(db, collection_id, user, "sql-scripts:write")
-    before = _previous(collection, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(collection, body.model_dump(exclude_unset=True))
     collection = await sql_script_service.update(db, collection, body)
     if before:
         await _notify(
@@ -217,7 +206,7 @@ async def update_file(
     db: AsyncSession = Depends(get_db),
 ):
     node = await _load_file(db, file_id, user, "sql-scripts:write")
-    before = _previous(node, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(node, body.model_dump(exclude_unset=True))
     node = await sql_script_service.update_file(db, node, body)
     if before:
         collection = await sql_script_service.get(db, node.collection_id)

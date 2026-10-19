@@ -13,7 +13,7 @@ from app.schemas.user_plugin import (
     UserPluginResponse,
     UserPluginUpdate,
 )
-from app.services import notification_service, user_plugin_service
+from app.services import change_tracking, notification_service, user_plugin_service
 
 router = APIRouter(prefix="/user-plugins", tags=["user-plugins"])
 
@@ -32,11 +32,6 @@ async def _load(db: AsyncSession, plugin_id: str, user: User, permission: str) -
 
 
 # --- Notifications (writes by an external client, e.g. an agent over MCP) ---
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
-
 
 def _label(plugin: UserPlugin) -> dict | str:
     """The plugin's name lives in its own plugin.json manifest, not in a column."""
@@ -130,7 +125,7 @@ async def update_plugin(
     db: AsyncSession = Depends(get_db),
 ):
     plugin = await _load(db, plugin_id, user, "plugins:write")
-    before = _previous(plugin, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(plugin, body.model_dump(exclude_unset=True))
     plugin = await user_plugin_service.update(db, plugin, body)
     if before:
         only_files = before.keys() == {"files"}

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit, deferred
@@ -12,6 +13,8 @@ from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMa
 from app.models.user import User
 from app.schemas.mapping_project import (
     ConceptMappingBatch,
+    ConceptMappingBatchDelete,
+    ConceptMappingBatchUpdate,
     ConceptMappingCreate,
     ConceptMappingDeleteByProjects,
     ConceptMappingDeleteOrphans,
@@ -30,7 +33,7 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from app.services import blob_store, fs_browser, notification_service, scores_export
+from app.services import blob_store, change_tracking, fs_browser, notification_service, scores_export
 from app.services import mapping_project_service as svc
 from app.services import source_concept_id_service as sci_svc
 from app.services.data.global_table_service import _localized
@@ -81,11 +84,6 @@ _NOTIFY_ITEMS = 500
 # Fields a write sets as a side effect (the stats a mapping write recomputes, the
 # versioning marks and link): the open tab refreshes, the bell stays quiet.
 _PROJECT_SIDE_FIELDS = {"stats", "versioned_score_methods", "git_remote_config"}
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 def _item(m) -> dict:
@@ -203,7 +201,7 @@ async def update_project(
     db: AsyncSession = Depends(get_db),
 ):
     project = await _load_project(db, project_id, user, "concept-mapping:write")
-    before = _previous(project, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(project, body.model_dump(exclude_unset=True))
     project = await svc.update(db, project, body)
     if before:
         await _notify(db, request, user, "updated", project, notify=not before.keys() <= _PROJECT_SIDE_FIELDS)
@@ -1088,31 +1086,22 @@ async def create_mappings_batch(
         await _notify(db, request, user, "updated", project, detail=_items_detail("mappings", "created", items))
 
 
-class ConceptMappingPatch(ConceptMappingUpdate):
-    id: str
-
-
-class ConceptMappingBatchUpdate(CamelModel):
-    mappings: list[ConceptMappingPatch]
-
-
-class ConceptMappingBatchDelete(CamelModel):
-    ids: list[str]
-
-
 async def _load_mappings(
     db: AsyncSession, ids: list[str], user: User, permission: str
 ) -> tuple[list[ConceptMapping], dict[str, MappingProject]]:
-    """The mappings named by `ids` (all must exist), and their projects once each."""
-    mappings: list[ConceptMapping] = []
+    """The mappings named by `ids` (all must exist), and their projects once each,
+    every project authorized before the caller writes anything."""
+    wanted = list(dict.fromkeys(ids))
+    rows = await db.execute(select(ConceptMapping).where(ConceptMapping.id.in_(wanted)))
+    by_id = {m.id: m for m in rows.scalars()}
+    missing = next((i for i in wanted if i not in by_id), None)
+    if missing is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, f"Mapping {missing} not found")
+    mappings = [by_id[i] for i in wanted]
     projects: dict[str, MappingProject] = {}
-    for mapping_id in dict.fromkeys(ids):
-        mapping = await svc.get_mapping(db, mapping_id)
-        if mapping is None:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, f"Mapping {mapping_id} not found")
+    for mapping in mappings:
         if mapping.project_id not in projects:
             projects[mapping.project_id] = await _load_project(db, mapping.project_id, user, permission)
-        mappings.append(mapping)
     return mappings, projects
 
 
@@ -1123,16 +1112,20 @@ async def update_mappings_batch(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Patch many mappings (e.g. one vote on a set): one notification per project."""
+    """Patch many mappings (e.g. one vote on a set) in one transaction: one
+    notification per project."""
     patches = {p.id: p for p in body.mappings}
     mappings, projects = await _load_mappings(db, list(patches), user, "concept-mapping:write")
     changed: dict[str, list[dict]] = {}
     for mapping in mappings:
         changes = patches[mapping.id].model_dump(exclude_unset=True, exclude={"id"})
-        if not _previous(mapping, changes):
+        if not change_tracking.changed_values(mapping, changes):
             continue
-        mapping = await svc.update_mapping(db, mapping, ConceptMappingUpdate(**changes))
+        for key, value in changes.items():
+            setattr(mapping, key, value)
         changed.setdefault(mapping.project_id, []).append(_item(mapping))
+    if changed:
+        await db.commit()
     for pid, items in changed.items():
         await _notify(db, request, user, "updated", projects[pid], detail=_items_detail("mappings", "updated", items))
 
@@ -1149,7 +1142,8 @@ async def delete_mappings_batch(
     deleted: dict[str, list[dict]] = {}
     for mapping in mappings:
         deleted.setdefault(mapping.project_id, []).append(_item(mapping))
-        await svc.delete_mapping(db, mapping)
+        await db.delete(mapping)
+    await db.commit()
     for pid, items in deleted.items():
         await _notify(db, request, user, "updated", projects[pid], detail=_items_detail("mappings", "deleted", items))
 
@@ -1187,7 +1181,7 @@ async def update_mapping(
     db: AsyncSession = Depends(get_db),
 ):
     mapping = await _load_mapping(db, mapping_id, user, "concept-mapping:write")
-    before = _previous(mapping, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(mapping, body.model_dump(exclude_unset=True))
     mapping = await svc.update_mapping(db, mapping, body)
     if before:
         project = await svc.get(db, mapping.project_id)

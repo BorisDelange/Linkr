@@ -10,7 +10,7 @@ from app.models.project import Project
 from app.models.user import User
 from app.models.workspace import Workspace
 from app.schemas.project import ProjectCreate, ProjectResponse, ProjectUpdate
-from app.services import fs_browser, notification_service, project_service
+from app.services import change_tracking, fs_browser, notification_service, project_service
 
 router = APIRouter(prefix="/projects", tags=["projects"])
 
@@ -20,11 +20,6 @@ router = APIRouter(prefix="/projects", tags=["projects"])
 # page refreshes, the bell stays quiet.
 _SIDE_FIELDS = {"config", "git_remote_config"}
 _LINK_FIELDS = {"linked_data_source_ids", "linked_data_source_refs"}
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 async def _link_detail(db: AsyncSession, before: list[str] | None, after: list[str] | None) -> dict | None:
@@ -154,7 +149,7 @@ async def update_project(
                 fs_browser.validate_binding_path(path, scope)
             except fs_browser.FsBrowseError as exc:
                 raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    before = _previous(project, fields)
+    before = change_tracking.changed_values(project, fields)
     project = await project_service.update(db, project, body)
     if before:
         link = None

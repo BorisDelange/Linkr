@@ -205,8 +205,24 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
         : { collections: others }
     })
     if (!collection || get().activeCollectionId !== id) return
-    const stored = await storage.sqlScriptFiles.getByCollection(id)
-    if (get().activeCollectionId !== id) return
+    // A save (or revert) that lands while the tree is read can predate the read:
+    // merging it would put the older stored text back over what was just saved.
+    // Re-read until no file left its unsaved state meanwhile.
+    const editorFiles = () => {
+      const s = get()
+      return new Map(s.files.map((f) => [f.id, { content: f.content, dirty: s._dirtyMap.has(f.id) && s._dirtyMap.get(f.id) !== f.content }]))
+    }
+    let stored: SqlScriptFile[] = []
+    for (let reads = 0; reads < 3; reads++) {
+      const before = editorFiles()
+      stored = await storage.sqlScriptFiles.getByCollection(id)
+      if (get().activeCollectionId !== id) return
+      const settled = [...editorFiles()].some(([fid, now]) => {
+        const was = before.get(fid)
+        return was !== undefined && !now.dirty && (was.dirty || was.content !== now.content)
+      })
+      if (!settled) break
+    }
     set((s) => {
       const merged = mergeRemoteFiles(s, stored, s.isFileDirty)
       return { ...merged, files: merged.files.sort((a, b) => a.order - b.order), _dirtyVersion: s._dirtyVersion + 1 }

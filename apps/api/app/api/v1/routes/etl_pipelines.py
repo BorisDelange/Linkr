@@ -18,7 +18,7 @@ from app.schemas.etl_pipeline import (
     EtlRunHistoryUpdate,
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
-from app.services import etl_pipeline_service, notification_service, stats_cache_service, undo_service
+from app.services import change_tracking, etl_pipeline_service, notification_service, stats_cache_service, undo_service
 
 router = APIRouter(tags=["etl-pipelines"])
 
@@ -65,19 +65,10 @@ async def _load_run(
 _PIPELINE_SIDE_FIELDS = {"config", "status", "last_run_at", "last_run_duration_ms"}
 _FILE_SIDE_FIELDS = {"order"}
 
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
-
 
 async def _file_path(db: AsyncSession, node: EtlFile) -> str:
-    by_id = {f.id: f for f in await etl_pipeline_service.list_files(db, node.pipeline_id)}
-    parts, seen, current = [node.name], {node.id}, by_id.get(node.parent_id or "")
-    while current is not None and current.id not in seen:
-        parts.append(current.name)
-        seen.add(current.id)
-        current = by_id.get(current.parent_id or "")
-    return "/".join(reversed(parts))
+    tree = await etl_pipeline_service.list_tree(db, node.pipeline_id)
+    return change_tracking.tree_path(node.id, node.name, node.parent_id, tree)
 
 
 async def _notify(
@@ -96,8 +87,7 @@ async def _notify(
     pipeline has no project."""
     detail: dict = {"workspaceId": pipeline.workspace_id}
     if file is not None:
-        file_action, path, kind, file_id = file
-        detail.update(part="folder" if kind == "folder" else "script", action=file_action, name=path, fileId=file_id)
+        detail.update(change_tracking.file_detail(*file))
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action=action,
         entity_type="etl_pipeline", entity_id=pipeline.id, project_uid=None,
@@ -167,7 +157,7 @@ async def update_pipeline(
     db: AsyncSession = Depends(get_db),
 ):
     pipeline = await _load_pipeline(db, pipeline_id, user, "etl:write")
-    before = _previous(pipeline, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(pipeline, body.model_dump(exclude_unset=True))
     pipeline = await etl_pipeline_service.update(db, pipeline, body)
     if before:
         # git_remote_config carries a sealed token: never copied into a snapshot.
@@ -244,7 +234,7 @@ async def update_file(
     db: AsyncSession = Depends(get_db),
 ):
     node = await _load_file(db, file_id, user, "etl:write")
-    before = _previous(node, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(node, body.model_dump(exclude_unset=True))
     node = await etl_pipeline_service.update_file(db, node, body)
     if before:
         pipeline = await etl_pipeline_service.get(db, node.pipeline_id)

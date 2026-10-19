@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 
 from app.schemas.base import CamelModel
 
@@ -196,6 +196,23 @@ class ConceptMappingResponse(ConceptMappingBase):
 
 class ConceptMappingBatch(CamelModel):
     mappings: list[ConceptMappingCreate]
+
+
+# Well above what one client call sends (the MCP caps a write at 200): bounds the
+# rows one request loads and patches in a single transaction.
+MAX_BATCH = 5000
+
+
+class ConceptMappingPatch(ConceptMappingUpdate):
+    id: str
+
+
+class ConceptMappingBatchUpdate(CamelModel):
+    mappings: list[ConceptMappingPatch] = Field(max_length=MAX_BATCH)
+
+
+class ConceptMappingBatchDelete(CamelModel):
+    ids: list[str] = Field(max_length=MAX_BATCH)
 
 
 class ConceptMappingDeleteByProjects(CamelModel):

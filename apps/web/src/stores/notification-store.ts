@@ -89,6 +89,8 @@ const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
 }
 
 const RECONNECT_MS = [1_000, 2_000, 5_000, 10_000, 30_000]
+/** The server keeps this many per user (`notification_service.MAX_KEPT`). */
+const MAX_ITEMS = 200
 
 interface NotificationState {
   items: AppNotification[]
@@ -133,9 +135,9 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
       onOpen: sendContext,
       onEvent: (event) => {
         attempt = 0
-        void REFRESHERS[event.entityType]?.(event)
+        REFRESHERS[event.entityType]?.(event).catch((e) => console.warn('Remote change refresh failed', event.entityType, e))
         if (event.notification) {
-          const items = [event.notification, ...get().items.filter((n) => n.id !== event.notification!.id)]
+          const items = [event.notification, ...get().items.filter((n) => n.id !== event.notification!.id)].slice(0, MAX_ITEMS)
           set({ items, unread: countUnread(items) })
         }
       },
@@ -168,6 +170,7 @@ export const useNotificationStore = create<NotificationState>((set, get) => {
 
     disconnect: () => {
       wanted = false
+      readThrough = 0
       clearTimeout(retryTimer)
       socket?.close()
       socket = null

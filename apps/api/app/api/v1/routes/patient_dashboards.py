@@ -26,7 +26,7 @@ from app.schemas.patient_dashboard import (
     PatientDashboardWidgetResponse,
     PatientDashboardWidgetUpdate,
 )
-from app.services import notification_service, patient_dashboard_service
+from app.services import change_tracking, notification_service, patient_dashboard_service
 
 router = APIRouter(prefix="/patient-dashboards", tags=["patient-dashboards"])
 
@@ -114,11 +114,6 @@ async def _load_widget(
 
 # Ordering only (a reorder rewrites one row at a time): refresh, no notification.
 _ORDER_FIELDS = {"display_order"}
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 def _board_ref(board: PatientDashboard) -> SimpleNamespace:
@@ -240,7 +235,7 @@ async def update_dashboard(
     db: AsyncSession = Depends(get_db),
 ):
     dashboard = await _load_dashboard(db, dashboard_id, user, "patient-data:write")
-    before = _previous(dashboard, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(dashboard, body.model_dump(exclude_unset=True))
     dashboard = await patient_dashboard_service.update(db, dashboard, body)
     if before:
         await _notify(db, request, user, dashboard, "updated", notify=not before.keys() <= _ORDER_FIELDS)
@@ -308,7 +303,7 @@ async def update_tab(
     db: AsyncSession = Depends(get_db),
 ):
     tab = await _load_tab(db, tab_id, user, "patient-data:write")
-    before = _previous(tab, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(tab, body.model_dump(exclude_unset=True))
     tab = await patient_dashboard_service.update_tab(db, tab, body)
     if before:
         dashboard = await patient_dashboard_service.get(db, tab.patient_dashboard_id)
@@ -399,7 +394,7 @@ async def update_widget(
         target = await _load_tab(db, body.tab_id, user, "patient-data:write")
         if source is None or target.patient_dashboard_id != source.patient_dashboard_id:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "A widget can only move to a tab of its own board")
-    before = _previous(widget, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(widget, body.model_dump(exclude_unset=True))
     widget = await patient_dashboard_service.update_widget(db, widget, body)
     if before:
         tab = await patient_dashboard_service.get_tab(db, widget.tab_id)

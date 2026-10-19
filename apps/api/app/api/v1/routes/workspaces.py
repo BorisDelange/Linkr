@@ -13,7 +13,7 @@ from app.schemas.workspace import (
     WorkspaceResponse,
     WorkspaceUpdate,
 )
-from app.services import notification_service, workspace_service
+from app.services import change_tracking, notification_service, workspace_service
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 
@@ -21,11 +21,6 @@ router = APIRouter(prefix="/workspaces", tags=["workspaces"])
 # The versioning remote, re-saved by the git flow (and sealed, so never equal to
 # what was sent): the open page refreshes, the bell stays quiet.
 _SIDE_FIELDS = {"git_remote_config"}
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 async def _notify(
@@ -156,7 +151,7 @@ async def update_workspace(
     workspace = await workspace_service.get(db, workspace_id)
     if workspace is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    changed = _previous(workspace, body.model_dump(exclude_unset=True))
+    changed = change_tracking.changed_values(workspace, body.model_dump(exclude_unset=True))
     workspace = await workspace_service.update(db, workspace, body)
     if changed:
         await _notify(db, request, user, "updated", workspace, notify=not changed.keys() <= _SIDE_FIELDS)

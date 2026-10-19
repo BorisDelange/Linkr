@@ -21,7 +21,7 @@ from app.schemas.dq_rule_set import (
     DqRunHistoryResponse,
     DqRunHistoryUpdate,
 )
-from app.services import dq_rule_set_service, notification_service
+from app.services import change_tracking, dq_rule_set_service, notification_service
 
 router = APIRouter(tags=["data-quality"])
 
@@ -59,11 +59,6 @@ _CHECK_FIELDS = (
     "name", "description", "category", "subcategory", "severity", "threshold", "sql",
     "explore_sql", "order", "table_name", "disabled",
 )
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 def _check_state(check: DqCustomCheck) -> dict:
@@ -179,7 +174,7 @@ async def update_rule_set(
     db: AsyncSession = Depends(get_db),
 ):
     rule_set = await _load_rule_set(db, rule_set_id, user, "data-quality:write")
-    before = _previous(rule_set, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(rule_set, body.model_dump(exclude_unset=True))
     rule_set = await dq_rule_set_service.update(db, rule_set, body)
     if before:
         await _notify(db, request, user, "updated", rule_set, notify=not before.keys() <= _SET_SIDE_FIELDS)

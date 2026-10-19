@@ -77,6 +77,14 @@ async def list_files(db: AsyncSession, pipeline_id: str) -> list[EtlFile]:
     return list(result.scalars().all())
 
 
+async def list_tree(db: AsyncSession, pipeline_id: str) -> dict[str, tuple[str, str | None]]:
+    """{id: (name, parent_id)} of every file, without loading their content."""
+    result = await db.execute(
+        select(EtlFile.id, EtlFile.name, EtlFile.parent_id).where(EtlFile.pipeline_id == pipeline_id)
+    )
+    return {row.id: (row.name, row.parent_id) for row in result}
+
+
 async def get_file(db: AsyncSession, file_id: str) -> EtlFile | None:
     return await db.get(EtlFile, file_id)
 

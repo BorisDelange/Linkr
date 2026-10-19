@@ -61,6 +61,7 @@ from app.schemas.data_source import (
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
 from app.services import (
     blob_store,
+    change_tracking,
     cohort_derive_service,
     concept_stats_cache_service,
     data_source_service,
@@ -123,11 +124,6 @@ def _stats_key(source: DataSource, user: User) -> str:
 # git flow re-saves (sealed, so never equal to what was sent): the open page
 # refreshes, the bell stays quiet.
 _SIDE_FIELDS = {"status", "stats", "error_message", "git_remote_config"}
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 def _awaiting_build(source: DataSource) -> bool:
@@ -284,7 +280,7 @@ async def update_data_source(
     db: AsyncSession = Depends(get_db),
 ):
     source = await _load_source(db, source_id, user, "databases:write")
-    before = _previous(source, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(source, body.model_dump(exclude_unset=True))
     try:
         source = await data_source_service.update(db, source, body, editor_id=user.id)
     except fs_browser.FsBrowseError as exc:

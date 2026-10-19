@@ -81,6 +81,14 @@ async def list_files(db: AsyncSession, collection_id: str) -> list[SqlScriptFile
     return list(result.scalars().all())
 
 
+async def list_tree(db: AsyncSession, collection_id: str) -> dict[str, tuple[str, str | None]]:
+    """{id: (name, parent_id)} of every file, without loading their content."""
+    result = await db.execute(
+        select(SqlScriptFile.id, SqlScriptFile.name, SqlScriptFile.parent_id).where(SqlScriptFile.collection_id == collection_id)
+    )
+    return {row.id: (row.name, row.parent_id) for row in result}
+
+
 async def get_file(db: AsyncSession, file_id: str) -> SqlScriptFile | None:
     return await db.get(SqlScriptFile, file_id)
 

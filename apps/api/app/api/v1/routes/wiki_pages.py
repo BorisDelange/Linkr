@@ -12,7 +12,7 @@ from app.schemas.wiki_page import (
     WikiPageSearchResult,
     WikiPageUpdate,
 )
-from app.services import notification_service, wiki_page_service
+from app.services import change_tracking, notification_service, wiki_page_service
 
 router = APIRouter(prefix="/wiki-pages", tags=["wiki-pages"])
 
@@ -30,11 +30,6 @@ async def _get_page_with_role(
 
 # Rewritten for every sibling when the user drags a page: refresh, no notification.
 _SIDE_FIELDS = {"sort_order"}
-
-
-def _previous(row, changes: dict) -> dict:
-    """The values `changes` actually alters, as they were before the write."""
-    return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
 
 
 async def _notify(
@@ -111,7 +106,7 @@ async def update_wiki_page(
     db: AsyncSession = Depends(get_db),
 ):
     page = await _get_page_with_role(page_id, user, db, "wiki:write")
-    before = _previous(page, body.model_dump(exclude_unset=True))
+    before = change_tracking.changed_values(page, body.model_dump(exclude_unset=True))
     page = await wiki_page_service.update(db, page, body)
     if before:
         await _notify(db, request, user, "updated", page, notify=not before.keys() <= _SIDE_FIELDS)
