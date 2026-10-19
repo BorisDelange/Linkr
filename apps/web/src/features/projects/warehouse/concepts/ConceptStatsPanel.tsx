@@ -8,6 +8,7 @@ import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
 import { zeroAnchoredHistogramScale, tightHistogramScale } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
+import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
 
 interface ConceptStatsPanelProps {
   hasValueColumn: boolean
@@ -216,6 +217,9 @@ export function ConceptStatsPanel({
           <Separator />
           <div className="space-y-0.5">
             <h4 className="mb-2 text-xs font-medium">{t('concepts.stats_value_distribution')}</h4>
+            {stats.histogramVariant === PRECOMPUTED_STATS_VARIANT && (
+              <p className="pb-1 text-[10px] text-muted-foreground">{t('concepts.stats_precomputed')}</p>
+            )}
             <StatRow label={t('concepts.stats_non_null')} value={d.non_null_count.toLocaleString()} />
             <StatRow label={t('concepts.stats_min')} value={d.min_val} />
             <StatRow label={t('concepts.stats_max')} value={d.max_val} />

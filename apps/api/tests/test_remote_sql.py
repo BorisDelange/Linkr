@@ -254,6 +254,42 @@ def test_percentile_of_a_decimal_is_not_portable():
         doris("SELECT MEDIAN(range_low) AS m FROM measurement")
 
 
+def test_approximate_quantiles_use_doris_percentile_approx():
+    out = doris("SELECT APPROX_QUANTILE(value_as_number, 0.99) AS p FROM measurement")
+    assert "PERCENTILE_APPROX(`measurement`.`value_as_number`, 0.99)" in out
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT APPROX_QUANTILE(range_low, 0.5) AS p FROM measurement",
+    "SELECT APPROX_QUANTILE(value_as_number, person_id) AS p FROM measurement",
+    "SELECT APPROX_QUANTILE(value_as_number, [0.25, 0.75]) AS p FROM measurement",
+])
+def test_an_approximate_quantile_outside_one_fraction_of_a_number_is_not_portable(sql):
+    with pytest.raises(NotPortable):
+        doris(sql)
+
+
+def test_an_approximate_quantile_has_no_postgres_spelling():
+    with pytest.raises(NotPortable):
+        to_remote("SELECT APPROX_QUANTILE(value_as_number, 0.5) AS p FROM measurement", "postgresql", lookup)
+
+
+def test_sample_standard_deviation_keeps_its_name(con):
+    # Doris' bare STDDEV is the population one: only the sample one is admitted.
+    sql = "SELECT STDDEV_SAMP(value_as_number) AS s FROM measurement"
+    assert "STDDEV_SAMP(`measurement`.`value_as_number`)" in doris(sql)
+    assert same_rows(con, sql)
+    with pytest.raises(NotPortable):
+        doris("SELECT STDDEV(value_as_number) AS s FROM measurement")
+
+
+def test_floor_is_portable_once_cast_to_an_integer(con):
+    sql = "SELECT CAST(FLOOR(value_as_number / 2.0) AS BIGINT) AS b FROM measurement"
+    assert same_rows(con, sql)
+    with pytest.raises(NotPortable):
+        doris("SELECT FLOOR(value_as_number) AS b FROM measurement")
+
+
 def test_a_parenthesised_hand_written_relation_reads_the_columns_its_sql_names():
     out = doris('SELECT e."person_id" AS p, e."route" AS r FROM (SELECT * FROM ((SELECT person_id FROM person)) _src '
                 'UNION ALL BY NAME SELECT NULL AS "person_id", NULL AS "route" WHERE false) e')

@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { NoticeBanner } from '@/components/ui/notice-banner'
 import { Progress } from '@/components/ui/progress'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { RunSteps, type RunStepItem, type RunStepStatus } from '@/components/ui/run-steps'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -25,7 +27,10 @@ import { ConceptStatsPopover } from '../concepts/ConceptStatsPopover'
 import { useConceptStatsSql } from '../concepts/use-concept-stats-sql'
 import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
 import { clearConceptCountError } from '../concepts/concept-count-runner'
-import type { ConceptCountStepProgress } from '../concepts/concept-count-plan'
+import type { ConceptCountStep, ConceptCountStepProgress } from '../concepts/concept-count-plan'
+
+/** What a count may run besides the rows, which it always counts. */
+type OptionalStep = Exclude<ConceptCountStep, 'records'>
 
 interface DatabaseConceptsTabProps {
   dataSourceId: string
@@ -43,8 +48,9 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const { count } = concepts
   const [confirmRestart, setConfirmRestart] = useState(false)
   // Rows alone take one pass per table — seconds — and make the list sortable
-  // by use; patients are the long part.
-  const [scope, setScope] = useState<'records' | 'all'>('all')
+  // by use; patients are the long part, and the statistics an extra, so they
+  // start unticked.
+  const [extra, setExtra] = useState<ReadonlySet<OptionalStep>>(() => new Set(['patients']))
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     () => Object.fromEntries(DEFAULT_HIDDEN_COLUMNS.map((id) => [id, false])),
   )
@@ -73,17 +79,37 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const running = live.running
   const records = running ? live.records : progress.records
   const patients = running ? live.patients : progress.patients
-  const total = records.total + patients.total
-  const doneUnits = records.done + patients.done
+  const stats = running ? live.stats : progress.stats
+  const total = records.total + patients.total + stats.total
+  const doneUnits = records.done + patients.done + stats.done
+  const isDone = (step: ConceptCountStepProgress) => step.total > 0 && step.done === step.total
+  const recordsDone = isDone(records)
+  const statsPartial = stats.total > 0 && !isDone(stats)
   const complete = !running && progress.state === 'complete'
   const partial = !running && progress.state === 'partial'
-  const percent = complete ? 100 : total ? (doneUnits / total) * 100 : 0
-  const recordsDone = records.total > 0 && records.done === records.total
+  const percent = complete && !statsPartial ? 100 : total ? (doneUnits / total) * 100 : 0
+
+  const chosen: ConceptCountStep[] = ['records', ...(['patients', 'stats'] as const).filter(
+    (s) => extra.has(s) && (s !== 'stats' || count.hasStats),
+  )]
+  const progressOf = { records, patients, stats }
+  const pending = chosen.filter((s) => !isDone(progressOf[s]))
+  const toggleStep = (step: OptionalStep, on: boolean) =>
+    setExtra((prev) => {
+      const next = new Set(prev)
+      if (on) next.add(step)
+      else next.delete(step)
+      return next
+    })
+  const startSteps = () => chosen.filter((s): s is OptionalStep => s !== 'records')
+
   // A finished count is one line, opened on demand; closed, it stays closed
   // until the session ends or another count finishes.
   const [expanded, setExpanded] = useState(false)
-  const [completeDismissed, dismissComplete] = useSessionDismissal(`concept-count-complete:${dataSourceId}:${progress.finishedAt}`)
-  const compact = complete && !expanded && !live.error
+  const [completeDismissed, dismissComplete] = useSessionDismissal(
+    `concept-count-complete:${dataSourceId}:${progress.finishedAt}:${progress.statsFinishedAt}`,
+  )
+  const compact = complete && !statsPartial && !expanded && !live.error
 
   const stepStatus = (step: ConceptCountStepProgress, active: boolean): RunStepStatus =>
     step.total > 0 && step.done === step.total ? 'done' : active ? 'active' : 'pending'
@@ -103,6 +129,15 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
       ...(live.phase === 'patients' ? { startedAt: live.phaseStartedAt, reading: live.reading } : {}),
     },
   ]
+  if (count.hasStats && (stats.total > 0 || extra.has('stats'))) {
+    steps.push({
+      id: 'stats',
+      label: t('concepts.count_step_stats'),
+      status: stepStatus(stats, running && live.phase === 'stats'),
+      progress: stats,
+      ...(live.phase === 'stats' ? { startedAt: live.phaseStartedAt, reading: live.reading } : {}),
+    })
+  }
   if (running && live.phase === 'planning') {
     steps.push({
       id: live.phase,
@@ -119,16 +154,20 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const statusText = running
     ? t('concepts.count_running')
     : complete
-      ? t('concepts.count_complete', { date: date(progress.finishedAt) })
+      ? (isDone(stats) ? t('concepts.count_complete_stats', { date: date(progress.finishedAt) }) : t('concepts.count_complete', { date: date(progress.finishedAt) }))
       // Paused before anything was assembled: no list yet, so no counts and a strict search.
       : partial && count.exists
         ? (recordsDone && patients.done === 0 ? t('concepts.count_records_done') : t('concepts.count_paused'))
         : t('concepts.count_none')
 
-  const start = (restart: boolean, recordsOnly = false) => {
+  const start = (restart: boolean) => {
     clearConceptCountError(dataSourceId)
-    count.start(restart, recordsOnly)
+    count.start(restart, startSteps())
   }
+  const startLabel = pending.length === 0 ? t('concepts.count_again')
+    : progress.state === 'none' ? t('concepts.count_start')
+      : pending.some((s) => progressOf[s].done > 0) ? t('concepts.count_resume') : t('concepts.count_continue')
+  const stepLabel = (step: ConceptCountStep) => t(`concepts.count_scope_${step}`)
 
   return (
     <div className="flex h-full flex-col gap-3 px-6 pb-1.5">
@@ -139,11 +178,13 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
             <div className="flex items-center gap-1">
               {total > 0 && !compact && (
                 <span className="text-xs tabular-nums text-muted-foreground">
-                  {t('concepts.count_steps', {
+                  {t(stats.total > 0 ? 'concepts.count_steps_stats' : 'concepts.count_steps', {
                     records: records.done,
                     recordsTotal: records.total,
                     patients: patients.done,
                     patientsTotal: patients.total,
+                    stats: stats.done,
+                    statsTotal: stats.total,
                   })}
                 </span>
               )}
@@ -185,27 +226,42 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
                   </Button>
                 ) : (
                   <>
-                    {!(partial && recordsDone) && (
-                      <Select value={scope} onValueChange={(v) => setScope(v as 'records' | 'all')}>
-                        <SelectTrigger className="w-44 text-xs">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="records" className="text-xs">{t('concepts.count_scope_records')}</SelectItem>
-                          <SelectItem value="all" className="text-xs">{t('concepts.count_scope_all')}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    )}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="w-52 justify-between gap-1.5 font-normal">
+                          <span className="truncate">{chosen.map(stepLabel).join(', ')}</span>
+                          <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" density="compact" className="w-52">
+                        {/* The rows are what every other step reads: always counted. */}
+                        <DropdownMenuCheckboxItem checked disabled>{stepLabel('records')}</DropdownMenuCheckboxItem>
+                        <DropdownMenuCheckboxItem
+                          checked={extra.has('patients')}
+                          onCheckedChange={(on) => toggleStep('patients', on === true)}
+                          onSelect={(e) => e.preventDefault()}
+                        >
+                          {stepLabel('patients')}
+                        </DropdownMenuCheckboxItem>
+                        {count.hasStats && (
+                          <DropdownMenuCheckboxItem
+                            checked={extra.has('stats')}
+                            onCheckedChange={(on) => toggleStep('stats', on === true)}
+                            onSelect={(e) => e.preventDefault()}
+                          >
+                            {stepLabel('stats')}
+                          </DropdownMenuCheckboxItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                     <Button
                       size="sm"
                       className="gap-1.5"
-                      onClick={() => (complete ? setConfirmRestart(true) : start(false, scope === 'records' && !recordsDone))}
+                      onClick={() => (pending.length === 0 ? setConfirmRestart(true) : start(false))}
                       disabled={!count.checked}
                     >
                       <Play size={14} />
-                      {complete ? t('concepts.count_again')
-                        : partial && recordsDone ? t('concepts.count_start_patients')
-                          : partial ? t('concepts.count_resume') : t('concepts.count_start')}
+                      {startLabel}
                     </Button>
                   </>
                 )}
@@ -218,7 +274,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
               </>
             )}
           </div>}
-          {(running || partial) && <RunSteps steps={steps} className="mt-2" />}
+          {(running || partial || statsPartial) && <RunSteps steps={steps} className="mt-2" />}
           {live.error && (
             <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/5 p-2 text-xs text-destructive">
               <AlertCircle size={14} className="mt-px shrink-0" />
@@ -297,7 +353,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => { setConfirmRestart(false); start(true, scope === 'records') }}>
+            <AlertDialogAction onClick={() => { setConfirmRestart(false); start(true) }}>
               {t('concepts.count_restart')}
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -643,6 +643,12 @@ export function buildDomainCountQuery(
 
 // ---------------------------------------------------------------------------
 // Value distribution & histogram (unchanged logic, generic interface)
+//
+// Spelled within the portable subset of the server's pushdown (remote_sql.py):
+// STDDEV_SAMP rather than STDDEV, no ANY_VALUE, FLOOR cast to an integer, ROUND
+// of the double itself (a cast to NUMERIC is DuckDB's DECIMAL(18,3)). Outside
+// it, an external database ships every value of the concept to be aggregated
+// here — a minute a click on a large Doris.
 // ---------------------------------------------------------------------------
 
 /** Event relations of a dictionary that record a numeric value. */
@@ -667,7 +673,9 @@ function valueSourceUnion(
   conceptId: number,
 ): string | null {
   const parts = valuedEvents(mapping, dictKey).map(
-    (e) => `SELECT value_number AS v FROM ${e.name} WHERE (${conceptMatch(e, conceptId)}) AND value_number IS NOT NULL`,
+    // A double whatever the column: what the stats round and print, and what
+    // the pushdown takes a percentile of (not a DECIMAL).
+    (e) => `SELECT CAST(value_number AS DOUBLE) AS v FROM ${e.name} WHERE (${conceptMatch(e, conceptId)}) AND value_number IS NOT NULL`,
   )
   return parts.length === 0 ? null : parts.join(' UNION ALL ')
 }
@@ -686,13 +694,13 @@ export function buildValueDistributionQuery(
 SELECT
   COUNT(*)::INTEGER AS total_count,
   COUNT(v)::INTEGER AS non_null_count,
-  ROUND(MIN(v)::NUMERIC, 2)::DOUBLE AS min_val,
-  ROUND(MAX(v)::NUMERIC, 2)::DOUBLE AS max_val,
-  ROUND(AVG(v)::NUMERIC, 2)::DOUBLE AS mean_val,
-  ROUND(MEDIAN(v)::NUMERIC, 2)::DOUBLE AS median_val,
-  ROUND(STDDEV(v)::NUMERIC, 2)::DOUBLE AS std_val,
-  ROUND(QUANTILE_CONT(v, 0.25)::NUMERIC, 2)::DOUBLE AS q1_val,
-  ROUND(QUANTILE_CONT(v, 0.75)::NUMERIC, 2)::DOUBLE AS q3_val
+  ROUND(MIN(v), 2) AS min_val,
+  ROUND(MAX(v), 2) AS max_val,
+  ROUND(AVG(v), 2) AS mean_val,
+  ROUND(MEDIAN(v), 2) AS median_val,
+  ROUND(STDDEV_SAMP(v), 2) AS std_val,
+  ROUND(QUANTILE_CONT(v, 0.25), 2) AS q1_val,
+  ROUND(QUANTILE_CONT(v, 0.75), 2) AS q3_val
 FROM vals`
 }
 
@@ -727,9 +735,9 @@ export function buildValueHistogramQuery(
   WHERE ${excludeOutliers ? '(v < stats.mn OR v > stats.mx)' : 'FALSE'}
 )
 SELECT
-  ROUND((FLOOR((v - stats.mn) / NULLIF((stats.mx - stats.mn) / ${binCount}.0, 0)) * ((stats.mx - stats.mn) / ${binCount}.0) + stats.mn)::NUMERIC, 2)::DOUBLE AS bin_start,
+  ROUND(CAST(FLOOR((v - stats.mn) / NULLIF((stats.mx - stats.mn) / ${binCount}.0, 0)) AS BIGINT) * ((stats.mx - stats.mn) / ${binCount}.0) + stats.mn, 2) AS bin_start,
   COUNT(*)::INTEGER AS count,
-  ANY_VALUE(excluded.n) AS excluded_count
+  MAX(excluded.n) AS excluded_count
 FROM vals, stats, excluded
 WHERE TRUE${rangeFilter}
 GROUP BY 1

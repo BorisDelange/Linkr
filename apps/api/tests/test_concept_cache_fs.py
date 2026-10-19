@@ -346,3 +346,85 @@ def test_counted_relations_without_planned_units_report_none(duckdb_source, data
     concept_cache_fs.write_manifest("src", "", {"runId": "r1"}, reset=True)
     concept_cache_fs.write_unit(config, None, files, [], _relation_unit("concept_id"), "src", "", "records-0-std", "r1")
     assert concept_cache_fs.counted_relations("src", "", ["1"]) == []
+
+
+# --- The `stats` step -----------------------------------------------------------
+
+
+def test_ranges_pack_ids_by_their_rows():
+    weights = [(5, 40), (1, 30), (9, 10), (7, 200), (12, 5)]
+    # 1+5 fill a range; 7 alone exceeds it; 9+12 share the last, open-ended one.
+    assert concept_cache_fs.pack_ranges(weights, 100) == [(None, 5), (6, 7), (8, None)]
+    assert concept_cache_fs.pack_ranges([(3, 10)], 100) == [(None, None)]
+
+
+_VALUED_UNIT = """SELECT 'd' AS dict_key, concept_id, bin, bin_count, value_count, min_val, max_val, mean_val, std_val,
+  p01, q1_val, median_val, q3_val, p99
+FROM (VALUES
+  (1, -1, 2, 50, 1.0, 9.0, 4.996, 2.5, 1.5, 2.0, 5.0, 7.0, 8.5),
+  (1, 0, 30, 50, 1.0, 9.0, 4.996, 2.5, 1.5, 2.0, 5.0, 7.0, 8.5),
+  (1, 19, 18, 50, 1.0, 9.0, 4.996, 2.5, 1.5, 2.0, 5.0, 7.0, 8.5)
+) t(concept_id, bin, bin_count, value_count, min_val, max_val, mean_val, std_val, p01, q1_val, median_val, q3_val, p99)"""
+
+
+def _stats_run(duckdb_source, stats_keys):
+    config, files = duckdb_source
+    units = [{"key": "records-0-std", "step": "records"}] + [{"key": k, "step": "stats"} for k in stats_keys]
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "units": units}, reset=True)
+    records = (
+        "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count,"
+        " 'ev_m' AS relation, 'sig' AS relation_sig FROM ext.measurement GROUP BY concept_id"
+    )
+    concept_cache_fs.write_unit(config, None, files, [], records, "src", "", "records-0-std", "r1")
+    return config, files
+
+
+def test_stats_ranges_come_from_the_counted_rows_of_the_value_tables(duckdb_source, data_dir):
+    _stats_run(duckdb_source, [])
+    dicts = [{"dictKey": "d", "relations": ["ev_m"]}]
+    # concept 1: 3 rows, concept 2: 1 row.
+    assert concept_cache_fs.plan_stats_ranges("src", "", dicts, 2) == [
+        {"dictKey": "d", "lo": None, "hi": 1}, {"dictKey": "d", "lo": 2, "hi": None},
+    ]
+    assert concept_cache_fs.plan_stats_ranges("src", "", dicts, 100) == [{"dictKey": "d", "lo": None, "hi": None}]
+    # A dictionary whose relations no record unit counted (it holds its counts): one unit.
+    held = [{"dictKey": "h", "relations": ["ev_held"]}]
+    concept_cache_fs.write_manifest("src", "", {"runId": "r2"}, reset=True)
+    assert concept_cache_fs.plan_stats_ranges("src", "", held, 100) == [{"dictKey": "h", "lo": None, "hi": None}]
+
+
+def test_precomputed_stats_read_like_the_panel_query(duckdb_source, data_dir):
+    config, files = _stats_run(duckdb_source, ["stats-1-of-2", "stats-2-of-2"])
+    assert concept_cache_fs.precomputed_stats("src", "", 1, None) is None
+    concept_cache_fs.write_unit(config, None, files, [], _VALUED_UNIT, "src", "", "stats-1-of-2", "r1")
+
+    stats, computed_at = concept_cache_fs.precomputed_stats("src", "", 1, "d")
+    assert computed_at > 0
+    assert stats["rowCount"] == 3
+    assert stats["histogramVariant"] == concept_cache_fs.PRECOMPUTED_STATS_VARIANT
+    assert stats["distribution"] == {
+        "total_count": 50, "non_null_count": 50, "min_val": 1.0, "max_val": 9.0, "mean_val": 5.0,
+        "median_val": 5.0, "std_val": 2.5, "q1_val": 2.0, "q3_val": 7.0,
+    }
+    # 20 bins over P1–P99 (1.5–8.5): width 0.35; the outliers on every bin.
+    assert stats["histogram"] == [
+        {"bin_start": 1.5, "count": 30, "excluded_count": 2},
+        {"bin_start": 8.15, "count": 18, "excluded_count": 2},
+    ]
+    # Another dictionary's concept 1, or a concept no done unit holds: not yet.
+    assert concept_cache_fs.precomputed_stats("src", "", 1, "other") is None
+    assert concept_cache_fs.precomputed_stats("src", "", 2, None) is None
+
+    # Every stats unit done: a concept without values reads as such.
+    concept_cache_fs.write_unit(config, None, files, [], _VALUED_UNIT + " WHERE false", "src", "", "stats-2-of-2", "r1")
+    stats, _ = concept_cache_fs.precomputed_stats("src", "", 2, None)
+    assert stats["rowCount"] == 1
+    assert stats["distribution"]["non_null_count"] == 0
+    assert stats["histogram"] == []
+
+
+def test_the_list_is_assembled_from_the_count_units_alone(duckdb_source, data_dir):
+    config, files = _stats_run(duckdb_source, ["stats-1-of-1"])
+    concept_cache_fs.write_unit(config, None, files, [], _VALUED_UNIT, "src", "", "stats-1-of-1", "r1")
+    concept_cache_fs.assemble(config, None, files, [], _ASSEMBLE, "src", "")
+    assert _counts("src") == {1: (3, None), 2: (1, None), 3: (0, None)}

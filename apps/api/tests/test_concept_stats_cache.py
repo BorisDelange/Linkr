@@ -135,3 +135,48 @@ async def test_counting_run_routes(client, monkeypatch, tmp_path_factory):
 
     rows = (await client.post(f"{base}/query", headers=headers, json={"sql": "SELECT * FROM concepts ORDER BY concept_id"})).json()["rows"]
     assert [(r["concept_id"], r["record_count"], r["patient_count"]) for r in rows] == [(1, 2, 2), (2, None, None)]
+
+
+async def test_precomputed_stats_are_planned_counted_and_served_first(client, monkeypatch, tmp_path_factory):
+    """The `stats` step: ranges packed from the record units, a unit counted in a
+    job, then served for the concept ahead of the stats a click cached."""
+    import duckdb
+
+    from app.config import settings
+    from app.services.execution import jobs
+
+    server_dir = tmp_path_factory.mktemp("server")
+    monkeypatch.setattr(settings, "fs_browse_roots", str(server_dir))
+    db = server_dir / "src.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute("CREATE TABLE measurement AS SELECT * FROM (VALUES (1, 2.0), (1, 4.0), (2, 1.0)) t(concept_id, v)")
+    con.close()
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    src = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "db", "name": {"en": "DB"}, "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb", "serverPath": str(db)},
+    })).json()["id"]
+    base = f"{API}/data-sources/{src}/concept-cache"
+    units = [{"key": "records-0-std", "step": "records"}, {"key": "stats-1-of-1", "step": "stats"}]
+    await client.put(f"{base}/run", headers=headers, json={"manifest": {"runId": "r1", "units": units}, "reset": True})
+
+    async def run(key: str, sql: str) -> None:
+        r = await client.post(f"{base}/units-job", headers=headers, json={"label": "C", "runId": "r1", "units": [{"key": key, "sql": sql}]})
+        assert r.status_code == 202, r.text
+        await jobs._tasks[r.json()["id"]]
+
+    await run("records-0-std", "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, "
+              "NULL::BIGINT AS patient_count, 'ev' AS relation, 's' AS relation_sig FROM measurement GROUP BY concept_id")
+    plan = await client.post(f"{base}/stats-plan", headers=headers, json={"dicts": [{"dictKey": "d", "relations": ["ev"]}], "maxRows": 2})
+    assert plan.json() == {"ranges": [{"dictKey": "d", "lo": None, "hi": 1}, {"dictKey": "d", "lo": 2, "hi": None}]}
+
+    await client.put(f"{API}/data-sources/{src}/concept-stats/1", headers=headers, json={"stats": _STATS})
+    await run("stats-1-of-1", "SELECT 'd' AS dict_key, concept_id, 0::BIGINT AS bin, COUNT(*)::BIGINT AS bin_count, "
+              "COUNT(*)::BIGINT AS value_count, MIN(v) AS min_val, MAX(v) AS max_val, AVG(v) AS mean_val, "
+              "STDDEV_SAMP(v) AS std_val, MIN(v) AS p01, MIN(v) AS q1_val, MEDIAN(v) AS median_val, MAX(v) AS q3_val, "
+              "MAX(v) AS p99 FROM measurement GROUP BY concept_id")
+    got = (await client.get(f"{API}/data-sources/{src}/concept-stats/1?dictKey=d", headers=headers)).json()
+    assert got["stats"]["rowCount"] == 2
+    assert got["stats"]["distribution"]["median_val"] == 3.0
+    assert got["stats"]["histogramVariant"] == "p1p99-union-approx"

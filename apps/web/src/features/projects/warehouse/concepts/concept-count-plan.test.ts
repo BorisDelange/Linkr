@@ -10,6 +10,9 @@ import {
   conceptCountSignature,
   countedRelationSignature,
   planConceptCountUnits,
+  planStatsUnits,
+  statsDictionaries,
+  buildStatsUnitSql,
   stepJobItems,
   type ConceptCountManifest,
 } from './concept-count-plan'
@@ -62,6 +65,58 @@ describe('planConceptCountUnits', () => {
 
   it('quotes a string slice bound', () => {
     expect(buildPatientUnitSql(mapping, { lo: "a'b" })).toContain("e.patient_id >= 'a''b'")
+  })
+})
+
+describe('stats units', () => {
+  const valued = mappingV1ToV2({
+    ...v1,
+    eventTables: {
+      Measurement: { ...v1.eventTables.Measurement, valueColumn: 'value_as_number' },
+      Observation: { table: 'observation', conceptIdColumn: 'observation_concept_id', patientIdColumn: 'person_id', dateColumn: 'observation_datetime', valueColumn: 'value_as_number' },
+      Condition: v1.eventTables.Condition,
+    },
+  } as unknown as SchemaMappingV1)
+
+  it('describes the dictionaries whose events record a value, with those events only', () => {
+    expect(statsDictionaries(valued)).toEqual([{ dictKey: 'concept', relations: [expect.stringMatching(/measurement/), expect.stringMatching(/observation/)] }])
+    expect(statsDictionaries(mapping)).toEqual([])
+  })
+
+  it('reads every value-bearing table, standard and source column, within the id range', () => {
+    const sql = buildStatsUnitSql(valued, { dictKey: 'concept', lo: 10, hi: 20 })!
+    // Measurement: standard + source; observation: standard only.
+    expect(sql.match(/CAST\(e\.value_number AS DOUBLE\)/g)).toHaveLength(3)
+    expect(sql).toContain('e.source_concept_id IS DISTINCT FROM e.concept_id AND e.source_concept_id >= 10 AND e.source_concept_id <= 20')
+    expect(sql.match(/e\.concept_id >= 10 AND e\.concept_id <= 20/g)).toHaveLength(2)
+    expect(sql).not.toMatch(/condition/i)
+    expect(sql).toContain('APPROX_QUANTILE(v, 0.99) AS p99')
+    expect(sql).toContain('STDDEV_SAMP(v)')
+  })
+
+  it('leaves an open bound unfiltered', () => {
+    const sql = buildStatsUnitSql(valued, { dictKey: 'concept', lo: null, hi: 20 })!
+    expect(sql).not.toContain('>=')
+    expect(sql).toContain('e.concept_id <= 20')
+  })
+
+  it('plans one unit per range, none for a dictionary without values', () => {
+    const ranges = [{ dictKey: 'concept', lo: null, hi: 9 }, { dictKey: 'concept', lo: 10, hi: null }]
+    expect(planStatsUnits(valued, ranges).map((u) => `${u.step}:${u.key}`)).toEqual(['stats:stats-1-of-2', 'stats:stats-2-of-2'])
+    expect(planStatsUnits(mapping, ranges)).toEqual([])
+  })
+
+  it('counts apart from the rows and the patients: a run is complete without them', () => {
+    const units = [
+      { key: 'records-0-std', step: 'records' as const },
+      { key: 'patients-1-of-1', step: 'patients' as const },
+      { key: 'stats-1-of-2', step: 'stats' as const },
+      { key: 'stats-2-of-2', step: 'stats' as const },
+    ]
+    const run = { manifest: { units, finishedAt: '2026-10-19T10:00:00Z', statsFinishedAt: '2026-10-19T11:00:00Z' }, doneUnits: ['records-0-std', 'patients-1-of-1', 'stats-1-of-2'] }
+    const p = conceptCountProgress(run)
+    expect(p).toMatchObject({ state: 'complete', stats: { done: 1, total: 2 }, statsFinishedAt: null })
+    expect(conceptCountProgress({ ...run, doneUnits: [...run.doneUnits, 'stats-2-of-2'] }).statsFinishedAt).toBe('2026-10-19T11:00:00Z')
   })
 })
 
@@ -349,5 +404,24 @@ describe('record units on a (terminology, code) thesaurus', () => {
     const codes = sql.slice(sql.indexOf('linkr_event_data__codes AS NOT MATERIALIZED ('), sql.indexOf(')\nSELECT'))
     expect(codes).toContain('"facts"')
     expect(codes).not.toContain('_dict')
+  })
+})
+
+describe('stats units on a (terminology, code) thesaurus', () => {
+  const thesaurus = mappingV1ToV2({
+    presetId: 'eav',
+    presetLabel: { en: 'EAV' },
+    patientTable: { table: 'persons', idColumn: 'pid' },
+    conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+    eventTables: {
+      Data: { table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code', patientIdColumn: 'pid', valueColumn: 'nb' },
+    },
+  } as never)
+
+  it('joins the values to the ids of the range alone, never through the whole dictionary', () => {
+    const sql = buildStatsUnitSql(thesaurus, { dictKey: 'thes', lo: 5, hi: 9 })!
+    expect(sql).toContain('FROM linkr_event_data__codes e INNER JOIN (SELECT concept_terminology, concept_code, concept_id FROM (')
+    expect(sql).toContain('_ids WHERE concept_id IS NOT NULL AND concept_id >= 5 AND concept_id <= 9)')
+    expect(sql).not.toMatch(/FROM linkr_event_data e/)
   })
 })

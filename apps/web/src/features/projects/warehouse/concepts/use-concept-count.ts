@@ -3,7 +3,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { isServerMode } from '@/lib/api-client'
 import { conceptRelations, has } from '@/lib/schema-classes/relations'
 import { getConceptCacheStatus } from '@/lib/api/concept-cache'
-import { conceptCountProgress, type ConceptCountProgress } from './concept-count-plan'
+import { conceptCountProgress, statsDictionaries, type ConceptCountProgress, type ConceptCountStep } from './concept-count-plan'
 import {
   getConceptCountRun,
   pauseConceptCount,
@@ -36,9 +36,11 @@ export interface ConceptCountView {
   live: ConceptCountSnapshot
   /** Bumped whenever the assembled list may have changed: reload it. */
   version: number
-  /** `recordsOnly`: stop once the rows are counted; a later start goes on with
-   *  the patients. */
-  start: (restart: boolean, recordsOnly?: boolean) => void
+  /** Some event table records a value: the `stats` step has something to describe. */
+  hasStats: boolean
+  /** `steps`: what to run besides the rows, which always are; a step left out
+   *  waits for a later start. */
+  start: (restart: boolean, steps: readonly ConceptCountStep[]) => void
   pause: () => void
 }
 
@@ -77,9 +79,9 @@ export function useConceptCount(dataSourceId: string | undefined, mapping: Schem
     return () => { cancelled = true }
   }, [enabled, dataSourceId, live.running, live.assembled])
 
-  const start = useCallback((restart: boolean, recordsOnly = false) => {
+  const start = useCallback((restart: boolean, steps: readonly ConceptCountStep[]) => {
     if (!dataSourceId || !mapping) return
-    startConceptCount({ dataSourceId, mapping, restart, recordsOnly })
+    startConceptCount({ dataSourceId, mapping, restart, steps })
   }, [dataSourceId, mapping])
 
   const pause = useCallback(() => {
@@ -95,6 +97,7 @@ export function useConceptCount(dataSourceId: string | undefined, mapping: Schem
     progress: status?.progress ?? conceptCountProgress(null),
     live,
     version,
+    hasStats: !!mapping && statsDictionaries(mapping).length > 0,
     start,
     pause,
   }

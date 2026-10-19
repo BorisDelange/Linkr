@@ -73,6 +73,30 @@ class ConceptRelationsResult(CamelModel):
     relations: list[CountedRelation]
 
 
+class ConceptStatsDictionary(CamelModel):
+    """A dictionary with values to describe, and its value-bearing event relations."""
+
+    dict_key: str = Field(min_length=1, max_length=255)
+    relations: list[str] = Field(min_length=1, max_length=200)
+
+
+class ConceptStatsPlanRequest(CamelModel):
+    dicts: list[ConceptStatsDictionary] = Field(max_length=200)
+    max_rows: int = Field(ge=1)
+
+
+class ConceptStatsRange(CamelModel):
+    """The concepts of `dict_key` whose id lies in [lo, hi], a null bound open."""
+
+    dict_key: str
+    lo: int | None = None
+    hi: int | None = None
+
+
+class ConceptStatsPlanResult(CamelModel):
+    ranges: list[ConceptStatsRange]
+
+
 class ConceptStatsSave(CamelModel):
     stats: dict
 

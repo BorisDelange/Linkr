@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildValueDistributionQuery, buildValueHistogramQuery } from './concept-queries'
 import { isFreshCachedStats, HISTOGRAM_VARIANT, type ConceptStats } from './use-concepts'
+import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 
 // A dictionary spans several event tables, and which one holds a given concept
@@ -96,7 +97,25 @@ describe('buildValueHistogramQuery', () => {
   })
 })
 
+describe('the stats queries an external database computes itself', () => {
+  // remote_sql.py's portable subset: outside it, Doris ships every value of the
+  // concept to be aggregated by DuckDB — a minute a click on a large base.
+  it.each([
+    ['distribution', buildValueDistributionQuery(MAPPING, 'omop', 1)!],
+    ['histogram', buildValueHistogramQuery(MAPPING, 'omop', 1, 20, true)!],
+    ['histogram with outliers', buildValueHistogramQuery(MAPPING, 'omop', 1, 20, false)!],
+  ])('the %s avoids what has no Doris spelling', (_, sql) => {
+    expect(sql).not.toMatch(/STDDEV\(|ANY_VALUE|::NUMERIC/)
+    expect(sql).not.toMatch(/(?<!CAST\()FLOOR\(/)
+    expect(sql).toContain('CAST(value_number AS DOUBLE) AS v')
+  })
+})
+
 describe('isFreshCachedStats', () => {
+  it('serves the stats the counting run precomputed', () => {
+    expect(isFreshCachedStats({ rowCount: 3, histogram: [{ bin_start: 1, count: 3 }], histogramVariant: PRECOMPUTED_STATS_VARIANT })).toBe(true)
+  })
+
   it('serves a row tagged with the current variant', () => {
     expect(isFreshCachedStats({
       rowCount: 10,

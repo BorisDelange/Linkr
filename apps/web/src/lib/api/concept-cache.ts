@@ -1,7 +1,7 @@
 import { apiRequest } from '@/lib/api-client'
 import type { Job } from '@/lib/api/environments'
 import type { QueryJobItem } from '@/lib/api/query-jobs'
-import type { ConceptCountManifest } from '@/features/projects/warehouse/concepts/concept-count-plan'
+import type { ConceptCountManifest, StatsRange } from '@/features/projects/warehouse/concepts/concept-count-plan'
 
 /** The last counting run of a source's concept list, as the server keeps it. */
 export interface ConceptRunStatus {
@@ -66,6 +66,20 @@ export async function queryConceptCache(
   return res.rows
 }
 
+/** The id ranges of the run's `stats` units, about `maxRows` values each,
+ *  packed by the server from the row counts of its record units. */
+export async function planConceptStats(
+  sourceId: string,
+  dicts: readonly { dictKey: string; relations: string[] }[],
+  maxRows: number,
+): Promise<StatsRange[]> {
+  const res = await apiRequest<{ ranges: StatsRange[] }>(`${base(sourceId)}/stats-plan`, {
+    method: 'POST',
+    body: JSON.stringify({ dicts, maxRows }),
+  })
+  return res.ranges
+}
+
 /** An event relation the last counting run counted the records of. */
 export interface CountedRelation {
   relation: string
@@ -84,14 +98,17 @@ export async function getCountedRelations(sourceId: string, conceptIds: readonly
   return res.relations
 }
 
-/** Shared cached detail-panel stats for one concept (undefined if not cached). */
+/** Detail-panel stats for one concept — precomputed by the counting run, or
+ *  shared by a click — undefined if neither exists. */
 export async function getConceptStats<T>(
   sourceId: string,
   conceptId: number,
+  dictKey?: string,
 ): Promise<T | undefined> {
   try {
+    const query = dictKey ? `?dictKey=${encodeURIComponent(dictKey)}` : ''
     const res = await apiRequest<{ stats: T }>(
-      `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}`,
+      `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}${query}`,
     )
     return res.stats
   } catch {

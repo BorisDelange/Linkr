@@ -20,6 +20,10 @@ patient_count)` into the run folder, next to a manifest the client owns. A
 resume skips the units whose file exists, and `assemble` joins the dictionaries
 to whatever units are done so far, so the list is usable before the run ends.
 
+A run may also hold `stats-` units: the value statistics of every concept,
+over id ranges packed from the record units (`plan_stats_ranges`). They are not
+part of the list; `precomputed_stats` serves them to the detail panel.
+
 A run is named by the `runId` of its manifest, and every unit names the run it
 belongs to. A unit's COPY can take minutes, during which a reset or an
 invalidation may replace the run: the unit is written under a temporary name and
@@ -51,6 +55,12 @@ _MANIFEST_MAX_BYTES = 1_000_000
 
 #: The view `assemble`'s SELECT reads the units through.
 COUNTS_VIEW = "_concept_counts"
+#: Units the list is assembled from; `stats-` units are read by `precomputed_stats`.
+_COUNT_UNIT_PREFIXES = ("records-", "patients-")
+_STATS_UNIT_PREFIX = "stats-"
+#: The tag `concept-count-plan.ts` gives these stats (PRECOMPUTED_STATS_VARIANT).
+PRECOMPUTED_STATS_VARIANT = "p1p99-union-approx"
+_STATS_BINS = 20
 _EMPTY_COUNTS = (
     "SELECT NULL::VARCHAR AS dict_key, NULL::BIGINT AS concept_id,"
     " NULL::BIGINT AS record_count, NULL::BIGINT AS patient_count WHERE false"
@@ -116,6 +126,10 @@ def _unit_files(source_id: str, principal: str) -> list:
     return sorted(units.glob("*.parquet")) if units.is_dir() else []
 
 
+def _paths_sql(files: list) -> str:
+    return ", ".join("'" + db_connect._sql_path(f.as_posix()) + "'" for f in files)
+
+
 def run_status(source_id: str, principal: str) -> dict | None:
     """The manifest of the last counting run, the keys of its units done, and
     when the last one was written — or None when no run was ever started."""
@@ -164,7 +178,7 @@ def counted_relations(source_id: str, principal: str, concept_ids: list[str]) ->
     files = _complete_record_units(source_id, principal)
     if not files:
         return []
-    paths = ", ".join("'" + db_connect._sql_path(f.as_posix()) + "'" for f in files)
+    paths = _paths_sql(files)
     con = db_connect._open()
     try:
         rows = con.execute(
@@ -272,7 +286,7 @@ def assemble(
     """Write the concept list from the units done so far: `select_sql` joins the
     dictionaries to the view `memory.main._concept_counts`, one row per unit row.
     Returns the new cache mtime."""
-    unit_files = [f.as_posix() for f in _unit_files(source_id, principal)]
+    unit_files = [f.as_posix() for f in _unit_files(source_id, principal) if f.stem.startswith(_COUNT_UNIT_PREFIXES)]
     if unit_files:
         paths = ", ".join("'" + db_connect._sql_path(p) + "'" for p in unit_files)
         view = f"SELECT * FROM read_parquet([{paths}], union_by_name = true)"
@@ -284,6 +298,142 @@ def assemble(
         views={COUNTS_VIEW: (view, unit_files)},
     )
     return dest.stat().st_mtime
+
+
+def pack_ranges(weights: list[tuple[int, int]], max_rows: int) -> list[tuple[int | None, int | None]]:
+    """Cut ids into contiguous ranges of about `max_rows` rows each, from the rows
+    of each id. An id never straddles two ranges — one heavier than `max_rows`
+    gets a range of its own — and the outer bounds are open, so an id the counts
+    did not see still falls in a range."""
+    ranges: list[tuple[int | None, int | None]] = []
+    lo: int | None = None
+    total = 0
+    last: int | None = None
+    for concept_id, rows in sorted(weights):
+        if total and total + rows > max_rows:
+            ranges.append((lo, last))
+            lo, total = last + 1, 0
+        total += rows
+        last = concept_id
+    ranges.append((lo, None))
+    return ranges
+
+
+def plan_stats_ranges(source_id: str, principal: str, dicts: list[dict], max_rows: int) -> list[dict]:
+    """The `stats` units of the run: per dictionary (`dictKey`, its value-bearing
+    `relations`), the id ranges packed from what the record units counted in
+    those relations. A dictionary none of whose relations the record units name
+    (it holds its own counts, or they hold no row) is one unit of every id."""
+    files = _complete_record_units(source_id, principal)
+    weights: dict[str, list[tuple[int, int]]] = {}
+    counted: set[str] = set()
+    if files:
+        con = db_connect._open()
+        try:
+            rows = con.execute(
+                f"""SELECT dict_key, relation, TRY_CAST(concept_id AS BIGINT) AS cid, SUM(record_count)::BIGINT AS n
+                    FROM read_parquet([{_paths_sql(files)}], union_by_name = true)
+                    WHERE relation IS NOT NULL
+                    GROUP BY dict_key, relation, cid"""
+            ).fetchall()
+        except duckdb.BinderException:
+            rows = []
+        finally:
+            con.close()
+        wanted = {(d["dictKey"], r) for d in dicts for r in d["relations"]}
+        per_id: dict[tuple[str, int], int] = {}
+        for dict_key, relation, cid, n in rows:
+            counted.add(relation)
+            if (dict_key, relation) in wanted and cid is not None:
+                per_id[(dict_key, cid)] = per_id.get((dict_key, cid), 0) + int(n or 0)
+        for (dict_key, cid), n in per_id.items():
+            weights.setdefault(dict_key, []).append((cid, n))
+    out: list[dict] = []
+    for d in dicts:
+        key = d["dictKey"]
+        if not counted.intersection(d["relations"]):
+            out.append({"dictKey": key, "lo": None, "hi": None})
+        elif key in weights:
+            out.extend({"dictKey": key, "lo": lo, "hi": hi} for lo, hi in pack_ranges(weights[key], max_rows))
+    return out
+
+
+def _stats_complete(source_id: str, principal: str, stats_files: list) -> bool:
+    try:
+        manifest = json.loads((_run_dir(source_id, principal) / "manifest.json").read_text())
+    except (FileNotFoundError, ValueError):
+        return False
+    planned = {
+        u.get("key") for u in manifest.get("units", [])
+        if isinstance(u, dict) and str(u.get("key", "")).startswith(_STATS_UNIT_PREFIX)
+    }
+    return bool(planned) and planned <= {f.stem for f in stats_files}
+
+
+def _r2(value):
+    return None if value is None else round(float(value), 2)
+
+
+def precomputed_stats(source_id: str, principal: str, concept_id: int, dict_key: str | None) -> tuple[dict, float] | None:
+    """The detail-panel stats of one concept from the `stats` units, shaped as the
+    panel's own query gives them (use-concepts.ts ConceptStats), with when they
+    were computed — or None when no unit describes it. Once every stats unit is
+    done, a concept without values is described too: its row count, no value."""
+    stats_files = [f for f in _unit_files(source_id, principal) if f.stem.startswith(_STATS_UNIT_PREFIX)]
+    if not stats_files:
+        return None
+    record_files = _complete_record_units(source_id, principal)
+    con = db_connect._open()
+    try:
+        rows = con.execute(
+            f"""SELECT dict_key, bin, bin_count, value_count, min_val, max_val, mean_val, std_val,
+                       p01, q1_val, median_val, q3_val, p99
+                FROM read_parquet([{_paths_sql(stats_files)}], union_by_name = true)
+                WHERE CAST(concept_id AS VARCHAR) = ?""",
+            [str(concept_id)],
+        ).fetchall()
+        dict_keys = sorted({r[0] for r in rows})
+        key = dict_key if dict_key is not None else (dict_keys[0] if dict_keys else None)
+        rows = [r for r in rows if r[0] == key]
+        if not rows and not _stats_complete(source_id, principal, stats_files):
+            return None
+        row_count = 0
+        if record_files:
+            dict_filter = "" if key is None else "AND dict_key = ?"
+            row_count = con.execute(
+                f"""SELECT COALESCE(SUM(record_count), 0)::BIGINT
+                    FROM read_parquet([{_paths_sql(record_files)}], union_by_name = true)
+                    WHERE CAST(concept_id AS VARCHAR) = ? {dict_filter}""",
+                [str(concept_id)] + ([] if key is None else [key]),
+            ).fetchone()[0]
+    finally:
+        con.close()
+    computed_at = max(f.stat().st_mtime for f in stats_files)
+    stats: dict = {"rowCount": int(row_count), "histogramVariant": PRECOMPUTED_STATS_VARIANT}
+    if not rows:
+        stats["distribution"] = {
+            "total_count": 0, "non_null_count": 0, "min_val": None, "max_val": None, "mean_val": None,
+            "median_val": None, "std_val": None, "q1_val": None, "q3_val": None,
+        }
+        stats["histogram"] = []
+        return stats, computed_at
+    _, _, _, n, mn, mx, mean, std, p01, q1, median, q3, p99 = rows[0]
+    stats["distribution"] = {
+        "total_count": int(n), "non_null_count": int(n), "min_val": _r2(mn), "max_val": _r2(mx),
+        "mean_val": _r2(mean), "median_val": _r2(median), "std_val": _r2(std), "q1_val": _r2(q1), "q3_val": _r2(q3),
+    }
+    excluded = sum(int(r[2]) for r in rows if r[1] == -1)
+    width = None if p01 is None or p99 is None or p99 == p01 else (p99 - p01) / _STATS_BINS
+    bins = sorted((r for r in rows if r[1] != -1), key=lambda r: (r[1] is None, r[1] or 0))
+    stats["histogram"] = [
+        {
+            "bin_start": None if r[1] is None or width is None else _r2(r[1] * width + p01),
+            "count": int(r[2]),
+            "excluded_count": excluded,
+        }
+        for r in bins
+    ]
+    return stats, computed_at
 
 
 def query_page(source_id: str, principal: str, sql: str) -> list[dict]:

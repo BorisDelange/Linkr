@@ -52,8 +52,8 @@ _ALLOWED: tuple[type[exp.Expression], ...] = (
     exp.In, exp.Between, exp.NullSafeEQ, exp.NullSafeNEQ,
     exp.Add, exp.Sub, exp.Mul, exp.Div, exp.IntDiv, exp.Mod, exp.Neg, exp.Round,
     exp.Case, exp.If, exp.Coalesce, exp.Nullif, exp.Trim, exp.DPipe, exp.Like, exp.Lower, exp.Upper,
-    exp.Count, exp.Sum, exp.Min, exp.Max, exp.Avg, exp.Distinct,
-    exp.Window, exp.RowNumber, exp.Median, exp.PercentileCont,
+    exp.Count, exp.Sum, exp.Min, exp.Max, exp.Avg, exp.Distinct, exp.StddevSamp,
+    exp.Window, exp.RowNumber, exp.Median, exp.PercentileCont, exp.ApproxQuantile, exp.Floor,
     exp.Extract, exp.Year, exp.Quarter, exp.Month, exp.Day,
     exp.DateDiff, exp.Interval, exp.TimeToStr,
     exp.GroupConcat, exp.ConcatWs, exp.Chr, exp.Substring, exp.Length, exp.StartsWith, exp.Exists,
@@ -488,6 +488,23 @@ def _check_node(node: exp.Expression) -> None:
             isinstance(fraction, exp.Literal) and fraction.is_number and 0 <= float(fraction.this) <= 1
         ):
             raise NotPortable("percentile at other than one fraction")
+    elif isinstance(node, exp.ApproxQuantile):
+        # Approximate on both sides — each engine its own sketch — so the answer
+        # is an estimate either way, never an exact value turned approximate.
+        quantile = node.args.get("quantile")
+        if _type(node.this) not in _INTEGER | {T.DOUBLE, T.FLOAT} or node.args.get("accuracy") or not (
+            isinstance(quantile, exp.Literal) and quantile.is_number and 0 <= float(quantile.this) <= 1
+        ):
+            raise NotPortable("approximate quantile")
+    elif isinstance(node, exp.StddevSamp):
+        if _type(node.this) not in _NUMERIC:
+            raise NotPortable("standard deviation of a non-number")
+    elif isinstance(node, exp.Floor):
+        # A double on DuckDB, an integer on older Doris: alike only once cast to one.
+        parent = node.parent
+        if (node.args.get("decimals") is not None or _type(node.this) not in _NUMERIC
+                or not (isinstance(parent, exp.Cast) and parent.to.this in _INTEGER)):
+            raise NotPortable("FLOOR")
     elif isinstance(node, exp.Chr):
         # One ASCII character: Doris' CHAR(n) is a byte, DuckDB's CHR a code point.
         code = node.expressions[0] if len(node.expressions) == 1 else None
@@ -541,6 +558,8 @@ def _doris(node: exp.Expression) -> exp.Expression:
         return exp.Anonymous(this="PERCENTILE", expressions=[node.this.copy(), exp.Literal.number(0.5)])
     if isinstance(node, exp.PercentileCont):
         return exp.Anonymous(this="PERCENTILE", expressions=[node.this.copy(), node.expression.copy()])
+    if isinstance(node, exp.ApproxQuantile):
+        return exp.Anonymous(this="PERCENTILE_APPROX", expressions=[node.this.copy(), node.args["quantile"].copy()])
     if isinstance(node, exp.Mod) and _is_patient_key(node):
         md5 = exp.MD5(this=node.this.expressions[0].copy())
         # Bytes 8..11 of the digest (hex 17..24), least significant first.
@@ -677,7 +696,7 @@ def to_remote(sql: str, engine: str, lookup: TableLookup) -> RemoteQuery:
     names = _output_names(tree)
     if engine == "doris":
         tree = _hoist_ctes(tree.transform(_doris))
-    elif any(isinstance(n, (exp.Anonymous, exp.Median, exp.PercentileCont)) for n in tree.walk()):
+    elif any(isinstance(n, (exp.Anonymous, exp.Median, exp.PercentileCont, exp.ApproxQuantile)) for n in tree.walk()):
         raise NotPortable("no spelling of a DuckDB function")
     # qualify lower-cases every name (DuckDB's are case-insensitive); the remote
     # catalogue's spelling is put back, since Doris and Postgres names are not.

@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from datetime import UTC, datetime
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -26,6 +27,9 @@ from app.schemas.concept_cache import (
     ConceptPageResult,
     ConceptRelationsRequest,
     ConceptRelationsResult,
+    ConceptStatsPlanRequest,
+    ConceptStatsPlanResult,
+    ConceptStatsRange,
     ConceptStatsResponse,
     ConceptStatsSave,
 )
@@ -1036,19 +1040,52 @@ async def concept_cache_relations(
     return ConceptRelationsResult(relations=relations)
 
 
+@router.post("/{source_id}/concept-cache/stats-plan", response_model=ConceptStatsPlanResult)
+async def plan_concept_stats(
+    source_id: str,
+    body: ConceptStatsPlanRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The id ranges of the counting run's `stats` units, about `maxRows` values
+    each, packed from the row counts its record units hold."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, _cache_write_permission(source))
+    dicts = [{"dictKey": d.dict_key, "relations": d.relations} for d in body.dicts]
+    ranges = await asyncio.to_thread(
+        concept_cache_fs.plan_stats_ranges, source_id, _principal(source, user), dicts, body.max_rows,
+    )
+    return ConceptStatsPlanResult(
+        ranges=[ConceptStatsRange(dict_key=r["dictKey"], lo=r["lo"], hi=r["hi"]) for r in ranges],
+    )
+
+
 @router.get(
     "/{source_id}/concept-stats/{concept_id}", response_model=ConceptStatsResponse
 )
 async def get_concept_stats(
     source_id: str,
     concept_id: int,
+    dict_key: str | None = Query(default=None, alias="dictKey"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Cached detail-panel stats for one concept, as the caller sees the source.
-    404 until first computed."""
+    """Detail-panel stats for one concept, as the caller sees the source: those
+    of the counting run's `stats` step when it computed them — the whole base
+    at once, newer than any computed on a click — else those cached by a click.
+    404 until either exists."""
     source = await _load_source(db, source_id, user, "databases:read")
-    row = await concept_stats_cache_service.get(db, source_id, concept_id, _principal(source, user))
+    principal = _principal(source, user)
+    precomputed = await asyncio.to_thread(
+        concept_cache_fs.precomputed_stats, source_id, principal, concept_id, dict_key,
+    )
+    if precomputed is not None:
+        stats, computed_at = precomputed
+        return ConceptStatsResponse(
+            data_source_id=source_id, concept_id=concept_id, stats=stats,
+            updated_at=datetime.fromtimestamp(computed_at, tz=UTC),
+        )
+    row = await concept_stats_cache_service.get(db, source_id, concept_id, principal)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stats")
     return row

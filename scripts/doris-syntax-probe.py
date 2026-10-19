@@ -11,7 +11,11 @@ original run in memory on the same rows. Cases:
 - `CHR(n)` → `CHAR(n)` without `USING utf8`: 65, 127, 10, and next to text;
 - `LOWER()` on accented text ('HÉMORRAGIE', 'É', 'Ç', 'ŒUF'), and the strict
   concept search predicate (`LOWER(col) LIKE '%hémorragie%'`, lowerLikeSql in
-  apps/web/src/lib/fuzzy-search.ts).
+  apps/web/src/lib/fuzzy-search.ts);
+- the concept value statistics: `STDDEV_SAMP` (Doris' bare `STDDEV` is the
+  population one), `CAST(FLOOR(x) AS BIGINT)`, and `APPROX_QUANTILE` →
+  `PERCENTILE_APPROX` — an estimate on each side, so only checked to run and
+  give one row per group, not compared value for value.
 
 The rows live in a temporary table `linkr_probe_<random>` created in the given
 database and dropped at the end (so the login needs CREATE/INSERT/DROP there;
@@ -66,6 +70,8 @@ ROWS: list[tuple[int, int, int, str | None]] = [
 class Case:
     name: str
     sql: str  # DuckDB SQL; {t} is the probe table
+    # An estimate on both engines: the groups must match, not the values.
+    approximate: bool = False
 
 
 CASES = [
@@ -86,6 +92,10 @@ CASES = [
     Case("strict search exact + prefix rank",
          "SELECT id, (CASE WHEN LOWER(txt) LIKE 'œuf' THEN 1 WHEN LOWER(txt) LIKE 'hém%' THEN 2 ELSE 3 END) AS r "
          "FROM {t} WHERE grp = 3"),
+    Case("STDDEV_SAMP", "SELECT grp, ROUND(STDDEV_SAMP(CAST(ord AS DOUBLE)), 6) AS s FROM {t} GROUP BY grp"),
+    Case("CAST(FLOOR) AS BIGINT", "SELECT id, CAST(FLOOR((ord - 0.5) / 2.0) AS BIGINT) AS b FROM {t}"),
+    Case("PERCENTILE_APPROX", "SELECT grp, APPROX_QUANTILE(CAST(ord AS DOUBLE), 0.5) AS m, "
+         "APPROX_QUANTILE(CAST(ord AS DOUBLE), 0.99) AS p FROM {t} GROUP BY grp", approximate=True),
 ]
 
 
@@ -220,7 +230,7 @@ def main() -> int:
                 failures += 1
                 print(f"FAIL  {case.name}: Doris error\n    Doris SQL:  {doris_sql}\n    {exc}\n")
                 continue
-            ok = got == expected
+            ok = got == expected if not case.approximate else [r[0] for r in got] == [r[0] for r in expected]
             failures += not ok
             print(f"{'PASS' if ok else 'FAIL'}  {case.name}\n    DuckDB SQL: {duck_sql}\n    Doris SQL:  {doris_sql}")
             show("DuckDB", expected)

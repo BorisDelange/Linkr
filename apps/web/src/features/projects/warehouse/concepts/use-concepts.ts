@@ -8,6 +8,7 @@ import {
   saveConceptStats,
 } from '@/lib/api/concept-cache'
 import { useConceptCount } from './use-concept-count'
+import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
 import { tableListHas } from '@/lib/schema-helpers'
 import type { SchemaMapping } from '@/types'
 import {
@@ -88,7 +89,7 @@ export const HISTOGRAM_VARIANT = 'p1p99-union-q'
  * without a matching tag: nothing was ever computed for it, so nothing is stale.
  */
 export function isFreshCachedStats(stats: ConceptStats): boolean {
-  if (stats.histogramVariant === HISTOGRAM_VARIANT) return true
+  if (stats.histogramVariant === HISTOGRAM_VARIANT || stats.histogramVariant === PRECOMPUTED_STATS_VARIANT) return true
   return !stats.histogram?.length && !stats.distribution
 }
 
@@ -532,7 +533,7 @@ export function useConcepts(
     // already computed these stats. On a hit, render without touching the source.
     if (isServerMode() && excludeOutliers) {
       try {
-        const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId)
+        const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey)
         if (shared && isFreshCachedStats(shared)) {
           statsCache.set(conceptId, shared)
           if (!isStale()) {

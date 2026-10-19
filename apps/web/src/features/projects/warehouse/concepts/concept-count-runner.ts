@@ -1,7 +1,8 @@
 /**
  * Runs the concept list's counts for a database, unit by unit (see
  * `concept-count-plan.ts`): one run per database whoever starts it, kept going
- * while its tab is not shown. Each step — the rows, then the patients — is one
+ * while its tab is not shown. Each step — the rows, the patients, then the
+ * value statistics when asked for — is one
  * server query job (`lib/api/query-jobs.ts`), so no request outlasts a
  * gateway's timeout, the units never run beside another heavy query, and a
  * closed tab leaves the job counting: the next start follows it. A pause
@@ -25,6 +26,7 @@ import { useDataSourceStore } from '@/stores/data-source-store'
 import {
   assembleConceptCache,
   getConceptCacheStatus,
+  planConceptStats,
   startConceptRun,
   startConceptUnitsJob,
 } from '@/lib/api/concept-cache'
@@ -32,9 +34,12 @@ import { buildConceptsAssembleQuery, computeAvailableColumns } from './concept-q
 import {
   CONCEPT_COUNT_VERSION,
   CONCEPT_SLICE_ROWS,
+  STATS_UNIT_ROWS,
   conceptCountSignature,
   findConceptIdTypeMismatches,
   planConceptCountUnits,
+  planStatsUnits,
+  statsDictionaries,
   stepJobItems,
   ASSEMBLE_PREFIX,
   type ConceptCountManifest,
@@ -43,16 +48,17 @@ import {
   type ConceptCountUnit,
 } from './concept-count-plan'
 
-export type ConceptCountPhase = 'planning' | 'records' | 'patients' | 'assembling'
+export type ConceptCountPhase = 'planning' | ConceptCountStep | 'assembling'
 
 /** What planning is on: the id types check, the database's size and its patient
- *  slices, then the run's registration. */
-export type ConceptCountPlanningStep = 'ids' | 'size' | 'save'
+ *  slices, the run's registration — and, when the `stats` step starts, its id ranges. */
+export type ConceptCountPlanningStep = 'ids' | 'size' | 'save' | 'stats'
 
 export interface ConceptCountSnapshot extends RunSnapshotBase {
   phase: ConceptCountPhase | null
   records: ConceptCountStepProgress
   patients: ConceptCountStepProgress
+  stats: ConceptCountStepProgress
   /** When the step under way began (epoch ms). */
   phaseStartedAt: number | null
   planningStep: ConceptCountPlanningStep | null
@@ -67,9 +73,9 @@ export interface ConceptCountInput {
   mapping: SchemaMapping
   /** Drop the units already counted instead of resuming. */
   restart: boolean
-  /** Stop once the rows are counted, as a pause would: the patients are left
-   *  for a later start, which resumes there. */
-  recordsOnly?: boolean
+  /** The steps to run now, besides the rows, which always are: one left out
+   *  waits for a later start, which resumes there. */
+  steps: readonly ConceptCountStep[]
 }
 
 /** The job a step runs in, kept in the manifest so a later start follows it. */
@@ -89,17 +95,24 @@ const IDLE: ConceptCountSnapshot = {
   phase: null,
   records: { done: 0, total: 0 },
   patients: { done: 0, total: 0 },
+  stats: { done: 0, total: 0 },
   phaseStartedAt: null,
   planningStep: null,
   reading: null,
   assembled: 0,
 }
 
-/** The stored run's units if it can be resumed, re-planned over its own slices. */
+/**
+ * The stored run's units if it can be resumed, re-planned over its own slices
+ * and stats ranges. A finished run still can: what it finished are the rows and
+ * the patients, and its statistics may be asked for later. Counting it again is
+ * a restart.
+ */
 function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping, tables: readonly string[] | null): ConceptCountUnit[] | null {
-  if (!manifest || !manifest.runId || manifest.finishedAt || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
+  if (!manifest || !manifest.runId || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
   const units = planConceptCountUnits(mapping, manifest.slices)
-  return conceptCountSignature(units, mapping, tables) === manifest.signature ? units : null
+  if (conceptCountSignature(units, mapping, tables) !== manifest.signature) return null
+  return manifest.statsRanges ? [...units, ...planStatsUnits(mapping, manifest.statsRanges)] : units
 }
 
 async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortSignal): Promise<SerializedRange[]> {
@@ -123,7 +136,7 @@ async function checkConceptIdTypes(dataSourceId: string, mapping: SchemaMapping,
 }
 
 async function execute(
-  { dataSourceId, mapping, restart, recordsOnly }: ConceptCountInput,
+  { dataSourceId, mapping, restart, steps }: ConceptCountInput,
   signal: AbortSignal,
   emit: (patch: Partial<ConceptCountSnapshot>, immediate?: boolean) => void,
 ): Promise<void> {
@@ -158,13 +171,16 @@ async function execute(
     }
     await startConceptRun(dataSourceId, manifest, true)
   }
-  const all = units
+  let all = units
 
   const count = (step: ConceptCountStep) => {
     const of = all.filter((u) => u.step === step)
     return { done: of.filter((u) => done.has(u.key)).length, total: of.length }
   }
-  const complete = () => all.every((u) => done.has(u.key))
+  const stepDone = (step: ConceptCountStep) => all.every((u) => u.step !== step || done.has(u.key))
+  // The list's own counts: what the stats step adds is read apart from it.
+  const complete = () => stepDone('records') && stepDone('patients')
+  const progress = () => ({ records: count('records'), patients: count('patients'), stats: count('stats') })
   const assembleSql = (recordsComplete: boolean, patientsComplete: boolean) => {
     const sql = buildConceptsAssembleQuery(mapping, computeAvailableColumns(conceptRelations(mapping)), { recordsComplete, patientsComplete })
     if (!sql) throw new Error('no_concept_table')
@@ -191,8 +207,8 @@ async function execute(
         return
       }
       done.add(key)
-      unassembled = true
-      emit({ records: count('records'), patients: count('patients'), reading: null })
+      if (job.step !== 'stats') unassembled = true
+      emit({ ...progress(), reading: null })
     }, {
       signal,
       fetchRows: false,
@@ -204,7 +220,7 @@ async function execute(
     return { finished: outcome.delivered === job.keys.length, cancelled: outcome.status === 'cancelled', error: outcome.error }
   }
 
-  emit({ records: count('records'), patients: count('patients') }, true)
+  emit(progress(), true)
   try {
     // A job a closed tab left counting: take what it did, and the rest if it runs on.
     // One already stopped (by the pause this start resumes from) is simply over;
@@ -221,13 +237,24 @@ async function execute(
       }
     }
 
-    for (const step of ['records', 'patients'] as const) {
+    for (const step of ['records', 'patients', 'stats'] as const) {
+      if (step !== 'records' && !steps.includes(step)) continue
+      signal.throwIfAborted()
+      if (step === 'stats' && !manifest.statsRanges) {
+        emit({ phase: 'planning', phaseStartedAt: Date.now(), planningStep: 'stats' }, true)
+        const statsRanges = await planConceptStats(dataSourceId, statsDictionaries(mapping), STATS_UNIT_ROWS)
+        const statsUnits = planStatsUnits(mapping, statsRanges)
+        all = [...all, ...statsUnits]
+        manifest = { ...manifest, statsRanges, units: [...manifest.units, ...statsUnits.map(({ key, step }) => ({ key, step }))] }
+        await startConceptRun(dataSourceId, manifest, false)
+        emit(progress(), true)
+      }
       const todo = all.filter((u) => u.step === step && !done.has(u.key))
       if (!todo.length) continue
-      if (recordsOnly && step === 'patients') break
-      signal.throwIfAborted()
       emit({ phase: step, phaseStartedAt: Date.now(), reading: null }, true)
-      const items = stepJobItems(step, todo.map((u) => ({ key: u.key, sql: withClassRelations(u.sql, mapping, tables) })), (final) =>
+      const sqlOf = (u: ConceptCountUnit) => ({ key: u.key, sql: withClassRelations(u.sql, mapping, tables) })
+      // The statistics leave the list as it is: nothing to assemble after them.
+      const items = step === 'stats' ? todo.map(sqlOf) : stepJobItems(step, todo.map(sqlOf), (final) =>
         step === 'records'
           ? assembleSql(final, count('patients').done === count('patients').total)
           : assembleSql(true, final))
@@ -252,13 +279,19 @@ async function execute(
     }
   }
 
-  if (!complete()) return
+  const now = new Date().toISOString()
+  // The statistics may end before the patients are counted (left for later).
+  const statsStamp = manifest.statsRanges && stepDone('stats') && !manifest.statsFinishedAt ? { statsFinishedAt: now } : {}
+  if (!complete()) {
+    if ('statsFinishedAt' in statsStamp) await startConceptRun(dataSourceId, { ...manifest, ...statsStamp }, false)
+    return
+  }
   // Cut between the last unit and the job's own assembly.
   if (unassembled) {
     emit({ phase: 'assembling', reading: null }, true)
     await assemble()
   }
-  const finished: RunManifest = { ...manifest, finishedAt: new Date().toISOString() }
+  const finished: RunManifest = { ...manifest, ...statsStamp, finishedAt: manifest.finishedAt ?? now }
   delete finished.job
   await startConceptRun(dataSourceId, finished, false)
 }
