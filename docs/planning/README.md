@@ -68,6 +68,7 @@ Built, never exercised by hand. Everything else below is still to build.
 | 🔜 | Patient data: localStorage migration, server round-trip, export → reimport → export stability | both | S |
 | 🔜 | Private catalog: add one with a token (Manage catalogs › Private repository), browse it, install a private entry from it; a second user without a token sees the "private catalog" error | server | S |
 | 🔜 | SPE simulation (`docker/spe-sim/`): smoke test, then terminal, env installs through the mirror, Postgres datamart, `GATEWAY_WEBSOCKETS=off` (README § Test) | server | S |
+| 🔜 | Doris syntax probe: `GROUP_CONCAT … SEPARATOR`, `CHAR(n)` without `USING utf8`, `LOWER()` on accented text — `apps/api/.venv/bin/python scripts/doris-syntax-probe.py` against the test Doris (login allowed to create a temp table; usage at the top of the script). Any FAIL → make that rule `NotPortable` in `remote_sql.py` | server | S |
 | 🔜 | Setup wizard on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | server | S |
 
 ## Embedded chat over LibreChat — [embedded-chat-plan.md](embedded-chat-plan.md)

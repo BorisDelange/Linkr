@@ -241,3 +241,9 @@ sur Doris — telle quelle (`ATTACH`) et via `pushdown._pushed_down` — et comp
 noms de colonnes et lignes (ensembles, flottants arrondis à 1e-6, booléens typés).
 Toute différence est un bug de `remote_sql.py` : la règle fautive doit refuser la
 construction (`NotPortable`), pas l'approcher.
+
+Trois traductions restent sans vérification vivante — `GROUP_CONCAT(x ORDER BY o
+SEPARATOR sep)`, `CHAR(n)` sans `USING utf8`, `LOWER()` sur du texte accentué
+(recherche stricte des concepts) : `scripts/doris-syntax-probe.py` les compare à
+DuckDB sur une table temporaire `linkr_probe_<aléa>` (créée puis supprimée ; le
+compte doit pouvoir créer une table). `--dry-run` n'affiche que le SQL traduit.
