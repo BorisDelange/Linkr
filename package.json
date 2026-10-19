@@ -2,6 +2,9 @@
   "name": "linkr",
   "private": true,
   "license": "AGPL-3.0-or-later",
+  "engines": {
+    "node": ">=22.13"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"

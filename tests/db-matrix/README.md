@@ -33,3 +33,9 @@ Overview and commands: [docs/testing.md § Database matrix](../../docs/testing.m
 both sides. Values are compared after normalisation: numbers rounded to six
 decimals, timestamps to the second, unordered results sorted. A difference that
 survives that is real.
+
+Rows go through the app's own row cap (`db_connect.MAX_QUERY_ROWS`, 10 000), as
+in the app. An unordered answer that reaches it keeps a different 10 000 rows on
+each engine, so it is reported `capped` (and skipped), not `different`: at
+`--scale 50` the queries that list rows rather than aggregate them land there.
+An ordered answer is still compared, its first 10 000 rows being the same everywhere.

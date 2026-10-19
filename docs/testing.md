@@ -19,11 +19,14 @@ where its code lives. What deserves a unit test and how to write one is in
 
 `scripts/git-hooks/pre-push` (installed by `npm install` through
 `scripts/install-git-hooks.mjs`) runs the unit tiers, each only when the push
-touches what it guards: web tests, lint and typecheck for `apps/web` and
-`packages`; the API suite for `apps/api` and `VERSION`; each package's suite for
-itself and what it imports. `LINKR_PREPUSH_ALL=1 git push` runs everything.
+touches what it guards: web tests, lint and typecheck for `apps/web`,
+`packages/linkr-format`, `packages/linkr-mcp`, `VERSION` (the export goldens pin
+it) and the root `package.json` / `package-lock.json`; the API suite for
+`apps/api` and `VERSION`; each package's suite for itself, what it imports and
+`VERSION`. `LINKR_PREPUSH_ALL=1 git push` runs everything.
 The API suite runs in parallel (`pytest-xdist`, 4 workers, 120 s per test at most) and leaves out tests
-marked `slow`. The slow tiers are never in the hook.
+marked `@pytest.mark.slow` (the marker is registered in `apps/api/pyproject.toml`;
+none carries it yet). The slow tiers are never in the hook.
 
 The API's test database is a SQLite file per test with a real connection pool,
 in WAL mode, as in production (`tests/conftest.py`, `engine`): one shared
@@ -36,7 +39,12 @@ writes, and lost its tables when a job's cancellation invalidated it.
 
 - **`client`** — the client-only (WASM) build with the demo seed, served by
   `vite preview` on port 4317 (built by the config unless `E2E_SKIP_BUILD=1`;
-  `E2E_BASE_URL` points it at a build already served). Needs the seed
+  `E2E_BASE_URL` points it at a build already served). A worktree gets 4317 plus
+  the offset of its `WEB_PORT` over 3000 (3004 → 4321), so two worktrees' runs
+  never meet; `E2E_PORT` overrides it. A server already on that port is reused
+  only with `E2E_SKIP_BUILD=1`; otherwise the port must be free, so a run never
+  tests someone else's or an older build. The `browser-check` skill previews on
+  4500, out of that range. Needs the seed
   (`npm run data:fetch`). Covers the boot and a cold deep link, the workspace
   databases, a concept search, a cohort, a patient board, a dashboard, a
   dataset, the IDE running the demo SQL script, the demo ETL pipeline (its
@@ -59,6 +67,16 @@ class, and assert what a user would check. A journey that reproduces an open bug
 is tagged `@known-bug` in its title and left out of normal runs; run those with
 `E2E_KNOWN_BUGS=1`. A failure keeps its trace and the page's accessibility tree
 under `apps/web/test-results/` (`npx playwright show-trace …`).
+
+Some journeys pin figures of the demo content — the mapping project's
+"1,786 of 5,636 source concepts mapped" (`concept-mapping.spec.ts`), the IDE
+script's result row (`ide.spec.ts`). That content comes from
+`linkr-public-content` through `npm run data:fetch`, unpinned: when it changes,
+these figures fail and are updated with it, not treated as a regression.
+
+`server/workspace.spec.ts` builds its SQLite file with `node:sqlite`, which needs
+Node 22.13 or later (`engines` in the root `package.json`; CI and the images run
+`node:22-alpine`).
 
 The `browser-check` skill stays for exploring a change by hand; once a check is
 worth keeping, it becomes a journey here.

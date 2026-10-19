@@ -215,14 +215,17 @@ def test_a_cancel_between_two_statements_stops_the_next():
     """DuckDB's interrupt only reaches the statement in flight: one landing
     between two statements of a script must not let the next one run."""
     con = duckdb.connect()
-    query_cancel.current_query.set(("q-between", "7"))
+    token = query_cancel.current_query.set(("q-between", "7"))
 
     def cancel_before_the_second(index, _total, _stmt):
         if index == 1:
             assert query_cancel.cancel("q-between", "7") is True
 
-    with query_cancel.tracking(con), pytest.raises(duckdb.InterruptException):
-        db_connect._run_statements(con, "memory", "CREATE TABLE a (x INT); CREATE TABLE b (x INT);",
-                                   on_statement=cancel_before_the_second)
-    assert con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'b'").fetchone() == (0,)
-    assert "q-between" not in query_cancel._interrupted
+    try:
+        with query_cancel.tracking(con), pytest.raises(duckdb.InterruptException):
+            db_connect._run_statements(con, "memory", "CREATE TABLE a (x INT); CREATE TABLE b (x INT);",
+                                       on_statement=cancel_before_the_second)
+        assert con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'b'").fetchone() == (0,)
+        assert "q-between" not in query_cancel._interrupted
+    finally:
+        query_cancel.current_query.reset(token)

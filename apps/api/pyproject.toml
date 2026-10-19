@@ -46,12 +46,14 @@ dependencies = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+# The pre-push hook runs `-m "not slow"`: mark a test slow to keep it out of a push.
+markers = ["slow: too slow for the pre-push hook; runs in a full `pytest`"]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "pytest-xdist>=3.6",  # parallel runs: the pre-push hook uses -n auto
+    "pytest-xdist>=3.6",  # parallel runs: the pre-push hook uses -n 4
     "pytest-timeout>=2.3",  # --timeout: a hung test fails instead of stalling the run
     "httpx>=0.27",
     "ruff>=0.5",

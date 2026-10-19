@@ -19,8 +19,11 @@ boot splash and DuckDB-WASM.
 
 ```bash
 npm run build:client                       # from repo root
-cd apps/web && npx vite preview --port 4317 --strictPort
+cd apps/web && npx vite preview --port 4500 --strictPort
 ```
+
+Port 4500, never the e2e tier's (4317, or 4317 + the worktree's offset): the
+journeys must not find this preview and test it instead of their own build.
 
 `npm run dev:client` also works, but **dev emits no `boot-size.json`** (it is
 written by a `generateBundle` hook), so anything about the boot splash's
@@ -43,7 +46,7 @@ run. To re-test a first run without relaunching, clear both:
 
 ```js
 await S('Network.clearBrowserCache')
-await S('Storage.clearDataForOrigin', { origin: 'http://localhost:4317', storageTypes: 'all' })
+await S('Storage.clearDataForOrigin', { origin: 'http://localhost:4500', storageTypes: 'all' })
 ```
 
 Stats live in IndexedDB (`data_sources.stats`), so a stale profile will show

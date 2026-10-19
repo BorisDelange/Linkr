@@ -4,10 +4,11 @@
 # Every step is BLOCKING. A step runs only when the push touches what it
 # guards (docs/testing.md § Pre-push), so a front-only push does not wait for
 # the API suite:
-#   web       unit tests + lint + typecheck   apps/web, packages
+#   web       unit tests + lint + typecheck   apps/web, packages/linkr-format, packages/linkr-mcp,
+#                                             VERSION, package.json, package-lock.json
 #   api       pytest, in parallel             apps/api, VERSION
-#   format    @linkr/format tests             packages/linkr-format, apps/web/src
-#   mcp       @linkr/mcp tests                packages/linkr-mcp, packages/linkr-format, apps/web/src
+#   format    @linkr/format tests             packages/linkr-format, apps/web/src, VERSION
+#   mcp       @linkr/mcp tests                packages/linkr-mcp, packages/linkr-format, apps/web/src, VERSION
 #   clients   linkr-py / linkr-r tests        packages/linkr-py, packages/linkr-r, apps/api
 #
 # The end-to-end journeys, the database matrix and the SPE scenarios are too
@@ -64,7 +65,9 @@ if [ -z "$(echo "$changed" | tr -d '[:space:]')" ] && [ -z "$LINKR_PREPUSH_ALL" 
 fi
 
 # ── Web ───────────────────────────────────────────────────────────────────────
-if touches apps/web/ packages/; then
+# The export goldens pin VERSION (vitest.config.ts injects it); the root manifest
+# and lockfile decide what gets installed.
+if touches apps/web/ packages/linkr-format/ packages/linkr-mcp/ VERSION package.json package-lock.json; then
   echo "▶ pre-push: web unit tests…"
   ( cd "$WEB" && npm run --silent test ) || fail "Web unit tests failed"
   echo "▶ pre-push: lint…"
@@ -85,13 +88,13 @@ if touches apps/api/ VERSION; then
 fi
 
 # ── Packages ──────────────────────────────────────────────────────────────────
-if touches packages/linkr-format/ apps/web/src/; then
+if touches packages/linkr-format/ apps/web/src/ VERSION; then
   echo "▶ pre-push: @linkr/format tests…"
   ( cd "$ROOT/packages/linkr-format" && npx vitest run --silent ) || fail "@linkr/format tests failed"
   echo "✓ format"
 fi
 
-if touches packages/linkr-mcp/ packages/linkr-format/ apps/web/src/; then
+if touches packages/linkr-mcp/ packages/linkr-format/ apps/web/src/ VERSION; then
   echo "▶ pre-push: @linkr/mcp tests…"
   ( cd "$ROOT/packages/linkr-mcp" && npx vitest run --silent ) || fail "@linkr/mcp tests failed"
   echo "✓ mcp"

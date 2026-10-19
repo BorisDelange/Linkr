@@ -17,7 +17,8 @@ covers and how it is built; this skill is the procedure.
 | **spe** | `npm run test:spe -- default` · all scenarios · `--e2e` | 3 min per scenario | Docker |
 
 Never start the user's dev server (`npm run dev`/`dev:all`): the e2e tier serves
-its own build on port 4317, the SPE tiers run in containers.
+its own build on port 4317 (4317 + the offset of a worktree's `WEB_PORT` over
+3000; `E2E_PORT` overrides it), the SPE tiers run in containers.
 
 ## 1. Pick the tiers
 
@@ -47,6 +48,7 @@ they do not depend on a push (skip the areas the diff does not touch):
 (cd apps/api && .venv/bin/python -m pytest -q -p no:cacheprovider -n 4 --timeout=120 -m "not slow")
 (cd packages/linkr-format && npx vitest run) ; (cd packages/linkr-mcp && npx vitest run)
 (cd packages/linkr-py && PYTHONPATH=src ../../apps/api/.venv/bin/python -m pytest -q tests)
+(cd packages/linkr-r && Rscript -e 'testthat::test_local(".", reporter = "summary", stop_on_failure = TRUE)')  # skip if R/testthat missing
 ```
 
 A bare `uv sync` strips the dev extras (pytest, xdist): if pytest is missing,

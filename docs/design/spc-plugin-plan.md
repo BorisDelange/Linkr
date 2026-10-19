@@ -424,7 +424,7 @@ Derived from how `survey-question` and `kaplan-meier` were added:
 7. **Pure compute in its own module** (`lib/spc/`), not in the `.tsx` — it is exactly the
    "pure, critical logic" the test rule names. Unit-test the limit formulas against
    `qicharts2` output for a fixed series.
-8. `.claude/skills/create-project/{references/dashboards.md, assets/build_zip.py}` —
+8. (removed) `.claude/skills/create-project/{references/dashboards.md, assets/build_zip.py}` —
    `PLUGIN_COLUMN_KEYS`, per the comment in `default-plugins.ts:40`.
 9. `docs/ui-patterns.md` if any new shared UI appears (it should not).
 10. Website docs — `../linkr-website`, per CLAUDE.md, once the feature is user-visible.

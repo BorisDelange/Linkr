@@ -10,7 +10,8 @@ mkdir -p "$LINKR_DATA_DIR/_duckdb_ext"
 cp -rn "$LINKR_DUCKDB_EXT_BUNDLE"/. "$LINKR_DATA_DIR/_duckdb_ext"/ 2>/dev/null || true
 export MATRIX_DUCKDB_EXT_DIR="$LINKR_DATA_DIR/_duckdb_ext"
 
-pip install --quiet --disable-pip-version-check pytest >/dev/null
+# Same pytest as apps/api/uv.lock.
+pip install --quiet --disable-pip-version-check pytest==9.1.1 >/dev/null
 
 wait_for() {  # host port label
   for _ in $(seq 1 90); do
@@ -26,8 +27,8 @@ if [ "${MATRIX_LOAD:-1}" = "1" ]; then
   for engine in "${wanted[@]}"; do
     case "$engine" in
       duckdb|sqlite) python3 /matrix/matrix.py load /data "$engine" --target "/work/omop.$engine" ;;
-      postgresql) wait_for "${MATRIX_POSTGRESQL_HOST:-datamart-postgres}" 5432 PostgreSQL && python3 /matrix/matrix.py load /data postgresql ;;
-      mysql) wait_for "${MATRIX_MYSQL_HOST:-datamart-mysql}" 3306 MySQL && python3 /matrix/matrix.py load /data mysql ;;
+      postgresql) { wait_for "${MATRIX_POSTGRESQL_HOST:-datamart-postgres}" 5432 PostgreSQL || exit 1; }; python3 /matrix/matrix.py load /data postgresql ;;
+      mysql) { wait_for "${MATRIX_MYSQL_HOST:-datamart-mysql}" 3306 MySQL || exit 1; }; python3 /matrix/matrix.py load /data mysql ;;
     esac
   done
 fi

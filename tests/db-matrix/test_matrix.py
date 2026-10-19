@@ -123,6 +123,11 @@ def test_engine_answers_like_the_reference(engine: str, query: dict):
         _reference[query["key"]] = rows if engine == "parquet" else _run("parquet", query["sql"])[0]
     expected = _reference[query["key"]]
     got, want = _normal(rows, query["ordered"]), _normal(expected, query["ordered"])
+    if got != want and not query["ordered"] and db_connect.MAX_QUERY_ROWS in (len(rows), len(expected)):
+        # The app's row cap cut an unordered answer: each engine keeps a different
+        # 10 000 rows, so the comparison says nothing about the query.
+        entry["status"] = "capped"
+        pytest.skip(f"{engine}: {query['key']} reached the {db_connect.MAX_QUERY_ROWS}-row cap unordered; not comparable")
     if got != want:
         entry["status"] = "different"
         diff = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))

@@ -147,13 +147,13 @@ function summarize(reportPath, mdPath, a) {
   const report = JSON.parse(readFileSync(reportPath, 'utf8'))
   const engines = [...new Set(report.map((r) => r.engine))]
   const lines = [`# Database matrix — ${a.spe ? `SPE, machine ${a.machine}` : 'this machine'}, scale ×${a.scale}`, '',
-    '| Engine | Same | Different | Error | Skipped | Total ms | Slowest |', '|---|---:|---:|---:|---:|---:|---|']
+    '| Engine | Same | Different | Error | Capped | Skipped | Total ms | Slowest |', '|---|---:|---:|---:|---:|---:|---:|---|']
   for (const e of engines) {
     const rows = report.filter((r) => r.engine === e)
     const n = (s) => rows.filter((r) => r.status === s).length
     const timed = rows.filter((r) => r.ms != null).sort((x, y) => y.ms - x.ms)
     const total = Math.round(timed.reduce((s, r) => s + r.ms, 0))
-    lines.push(`| ${e} | ${n('same')} | ${n('different')} | ${n('error')} | ${n('skipped')} | ${total} | ${timed[0] ? `${timed[0].key} (${Math.round(timed[0].ms)} ms)` : ''} |`)
+    lines.push(`| ${e} | ${n('same')} | ${n('different')} | ${n('error')} | ${n('capped')} | ${n('skipped')} | ${total} | ${timed[0] ? `${timed[0].key} (${Math.round(timed[0].ms)} ms)` : ''} |`)
   }
   const problems = report.filter((r) => r.status === 'error' || r.status === 'different')
   if (problems.length) {
