@@ -54,8 +54,8 @@ Go file by file through the diff. For **each** finding, record: file:line, sever
 - Flag dead code, commented-out code, leftover debug.
 
 ### 5. Tests
-- For any new/changed **pure critical logic** (SQL builders, escaping, OMOP queries, fuzzy-search, import/export, format helpers), is there a matching test? If not, flag it and offer to write it (rules: `docs/conventions.md` § Tests).
-- Run `cd apps/web && npm run test` and report pass/fail.
+- For any new/changed **pure critical logic** (SQL builders, escaping, OMOP queries, fuzzy-search, import/export, format helpers), is there a matching test? If not, flag it (rules: `docs/conventions.md` § Tests). A new query builder also belongs in the database-matrix corpus, a changed user journey in the e2e suite: the `update-tests` skill writes them, offer it rather than doing it inside the review.
+- Run the tests with the `run-tests` skill on the review range: it picks the tiers from what the range touches — always the unit suites of the areas touched, plus the e2e journeys when pages, boot or seeding changed, the database matrix when SQL builders or connectors changed (`--spe` for connector work), the SPE scenarios when deployment files changed. Put its table and failures in the review, and say for each failure whether the range caused it.
 
 ## Step 2 — Verify, don't assume
 

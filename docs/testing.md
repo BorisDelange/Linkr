@@ -1,0 +1,105 @@
+# Testing
+
+How Linkr is tested, tier by tier: what each tier proves, how to run it, and
+where its code lives. What deserves a unit test and how to write one is in
+[`conventions.md` § Tests](conventions.md#tests). Two skills drive the tiers:
+`run-tests` (pick and run the right ones for a change) and `update-tests`
+(audit and complete the tests after the code moved).
+
+| Tier | Proves | Run | When |
+|---|---|---|---|
+| Unit — web | pure logic of the front: SQL builders, escaping, import/export, format | `npm run test` | every push (hook) |
+| Unit — API | routes, services, connectors, jobs, migrations | `npm run test:api` | every push touching `apps/api` (hook) |
+| Unit — packages | `@linkr/format`, `@linkr/mcp`, `linkr-py`, `linkr-r` | see the hook | every push touching them (hook) |
+| End-to-end | a user's journeys in a real browser | `npm run test:e2e` | on demand, code review, release |
+| Database matrix | every app query gives the same answer on every engine, and how fast | `npm run test:matrix` | on demand, SQL or connector changes, release |
+| SPE scenarios | the app inside a hospital-like SPE, under each proxy / network / machine variant | `npm run test:spe` | deployment changes, release |
+
+## Pre-push
+
+`scripts/git-hooks/pre-push` (installed by `npm install` through
+`scripts/install-git-hooks.mjs`) runs the unit tiers, each only when the push
+touches what it guards: web tests, lint and typecheck for `apps/web` and
+`packages`; the API suite for `apps/api` and `VERSION`; each package's suite for
+itself and what it imports. `LINKR_PREPUSH_ALL=1 git push` runs everything.
+The API suite runs in parallel (`pytest-xdist`, 4 workers, 120 s per test at most) and leaves out tests
+marked `slow`. The slow tiers are never in the hook.
+
+The API's test database is a SQLite file per test with a real connection pool,
+in WAL mode, as in production (`tests/conftest.py`, `engine`): one shared
+in-memory connection let a request's closing rollback undo a background job's
+writes, and lost its tables when a job's cancellation invalidated it.
+
+## End-to-end (Playwright)
+
+`apps/web/playwright.config.ts`, journeys in `apps/web/e2e/`:
+
+- **`client`** — the client-only (WASM) build with the demo seed, served by
+  `vite preview` on port 4317 (built by the config unless `E2E_SKIP_BUILD=1`;
+  `E2E_BASE_URL` points it at a build already served). Needs the seed
+  (`npm run data:fetch`).
+- **`server`** — a running full stack named by `E2E_SERVER_URL`; the SPE
+  scenarios pass it. It creates the first account, so give it a disposable
+  instance.
+
+`e2e/fixtures.ts` fails every journey on an uncaught page exception and gives
+`bootDemo(page)`. Journeys select by role, label and visible text, never by CSS
+class, and assert what a user would check. A journey that reproduces an open bug
+is tagged `@known-bug` in its title and left out of normal runs; run those with
+`E2E_KNOWN_BUGS=1`. A failure keeps its trace and the page's accessibility tree
+under `apps/web/test-results/` (`npx playwright show-trace …`).
+
+The `browser-check` skill stays for exploring a change by hand; once a check is
+worth keeping, it becomes a journey here.
+
+## Database matrix
+
+`tests/db-matrix/` ([README](../tests/db-matrix/README.md)). The corpus is the
+SQL the app itself sends: `build-corpus.ts` runs the real query builders
+(patient data, overview, cohorts, concept counts, catalog) on the test
+database's mapping, with the class relations injected as `queryDataSource`
+injects them. `test_matrix.py` runs each query through the API's own
+`db_connect` on every engine — Parquet folder (the reference), DuckDB file,
+SQLite file, PostgreSQL, MySQL, and an existing Doris when
+`MATRIX_DORIS_HOST` names one — and compares the rows with the reference.
+Oracle and SQL Server are listed as unsupported until Linkr has a connector.
+
+The data is the public MIMIC-IV demo in OMOP (100 patients), cloned into
+`.cache/test-data/` on first use; `--scale N` makes N copies of every patient
+under new ids (vocabulary once) for a bigger base. With `--spe`, the matrix runs
+inside the SPE simulation, in the API image, capped by a machine profile, against
+the datamart containers.
+
+```bash
+npm run test:matrix                                   # file engines, this machine
+npm run test:matrix -- --spe                          # + PostgreSQL & MySQL, machine "laptop"
+npm run test:matrix -- --spe --machine tiny --scale 50
+```
+
+Report: `.cache/db-matrix/<machine>-x<scale>/report.md` — per engine, how many
+queries answer the same, differently or not at all, the total time and the
+slowest query.
+
+## SPE scenarios
+
+`scripts/test-spe.mjs` over `docker/spe-sim/` ([README](../docker/spe-sim/README.md)):
+each scenario of `docker/spe-sim/scenarios/` (default, no WebSockets, short
+idle timeout, 1 MB body limit, prefix not stripped, no mirror) starts a fresh
+install under a machine profile of `docker/spe-sim/machines/` (tiny, laptop,
+small-server, unlimited), runs the smoke test and, with `--e2e`, the `server`
+journeys.
+
+```bash
+npm run test:spe -- default                 # one scenario
+npm run test:spe -- --machine tiny --e2e    # all of them, capped, with the journeys
+```
+
+Report: `.cache/spe/report-<machine>.md`.
+
+## Machine profiles
+
+A fast development Mac hides slow queries. The profiles cap the SPE's API
+container (`SPE_CPUS`, `SPE_MEMORY`) and the datamarts (`DATAMART_CPUS`,
+`DATAMART_MEMORY`); DuckDB reads the memory cap and sizes itself on it. Compare a
+capped run with `unlimited` before calling a query slow, and keep in mind that
+Docker Desktop's own VM limits are the ceiling of every profile.

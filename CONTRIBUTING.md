@@ -120,8 +120,10 @@ have to use it — but if you do, most of the project's knowledge is already wir
   being asked for.
 - **Skills** in `.claude/skills/` carry the real procedure for the recurring jobs. The ones
   that matter when contributing: **`/code-review`** (a structured quality + security pass
-  over your changes, logged in the repo) and **`/update-website-docs`** when your change
-  alters a documented
+  over your changes, logged in the repo), **`/run-tests`** (the right test tiers for a
+  change: unit, browser journeys, database matrix, SPE scenarios — `docs/testing.md`),
+  **`/update-tests`** (what tests a change still needs), and **`/update-website-docs`**
+  when your change alters a documented
   workflow. The others author Linkr *content* rather than the app itself.
 - **Parallel work** — `npm run worktree:new -- my-task` gives an agent its own worktree,
   branch and free port pair, so two sessions do not fight over ports 3000/8000 or over each

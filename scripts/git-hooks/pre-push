@@ -1,45 +1,114 @@
 #!/bin/sh
 # Linkr pre-push quality gate — runs before code leaves your machine.
 #
-# Mirrors the GitLab `quality` stage so problems are caught locally first:
-#   - tests:     BLOCKING (suite must stay green)
-#   - lint:      BLOCKING (ESLint errors are at 0 — keep them there)
-#   - typecheck: BLOCKING (tsc -b is clean — keep it that way)
+# Every step is BLOCKING. A step runs only when the push touches what it
+# guards (docs/testing.md § Pre-push), so a front-only push does not wait for
+# the API suite:
+#   web       unit tests + lint + typecheck   apps/web, packages
+#   api       pytest, in parallel             apps/api, VERSION
+#   format    @linkr/format tests             packages/linkr-format, apps/web/src
+#   mcp       @linkr/mcp tests                packages/linkr-mcp, packages/linkr-format, apps/web/src
+#   clients   linkr-py / linkr-r tests        packages/linkr-py, packages/linkr-r, apps/api
 #
-# Bypass in a real emergency with:  git push --no-verify
-# Install with:  npm run hooks:install   (from repo root)
+# The end-to-end journeys, the database matrix and the SPE scenarios are too
+# slow for a push: run them on demand (`npm run test:e2e`, `test:matrix`,
+# `test:spe`, or the run-tests skill).
+#
+# Run every step whatever changed:  LINKR_PREPUSH_ALL=1 git push
+# Bypass in a real emergency:       git push --no-verify
+# Install with:                     npm run hooks:install   (from repo root)
 
 set -e
 
 ROOT="$(git rev-parse --show-toplevel)"
 WEB="$ROOT/apps/web"
+API="$ROOT/apps/api"
+ZERO=0000000000000000000000000000000000000000
 
-echo "▶ pre-push: running tests (blocking)…"
-if ! ( cd "$WEB" && npm run --silent test ); then
-  echo ""
-  echo "✗ Tests failed — push aborted."
-  echo "  Fix the failing tests, or bypass with 'git push --no-verify' (not recommended)."
-  exit 1
-fi
-echo "✓ tests passed"
+# ── What the push changes ──────────────────────────────────────────────────────
+# git hands the pushed refs on stdin: <local ref> <local sha> <remote ref> <remote sha>.
+# A new branch has no remote sha: compare with where it left main.
+changed=""
+while read -r _lref lsha _rref rsha; do
+  [ "$lsha" = "$ZERO" ] && continue  # a deletion
+  if [ "$rsha" = "$ZERO" ]; then
+    base=$(git merge-base "$lsha" origin/main 2>/dev/null || git merge-base "$lsha" main 2>/dev/null || true)
+  else
+    base=$rsha
+  fi
+  if [ -z "$base" ]; then changed="$changed
+*"; continue; fi
+  changed="$changed
+$(git diff --name-only "$base" "$lsha" 2>/dev/null || echo '*')"
+done
 
-echo "▶ pre-push: lint (blocking)…"
-if ! ( cd "$WEB" && npm run --silent lint ); then
-  echo ""
-  echo "✗ Lint failed — push aborted. Fix the ESLint errors above."
-  echo "  Bypass with 'git push --no-verify' (not recommended)."
-  exit 1
-fi
-echo "✓ lint passed"
+touches() {  # touches <path prefix>... — whether the push changes anything under them
+  [ -n "$LINKR_PREPUSH_ALL" ] && return 0
+  echo "$changed" | grep -q '^\*$' && return 0
+  for prefix in "$@"; do
+    echo "$changed" | grep -q "^$prefix" && return 0
+  done
+  return 1
+}
 
-echo "▶ pre-push: typecheck (blocking)…"
-if ! ( cd "$WEB" && npm run --silent typecheck ); then
+fail() {
   echo ""
-  echo "✗ Typecheck failed — push aborted. Fix the TypeScript errors above."
-  echo "  Bypass with 'git push --no-verify' (not recommended)."
+  echo "✗ $1 — push aborted."
+  echo "  Fix it, or bypass with 'git push --no-verify' (not recommended)."
   exit 1
+}
+
+if [ -z "$(echo "$changed" | tr -d '[:space:]')" ] && [ -z "$LINKR_PREPUSH_ALL" ]; then
+  echo "▶ pre-push: nothing new to push"
+  exit 0
 fi
-echo "✓ typecheck passed"
+
+# ── Web ───────────────────────────────────────────────────────────────────────
+if touches apps/web/ packages/; then
+  echo "▶ pre-push: web unit tests…"
+  ( cd "$WEB" && npm run --silent test ) || fail "Web unit tests failed"
+  echo "▶ pre-push: lint…"
+  ( cd "$WEB" && npm run --silent lint ) || fail "Lint failed"
+  echo "▶ pre-push: typecheck…"
+  ( cd "$WEB" && npm run --silent typecheck ) || fail "Typecheck failed"
+  echo "✓ web"
+fi
+
+# ── API ───────────────────────────────────────────────────────────────────────
+if touches apps/api/ VERSION; then
+  if [ ! -x "$API/.venv/bin/python" ]; then
+    fail "No API virtualenv at apps/api/.venv (uv venv, then uv pip install -e '.[dev]')"
+  fi
+  echo "▶ pre-push: API tests (parallel)…"
+  ( cd "$API" && .venv/bin/python -m pytest -q -p no:cacheprovider -n 4 --timeout=120 -m "not slow" ) || fail "API tests failed"
+  echo "✓ api"
+fi
+
+# ── Packages ──────────────────────────────────────────────────────────────────
+if touches packages/linkr-format/ apps/web/src/; then
+  echo "▶ pre-push: @linkr/format tests…"
+  ( cd "$ROOT/packages/linkr-format" && npx vitest run --silent ) || fail "@linkr/format tests failed"
+  echo "✓ format"
+fi
+
+if touches packages/linkr-mcp/ packages/linkr-format/ apps/web/src/; then
+  echo "▶ pre-push: @linkr/mcp tests…"
+  ( cd "$ROOT/packages/linkr-mcp" && npx vitest run --silent ) || fail "@linkr/mcp tests failed"
+  echo "✓ mcp"
+fi
+
+if touches packages/linkr-py/ packages/linkr-r/ apps/api/; then
+  echo "▶ pre-push: client libraries (Python, R)…"
+  ( cd "$ROOT/packages/linkr-py" && PYTHONPATH=src "$API/.venv/bin/python" -m pytest -q -p no:cacheprovider tests ) \
+    || fail "linkr-py tests failed"
+  if command -v Rscript >/dev/null 2>&1 && Rscript -e 'quit(status = !requireNamespace("testthat", quietly = TRUE))' >/dev/null 2>&1; then
+    ( cd "$ROOT/packages/linkr-r" && Rscript -e 'testthat::test_local(".", reporter = "summary", stop_on_failure = TRUE)' ) \
+      || fail "linkr-r tests failed"
+  else
+    echo "  (R or testthat missing: linkr-r tests skipped)"
+  fi
+  echo "✓ clients"
+fi
 
 echo "✓ pre-push checks done"
 exit 0

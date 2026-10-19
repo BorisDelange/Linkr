@@ -5,9 +5,12 @@ description: Build and drive the Linkr web app in a real browser to observe a ch
 
 # Verifying Linkr in a real browser
 
-No Playwright in the repo. Drive the installed Chrome over the DevTools
-Protocol with a plain WebSocket — node 23 has a global `WebSocket`, so no
-install is needed.
+For a check worth keeping, write an end-to-end journey instead
+(`apps/web/e2e/`, `npm run test:e2e`, docs/testing.md): it is rerun on every
+review. This skill is for exploring a change by hand. Two ways to drive the
+browser: a throwaway script on `@playwright/test` (installed in `apps/web`;
+`page.locator('body').ariaSnapshot()` gives the page as text), or the installed
+Chrome over the DevTools Protocol with a plain WebSocket, below.
 
 ## Build and serve
 

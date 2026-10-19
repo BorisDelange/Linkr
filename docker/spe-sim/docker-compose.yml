@@ -42,9 +42,13 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.api
+    image: linkr-spe-sim-api:local
     # SPE containers get a memory cap; DuckDB reads it, stays under it and spills
     # to disk past it. Without one it sizes itself on the whole host.
+    # SPE_CPUS caps the cores (0 = no cap): a machine profile in machines/ sets
+    # both, so a slow query shows up as it would on a small server.
     mem_limit: ${SPE_MEMORY:-4g}
+    cpus: ${SPE_CPUS:-0}
     environment:
       - LINKR_DATABASE_URL=sqlite+aiosqlite:////var/lib/linkr/linkr.db
       - LINKR_DATA_DIR=/var/lib/linkr
@@ -81,6 +85,8 @@ services:
   datamart-postgres:
     image: postgres:16-alpine
     profiles: [datamart]
+    mem_limit: ${DATAMART_MEMORY:-2g}
+    cpus: ${DATAMART_CPUS:-0}
     environment:
       POSTGRES_DB: datamart
       POSTGRES_USER: linkr_reader
@@ -88,6 +94,47 @@ services:
     volumes:
       - datamart-postgres:/var/lib/postgresql/data
     networks: [open-8743-datamart]
+
+  datamart-mysql:
+    # Root login `root`; the matrix loads its tables and a read-only `linkr_ro`.
+    image: mysql:8.4
+    profiles: [mysql]
+    mem_limit: ${DATAMART_MEMORY:-2g}
+    cpus: ${DATAMART_CPUS:-0}
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DATAMART_PASSWORD:-SpeSim_2026!}
+      MYSQL_ROOT_HOST: "%"
+    volumes:
+      - datamart-mysql:/var/lib/mysql
+    networks: [open-8743-datamart]
+
+  # ── Database matrix (tests/db-matrix, `npm run test:matrix`) ────────────────
+  # The API image, run inside the SPE with the SPE's caps: it loads the test
+  # data into the datamarts and runs every query of the app on each of them,
+  # through the app's own code. pytest comes through the mirror, as a package
+  # would at a hospital.
+  matrix-runner:
+    image: linkr-spe-sim-api:local
+    profiles: [matrix]
+    mem_limit: ${SPE_MEMORY:-4g}
+    cpus: ${SPE_CPUS:-0}
+    environment:
+      MATRIX_API_DIR: /app
+      MATRIX_DATA: /data
+      MATRIX_WORK: /work
+      MATRIX_CORPUS: /work/corpus.json
+      MATRIX_REPORT: /work/report.json
+      MATRIX_ENGINES: ${MATRIX_ENGINES:-parquet,duckdb,sqlite,postgresql}
+      MATRIX_LOAD: ${MATRIX_LOAD:-1}
+      DATAMART_PASSWORD: ${DATAMART_PASSWORD:-SpeSim_2026!}
+      PIP_INDEX_URL: http://mirror/repository/pypi/simple
+      PIP_TRUSTED_HOST: mirror
+    volumes:
+      - ../../tests/db-matrix:/matrix:ro
+      - ${MATRIX_DATA_DIR:-./datamart}:/data:ro
+      - ${MATRIX_WORK_DIR:-./matrix-work}:/work
+    entrypoint: ["bash", "/matrix/run-in-container.sh"]
+    networks: [open-8743-datamart, open-8743-mirror]
 
   datamart-oracle:
     # Oracle Database Free, multi-arch. Service name FREEPDB1, port 1521;
@@ -131,5 +178,6 @@ volumes:
   linkr-8743:
   mirror-cache:
   datamart-postgres:
+  datamart-mysql:
   datamart-oracle:
   datamart-sqlserver:

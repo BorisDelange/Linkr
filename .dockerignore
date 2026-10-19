@@ -13,3 +13,14 @@
 **/.env.local
 apps/web/public/duckdb/*.wasm
 v1
+# Tests and their outputs never ship, and editing them must not rebuild an image.
+apps/api/tests
+apps/web/e2e
+**/test-results
+**/playwright-report
+tests
+# Local caches and data: test data, a worktree's own data dir, SPE datamarts.
+.cache
+.linkr-data
+docker/spe-sim/datamart
+docker/spe-sim/matrix-work

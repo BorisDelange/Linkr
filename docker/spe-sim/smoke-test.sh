@@ -7,7 +7,8 @@
 #   docker/spe-sim/smoke-test.sh
 #
 # GATEWAY_WEBSOCKETS=off in the environment flips the expectation of the
-# WebSocket check, to confirm the simulation does reproduce a blocking proxy.
+# WebSocket check, to confirm the simulation does reproduce a blocking proxy;
+# SPE_MIRROR=off flips the mirror checks, for a fully offline SPE.
 set -uo pipefail
 
 compose=(docker compose -f "$(dirname "$0")/docker-compose.yml")
@@ -87,6 +88,8 @@ req = u.Request(repo + 'glue_' + version + '.tar.gz', headers={'User-Agent': 'R/
 assert len(u.urlopen(req, timeout=60).read()) > 1000"
 }
 
+mirror_unreachable() { ! mirror_serves_pypi; }
+
 datamart_reachable() {
   in_api "import socket; socket.create_connection(('datamart-postgres', 5432), timeout=5)"
 }
@@ -102,8 +105,12 @@ else
   check "WebSocket handshake upgraded (101)" websocket_upgrades
 fi
 check "SPE has no internet route" spe_offline
-check "PyPI through the mirror, file links rewritten" mirror_serves_pypi
-check "CRAN through the mirror" mirror_serves_cran
+if [ "${SPE_MIRROR:-on}" = "off" ]; then
+  check "no package source at all (mirror stopped)" mirror_unreachable
+else
+  check "PyPI through the mirror, file links rewritten" mirror_serves_pypi
+  check "CRAN through the mirror" mirror_serves_cran
+fi
 if "${compose[@]}" ps --services --status running | grep -qx datamart-postgres; then
   check "datamart-postgres reachable from the SPE" datamart_reachable
 fi

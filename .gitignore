@@ -83,3 +83,8 @@ config.local.json
 # Per-worktree LINKR_DATA_DIR written by scripts/new-worktree.mjs, so parallel
 # worktrees never share one SQLite file (see docs/conventions.md § Worktrees).
 .linkr-data/
+
+# End-to-end (Playwright) and database-matrix outputs
+apps/web/test-results/
+apps/web/playwright-report/
+docker/spe-sim/matrix-work/

@@ -306,10 +306,10 @@ Keep the subject concise; put extra detail in the body if needed.
 
 ## Tests
 
-Test stable contracts, not volatile UI.
+Test stable contracts, not volatile UI. The tiers above unit tests (end-to-end journeys, database matrix, SPE scenarios) are described in [`testing.md`](testing.md).
 
 - Test **pure, critical logic** (SQL escaping/validation, OMOP query builders, fuzzy-search, import/export round-trips, schema/DDL transforms, stats helpers, format helpers). These contracts are stable. The bar is not a coverage percentage: every function that could silently corrupt data, leak via SQL or produce a clinically wrong number has at least one adversarial test.
-- Do **not** unit-test volatile React components, store wiring, hooks, or anything needing the DOM or a live DuckDB/Pyodide/WebR runtime — they churn every iteration and the tests rot. Cover them by driving the app in a browser (the `browser-check` skill) instead. Logic that would need heavy mocking should first be extracted into a pure function, then tested.
+- Do **not** unit-test volatile React components, store wiring, hooks, or anything needing the DOM or a live DuckDB/Pyodide/WebR runtime — they churn every iteration and the tests rot. Cover what a user does with them by an end-to-end journey (`apps/web/e2e/`, see `testing.md`) instead. Logic that would need heavy mocking should first be extracted into a pure function, then tested.
 - For a query builder, assert on the **structure** of the generated SQL (term escaped, alias applied, tiers present), not on a full string match.
 - Co-locate `foo.ts` → `foo.test.ts`, import `describe`/`it`/`expect` from `vitest` explicitly, one `describe` per function and one `it` per named behaviour. No network, filesystem or real DB: inline small literal fixtures. Reference style: `lib/format-helpers.test.ts`, `lib/fuzzy-search.test.ts`.
 - When you change a tested function, update its test **in the same change** — a failing test asks whether you meant to change the contract. Delete a function, delete its test. A test edited every week is testing something volatile: push the logic down or drop the test.

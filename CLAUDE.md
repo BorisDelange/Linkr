@@ -6,6 +6,7 @@ Linkr is a healthcare data visualization platform (React + FastAPI). v2 is a ful
 - **UI patterns (read before writing any UI)** → `docs/ui-patterns.md` — which shared component to reuse (datatable, dialogs, toolbars, page headers) and the type scale
 - Architecture, navigation, stores, OMOP patterns, database gotchas → `docs/architecture.md`
 - **Running several agents at once** → `docs/worktrees.md` (one worktree each, own ports)
+- **Testing (tiers, pre-push, e2e, database matrix, SPE scenarios)** → `docs/testing.md`
 - Fuzzy search rules → `docs/fuzzy-search.md`
 - Available shadcn/ui components (upstream catalogue) → `docs/shadcn-components.md`
 - Long-term vision → `docs/vision-roadmap.md`
@@ -118,7 +119,7 @@ run `data:fetch` once if you want the demo content locally.
 
 **Comments** — default to none: name things well and let the code speak. Never restate the line below. Write one only when the code can't carry it: a non-obvious why, an invariant an edit would break, a domain/spec fact, opaque code (regex, generated SQL), a contract on exported API, or a section banner in a long file. Deferred work gets `// TODO(scope):`, never prose. Details → `docs/conventions.md` § Comments.
 
-**Tests follow the code** — when you change or add *pure, critical* logic (SQL escaping/validation, OMOP/query builders, fuzzy-search, import/export, format helpers), add or update its test in the same change. Run `npm run test` before pushing. Do not unit-test volatile UI components. Details → `docs/conventions.md` § Tests.
+**Tests follow the code** — when you change or add *pure, critical* logic (SQL escaping/validation, OMOP/query builders, fuzzy-search, import/export, format helpers), add or update its test in the same change. The pre-push hook runs the unit suites of what you touched; the slow tiers (Playwright journeys, database matrix, SPE scenarios) run on demand through the `run-tests` skill, and `update-tests` audits what is missing. Do not unit-test volatile UI components. Details → `docs/conventions.md` § Tests, `docs/testing.md`.
 
 **Export format has a second home** — the shape of an exported entity (`entity.json`, `dashboards/*.json`, `_tree.json`, payload files) is described BOTH in `apps/web/src/lib/entity-io.ts` and in `packages/linkr-format/` (schemas + validator, run on import and by the `linkr-format` CLI). **Change one, update the other in the same change** — otherwise the validator silently stops checking the new field, or flags a legitimate tree. Details → `docs/architecture.md` § Format package.
 If the change would make an **older app misread** that kind (the readers are tolerant, so it imports partly and says nothing), also raise the kind's entry in `MIN_APP_VERSION` — `packages/linkr-format/src/app-version.ts` + `apps/api/app/export_version.py` — to the next release: its exports then stamp `minAppVersion`, and older apps refuse them with the reason. Details → `docs/architecture.md` § Export format.

@@ -11,7 +11,7 @@ import type { EtlFile, EtlPipeline } from '@/types'
 const file = (id: string, content: string): EtlFile =>
   ({ id, pipelineId: 'p1', name: `${id}.sql`, type: 'file', parentId: null, content, order: 0 }) as EtlFile
 
-const pipeline = { id: 'p1', workspaceId: 'ws', name: { en: 'ETL' } } as EtlPipeline
+const pipeline = { id: 'p1', workspaceId: 'ws', name: { en: 'ETL' } } as unknown as EtlPipeline
 
 describe('ETL store: a change made elsewhere', () => {
   let stored: EtlFile[]

@@ -10,7 +10,8 @@ models what most SPEs have in common, not one institution's setup:
 | Reached through a gateway under a path prefix | `gateway`: TLS on `https://localhost:8443`, `/docker-8743/` → container `docker-8743` |
 | A port opened between the SPE and one other machine | a small internal network holding just those two (`open-8743-mirror`, `open-8743-datamart`) |
 | Package mirror (Nexus, Artifactory) | `mirror`: Nexus-style URLs, the only container with internet access |
-| The project datamart | `datamart-postgres`, and `datamart-oracle` / `datamart-sqlserver` for connector work |
+| The project datamart | `datamart-postgres`, `datamart-mysql`, and `datamart-oracle` / `datamart-sqlserver` for connector work |
+| A small project VM | machine profiles in `machines/`: CPU and memory caps on the SPE and the datamarts |
 | Nothing preinstalled in project environments | Python/R project environments start empty and install through the mirror |
 
 ## Run
@@ -28,12 +29,21 @@ Add the datamarts you need with profiles:
 
 ```bash
 docker compose -f docker/spe-sim/docker-compose.yml \
-  --profile datamart --profile oracle --profile sqlserver up --build
+  --profile datamart --profile mysql --profile oracle --profile sqlserver up --build
+```
+
+Run it as a smaller machine with a profile of `machines/` (`tiny`, `laptop`,
+`small-server`, `unlimited`): it caps the API container's cores and memory
+(`SPE_CPUS`, `SPE_MEMORY`) and the datamarts' (`DATAMART_CPUS`, `DATAMART_MEMORY`).
+
+```bash
+docker compose -f docker/spe-sim/docker-compose.yml --env-file docker/spe-sim/machines/tiny.env up --build
 ```
 
 | Database | Host (from Linkr) | Port | Database / service | Login |
 |---|---|---|---|---|
 | PostgreSQL | `datamart-postgres` | 5432 | `datamart` | `linkr_reader` |
+| MySQL 8.4 | `datamart-mysql` | 3306 | — | `root` |
 | Oracle Free | `datamart-oracle` | 1521 | service `FREEPDB1` | `linkr_reader` |
 | SQL Server 2022 | `datamart-sqlserver` | 1433 | `master` | `sa` |
 
@@ -53,7 +63,18 @@ python3 docker/spe-sim/make-datamart.py 240000000    # 240 M rows, ~3.3 GB, minu
 
 ## Test
 
-Once it is serving, from the repo root:
+Automated, from the repo root (docs/testing.md):
+
+```bash
+npm run test:spe                       # every scenario of scenarios/, each a fresh install, + smoke test
+npm run test:spe -- --machine tiny --e2e default
+npm run test:matrix -- --spe           # the app's queries on the datamarts (profile `matrix`)
+```
+
+A scenario is an env file of `scenarios/` that sets the gateway variables below
+(or `SPE_MIRROR=off`), its first comment saying what to expect.
+
+By hand, once it is serving, from the repo root:
 
 ```bash
 docker/spe-sim/smoke-test.sh
