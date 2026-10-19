@@ -38,6 +38,14 @@ export interface RoleSchemas {
  */
 const ROLE_QUALIFIER = /(^|[^\w."'`])(source|target|vocab)\.(?=[\w"])/gi
 
+/**
+ * Matches a role at the start of a sequence function's name argument:
+ * `nextval('target.seq_row_id')`. The name is a string there, so the qualifier
+ * rule above skips it; server mode attaches each role under its own name and
+ * resolves it as is, the browser's DuckDB has no `target` and needs it rewritten.
+ */
+const SEQUENCE_ARGUMENT = /\b(nextval|currval)(\s*\(\s*')(source|target|vocab)\.(?=\w)/gi
+
 /** Roles actually referenced as a qualifier in the SQL (ignoring literals/comments). */
 export function usedRoles(sql: string): RolePrefix[] {
   const regions = protectedRegions(sql)
@@ -59,7 +67,7 @@ export function usedRoles(sql: string): RolePrefix[] {
  */
 export function resolveRolePrefixes(sql: string, schemas: RoleSchemas): string {
   const regions = protectedRegions(sql)
-  return sql.replace(ROLE_QUALIFIER, (match, lead: string, role: string, offset: number) => {
+  const qualified = sql.replace(ROLE_QUALIFIER, (match, lead: string, role: string, offset: number) => {
     if (isProtected(regions, offset + lead.length)) return match
     const schema = schemas[role.toLowerCase() as RolePrefix]
     if (schema === undefined) return match
@@ -67,5 +75,12 @@ export function resolveRolePrefixes(sql: string, schemas: RoleSchemas): string {
     // mode): drop the qualifier so the bare name resolves via search_path.
     if (schema === '') return lead
     return `${lead}"${schema}".`
+  })
+  const afterQualifiers = protectedRegions(qualified)
+  return qualified.replace(SEQUENCE_ARGUMENT, (match, fn: string, open: string, role: string, offset: number) => {
+    if (isProtected(afterQualifiers, offset)) return match
+    const schema = schemas[role.toLowerCase() as RolePrefix]
+    if (schema === undefined) return match
+    return `${fn}${open}${schema === '' ? '' : `${schema}.`}`
   })
 }

@@ -95,6 +95,24 @@ describe('resolveRolePrefixes', () => {
       .toBe('SELECT $$ source.x $$, "ds_mimic_raw".a')
   })
 
+  // A sequence is named by a string, so the qualifier rule skips it: the demo
+  // ETL's first script failed in the browser on nextval('target.seq_row_id').
+  it("rewrites the role naming a sequence in nextval('…') and currval('…')", () => {
+    expect(resolveRolePrefixes("SELECT nextval('target.seq_row_id'), currval( 'target.seq_row_id')", SCHEMAS))
+      .toBe("SELECT nextval('ds_omop.seq_row_id'), currval( 'ds_omop.seq_row_id')")
+    expect(resolveRolePrefixes("SELECT NEXTVAL('Source.s')", SCHEMAS))
+      .toBe("SELECT NEXTVAL('ds_mimic_raw.s')")
+  })
+
+  it('leaves any other literal, a commented call and an unbound role alone', () => {
+    expect(resolveRolePrefixes("SELECT concat('target.seq_row_id')", SCHEMAS))
+      .toBe("SELECT concat('target.seq_row_id')")
+    expect(resolveRolePrefixes("-- nextval('target.s')\nSELECT 1", SCHEMAS))
+      .toBe("-- nextval('target.s')\nSELECT 1")
+    expect(resolveRolePrefixes("SELECT nextval('target.s')", {}))
+      .toBe("SELECT nextval('target.s')")
+  })
+
   it('an escaped quote does not disable rewriting for the rest of the script', () => {
     // The `\'` must not be read as opening a literal that swallows source.a.
     expect(resolveRolePrefixes("SELECT E'\\'' AS q, source.a", SCHEMAS))
@@ -110,6 +128,11 @@ describe('resolveRolePrefixes — server mode', () => {
       .toBe('DELETE FROM source_to_concept_map;')
     expect(resolveRolePrefixes('SELECT * FROM (target.a JOIN target.b ON 1=1)', { target: '' }))
       .toBe('SELECT * FROM (a JOIN b ON 1=1)')
+  })
+
+  it("drops the role naming a sequence of the database being queried", () => {
+    expect(resolveRolePrefixes("SELECT nextval('target.seq_row_id')", { target: '' }))
+      .toBe("SELECT nextval('seq_row_id')")
   })
 
   it('leaves the other roles untouched so the error names the role', () => {
