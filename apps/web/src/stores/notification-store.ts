@@ -22,6 +22,8 @@ import { useWikiStore } from '@/stores/wiki-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useFileStore } from '@/stores/file-store'
 import { useSuggestionScoresStore } from '@/stores/suggestion-scores-store'
+import { getStorage } from '@/lib/storage'
+import { clearPatientQueries } from '@/features/projects/warehouse/patient-data/patient-prefetch'
 
 /**
  * Applies a change made elsewhere to the store that holds the entity, so an open
@@ -43,6 +45,13 @@ const REFRESHERS: Record<string, (event: ChangeEvent) => Promise<void>> = {
   etl_pipeline: (e) => useEtlStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
   etl_run: async (e) => {
     const etl = useEtlStore.getState()
+    // The event carries no run status, so this clears on start and every update
+    // too: dropping kept patient rows only costs a re-read. A script may write
+    // through any role, the source included.
+    const pipeline = etl.etlPipelines.find((p) => p.id === e.entityId)
+      ?? await getStorage().etlPipelines.getById(e.entityId)
+    // An empty id would clear every database's rows.
+    for (const id of [pipeline?.sourceDataSourceId, pipeline?.targetDataSourceId]) if (id) clearPatientQueries(id)
     if (etl.activePipelineId === e.entityId) await etl.loadRunHistory(e.entityId)
   },
   sql_collection: (e) => useSqlScriptsStore.getState().applyRemoteChange(e.entityId, e.action === 'deleted'),
