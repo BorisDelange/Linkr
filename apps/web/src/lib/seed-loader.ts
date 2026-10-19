@@ -20,6 +20,7 @@ import * as engine from '@/lib/duckdb/engine'
 import { seedBuiltinPluginsForWorkspace } from '@/lib/plugins/default-plugins'
 import { buildVocabularyScript, buildCustomVocabularyScript } from '@/features/warehouse/etl/build-vocabulary-script'
 import { restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
+import { noteSeedMounted, trackDataSeed } from '@/lib/data-seed-gate'
 import {
   COHORT_BOARDS_DIR, DATABASE_COHORTS_DIR, attachTreeIds, createCohortBoard, parseSourceConceptIdEntries, patientDashboardKey,
   projectCohortBoardKeyId, reassemblePresetMapping, replaceDatabaseBoards, replaceDatabaseCohorts, resolveDashboardBundle, slugify,
@@ -1320,6 +1321,7 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
 
   // Mount in DuckDB and compute stats
   await engine.mountDataSource(dataSource, storedFiles)
+  noteSeedMounted(db.id)
   const stats = await engine.computeStats(db.id, schemaMapping)
   // errorMessage with the status: a re-seed over a row that landed data-free
   // must drop the no-data sentinel, else the database reads "imported without
@@ -1753,7 +1755,7 @@ async function runSeedWorkspaces(progress: SeedReporter): Promise<void> {
 export async function seedDatabases(options: SeedOptions = {}): Promise<void> {
   // Same race as phase 1: the per-entity flags close too late to stop a
   // concurrent second pass, and these entities carry the heaviest writes.
-  _seedDatabasesPromise ??= runSeedDatabases(reporterFor(options)).finally(() => { _seedDatabasesPromise = null })
+  _seedDatabasesPromise ??= trackDataSeed(runSeedDatabases(reporterFor(options))).finally(() => { _seedDatabasesPromise = null })
   return _seedDatabasesPromise
 }
 

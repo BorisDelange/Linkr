@@ -304,6 +304,11 @@ export async function mountVocabularyLibrary(
   }
 }
 
+/** Whether this module mounted the source as an attached catalog and still holds it. */
+export function isAttached(dataSourceId: string): boolean {
+  return attachedSources.has(dataSourceId)
+}
+
 /** Unmount a data source (drop schema or DETACH). */
 export async function unmountDataSource(dataSourceId: string): Promise<void> {
   forgetSourceTables(dataSourceId)

@@ -12,13 +12,18 @@ import { describe, it, expect, vi } from 'vitest'
  * looked like it depended on navigation order.
  */
 
-const mounts = vi.hoisted(() => ({ count: 0, release: () => {} }))
+// `release` before the mount is reached lets it through at once: how many
+// awaits precede the engine call is not what these tests pin.
+const mounts = vi.hoisted(() => {
+  const m = { count: 0, released: false, resolve: () => {}, release: () => { m.released = true; m.resolve() } }
+  return m
+})
 
 vi.mock('@/lib/duckdb/engine', () => ({
   mountDataSource: async () => {
     mounts.count++
     // Stay in flight until the test lets go, so both callers overlap.
-    await new Promise<void>((resolve) => { mounts.release = resolve })
+    if (!mounts.released) await new Promise<void>((resolve) => { mounts.resolve = resolve })
   },
   mountDataSourceFromHandles: async () => {},
   mountEmptyFromDDL: async () => {},
@@ -30,11 +35,12 @@ vi.mock('@/lib/duckdb/engine', () => ({
   setMountGuard: () => {},
   setMappingResolver: () => {},
   unmountDataSource: async () => {},
+  isAttached: () => false,
 }))
 
 vi.mock('@/lib/storage', () => ({
   getStorage: () => ({
-    dataSources: { getAll: async () => [], update: async () => {} },
+    dataSources: { getAll: async () => [], getById: async () => undefined, update: async () => {} },
     files: { getByDataSource: async () => [{ id: 'f1', fileName: 'a.parquet', data: new Uint8Array() }] },
     fileHandles: { getByDataSource: async () => [] },
   }),
@@ -71,7 +77,8 @@ const SOURCE = {
 async function freshStore() {
   vi.resetModules()
   mounts.count = 0
-  mounts.release = () => {}
+  mounts.released = false
+  mounts.resolve = () => {}
   const { useDataSourceStore } = await import('./data-source-store')
   useDataSourceStore.setState({ dataSources: [SOURCE as never], dataSourcesLoaded: true })
   return useDataSourceStore.getState()

@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
+import { dataSeedSettled, takeSeedMounted } from '@/lib/data-seed-gate'
 import { isServerMode } from '@/lib/api-client'
 import { useCohortStore } from '@/stores/cohort-store'
 import { createFromDdlOnServer, deleteDataSourceOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
@@ -317,6 +318,13 @@ const mountedSources = new Set<string>()
 
 /** Track in-flight mount promises to avoid concurrent mounts of the same source. */
 const mountingPromises = new Map<string, Promise<void>>()
+
+/** Takes over a mount the data seed made itself, so it is not mounted a second time. */
+function adoptSeedMount(id: string): boolean {
+  if (!takeSeedMounted(id) || !engine.isAttached(id)) return false
+  mountedSources.add(id)
+  return true
+}
 
 /** Track data sources currently being processed (mounting, testing, reconnecting). */
 const busySources = new Set<string>()
@@ -1076,8 +1084,10 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         && !busySources.has(ds.id) && !mountingPromises.has(ds.id),
     )
 
+    await dataSeedSettled()
     for (const ds of sources) {
       if (busySources.has(ds.id) || mountingPromises.has(ds.id)) continue
+      if (mountedSources.has(ds.id) || adoptSeedMount(ds.id)) continue
       busySources.add(ds.id)
       const config = ds.connectionConfig as DatabaseConnectionConfig
       try {
@@ -1211,15 +1221,26 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // Deduplicate concurrent mount calls for the same source
     const existing = mountingPromises.get(id)
     if (existing) return existing
-    const ds = get().dataSources.find((d) => d.id === id)
-    if (!ds) throw new Error(`Data source ${id} not found`)
-    // Every front-only query lands here through the mount guard, so without this
-    // a database the user had just disconnected came straight back on the next
-    // query. Connecting is explicit: testConnection flips the status first.
-    if (ds.status === 'disconnected') {
-      throw new Error(`Data source "${localized(ds.name, 'en')}" is disconnected — connect it first`)
-    }
+    // A first visit's data seed writes and mounts these very databases: mounting
+    // one meanwhile read a row or files still being written (lib/data-seed-gate.ts).
+    // Waited for, then the connection is read back from storage: the store's copy
+    // predates the seed (no file list) until App reloads it.
+    await dataSeedSettled()
+    if (mountedSources.has(id) || adoptSeedMount(id)) return
+    const pending = mountingPromises.get(id)
+    if (pending) return pending
+    // Registered before anything is awaited, so a concurrent caller joins it.
     const promise = (async () => {
+      const inStore = get().dataSources.find((d) => d.id === id)
+      const stored = await getStorage().dataSources.getById(id)
+      const ds = inStore && stored ? { ...inStore, connectionConfig: stored.connectionConfig } : inStore ?? stored
+      if (!ds) throw new Error(`Data source ${id} not found`)
+      // Every front-only query lands here through the mount guard, so without this
+      // a database the user had just disconnected came straight back on the next
+      // query. Connecting is explicit: testConnection flips the status first.
+      if (ds.status === 'disconnected') {
+        throw new Error(`Data source "${localized(ds.name, 'en')}" is disconnected — connect it first`)
+      }
       const config = ds.connectionConfig as DatabaseConnectionConfig
       if (config.vocabularyLibrary) {
         const { libraryMountPlan } = await import('@/lib/vocabulary-library/library')
