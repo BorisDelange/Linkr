@@ -47,12 +47,7 @@ async def _managed(client, headers, ws, alias, seed: bool) -> str:
 
 
 async def _derive(client, headers, ws, src, payload) -> dict:
-    """Start a derivation and wait for its job; returns the finished job.
-
-    Awaits the job's task rather than polling the API: the test database is one
-    shared SQLite connection, and a request's session closing (a rollback) while
-    the job's transaction is open on that same connection would undo the job's
-    writes — a hazard of the fixture, not of the server."""
+    """Start a derivation and wait for its job; returns the finished job."""
     r = await client.post(f"{API}/data-sources/{src}/derive", headers=headers, json=payload)
     assert r.status_code == 202, r.text
     job_id = r.json()["id"]

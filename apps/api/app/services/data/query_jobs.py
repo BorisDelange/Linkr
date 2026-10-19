@@ -169,7 +169,13 @@ async def start(
             watch = asyncio.create_task(_watch_progress(tag, reading))
             rows = None
             try:
-                rows = await run
+                try:
+                    rows = await run
+                finally:
+                    # Waited for, so a late report cannot land over what follows,
+                    # the error included.
+                    watch.cancel()
+                    await asyncio.gather(watch, return_exceptions=True)
             except Exception as e:
                 # The log keeps it too, but a DuckDB error spans lines: the client
                 # shows this one whole.
@@ -177,10 +183,6 @@ async def start(
                     await handle.set_result(progress(error=str(e)))
                     raise
                 errors[key] = str(e)
-            finally:
-                # Waited for, so a late report cannot land over what follows.
-                watch.cancel()
-                await asyncio.gather(watch, return_exceptions=True)
             elapsed = time.monotonic() - started
             if rows is not None:
                 await asyncio.to_thread(write_result, result_path(job_id, key), rows)

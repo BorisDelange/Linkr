@@ -1,3 +1,4 @@
+import asyncio
 import fcntl
 from pathlib import Path
 
@@ -6,7 +7,6 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.pool import StaticPool
 
 import app.models  # noqa: F401  -- populate Base.metadata
 from app.config import settings
@@ -98,24 +98,53 @@ async def _shutdown_kernels():
     await manager.shutdown_all()
 
 
+@pytest.fixture(autouse=True)
+def _fresh_job_lanes(monkeypatch):
+    """A lane's semaphore binds to the event loop it first waited in, and each
+    test has its own loop."""
+    from app.services.execution import jobs
+
+    monkeypatch.setattr(jobs, "_semaphores", {})
+
+
+async def _stop_background_jobs() -> None:
+    """Cancel the jobs a test left running, and wait for their last status write,
+    before the test's database goes away under them."""
+    from app.services.execution import jobs
+
+    pending = [t for t in jobs._tasks.values() if not t.done()]
+    for task in pending:
+        task.cancel()
+    await asyncio.gather(*pending, return_exceptions=True)
+    await asyncio.gather(*jobs._status_writes, return_exceptions=True)
+    jobs._tasks.clear()
+
+
 @pytest_asyncio.fixture
-async def engine():
-    # Single shared in-memory connection so the schema persists across sessions.
+async def engine(tmp_path):
+    # A file and a real connection pool, as in production: each session its own
+    # connection and transaction. One connection shared by every session (the
+    # old in-memory StaticPool) let a request's closing rollback undo a
+    # background job's writes, and a job cancelled mid-query invalidated the
+    # connection, reopening the in-memory database empty under the next request.
+    # WAL lets the tests' reads run beside a job's write; `timeout` is how long a
+    # writer waits for another's transaction to end.
     eng = create_async_engine(
-        "sqlite+aiosqlite://",
-        connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
+        connect_args={"check_same_thread": False, "timeout": 30},
     )
 
     @event.listens_for(eng.sync_engine, "connect")
-    def _fk_pragma(dbapi_conn, _record):
+    def _sqlite_pragmas(dbapi_conn, _record):
         cur = dbapi_conn.cursor()
         cur.execute("PRAGMA foreign_keys=ON")
+        cur.execute("PRAGMA journal_mode=WAL")
         cur.close()
 
     async with eng.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield eng
+    await _stop_background_jobs()
     await eng.dispose()
 
 

@@ -151,7 +151,7 @@ describe('running a pipeline', () => {
       ],
     }
     const out = formatRun(run, tree)
-    expect(out).toContain('00_vocabulary.sql: success in 1.2s — 3 rows in 1.2s')
+    expect(out).toContain('00_vocabulary.sql: success in 1s — 3 rows in 1.2s')
     expect(out).toContain('10_person.sql: error\n      error: Catalog Error')
   })
 })

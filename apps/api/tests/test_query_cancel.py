@@ -31,7 +31,6 @@ def test_cancel_interrupts_a_running_query():
     deadline = time.monotonic() + 5
     while "q1" not in query_cancel._running and time.monotonic() < deadline:
         time.sleep(0.01)
-    time.sleep(0.1)
     assert query_cancel.cancel("q1", "7") is True
     thread.join(10)
     assert not thread.is_alive()
@@ -68,8 +67,12 @@ def test_interrupt_happens_while_the_query_is_still_registered():
             Con.held = query_cancel._lock.locked()
 
     query_cancel._running["q4"] = ("7", Con(), None)
-    assert query_cancel.cancel("q4", "7") is True
-    assert Con.held is True
+    try:
+        assert query_cancel.cancel("q4", "7") is True
+        assert Con.held is True
+    finally:
+        query_cancel._running.pop("q4", None)
+        query_cancel._interrupted.discard("q4")
 
 
 def test_cancel_also_runs_the_query_hook():
@@ -206,3 +209,20 @@ def test_a_cancel_for_a_waiting_query_of_another_user_is_ignored():
     finally:
         query_cancel.current_query.set(None)
         query_cancel._cancelled_early.pop("q-other", None)
+
+
+def test_a_cancel_between_two_statements_stops_the_next():
+    """DuckDB's interrupt only reaches the statement in flight: one landing
+    between two statements of a script must not let the next one run."""
+    con = duckdb.connect()
+    query_cancel.current_query.set(("q-between", "7"))
+
+    def cancel_before_the_second(index, _total, _stmt):
+        if index == 1:
+            assert query_cancel.cancel("q-between", "7") is True
+
+    with query_cancel.tracking(con), pytest.raises(duckdb.InterruptException):
+        db_connect._run_statements(con, "memory", "CREATE TABLE a (x INT); CREATE TABLE b (x INT);",
+                                   on_statement=cancel_before_the_second)
+    assert con.execute("SELECT count(*) FROM duckdb_tables() WHERE table_name = 'b'").fetchone() == (0,)
+    assert "q-between" not in query_cancel._interrupted

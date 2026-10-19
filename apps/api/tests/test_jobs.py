@@ -16,11 +16,9 @@ from app.services.execution import jobs
 @pytest.fixture(autouse=True)
 async def _seed(db, engine, monkeypatch):
     # jobs.py writes via its own `async_session`; point it at the test engine so
-    # its writes land in the same in-memory DB the `db` fixture reads. Reset the
-    # module-level semaphore so it binds to this test's event loop.
+    # its writes land in the same database the `db` fixture reads.
     maker = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     monkeypatch.setattr(jobs, "async_session", maker)
-    monkeypatch.setattr(jobs, "_semaphores", {})
     db.add(Workspace(id="ws1"))
     await db.flush()
     db.add(Project(uid="proj-1", workspace_id="ws1"))
@@ -28,16 +26,14 @@ async def _seed(db, engine, monkeypatch):
     await db.commit()
 
 
-async def _wait_settled(db, job_id: str, timeout: float = 3.0) -> Job:
-    async def poll():
-        while True:
-            job = await db.get(Job, job_id)
-            await db.refresh(job)
-            if job.status in ("done", "error", "cancelled"):
-                return job
-            await asyncio.sleep(0.02)
-
-    return await asyncio.wait_for(poll(), timeout)
+async def _wait_settled(db, job_id: str) -> Job:
+    """The job once its task has ended: the task writes its last status before."""
+    task = jobs._tasks.get(job_id)
+    if task is not None:
+        await asyncio.gather(task, return_exceptions=True)
+    job = await db.get(Job, job_id)
+    await db.refresh(job)
+    return job
 
 
 async def test_job_runs_to_done(db):
@@ -113,7 +109,7 @@ async def test_cancel_stops_a_running_job(db):
         await asyncio.sleep(30)  # long — we cancel it
 
     jobs.launch(job.id, body)
-    await asyncio.wait_for(started.wait(), 2.0)
+    await started.wait()
     assert await jobs.cancel(db, job) is True
     settled = await _wait_settled(db, job.id)
     assert settled.status == "cancelled"

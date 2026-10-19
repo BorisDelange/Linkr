@@ -128,15 +128,15 @@ async def test_persistent_kernel_keeps_variables_between_runs(client):
     assert r.json()["stdout"].strip() == "42"
 
 
-async def _wait_job(client, headers, uid, job_id, timeout=30.0):
-    """Poll a project's jobs until `job_id` leaves queued/running (or times out)."""
-    for _ in range(int(timeout / 0.2)):
-        jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
-        job = next((j for j in jobs if j["id"] == job_id), None)
-        if job and job["status"] not in ("queued", "running"):
-            return job
-        await asyncio.sleep(0.2)
-    raise AssertionError("job did not finish in time")
+async def _wait_job(client, headers, uid, job_id):
+    """The job once its task has ended (the task writes its last status before)."""
+    from app.services.execution import jobs as jobs_svc
+
+    task = jobs_svc._tasks.get(job_id)
+    if task is not None:
+        await asyncio.gather(task, return_exceptions=True)
+    jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
+    return next(j for j in jobs if j["id"] == job_id)
 
 
 async def test_run_as_job_batch_captures_output_and_result(client):

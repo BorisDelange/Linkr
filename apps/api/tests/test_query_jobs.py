@@ -5,7 +5,6 @@ import asyncio
 import contextlib
 
 import duckdb
-import pytest
 
 from app.config import settings
 from app.core import audit
@@ -17,12 +16,6 @@ from app.services.execution import jobs
 API = "/api/v1"
 # Long enough to still be running when the test cancels it; DuckDB stops it at once.
 SLOW = "SELECT sum(a.i * b.i) AS s FROM range(100000) a(i), range(100000) b(i)"
-
-
-@pytest.fixture(autouse=True)
-def _fresh_lanes(monkeypatch):
-    # The lanes' semaphores bind to the loop of the test that first used them.
-    monkeypatch.setattr(jobs, "_semaphores", {})
 
 
 async def _admin(client) -> dict:
@@ -54,8 +47,7 @@ async def _start(client, headers, ds, queries, label="Counts") -> dict:
 
 
 async def _settle(job_id: str) -> None:
-    """Await the job's task (see test_cohort_derive_routes: polling the API while the
-    job writes would race on the fixture's single SQLite connection)."""
+    """Await the job's task, which writes the job's last status before it ends."""
     task = jobs._tasks.get(job_id)
     if task is not None:
         with contextlib.suppress(BaseException):
@@ -188,23 +180,27 @@ async def test_the_query_in_flight_reports_how_far_it_has_read(client, monkeypat
         seen["result"] = dict(result)
         await real_result(self, result)
 
+    second_read = asyncio.Event()
+
     async def progress(self, pct):
         if "reading" in seen.get("result", {}):
             reports.append((seen["result"], pct))
+            if seen["result"]["current"] == "u1":
+                second_read.set()
         await real_progress(self, pct)
 
     monkeypatch.setattr(jobs.JobHandle, "set_result", set_result)
     monkeypatch.setattr(jobs.JobHandle, "progress", progress)
     headers = await _admin(client)
-    ws, ds = await _source(client, headers)
+    _ws, ds = await _source(client, headers)
     job = await _start(client, headers, ds, [("u0", "SELECT 1 AS one"), ("u1", SLOW)])
 
-    async def reported():
-        while not any(r["current"] == "u1" for r, _ in reports):
-            await asyncio.sleep(0.02)
-
-    # Generous: under the whole suite's load the job can take a while to start.
-    await asyncio.wait_for(reported(), 30)
+    # Whichever comes first: the report, or the job's end without one.
+    reported = asyncio.create_task(second_read.wait())
+    running = jobs._tasks.get(job["id"])
+    await asyncio.wait({reported, *([running] if running else [])}, return_when=asyncio.FIRST_COMPLETED)
+    reported.cancel()
+    assert second_read.is_set(), "the job ended without reporting its second query's progress"
     await client.post(f"{API}/jobs/{job['id']}/cancel", headers=headers)
     await _settle(job["id"])
 

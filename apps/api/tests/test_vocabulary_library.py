@@ -160,11 +160,8 @@ async def test_import_route_fills_the_library_data_source(client):
 
     state = (await client.post(f"{base}/import", headers=headers, json={
         "source": {"files": files}, "vocabularies": ["SNOMED", "LOINC"]})).json()
-    for _ in range(200):
-        state = (await client.get(f"{base}/imports/{state['id']}", headers=headers)).json()
-        if state["status"] != "running":
-            break
-        await asyncio.sleep(0.05)
+    await asyncio.gather(lib.import_state(state["id"]).task, return_exceptions=True)
+    state = (await client.get(f"{base}/imports/{state['id']}", headers=headers)).json()
     assert state["status"] == "done", state
 
     library = (await client.get(base, headers=headers)).json()
@@ -195,8 +192,7 @@ async def test_finished_imports_are_pruned_when_a_new_one_starts():
         return None
 
     old = lib.start_import("ws-prune", ok)
-    for _ in range(5):
-        await asyncio.sleep(0)
+    await old.task
     assert old.status == "done" and old.finished_at is not None
     old.finished_at -= 2 * 3600
     new = lib.start_import("ws-prune-2", ok)

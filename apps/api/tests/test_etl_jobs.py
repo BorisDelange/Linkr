@@ -4,19 +4,12 @@ import asyncio
 import contextlib
 
 import duckdb
-import pytest
 
 from app.services.data import managed_db
 from app.services.data_source_service import _etl_runs
 from app.services.execution import jobs
 
 API = "/api/v1"
-
-
-@pytest.fixture(autouse=True)
-def _fresh_lanes(monkeypatch):
-    # The lanes' semaphores bind to the loop of the test that first used them.
-    monkeypatch.setattr(jobs, "_semaphores", {})
 
 
 async def _admin(client) -> dict:

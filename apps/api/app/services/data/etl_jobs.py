@@ -72,17 +72,20 @@ async def start(
 
         reporter = asyncio.create_task(report())
         try:
-            with audit.job_scope(job_id, "etl", launched_by):
-                async with jobs.async_session() as session:
-                    rows = await data_source_service.run_etl(
-                        session, target, sql, roles, user_id, mapping_data, on_statement=on_statement, handle=run,
-                    )
+            try:
+                with audit.job_scope(job_id, "etl", launched_by):
+                    async with jobs.async_session() as session:
+                        rows = await data_source_service.run_etl(
+                            session, target, sql, roles, user_id, mapping_data, on_statement=on_statement, handle=run,
+                        )
+            finally:
+                # Stopped and waited for before the run's last word is written: a
+                # report still in flight would land over it (an error lost).
+                reporter.cancel()
+                await asyncio.gather(reporter, return_exceptions=True)
         except Exception as e:
             await handle.set_result({**state, "error": str(e)})
             raise
-        finally:
-            reporter.cancel()
-            await asyncio.gather(reporter, return_exceptions=True)
         await asyncio.to_thread(query_jobs.write_result, query_jobs.result_path(job_id, ROWS_KEY), rows)
         await handle.set_result({**state, "reading": None, "done": [ROWS_KEY], "rows": {ROWS_KEY: len(rows)}})
         await handle.progress(100)

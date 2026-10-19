@@ -3,6 +3,7 @@ resolving the source and the target, the permissions, and recording what was
 built on the database it produced and on the cohort."""
 
 import asyncio
+import concurrent.futures
 import contextlib
 import copy
 import re
@@ -259,10 +260,11 @@ async def _derive(
     t = body.target
     loop = asyncio.get_running_loop()
     control = cohort_derive.DeriveControl()
+    table_reports: list[concurrent.futures.Future] = []
     if progress is not None:
         def on_table(done: int, total: int, table: str) -> None:
             pct = 5 + int(90 * done / max(1, total))
-            asyncio.run_coroutine_threadsafe(progress(pct, f"{done + 1}/{total} {table}"), loop)
+            table_reports.append(asyncio.run_coroutine_threadsafe(progress(pct, f"{done + 1}/{total} {table}"), loop))
         control.on_table = on_table
 
     # A warm pooled connection holds these files READ_ONLY: DuckDB would refuse
@@ -270,13 +272,18 @@ async def _derive(
     connection_pool.invalidate(source.id)
     connection_pool.invalidate(target.id)
 
-    members = await _in_thread(lambda: cohort_derive.compute_members(spec, body.membership_sql), control)
-    if progress is not None:
-        await progress(5, f"{members.num_rows} rows in the cohort")
-    tables = await _in_thread(
-        lambda: cohort_derive.derive(spec, target_spec, members, mapping, body.level, body.copy_personless, control),
-        control,
-    )
+    try:
+        members = await _in_thread(lambda: cohort_derive.compute_members(spec, body.membership_sql), control)
+        if progress is not None:
+            await progress(5, f"{members.num_rows} rows in the cohort")
+        tables = await _in_thread(
+            lambda: cohort_derive.derive(spec, target_spec, members, mapping, body.level, body.copy_personless, control),
+            control,
+        )
+    finally:
+        # Landed before the job's own end is written: a late one would put the
+        # finished job's progress back under 100.
+        await asyncio.gather(*(asyncio.wrap_future(f) for f in table_reports), return_exceptions=True)
     patient_count = len(set(members.column("patient_id").to_pylist()))
     built_at = datetime.now(timezone.utc).isoformat()
     derived_from = {**(body.derived_from or {}), "builtAt": built_at, "patientCount": patient_count}

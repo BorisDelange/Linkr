@@ -38,6 +38,10 @@ _cancel_hook: contextvars.ContextVar[Callable[[], None] | None] = contextvars.Co
 _lock = threading.Lock()
 _running: dict[str, tuple[str, duckdb.DuckDBPyConnection, Callable[[], None] | None]] = {}
 _cancelled_early: dict[str, tuple[str, float]] = {}
+# Running queries already interrupted. DuckDB's interrupt only stops the
+# statement in flight: one landing between two statements of a script is lost,
+# and the next statement would run to its end.
+_interrupted: set[str] = set()
 
 
 class QueryCancelled(Exception):
@@ -62,6 +66,7 @@ def tracking(con: duckdb.DuckDBPyConnection) -> Iterator[None]:
     finally:
         with _lock:
             _running.pop(query_id, None)
+            _interrupted.discard(query_id)
 
 
 def raise_if_cancelled() -> None:
@@ -76,6 +81,17 @@ def raise_if_cancelled() -> None:
         if early is not None and early[0] == tag[1]:
             del _cancelled_early[tag[0]]
             raise QueryCancelled(tag[0])
+
+
+def raise_if_interrupted() -> None:
+    """Between two statements of the current request's query: raise as the
+    interrupt would have, had it landed on a statement."""
+    tag = current_query.get()
+    if tag is None:
+        return
+    with _lock:
+        if tag[0] in _interrupted:
+            raise duckdb.InterruptException("query cancelled")
 
 
 def cancel(query_id: str, owner: str) -> bool:
@@ -96,6 +112,7 @@ def cancel(query_id: str, owner: str) -> bool:
             entry[1].interrupt()
         except Exception:  # a query finishing as we interrupt is fine
             return False
+        _interrupted.add(query_id)
         hook = entry[2]
     # Outside it: the hook reaches another database, and must not hold up every
     # query starting or stopping meanwhile.

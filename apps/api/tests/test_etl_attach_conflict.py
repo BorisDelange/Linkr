@@ -206,6 +206,19 @@ def test_cancelling_before_the_run_starts_never_attaches(slow_db):
     db_connect.run_etl_sql(slow_db, "SELECT count(*) FROM target.t;")
 
 
+def test_a_cancel_between_two_statements_stops_the_run(slow_db):
+    """DuckDB's interrupt only reaches the statement in flight: a cancel landing
+    between two statements (or during the setup) must still stop the run."""
+    handle = db_connect.EtlRunHandle()
+
+    def cancel_before_the_second(index, _total, _stmt):
+        if index == 1:
+            handle.cancel()
+
+    with pytest.raises(db_connect.EtlRunCancelled):
+        db_connect.run_etl_sql(slow_db, f"SELECT 1; {SLOW_SQL}", handle=handle, on_statement=cancel_before_the_second)
+
+
 def test_cancel_is_idempotent_and_safe_after_completion(slow_db):
     handle = db_connect.EtlRunHandle()
     db_connect.run_etl_sql(slow_db, "SELECT 1 AS x;", handle=handle)

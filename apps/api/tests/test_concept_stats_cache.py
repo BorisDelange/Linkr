@@ -93,9 +93,6 @@ async def test_counting_run_routes(client, monkeypatch, tmp_path_factory):
     from app.config import settings
     from app.services.execution import jobs
 
-    # The lanes' semaphores bind to the loop of the test that first used them.
-    monkeypatch.setattr(jobs, "_semaphores", {})
-
     # Not tmp_path: that is the tests' data dir, which a serverPath may never touch.
     server_dir = tmp_path_factory.mktemp("server")
     monkeypatch.setattr(settings, "fs_browse_roots", str(server_dir))

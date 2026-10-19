@@ -193,17 +193,28 @@ def test_data_size_is_none_for_a_missing_file(data_dir):
     assert managed_db.data_size(managed_db.path_for("c0000000-0000-0000-0000-000000000007")) is None
 
 
-def test_a_second_compaction_of_the_same_database_is_refused(data_dir):
+def test_a_second_compaction_of_the_same_database_is_refused(data_dir, monkeypatch):
     """Two concurrent rewrites of one file would each os.replace their own copy
     into place, so the loser would silently discard the winner's work."""
     import asyncio
+    import threading
 
     from app.models.data_source import DataSource
     from app.services import data_source_service
 
     sid = "c0000000-0000-0000-0000-000000000008"
-    _fill(sid, rows=400000)
+    _fill(sid, rows=1000)
     source = DataSource(id=sid, alias="t", name="t", connection_config={"managed": True})
+    # The first compaction holds until the second request has been judged: a
+    # fast one would otherwise be over before, and rightly let the second run.
+    second_judged = threading.Event()
+    real_compact = managed_db.compact
+
+    def held_compact(*args, **kwargs):
+        second_judged.wait()
+        return real_compact(*args, **kwargs)
+
+    monkeypatch.setattr(managed_db, "compact", held_compact)
 
     async def scenario():
         first = await data_source_service.start_compaction(source)
@@ -211,9 +222,9 @@ def test_a_second_compaction_of_the_same_database_is_refused(data_dir):
             with pytest.raises(ValueError, match="already running"):
                 await data_source_service.start_compaction(source)
         finally:
-            # Let the detached task finish so it cannot outlive the test.
-            while first.status == "running":
-                await asyncio.sleep(0.05)
+            second_judged.set()
+            task = next(iter(data_source_service._compaction_tasks))
+            await asyncio.gather(task, return_exceptions=True)
         assert first.status == "done"
 
     asyncio.run(scenario())
