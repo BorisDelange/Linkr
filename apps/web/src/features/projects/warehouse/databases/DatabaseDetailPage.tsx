@@ -992,7 +992,7 @@ function OverviewTab({
             <>
               <p className={cn(
                 source.status === 'error' ? 'break-all font-mono text-destructive/80'
-                  : configuring ? undefined : 'break-all text-amber-700/80 dark:text-amber-400/80',
+                  : configuring ? undefined : 'break-all text-warning-foreground/80',
               )}>
                 {configuring && (!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT)
                   ? t('databases.detail_configuring_hint')

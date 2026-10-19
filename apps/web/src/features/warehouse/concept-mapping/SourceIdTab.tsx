@@ -522,7 +522,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                                     2M band is real usage, and a bar of width 0 reads as
                                     "nothing assigned". */}
                                 <span
-                                  className={cn('block h-full rounded-full', rangePct >= 90 ? 'bg-amber-500' : 'bg-primary')}
+                                  className={cn('block h-full rounded-full', rangePct >= 90 ? 'bg-warning' : 'bg-primary')}
                                   style={{ width: `${Math.max(2, Math.min(100, (used / capacity) * 100))}%` }}
                                 />
                               </span>
@@ -608,7 +608,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                         )}
                         {!assignProgress && assignResult && assignResult.badge === range.badgeLabel && (
                           <div className="space-y-0.5">
-                            <p className={`text-[11px] ${assignResult.failure ? 'text-destructive' : assignResult.exhausted ? 'text-amber-600 dark:text-amber-400' : assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
+                            <p className={`text-[11px] ${assignResult.failure ? 'text-destructive' : assignResult.exhausted ? 'text-warning-foreground' : assignResult.newlyAssigned > 0 ? 'text-green-600 dark:text-green-400' : 'text-muted-foreground'}`}>
                               {assignResult.failure
                                 ? t('concept_mapping.source_id_assign_failed', { error: assignResult.failure })
                                 : assignResult.exhausted
@@ -620,7 +620,7 @@ export function SourceIdTab({ workspaceId, projects }: SourceIdTabProps) {
                                       : t('concept_mapping.source_id_assign_result', { count: assignResult.newlyAssigned.toLocaleString(), total: assignResult.total.toLocaleString() } as Record<string, string>)}
                             </p>
                             {assignResult.unreadable?.map((u) => (
-                              <p key={u.name} className="text-[11px] text-amber-600 dark:text-amber-400">
+                              <p key={u.name} className="text-[11px] text-warning-foreground">
                                 {t('concept_mapping.source_id_assign_unreadable', { project: u.name, error: u.error })}
                               </p>
                             ))}

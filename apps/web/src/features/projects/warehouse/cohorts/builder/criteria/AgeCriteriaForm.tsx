@@ -105,7 +105,7 @@ export function AgeCriteriaForm({ config, onChange, schemaMapping }: AgeCriteria
         </FormField>
       </div>
       {unsatisfiable && (
-        <p className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-500">
+        <p className="flex items-start gap-1.5 text-[10px] text-warning-foreground">
           <AlertTriangle size={12} className="mt-px shrink-0" />
           {t('cohorts.age_needs_birth_date')}
         </p>

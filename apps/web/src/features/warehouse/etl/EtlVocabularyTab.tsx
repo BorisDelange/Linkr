@@ -777,9 +777,9 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
     <div className="h-full overflow-auto p-6">
       <div className="mx-auto w-full max-w-3xl space-y-4">
         {notices.length > 0 && (
-          <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
+          <div className="space-y-1.5 rounded-md border border-warning/30 bg-warning/10 p-3">
             {notices.map((notice) => (
-              <span key={notice.text} className="flex items-center gap-2.5 text-xs text-amber-800 dark:text-amber-200">
+              <span key={notice.text} className="flex items-center gap-2.5 text-xs text-warning-foreground">
                 <AlertCircle size={16} className="shrink-0" />
                 <span>
                   {notice.text}
@@ -950,7 +950,7 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                         last one is a warning — the others just say where the
                         pipeline stands. */}
                     {editedScripts.has(id) ? (
-                      <span className="block text-[10px] text-amber-600 dark:text-amber-500">
+                      <span className="block text-[10px] text-warning-foreground">
                         {t('etl.vocab_artefact_edited')}
                       </span>
                     ) : upToDateArtefacts.has(id) && (

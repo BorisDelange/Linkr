@@ -74,9 +74,9 @@ export function CategoricalCheckbox({
   return (
     <div className="space-y-1">
       {uniqueValues.length > CHECKBOX_WARN_THRESHOLD && (
-        <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5">
-          <TriangleAlert size={11} className="shrink-0 text-amber-500 mt-0.5" />
-          <span className="text-[10px] text-amber-700 dark:text-amber-400">
+        <div className="flex items-start gap-1.5 rounded bg-warning/10 px-2 py-1.5">
+          <TriangleAlert size={11} className="shrink-0 text-warning mt-0.5" />
+          <span className="text-[10px] text-warning-foreground">
             {t('dashboard.filter_warn_checkbox', { count: uniqueValues.length })}
           </span>
         </div>
@@ -165,9 +165,9 @@ export function CategoricalMultiSelect({
   return (
     <div className="space-y-1">
       {uniqueValues.length > DROPDOWN_WARN_THRESHOLD && (
-        <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5">
-          <TriangleAlert size={11} className="shrink-0 text-amber-500 mt-0.5" />
-          <span className="text-[10px] text-amber-700 dark:text-amber-400">
+        <div className="flex items-start gap-1.5 rounded bg-warning/10 px-2 py-1.5">
+          <TriangleAlert size={11} className="shrink-0 text-warning mt-0.5" />
+          <span className="text-[10px] text-warning-foreground">
             {t('dashboard.filter_warn_dropdown', { count: uniqueValues.length })}
           </span>
         </div>
@@ -264,9 +264,9 @@ export function CategoricalSingleSelect({
   return (
     <div className="space-y-1">
       {uniqueValues.length > DROPDOWN_WARN_THRESHOLD && (
-        <div className="flex items-start gap-1.5 rounded bg-amber-500/10 px-2 py-1.5">
-          <TriangleAlert size={11} className="shrink-0 text-amber-500 mt-0.5" />
-          <span className="text-[10px] text-amber-700 dark:text-amber-400">
+        <div className="flex items-start gap-1.5 rounded bg-warning/10 px-2 py-1.5">
+          <TriangleAlert size={11} className="shrink-0 text-warning mt-0.5" />
+          <span className="text-[10px] text-warning-foreground">
             {t('dashboard.filter_warn_dropdown', { count: uniqueValues.length })}
           </span>
         </div>

@@ -121,9 +121,9 @@ export function ChangePasswordDialog({ open, onOpenChange }: ChangePasswordDialo
           <p className="mt-3 text-sm font-medium text-foreground">
             {t('profile.change_password_requires_backend')}
           </p>
-          <div className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950 max-w-md">
-            <Info size={14} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
-            <p className="text-xs text-amber-700 dark:text-amber-300">
+          <div className="mt-3 flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 max-w-md">
+            <Info size={14} className="mt-0.5 shrink-0 text-warning-foreground" />
+            <p className="text-xs text-warning-foreground">
               {t('profile.change_password_requires_backend_description')}
             </p>
           </div>

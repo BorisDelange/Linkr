@@ -593,7 +593,7 @@ function FileSizeWarning({
       className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-xs ${
         isDanger
           ? 'border-destructive/30 bg-destructive/5 text-destructive'
-          : 'border-amber-400/30 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300'
+          : 'border-warning/30 bg-warning/10 text-warning-foreground'
       }`}
     >
       <AlertTriangle size={14} className="mt-0.5 shrink-0" />

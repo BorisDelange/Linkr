@@ -1218,9 +1218,9 @@ export function RegressionComponent({ config, columns, rows, compact, datasetFil
 
       {/* Warnings */}
       {result.warnings.length > 0 && (
-        <div className={cn('mb-3 rounded border border-yellow-300/50 bg-yellow-50/50 dark:bg-yellow-900/10', compact ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-xs')}>
+        <div className={cn('mb-3 rounded border border-warning/30 bg-warning/5', compact ? 'px-2 py-1 text-[10px]' : 'px-3 py-1.5 text-xs')}>
           {result.warnings.map((w, i) => (
-            <div key={i} className="flex items-start gap-1.5 text-yellow-700 dark:text-yellow-400">
+            <div key={i} className="flex items-start gap-1.5 text-warning-foreground">
               <AlertTriangle size={compact ? 10 : 12} className="mt-0.5 shrink-0" />
               <span>{warningText(w, t)}</span>
             </div>

@@ -120,7 +120,7 @@ export function SettingsPullDialog({ branch, onClose, onApplied }: SettingsPullD
                 )
               })}
             </div>
-            <p className="mt-3 text-[11px] text-amber-700 dark:text-amber-400">{t('settings.versioning_no_passwords_notice')}</p>
+            <p className="mt-3 text-[11px] text-warning-foreground">{t('settings.versioning_no_passwords_notice')}</p>
           </div>
         )}
 

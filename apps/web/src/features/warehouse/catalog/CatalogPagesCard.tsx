@@ -144,7 +144,7 @@ export function CatalogPagesCard({ catalog, publishSite, disableSite, siteSaving
         </p>
       )}
       {(stale || providerChanged) && (
-        <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+        <p className="flex items-center gap-1.5 text-xs text-warning-foreground">
           <TriangleAlert size={12} className="shrink-0" />
           {providerChanged ? t('data_catalog.pages_provider_changed') : t('data_catalog.pages_stale')}
         </p>

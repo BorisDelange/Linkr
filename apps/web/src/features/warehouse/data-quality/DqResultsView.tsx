@@ -297,13 +297,13 @@ export function DqResultsView({ ruleSetId, runLabel, dataSourceId, customChecks,
 
         {/* Historical-run banner — shown when the table displays a past run. */}
         {viewedRunAt && !loading && (
-          <div className="flex items-center gap-2 border-b bg-amber-50 px-3 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          <div className="flex items-center gap-2 border-b bg-warning/10 px-3 py-1.5 text-xs text-warning-foreground">
             <History size={13} className="shrink-0" />
             <span>{t('data_quality.viewing_historical_run', { date: new Date(viewedRunAt).toLocaleString() })}</span>
             <Button
               variant="ghost"
               size="icon-xs"
-              className="ml-auto h-5 w-5 text-amber-700 hover:text-amber-900 dark:text-amber-300"
+              className="ml-auto h-5 w-5 text-warning-foreground hover:text-foreground"
               onClick={() => { setRestored(null); setViewedRunAt(null); setSelectedCheckId(null) }}
               title={t('common.close')}
             >

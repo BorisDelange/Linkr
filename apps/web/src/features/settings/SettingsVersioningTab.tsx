@@ -43,7 +43,7 @@ function SettingsVersioningInner() {
 
   return (
     <div className="mt-6 flex min-h-0 flex-1 flex-col gap-4">
-      <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+      <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
         <KeyRound size={14} className="mt-0.5 shrink-0" />
         <p className="leading-relaxed">{t('settings.versioning_no_passwords_notice')}</p>
       </div>

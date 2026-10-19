@@ -278,7 +278,7 @@ export function MarkdownToolbar({ onFormat, showExtended = false }: MarkdownTool
                   <AlertCircle size={14} className="text-violet-500" /> Important
                 </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => onFormat('callout_warning')}>
-                  <AlertTriangle size={14} className="text-amber-500" /> Warning
+                  <AlertTriangle size={14} className="text-warning" /> Warning
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

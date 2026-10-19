@@ -263,7 +263,7 @@ export function KeyboardShortcutsDialog({
                                 <>
                                   <ComboDisplay combo={pendingCombo} />
                                   {conflictId && (
-                                    <span className="text-[9px] text-yellow-600 dark:text-yellow-400">
+                                    <span className="text-[9px] text-warning-foreground">
                                       {t('shortcuts.conflict_warning', {
                                         action: t(shortcuts[conflictId].labelKey),
                                       })}

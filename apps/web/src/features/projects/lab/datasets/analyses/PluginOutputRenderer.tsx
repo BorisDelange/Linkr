@@ -198,7 +198,7 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
                 <button
                   type="button"
                   onClick={() => setExpandedPanel(expandedPanel === 'warnings' ? null : 'warnings')}
-                  className="inline-flex items-center gap-1 rounded-full border border-amber-200/50 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/20 px-2 py-0.5 text-[11px] text-amber-600 dark:text-amber-400 hover:bg-amber-100/50 dark:hover:bg-amber-950/40 transition-colors"
+                  className="inline-flex items-center gap-1 rounded-full border border-warning/20 bg-warning/5 px-2 py-0.5 text-[11px] text-warning-foreground hover:bg-warning/15 transition-colors"
                 >
                   <AlertTriangle size={10} className="shrink-0" />
                   {t('datasets.analysis_warnings')}
@@ -213,7 +213,7 @@ export function PluginOutputRenderer({ result, isExecuting, statusMessage, insta
               </div>
             )}
             {expandedPanel === 'warnings' && hasWarnings && (
-              <pre className="rounded-md border border-amber-200/50 bg-amber-50/50 dark:border-amber-900/30 dark:bg-amber-950/20 p-2 text-xs font-mono whitespace-pre-wrap break-words text-amber-800 dark:text-amber-300">
+              <pre className="rounded-md border border-warning/20 bg-warning/5 p-2 text-xs font-mono whitespace-pre-wrap break-words text-warning-foreground">
                 {warnings}
               </pre>
             )}

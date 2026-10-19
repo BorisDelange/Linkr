@@ -161,7 +161,7 @@ export function PullConceptsDialog({ diff, changes, declined, onClose, onApply }
             {t('versioning.pull_selected_count', { count: sel.size, total: changes.length })}
           </span>
           {diff?.changesTruncated && (
-            <span className="text-xs text-amber-700 dark:text-amber-400">
+            <span className="text-xs text-warning-foreground">
               {t('versioning.pull_concepts_truncated')}
             </span>
           )}

@@ -1678,7 +1678,7 @@ function PValueCell({
         <TooltipProvider>
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="ml-1 inline-flex cursor-help align-middle text-amber-600 dark:text-amber-400">
+              <span className="ml-1 inline-flex cursor-help align-middle text-warning-foreground">
                 <AlertTriangle size={11} />
               </span>
             </TooltipTrigger>

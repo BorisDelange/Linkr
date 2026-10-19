@@ -144,7 +144,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
           <TooltipProvider>
             <Tooltip>
               <TooltipTrigger asChild>
-                <AlertTriangle size={12} className="text-amber-600" />
+                <AlertTriangle size={12} className="text-warning" />
               </TooltipTrigger>
               <TooltipContent className="max-w-64">{t('schema_mapping.stale_override')}</TooltipContent>
             </Tooltip>

@@ -114,7 +114,7 @@ export function PullFileRow({ scope, file, decisions, onDecideAll, onDecideItem,
           <button
             type="button"
             onClick={() => onOpenTable(file)}
-            className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-500/25 dark:text-amber-400"
+            className="flex shrink-0 items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning-foreground hover:bg-warning/25"
             title={t('versioning.pull_conflicts_need_choice')}
           >
             <AlertTriangle size={10} />
@@ -122,7 +122,7 @@ export function PullFileRow({ scope, file, decisions, onDecideAll, onDecideItem,
           </button>
         ) : (
           <span
-            className="flex shrink-0 items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400"
+            className="flex shrink-0 items-center gap-1 rounded bg-warning/15 px-1.5 py-0.5 text-[10px] font-semibold text-warning-foreground"
             title={t('versioning.pull_conflicts_need_choice')}
           >
             <AlertTriangle size={10} />
@@ -203,7 +203,7 @@ export function PullFileRow({ scope, file, decisions, onDecideAll, onDecideItem,
                 {item.label}
               </span>
               {item.state === 'conflict' && (
-                <span className="shrink-0 rounded bg-amber-500/15 px-1 py-px text-[9px] font-semibold uppercase text-amber-700 dark:text-amber-400">
+                <span className="shrink-0 rounded bg-warning/15 px-1 py-px text-[9px] font-semibold uppercase text-warning-foreground">
                   {t('versioning.pull_change_conflict')}
                 </span>
               )}

@@ -241,14 +241,14 @@ function ContractList({ cls, report, wide }: { cls: ClassName; report: ContractR
             ) : status === 'missing' ? (
               <XCircle size={11} className="shrink-0 text-destructive" />
             ) : status === 'mismatch' ? (
-              <AlertTriangle size={11} className="shrink-0 text-amber-600" />
+              <AlertTriangle size={11} className="shrink-0 text-warning" />
             ) : (
               <span className="size-[11px] shrink-0" />
             )}
             <code className={cn('truncate', col.required && 'font-semibold', status === 'empty' && 'text-muted-foreground')}>{col.name}</code>
             {col.required && <RequiredMark />}
             {wide && status && (
-              <span className={cn('text-[10px]', status === 'missing' ? 'text-destructive' : status === 'mismatch' ? 'text-amber-600' : 'text-muted-foreground')}>
+              <span className={cn('text-[10px]', status === 'missing' ? 'text-destructive' : status === 'mismatch' ? 'text-warning-foreground' : 'text-muted-foreground')}>
                 {t(`schema_mapping.contract_status_${status}`)}
               </span>
             )}
@@ -294,7 +294,7 @@ function ContractReportView({ cls, report, recorded }: { cls: ClassName; report:
           <ul className="space-y-0.5">
             {report.unknown.map((c) => (
               <li key={c} className="flex items-center gap-1.5">
-                <AlertTriangle size={11} className="shrink-0 text-amber-600" />
+                <AlertTriangle size={11} className="shrink-0 text-warning" />
                 <code>{c}</code>
               </li>
             ))}
@@ -302,7 +302,7 @@ function ContractReportView({ cls, report, recorded }: { cls: ClassName; report:
         </div>
       )}
       {report.globalWindow && (
-        <p className="flex items-start gap-1.5 text-amber-600 dark:text-amber-400">
+        <p className="flex items-start gap-1.5 text-warning-foreground">
           <AlertTriangle size={12} className="mt-0.5 shrink-0" />
           {t('schema_mapping.check_global_window')}
         </p>

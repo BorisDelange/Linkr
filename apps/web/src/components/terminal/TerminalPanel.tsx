@@ -554,8 +554,8 @@ export function TerminalPanel({ terminalType = 'bash', onData, projectUid, sessi
       {/* xterm is a canvas and can't host a button, so the "install in the managed
           environment" offer sits as a banner over the terminal. */}
       {installOffer && (
-        <div className="absolute inset-x-2 bottom-2 flex items-center gap-2 rounded-md border border-amber-500/40 bg-background/95 px-3 py-1.5 text-xs shadow-md backdrop-blur">
-          <Package size={13} className="shrink-0 text-amber-500" />
+        <div className="absolute inset-x-2 bottom-2 flex items-center gap-2 rounded-md border border-warning/40 bg-background/95 px-3 py-1.5 text-xs shadow-md backdrop-blur">
+          <Package size={13} className="shrink-0 text-warning" />
           <span className="min-w-0 flex-1 truncate">
             {t('terminal.installOfferBanner', { packages: installOffer.packages.join(', ') })}
           </span>

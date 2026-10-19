@@ -72,7 +72,7 @@ export function GitConfigDialog({
                 className={`flex h-6 shrink-0 items-center gap-1 rounded-full px-2 text-[10px] ${
                   hasToken
                     ? 'bg-muted text-muted-foreground'
-                    : 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-400'
+                    : 'bg-warning/15 text-warning-foreground'
                 }`}
               >
                 <KeyRound size={10} />

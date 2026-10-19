@@ -87,7 +87,7 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
         )}
       </FormField>
       {unboundToStay && (
-        <p className="flex items-start gap-1.5 text-[10px] text-amber-600 dark:text-amber-500">
+        <p className="flex items-start gap-1.5 text-[10px] text-warning-foreground">
           <AlertTriangle size={12} className="mt-px shrink-0" />
           {t('cohorts.concept_not_bound_to_stay')}
         </p>

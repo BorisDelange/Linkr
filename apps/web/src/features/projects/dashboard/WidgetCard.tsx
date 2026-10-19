@@ -103,7 +103,7 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
     <TooltipProvider delayDuration={300}>
       <Tooltip>
         <TooltipTrigger asChild>
-          <span className="flex shrink-0 items-center text-amber-500">
+          <span className="flex shrink-0 items-center text-warning">
             <AlertTriangle size={13} />
           </span>
         </TooltipTrigger>
@@ -253,7 +253,7 @@ export function WidgetCard({ title, description, onRemove, onEdit, onRename, onC
             <TooltipProvider delayDuration={300}>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="flex size-5 items-center justify-center rounded bg-card/80 text-amber-500 backdrop-blur-sm">
+                  <span className="flex size-5 items-center justify-center rounded bg-card/80 text-warning backdrop-blur-sm">
                     <AlertTriangle size={11} />
                   </span>
                 </TooltipTrigger>

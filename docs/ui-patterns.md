@@ -89,6 +89,13 @@ zero light blocks surviving into dark. Prefer tokens in new code anyway, because
 a raw pair has to be maintained by hand; semantic domain colours are the
 deliberate exception.
 
+**Warnings use the `warning` token, never raw amber/yellow.** `text-warning` for
+an icon or accent, `text-warning-foreground` for warning text on the page or on a
+tint, `bg-warning/10` (`/5`, `/15` for chips) and `border-warning/40` for a
+band. Both carry their own dark value (`index.css`), so no `dark:` pair. Amber
+stays raw only where it is a hue rather than a meaning — an entity colour, a
+badge or chart palette, a status dot in a set of siblings.
+
 **Entity hues live in `lib/entity-colors.ts`.** Each entity kind owns one hue,
 used by its sidebar item, the icon square on its list-page card, and its catalog
 badge (`.icon` / `.bg` / `.badge`). Hues are spread around the wheel, not shaded
@@ -696,7 +703,7 @@ Check this table before writing any form field.
 | `copyText` (`lib/clipboard`) | **Every clipboard write.** Resolves to whether it worked and never throws: `navigator.clipboard` is undefined on a server reached over plain HTTP and rejects when permission is refused, so it falls back to a hidden textarea + `execCommand('copy')`. Show the "copied" tick only when it resolves `true`. Never call `navigator.clipboard.writeText` directly. |
 | `CopyIconButton` | A bare icon copy control with a tick after a successful copy (tooltips, list rows). |
 | `CopySelectButton` | The "Copy SELECT" button in every database schema view. |
-| `NoticeBanner` | **A band that says what is wrong with the entity on screen** (or why it is not available yet) and how to fix it — `tone="warning"` (amber: something missing limits what works, e.g. a database with no schema), `"danger"` (red: it cannot work, e.g. its files are gone) or `"progress"` (neutral, spinning icon: it will work once something running ends, e.g. an ETL run holding the target), a title, a description, an optional action button and an optional ✕ (`onDismiss`; the caller decides how long it stays hidden). Placed under a page's tab bar when it holds for every tab. Replaces the hand-written `border-destructive/30 bg-destructive/5` bands. |
+| `NoticeBanner` | **A band that says what is wrong with the entity on screen** (or why it is not available yet) and how to fix it — `tone="warning"` (the `warning` token: something missing limits what works, e.g. a database with no schema), `"danger"` (red: it cannot work, e.g. its files are gone) or `"progress"` (neutral, spinning icon: it will work once something running ends, e.g. an ETL run holding the target), a title, a description, an optional action button and an optional ✕ (`onDismiss`; the caller decides how long it stays hidden). Placed under a page's tab bar when it holds for every tab. Replaces the hand-written `border-destructive/30 bg-destructive/5` bands. |
 | `CopyablePath` / `ParquetFilesDialog` | A server path shown as copyable code, and the "N files" + Show dialog listing a Parquet source's table → blob paths (ETL sidebar, database Connection card). |
 | `CustomSqlDot` | Marks a widget whose SQL was hand-edited; its tooltip carries the consequence (regenerating discards the edit). |
 | `GeneratedSqlEditor` | **SQL generated from a form, then editable** (the Cohort pattern): shows the generated SQL, saves an edit (Cmd+S) as `customSql` with a *Modified* badge and a Reset. Used by the cohort SQL tab and by schema-mapping relations. The overwrite prompt when the form changes under an edit stays with the caller, which knows whether its generated SQL changed. |

@@ -1077,7 +1077,7 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
               {/* Warning (non-blocking, e.g. a repeatable form dropped extra rows) */}
               {warning && (
-                <div className="flex items-center gap-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-2 text-sm text-amber-700 dark:text-amber-400">
+                <div className="flex items-center gap-2 rounded-md border border-warning/50 bg-warning/5 p-2 text-sm text-warning-foreground">
                   <AlertCircle size={14} className="shrink-0" />
                   {warning}
                 </div>
@@ -1154,8 +1154,8 @@ export function UploadDatasetDialog({ open, onOpenChange, parentId }: UploadData
 
         {/* Duplicate file conflict banner */}
         {parsed && existingFile && !loading && (
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/50 bg-amber-500/5 p-2.5 text-sm">
-            <TriangleAlert size={16} className="shrink-0 text-amber-500 mt-0.5" />
+          <div className="flex items-start gap-2 rounded-md border border-warning/50 bg-warning/5 p-2.5 text-sm">
+            <TriangleAlert size={16} className="shrink-0 text-warning mt-0.5" />
             <div className="flex-1 min-w-0">
               <p className="text-xs font-medium">{t('datasets.upload_conflict_title')}</p>
               <p className="text-[11px] text-muted-foreground mt-0.5">

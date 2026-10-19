@@ -417,7 +417,7 @@ function ResultCard({ result, isLatest }: { result: ExecutionResult; isLatest?: 
           !result.success
             ? 'border-red-500/30 bg-red-500/5'
             : result.warned
-              ? 'border-amber-500/30 bg-amber-500/5'
+              ? 'border-warning/30 bg-warning/5'
               : 'border-green-500/30 bg-green-500/5'
         )}
       >
@@ -435,7 +435,7 @@ function ResultCard({ result, isLatest }: { result: ExecutionResult; isLatest?: 
               !result.success
                 ? 'bg-red-500/5'
                 : result.warned
-                  ? 'bg-amber-500/5'
+                  ? 'bg-warning/5'
                   : 'bg-green-500/5',
             )}
           >

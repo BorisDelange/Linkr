@@ -58,10 +58,8 @@ export function ImportErrorDialog({ error, onClose, title, variant = 'error' }: 
         <div
           className={cn(
             'flex items-start gap-2 rounded-md border p-3 text-sm break-words',
-            // Amber with an explicit dark variant, matching no-access-notice.tsx —
-            // the theme has no `warning` token, only `destructive`.
             isWarning
-              ? 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-800/70 dark:bg-amber-950/40 dark:text-amber-200'
+              ? 'border-warning/30 bg-warning/10 text-warning-foreground'
               : 'border-destructive/30 bg-destructive/10 text-destructive',
           )}
         >

@@ -2416,7 +2416,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                     <code className="min-w-0 flex-1 truncate font-mono text-foreground">{method}</code>
                     {stat && (
                       <span
-                        className={`shrink-0 font-mono text-[10px] tabular-nums ${versioned && tooLarge ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}
+                        className={`shrink-0 font-mono text-[10px] tabular-nums ${versioned && tooLarge ? 'text-warning-foreground' : 'text-muted-foreground'}`}
                         title={tooLarge ? t('concept_mapping.suggestions_csv_too_large') : t('concept_mapping.suggestions_csv_size', { count: stat.rowCount, formattedCount: stat.rowCount.toLocaleString() })}
                       >
                         ≈ {formatMegabytes(stat.csvBytes)}

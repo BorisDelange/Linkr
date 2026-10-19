@@ -53,8 +53,8 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
     <Badge
       variant="outline"
       className={cn(
-        'gap-1 border-amber-400 text-amber-600 dark:text-amber-400',
-        repoUrl && 'cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-950/40',
+        'gap-1 border-warning/60 text-warning-foreground',
+        repoUrl && 'cursor-pointer hover:bg-warning/15',
       )}
     >
       <AlertTriangle size={12} />
@@ -96,7 +96,7 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
           )}
           {retryError && (
             <div className="mt-2 border-t border-border/50 pt-2">
-              <p className="mb-1 font-medium text-amber-500">{t('versioning.content_import_error_label')}</p>
+              <p className="mb-1 font-medium text-warning">{t('versioning.content_import_error_label')}</p>
               <pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px] leading-relaxed opacity-90">{retryError}</pre>
             </div>
           )}
@@ -106,7 +106,7 @@ export function GitContentStatusBadge({ workspaceId, scope, type, id, name, gitR
         <Button
           size="sm"
           variant="ghost"
-          className="h-6 gap-1 px-2 text-xs text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:text-amber-400 dark:hover:bg-amber-950/40 dark:hover:text-amber-300"
+          className="h-6 gap-1 px-2 text-xs text-warning-foreground hover:bg-warning/10 hover:text-warning-foreground"
           disabled={retrying}
           onClick={retry}
         >

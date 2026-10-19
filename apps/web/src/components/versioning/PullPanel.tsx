@@ -93,7 +93,7 @@ export function PullPanel({
   const footer = (
     <div className="flex shrink-0 items-center justify-end gap-3 border-t pt-3">
       {pendingTotal > 0 ? (
-        <span className="mr-auto text-[11px] text-amber-700 dark:text-amber-400">
+        <span className="mr-auto text-[11px] text-warning-foreground">
           {t('versioning.pull_pending_decisions', { count: pendingTotal })}
         </span>
       ) : (
@@ -286,7 +286,7 @@ function PullCard({
         </ul>
 
         {conflicts > 0 && (
-          <p className="flex items-start gap-1 text-[10px] leading-relaxed text-amber-700 dark:text-amber-400">
+          <p className="flex items-start gap-1 text-[10px] leading-relaxed text-warning-foreground">
             <AlertTriangle size={11} className="mt-px shrink-0" />
             {/* Where the card has no picker to open (metadata fields), say where
                 the choice CAN be made — otherwise the card refuses to accept and

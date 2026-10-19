@@ -219,7 +219,7 @@ export function ApiTokensTab() {
           title={t('api_tokens.created_title')}
           description={t('api_tokens.created_description', { name: created.name })}
         >
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
             <TriangleAlert size={14} className="mt-0.5 shrink-0" />
             <p className="leading-relaxed">{t('api_tokens.shown_once_warning')}</p>
           </div>

@@ -178,7 +178,7 @@ export function GenerateOmopEtlDialog({ open, onOpenChange, pipelineId }: Props)
               <div key={p.name} className="flex items-center gap-2 text-xs">
                 <span className="min-w-0 flex-1 truncate font-mono">{p.name}</span>
                 {p.status === 'edited' ? (
-                  <label className="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
+                  <label className="flex items-center gap-1.5 text-warning-foreground">
                     <Checkbox
                       checked={overwrite.has(p.name)}
                       onCheckedChange={(v) => {
@@ -198,7 +198,7 @@ export function GenerateOmopEtlDialog({ open, onOpenChange, pipelineId }: Props)
           </div>
 
           {(result?.warnings.length ?? 0) > 0 && (
-            <ul className="space-y-1 text-xs text-amber-600 dark:text-amber-400">
+            <ul className="space-y-1 text-xs text-warning-foreground">
               {result!.warnings.map((w) => (
                 <li key={JSON.stringify(w)} className="flex items-start gap-1.5">
                   <AlertTriangle size={12} className="mt-0.5 shrink-0" />

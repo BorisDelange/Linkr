@@ -248,7 +248,7 @@ export function VariableDialog({
         )}
 
         {stale.length > 0 && (
-          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
+          <div className="rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2">
             <p className="text-xs text-foreground">
               {t('patient_data.collection_retype_warning', {
                 count: stale.length,

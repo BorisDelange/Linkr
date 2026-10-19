@@ -177,7 +177,7 @@ export function GitDiffDialog({ scope, id, branch, files, initialPath, selected,
                       {diff.truncated ? t('versioning.diff_hunks_capped') : t('versioning.diff_hunks')}
                     </div>
                   ) : diff?.truncated ? (
-                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-amber-500/10 px-3 py-1.5 text-xs text-amber-700 dark:text-amber-400">
+                    <div className="flex shrink-0 items-center gap-1.5 border-b bg-warning/10 px-3 py-1.5 text-xs text-warning-foreground">
                       <FileWarning size={12} />
                       {t('versioning.diff_truncated')}
                     </div>

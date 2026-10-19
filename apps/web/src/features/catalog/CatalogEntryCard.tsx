@@ -159,7 +159,7 @@ export function CatalogEntryCard({
                 {entry.status && (
                   <Badge
                     variant="outline"
-                    className="shrink-0 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                    className="shrink-0 border-warning/40 bg-warning/10 text-warning-foreground"
                   >
                     {t(`catalog.status_${entry.status}`)}
                   </Badge>

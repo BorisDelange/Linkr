@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
 interface NoticeBannerProps {
-  /** `warning` (amber): something is missing and limits what works.
+  /** `warning` (the warning token): something is missing and limits what works.
    *  `danger` (red): the entity cannot work until it is fixed.
    *  `progress` (neutral, spinning): it will work once something running ends. */
   tone: 'warning' | 'danger' | 'progress'
@@ -19,7 +19,7 @@ interface NoticeBannerProps {
 }
 
 const TONE: Record<NoticeBannerProps['tone'], { band: string; icon: string; title: string }> = {
-  warning: { band: 'border-amber-500/40 bg-amber-500/10', icon: 'text-amber-600 dark:text-amber-500', title: 'text-amber-700 dark:text-amber-400' },
+  warning: { band: 'border-warning/40 bg-warning/10', icon: 'text-warning', title: 'text-warning-foreground' },
   danger: { band: 'border-destructive/30 bg-destructive/5', icon: 'text-destructive', title: 'text-destructive' },
   progress: { band: 'bg-muted/40', icon: 'text-muted-foreground', title: 'text-foreground' },
 }

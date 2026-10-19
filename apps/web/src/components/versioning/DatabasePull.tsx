@@ -131,7 +131,7 @@ export function DatabasePull({ sourceId, branch, remoteHead, onPulled }: Databas
             </li>
           </ul>
 
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+          <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" />
             <span>{missingData ? t('versioning.pull_db_warn_empty') : t('versioning.pull_db_warn')}</span>
           </div>

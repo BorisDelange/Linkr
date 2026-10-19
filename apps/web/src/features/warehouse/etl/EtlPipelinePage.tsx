@@ -186,7 +186,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
                     from a script whose message says nothing about the cause. */}
                 {needsAttention[tab.id] && (
                   <span
-                    className="size-1.5 shrink-0 rounded-full bg-amber-500"
+                    className="size-1.5 shrink-0 rounded-full bg-warning"
                     title={t(needsAttention[tab.id]!)}
                     aria-label={t(needsAttention[tab.id]!)}
                   />

@@ -196,7 +196,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
     <div
       className={
         syncState.diverged
-          ? 'flex shrink-0 items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400'
+          ? 'flex shrink-0 items-center gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground'
           : 'flex shrink-0 items-center gap-2 rounded-md border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs text-sky-700 dark:text-sky-400'
       }
     >
@@ -212,7 +212,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       )}
     </div>
   ) : pullNotImplemented ? (
-    <div className="flex shrink-0 items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+    <div className="flex shrink-0 items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
       <AlertTriangle size={14} className="mt-0.5 shrink-0" />
       <span className="flex-1">{t('versioning.pull_not_implemented')}</span>
     </div>
@@ -436,7 +436,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
                   then needs telling why. With the inline pull the panel has
                   already become the pull, so the notice would restate itself. */}
               {mustPullFirst && !inlinePull && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
                   <Info size={14} className="mt-0.5 shrink-0" />
                   <span>{t('versioning.quick_pull_required')}</span>
                 </div>
@@ -557,7 +557,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           </span>
         )}
         {mustPullFirst && (
-          <span className="text-[11px] text-amber-700 dark:text-amber-400">{t('versioning.sync_pull_first')}</span>
+          <span className="text-[11px] text-warning-foreground">{t('versioning.sync_pull_first')}</span>
         )}
         <Button
           onClick={handleCommit}

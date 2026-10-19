@@ -309,7 +309,7 @@ export function ServerEnvironmentsPanel({
         const latest = updates[p.name]
         if (latest) {
           return (
-            <span className="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400">
+            <span className="inline-flex items-center gap-1 text-warning-foreground">
               <RefreshCw size={11} />
               {t('environments.update_available', { version: latest })}
             </span>
@@ -441,8 +441,8 @@ export function ServerEnvironmentsPanel({
           // A kernel keeps the interpreter it started with, so a session open
           // across a build cannot import what was just installed. Restarting is
           // the fix but clears the namespace — hence an offer, not an action.
-          <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-            <RefreshCw size={13} className="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2">
+            <RefreshCw size={13} className="mt-0.5 shrink-0 text-warning-foreground" />
             <div className="min-w-0 flex-1">
               <p className="text-xs">{t('environments.stale_session_title')}</p>
               <p className="mt-0.5 text-[10px] text-muted-foreground">

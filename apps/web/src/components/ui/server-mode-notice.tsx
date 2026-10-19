@@ -29,17 +29,17 @@ export function ServerModeNotice({ title, description, inline, className }: Serv
     : <>{t('common.requires_server_description_line1')}<br />{t('common.requires_server_description_line2')}</>
   const block = (
     <div className={cn(
-      'flex max-w-md items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-800/70 dark:bg-amber-950/40',
+      'flex max-w-md items-start gap-3 rounded-lg border border-warning/30 bg-warning/10 p-4',
       className,
     )}>
-      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/50">
-        <Server size={16} className="text-amber-600 dark:text-amber-400" />
+      <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-warning/15">
+        <Server size={16} className="text-warning-foreground" />
       </div>
       <div className="space-y-1">
-        <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+        <p className="text-sm font-semibold text-warning-foreground">
           {title ?? t('common.requires_server_title')}
         </p>
-        <p className="text-xs leading-relaxed text-amber-700 dark:text-amber-300/90">
+        <p className="text-xs leading-relaxed text-warning-foreground">
           {body}
         </p>
       </div>

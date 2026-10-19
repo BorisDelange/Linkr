@@ -48,7 +48,7 @@ const calloutStyles: Record<string, CalloutStyle> = {
   note: { icon: <Info size={15} />, border: 'border-blue-500/40', bg: 'bg-blue-500/5', accent: 'text-blue-600 dark:text-blue-400' },
   tip: { icon: <Lightbulb size={15} />, border: 'border-emerald-500/40', bg: 'bg-emerald-500/5', accent: 'text-emerald-600 dark:text-emerald-400' },
   important: { icon: <AlertCircle size={15} />, border: 'border-violet-500/40', bg: 'bg-violet-500/5', accent: 'text-violet-600 dark:text-violet-400' },
-  warning: { icon: <AlertTriangle size={15} />, border: 'border-amber-500/40', bg: 'bg-amber-500/5', accent: 'text-amber-600 dark:text-amber-400' },
+  warning: { icon: <AlertTriangle size={15} />, border: 'border-warning/40', bg: 'bg-warning/5', accent: 'text-warning-foreground' },
   caution: { icon: <AlertTriangle size={15} />, border: 'border-red-500/40', bg: 'bg-red-500/5', accent: 'text-red-600 dark:text-red-400' },
 }
 

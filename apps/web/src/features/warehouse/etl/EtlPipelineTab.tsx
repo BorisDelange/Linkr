@@ -655,7 +655,7 @@ function ConnectionInfoBlock({ info }: { info: DatabaseConnectionInfo }) {
       <div className="space-y-1.5 border-t pt-3">
         <ParquetFilesRow tables={info.tables} />
         {!info.exists && (
-          <p className="text-[10px] text-amber-600 dark:text-amber-500">{t('etl.pipeline_db_missing')}</p>
+          <p className="text-[10px] text-warning-foreground">{t('etl.pipeline_db_missing')}</p>
         )}
       </div>
     )
@@ -673,7 +673,7 @@ function ConnectionInfoBlock({ info }: { info: DatabaseConnectionInfo }) {
         <p className="text-[10px] text-muted-foreground/70">{t('etl.pipeline_db_blob_hint')}</p>
       )}
       {!info.exists && (
-        <p className="text-[10px] text-amber-600 dark:text-amber-500">{t('etl.pipeline_db_missing')}</p>
+        <p className="text-[10px] text-warning-foreground">{t('etl.pipeline_db_missing')}</p>
       )}
     </div>
   )

@@ -39,6 +39,6 @@ export const STATUS_CONFIG: Record<DqCheckStatus, { icon: typeof CheckCircle2; c
 
 export const SEVERITY_CONFIG: Record<DqSeverity, { icon: typeof ShieldAlert; color: string }> = {
   error: { icon: ShieldX, color: 'text-red-600 dark:text-red-400' },
-  warning: { icon: ShieldAlert, color: 'text-amber-600 dark:text-amber-400' },
+  warning: { icon: ShieldAlert, color: 'text-warning-foreground' },
   notice: { icon: Info, color: 'text-yellow-600 dark:text-yellow-400' },
 }

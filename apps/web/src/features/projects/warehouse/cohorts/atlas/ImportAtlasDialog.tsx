@@ -104,13 +104,13 @@ export function ImportAtlasDialog({ open, onOpenChange, onImport }: ImportAtlasD
 
               {/* Warnings */}
               {result.warnings.length > 0 && (
-                <div className="space-y-1 rounded-md bg-yellow-500/10 px-3 py-2">
-                  <p className="text-xs font-medium text-yellow-700 dark:text-yellow-400">
+                <div className="space-y-1 rounded-md bg-warning/10 px-3 py-2">
+                  <p className="text-xs font-medium text-warning-foreground">
                     {t('cohorts.atlas_warnings', { count: result.warnings.length })}
                   </p>
                   <ul className="space-y-0.5">
                     {result.warnings.map((w, i) => (
-                      <li key={i} className="text-xs text-yellow-600 dark:text-yellow-300">
+                      <li key={i} className="text-xs text-warning-foreground">
                         {w}
                       </li>
                     ))}

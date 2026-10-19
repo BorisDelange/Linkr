@@ -527,9 +527,9 @@ export function ExportTab({ project }: ExportTabProps) {
                 {t('concept_mapping.export_download')}
               </Button>
               {zipError && (
-                <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 p-2 dark:border-amber-900 dark:bg-amber-950">
-                  <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-600" />
-                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-2">
+                  <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
+                  <p className="text-xs text-warning-foreground">
                     {zipError}
                   </p>
                 </div>

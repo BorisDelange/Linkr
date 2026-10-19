@@ -156,7 +156,7 @@ export function ParquetFilesDialog({
           <span className="flex items-center gap-1.5">
             <code className="truncate font-medium">{r.table}</code>
             {!r.exists && (
-              <span className="shrink-0 text-[10px] text-amber-600 dark:text-amber-500">
+              <span className="shrink-0 text-[10px] text-warning-foreground">
                 {t('etl.pipeline_db_table_missing')}
               </span>
             )}

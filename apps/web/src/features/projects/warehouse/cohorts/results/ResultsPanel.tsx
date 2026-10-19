@@ -210,7 +210,7 @@ export function ResultsPanel({
                 </div>
               </div>
               {result.fromDraft && (
-                <Badge variant="outline" className="border-amber-400/50 text-amber-600 dark:text-amber-400" title={t('cohorts.results_from_draft_hint')}>
+                <Badge variant="outline" className="border-warning/50 text-warning-foreground" title={t('cohorts.results_from_draft_hint')}>
                   {t('cohorts.results_from_draft')}
                 </Badge>
               )}

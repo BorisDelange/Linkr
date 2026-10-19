@@ -493,7 +493,7 @@ function MissingMapping({ missing }: { missing: string }) {
   const { t } = useTranslation()
   return (
     <div className={cn('flex items-start gap-2 rounded-md border border-dashed p-2')}>
-      <AlertTriangle size={13} className="mt-0.5 shrink-0 text-amber-500" />
+      <AlertTriangle size={13} className="mt-0.5 shrink-0 text-warning" />
       <div className="space-y-0.5">
         <p className="text-xs">{t('patient_data.sql_unavailable')}</p>
         <p className="font-mono text-[10px] text-muted-foreground">{missing}</p>

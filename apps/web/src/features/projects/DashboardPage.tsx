@@ -323,13 +323,13 @@ export function DashboardPage() {
 
       {/* Plugin drift banner — a plugin used here changed since some widgets were built. */}
       {staleWidgetCount > 0 && (
-        <div className="flex items-center gap-2 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-300">
+        <div className="flex items-center gap-2 border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning-foreground">
           <AlertTriangle size={14} className="shrink-0" />
           <span className="flex-1">{t('dashboard.plugin_drift_banner', { count: staleWidgetCount })}</span>
           <Button
             size="xs"
             variant="outline"
-            className="gap-1 border-amber-500/40"
+            className="gap-1 border-warning/40"
             disabled={!canWrite}
             onClick={() => acceptAllPluginVersions(currentDashboardId)}
           >
