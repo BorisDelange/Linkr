@@ -49,8 +49,8 @@ export function BoardTabGrids({ board, tabs, widgets, currentTabId, editMode, em
 
   if (!isMountableTab) return <>{empty}</>
 
-  // With keep-alive: every visited tab (+ the current one on its first render, before the
-  // effect records it). Without: only the current tab, so switching away unmounts it.
+  // With keep-alive: every visited tab, the current one included. Without: only the
+  // current tab, so switching away unmounts it.
   const mountedTabs = tabs.filter((tab) =>
     tab.id === currentTabId || (keepAlive && !!visitedTabIds?.has(tab.id)),
   )

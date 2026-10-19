@@ -13,7 +13,9 @@ vi.mock('@/lib/duckdb/engine', () => ({
   }),
 }))
 
-const { clearPatientQueries, estimateBytes, patientQuery, setPrefetchPatients, statementsFor } = await import('./patient-prefetch')
+const { clearPatientQueries, estimateBytes, patientQuery, releasePrefetch, setPrefetchPatients, statementsFor } = await import('./patient-prefetch')
+
+const board = {}
 
 const notes = (p: string) => `SELECT * FROM linkr_note WHERE patient_id = '${p}'`
 const sentSql = () => sent.map((s) => s.sql)
@@ -27,7 +29,7 @@ beforeEach(() => {
   stalled.clear()
 })
 afterEach(() => {
-  setPrefetchPatients(null, null, null)
+  releasePrefetch(board)
   clearPatientQueries()
   vi.useRealTimers()
 })
@@ -44,7 +46,7 @@ describe('statementsFor', () => {
 
 describe('reading the next patient ahead', () => {
   it('sends the current patient’s statements for the next one once the screen has settled', async () => {
-    setPrefetchPatients('db', 'p1', 'p2')
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
     await patientQuery('db', notes('p1'))
     expect(sentSql()).toEqual([notes('p1')])
     await settle()
@@ -52,20 +54,20 @@ describe('reading the next patient ahead', () => {
   })
 
   it('serves the next patient from what was read, without a second query', async () => {
-    setPrefetchPatients('db', 'p1', 'p2')
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
     await patientQuery('db', notes('p1'))
     await settle()
-    setPrefetchPatients('db', 'p2', 'p3')
+    setPrefetchPatients(board, 'db', 'p2', 'p3')
     sent.length = 0
     expect(await patientQuery('db', notes('p2'))).toEqual([{ sql: notes('p2') }])
     expect(sent).toEqual([])
   })
 
   it('queries as before a statement it did not read ahead', async () => {
-    setPrefetchPatients('db', 'p1', 'p2')
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
     await patientQuery('db', notes('p1'))
     await settle()
-    setPrefetchPatients('db', 'p2', null)
+    setPrefetchPatients(board, 'db', 'p2', null)
     sent.length = 0
     const other = `${notes('p2')} AND visit_id = 'v9'`
     await patientQuery('db', other)
@@ -74,22 +76,22 @@ describe('reading the next patient ahead', () => {
 
   it('stops the read ahead when another patient is opened, and keeps nothing of it', async () => {
     stalled.add(notes('p2'))
-    setPrefetchPatients('db', 'p1', 'p2')
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
     await patientQuery('db', notes('p1'))
     await settle()
     const ahead = sent.find((s) => s.sql === notes('p2'))!
-    setPrefetchPatients('db', 'p7', 'p8')
+    setPrefetchPatients(board, 'db', 'p7', 'p8')
     expect(ahead.signal?.aborted).toBe(true)
     stalled.clear()
     sent.length = 0
-    setPrefetchPatients('db', 'p2', null)
+    setPrefetchPatients(board, 'db', 'p2', null)
     await patientQuery('db', notes('p2'))
     expect(sentSql()).toEqual([notes('p2')])
   })
 
   it('waits while the current patient is still loading', async () => {
     stalled.add(notes('p1'))
-    setPrefetchPatients('db', 'p1', 'p2')
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
     void patientQuery('db', notes('p1')).catch(() => {})
     await settle()
     expect(sentSql()).toEqual([notes('p1')])
@@ -98,13 +100,13 @@ describe('reading the next patient ahead', () => {
 
 describe('in the order React runs effects', () => {
   it('serves a read ahead to a widget that queries the next patient before the list says so', async () => {
-    setPrefetchPatients('db', 'p1', 'p2')
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
     await patientQuery('db', notes('p1'))
     await settle()
     sent.length = 0
     // The widget's effect, then the list's.
     expect(await patientQuery('db', notes('p2'))).toEqual([{ sql: notes('p2') }])
-    setPrefetchPatients('db', 'p2', 'p3')
+    setPrefetchPatients(board, 'db', 'p2', 'p3')
     expect(sent).toEqual([])
     await settle()
     expect(sentSql()).toEqual([notes('p3')])
@@ -112,7 +114,19 @@ describe('in the order React runs effects', () => {
 
   it('records the first patient’s queries sent before the list is known', async () => {
     await patientQuery('db', notes('p1'))
-    setPrefetchPatients('db', 'p1', 'p2')
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
+    await settle()
+    expect(sentSql()).toEqual([notes('p1'), notes('p2')])
+  })
+})
+
+describe('several boards at once', () => {
+  it('keeps reading ahead for the board still shown when another one goes', async () => {
+    const panel = {}
+    setPrefetchPatients(board, 'db', 'p1', 'p2')
+    await patientQuery('db', notes('p1'))
+    setPrefetchPatients(panel, 'db', 'p5', null)
+    releasePrefetch(panel)
     await settle()
     expect(sentSql()).toEqual([notes('p1'), notes('p2')])
   })
@@ -120,11 +134,11 @@ describe('in the order React runs effects', () => {
 
 describe('kept for the session', () => {
   it('reads nothing when coming back to a patient already seen', async () => {
-    setPrefetchPatients('db', 'p1', null)
+    setPrefetchPatients(board, 'db', 'p1', null)
     await patientQuery('db', notes('p1'))
-    setPrefetchPatients('db', 'p5', null)
+    setPrefetchPatients(board, 'db', 'p5', null)
     await patientQuery('db', notes('p5'))
-    setPrefetchPatients('db', 'p1', null)
+    setPrefetchPatients(board, 'db', 'p1', null)
     sent.length = 0
     expect(await patientQuery('db', notes('p1'))).toEqual([{ sql: notes('p1') }])
     expect(sent).toEqual([])

@@ -51,6 +51,11 @@ import type {
 import { localized, toLocalized } from '@/lib/localized'
 import type { ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 
+/** A seed write that failed: the seed goes on without it, but says which. */
+const seedWriteFailed = (what: string, id: string) => (err: unknown) => {
+  console.warn(`[seed-loader] Could not store ${what} ${id}:`, err)
+}
+
 /** Languages seeded from per-language README files (README.md = en, README.fr.md = fr). */
 const SEED_LANGUAGES = ['en', 'fr'] as const
 
@@ -385,7 +390,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
       if (content !== null) (node as { content?: string }).content = content
     }
     for (const f of attachTreeIds<IdeFile>(scriptTree, projectUid, 'projectUid')) {
-      await storage.ideFiles.create(f).catch(() => {})
+      await storage.ideFiles.create(f).catch(seedWriteFailed('IDE file', f.id))
     }
   }
 
@@ -393,7 +398,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
   const pipelines = await fetchJson<import('@/types').Pipeline[]>(`${base}/pipeline/pipeline.json`)
   if (pipelines) {
     for (const p of pipelines) {
-      await storage.pipelines.create({ ...p, projectUid }).catch(() => {})
+      await storage.pipelines.create({ ...p, projectUid }).catch(seedWriteFailed('pipeline', p.id))
     }
   }
 
@@ -426,7 +431,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
   // --- Connections (databases/) ---
   for (const path of projectIndex?.connections ?? []) {
     const conn = await fetchJson<import('@/types').IdeConnection>(`${base}/databases/${path}`)
-    if (conn) await storage.connections.create({ ...conn, projectUid }).catch(() => {})
+    if (conn) await storage.connections.create({ ...conn, projectUid }).catch(seedWriteFailed('connection', conn.id))
   }
 
   // --- Dashboards ---
@@ -439,12 +444,12 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
     const bundle = await fetchJson<DashboardBundle>(`${base}/dashboards/${path}`)
     if (!bundle?.dashboard) continue
     const resolved = resolveDashboardBundle(bundle, projectUid)
-    await storage.dashboards.create({ ...resolved.dashboard, origin: 'seed' }).catch(() => {})
+    await storage.dashboards.create({ ...resolved.dashboard, origin: 'seed' }).catch(seedWriteFailed('dashboard', resolved.dashboard.id))
     for (const tab of resolved.tabs) {
-      await storage.dashboardTabs.create(tab).catch(() => {})
+      await storage.dashboardTabs.create(tab).catch(seedWriteFailed('dashboard tab', tab.id))
     }
     for (const w of resolved.widgets) {
-      await storage.dashboardWidgets.create(w).catch(() => {})
+      await storage.dashboardWidgets.create(w).catch(seedWriteFailed('dashboard widget', w.id))
     }
   }
 
@@ -490,14 +495,14 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
         const columns = await fetchJson<DatasetColumn[]>(`${base}/datasets/${folderName}/_columns.json`)
         if (columns) df.columns = columns
       }
-      await storage.datasetFiles.create({ ...df, projectUid, origin: 'seed' }).catch(() => {})
+      await storage.datasetFiles.create({ ...df, projectUid, origin: 'seed' }).catch(seedWriteFailed('dataset', df.id))
     }
 
     // Load analyses
     for (const [folder, analyses] of Object.entries(projectIndex?.datasetAnalyses ?? {})) {
       for (const analysisPath of analyses) {
         const analysis = await fetchJson<import('@/types').DatasetAnalysis>(`${base}/datasets/${folder}/${analysisPath}`)
-        if (analysis) await storage.datasetAnalyses.create(analysis).catch(() => {})
+        if (analysis) await storage.datasetAnalyses.create(analysis).catch(seedWriteFailed('dataset analysis', analysis.id))
       }
     }
 
@@ -516,7 +521,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
         if (!df) continue
         const sidecar = await fetchJson<{ rows: Record<string, unknown>[] }>(`${base}/datasets/${folder}/_data.json`)
         if (sidecar?.rows?.length) {
-          await storage.datasetData.save({ datasetFileId: df.id, rows: sidecar.rows }).catch(() => {})
+          await storage.datasetData.save({ datasetFileId: df.id, rows: sidecar.rows }).catch(seedWriteFailed('dataset rows', df.id))
         }
       }
 
@@ -528,7 +533,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
         if (!csv) continue
         const rows = parseSeedCsv(csv, df)
         if (rows.length > 0) {
-          await storage.datasetData.save({ datasetFileId: df.id, rows }).catch(() => {})
+          await storage.datasetData.save({ datasetFileId: df.id, rows }).catch(seedWriteFailed('dataset rows', df.id))
         }
       }
 
@@ -538,7 +543,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
         if (!df) continue
         const bytes = await fetchBinary(`${base}/datasets/${folder}/${rawName}`)
         if (bytes) {
-          await storage.datasetRawFiles.save({ datasetFileId: df.id, blob: new Blob([bytes]), fileName: rawName }).catch(() => {})
+          await storage.datasetRawFiles.save({ datasetFileId: df.id, blob: new Blob([bytes]), fileName: rawName }).catch(seedWriteFailed('dataset raw file', df.id))
         }
       }
     }
@@ -552,7 +557,7 @@ async function loadFullProject(projectUid: string, base: string): Promise<void> 
       if (data) {
         await storage.readmeAttachments.create({
           ...meta, ownerType: 'project', ownerId: projectUid, data,
-        } as import('@/types').ReadmeAttachment).catch(() => {})
+        } as import('@/types').ReadmeAttachment).catch(seedWriteFailed('README attachment', meta.id))
       }
     }
   }
@@ -781,7 +786,7 @@ async function loadStructuralEntity(
         conceptSetRefs,
         conceptSetRefs?.length ? await storage.conceptSets.getByWorkspace(wsId) : [],
       )
-      await storage.mappingProjects.create({ ...manifest, conceptSetIds, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      await storage.mappingProjects.create({ ...manifest, conceptSetIds, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(seedWriteFailed('mapping project', manifest.id))
       const mappings = await fetchJson<ConceptMapping[]>(`${base}/mapping-projects/${mpFolder}/mappings.json`) ?? []
       if (mappings.length > 0) {
         // `mappings.json` carries no `id` (an export strips primary keys), but the
@@ -805,10 +810,10 @@ async function loadStructuralEntity(
         const scoresFile = new File([scoresBuf], `${project.id}.parquet`, { type: 'application/octet-stream' })
         if (isServerMode()) {
           const { persistScoresFileOnServer } = await import('@/lib/api/scores')
-          await persistScoresFileOnServer(project.id, scoresFile).catch(() => {})
+          await persistScoresFileOnServer(project.id, scoresFile).catch(seedWriteFailed('similarity scores', project.id))
         } else {
           const { persistScoresFile } = await import('@/lib/concept-mapping/scores-engine')
-          await persistScoresFile(project.id, scoresFile).catch(() => {})
+          await persistScoresFile(project.id, scoresFile).catch(seedWriteFailed('similarity scores', project.id))
         }
       }
       // The versioned methods, one CSV each — the entity.json names them, since
@@ -823,10 +828,10 @@ async function loadStructuralEntity(
       if (scoreCsvs.length > 0) {
         if (isServerMode()) {
           const { importScoreCsvsOnServer } = await import('@/lib/api/scores')
-          await importScoreCsvsOnServer(project.id, scoreCsvs).catch(() => {})
+          await importScoreCsvsOnServer(project.id, scoreCsvs).catch(seedWriteFailed('score methods', project.id))
         } else {
           const { replaceScoreMethods } = await import('@/lib/concept-mapping/scores-engine')
-          await replaceScoreMethods(project.id, scoreCsvs).catch(() => {})
+          await replaceScoreMethods(project.id, scoreCsvs).catch(seedWriteFailed('score methods', project.id))
         }
       }
       break
@@ -849,9 +854,9 @@ async function loadStructuralEntity(
       // See seedRowId: no primary key in an export, and the checks below are
       // written against this one.
       ruleSet.id = entityKey(ruleSet, folder ?? entity.id)
-      await storage.dqRuleSets.create({ ...ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      await storage.dqRuleSets.create({ ...ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(seedWriteFailed('DQ rule set', ruleSet.id))
       for (const check of checks) {
-        await storage.dqCustomChecks.create({ ...check, ruleSetId: ruleSet.id } as import('@/types').DqCustomCheck).catch(() => {})
+        await storage.dqCustomChecks.create({ ...check, ruleSetId: ruleSet.id } as import('@/types').DqCustomCheck).catch(seedWriteFailed('DQ check', check.id))
       }
       break
     }
@@ -862,7 +867,7 @@ async function loadStructuralEntity(
         : await fetchJson<DataCatalog>(`${base}/${entity.path}`)
       if (!cat) return
       cat.id = entityKey(cat, folder ?? entity.id)
-      await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      await storage.dataCatalogs.create({ ...cat, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(seedWriteFailed('data catalog', cat.id))
       break
     }
     case 'etlPipeline': {
@@ -871,7 +876,7 @@ async function loadStructuralEntity(
       if (!pipeline) return
       // See seedRowId — and the whole script tree below is keyed on `pipeline.id`.
       pipeline.id = entityKey(pipeline, etlFolder)
-      await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+      await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(seedWriteFailed('ETL pipeline', pipeline.id))
       // Optional script-file tree (the generated ETL scripts themselves are seeded
       // in phase 2 via the etlScript entry; older exports may ship a _tree.json).
       const { tree: etlTree, filePrefix } = await fetchScriptTree(`${base}/etl/${etlFolder}`)
@@ -885,7 +890,7 @@ async function loadStructuralEntity(
           const content = await fetchText(`${base}/etl/${etlFolder}/${seedFilePath(filePrefix, f.path)}`)
           if (content !== null) f.content = content
         }
-        await storage.etlFiles.create(storablePathNode(f)).catch(() => {})
+        await storage.etlFiles.create(storablePathNode(f)).catch(seedWriteFailed('ETL file', f.path))
       }
       break
     }
@@ -949,7 +954,7 @@ async function loadWorkspaceInternals(
       // until the repo was pulled. Same bridge the ZIP import and clone paths use.
       mapping: { ...mapping, ...(ddl ? { ddl } : {}) },
       workspaceId: wsId,
-    }).catch(() => {})
+    }).catch(seedWriteFailed('schema preset', presetKey))
   }
 
   // --- databases/ (metadata only, no credentials/files) ---
@@ -996,7 +1001,7 @@ async function loadWorkspaceInternals(
         if (text != null) content[lang] = text
       }
       const title = toLocalized((meta as { title?: string | LocalizedString }).title)
-      await storage.wikiPages.create({ ...meta, title, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(() => {})
+      await storage.wikiPages.create({ ...meta, title, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(seedWriteFailed('wiki page', meta.id))
     }
   }
 
@@ -1006,7 +1011,7 @@ async function loadWorkspaceInternals(
     if (!collection) continue
     const collectionId = ownerIdOf(collection)
     if (!collectionId) continue
-    await storage.sqlScriptCollections.create({ ...collection, id: collectionId, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.sqlScriptCollections.create({ ...collection, id: collectionId, workspaceId: wsId, updatedAt: now }).catch(seedWriteFailed('SQL collection', collectionId))
     // The manifest keys a file by its path in the folder (`scripts/queries/cohort.sql`),
     // prefix included — looked up by its bare tree path, every script seeded empty.
     const { tree: colTree, filePrefix } = await fetchScriptTree(`${base}/sql-scripts/${colFolder}`)
@@ -1021,7 +1026,7 @@ async function loadWorkspaceInternals(
         const content = await fetchText(`${base}/sql-scripts/${colFolder}/${filePath}`)
         if (content !== null) f.content = content
       }
-      await storage.sqlScriptFiles.create(storablePathNode(f)).catch(() => {})
+      await storage.sqlScriptFiles.create(storablePathNode(f)).catch(seedWriteFailed('SQL file', f.path))
     }
   }
 
@@ -1031,7 +1036,7 @@ async function loadWorkspaceInternals(
     if (!pipeline) continue
     const pipelineId = ownerIdOf(pipeline)
     if (!pipelineId) continue
-    await storage.etlPipelines.create({ ...pipeline, id: pipelineId, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+    await storage.etlPipelines.create({ ...pipeline, id: pipelineId, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(seedWriteFailed('ETL pipeline', pipelineId))
     const { tree: etlTree, filePrefix } = await fetchScriptTree(`${base}/etl/${etlFolder}`)
     const tree = fromPathTree<EtlFile & { path: string }>(
       readPathTree(etlTree),
@@ -1044,7 +1049,7 @@ async function loadWorkspaceInternals(
         const content = await fetchText(`${base}/etl/${etlFolder}/${filePath}`)
         if (content !== null) f.content = content
       }
-      await storage.etlFiles.create(storablePathNode(f)).catch(() => {})
+      await storage.etlFiles.create(storablePathNode(f)).catch(seedWriteFailed('ETL file', f.path))
     }
   }
 
@@ -1052,7 +1057,7 @@ async function loadWorkspaceInternals(
   for (const path of index.conceptSets ?? []) {
     const cs = await fetchJson<ConceptSet>(`${base}/${path}`)
     if (!cs) continue
-    await storage.conceptSets.create({ ...cs, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.conceptSets.create({ ...cs, workspaceId: wsId, updatedAt: now }).catch(seedWriteFailed('concept set', cs.id))
   }
 
   // --- source-concept-ids/ registry: root ranges + per-project entries, merged.
@@ -1072,19 +1077,19 @@ async function loadWorkspaceInternals(
   const rootEntries = rootRaw ? parseSourceConceptIdEntries(rootRaw, wsId) : []
   const merged = mergeSourceConceptIdRegistry(projectGroups, { ranges: rootRanges, entries: rootEntries })
   for (const range of merged.ranges) {
-    await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, createdAt: now, updatedAt: now }).catch(() => {})
+    await storage.sourceConceptIdRanges.save({ ...range, workspaceId: wsId, createdAt: now, updatedAt: now }).catch(seedWriteFailed('source concept id range', String(range.rangeStart)))
   }
   if (merged.entries.length > 0) {
     await storage.sourceConceptIdEntries.saveBatch(
       merged.entries.map(e => ({ ...e, workspaceId: wsId }))
-    ).catch(() => {})
+    ).catch(seedWriteFailed('source concept id entries', wsId))
   }
 
   // --- service-mappings/ ---
   for (const path of index.serviceMappings ?? []) {
     const sm = await fetchJson<ServiceMapping>(`${base}/${path}`)
     if (!sm) continue
-    await storage.serviceMappings.create({ ...sm, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    await storage.serviceMappings.create({ ...sm, workspaceId: wsId, updatedAt: now }).catch(seedWriteFailed('service mapping', sm.id))
   }
 
   // --- plugins/ ---
@@ -1112,7 +1117,7 @@ async function loadWorkspaceInternals(
       createdAt: pluginMeta.createdAt,
       updatedAt: now,
     }
-    await storage.userPlugins.create(userPlugin).catch(() => {})
+    await storage.userPlugins.create(userPlugin).catch(seedWriteFailed('user plugin', userPlugin.id))
   }
 }
 
@@ -1253,6 +1258,7 @@ async function seedDatabase(db: SeedDatabase, wsId: string): Promise<void> {
     // server-side on first query). Front-only mounts it in DuckDB-WASM.
     if (!isServerMode()) {
       await engine.mountEmptyFromDDL(db.id, schemaMapping.ddl!, db.alias)
+      noteSeedMounted(db.id)
     }
     localStorage.setItem(lsKey, '1')
     console.info(`[seed-loader] In-memory database "${localized(db.name, 'en')}" created`)
@@ -1844,21 +1850,21 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
         await storage.mappingProjects.update(project.id, {
           ...(dataSourceId ? { dataSourceId } : {}),
           ...(vocabularyDataSourceId ? { vocabularyDataSourceId } : {}),
-        }).catch(() => {})
+        }).catch(seedWriteFailed('mapping project links', project.id))
       }
     }
     for (const catalog of catalogs) {
       const dataSourceId = link(catalog.dataSourceRef, catalog.dataSourceId)
-      if (dataSourceId) await storage.dataCatalogs.update(catalog.id, { dataSourceId }).catch(() => {})
+      if (dataSourceId) await storage.dataCatalogs.update(catalog.id, { dataSourceId }).catch(seedWriteFailed('data catalog link', catalog.id))
     }
     for (const ruleSet of ruleSets) {
       const dataSourceId = link(ruleSet.dataSourceRef, ruleSet.dataSourceId)
-      if (dataSourceId) await storage.dqRuleSets.update(ruleSet.id, { dataSourceId }).catch(() => {})
+      if (dataSourceId) await storage.dqRuleSets.update(ruleSet.id, { dataSourceId }).catch(seedWriteFailed('DQ rule set link', ruleSet.id))
     }
     for (const collection of collections) {
       const defaultDataSourceId = link(collection.defaultDataSourceRef, collection.defaultDataSourceId)
       if (defaultDataSourceId) {
-        await storage.sqlScriptCollections.update(collection.id, { defaultDataSourceId }).catch(() => {})
+        await storage.sqlScriptCollections.update(collection.id, { defaultDataSourceId }).catch(seedWriteFailed('SQL collection link', collection.id))
       }
     }
     for (const pipeline of pipelines) {
@@ -1874,7 +1880,7 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
           ...(sourceDataSourceId ? { sourceDataSourceId } : {}),
           ...(targetDataSourceId ? { targetDataSourceId } : {}),
           ...(mappingProjectId ? { mappingProjectId } : {}),
-        }).catch(() => {})
+        }).catch(seedWriteFailed('ETL pipeline links', pipeline.id))
       }
     }
 
@@ -1885,7 +1891,7 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
       const cohortDatabase = new Map<string, string>()
       for (const cohort of await storage.cohorts.getByProject(project.uid)) {
         const dataSourceId = link(cohort.dataSourceRef, cohort.dataSourceId)
-        if (dataSourceId) await storage.cohorts.update(cohort.id, { dataSourceId }).catch(() => {})
+        if (dataSourceId) await storage.cohorts.update(cohort.id, { dataSourceId }).catch(seedWriteFailed('cohort link', cohort.id))
         const resolved = dataSourceId ?? cohort.dataSourceId
         if (resolved) cohortDatabase.set(cohort.id, resolved)
       }
@@ -1894,7 +1900,7 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
         const dataSourceId = board.ownerCohortId
           ? (board.dataSourceId ? undefined : cohortDatabase.get(board.ownerCohortId))
           : link(board.dataSourceRef, board.dataSourceId)
-        if (dataSourceId) await storage.patientDashboards.update(board.id, { dataSourceId }).catch(() => {})
+        if (dataSourceId) await storage.patientDashboards.update(board.id, { dataSourceId }).catch(seedWriteFailed('patient board link', board.id))
       }
     }
 
@@ -1908,7 +1914,7 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
       if (cfg?.ideDataSourceRef && !cfg.ideDataSourceId) {
         const ideDataSourceId = resolvePointer(databases, cfg.ideDataSourceRef, wsId)?.id
         if (ideDataSourceId) {
-          await storage.projects.update(project.uid, { config: { ...cfg, ideDataSourceId } }).catch(() => {})
+          await storage.projects.update(project.uid, { config: { ...cfg, ideDataSourceId } }).catch(seedWriteFailed('project IDE database', project.uid))
         }
       }
       if (project.linkedDataSourceIds?.length || !project.linkedDataSourceRefs?.length) continue
@@ -1919,7 +1925,7 @@ async function attachSeededEntityLinks(wsId: string): Promise<void> {
         await storage.projects.update(project.uid, {
           linkedDataSourceIds: linked.ids,
           linkedDataSourceRefs: linked.refs,
-        }).catch(() => {})
+        }).catch(seedWriteFailed('project linked databases', project.uid))
       }
     }
   } catch (err) {

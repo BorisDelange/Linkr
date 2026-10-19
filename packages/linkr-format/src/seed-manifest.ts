@@ -227,7 +227,11 @@ export function buildSeedManifest(
       ? { ...(baseMapping as Record<string, unknown>), ddl }
       : baseMapping
 
-    const inMemory = declared.inMemory === true && typeof (schema as { ddl?: unknown } | undefined)?.ddl === 'string'
+    // The app's export writes it under connectionConfig; a hand-written tree may
+    // put it at the top level.
+    const connectionConfig = declared.connectionConfig as { inMemory?: unknown } | undefined
+    const declaredInMemory = declared.inMemory === true || connectionConfig?.inMemory === true
+    const inMemory = declaredInMemory && typeof (schema as { ddl?: unknown } | undefined)?.ddl === 'string'
     if (!tables.length && !inMemory) continue
 
     entities.push({

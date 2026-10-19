@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { dataSeedSettled, takeSeedMounted } from '@/lib/data-seed-gate'
+import { clearPatientQueries } from '@/features/projects/warehouse/patient-data/patient-prefetch'
 import { isServerMode } from '@/lib/api-client'
 import { useCohortStore } from '@/stores/cohort-store'
 import { createFromDdlOnServer, deleteDataSourceOnServer, deriveOnServer, fetchDataSourceSchema, retestConnectionOnServer, testConnectionOnServer, uploadDataSourceFile } from '@/lib/api/data-sources'
@@ -313,8 +314,26 @@ const countingSources = new Set<string>()
  */
 const inCountQueue = createConcurrencyLimit(2)
 
-/** Track which data sources are currently mounted in DuckDB. */
-const mountedSources = new Set<string>()
+/**
+ * Which data sources are currently mounted in DuckDB. What is mounted under an
+ * id changing is its data changing (a re-import, a remount), so the patient rows
+ * kept for it are dropped on every move.
+ */
+class MountedSources extends Set<string> {
+  add(id: string) {
+    clearPatientQueries(id)
+    return super.add(id)
+  }
+  delete(id: string) {
+    clearPatientQueries(id)
+    return super.delete(id)
+  }
+  clear() {
+    clearPatientQueries()
+    super.clear()
+  }
+}
+const mountedSources = new MountedSources()
 
 /** Track in-flight mount promises to avoid concurrent mounts of the same source. */
 const mountingPromises = new Map<string, Promise<void>>()
@@ -1079,15 +1098,21 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     // `mountingPromises` counts as busy too: ensureMounted (every front-only
     // query) mounts under that registry alone, and without this we started a
     // second mount of a source it already had in flight.
-    const sources = get().dataSources.filter(
-      (ds) => linkedIds.includes(ds.id) && !mountedSources.has(ds.id)
-        && !busySources.has(ds.id) && !mountingPromises.has(ds.id),
-    )
+    const candidateIds = get().dataSources
+      .filter((ds) => linkedIds.includes(ds.id) && !mountedSources.has(ds.id)
+        && !busySources.has(ds.id) && !mountingPromises.has(ds.id))
+      .map((ds) => ds.id)
 
     await dataSeedSettled()
-    for (const ds of sources) {
-      if (busySources.has(ds.id) || mountingPromises.has(ds.id)) continue
-      if (mountedSources.has(ds.id) || adoptSeedMount(ds.id)) continue
+    for (const id of candidateIds) {
+      if (busySources.has(id) || mountingPromises.has(id)) continue
+      if (mountedSources.has(id) || adoptSeedMount(id)) continue
+      // Read back after the seed, as ensureMounted does: the copy taken before
+      // it predates the seed's connection (no file list yet).
+      const inStore = get().dataSources.find((d) => d.id === id)
+      const stored = await getStorage().dataSources.getById(id).catch(() => undefined)
+      const ds = inStore && stored ? { ...inStore, connectionConfig: stored.connectionConfig } : inStore ?? stored
+      if (!ds || busySources.has(id) || mountingPromises.has(id) || mountedSources.has(id)) continue
       busySources.add(ds.id)
       const config = ds.connectionConfig as DatabaseConnectionConfig
       try {
@@ -1101,7 +1126,9 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
         // ds_… already exists". Visiting Databases first mounted everything
         // before any page asked, which is why that looked like a workaround.
         const mount = (async () => {
-          if (config.useFileHandles) {
+          if (config.inMemory && ds.schemaMapping?.ddl) {
+            await withTimeout(engine.mountEmptyFromDDL(ds.id, ds.schemaMapping.ddl, ds.alias), MOUNT_TIMEOUT, 'mountEmptyFromDDL')
+          } else if (config.useFileHandles) {
             const handles = await getStorage().fileHandles.getByDataSource(ds.id)
             if (handles.length === 0) { skip = 'no-handles'; return }
             const granted = await engine.requestHandlePermissions(handles)

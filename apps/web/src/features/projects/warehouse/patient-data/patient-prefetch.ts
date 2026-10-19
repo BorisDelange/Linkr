@@ -26,6 +26,8 @@ const MAX_RECORDED = 100
 const MAX_BYTES = 64 * 1024 * 1024
 /** A result larger than this is not worth evicting everything else for. */
 const MAX_ENTRY_BYTES = 16 * 1024 * 1024
+/** What an entry costs besides its rows, so empty results still count. */
+const ENTRY_OVERHEAD_BYTES = 64
 
 type Rows = Record<string, unknown>[]
 
@@ -34,6 +36,15 @@ interface Entry {
   /** Known once the rows are in. */
   bytes: number
 }
+
+interface Target {
+  dataSourceId: string
+  patientId: string | null
+  nextPatientId: string | null
+}
+
+/** Each board showing patients, by its token; the latest to move leads. */
+const owners = new Map<object, Target>()
 
 const state = {
   dataSourceId: null as string | null,
@@ -54,6 +65,7 @@ const state = {
 
 const literal = (patientId: string) => `'${escSql(patientId)}'`
 const keyOf = (dataSourceId: string, sql: string) => `${dataSourceId}\n${sql}`
+const entryBytes = (key: string, rows: Rows) => ENTRY_OVERHEAD_BYTES + key.length * 2 + estimateBytes(rows)
 
 /** About what the rows take in memory: their text, and a few bytes a value. */
 export function estimateBytes(rows: Rows): number {
@@ -81,7 +93,7 @@ function keep(key: string, read: Promise<Rows>): Promise<Rows> {
   state.kept.set(key, entry)
   read.then((rows) => {
     if (state.kept.get(key) !== entry) return
-    const bytes = estimateBytes(rows)
+    const bytes = entryBytes(key, rows)
     if (bytes > MAX_ENTRY_BYTES) {
       state.kept.delete(key)
       return
@@ -140,12 +152,7 @@ async function readAhead() {
   }
 }
 
-/**
- * The patient on screen and the one after it in the list. Called on every
- * change: reaching the patient read ahead lets its reads finish, anything else
- * stops them.
- */
-export function setPrefetchPatients(dataSourceId: string | null, patientId: string | null, nextPatientId: string | null): void {
+function apply(dataSourceId: string | null, patientId: string | null, nextPatientId: string | null) {
   if (dataSourceId !== state.dataSourceId || patientId !== state.patientId) {
     clearIdle()
     const arrived = dataSourceId === state.dataSourceId && patientId != null && state.ahead?.patientId === patientId
@@ -161,6 +168,28 @@ export function setPrefetchPatients(dataSourceId: string | null, patientId: stri
   state.patientId = patientId
   state.nextPatientId = nextPatientId === patientId ? null : nextPatientId
   scheduleIfIdle()
+}
+
+/**
+ * The patient `owner` (a board's token) has on screen and the one after it in
+ * its list. Called on every change: reaching the patient read ahead lets its
+ * reads finish, anything else stops them. Without a database the owner is
+ * released, as by `releasePrefetch`.
+ */
+export function setPrefetchPatients(owner: object, dataSourceId: string | null, patientId: string | null, nextPatientId: string | null): void {
+  if (dataSourceId === null) return releasePrefetch(owner)
+  owners.delete(owner)
+  owners.set(owner, { dataSourceId, patientId, nextPatientId })
+  apply(dataSourceId, patientId, nextPatientId)
+}
+
+/** The board is gone: the read ahead follows another one still shown, if any. */
+export function releasePrefetch(owner: object): void {
+  if (!owners.delete(owner)) return
+  const rest = [...owners.values()]
+  const lead = rest[rest.length - 1]
+  if (lead) apply(lead.dataSourceId, lead.patientId, lead.nextPatientId)
+  else apply(null, null, null)
 }
 
 /** Forget the kept rows of a database (all of them without one): its data changed. */

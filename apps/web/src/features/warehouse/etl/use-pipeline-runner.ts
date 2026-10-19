@@ -7,6 +7,7 @@ import { mappingExportNameOf } from '@/lib/duckdb/mapping-source'
 import { treeNodePath } from '@/lib/entity-tree'
 import { formatDuration } from '@/lib/format-helpers'
 import { useRoleSchemas } from './use-role-schemas'
+import { clearPatientQueries } from '@/features/projects/warehouse/patient-data/patient-prefetch'
 import type { EtlFile, EtlPipeline } from '@/types'
 
 interface RunnerOptions {
@@ -81,6 +82,9 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
     if (pipeline.targetDataSourceId) await testConnection(pipeline.targetDataSourceId)
 
     let hasError = false
+    // Every database a script ran against, even partly: its patient rows kept
+    // for the session no longer hold.
+    const written = new Set<string>()
     for (const file of files) {
       if (abort?.signal.aborted) break
 
@@ -98,12 +102,14 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
       log(file.id, { status: 'running', startedAt: new Date().toISOString() })
 
       const start = Date.now()
+      written.add(dsId)
       try {
         await testConnection(dsId)
         // Mount whichever role the script reaches for, then resolve the
         // `source.`/`target.` qualifiers (see lib/duckdb/role-prefix).
         for (const role of usedRoles(file.content)) {
           const roleId = dataSourceIdOf(role)
+          if (roleId) written.add(roleId)
           if (roleId && roleId !== dsId) await testConnection(roleId)
         }
         const resolvedSql = resolveRolePrefixes(file.content, roleSchemasFor(dsId))
@@ -146,6 +152,7 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
         break
       }
     }
+    for (const id of written) clearPatientQueries(id)
 
     // A pause already took the run out of flight and is holding its history entry
     // open for the resume; closing it here would end the very run the user asked
@@ -238,6 +245,12 @@ export function usePipelineRunner(pipeline: EtlPipeline | undefined, options: Ru
       })
       useEtlStore.getState().finishPipelineRun('error')
       throw err
+    } finally {
+      clearPatientQueries(dataSourceId)
+      for (const role of usedRoles(sql)) {
+        const roleId = dataSourceIdOf(role)
+        if (roleId) clearPatientQueries(roleId)
+      }
     }
   }, [pipeline, roleSchemasFor, dataSourceIdOf, mappingDataFor])
 

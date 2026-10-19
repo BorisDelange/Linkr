@@ -143,6 +143,25 @@ describe('buildSeedManifest — databases', () => {
     expect(m.internals?.databases).toEqual(['databases/omop/entity.json'])
   })
 
+  it('reads the in-memory flag where the app export writes it, under connectionConfig', () => {
+    const m = buildSeedManifest(
+      workspace({
+        'databases/omop/entity.json': JSON.stringify({
+          entityId: 'omop',
+          type: 'database',
+          alias: 'omop',
+          sourceType: 'database',
+          connectionConfig: { engine: 'duckdb', inMemory: true },
+        }),
+        'databases/omop/mapping.json': '{"patientTable":"person"}',
+        'databases/omop/schema.ddl': 'CREATE TABLE person (person_id INT);',
+      }),
+      { seedBaseUrl: '/data/seed/default' },
+    )
+    expect(m.entities).toEqual([expect.objectContaining({ id: 'omop', inMemory: true })])
+    expect(m.entities[0]).not.toHaveProperty('parquetBase')
+  })
+
   it('leaves an in-memory database with no DDL as metadata: there is nothing to create', () => {
     const m = buildSeedManifest(
       workspace({ 'databases/omop/entity.json': '{"entityId":"omop","inMemory":true}' }),
