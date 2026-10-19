@@ -838,6 +838,10 @@ def _load_sqlite(con: duckdb.DuckDBPyConnection) -> None:
     query (a class relation read by two branches of a UNION, as the concept and
     catalog counts do). Materialising CTEs on these connections avoids it; a
     SQLite file is small enough that the lost filter push-down does not matter.
+    The setting is the connection's, not the file's: an ETL run with one SQLite
+    role materialises the CTEs it runs over its other roles too. Results are the
+    same, and the data such a run moves is the SQLite file's size; DuckDB has no
+    per-database switch, and `AS MATERIALIZED` would mean rewriting user SQL.
     Covered by the database matrix (tests/db-matrix)."""
     con.execute("INSTALL sqlite")
     con.execute("LOAD sqlite")

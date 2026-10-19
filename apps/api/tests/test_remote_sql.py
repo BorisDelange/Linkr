@@ -254,6 +254,12 @@ def test_percentile_of_a_decimal_is_not_portable():
         doris("SELECT MEDIAN(range_low) AS m FROM measurement")
 
 
+def test_a_parenthesised_hand_written_relation_reads_the_columns_its_sql_names():
+    out = doris('SELECT e."person_id" AS p, e."route" AS r FROM (SELECT * FROM ((SELECT person_id FROM person)) _src '
+                'UNION ALL BY NAME SELECT NULL AS "person_id", NULL AS "route" WHERE false) e')
+    assert "`_src`.`person_id` AS `person_id`, NULL AS `route`" in out
+
+
 @pytest.mark.parametrize("sql", [
     "SELECT * FROM read_parquet('/etc/passwd')",
     "SELECT mode(unit_source_value) AS m FROM measurement",
@@ -267,6 +273,9 @@ def test_percentile_of_a_decimal_is_not_portable():
     "SELECT SUBSTR(unit_source_value, 0) AS u FROM measurement",
     "SELECT SUBSTR(unit_source_value, person_id) AS u FROM measurement",
     "SELECT * FROM (VALUES (person_id)) v(p)",
+    "WITH s(code) AS (VALUES ('a'), ('b') LIMIT 1) SELECT code AS c FROM s",
+    "WITH s(code) AS (VALUES ('a'), ('b') OFFSET 1) SELECT code AS c FROM s",
+    "SELECT STRING_AGG(unit_source_value, ',') OVER (PARTITION BY person_id) AS u FROM measurement",
     "SELECT EPOCH(measurement_datetime) AS e FROM measurement",
     "SELECT DATE_DIFF('second', measurement_date, measurement_datetime) AS d FROM measurement",
     "SELECT value_as_number // 2 AS h FROM measurement",
@@ -427,3 +436,14 @@ def test_a_nested_with_reusing_a_name_stays_local():
 def test_exists_is_kept():
     sql = doris("SELECT person_id AS p FROM person WHERE EXISTS (SELECT 1 FROM measurement m WHERE m.person_id = person.person_id)")
     assert "WHERE EXISTS(SELECT 1" in sql
+
+
+def test_a_nested_with_reading_an_outer_column_stays_local():
+    with pytest.raises(NotPortable, match="correlated WITH"):
+        doris("SELECT (WITH c AS (SELECT p.person_id AS x) SELECT x FROM c) AS y FROM person p")
+
+
+def test_a_nested_with_under_exists_reading_an_outer_column_stays_local():
+    with pytest.raises(NotPortable, match="correlated WITH"):
+        doris("SELECT person_id AS p FROM person WHERE EXISTS (WITH c AS (SELECT m.person_id FROM measurement m "
+              "WHERE m.person_id = person.person_id) SELECT 1 FROM c)")

@@ -48,5 +48,8 @@ const ARROW_BIG_NUM = Symbol.for('isArrowBigNum')
  */
 export function fromArrowBigNum(value: unknown, scale = 0): unknown {
   if (value == null || typeof value !== 'object' || !(ARROW_BIG_NUM in value)) return value
+  // Arrow's own conversion divides by `BigInt(Math.pow(10, scale))`, which is no
+  // longer a power of ten past 10^22: parse the exact integer digits instead.
+  if (scale > 15) return Number(`${String(value)}e-${scale}`)
   return (value as { valueOf(scale?: number): number }).valueOf(scale)
 }

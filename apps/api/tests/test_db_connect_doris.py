@@ -251,6 +251,8 @@ def test_a_failed_native_query_is_the_database_error(execution):
     "(SELECT 1) UNION ALL (SELECT 2)",
     "SELECT ';' AS s, 'INTO OUTFILE' AS t, `into` FROM t WHERE x MATCH_ANY 'it\\'s; DROP'",
     "SELECT /*+ SET_VAR(query_timeout = 10) */ x FROM t",
+    "SELECT a, COUNT(x) AS n FROM `db`.`t` AS t, u JOIN v USING (a, b) WHERE f(a) GROUP BY a, LOWER(b)",
+    "SELECT x FROM (SELECT 1 AS x) s, `s3` WHERE `query` = 1",
 ])
 def test_native_sql_accepts_one_plain_select(sql):
     assert pushdown._native_statement(sql) == sql.strip().rstrip(";")
@@ -268,6 +270,19 @@ def test_native_sql_accepts_one_plain_select(sql):
     ("SELECT @v := 1", "variable"),
     ("SELECT * FROM S3('uri' = 's3://b/x')", "outside the database"),
     ("SELECT * FROM local ('file_path' = 'x')", "outside the database"),
+    ("SELECT * FROM `s3`(\"uri\" = \"x\")", "outside the database: s3"),
+    ("SELECT * FROM `S 3`('uri' = 'x')", "outside the database"),
+    ("SELECT * FROM numbers('number' = '10')", "numbers"),
+    ("SELECT * FROM backends()", "backends"),
+    ("SELECT * FROM frontends()", "frontends"),
+    ("SELECT * FROM catalogs()", "catalogs"),
+    ("SELECT * FROM jdbc('x')", "jdbc"),
+    ("SELECT * FROM hdfs('uri' = 'x')", "hdfs"),
+    ("SELECT * FROM t, other_fn('x')", "other_fn"),
+    ("SELECT * FROM t JOIN `db`.`my_fn`('x') f ON 1 = 1", "my_fn"),
+    ("SELECT * FROM t WHERE x IN (SELECT y FROM tvf(1))", "tvf"),
+    ("SELECT `a``b` FROM t INTO OUTFILE 'x'", "INTO"),
+    ("SELECT 1 /*! ; SET a = 1 */", "executable comment"),
     ("SELECT /*+ x */ 1 ; SET a = 1", "single statement"),
     ("SELECT 1 # comment\n", "'#'"),
     ("SELECT 1 -- a \\\n; SET a = 1", "backslash"),

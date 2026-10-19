@@ -78,6 +78,20 @@ describe('fromArrowBigNum', () => {
     expect(fromArrowBigNum(int128([12345, 0, 0, 0]), 2)).toBe(123.45)
   })
 
+  /** A signed 128-bit integer as its four words, two's complement. */
+  const wordsOf = (n: bigint) => {
+    const raw = BigInt.asUintN(128, n)
+    return [0, 1, 2, 3].map((i) => Number((raw >> BigInt(32 * i)) & 0xffffffffn))
+  }
+
+  it('reads a DECIMAL(38,25) exactly, past the scale Arrow divides by a float power of ten', () => {
+    expect(fromArrowBigNum(int128(wordsOf(12345678901234567890123456n)), 25)).toBe(Number('1.2345678901234567890123456'))
+  })
+
+  it('keeps the sign of a negative DECIMAL(38,25)', () => {
+    expect(fromArrowBigNum(int128(wordsOf(-15n * 10n ** 24n)), 25)).toBe(-1.5)
+  })
+
   it('leaves every other value alone', () => {
     for (const v of [null, undefined, 3, 'x', 10n, new Date(0), { a: 1 }, [1, 2]]) {
       expect(fromArrowBigNum(v)).toBe(v)

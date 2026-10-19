@@ -309,19 +309,28 @@ class NativeRefused(ValueError):
     """Native SQL that is not one plain read of the database."""
 
 
-# Doris table functions that read files or other systems with the login's rights.
-_NATIVE_TABLE_FUNCTIONS = re.compile(r"\b(s3|hdfs|local|http_stream|query)\s*\(", re.IGNORECASE)
+# Doris table functions that read files, other systems or the cluster's own state
+# with the login's rights; any call in a FROM/JOIN position is refused as well.
+_NATIVE_TABLE_FUNCTIONS = re.compile(
+    r"\b(s3|hdfs|local|http_stream|query|jdbc|numbers|backends|frontends|catalogs)`?\s*\(", re.IGNORECASE,
+)
 _NATIVE_START = re.compile(r"\s*\(*\s*(select|with)\b", re.IGNORECASE)
+_NATIVE_TOKEN = re.compile(r"`[^`]*`|\w+|\S")
+_NATIVE_CLAUSE_END = frozenset({
+    "where", "group", "having", "order", "limit", "union", "except", "intersect", "minus", "window", "qualify",
+})
 
 
 def _native_code(sql: str) -> str:
     """`sql` with every string literal emptied and every comment blanked, as
     Doris' lexer reads them (strings with backslash escapes and doubled quotes,
-    backtick identifiers, `--` and nested `/* */` comments). What Doris might
-    read otherwise is refused, since text taken for a comment here would run
-    there: a `#`, a backslash in a `--` comment, a `/*` inside a comment, an
-    unterminated string. A hint `/*+ … */` is lexed by Doris as SQL, so it is
-    kept as SQL."""
+    backtick identifiers, `--` and nested `/* */` comments). A backtick
+    identifier keeps its name, with every non-word character as `_`, so that
+    `` `s3`(…) `` reads as the call it is and `` `into` `` as no keyword. What
+    Doris might read otherwise is refused, since text taken for a comment here
+    would run there: a `#`, a backslash in a `--` comment, a `/*` inside a
+    comment, an executable `/*! */`, an unterminated string. A hint `/*+ … */`
+    is lexed by Doris as SQL, so it is kept as SQL."""
     out: list[str] = []
     i, n = 0, len(sql)
     while i < n:
@@ -340,7 +349,7 @@ def _native_code(sql: str) -> str:
                         continue
                     break
                 j += 1
-            out.append(c + c)
+            out.append("`" + re.sub(r"\W", "_", sql[i + 1:j]) + "`" if c == "`" else c + c)
             i = j + 1
         elif sql.startswith("--", i):
             end = sql.find("\n", i)
@@ -349,6 +358,8 @@ def _native_code(sql: str) -> str:
                 raise NativeRefused("native SQL: a backslash in a comment")
             out.append(" ")
             i = end
+        elif sql.startswith("/*!", i):
+            raise NativeRefused("native SQL: an executable comment /*! */")
         elif sql.startswith("/*+", i):
             out.append(" ")
             i += 3
@@ -366,11 +377,40 @@ def _native_code(sql: str) -> str:
     return "".join(out)
 
 
+def _table_function(code: str) -> str | None:
+    """The first name called as a table (`FROM f(…)`, `JOIN f(…)`, `, f(…)` in a
+    FROM list), quoted or not, at any depth of parentheses: only tables and
+    subqueries are read."""
+    tokens = _NATIVE_TOKEN.findall(code)
+    in_from = [False]
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i].lower()
+        if tok == "(":
+            in_from.append(False)
+        elif tok == ")":
+            if len(in_from) > 1:
+                in_from.pop()
+        elif tok in ("from", "join") or (tok == "," and in_from[-1]):
+            in_from[-1] = True
+            j = i + 1
+            while j < len(tokens) and tokens[j].lower() == "lateral":
+                j += 1
+            while j + 2 < len(tokens) and tokens[j] != "(" and tokens[j + 1] == ".":
+                j += 2
+            if j + 1 < len(tokens) and tokens[j] != "(" and tokens[j + 1] == "(":
+                return tokens[j].strip("`")
+        elif tok in _NATIVE_CLAUSE_END:
+            in_from[-1] = False
+        i += 1
+    return None
+
+
 def _native_statement(sql: str) -> str:
     """`sql` without its trailing `;`, when it is one SELECT (or WITH … SELECT)
     that leaves nothing behind: no second statement, no `INTO` (OUTFILE, a
-    variable), no `:=`, no table function reading outside the database. A
-    SET or USE would outlive the query on the pooled connection."""
+    variable), no `:=`, no table function. A SET or USE would outlive the query
+    on the pooled connection."""
     statement = sql.strip()
     while statement.endswith(";"):
         statement = statement[:-1].rstrip()
@@ -379,13 +419,14 @@ def _native_statement(sql: str) -> str:
         raise NativeRefused("native SQL must be a single SELECT")
     if ";" in code:
         raise NativeRefused("native SQL must be a single statement")
-    if re.search(r"\binto\b", code, re.IGNORECASE):
+    if re.search(r"(?<!`)\binto\b(?!`)", code, re.IGNORECASE):
         raise NativeRefused("native SQL cannot write: INTO is refused")
     if ":=" in code:
         raise NativeRefused("native SQL cannot set a variable")
     found = _NATIVE_TABLE_FUNCTIONS.search(code)
-    if found:
-        raise NativeRefused(f"native SQL cannot read outside the database: {found.group(1)}()")
+    name = found.group(1) if found else _table_function(code)
+    if name:
+        raise NativeRefused(f"native SQL cannot read outside the database: {name}()")
     return statement
 
 

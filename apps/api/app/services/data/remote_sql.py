@@ -29,6 +29,7 @@ from sqlglot import exp
 from sqlglot.dialects.doris import Doris
 from sqlglot.optimizer.annotate_types import annotate_types
 from sqlglot.optimizer.qualify import qualify
+from sqlglot.optimizer.scope import build_scope
 
 # Engine → sqlglot dialect of the SQL sent to it. MySQL is left out: its default
 # collations compare text case-insensitively, so `x = 'abc'` would also match
@@ -252,6 +253,9 @@ def _values_rows(node: exp.Expression) -> exp.Expression:
     if not isinstance(values, exp.Values):
         return node
     if len(select.expressions) != 1 or not isinstance(select.expressions[0], exp.Star) or len(select.args) > 2:
+        raise NotPortable("VALUES")
+    # sqlglot hangs a `VALUES … LIMIT/OFFSET` on the Values node itself.
+    if any(v for k, v in values.args.items() if k not in ("expressions", "alias")):
         raise NotPortable("VALUES")
     names = node.args["alias"].columns or (values.alias_column_names and [exp.to_identifier(n) for n in values.alias_column_names])
     rows = values.expressions
@@ -492,7 +496,8 @@ def _check_node(node: exp.Expression) -> None:
     elif isinstance(node, exp.GroupConcat):
         value = node.this.this if isinstance(node.this, exp.Order) else node.this
         separator = node.args.get("separator")
-        if isinstance(value, exp.Distinct) or _type(value) not in _TEXT | _NULL or (
+        # Doris' GROUP_CONCAT is no window function.
+        if isinstance(node.parent, exp.Window) or isinstance(value, exp.Distinct) or _type(value) not in _TEXT | _NULL or (
                 separator is not None and _type(separator) not in _TEXT):
             raise NotPortable("STRING_AGG")
     elif isinstance(node, exp.ConcatWs):
@@ -587,10 +592,16 @@ class _LinkrDoris(Doris):
             return super().datatype_sql(expression)
 
 
+def _is_correlated(cte: exp.CTE) -> bool:
+    scope = build_scope(cte.this)
+    return scope is None or bool(scope.external_columns)
+
+
 def _hoist_ctes(tree: exp.Expression) -> exp.Expression:
     """A WITH inside a subquery or a CTE, moved to the statement's own WITH —
-    Doris accepts WITH only at the top. A CTE reads no outer column, so it means
-    the same there; each lands before the CTE that held it, which may read it."""
+    Doris accepts WITH only at the top. Only a CTE that reads no outer column
+    means the same there (a correlated one stays local); each lands before the
+    CTE that held it, which may read it."""
     while True:
         nested = next((w for w in tree.find_all(exp.With) if w.parent is not tree), None)
         if nested is None:
@@ -600,6 +611,8 @@ def _hoist_ctes(tree: exp.Expression) -> exp.Expression:
         moved = [c.copy() for c in nested.expressions]
         if any(c.alias_or_name.lower() in taken for c in moved) or nested.args.get("recursive"):
             raise NotPortable("nested WITH")
+        if any(_is_correlated(c) for c in nested.expressions):
+            raise NotPortable("correlated WITH")
         holder = nested.find_ancestor(exp.CTE)
         while holder is not None and holder.parent is not top:
             holder = holder.find_ancestor(exp.CTE)
@@ -613,8 +626,10 @@ def _hoist_ctes(tree: exp.Expression) -> exp.Expression:
 
 def _output_names(tree: exp.Expression) -> tuple[str, ...]:
     select = tree
-    while isinstance(select, exp.Union):
+    while isinstance(select, (exp.Union, exp.Subquery, exp.Paren)):
         select = select.this
+    if not isinstance(select, exp.Select):
+        raise NotPortable("result columns not named one by one")
     names = tuple(e.alias_or_name for e in select.expressions)
     # `p.*` is a Column whose `this` is a Star: as unnamed as a bare `*`.
     starred = any(
