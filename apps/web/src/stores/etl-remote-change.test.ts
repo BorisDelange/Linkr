@@ -16,13 +16,15 @@ const pipeline = { id: 'p1', workspaceId: 'ws', name: { en: 'ETL' } } as unknown
 describe('ETL store: a change made elsewhere', () => {
   let stored: EtlFile[]
   let storedPipeline: EtlPipeline | undefined
+  let created: EtlFile[]
 
   beforeEach(() => {
     stored = []
     storedPipeline = pipeline
+    created = []
     initStorage({
       etlPipelines: { getById: async () => storedPipeline },
-      etlFiles: { getByPipeline: async () => stored },
+      etlFiles: { getByPipeline: async () => stored, create: async (f: EtlFile) => { created.push(f) } },
     } as unknown as Parameters<typeof initStorage>[0])
     useEtlStore.setState({
       etlPipelines: [pipeline],
@@ -31,6 +33,7 @@ describe('ETL store: a change made elsewhere', () => {
       openFileIds: ['a', 'b'],
       selectedFileId: 'b',
       _dirtyMap: new Map(),
+      orphanedFileIds: [],
     })
   })
 
@@ -55,6 +58,33 @@ describe('ETL store: a change made elsewhere', () => {
     expect(useEtlStore.getState().isFileDirty('a')).toBe(true)
     useEtlStore.getState().revertFile('a')
     expect(useEtlStore.getState().files.find((f) => f.id === 'a')?.content).toBe('A2')
+  })
+
+  it('keeps a file with an unsaved edit the agent deleted, and Save re-creates it', async () => {
+    useEtlStore.getState().updateFileContent('b', 'mine')
+    stored = [file('a', 'A1')]
+    await useEtlStore.getState().applyRemoteChange('p1', false)
+    let s = useEtlStore.getState()
+    expect(s.orphanedFileIds).toEqual(['b'])
+    expect(s.selectedFileId).toBe('b')
+    expect(s.files.find((f) => f.id === 'b')?.content).toBe('mine')
+
+    await s.saveFile('b')
+    s = useEtlStore.getState()
+    expect(created.map((f) => [f.id, f.content])).toEqual([['b', 'mine']])
+    expect(s.orphanedFileIds).toEqual([])
+    expect(s.isFileDirty('b')).toBe(false)
+  })
+
+  it('drops an orphaned file the user closes', async () => {
+    useEtlStore.getState().updateFileContent('b', 'mine')
+    stored = [file('a', 'A1')]
+    await useEtlStore.getState().applyRemoteChange('p1', false)
+    useEtlStore.getState().closeFile('b')
+    const s = useEtlStore.getState()
+    expect(s.files.map((f) => f.id)).toEqual(['a'])
+    expect(s.orphanedFileIds).toEqual([])
+    expect(created).toEqual([])
   })
 
   it('closes a pipeline deleted elsewhere', async () => {

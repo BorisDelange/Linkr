@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.notification import Notification
 from app.models.user import User
 from app.schemas.notification import NotificationResponse
-from app.services import notification_hub
+from app.services import notification_hub, undo_service
 
 # Fields that only cache a run's result: a write touching nothing else refreshes
 # the open tab but is not worth a notification ("cohort updated" for every Run).
@@ -74,7 +74,7 @@ async def record_change(
         await db.commit()
         await db.refresh(row)
         response = NotificationResponse.model_validate(row)
-        response.undoable = undo is not None
+        response.undoable = undo_service.is_guarded(undo)
         event["notification"] = response.model_dump(mode="json", by_alias=True)
         await _prune(db, user.id)
     notification_hub.publish(user.id, event)
@@ -110,12 +110,16 @@ async def list_for_user(db: AsyncSession, user_id: int, limit: int = 50) -> list
     )
     out: list[NotificationResponse] = []
     # Newest first: only the first live change seen for an item may be undone —
-    # undoing an older one would overwrite what came after it.
+    # undoing an older one would overwrite what came after it. A final change
+    # (op "none", e.g. a deletion that keeps nothing) is never undoable itself but
+    # still closes the older ones.
     seen: set[str] = set()
     for n in result.scalars():
         response = NotificationResponse.model_validate(n)
         key = _undo_key(n)
-        response.undoable = key is not None and n.undone_at is None and key not in seen
+        response.undoable = (
+            key is not None and undo_service.is_guarded(n.undo) and n.undone_at is None and key not in seen
+        )
         if key is not None and n.undone_at is None:
             seen.add(key)
         out.append(response)
@@ -123,14 +127,14 @@ async def list_for_user(db: AsyncSession, user_id: int, limit: int = 50) -> list
 
 
 async def undo(db: AsyncSession, user: User, notification_id: str) -> None:
-    from app.services import undo_service
-
     row = await db.get(Notification, notification_id)
     if row is None or row.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     listed = {n.id: n for n in await list_for_user(db, user.id, limit=MAX_KEPT)}
     if not listed.get(row.id) or not listed[row.id].undoable:
-        raise HTTPException(status.HTTP_409_CONFLICT, "A later change touched this item; undo that one first")
+        raise HTTPException(
+            status.HTTP_409_CONFLICT, {"code": "later", "message": "A later change touched this item; undo that one first"},
+        )
     gone = await undo_service.apply(db, user, row.project_uid, row.undo)
     row.undone_at = datetime.now(timezone.utc)
     await db.commit()

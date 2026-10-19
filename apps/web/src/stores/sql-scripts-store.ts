@@ -4,7 +4,7 @@ import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
 import { prunedConfigForTree, renameVersioningMark } from '@/lib/entity-versioning'
 import { treeNodePath } from '@/lib/entity-tree'
-import { mergeRemoteFiles } from '@/lib/remote-files-merge'
+import { dropOrphan, mergeRemoteFiles } from '@/lib/remote-files-merge'
 import type { SqlScriptCollection, SqlScriptFile } from '@/types'
 
 /** A file's path inside its collection — the key the versioning marks use. */
@@ -89,6 +89,8 @@ interface SqlScriptsState {
   // Dirty tracking
   _dirtyMap: Map<string, string>
   _dirtyVersion: number
+  /** Unsaved files an agent deleted meanwhile: Save re-creates them. */
+  orphanedFileIds: string[]
   isFileDirty: (id: string) => boolean
   saveFile: (id: string) => Promise<void>
   revertFile: (id: string) => void
@@ -199,7 +201,7 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
         return { collections: index < 0 ? [...others, collection] : s.collections.map((c) => (c.id === id ? collection : c)) }
       }
       return s.activeCollectionId === id
-        ? { collections: others, files: [], activeCollectionId: null, openFileIds: [], selectedFileId: null }
+        ? { collections: others, files: [], activeCollectionId: null, openFileIds: [], selectedFileId: null, orphanedFileIds: [] }
         : { collections: others }
     })
     if (!collection || get().activeCollectionId !== id) return
@@ -233,6 +235,7 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
       outputVisible: out.outputVisible,
       _dirtyMap: new Map(),
       _dirtyVersion: 0,
+      orphanedFileIds: [],
     })
   },
 
@@ -374,6 +377,10 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
   },
 
   closeFile: (id) => {
+    if (get().orphanedFileIds.includes(id)) {
+      set((s) => dropOrphan(s, id))
+      return
+    }
     set((s) => {
       const newOpen = s.openFileIds.filter((fid) => fid !== id)
       const newDirtyMap = new Map(s._dirtyMap)
@@ -416,6 +423,7 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
   // --- Dirty tracking ---
   _dirtyMap: new Map(),
   _dirtyVersion: 0,
+  orphanedFileIds: [],
 
   isFileDirty: (id) => {
     const s = get()
@@ -427,15 +435,25 @@ export const useSqlScriptsStore = create<SqlScriptsState>((set, get) => ({
   saveFile: async (id) => {
     const file = get().files.find((f) => f.id === id)
     if (!file) return
-    await getStorage().sqlScriptFiles.update(id, { content: file.content })
+    const orphaned = get().orphanedFileIds.includes(id)
+    if (orphaned) await getStorage().sqlScriptFiles.create(file)
+    else await getStorage().sqlScriptFiles.update(id, { content: file.content })
     set((s) => {
       const dirtyMap = new Map(s._dirtyMap)
       dirtyMap.delete(id)
-      return { _dirtyMap: dirtyMap, _dirtyVersion: s._dirtyVersion + 1 }
+      return {
+        _dirtyMap: dirtyMap,
+        _dirtyVersion: s._dirtyVersion + 1,
+        ...(orphaned ? { orphanedFileIds: s.orphanedFileIds.filter((fid) => fid !== id) } : {}),
+      }
     })
   },
 
   revertFile: (id) => {
+    if (get().orphanedFileIds.includes(id)) {
+      set((s) => dropOrphan(s, id))
+      return
+    }
     const original = get()._dirtyMap.get(id)
     if (original === undefined) return
     set((s) => {

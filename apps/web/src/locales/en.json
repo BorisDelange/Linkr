@@ -2312,7 +2312,11 @@
     "column_size": "Size",
     "name_reserved_attachments": "This name is reserved: attachments/ is generated from the entity's own attachments — add them there, not as a folder",
     "upload_from_computer": "From your computer",
-    "upload_drop_hint": "Click to browse or drag and drop files"
+    "upload_drop_hint": "Click to browse or drag and drop files",
+    "orphaned_title": "This file was deleted elsewhere",
+    "orphaned_description": "An agent deleted it while you were editing it. Your unsaved text is still here.",
+    "orphaned_recreate": "Re-create with my text",
+    "orphaned_discard": "Close without saving"
   },
   "pipeline": {
     "title": "Pipeline",
@@ -3597,6 +3601,13 @@
     "undo": "Undo",
     "undone": "undone",
     "undo_failed": "Could not undo: the item changed since.",
+    "undo_refused": {
+      "changed": "Could not undo: it was edited since, and undoing would overwrite that edit.",
+      "not_empty": "Could not undo: something was added to it since. Undo or delete that first.",
+      "exists": "Could not undo: an item with the same name exists again.",
+      "gone": "Could not undo: the item no longer exists.",
+      "later": "Could not undo: a later change touched this item. Undo that one first."
+    },
     "entity": {
       "cohort": "Cohort",
       "dashboard": "Dashboard",

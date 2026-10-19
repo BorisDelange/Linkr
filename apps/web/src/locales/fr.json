@@ -2312,7 +2312,11 @@
     "column_size": "Taille",
     "name_reserved_attachments": "Ce nom est réservé : attachments/ est généré depuis les pièces jointes de l'élément — ajoutez-les là, pas sous forme de dossier",
     "upload_from_computer": "Depuis votre ordinateur",
-    "upload_drop_hint": "Cliquez pour parcourir ou glissez-déposez des fichiers"
+    "upload_drop_hint": "Cliquez pour parcourir ou glissez-déposez des fichiers",
+    "orphaned_title": "Ce fichier a été supprimé ailleurs",
+    "orphaned_description": "Un agent l'a supprimé pendant que vous le modifiiez. Votre texte non enregistré est toujours là.",
+    "orphaned_recreate": "Le recréer avec mon texte",
+    "orphaned_discard": "Fermer sans enregistrer"
   },
   "pipeline": {
     "title": "Pipeline",
@@ -3597,6 +3601,13 @@
     "undo": "Annuler",
     "undone": "annulé",
     "undo_failed": "Annulation impossible : l'élément a changé depuis.",
+    "undo_refused": {
+      "changed": "Annulation impossible : il a été modifié depuis, et annuler écraserait cette modification.",
+      "not_empty": "Annulation impossible : quelque chose y a été ajouté depuis. Annulez-le ou supprimez-le d'abord.",
+      "exists": "Annulation impossible : un élément du même nom existe à nouveau.",
+      "gone": "Annulation impossible : l'élément n'existe plus.",
+      "later": "Annulation impossible : un changement plus récent a touché cet élément. Annulez-le d'abord."
+    },
     "entity": {
       "cohort": "Cohorte",
       "dashboard": "Dashboard",

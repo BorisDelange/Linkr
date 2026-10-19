@@ -7,7 +7,7 @@
  * cannot set headers on a WS handshake); on an auth close the caller refreshes
  * the token through a normal request and reconnects.
  */
-import { apiRequest } from '@/lib/api-client'
+import { ApiError, apiRequest } from '@/lib/api-client'
 import { wsBaseUrl, WS_AUTH_FAILED } from '@/lib/api/terminal-ws'
 import type { LocalizedString } from '@/types'
 
@@ -85,6 +85,18 @@ export const markNotificationsRead = () => apiRequest<void>('/notifications/read
 export const clearNotifications = () => apiRequest<void>('/notifications', { method: 'DELETE' })
 export const undoNotification = (id: string) =>
   apiRequest<void>(`/notifications/${encodeURIComponent(id)}/undo`, { method: 'POST' })
+
+/** Why the server refused an undo (409 `{detail: {code}}`): `changed`, `not_empty`,
+ *  `exists`, `gone`, `later` — or `failed` for anything else. */
+export function undoRefusal(err: unknown): string {
+  if (!(err instanceof ApiError) || err.status !== 409) return 'failed'
+  try {
+    const code = JSON.parse(err.message)?.detail?.code
+    return typeof code === 'string' ? code : 'failed'
+  } catch {
+    return 'failed'
+  }
+}
 
 /** Where the user is in this tab, so an agent can resolve "this cohort", "here".
  *  Ids are full (never the shortened ids of the URL). */

@@ -66,6 +66,7 @@ import { cn } from '@/lib/utils'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { OrphanedFileBanner } from '@/components/editor/orphaned-file-banner'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { TableIcon, FileText, Copy, Code, Check, Database } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -176,6 +177,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
     outputVisible,
     setOutputVisible,
     _dirtyVersion,
+    orphanedFileIds,
     etlPipelines,
   } = useEtlStore()
 
@@ -1068,17 +1070,24 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                   {editorVisible && (
                     <Allotment.Pane minSize={150}>
                       {selectedFile ? (
-                        <CodeEditor
-                          key={selectedFileId}
-                          editorRef={editorRef}
-                          value={selectedFile.content ?? ''}
-                          language={editorLanguage}
-                          completion={{ kind: 'sql', dataSourceId: activeDbId }}
-                          onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
-                          onSave={handleEditorSave}
-                          onRunFile={handleRunFile}
-                          onRunSelectionOrLine={handleRunSelectionOrLine}
-                        />
+                        <div className="flex h-full flex-col">
+                          {orphanedFileIds.includes(selectedFile.id) && (
+                            <OrphanedFileBanner onRecreate={handleEditorSave} onDiscard={() => closeFile(selectedFile.id)} />
+                          )}
+                          <div className="min-h-0 flex-1">
+                            <CodeEditor
+                              key={selectedFileId}
+                              editorRef={editorRef}
+                              value={selectedFile.content ?? ''}
+                              language={editorLanguage}
+                              completion={{ kind: 'sql', dataSourceId: activeDbId }}
+                              onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
+                              onSave={handleEditorSave}
+                              onRunFile={handleRunFile}
+                              onRunSelectionOrLine={handleRunSelectionOrLine}
+                            />
+                          </div>
+                        </div>
                       ) : (
                         <div className="flex h-full items-center justify-center">
                           <div className="text-center">

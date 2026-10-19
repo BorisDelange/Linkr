@@ -53,6 +53,7 @@ from app.services import (
     fs_browser,
     notification_service,
     project_fs,
+    undo_service,
 )
 from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader
 
@@ -444,7 +445,7 @@ async def create_dataset_from_query(
                 action="updated" if existed else "created", entity_type="dataset", entity_id=path,
                 project_uid=body.project_uid, label=path,
                 # A replaced file is gone once overwritten: only a creation is undoable.
-                undo=None if existed else {"kind": "dataset", "op": "delete", "id": path},
+                undo=None if existed else undo_service.dataset_created(path, dst),
             )
             return node
 

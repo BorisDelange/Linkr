@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -19,7 +18,7 @@ from app.schemas.etl_pipeline import (
     EtlRunHistoryUpdate,
 )
 from app.schemas.stats_cache import StatsCacheResponse, StatsCacheSave
-from app.services import etl_pipeline_service, notification_service, stats_cache_service
+from app.services import etl_pipeline_service, notification_service, stats_cache_service, undo_service
 
 router = APIRouter(tags=["etl-pipelines"])
 
@@ -66,26 +65,9 @@ async def _load_run(
 _PIPELINE_SIDE_FIELDS = {"config", "status", "last_run_at", "last_run_duration_ms"}
 _FILE_SIDE_FIELDS = {"order"}
 
-# A snapshot lives in the notification row: past this size a change is still
-# notified but cannot be undone (mapping exports can weigh megabytes).
-_MAX_UNDO_CHARS = 1_000_000
-
-
 def _previous(row, changes: dict) -> dict:
     """The values `changes` actually alters, as they were before the write."""
     return {k: getattr(row, k) for k, v in changes.items() if getattr(row, k) != v}
-
-
-def _small(snapshot: dict) -> bool:
-    return all(not isinstance(v, str) or len(v) <= _MAX_UNDO_CHARS for v in snapshot.values())
-
-
-def _undo(kind: str, op: str, row_id: str, snapshot: dict | None = None) -> dict | None:
-    if snapshot is not None:
-        snapshot = jsonable_encoder(snapshot)
-        if not _small(snapshot):
-            return None
-    return {"kind": kind, "op": op, "id": row_id, **({"snapshot": snapshot} if snapshot is not None else {})}
 
 
 async def _file_path(db: AsyncSession, node: EtlFile) -> str:
@@ -163,7 +145,7 @@ async def create_pipeline(
 ):
     await check_workspace_permission(db, body.workspace_id, user, "etl:write")
     pipeline = await etl_pipeline_service.create(db, body)
-    await _notify(db, request, user, "created", pipeline, undo=_undo("etl_pipeline", "delete", pipeline.id))
+    await _notify(db, request, user, "created", pipeline, undo=undo_service.created("etl_pipeline", pipeline))
     return pipeline
 
 
@@ -192,7 +174,7 @@ async def update_pipeline(
         undoable = "git_remote_config" not in before and "created_at" not in before
         await _notify(
             db, request, user, "updated", pipeline,
-            undo=_undo("etl_pipeline", "restore", pipeline.id, before) if undoable else None,
+            undo=undo_service.updated("etl_pipeline", pipeline, before) if undoable else None,
             notify=not before.keys() <= _PIPELINE_SIDE_FIELDS,
         )
     return pipeline
@@ -208,7 +190,7 @@ async def delete_pipeline(
     pipeline = await _load_pipeline(db, pipeline_id, user, "etl:delete")
     await etl_pipeline_service.delete(db, pipeline)
     # Not undoable: the scripts and run history go with it.
-    await _notify(db, request, user, "deleted", pipeline)
+    await _notify(db, request, user, "deleted", pipeline, undo=undo_service.final("etl_pipeline", pipeline_id))
 
 
 # --- Files -----------------------------------------------------------------
@@ -248,7 +230,7 @@ async def create_file(
     await _notify(
         db, request, user, "updated", pipeline,
         file=("created", await _file_path(db, node), node.type, node.id),
-        undo=_undo("etl_file", "delete", node.id),
+        undo=undo_service.created("etl_file", node),
     )
     return node
 
@@ -269,7 +251,7 @@ async def update_file(
         await _notify(
             db, request, user, "updated", pipeline,
             file=("updated", await _file_path(db, node), node.type, node.id),
-            undo=_undo("etl_file", "restore", node.id, before),
+            undo=undo_service.updated("etl_file", node, before),
             notify=not before.keys() <= _FILE_SIDE_FIELDS,
         )
     return node
@@ -290,7 +272,7 @@ async def delete_file(
     await _notify(
         db, request, user, "updated", pipeline,
         file=("deleted", path, kind, file_id),
-        undo=_undo("etl_file", "recreate", file_id, snapshot),
+        undo=undo_service.deleted("etl_file", file_id, snapshot),
     )
 
 

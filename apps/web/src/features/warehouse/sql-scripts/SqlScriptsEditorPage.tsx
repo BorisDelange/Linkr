@@ -67,6 +67,7 @@ import { cn } from '@/lib/utils'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { OrphanedFileBanner } from '@/components/editor/orphaned-file-banner'
 import { MarkdownRenderer, ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
 import { OutputTable } from '@/features/projects/files/OutputTable'
 import { useSqlScriptsStore, type SqlOutputTab, type SqlExecutionResult } from '@/stores/sql-scripts-store'
@@ -145,6 +146,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
     outputVisible,
     setOutputVisible,
     _dirtyVersion,
+    orphanedFileIds,
     updateCollection,
   } = useSqlScriptsStore()
 
@@ -969,17 +971,24 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                     {editorVisible && (
                       <Allotment.Pane minSize={150}>
                         {selectedFile ? (
-                          <CodeEditor
-                            key={selectedFileId}
-                            editorRef={editorRef}
-                            value={selectedFile.content ?? ''}
-                            language={selectedFile.name.endsWith('.md') ? 'markdown' : 'sql'}
-                            completion={{ kind: 'sql', dataSourceId: activeDbId }}
-                            onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
-                            onSave={handleSaveFile}
-                            onRunFile={handleRunFile}
-                            onRunSelectionOrLine={handleRunSelectionOrLine}
-                          />
+                          <div className="flex h-full flex-col">
+                            {orphanedFileIds.includes(selectedFile.id) && (
+                              <OrphanedFileBanner onRecreate={handleSaveFile} onDiscard={() => closeFile(selectedFile.id)} />
+                            )}
+                            <div className="min-h-0 flex-1">
+                              <CodeEditor
+                                key={selectedFileId}
+                                editorRef={editorRef}
+                                value={selectedFile.content ?? ''}
+                                language={selectedFile.name.endsWith('.md') ? 'markdown' : 'sql'}
+                                completion={{ kind: 'sql', dataSourceId: activeDbId }}
+                                onChange={(v) => updateFileContent(selectedFile.id, v ?? '')}
+                                onSave={handleSaveFile}
+                                onRunFile={handleRunFile}
+                                onRunSelectionOrLine={handleRunSelectionOrLine}
+                              />
+                            </div>
+                          </div>
                         ) : (
                           <div className="flex h-full items-center justify-center">
                             <div className="text-center">

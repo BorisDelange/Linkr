@@ -70,7 +70,7 @@ async def create_cohort(
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="created",
         entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
-        undo={"kind": "cohort", "op": "delete", "id": cohort.id},
+        undo=undo_service.created("cohort", cohort),
     )
     return cohort
 
@@ -105,7 +105,7 @@ async def update_cohort(
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="updated",
         entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
-        undo={"kind": "cohort", "op": "restore", "id": cohort.id, "snapshot": before},
+        undo=undo_service.updated("cohort", cohort, before),
         notify=not notification_service.is_derived_only(changed),
     )
     return cohort
@@ -125,7 +125,7 @@ async def delete_cohort(
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="deleted",
         entity_type="cohort", entity_id=cohort_id, project_uid=project_uid, label=label,
-        undo={"kind": "cohort", "op": "recreate", "id": cohort_id, "snapshot": before},
+        undo=undo_service.deleted("cohort", cohort_id, before),
     )
 
 
@@ -142,7 +142,7 @@ async def _record_materialization(
         db, user=user, source=notification_service.client_source(request), action="updated",
         entity_type="cohort", entity_id=cohort.id, project_uid=cohort.project_uid, label=cohort.name,
         detail=detail,
-        undo={"kind": "cohort", "op": "restore", "id": cohort.id, "snapshot": before} if before is not None else None,
+        undo=undo_service.updated("cohort", cohort, before) if before is not None else None,
     )
 
 

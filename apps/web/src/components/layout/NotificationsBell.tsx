@@ -17,7 +17,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useAuthStore } from '@/stores/auth-store'
 import { useNotificationStore } from '@/stores/notification-store'
 import { useUiContextPublisher } from '@/hooks/use-ui-context-publisher'
-import { hasDetailDialog, type AppNotification } from '@/lib/api/notifications'
+import { hasDetailDialog, undoRefusal, type AppNotification } from '@/lib/api/notifications'
 import { NotificationDetailDialog } from '@/components/layout/NotificationDetailDialog'
 
 const ACTION_ICON = { created: Plus, updated: Pencil, deleted: Trash2 } as const
@@ -43,7 +43,7 @@ export function NotificationsBell() {
   const loggedIn = useAuthStore((s) => !!s.user)
   const { items, unread, connect, disconnect, markAllRead, clearAll, undo } = useNotificationStore()
   const [undoing, setUndoing] = useState<string | null>(null)
-  const [undoError, setUndoError] = useState<string | null>(null)
+  const [undoError, setUndoError] = useState<{ id: string; reason: string } | null>(null)
   const [open, setOpen] = useState(false)
   const [detailOf, setDetailOf] = useState<AppNotification | null>(null)
   const enabled = isServerMode() && loggedIn
@@ -201,8 +201,10 @@ export function NotificationsBell() {
                         {relativeTime(n.createdAt, i18n.language)}
                         {n.undoneAt && <> · {t('notifications.undone')}</>}
                       </span>
-                      {undoError === n.id && (
-                        <span className="block text-[10px] text-destructive">{t('notifications.undo_failed')}</span>
+                      {undoError?.id === n.id && (
+                        <span className="block text-[10px] text-destructive">
+                          {t(`notifications.undo_refused.${undoError.reason}`, { defaultValue: t('notifications.undo_failed') })}
+                        </span>
                       )}
                     </span>
                     {!n.readAt && <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />}
@@ -229,7 +231,7 @@ export function NotificationsBell() {
                         setUndoing(n.id)
                         setUndoError(null)
                         undo(n.id)
-                          .catch(() => setUndoError(n.id))
+                          .catch((err: unknown) => setUndoError({ id: n.id, reason: undoRefusal(err) }))
                           .finally(() => setUndoing(null))
                       }}
                     >

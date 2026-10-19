@@ -111,7 +111,7 @@ async def create_dashboard(
     await _require_project_access(db, body.project_uid, user, "dashboards:write")
     dashboard = await dashboard_service.create(db, body)
     await _notify(db, request, user, dashboard, "created",
-                  undo={"kind": "dashboard", "op": "delete", "id": dashboard.id})
+                  undo=undo_service.created("dashboard", dashboard))
     return dashboard
 
 
@@ -136,7 +136,7 @@ async def update_dashboard(
     before = DashboardResponse.model_validate(dashboard).model_dump(mode="json")
     dashboard = await dashboard_service.update(db, dashboard, body)
     await _notify(db, request, user, dashboard, "updated",
-                  undo={"kind": "dashboard", "op": "restore", "id": dashboard.id, "snapshot": before})
+                  undo=undo_service.updated("dashboard", dashboard, before))
     return dashboard
 
 
@@ -152,7 +152,7 @@ async def delete_dashboard(
     before = await undo_service.dashboard_snapshot(db, dashboard)
     await dashboard_service.delete(db, dashboard)
     await _notify(db, request, user, snapshot, "deleted",
-                  undo={"kind": "dashboard", "op": "recreate", "id": snapshot.id, "snapshot": before})
+                  undo=undo_service.deleted("dashboard", snapshot.id, before))
 
 
 # --- Tabs -------------------------------------------------------------------
@@ -180,7 +180,7 @@ async def create_tab(
     dashboard = await _load_dashboard(db, body.dashboard_id, user, "dashboards:write")
     tab = await dashboard_service.create_tab(db, body)
     await _notify(db, request, user, dashboard, "updated", "tab", "created", tab.name,
-                  undo={"kind": "tab", "op": "delete", "id": tab.id})
+                  undo=undo_service.created("tab", tab))
     return tab
 
 
@@ -206,7 +206,7 @@ async def update_tab(
     tab = await dashboard_service.update_tab(db, tab, body)
     dashboard = await dashboard_service.get(db, tab.dashboard_id)
     await _notify(db, request, user, dashboard, "updated", "tab", "updated", tab.name,
-                  undo={"kind": "tab", "op": "restore", "id": tab.id, "snapshot": before})
+                  undo=undo_service.updated("tab", tab, before))
     return tab
 
 
@@ -223,7 +223,7 @@ async def delete_tab(
     await dashboard_service.delete_tab(db, tab)
     dashboard = await dashboard_service.get(db, dashboard_id)
     await _notify(db, request, user, dashboard, "updated", "tab", "deleted", name,
-                  undo={"kind": "tab", "op": "recreate", "id": tab_id, "snapshot": before})
+                  undo=undo_service.deleted("tab", tab_id, before))
 
 
 @router.delete(
@@ -266,7 +266,7 @@ async def create_widget(
     widget = await dashboard_service.create_widget(db, body)
     dashboard = await dashboard_service.get(db, tab.dashboard_id)
     await _notify(db, request, user, dashboard, "updated", "widget", "created", widget.name,
-                  undo={"kind": "widget", "op": "delete", "id": widget.id})
+                  undo=undo_service.created("widget", widget))
     return widget
 
 
@@ -300,7 +300,7 @@ async def update_widget(
     tab = await dashboard_service.get_tab(db, widget.tab_id)
     dashboard = await dashboard_service.get(db, tab.dashboard_id) if tab else None
     await _notify(db, request, user, dashboard, "updated", "widget", "updated", widget.name,
-                  undo={"kind": "widget", "op": "restore", "id": widget.id, "snapshot": before})
+                  undo=undo_service.updated("widget", widget, before))
     return widget
 
 
@@ -318,7 +318,7 @@ async def delete_widget(
     await dashboard_service.delete_widget(db, widget)
     dashboard = await dashboard_service.get(db, tab.dashboard_id) if tab else None
     await _notify(db, request, user, dashboard, "updated", "widget", "deleted", name,
-                  undo={"kind": "widget", "op": "recreate", "id": before["id"], "snapshot": before})
+                  undo=undo_service.deleted("widget", before["id"], before))
 
 
 @router.delete("/tabs/{tab_id}/widgets", status_code=status.HTTP_204_NO_CONTENT)
