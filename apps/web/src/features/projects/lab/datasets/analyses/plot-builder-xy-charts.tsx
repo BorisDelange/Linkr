@@ -7,7 +7,7 @@ import { TruncatedNumericTick } from './chart-axis-helpers'
 import { ChartTooltipCard } from './chart-tooltip'
 import { formatNumericTick, toNumeric, type PlotScatterSeries, type PlotServerData } from './plot-builder-shared'
 import { formatDateTick } from './plot-builder-data'
-import { buildLegendProps } from './plot-builder-legend'
+import { buildLegendProps, LEGEND_TEXT_CLASS } from './plot-builder-legend'
 
 // ---------------------------------------------------------------------------
 // Scatter
@@ -66,7 +66,7 @@ export function ScatterPlot({
   }, [data, groupNames, colors, xIsDate, yIsDate, decimals, xLabel, yLabel, xCol, yCol])
 
   return (
-    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%" className={LEGEND_TEXT_CLASS}>
       <ScatterChart margin={{ top: 12, right: 20, bottom: xLabel ? 22 : 4, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" name={xLabel || undefined} label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedNumericTick formatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} />} height={28} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xScale ? xScale.domain : (xAxisStartZero ? [0, 'auto'] : undefined)} ticks={xScale?.ticks} />
@@ -146,7 +146,7 @@ export function LinePlot({
   }, [merged, series, yAxisStartZero])
 
   return (
-    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%" className={LEGEND_TEXT_CLASS}>
       <LineChart data={merged} margin={{ top: 12, right: 20, bottom: xLabel ? 22 : 4, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="x" type="number" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedNumericTick formatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} />} height={28} tickFormatter={xIsDate ? formatDateTick : formatNumericTick(decimals)} domain={xScale ? xScale.domain : (xAxisStartZero ? [0, 'auto'] : undefined)} ticks={xScale?.ticks} />

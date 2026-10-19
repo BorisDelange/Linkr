@@ -11,7 +11,7 @@ import { type CategoryOrder } from './plot-category-order'
 import { buildCategoricalData, NO_CUSTOM_ORDER, sharePct, toNumeric, type PlotServerData } from './plot-builder-shared'
 import { RankedBarList } from './ranked-bar-list'
 import { formatCountTick, buildHistogramData, isCategoricalColumn, buildCategoricalGrouped, buildHistogramGrouped } from './plot-builder-data'
-import { buildLegendProps } from './plot-builder-legend'
+import { buildLegendProps, LEGEND_TEXT_CLASS } from './plot-builder-legend'
 
 // ---------------------------------------------------------------------------
 // Histogram (with grouped bar modes: grouped / stacked / overlay)
@@ -239,7 +239,7 @@ export function HistogramPlot({
           {t('plugins.reset_zoom')}
         </button>
       )}
-      <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
+      <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%" className={LEGEND_TEXT_CLASS}>
       <BarChart
         data={data}
         layout={isHorizontal ? 'vertical' : 'horizontal'}

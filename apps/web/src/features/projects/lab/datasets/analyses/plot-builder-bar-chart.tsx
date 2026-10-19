@@ -6,7 +6,7 @@ import { TOOLTIP_STYLE, CHART_RESIZE_DEBOUNCE_MS } from '@/lib/plugins/shared-st
 import { TruncatedTick } from './chart-axis-helpers'
 import { orderCategories, type CategoryOrder } from './plot-category-order'
 import { formatNumericTick, NO_CUSTOM_ORDER, toNumeric, type PlotServerData } from './plot-builder-shared'
-import { buildLegendProps } from './plot-builder-legend'
+import { buildLegendProps, LEGEND_TEXT_CLASS } from './plot-builder-legend'
 
 // ---------------------------------------------------------------------------
 // Bar
@@ -123,7 +123,7 @@ export function BarPlot({
   const effXLabelMaxLen = Math.max(3, Math.min(xLabelMaxLen, Math.round(130 / Math.max(1, data.length))))
 
   return (
-    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
+    <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%" className={LEGEND_TEXT_CLASS}>
       <BarChart data={data} margin={{ top: 12, right: 20, bottom: xLabel ? 22 : 4, left: 10 }}>
         {showGrid && <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.3} />}
         <XAxis dataKey="name" label={xLabel ? { value: xLabel, position: 'insideBottom', offset: -5, fontSize: 11 } : undefined} tick={<TruncatedTick maxLen={effXLabelMaxLen} angle={-30} textAnchor="end" />} interval={0} height={60} />
