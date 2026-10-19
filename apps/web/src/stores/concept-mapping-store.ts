@@ -93,6 +93,8 @@ interface ConceptMappingState {
   createMappingsBatch: (mappings: ConceptMapping[]) => Promise<void>
   updateMapping: (id: string, changes: Partial<ConceptMapping>) => Promise<void>
   deleteMapping: (id: string) => Promise<void>
+  /** One storage call and one store update for the whole set, so the table re-renders once. */
+  deleteMappings: (ids: string[]) => Promise<void>
   bulkUpdateStatus: (ids: string[], status: MappingStatus, updatedBy?: string) => Promise<void>
   /** Re-anchor mappings to new file rows after a file update.
    *  Matches by (conceptCode + vocabulary) first, then conceptId.
@@ -401,6 +403,28 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
     scheduleStatsRecompute(affectedProjectId, get().recomputeProjectStats)
   },
 
+  deleteMappings: async (ids) => {
+    if (ids.length === 0) return
+    const idSet = new Set(ids)
+    const affectedProjectIds = new Set<string>()
+    for (const id of ids) {
+      const pid = get().mappingsById.get(id)?.projectId
+      if (pid) affectedProjectIds.add(pid)
+    }
+    await getStorage().conceptMappings.deleteBatch(ids)
+    set((s) => {
+      for (const id of ids) s.mappingsById.delete(id)
+      return {
+        mappings: s.mappings.filter((m) => !idSet.has(m.id)),
+        mappingsVersion: s.mappingsVersion + 1,
+        mappingsStructureVersion: s.mappingsStructureVersion + 1,
+        _otherKeysLoadedFor: null,
+        _otherDetailsLoadedFor: null,
+      }
+    })
+    for (const pid of affectedProjectIds) scheduleStatsRecompute(pid, get().recomputeProjectStats)
+  },
+
   deleteMapping: async (id) => {
     const affectedProjectId = get().mappingsById.get(id)?.projectId
     await getStorage().conceptMappings.delete(id)
@@ -657,9 +681,7 @@ export const useConceptMappingStore = create<ConceptMappingState>((set, get) => 
         && m.status === 'suggested'
         && m.mappedBy === provider,
     )
-    for (const m of toDelete) {
-      await get().deleteMapping(m.id)
-    }
+    await get().deleteMappings(toDelete.map((m) => m.id))
   },
 
   // --- UI State ---

@@ -2563,6 +2563,14 @@ class IDBConceptMappingStorage implements ConceptMappingStorage {
     await db.delete('concept_mappings', id)
   }
 
+  async deleteBatch(ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    const db = await getDB()
+    const tx = db.transaction('concept_mappings', 'readwrite')
+    for (const id of ids) tx.store.delete(id)
+    await tx.done
+  }
+
   async deleteByProject(projectId: string): Promise<void> {
     const db = await getDB()
     const items = await db.getAllFromIndex('concept_mappings', 'by-project', projectId)

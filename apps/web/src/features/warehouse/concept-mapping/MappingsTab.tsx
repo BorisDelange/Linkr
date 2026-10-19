@@ -86,6 +86,7 @@ import { fuzzyTextMatch, labelMatcher } from '@/lib/fuzzy-search'
 import { escSql } from '@/lib/format-helpers'
 import { getStorage } from '@/lib/storage'
 import { localized } from '@/lib/localized'
+import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 
 interface MappingsTabProps {
   project: MappingProject
@@ -122,6 +123,7 @@ interface MappingColumnFilters {
   targetDomainId?: string[]
   targetConceptClassId?: string[]
   targetStandardConcept?: string[]
+  targetConceptSet?: string[]
   equivalence?: string[]
   mappedBy?: string[]
 }
@@ -416,15 +418,24 @@ function ReviewsSheet({ mappingId, open, onOpenChange }: {
 
 // ─── Mapping Detail View (split source / target) ─────────────────────
 
+// One fixed label column for every card of the detail view, so Source concept,
+// Target concept and Mapping metadata line their values up.
+const DETAIL_TABLE = 'w-full table-fixed text-xs'
+const DETAIL_COLS = <colgroup><col className="w-44" /><col /></colgroup>
+const DETAIL_LABEL_CELL = 'pr-4 py-1 text-muted-foreground align-top text-xs break-words'
+
 interface SourceCounts { record_count: number; patient_count: number }
 /** undefined = still loading, null = no data available */
 interface SourceDetail { counts: SourceCounts | null; infoJson: Record<string, unknown> | null | undefined }
 
-function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUser, onOpenComments, onOpenReviews, position, onPrev, onNext }: {
+function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onReview, onDelete, onChangeEquivalence, currentUser, onOpenComments, onOpenReviews, position, onPrev, onNext }: {
   mapping: ConceptMapping
   sourceDetail: SourceDetail
+  conceptSetName?: string
   onBack: () => void
   onReview: (mappingId: string, target: MappingStatus) => void | Promise<void>
+  onDelete: (mappingId: string) => void
+  onChangeEquivalence: (mappingId: string, predicate: MappingEquivalence) => void
   currentUser: string
   onOpenComments: (mappingId: string) => void
   onOpenReviews: (mappingId: string) => void
@@ -434,11 +445,14 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
   onNext?: () => void
 }) {
   const { t } = useTranslation()
-  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
+  const role = useMyWorkspaceRole()
+  const canWrite = role.can('concept-mapping:write')
+  const canDelete = role.can('concept-mapping:delete')
   const myReview = (mapping.reviews ?? []).find((r) => r.reviewerId === currentUser)?.status ?? 'unchecked'
   const isOwn = mapping.mappedBy === currentUser
   const commentsCount = (mapping.comments ?? []).length
   const reviewsCount = (mapping.reviews ?? []).length
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const formatDate = (iso?: string) => {
     if (!iso) return '—'
@@ -454,8 +468,8 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
     if (value == null || value === '') return null
     return (
       <tr>
-        <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">{label}</td>
-        <td className={`py-1 text-xs font-medium ${mono ? 'font-mono' : ''}`}>{value}</td>
+        <td className={DETAIL_LABEL_CELL}>{label}</td>
+        <td className={`py-1 text-xs font-medium break-words ${mono ? 'font-mono' : ''}`}>{value}</td>
       </tr>
     )
   }
@@ -612,8 +626,49 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.flag')}</TooltipContent>
           </Tooltip>
+          {canDelete && (
+            <>
+              <span className="mx-1 h-5 w-px bg-border" />
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="icon-sm"
+                    className="size-7 hover:border-destructive hover:text-destructive"
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 size={14} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.delete_mapping')}</TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       </div>
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.delete_mapping_confirm_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.delete_mapping_confirm_desc', {
+                source: mapping.sourceConceptName,
+                target: mapping.targetConceptName || `#${mapping.targetConceptId}`,
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => onDelete(mapping.id)}
+            >
+              {t('common.delete')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Split view */}
       <div className="grid min-h-0 flex-1 grid-cols-2 divide-x overflow-hidden">
@@ -623,7 +678,8 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
             {t('concept_mapping.detail_source')}
           </SectionLabel>
           <Card className="p-3">
-            <table className="w-full text-xs">
+            <table className={DETAIL_TABLE}>
+              {DETAIL_COLS}
               <tbody>
                 {renderField(t('concept_mapping.col_source_vocabulary'), mapping.sourceVocabularyId)}
                 {renderField(t('concept_mapping.col_category'), mapping.sourceCategoryId)}
@@ -666,12 +722,13 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 <div className="space-y-3">
                   {textFields.length > 0 && (
                     <Card className="p-3">
-                      <table className="w-full text-xs">
+                      <table className={DETAIL_TABLE}>
+                        {DETAIL_COLS}
                         <tbody>
                           {textFields.map((item) => (
                             <tr key={item.label}>
-                              <td className="whitespace-nowrap pr-4 py-0.5 text-muted-foreground align-top">{item.label}</td>
-                              <td className="py-0.5 font-medium">{item.value}</td>
+                              <td className={DETAIL_LABEL_CELL}>{item.label}</td>
+                              <td className="py-1 text-xs font-medium break-words">{item.value}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -703,7 +760,8 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                 <span className="italic">{t('concept_mapping.no_mapping_needed')}</span>
               </div>
             ) : (
-              <table className="w-full text-xs">
+              <table className={DETAIL_TABLE}>
+                {DETAIL_COLS}
                 <tbody>
                   {renderField(t('concept_mapping.col_target_vocabulary'), mapping.targetVocabularyId)}
                   {renderField(t('concept_mapping.col_target_concept_id'), mapping.targetConceptId, true)}
@@ -712,9 +770,10 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                   {renderField(t('concept_mapping.col_domain_id'), mapping.targetDomainId)}
                   {renderField(t('concept_mapping.col_concept_class_id'), mapping.targetConceptClassId)}
                   <tr>
-                    <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">{t('concept_mapping.col_std')}</td>
+                    <td className={DETAIL_LABEL_CELL}>{t('concept_mapping.col_std')}</td>
                     <td className="py-1 text-xs"><StandardConceptBadge value={mapping.targetStandardConcept ?? null} align="start" /></td>
                   </tr>
+                  {renderField(t('concept_mapping.col_target_concept_set'), conceptSetName)}
                 </tbody>
               </table>
             )}
@@ -726,12 +785,20 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
               {t('concept_mapping.detail_metadata')}
             </SectionLabel>
             <Card className="p-3">
-              <table className="w-full text-xs">
+              <table className={DETAIL_TABLE}>
+                {DETAIL_COLS}
                 <tbody>
                   <tr>
-                    <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">{t('concept_mapping.col_equivalence')}</td>
+                    <td className={DETAIL_LABEL_CELL}>{t('concept_mapping.col_equivalence')}</td>
                     <td className="py-1 text-xs">
-                      {equivBadge ? (
+                      {canWrite ? (
+                        <EquivalenceEditCell
+                          equivalence={mapping.equivalence}
+                          locked={isMappingLocked(mapping)}
+                          onChange={(pred) => onChangeEquivalence(mapping.id, pred)}
+                          t={t}
+                        />
+                      ) : equivBadge ? (
                         <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${equivBadge.className}`}>
                           {equivBadge.label}
                         </Badge>
@@ -741,7 +808,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                     </td>
                   </tr>
                   <tr>
-                    <td className="whitespace-nowrap pr-4 py-1 text-muted-foreground align-top text-xs">Status</td>
+                    <td className={DETAIL_LABEL_CELL}>{t('concept_mapping.col_status')}</td>
                     <td className="py-1 text-xs">
                       <Badge variant="secondary" className={`px-1.5 py-0 text-[9px] font-medium ${statusBadge}`}>
                         {t(`concept_mapping.status_${effectiveStatus}`)}
@@ -845,24 +912,23 @@ const EquivalenceEditCell = memo(function EquivalenceEditCell({
       {!locked && <ChevronDown className="size-2.5 text-current" />}
     </button>
   )
+  if (!locked) {
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="min-w-0">
+          <EquivalenceMenuItems onPick={onChange} stopPropagation />
+        </DropdownMenuContent>
+      </DropdownMenu>
+    )
+  }
   return (
     <Tooltip delayDuration={300}>
       <TooltipTrigger asChild>
         {/* Wrapper span so the tooltip still fires while the trigger is disabled. */}
-        <span className="inline-flex">
-          {locked ? trigger : (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="min-w-0">
-                <EquivalenceMenuItems onPick={onChange} stopPropagation />
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-        </span>
+        <span className="inline-flex">{trigger}</span>
       </TooltipTrigger>
-      <TooltipContent side="top" className="text-xs">
-        {locked ? t('concept_mapping.mapping_locked_hint') : t('concept_mapping.change_equivalence_hint')}
-      </TooltipContent>
+      <TooltipContent side="top" className="text-xs">{t('concept_mapping.mapping_locked_hint')}</TooltipContent>
     </Tooltip>
   )
 })
@@ -936,13 +1002,26 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
 })
 
 export function MappingsTab({ project }: MappingsTabProps) {
-  const { t } = useTranslation()
-  const canWrite = useMyWorkspaceRole().can('concept-mapping:write')
+  const { t, i18n } = useTranslation()
+  const role = useMyWorkspaceRole()
+  const canWrite = role.can('concept-mapping:write')
+  const canDelete = role.can('concept-mapping:delete')
+  const conceptSets = useConceptMappingStore((s) => s.conceptSets)
+  const conceptSetNames = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const cs of conceptSets) m.set(cs.id, getConceptSetI18n(cs, i18n.language).name)
+    return m
+  }, [conceptSets, i18n.language])
+  const conceptSetName = useCallback(
+    (m: ConceptMapping) => (m.conceptSetId ? conceptSetNames.get(m.conceptSetId) : undefined),
+    [conceptSetNames],
+  )
   // Memos depend on `mappingsStructureVersion` (set membership / aggregations)
   // or `mappingsVersion` (per-row content) instead of the `mappings` array
   // itself, so a vote on a single row doesn't invalidate filter / sort memos.
   const updateMapping = useConceptMappingStore((s) => s.updateMapping)
   const deleteMapping = useConceptMappingStore((s) => s.deleteMapping)
+  const deleteMappings = useConceptMappingStore((s) => s.deleteMappings)
   const createMappingsBatch = useConceptMappingStore((s) => s.createMappingsBatch)
   const loadOtherProjectsDetails = useConceptMappingStore((s) => s.loadOtherProjectsDetails)
   const loadProjectMappings = useConceptMappingStore((s) => s.loadProjectMappings)
@@ -1107,10 +1186,11 @@ export function MappingsTab({ project }: MappingsTabProps) {
       targetDomainId: unique((m) => m.targetDomainId),
       targetConceptClassId: unique((m) => m.targetConceptClassId),
       targetStandardConcept: unique((m) => m.targetStandardConcept),
+      targetConceptSet: unique(conceptSetName),
       equivalence: unique((m) => m.equivalence),
       mappedBy: unique((m) => m.mappedBy),
     }
-  }, [projectMappings])
+  }, [projectMappings, conceptSetName])
 
   // Status counts for filter popover
   const statusCounts = useMemo(() => {
@@ -1190,6 +1270,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
     if (f.targetDomainId?.length && !f.targetDomainId.includes(m.targetDomainId ?? '')) return false
     if (f.targetConceptClassId?.length && !f.targetConceptClassId.includes(m.targetConceptClassId ?? '')) return false
     if (f.targetStandardConcept?.length && !f.targetStandardConcept.includes(m.targetStandardConcept ?? '')) return false
+    if (f.targetConceptSet?.length && !f.targetConceptSet.includes(conceptSetName(m) ?? '')) return false
     if (f.equivalence?.length && !f.equivalence.includes(m.equivalence)) return false
     if (f.mappedBy?.length && !f.mappedBy.includes(m.mappedBy ?? '')) return false
     // Pre-computed derived view (eff status, vote counts, my review) — O(1) lookup.
@@ -1215,7 +1296,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
     }
     return true
   })
-  }, [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived, resolveSourceConceptId])
+  }, [allDisplayMappings, colFilters, myReviewFilter, includedStatuses, approvalRule, rowDerived, resolveSourceConceptId, conceptSetName])
 
   /** Frozen row order: captured the first time a filter/sort combination is applied
    *  and reused as long as those settings stay the same, so a vote that changes a
@@ -1246,6 +1327,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
           case '_votes_approved': return rowDerived.get(m.id)?.approvedCount ?? 0
           case '_votes_flagged': return rowDerived.get(m.id)?.flaggedCount ?? 0
           case '_votes_rejected': return rowDerived.get(m.id)?.rejectedCount ?? 0
+          case 'targetConceptSet': return conceptSetName(m)
           default: return (m as unknown as Record<string, unknown>)[columnId]
         }
       }
@@ -1291,7 +1373,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
       }
     }
     return out
-  }, [filtered, sorting, rowDerived, colFilters, myReviewFilter, includedStatuses, approvalRule, rowKey])
+  }, [filtered, sorting, rowDerived, colFilters, myReviewFilter, includedStatuses, approvalRule, rowKey, conceptSetName])
 
   const pageCount = pageCountOf(sorted.length, PAGE_SIZE)
   // Clamped rather than reset: narrowing a filter should not throw away the
@@ -1364,6 +1446,9 @@ export function MappingsTab({ project }: MappingsTabProps) {
       }))
       return <MultiSelectFilter value={colFilters.targetStandardConcept ?? []} options={stdOptions} placeholder="Std" onChange={(v) => updateMultiFilter('targetStandardConcept', v)} />
     }
+    if (columnId === 'targetConceptSet' && filterOptions.targetConceptSet.length > 0) {
+      return <MultiSelectFilter value={colFilters.targetConceptSet ?? []} options={filterOptions.targetConceptSet} placeholder="..." onChange={(v) => updateMultiFilter('targetConceptSet', v)} />
+    }
     if (columnId === 'mappedBy' && filterOptions.mappedBy.length > 0) {
       return <MultiSelectFilter value={colFilters.mappedBy ?? []} options={filterOptions.mappedBy} placeholder="..." onChange={(v) => updateMultiFilter('mappedBy', v)} />
     }
@@ -1412,19 +1497,33 @@ export function MappingsTab({ project }: MappingsTabProps) {
     return null
   }
 
+  const selectAnchorRef = useRef<string | null>(null)
   const toggleEditMode = () => {
     setEditMode(!editMode)
     setSelected(new Set())
+    selectAnchorRef.current = null
   }
 
-  const toggleSelect = useCallback((id: string) => {
+  /** Shift extends from the last clicked row across the whole filtered+sorted
+   *  list (pages included), giving every row in between the clicked row's new state. */
+  const toggleSelect = useCallback((id: string, shiftKey = false) => {
+    const anchor = selectAnchorRef.current
+    selectAnchorRef.current = id
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
+      const select = !prev.has(id)
+      const from = anchor && shiftKey ? sorted.findIndex((m) => m.id === anchor) : -1
+      const to = from >= 0 ? sorted.findIndex((m) => m.id === id) : -1
+      const ids = to >= 0
+        ? sorted.slice(Math.min(from, to), Math.max(from, to) + 1).map((m) => m.id)
+        : [id]
+      for (const x of ids) {
+        if (select) next.add(x)
+        else next.delete(x)
+      }
       return next
     })
-  }, [])
+  }, [sorted])
 
   const toggleSelectAll = () => {
     const pageIds = visibleItems.map((m) => m.id)
@@ -1441,7 +1540,8 @@ export function MappingsTab({ project }: MappingsTabProps) {
   }
 
   const handleDeleteSelected = () => {
-    for (const id of selected) deleteMapping(id)
+    deleteMappings([...selected])
+      .catch((err) => console.error('Failed to delete mappings', err))
     setSelected(new Set())
   }
 
@@ -2120,8 +2220,10 @@ export function MappingsTab({ project }: MappingsTabProps) {
         ),
         cell: ({ row }) => (
           <button
-            onClick={(e) => { e.stopPropagation(); toggleSelect(row.original.id) }}
-            className="flex justify-center"
+            onMouseDown={(e) => { if (e.shiftKey) e.preventDefault() }}
+            onClick={(e) => { e.stopPropagation(); toggleSelect(row.original.id, e.shiftKey) }}
+            // Same height as the review buttons, so a row keeps its height in edit mode.
+            className="flex h-5 items-center justify-center"
           >
             {selected.has(row.original.id)
               ? <CheckSquare size={14} className="text-foreground" />
@@ -2308,6 +2410,19 @@ export function MappingsTab({ project }: MappingsTabProps) {
         size: 40,
         minSize: 30,
       },
+      {
+        id: 'targetConceptSet',
+        header: () => t('concept_mapping.col_target_concept_set'),
+        accessorFn: (row) => conceptSetName(row),
+        cell: ({ row }) => {
+          const name = conceptSetName(row.original)
+          return name
+            ? <TruncatedText text={name} />
+            : <span className="text-muted-foreground/60">—</span>
+        },
+        size: 160,
+        minSize: 80,
+      },
       // ── Provenance ──────────────────────────────────────────────────
       {
         id: 'mappedBy',
@@ -2408,7 +2523,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
 
     return cols
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [t, editMode, selected, pageAllSelected, handleReview, handleChangeEquivalence, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, sourceConceptIdMap, useRegistryForId])
+  }, [t, editMode, selected, pageAllSelected, handleReview, handleChangeEquivalence, onOpenComments, onOpenReviews, toggleSelect, currentUser, rowDerived, sourceConceptIdMap, useRegistryForId, conceptSetName])
 
   const table = useReactTable({
     data: visibleItems,
@@ -2439,6 +2554,13 @@ export function MappingsTab({ project }: MappingsTabProps) {
       setDetailSource({ counts: null, infoJson: undefined })
       fetchSourceDetail(next).then(setDetailSource)
     }
+    const backToList = () => {
+      setDetailMapping(null)
+      // Restore scroll position after React re-renders the table
+      requestAnimationFrame(() => {
+        scrollContainerRef.current?.scrollTo({ top: savedScrollTop.current })
+      })
+    }
 
     return (
       <>
@@ -2462,13 +2584,21 @@ export function MappingsTab({ project }: MappingsTabProps) {
           onPrev={currentIdx > 0 ? () => goTo(currentIdx - 1) : undefined}
           onNext={currentIdx >= 0 && currentIdx < navList.length - 1 ? () => goTo(currentIdx + 1) : undefined}
           onReview={handleReview}
-          onBack={() => {
-            setDetailMapping(null)
-            // Restore scroll position after React re-renders the table
-            requestAnimationFrame(() => {
-              scrollContainerRef.current?.scrollTo({ top: savedScrollTop.current })
+          conceptSetName={conceptSetName(effectiveMapping)}
+          onChangeEquivalence={handleChangeEquivalence}
+          onDelete={(id) => {
+            const next = navList[currentIdx + 1] ?? navList[currentIdx - 1]
+            deleteMapping(id)
+            setSelected((prev) => {
+              if (!prev.has(id)) return prev
+              const s = new Set(prev)
+              s.delete(id)
+              return s
             })
+            if (next) goTo(navList.indexOf(next))
+            else backToList()
           }}
+          onBack={backToList}
         />
       </>
     )
@@ -2942,7 +3072,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
             </TooltipTrigger>
             <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.import_mappings')}</TooltipContent>
           </Tooltip>
-          {editMode && selected.size > 0 && (
+          {editMode && canDelete && selected.size > 0 && (
             <Button variant="destructive" size="sm-tight" onClick={() => setShowDeleteConfirm(true)}>
               <Trash2 size={12} />
               {t('concept_mapping.delete_selected', { count: selected.size })}

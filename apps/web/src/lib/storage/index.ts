@@ -440,6 +440,8 @@ export interface ConceptMappingStorage {
   createBatch(mappings: ConceptMapping[]): Promise<void>
   update(id: string, changes: Partial<ConceptMapping>): Promise<void>
   delete(id: string): Promise<void>
+  /** Delete many mappings in one transaction (one server notification per project). */
+  deleteBatch(ids: string[]): Promise<void>
   deleteByProject(projectId: string): Promise<void>
   /** Cascade-delete every concept mapping whose `projectId` matches one of the given project IDs.
    *  Used when removing a workspace: walk the table once and prune all orphan rows defensively,

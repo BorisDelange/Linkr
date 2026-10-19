@@ -13,6 +13,8 @@ import type { ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
 const PROJ = '/mapping-projects'
 const MAP = '/concept-mappings'
 const SVC = '/service-mappings'
+/** The server's MAX_BATCH for mapping batch routes (schemas/mapping_project.py). */
+const MAPPING_BATCH_SIZE = 5000
 
 /** Run SQL over a file-source project's CSV server-side (DuckDB reads the blob).
  * The SQL references the `source_concepts` view, built server-side from the
@@ -323,6 +325,15 @@ export const apiConceptMappingStorage: ConceptMappingStorage = {
 
   delete: async (id) => {
     await apiRequest(`${MAP}/${id}`, { method: 'DELETE' })
+  },
+
+  deleteBatch: async (ids) => {
+    for (let i = 0; i < ids.length; i += MAPPING_BATCH_SIZE) {
+      await apiRequest(`${MAP}/batch-delete`, {
+        method: 'POST',
+        body: JSON.stringify({ ids: ids.slice(i, i + MAPPING_BATCH_SIZE) }),
+      })
+    }
   },
 
   deleteByProject: async (projectId) => {
