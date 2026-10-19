@@ -19,6 +19,7 @@ import type JSZip from 'jszip'
 import { CONTENT_FILE, ENTITY_MANIFEST, isAppTooOld, MANIFEST } from '@linkr/format'
 import { assertEntityType, IncompatibleAppVersionError, requiredAppVersion, WrongEntityTypeError } from '@/lib/app-version-compat'
 import { APP_VERSION } from '@/lib/version'
+import i18n from '@/lib/i18n'
 import { applyClonedEntity, collectGitLinkedEntities, parseWorkspaceZip } from '@/lib/entity-io'
 import type { GitLinkedEntity, ParsedWorkspaceZip } from '@/lib/entity-io'
 import { findLineageMatch, type ImportTarget } from '@/lib/import-identity'
@@ -102,8 +103,10 @@ function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string 
   const names = [ENTITY_MANIFEST, ...(META_FILE[type] ?? [])]
   if (!names.some(has)) {
     const present = Object.keys(zip.files).filter((n) => !zip.files[n].dir)
-    return `This repository has no ${ENTITY_MANIFEST}: nothing declares what it is `
-      + `or what it is called.${present.length ? ` It contains: ${present.slice(0, 8).join(', ')}.` : ''}`
+    const noManifest = i18n.t('catalog.install_tree_no_manifest', { file: ENTITY_MANIFEST })
+    return present.length
+      ? `${noManifest} ${i18n.t('catalog.install_tree_contains', { files: present.slice(0, 8).join(', ') })}`
+      : noManifest
   }
   // A preset carries its payload in sibling files. The DDL is required: without
   // it the install would create every table with no columns, which is why the
@@ -111,11 +114,9 @@ function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string 
   // `mapping.json` is NOT checked — a pre-split repo keeps the mapping inline in
   // the manifest and reads fine.
   if (type === 'schema-preset' && !has(CONTENT_FILE.schemaDdl)) {
-    return `This schema preset has no ${CONTENT_FILE.schemaDdl}, so it would install `
-      + 'tables with no columns.'
+    return i18n.t('catalog.install_tree_preset_no_ddl', { file: CONTENT_FILE.schemaDdl })
   }
-  return 'This repository could not be read as a ' + type + '. Its layout does not match '
-    + 'what this entity type expects.'
+  return i18n.t('catalog.install_tree_unreadable', { type: i18n.t(`catalog.type_${type.replace(/-/g, '_')}`) })
 }
 
 /**
@@ -591,7 +592,7 @@ async function cloneWorkspaceChildren(
   }
   for (const child of collectGitLinkedEntities(parsed)) {
     if (!isCloneableChildUrl(child.url)) {
-      failed.push({ name: child.name, reason: 'Its repository URL is not an https:// or ssh address.' })
+      failed.push({ name: child.name, reason: i18n.t('catalog.install_child_bad_url') })
       continue
     }
     // The row the import actually wrote, answered the way the import decided it:
@@ -605,7 +606,7 @@ async function cloneWorkspaceChildren(
     try {
       const cloned = await gitCloneToZip(child.url, child.branch, undefined, getActiveWorkspaceId())
       if (cloned.blob.size > MAX_CLONE_BYTES) {
-        failed.push({ name: child.name, reason: 'The archive is too large to install.' })
+        failed.push({ name: child.name, reason: i18n.t('catalog.install_child_too_large') })
         continue
       }
       const zip = await JSZipMod.loadAsync(cloned.blob)
@@ -622,7 +623,7 @@ async function cloneWorkspaceChildren(
         const detail = describeUnreadableTree(zip, child.type)
         failed.push({
           name: child.name,
-          reason: applied.context ? `Missing ${applied.context}. ${detail}` : detail,
+          reason: applied.context ? i18n.t('catalog.install_child_missing', { file: applied.context, detail }) : detail,
         })
       }
     } catch (err) {

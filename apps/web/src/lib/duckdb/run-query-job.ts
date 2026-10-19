@@ -9,7 +9,7 @@
  */
 
 import { cancelJob } from '@/lib/api/environments'
-import { followQueryJob, isJobGone, startQueryJob, type QueryJobDone, type QueryJobItem, type QueryJobOutcome } from '@/lib/api/query-jobs'
+import { followQueryJob, isJobGone, isTransient, startQueryJob, type QueryJobDone, type QueryJobItem, type QueryJobOutcome } from '@/lib/api/query-jobs'
 import { prepareQuerySql } from './engine'
 
 /** Where a job is remembered, and what it was started for: a job started for
@@ -66,13 +66,23 @@ export async function runQueryJob(
   { signal, keepGoing = false, remember, resumeOnly = false, onWaiting }: RunQueryJobOptions,
 ): Promise<QueryJobOutcome | null> {
   const keys = queries.map((q) => q.key)
+  // A TypeError from the caller's own handler is no network failure.
+  let handlerFailed = false
   const follow = (jobId: string) => followQueryJob(dataSourceId, jobId, keys, async (i, rows, done) => {
-    await onResult(i, rows, done)
+    try {
+      await onResult(i, rows, done)
+    } catch (err) {
+      handlerFailed = true
+      throw err
+    }
   }, { signal, onWaiting })
+  const stillRunning = (err: unknown) => !handlerFailed && isTransient(err)
 
   const stored = remember ? readJob(remember.name) : null
-  // The job being followed, kept remembered when following it fails for a
-  // reason other than its end: it runs on, and the next run picks it up.
+  // The job being followed, kept remembered only when following it failed on
+  // the way (network, gateway): it runs on, and the next run picks it up. Any
+  // other failure (a refusal, the caller's handler) would leave it remembered
+  // for good, every `resumeOnly` run answering null.
   let following: string | null = null
   let keep = false
   try {
@@ -83,7 +93,7 @@ export async function runQueryJob(
       } catch (err) {
         if (signal.aborted) throw err
         if (resumeOnly) {
-          keep = !isJobGone(err)
+          keep = stillRunning(err)
           return null
         }
         // Not gone, yet not followed: a second job must not wait behind it in the lane.
@@ -102,7 +112,7 @@ export async function runQueryJob(
     following = job.id
     return await follow(job.id)
   } catch (err) {
-    keep = following != null && !signal.aborted && !isJobGone(err)
+    keep = following != null && !signal.aborted && stillRunning(err)
     if (resumeOnly && !signal.aborted) return null
     throw err
   } finally {

@@ -26,6 +26,24 @@ def test_an_escaped_space_does_not_end_the_password():
     assert "words" not in out and "q user" not in out and "user=u" in out
 
 
+@pytest.mark.parametrize("quoted", ['"abc def"', "'abc def'", r"'abc\' def'", '"abc def'])
+def test_a_quoted_password_is_hidden_whole(quoted):
+    out = redact_secrets(f"host=h password={quoted} user=u")
+    assert "abc" not in out and "def" not in out and "password=***" in out
+
+
+@pytest.mark.parametrize("url", ["mysql://u:S3cret@h:3306/d", "postgresql://u:S3cret@h/d", "https://oauth2:S3cret@gitlab.com/g/r.git"])
+def test_a_url_password_is_hidden_and_its_user_kept(url):
+    out = redact_secrets(f"could not connect to {url}: refused")
+    head, host = url.split(":S3cret@")
+    assert "S3cret" not in out and f"{head}:***@{host}: refused" in out
+
+
+def test_a_url_without_a_password_is_unchanged():
+    for text in ("see https://gitlab.com/g/r and git@gitlab.com:g/r.git", "https://host:8443/x", "mysql://u@h/d"):
+        assert redact_secrets(text) == text
+
+
 def test_text_without_a_dsn_password_is_unchanged():
     for text in ("password authentication failed for user \"u\"", "Access denied for user 'u'@'h' (using password: YES)"):
         assert redact_secrets(text) == text
@@ -103,3 +121,39 @@ async def test_a_jobs_log_and_error_never_keep_it(db, engine, monkeypatch):
     await asyncio.gather(*jobs._status_writes)
     await db.refresh(job)
     assert job.status == "error" and "S3cret" not in job.log_tail
+
+
+def test_a_log_call_with_mismatched_args_does_not_raise():
+    import logging
+
+    from app.core.logging import RedactSecrets
+
+    record = logging.LogRecord("app.x", logging.INFO, __file__, 1, "two %s %s", (POSTGRES,), None)
+    assert RedactSecrets().filter(record)
+    line = logging.Formatter("%(message)s").format(record)
+    assert line.startswith("two %s %s") and "S3cret" not in line
+
+
+def test_uvicorn_tracebacks_and_access_lines_are_redacted():
+    import logging
+    import sys
+
+    from app.core.logging import setup_logging
+
+    setup_logging()
+    setup_logging()
+    error = logging.getLogger("uvicorn.error")
+    assert len(error.filters) == len(set(map(type, error.filters)))
+    try:
+        raise duckdb.IOException(POSTGRES)
+    except duckdb.IOException:
+        record = error.makeRecord("uvicorn.error", logging.ERROR, __file__, 1, "Exception in ASGI application", (), sys.exc_info())
+    assert error.filter(record)
+    assert "S3cret" not in logging.Formatter("%(message)s").format(record)
+
+    access = logging.getLogger("uvicorn.access")
+    args = ("1.2.3.4:5", "GET", "/x?u=mysql://u:S3cret@h/d", "1.1", 200)
+    record = access.makeRecord("uvicorn.access", logging.INFO, __file__, 1, '%s - "%s %s HTTP/%s" %d', args, None)
+    assert access.filter(record)
+    assert record.args[2] == "/x?u=mysql://u:***@h/d" and record.args[4] == 200
+

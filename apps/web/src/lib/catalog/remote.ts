@@ -77,6 +77,8 @@ export type CatalogFetchError =
   | 'unsupported-version'
   /** Private catalog the user's token for its host cannot read — or there is no token. */
   | 'unauthorized'
+  /** Private catalog read through a server account whose role may fetch no remote. */
+  | 'forbidden'
   /** Private catalog in a client-only build, which has no account to hold a token. */
   | 'server-mode-required'
 
@@ -127,6 +129,7 @@ async function fetchThroughServer(source: CatalogSource, file: string): Promise<
   } catch {
     throw new CatalogError('network')
   }
+  if (res.status === 403) throw new CatalogError('forbidden')
   if (!res.ok) {
     const code = ((await res.json().catch(() => null)) as { detail?: { code?: string } } | null)?.detail?.code
     throw new CatalogError(SERVER_ERRORS.has(code as CatalogFetchError) ? (code as CatalogFetchError) : 'network')

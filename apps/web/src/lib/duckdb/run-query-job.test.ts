@@ -15,6 +15,7 @@ vi.mock('@/lib/api/query-jobs', () => ({
   startQueryJob: (...a: unknown[]) => (startQueryJob as (...x: unknown[]) => unknown)(...a),
   followQueryJob: (...a: unknown[]) => followQueryJob(...a),
   isJobGone: (err: unknown) => (err as { gone?: boolean }).gone === true,
+  isTransient: (err: unknown) => err instanceof TypeError || [502, 503, 504].includes((err as { status?: number }).status ?? 0),
 }))
 vi.mock('@/lib/api/environments', () => ({ cancelJob: (id: string) => cancelJob(id) }))
 vi.mock('./engine', () => ({ prepareQuerySql: async (_ds: string, sql: string) => sql }))
@@ -82,6 +83,29 @@ describe('runQueryJob', () => {
     followQueryJob.mockRejectedValueOnce(new TypeError('Failed to fetch'))
     expect(await run({ resumeOnly: true })).toBeNull()
     expect(readStored()?.jobId).toBe('new')
+  })
+
+  it('forgets the job when following it fails for a reason other than the way to it', async () => {
+    followQueryJob.mockRejectedValueOnce(Object.assign(new Error('Server error'), { status: 500 }))
+    await expect(run()).rejects.toThrow('Server error')
+    expect(hasRememberedJob('n')).toBe(false)
+    followQueryJob.mockRejectedValueOnce(Object.assign(new Error('Unauthorized'), { status: 401 }))
+    await expect(run()).rejects.toThrow('Unauthorized')
+    expect(hasRememberedJob('n')).toBe(false)
+    followQueryJob.mockRejectedValueOnce(Object.assign(new Error('Bad gateway'), { status: 502 }))
+    await expect(run()).rejects.toThrow('Bad gateway')
+    expect(hasRememberedJob('n')).toBe(true)
+  })
+
+  it("forgets the job when the caller's own handler throws, even a TypeError", async () => {
+    followQueryJob.mockImplementation(async (_ds: string, _id: string, _keys: string[], cb: (...a: unknown[]) => Promise<void>) => {
+      await cb(0, [], done)
+      return done
+    })
+    const onResult = () => { throw new TypeError('handler bug') }
+    await expect(runQueryJob('ds', 'Label', queries, onResult, { signal: new AbortController().signal, remember }))
+      .rejects.toThrow('handler bug')
+    expect(hasRememberedJob('n')).toBe(false)
   })
 
   it('cancels a remembered job it could not follow before starting another', async () => {

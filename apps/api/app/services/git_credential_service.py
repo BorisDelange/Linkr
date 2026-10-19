@@ -46,15 +46,24 @@ def host_of(url: str) -> str | None:
         return None
 
     if "://" in url:
-        parts = urlsplit(url)
-        host = parts.hostname
+        try:
+            parts = urlsplit(url)
+            host = parts.hostname
+        except ValueError:
+            return None
         if not host:
             return None
         host = host.lower()
+        # A user-less scp remote (`gitlab.com:group/repo`) is cleaned into
+        # https://gitlab.com:group/…, whose "port" is the path: no port then.
+        try:
+            port = parts.port
+        except ValueError:
+            port = None
         # Keep an explicit non-default port so gitea.local:3000 != gitea.local:443.
         default_port = {"https": 443, "http": 80, "ssh": 22, "git": 9418}.get(parts.scheme)
-        if parts.port and parts.port != default_port:
-            return f"{host}:{parts.port}"
+        if port and port != default_port:
+            return f"{host}:{port}"
         return host
 
     # Schemeless with an "@" after the first ":" is no scp remote git would read

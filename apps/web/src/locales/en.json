@@ -4022,7 +4022,11 @@
     "back_to_data_catalogs": "Back to catalogs",
     "import_app_too_old": "This content needs Linkr {{required}} or later, and this instance runs {{current}}. Its format changed in {{required}}: an older version would import it only partly, without saying so. Update Linkr, then import it again.",
     "import_wrong_type": "This file is a \"{{found}}\", not a \"{{expected}}\". Import it from the page for that kind of entity.",
-    "import_no_manifest": "This ZIP is not a \"{{expected}}\" export: it holds no manifest Linkr can read."
+    "import_no_manifest": "This ZIP is not a \"{{expected}}\" export: it holds no manifest Linkr can read.",
+    "rows_returned_in_one": "{{count}} row returned in {{duration}}",
+    "rows_returned_in_many": "{{count}} rows returned in {{duration}}",
+    "rows_returned_in_other": "{{count}} rows returned in {{duration}}",
+    "executed_in": "Executed in {{duration}}"
   },
   "user_menu": {
     "profile": "User settings",
@@ -4117,7 +4121,15 @@
     "sources_none": "No catalog configured",
     "sources_none_description": "Add a catalog, or restore the community one, with the gear icon above.",
     "error_unauthorized": "Could not read this private catalog. Check its address, and that your access token for this host can read the repository (Manage catalogs).",
-    "error_server_mode_required": "A private catalog needs a Linkr server: the access token is stored in your account."
+    "error_server_mode_required": "A private catalog needs a Linkr server: the access token is stored in your account.",
+    "error_forbidden": "Your role does not let you read a private catalog: it takes the right to edit at least one workspace.",
+    "install_child_bad_url": "Its repository URL is not an https:// or ssh address.",
+    "install_child_too_large": "The archive is too large to install.",
+    "install_child_missing": "Missing {{file}}. {{detail}}",
+    "install_tree_no_manifest": "This repository has no {{file}}: nothing declares what it is or what it is called.",
+    "install_tree_contains": "It contains: {{files}}.",
+    "install_tree_preset_no_ddl": "This schema preset has no {{file}}, so it would install tables with no columns.",
+    "install_tree_unreadable": "This repository could not be read as a {{type}}: its layout does not match what this entity type expects."
   },
   "wiki": {
     "title": "Wiki",
@@ -4499,7 +4511,8 @@
     "vocab_artefacts": "Files to write",
     "vocab_include_all_source_concepts_desc": "Also loads the source concepts no selected mapping covers, as concepts with no 'Maps to'. Without them an unmapped local code has no source_concept_id to write into the CDM.",
     "readme_empty_hint": "No readme yet — write one to say what this pipeline transforms.",
-    "source_database": "Source database"
+    "source_database": "Source database",
+    "vocab_fill_hint": "The target vocabulary is only complete once {{file}} has run, after the CDM scripts: a script that reads concept_ancestor or concept_relationship before it (eras, hierarchies) must read them from vocab., not target. Staging tables still in target are scanned too and keep the concepts they reference."
   },
   "sql_scripts": {
     "tab_scripts": "Scripts",

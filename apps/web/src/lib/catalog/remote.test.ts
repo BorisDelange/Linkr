@@ -182,6 +182,11 @@ describe('private catalog', () => {
     await expect(fetchCatalogIndex(source)).rejects.toMatchObject({ kind: 'unauthorized' })
   })
 
+  it('reads a 403 as forbidden, not as a network failure', async () => {
+    api.apiFetch.mockResolvedValue({ ok: false, status: 403, json: async () => ({ detail: 'Insufficient permissions' }) })
+    await expect(fetchCatalogIndex(source)).rejects.toMatchObject({ kind: 'forbidden' })
+  })
+
   it('reads an unknown or missing code as network', async () => {
     api.apiFetch.mockResolvedValue({ ok: false, status: 500, json: async () => ({ detail: 'boom' }) })
     await expect(fetchCatalogIndex(source)).rejects.toMatchObject({ kind: 'network' })

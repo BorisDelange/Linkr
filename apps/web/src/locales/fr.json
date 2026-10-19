@@ -4022,7 +4022,11 @@
     "back_to_data_catalogs": "Retour aux catalogues",
     "import_app_too_old": "Ce contenu nécessite Linkr {{required}} ou plus récent, et cette instance est en {{current}}. Son format a changé en {{required}} : une version antérieure ne l'importerait qu'en partie, sans le signaler. Mettez Linkr à jour, puis importez-le de nouveau.",
     "import_wrong_type": "Ce fichier est de type « {{found}} », pas « {{expected}} ». Importez-le depuis la page de ce type d'entité.",
-    "import_no_manifest": "Ce ZIP n'est pas un export de type « {{expected}} » : il ne contient aucun manifeste lisible par Linkr."
+    "import_no_manifest": "Ce ZIP n'est pas un export de type « {{expected}} » : il ne contient aucun manifeste lisible par Linkr.",
+    "rows_returned_in_one": "{{count}} ligne renvoyée en {{duration}}",
+    "rows_returned_in_many": "{{count}} lignes renvoyées en {{duration}}",
+    "rows_returned_in_other": "{{count}} lignes renvoyées en {{duration}}",
+    "executed_in": "Exécuté en {{duration}}"
   },
   "user_menu": {
     "profile": "Paramètres utilisateur",
@@ -4117,7 +4121,15 @@
     "sources_none": "Aucun catalogue configuré",
     "sources_none_description": "Ajoutez un catalogue, ou rétablissez le catalogue communautaire, avec l'icône d'engrenage ci-dessus.",
     "error_unauthorized": "Impossible de lire ce catalogue privé. Vérifiez son adresse, et que votre jeton d'accès pour cet hôte peut lire le dépôt (Gérer les catalogues).",
-    "error_server_mode_required": "Un catalogue privé nécessite un serveur Linkr : le jeton d'accès est enregistré dans votre compte."
+    "error_server_mode_required": "Un catalogue privé nécessite un serveur Linkr : le jeton d'accès est enregistré dans votre compte.",
+    "error_forbidden": "Votre rôle ne permet pas de lire un catalogue privé : il faut pouvoir modifier au moins un espace de travail.",
+    "install_child_bad_url": "L’URL de son dépôt n’est pas une adresse https:// ou ssh.",
+    "install_child_too_large": "L’archive est trop volumineuse pour être installée.",
+    "install_child_missing": "{{file}} manquant. {{detail}}",
+    "install_tree_no_manifest": "Ce dépôt n’a pas de {{file}} : rien ne déclare ce qu’il est ni comment il s’appelle.",
+    "install_tree_contains": "Il contient : {{files}}.",
+    "install_tree_preset_no_ddl": "Ce modèle de schéma n’a pas de {{file}} : il installerait des tables sans colonnes.",
+    "install_tree_unreadable": "Ce dépôt n’a pas pu être lu comme {{type}} : son organisation ne correspond pas à ce qu’attend ce type d’entité."
   },
   "wiki": {
     "title": "Wiki",
@@ -4499,7 +4511,8 @@
     "vocab_artefacts": "Fichiers à écrire",
     "vocab_include_all_source_concepts_desc": "Charge aussi les concepts sources qu'aucun mapping sélectionné ne couvre, comme des concepts sans « Maps to ». Sans eux, un code local non mappé n'a aucun source_concept_id à écrire dans le CDM.",
     "readme_empty_hint": "Aucun readme — rédigez-en un pour décrire ce que ce pipeline transforme.",
-    "source_database": "Base de données source"
+    "source_database": "Base de données source",
+    "vocab_fill_hint": "Le vocabulaire de la cible n’est complet qu’après {{file}}, exécuté après les scripts du CDM : un script qui lit concept_ancestor ou concept_relationship avant lui (ères, hiérarchies) doit les lire depuis vocab., pas target. Les tables de staging encore présentes dans target sont aussi parcourues et conservent les concepts qu’elles référencent."
   },
   "sql_scripts": {
     "tab_scripts": "Scripts",

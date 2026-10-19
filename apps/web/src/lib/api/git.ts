@@ -212,12 +212,15 @@ export async function gitError(res: Response): Promise<GitRemoteError> {
  * Throws GitRemoteError (with a code) if the URL is wrong or auth fails, so the
  * caller can refuse to save a link that doesn't actually work.
  */
+/** `purpose: 'catalog'`: a catalog belongs to no workspace, so the server checks
+ *  it as `/git/catalog-file` reads it — for whoever may write in some workspace. */
 export async function gitVerifyRemote(
   url: string,
   token: string | undefined,
   workspaceId: string | undefined,
+  purpose?: 'catalog',
 ): Promise<GitVerifyResult> {
-  const res = await apiFetch('/api/v1/git/verify-remote', {
+  const res = await apiFetch(`/api/v1/git/verify-remote${purpose ? `?purpose=${purpose}` : ''}`, {
     method: 'POST',
     body: JSON.stringify({ url, token: token || undefined, workspaceId }),
   })

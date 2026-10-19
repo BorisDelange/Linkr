@@ -27,7 +27,6 @@ import { DEFAULT_CATALOG, DEFAULT_CATALOG_ID, type CatalogConfig } from '@/lib/c
 import type { LocalizedString } from '@/types'
 import { useCatalogSourcesStore } from '@/stores/catalog-sources-store'
 import { useAppStore } from '@/stores/app-store'
-import { getActiveWorkspaceId } from '@/stores/workspace-store'
 
 interface CatalogSourcesDialogProps {
   open: boolean
@@ -78,7 +77,7 @@ export function CatalogSourcesDialog({ open, onOpenChange }: CatalogSourcesDialo
       // which sits in this browser's storage. Verifying stores it only once the repo
       // answers to it, so a mistyped token cannot replace the host's working one.
       const token = draft.private ? draft.token.trim() : ''
-      if (token) await gitVerifyRemote(draftSource.repoUrl, token, getActiveWorkspaceId())
+      if (token) await gitVerifyRemote(draftSource.repoUrl, token, undefined, 'catalog')
       save({
         id: editing === 'new' ? crypto.randomUUID() : editing.id,
         // The other language may stay blank: `localized` falls back to this one.

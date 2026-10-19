@@ -133,7 +133,7 @@ export async function followQueryJob(
 export const isJobGone = (err: unknown) => err instanceof ApiError && err.status === 404
 
 /** A failure that says nothing of the job: the request did not reach the API. */
-function isTransient(err: unknown): boolean {
+export function isTransient(err: unknown): boolean {
   if (err instanceof ApiError) return err.status === 502 || err.status === 503 || err.status === 504
   // fetch rejects with a TypeError when the network fails.
   return err instanceof TypeError

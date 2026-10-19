@@ -272,7 +272,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
           timestamp: start,
           duration,
           success: true,
-          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${formatDuration(duration)}`,
+          output: t('common.rows_returned_in', { count: rows.length, duration: formatDuration(duration) }),
           code: sql,
         })
         if (rows.length > 0) {

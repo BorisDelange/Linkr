@@ -27,6 +27,9 @@ async def _user(db, username: str) -> User:
         ("ssh://git@gitea.local:3000/owner/repo.git", "gitea.local:3000"),
         ("https://host:8443/x", "host:8443"),
         ("https://host:443/x", "host"),  # default https port dropped
+        ("gitlab.com:group/repo.git", "gitlab.com"),  # user-less scp remote
+        ("https://[::1/g", None),
+        ("https://host:99999/x", "host"),
         ("", None),
         ("not a url", None),
     ],
@@ -41,6 +44,8 @@ def test_host_of(url, expected):
         "gitlab.com:x@evil.com/g/repo",
         "gitlab.com:443@evil.com/g/r",
         "gitlab.com:@evil.com/a",
+        "gitlab.com:@evil.com/g/r",
+        "gitlab.com:group/repo.git",
         "gitlab.com/g/repo",
         "https://gitlab.com/g/repo/-/tree/main",
     ],
@@ -105,6 +110,12 @@ async def test_update_overwrites_and_empty_clears(db):
     await svc.set_token(db, user, "gitlab.com", "")
     assert await svc.token_for_host(db, user, "gitlab.com") is None
     assert await svc.has_token_for_host(db, user, "gitlab.com") is False
+
+
+async def test_token_for_url_never_raises_on_odd_remotes(db):
+    u = await _user(db, "odd")
+    assert await svc.token_for_url(db, u, "https://[::1/g") is None
+    assert await svc.token_for_url(db, u, "gitlab.com:group/repo.git") is None
 
 
 async def test_token_for_url_without_host_is_none(db):

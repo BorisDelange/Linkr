@@ -18,6 +18,7 @@ leave the server.
 import asyncio
 import tempfile
 from pathlib import Path
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
@@ -1273,6 +1274,7 @@ async def _check_may_fetch_for_some_workspace(db: AsyncSession, user: User) -> N
 @router.post("/verify-remote", response_model=GitVerifyResponse)
 async def verify_remote(
     body: GitVerifyRequest,
+    purpose: Literal["catalog"] | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1280,8 +1282,14 @@ async def verify_remote(
     persists the link — so an unreachable/unauthorized URL is rejected up front
     instead of silently saved and only failing later in the sync panel. On
     success, remember the token for this user + host so the token-less sync ops
-    (status/diff/commit-push) can use it afterwards."""
-    await _check_may_fetch(db, user, body.workspace_id)
+    (status/diff/commit-push) can use it afterwards.
+
+    `purpose=catalog` checks a catalog source, which is tied to no workspace:
+    allowed for whoever may read its index (`/catalog-file`)."""
+    if purpose == "catalog":
+        await _check_may_fetch_for_some_workspace(db, user)
+    else:
+        await _check_may_fetch(db, user, body.workspace_id)
     try:
         result = await git_service.verify_remote(body.url, body.token)
     except git_service.GitError as exc:

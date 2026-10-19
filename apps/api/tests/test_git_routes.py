@@ -424,6 +424,25 @@ async def test_clone_and_verify_need_a_write_permission(client, db, tmp_path):
         assert (await client.post(f"{API}/git/{route}", headers=admin, json={"url": url, **extra})).status_code == 200
 
 
+async def test_verify_remote_for_a_catalog_needs_a_write_permission_somewhere(client, db, tmp_path):
+    admin = await _bootstrap_admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "WS"}})).json()["id"]
+    other = (await client.post(f"{API}/workspaces", headers=admin, json={"name": {"en": "Other"}})).json()["id"]
+    bob = await _user(client, db, "bob")
+    carol = await _user(client, db, "carol")
+    bob_id = (await client.get(f"{API}/auth/me", headers=bob)).json()["id"]
+    carol_id = (await client.get(f"{API}/auth/me", headers=carol)).json()["id"]
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": bob_id, "role": "editor"})
+    await client.put(f"{API}/workspaces/{ws}/members", headers=admin, json={"userId": carol_id, "role": "viewer"})
+    url = f"file://{_local_repo_with_secret(tmp_path)}"
+    route = f"{API}/git/verify-remote"
+
+    assert (await client.post(route, headers=bob, json={"url": url, "workspaceId": other})).status_code == 403
+    assert (await client.post(f"{route}?purpose=catalog", headers=bob, json={"url": url, "workspaceId": other})).status_code == 200
+    assert (await client.post(f"{route}?purpose=catalog", headers=bob, json={"url": url})).status_code == 200
+    assert (await client.post(f"{route}?purpose=catalog", headers=carol, json={"url": url})).status_code == 403
+
+
 async def test_catalog_file_needs_a_write_permission_somewhere(client, db, monkeypatch):
     from app.services import catalog_remote_service
 

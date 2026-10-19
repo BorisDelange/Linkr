@@ -31,6 +31,7 @@ def setup_logging(debug: bool = False) -> None:
         cache_logger_on_first_use=True,
     )
     _setup_app_loggers()
+    _redact_uvicorn_loggers()
 
 
 def _setup_app_loggers() -> None:
@@ -53,6 +54,18 @@ def _setup_app_loggers() -> None:
     app.propagate = False
 
 
+def _redact_uvicorn_loggers() -> None:
+    """An unhandled route exception is logged by uvicorn ("Exception in ASGI
+    application"), its traceback quoting whatever the driver raised. The filter
+    sits on the logger, not a handler: it holds whatever handlers uvicorn's own
+    logging config installs. The access line keeps its args, which its
+    formatter unpacks."""
+    for name, filter_ in (("uvicorn.error", RedactSecrets()), ("uvicorn.access", RedactSecretArgs())):
+        logger = logging.getLogger(name)
+        if not any(type(f) is type(filter_) for f in logger.filters):
+            logger.addFilter(filter_)
+
+
 def _with_request_id(record: logging.LogRecord) -> bool:
     """Stamp the line with the request that produced it (core/audit.request_id),
     bound by the audit middleware in structlog's context; "-" outside a request."""
@@ -70,10 +83,26 @@ class RedactSecrets(logging.Filter):
     the formatter cannot put them back. A traceback's text likewise."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        record.msg = redact_secrets(record.getMessage())
+        try:
+            message = record.getMessage()
+        except Exception:  # noqa: BLE001
+            # Args that do not fit the format: a filter raising would reach the
+            # caller (only the handler's emit is guarded), so keep both, unformatted.
+            message = f"{record.msg} {record.args!r}"
+        record.msg = redact_secrets(message)
         record.args = None
         if record.exc_info and not record.exc_text:
             record.exc_text = logging.Formatter().formatException(record.exc_info)
         if record.exc_text:
             record.exc_text = redact_secrets(record.exc_text)
+        return True
+
+
+class RedactSecretArgs(logging.Filter):
+    """`RedactSecrets` for a record whose formatter reads its args (uvicorn's
+    access line): each string arg is redacted in place."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple):
+            record.args = tuple(redact_secrets(a) if isinstance(a, str) else a for a in record.args)
         return True

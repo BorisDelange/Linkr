@@ -565,7 +565,7 @@ export function FilesPage() {
           timestamp: start,
           duration,
           success: true,
-          output: `${rows.length} row${rows.length !== 1 ? 's' : ''} returned in ${formatDuration(duration)}`,
+          output: t('common.rows_returned_in', { count: rows.length, duration: formatDuration(duration) }),
           code: sql,
         })
 
@@ -596,7 +596,7 @@ export function FilesPage() {
         })
       }
     },
-    [activeConnectionId, addExecutionResult, addOutputTab]
+    [activeConnectionId, t, addExecutionResult, addOutputTab]
   )
 
   /** Execute Python or R code via Pyodide / webR WASM runtimes. */
@@ -712,7 +712,7 @@ export function FilesPage() {
             // tell "it ran but warned" (amber) from "it raised" (red).
             success: !result.failed,
             warned: !result.failed && (sawStderr || !!result.stderr),
-            output: warning + (streamed || `Executed in ${formatDuration(duration)}`),
+            output: warning + (streamed || t('common.executed_in', { duration: formatDuration(duration) })),
             installOffer,
           })
           addFiguresAndTable(result)
@@ -733,7 +733,7 @@ export function FilesPage() {
           warned: !failed && !!result.stderr,
           output: failed
             ? result.stderr
-            : [result.stdout, result.stderr].filter(Boolean).join('\n') || `Executed in ${formatDuration(duration)}`,
+            : [result.stdout, result.stderr].filter(Boolean).join('\n') || t('common.executed_in', { duration: formatDuration(duration) }),
         })
         addFiguresAndTable(result)
       } catch (err) {
