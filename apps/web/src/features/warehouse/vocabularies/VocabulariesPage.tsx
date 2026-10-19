@@ -127,7 +127,12 @@ function VocabularySection({ workspaceId, section }: { workspaceId: string; sect
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setSearchParams(canWrite ? { tab: 'library', import: '1' } : { tab: 'library' }, { replace: true })}
+                      onClick={() => setSearchParams((prev) => {
+                        const next = new URLSearchParams(prev)
+                        next.set('tab', 'library')
+                        if (canWrite) next.set('import', '1')
+                        return next
+                      }, { replace: true })}
                     >
                       {t('vocabularies.go_to_library')}
                     </Button>

@@ -159,7 +159,7 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
 
         {failedOutright && !installWanted && (
           <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-            <TriangleAlert size={14} className="mt-px shrink-0 text-amber-600" />
+            <TriangleAlert size={14} className="mt-px shrink-0 text-amber-600 dark:text-amber-500" />
             {t('setup.data_install_failed')}
           </div>
         )}
@@ -176,7 +176,7 @@ export function DefaultDataStep({ onDone }: DefaultDataStepProps) {
             this only makes sure the step does not read as a clean success. */}
         {install.failure?.partial && (
           <div className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
-            <TriangleAlert size={14} className="mt-px shrink-0 text-amber-600" />
+            <TriangleAlert size={14} className="mt-px shrink-0 text-amber-600 dark:text-amber-500" />
             {t('setup.data_partial')}
           </div>
         )}

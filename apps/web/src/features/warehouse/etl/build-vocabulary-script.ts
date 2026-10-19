@@ -2,8 +2,10 @@
  * Build the full vocabulary SQL script from concept mappings.
  * Extracted so it can be used both by EtlVocabularyTab (UI) and the seed loader (startup).
  */
-import type { ConceptMapping } from '@/types'
-import { escSql as esc } from '@/lib/format-helpers'
+import type { ConceptMapping, EtlFile } from '@/types'
+import { escSql as esc, naturalCompare } from '@/lib/format-helpers'
+import { compareEtlFilesByOrder } from '@/lib/etl-file-order'
+import { nextEtlOrder } from './etl-file-language'
 import {
   assignSourceConceptIds,
   SOURCE_CONCEPT_ID_BASE,
@@ -214,6 +216,13 @@ export function buildFillVocabularyScript(
   parts.push('--')
   parts.push('-- It stops with an error if no CDM table references a concept: that means')
   parts.push('-- it ran before the tables were filled.')
+  parts.push('--')
+  parts.push('-- Every table of the target is scanned: a staging table still there keeps')
+  parts.push('-- the concepts it references. Drop staging tables before this script.')
+  parts.push('--')
+  parts.push(`-- Until it has run, ${T}.concept_ancestor and ${T}.concept_relationship are`)
+  parts.push('-- incomplete: a CDM script that needs the hierarchy or the relationships')
+  parts.push(`-- (eras) reads them from ${vs}., not from ${T}.`)
   parts.push('')
 
   parts.push('-- =================================================================')
@@ -224,16 +233,18 @@ export function buildFillVocabularyScript(
   // and executed with query(). It goes through a session variable because
   // query() rejects a subquery argument ("Table function cannot contain
   // subqueries"). UNNEST turns one row per table into one row per concept id.
+  // TRY_CAST because the list must share one type: a VARCHAR *_concept_id (a
+  // staging copy left in the target) made the binder refuse the whole scan.
   parts.push(`SET VARIABLE linkr_used_concepts_sql = (`)
   parts.push('    SELECT COALESCE(')
   parts.push('        string_agg(')
-  parts.push(`            'SELECT UNNEST([' || cols || ']) AS concept_id FROM ${T}."' || table_name || '"',`)
+  parts.push(`            'SELECT UNNEST([' || cols || ']) AS concept_id FROM ${T}."' || replace(table_name, '"', '""') || '"',`)
   parts.push("            ' UNION ALL '")
   parts.push('        ),')
   parts.push("        'SELECT NULL::BIGINT AS concept_id WHERE FALSE'")
   parts.push('    )')
   parts.push('    FROM (')
-  parts.push(`        SELECT table_name, string_agg('"' || column_name || '"', ', ') AS cols`)
+  parts.push(`        SELECT table_name, string_agg('TRY_CAST("' || replace(column_name, '"', '""') || '" AS BIGINT)', ', ') AS cols`)
   parts.push('        FROM duckdb_columns()')
   parts.push(`        WHERE (database_name = '${T}' OR schema_name = '${T}')`)
   // SIMILAR TO rather than LIKE ... ESCAPE '\': the pipeline splits a script on
@@ -305,6 +316,16 @@ export function buildFillVocabularyScript(
   parts.push(`    WHERE m.vocabulary_id IN (${OMOP_METADATA_VOCABULARIES.map((v) => `'${v}'`).join(', ')})`)
   parts.push(')')
   parts.push('WHERE concept_id IS NOT NULL;')
+  parts.push('')
+  // After the closure, not inside it: step 4 copies the synonyms of every kept
+  // concept, ancestors included, and each synonym's language is a foreign key.
+  parts.push('-- Languages of the synonyms step 4 copies.')
+  parts.push(`INSERT INTO ${T}.tmp_keep_concepts`)
+  parts.push('SELECT DISTINCT cs.language_concept_id')
+  parts.push(`FROM ${vs}.concept_synonym cs`)
+  parts.push(`SEMI JOIN ${T}.tmp_keep_concepts k ON k.concept_id = cs.concept_id`)
+  parts.push('WHERE cs.language_concept_id IS NOT NULL')
+  parts.push(`  AND cs.language_concept_id NOT IN (SELECT concept_id FROM ${T}.tmp_keep_concepts);`)
   parts.push('')
 
   parts.push('-- =================================================================')
@@ -405,6 +426,32 @@ export function buildFillVocabularyScript(
   parts.push('')
 
   return parts.join('\n')
+}
+
+/**
+ * Where a newly generated script lands in a pipeline's run, and the files it
+ * pushes back.
+ *
+ * Before the first script whose numbered name sorts after it: the fill
+ * (`89_…`) belongs after the CDM scripts and before the tests and cdm_source
+ * (`90_…`), and `order` is a dense rank, so taking the slot means shifting
+ * every later file down by one. Unnumbered names say nothing about the run and
+ * are skipped. With no such script it is appended.
+ */
+export function generatedScriptSlot(
+  files: Pick<EtlFile, 'id' | 'name' | 'type' | 'order'>[],
+  name: string,
+): { order: number; shifted: Map<string, number> } {
+  const next = files
+    .filter((f) => f.type === 'file' && f.name !== name && /^\d+[_\-. ]/.test(f.name)
+      && naturalCompare(f.name, name) > 0)
+    .sort(compareEtlFilesByOrder)[0]
+  if (!next) return { order: nextEtlOrder(files), shifted: new Map() }
+  const shifted = new Map<string, number>()
+  for (const f of files) {
+    if (f.order >= next.order) shifted.set(f.id, f.order + 1)
+  }
+  return { order: next.order, shifted }
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   buildFillVocabularyScript,
   buildVocabularyScript,
   buildVocabularyScriptWithIds,
+  generatedScriptSlot,
 } from './build-vocabulary-script'
 import type { ConceptMapping } from '@/types'
 
@@ -235,6 +236,31 @@ describe('buildFillVocabularyScript', () => {
   it('keeps the custom vocabulary entries the vocabulary script wrote', () => {
     expect(sql).not.toContain('TRUNCATE target.vocabulary;')
     expect(sql).toContain('WHERE v.vocabulary_id NOT IN (SELECT vocabulary_id FROM target.vocabulary);')
+  })
+
+  it('casts each scanned column, so a VARCHAR one cannot break the scan', () => {
+    // UNNEST([a, b]) needs one type: a staging copy left in the target with a
+    // VARCHAR *_concept_id made the binder refuse the whole list.
+    expect(sql).toContain(`'TRY_CAST("' || replace(column_name, '"', '""') || '" AS BIGINT)'`)
+    expect(sql).toContain(`FROM target."' || replace(table_name, '"', '""') || '"'`)
+  })
+
+  it('warns that staging tables left in the target are scanned', () => {
+    expect(sql).toMatch(/-- .*staging table/)
+  })
+
+  it('keeps the languages of the synonyms it copies', () => {
+    // concept_synonym.language_concept_id is a foreign key to concept, and no
+    // CDM column references a language. Taken from the closure, not the used
+    // set: an ancestor's synonym is copied too.
+    const closure = sql.indexOf('CREATE OR REPLACE TABLE target.tmp_keep_concepts')
+    const languages = sql.indexOf('INSERT INTO target.tmp_keep_concepts')
+    expect(languages).toBeGreaterThan(closure)
+    expect(languages).toBeLessThan(sql.indexOf('INSERT INTO target.concept\n'))
+    const statement = sql.slice(languages, sql.indexOf(';', languages))
+    expect(statement).toContain('SELECT DISTINCT cs.language_concept_id')
+    expect(statement).toContain('FROM vocab.concept_synonym cs')
+    expect(statement).toContain('SEMI JOIN target.tmp_keep_concepts k ON k.concept_id = cs.concept_id')
   })
 
   it('drops its temporary tables', () => {
@@ -651,5 +677,39 @@ describe('vocabulary mode', () => {
       expect(sql.indexOf('-- PART 3: concept_relationship'))
         .toBeLessThan(sql.indexOf('-- PART 5: source_to_concept_map'))
     })
+  })
+})
+
+describe('generatedScriptSlot', () => {
+  const FILL = '89_fill_vocabulary.sql'
+  const file = (id: string, name: string, order: number, type: 'file' | 'folder' = 'file') =>
+    ({ id, name, type, order })
+
+  it('lands before the first numbered script that sorts after it, shifting the rest', () => {
+    // The fill must run after the CDM scripts and before the tests: appended,
+    // the tests ran first and reported every concept_id as missing.
+    const files = [
+      file('v', '00_vocabulary.sql', -1),
+      file('a', '10_person.sql', 0),
+      file('b', '42_eras.sql', 1),
+      file('c', '90_tests.sql', 2),
+      file('d', '95_cdm_source.sql', 3),
+    ]
+    const { order, shifted } = generatedScriptSlot(files, FILL)
+    expect(order).toBe(2)
+    expect(Object.fromEntries(shifted)).toEqual({ c: 3, d: 4 })
+  })
+
+  it('appends when nothing numbered sorts after it', () => {
+    // Unnumbered names say nothing about where the run stands.
+    const files = [file('a', '10_person.sql', 0), file('b', 'tests.sql', 1), file('m', 'mapping', -2, 'folder')]
+    expect(generatedScriptSlot(files, FILL)).toEqual({ order: 2, shifted: new Map() })
+  })
+
+  it('follows the run order, not the names, to find the slot', () => {
+    const files = [file('c', '95_cdm_source.sql', 0), file('a', '10_person.sql', 1), file('t', '90_tests.sql', 2)]
+    const { order, shifted } = generatedScriptSlot(files, FILL)
+    expect(order).toBe(0)
+    expect(Object.fromEntries(shifted)).toEqual({ c: 1, a: 2, t: 3 })
   })
 })

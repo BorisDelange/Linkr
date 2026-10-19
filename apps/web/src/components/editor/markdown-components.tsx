@@ -76,11 +76,11 @@ export const markdownComponents: Record<string, any> = {
     if (!isExternal) return <a href={href} {...props}>{children}</a>
     return (
       <a
+        {...props}
         href={href}
         target="_blank"
         rel="noopener noreferrer"
         className="inline-flex items-baseline gap-1"
-        {...props}
       >
         {children}
         <ExternalLink size={11} className="ml-px shrink-0 translate-y-px opacity-70" aria-hidden />

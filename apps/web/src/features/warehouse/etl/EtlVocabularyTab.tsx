@@ -24,6 +24,7 @@ import { buildPointer } from '@/lib/import-identity'
 import {
   buildVocabularyScriptWithIds,
   buildFillVocabularyScript,
+  generatedScriptSlot,
   type VocabularyMode,
 } from './build-vocabulary-script'
 import { buildCcrCsvs, stcmFromCcr, syntheticMappingsForUnmapped, SYNTHETIC_MAPPING_ID } from '@/lib/concept-mapping/ccr-export'
@@ -46,6 +47,8 @@ import type { ConceptMapping, EffectiveMappingStatus, EtlFile, EtlVocabularyConf
 
 const VOCAB_SCRIPT_NAME = '00_vocabulary.sql'
 const FILL_SCRIPT_NAME = '89_fill_vocabulary.sql'
+/** The prune the fill replaced; deleted when the fill is generated. */
+const LEGACY_PRUNE_SCRIPT_NAME = '99_prune_vocabulary.sql'
 
 /** Every export this tab owns — the set it may delete when the mode changes. */
 const ALL_MAPPING_EXPORTS = new Set<string>([
@@ -53,16 +56,17 @@ const ALL_MAPPING_EXPORTS = new Set<string>([
 ])
 
 /**
- * Where each generated script sits in the run order.
- *
  * The vocabulary script loads the mapping project's concepts, which the CDM
- * scripts join, so it runs before everything (-1). The fill reads the CDM
- * tables to see which concepts were written, so it is created last; it belongs
- * before any step that checks concept_ids against target.concept (tests,
- * cdm_source), which only the user can place — hence the 89_ in its name.
+ * scripts join, so it runs before everything.
+ *
+ * The fill has no fixed order: it reads the CDM tables to see which concepts
+ * were written, and must run before any step that checks concept_ids against
+ * target.concept (tests, cdm_source). It is created just before the first
+ * numbered script that sorts after its 89_ name (see generatedScriptSlot).
+ * A staging table still in the target when it runs is scanned too, and keeps
+ * the concepts it references.
  */
 const VOCAB_SCRIPT_ORDER = -1
-const FILL_SCRIPT_ORDER = 99
 
 type ApprovalRule = 'at_least_one' | 'majority' | 'no_rejections'
 
@@ -78,9 +82,8 @@ interface Props {
 /**
  * Create or update a generated pipeline script with the given SQL content.
  *
- * `order` decides where it sits in the run: the vocabulary script at -1 runs
- * before every user script (0+), while the fill script has to run after them —
- * it reads the CDM tables to find out which concepts were written.
+ * `order` is only applied on creation: an existing script keeps the place the
+ * user gave it.
  */
 async function upsertGeneratedScript(
   pipelineId: string, name: string, sql: string, order: number,
@@ -713,8 +716,21 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
         await upsertGeneratedScript(pipelineId, VOCAB_SCRIPT_NAME, sql, VOCAB_SCRIPT_ORDER)
       }
       if (effectiveSelected.has('fill')) {
+        const { files: current, deleteFile, updateFile: updateEtlFile } = useEtlStore.getState()
+        let own = current.filter((f) => f.pipelineId === pipelineId)
+        const legacyPrune = own.find((f) => f.name === LEGACY_PRUNE_SCRIPT_NAME && !f.parentId)
+        if (legacyPrune) {
+          await deleteFile(legacyPrune.id)
+          own = own.filter((f) => f.id !== legacyPrune.id)
+        }
+        let fillOrder = 0
+        if (!own.some((f) => f.name === FILL_SCRIPT_NAME)) {
+          const slot = generatedScriptSlot(own, FILL_SCRIPT_NAME)
+          for (const [id, order] of slot.shifted) await updateEtlFile(id, { order })
+          fillOrder = slot.order
+        }
         await upsertGeneratedScript(
-          pipelineId, FILL_SCRIPT_NAME, buildFillVocabularyScript(undefined, vocabTables), FILL_SCRIPT_ORDER,
+          pipelineId, FILL_SCRIPT_NAME, buildFillVocabularyScript(undefined, vocabTables), fillOrder,
         )
       }
       setResult({ success: true, count: exportedMappings.length, written: [...effectiveSelected] })
@@ -945,6 +961,11 @@ export function EtlVocabularyTab({ pipelineId }: Props) {
                   </span>
                 </label>
               ))}
+              {effectiveSelected.has('fill') && (
+                <p className="border-t pt-2 text-[10px] text-muted-foreground">
+                  {t('etl.vocab_fill_hint', { file: FILL_SCRIPT_NAME })}
+                </p>
+              )}
             </div>
 
             <Button

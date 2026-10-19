@@ -46,7 +46,10 @@ const ROLE_QUALIFIER = /(^|[^\w."'`])(source|target|vocab)\.(?=[\w"])/gi
  */
 const SEQUENCE_ARGUMENT = /\b(nextval|currval)(\s*\(\s*')(source|target|vocab)\.(?=\w)/gi
 
-/** Roles actually referenced as a qualifier in the SQL (ignoring literals/comments). */
+/**
+ * Roles actually referenced in the SQL (ignoring literals/comments): as a
+ * qualifier, or as the schema of a sequence function's name argument.
+ */
 export function usedRoles(sql: string): RolePrefix[] {
   const regions = protectedRegions(sql)
   const found = new Set<RolePrefix>()
@@ -54,6 +57,10 @@ export function usedRoles(sql: string): RolePrefix[] {
     const roleAt = m.index + m[1].length
     if (isProtected(regions, roleAt)) continue
     found.add(m[2].toLowerCase() as RolePrefix)
+  }
+  for (const m of sql.matchAll(SEQUENCE_ARGUMENT)) {
+    if (isProtected(regions, m.index)) continue
+    found.add(m[3].toLowerCase() as RolePrefix)
   }
   return ROLE_PREFIXES.filter((r) => found.has(r))
 }

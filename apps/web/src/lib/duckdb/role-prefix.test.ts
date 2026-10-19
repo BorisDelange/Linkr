@@ -154,4 +154,13 @@ describe('usedRoles', () => {
     expect(usedRoles('-- source.x')).toEqual([])
     expect(usedRoles('SELECT * FROM my_source.x')).toEqual([])
   })
+
+  it("counts a role named only in a sequence function's argument", () => {
+    // The runner tests the connection of every used role before running.
+    expect(usedRoles("SELECT nextval('target.seq_row_id')")).toEqual(['target'])
+    expect(usedRoles("INSERT INTO target.p SELECT currval( 'vocab.s' ) FROM source.a"))
+      .toEqual(['source', 'target', 'vocab'])
+    expect(usedRoles("-- nextval('target.s')")).toEqual([])
+    expect(usedRoles("SELECT 'nextval(''target.s'')'")).toEqual([])
+  })
 })
