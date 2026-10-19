@@ -196,6 +196,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   // late, after the tab is already visible.
   const [schemaEverOpened, setSchemaEverOpened] = useState(false)
   if (activeTab === 'schema' && !schemaEverOpened) setSchemaEverOpened(true)
+  // Same latch for the concept list: its page, filters, sort and selected
+  // concept's stats survive a visit to another tab instead of being reloaded.
+  const [conceptsEverOpened, setConceptsEverOpened] = useState(false)
+  if (activeTab === 'concepts' && !conceptsEverOpened) setConceptsEverOpened(true)
 
   // Opening a database refreshes the patient count its card shows — once per
   // opening, when it is reachable.
@@ -370,12 +374,18 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
           </ScrollArea>
         </TabsContent>
 
-        <TabsContent value="concepts" className="m-0 min-h-0 flex-1 p-0">
-          <DatabaseConceptsTab
-            dataSourceId={source.id}
-            schemaMapping={statsMapping}
-            readOnly={!canCountConcepts}
-          />
+        <TabsContent
+          value="concepts"
+          forceMount
+          className={`m-0 min-h-0 flex-1 p-0 ${shownTab === 'concepts' ? '' : 'hidden'}`}
+        >
+          {conceptsEverOpened && (
+            <DatabaseConceptsTab
+              dataSourceId={source.id}
+              schemaMapping={statsMapping}
+              readOnly={!canCountConcepts}
+            />
+          )}
         </TabsContent>
 
         {/* The browser fills the page: its three panes are what the sheet could

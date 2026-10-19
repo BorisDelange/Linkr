@@ -47,10 +47,11 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   const concepts = useConcepts(dataSourceId, schemaMapping, 'database')
   const { count } = concepts
   const [confirmRestart, setConfirmRestart] = useState(false)
-  // Rows alone take one pass per table — seconds — and make the list sortable
-  // by use; patients are the long part, and the statistics an extra, so they
-  // start unticked.
-  const [extra, setExtra] = useState<ReadonlySet<OptionalStep>>(() => new Set(['patients']))
+  // What the user ticked, for this database; untouched, the steps the stored
+  // run computed. Rows alone take one pass per table — seconds — and make the
+  // list sortable by use; patients are the long part, and the statistics an
+  // extra, so a database never counted starts with rows and patients.
+  const [ticked, setTicked] = useState<{ dataSourceId: string; steps: ReadonlySet<OptionalStep> } | null>(null)
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     () => Object.fromEntries(DEFAULT_HIDDEN_COLUMNS.map((id) => [id, false])),
   )
@@ -76,6 +77,12 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   )
 
   const { live, progress } = count
+  const extra: ReadonlySet<OptionalStep> = ticked?.dataSourceId === dataSourceId
+    ? ticked.steps
+    : new Set<OptionalStep>([
+      ...(progress.state === 'none' || progress.patients.done > 0 ? ['patients' as const] : []),
+      ...(progress.stats.total > 0 ? ['stats' as const] : []),
+    ])
   const running = live.running
   const records = running ? live.records : progress.records
   const patients = running ? live.patients : progress.patients
@@ -94,13 +101,12 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
   )]
   const progressOf = { records, patients, stats }
   const pending = chosen.filter((s) => !isDone(progressOf[s]))
-  const toggleStep = (step: OptionalStep, on: boolean) =>
-    setExtra((prev) => {
-      const next = new Set(prev)
-      if (on) next.add(step)
-      else next.delete(step)
-      return next
-    })
+  const toggleStep = (step: OptionalStep, on: boolean) => {
+    const next = new Set(extra)
+    if (on) next.add(step)
+    else next.delete(step)
+    setTicked({ dataSourceId, steps: next })
+  }
   const startSteps = () => chosen.filter((s): s is OptionalStep => s !== 'records')
 
   // A finished count is one line, opened on demand; closed, it stays closed

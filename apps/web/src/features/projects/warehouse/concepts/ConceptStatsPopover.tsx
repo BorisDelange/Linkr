@@ -5,20 +5,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
-import { queryDataSource } from '@/lib/duckdb/engine'
 import type { SchemaMapping } from '@/types/schema-mapping'
-import {
-  buildDomainCountQuery,
-  buildValueDistributionQuery,
-  buildValueHistogramQuery,
-  hasValueColumnForDict,
-} from './concept-queries'
+import { hasValueColumnForDict } from './concept-queries'
 import { ConceptStatsPanel } from './ConceptStatsPanel'
-import type {
-  ConceptStats,
-  MeasurementDistribution,
-  HistogramBin,
-} from './use-concepts'
+import { fetchConceptStats, type ConceptStats } from './use-concepts'
 
 /** Same P1–P99 clip the Concepts page applies by default, so both histograms
  *  for one concept are the same shape rather than one raw and one clipped. */
@@ -33,8 +23,9 @@ interface ConceptStatsPopoverProps {
 
 /**
  * Inline metadata trigger for a concept row: loads count + value distribution
- * on first open (cached afterwards) and renders the shared ConceptStatsPanel,
- * mirroring the source-concept detail in the concept-mapping page.
+ * on first open — from the same caches as the detail panel, precomputed ones
+ * included — and renders the shared ConceptStatsPanel, mirroring the
+ * source-concept detail in the concept-mapping page.
  */
 export function ConceptStatsPopover({
   dataSourceId,
@@ -53,37 +44,7 @@ export function ConceptStatsPopover({
     if (loaded || !dataSourceId || !schemaMapping) return
     setLoading(true)
     try {
-      const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
-      if (!countSql) {
-        setStats(null)
-        return
-      }
-      const countResult = await queryDataSource(dataSourceId, countSql)
-      const rowCount = Number(countResult[0]?.cnt ?? 0)
-
-      let distribution: MeasurementDistribution | undefined
-      let histogram: HistogramBin[] | undefined
-
-      if (rowCount > 0 && hasValueColumn) {
-        try {
-          const distSql = buildValueDistributionQuery(schemaMapping, dictKey, conceptId)
-          const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, EXCLUDE_OUTLIERS)
-          if (distSql && histSql) {
-            const [distRows, histRows] = await Promise.all([
-              queryDataSource(dataSourceId, distSql),
-              queryDataSource(dataSourceId, histSql),
-            ])
-            if (distRows.length > 0) {
-              distribution = distRows[0] as unknown as MeasurementDistribution
-            }
-            histogram = histRows as unknown as HistogramBin[]
-          }
-        } catch {
-          // Value queries can fail on non-numeric columns; show count only.
-        }
-      }
-
-      setStats({ rowCount, distribution, histogram })
+      setStats(await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, EXCLUDE_OUTLIERS))
     } catch {
       setStats(null)
     } finally {

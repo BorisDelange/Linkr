@@ -149,6 +149,86 @@ function rememberResult(cache: Map<string, CachedResult>, key: string, result: C
   if (cache.size > RESULT_CACHE_LIMIT) cache.delete(cache.keys().next().value as string)
 }
 
+const statsInFlight = new Map<string, Promise<ConceptStats | null>>()
+
+/**
+ * One concept's stats as every view shows them — the detail panel and the row
+ * popover alike: this session's copy, else (server mode, clipped form) the
+ * server's — precomputed by the counting run or cached by an earlier click —
+ * else computed on the source and shared. Concurrent asks for the same concept
+ * share one load.
+ */
+export function fetchConceptStats(
+  dataSourceId: string,
+  schemaMapping: SchemaMapping,
+  conceptId: number,
+  dictKey: string,
+  excludeOutliers: boolean,
+): Promise<ConceptStats | null> {
+  const cacheKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`
+  const statsCache = cacheFor(statsCaches, cacheKey)
+  const cached = statsCache.get(conceptId)
+  if (cached) return Promise.resolve(cached)
+  const flightKey = `${cacheKey}::${dictKey}::${conceptId}`
+  const pending = statsInFlight.get(flightKey)
+  if (pending) return pending
+
+  const load = async (): Promise<ConceptStats | null> => {
+    // Server mode: another user, or the counting run, may have computed these
+    // already. On a hit, render without touching the source.
+    if (isServerMode() && excludeOutliers) {
+      const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey).catch(() => undefined)
+      if (shared && isFreshCachedStats(shared)) {
+        statsCache.set(conceptId, shared)
+        return shared
+      }
+    }
+
+    const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
+    if (!countSql) return null
+    const countResult = await queryDataSource(dataSourceId, countSql)
+    const rowCount = Number(countResult[0]?.cnt ?? 0)
+
+    let distribution: MeasurementDistribution | undefined
+    let histogram: HistogramBin[] | undefined
+    if (rowCount > 0 && hasValueColumnForDict(schemaMapping, dictKey)) {
+      try {
+        const distSql = buildValueDistributionQuery(schemaMapping, dictKey, conceptId)
+        const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, excludeOutliers)
+        if (distSql && histSql) {
+          const [distRows, histRows] = await Promise.all([
+            queryDataSource(dataSourceId, distSql),
+            queryDataSource(dataSourceId, histSql),
+          ])
+          if (distRows.length > 0) distribution = distRows[0] as unknown as MeasurementDistribution
+          histogram = histRows as unknown as HistogramBin[]
+        }
+      } catch {
+        // Value-specific queries may fail (a non-numeric column): the count stands.
+      }
+    }
+
+    const stats: ConceptStats = {
+      rowCount,
+      distribution,
+      histogram,
+      ...(excludeOutliers ? { histogramVariant: HISTOGRAM_VARIANT } : {}),
+    }
+    statsCache.set(conceptId, stats)
+    // Share the computed stats with every user of this source — but only the
+    // default (outliers excluded) form: the shared cache is keyed by concept
+    // id alone, so storing a raw histogram would serve it to everyone.
+    if (isServerMode() && excludeOutliers) {
+      saveConceptStats(dataSourceId, conceptId, stats).catch(() => {})
+    }
+    return stats
+  }
+
+  const promise = load().finally(() => statsInFlight.delete(flightKey))
+  statsInFlight.set(flightKey, promise)
+  return promise
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -528,70 +608,8 @@ export function useConcepts(
     }
 
     setConceptStatsLoading(true)
-
-    // Server mode: check the shared server cache first — another user may have
-    // already computed these stats. On a hit, render without touching the source.
-    if (isServerMode() && excludeOutliers) {
-      try {
-        const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey)
-        if (shared && isFreshCachedStats(shared)) {
-          statsCache.set(conceptId, shared)
-          if (!isStale()) {
-            setConceptStats(shared)
-            setConceptStatsLoading(false)
-          }
-          return
-        }
-      } catch {
-        // Fall through to compute.
-      }
-    }
-
     try {
-      const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
-      if (!countSql) {
-        if (!isStale()) setConceptStats(null)
-        return
-      }
-
-      const countResult = await queryDataSource(dataSourceId, countSql)
-      const rowCount = Number(countResult[0]?.cnt ?? 0)
-
-      let distribution: MeasurementDistribution | undefined
-      let histogram: HistogramBin[] | undefined
-
-      if (rowCount > 0 && hasValueColumnForDict(schemaMapping, dictKey)) {
-        try {
-          const distSql = buildValueDistributionQuery(schemaMapping, dictKey, conceptId)
-          const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, excludeOutliers)
-          if (distSql && histSql) {
-            const [distRows, histRows] = await Promise.all([
-              queryDataSource(dataSourceId, distSql),
-              queryDataSource(dataSourceId, histSql),
-            ])
-            if (distRows.length > 0) {
-              distribution = distRows[0] as unknown as MeasurementDistribution
-            }
-            histogram = histRows as unknown as HistogramBin[]
-          }
-        } catch {
-          // Value-specific queries may fail
-        }
-      }
-
-      const stats: ConceptStats = {
-        rowCount,
-        distribution,
-        histogram,
-        ...(excludeOutliers ? { histogramVariant: HISTOGRAM_VARIANT } : {}),
-      }
-      statsCache.set(conceptId, stats)
-      // Share the computed stats with every user of this source — but only the
-      // default (outliers excluded) form: the shared cache is keyed by concept
-      // id alone, so storing a raw histogram would serve it to everyone.
-      if (isServerMode() && excludeOutliers) {
-        saveConceptStats(dataSourceId, conceptId, stats).catch(() => {})
-      }
+      const stats = await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers)
       // Only apply if this is still the selected concept — a newer click wins.
       if (!isStale()) setConceptStats(stats)
     } catch (err) {
