@@ -733,6 +733,7 @@ def _run_statements(
     for i, stmt in enumerate(statements):
         if on_statement is not None:
             on_statement(i, len(statements), stmt)
+        query_cancel.raise_if_interrupted()
         result = con.execute(stmt)
     if result is None or result.description is None:
         return []
@@ -753,6 +754,7 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
     con.execute(f"SET search_path='{search_path}'")
     result: duckdb.DuckDBPyConnection | None = None
     for stmt in _split_statements(sql):
+        query_cancel.raise_if_interrupted()
         result = con.execute(stmt)
     if result is None or result.description is None:
         raise ValueError("the query returns no rows")
@@ -828,12 +830,25 @@ def plan_external(config: dict, password: str | None, sql: str) -> None:
     remote.plan_external(config, password, sql)
 
 
+def _load_sqlite(con: duckdb.DuckDBPyConnection) -> None:
+    """The sqlite extension, on a connection that will read a SQLite file.
+
+    DuckDB (1.5) fails with "INTERNAL Error: Attempted to access index 0 within
+    vector of size 0" when a CTE over a SQLite table is inlined twice into one
+    query (a class relation read by two branches of a UNION, as the concept and
+    catalog counts do). Materialising CTEs on these connections avoids it; a
+    SQLite file is small enough that the lost filter push-down does not matter.
+    Covered by the database matrix (tests/db-matrix)."""
+    con.execute("INSTALL sqlite")
+    con.execute("LOAD sqlite")
+    con.execute("SET disabled_optimizers = 'cte_inlining'")
+
+
 def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None:
     """ATTACH a local database file read-only. DuckDB files attach natively;
     SQLite needs the sqlite extension."""
     if engine == "sqlite":
-        con.execute("INSTALL sqlite")
-        con.execute("LOAD sqlite")
+        _load_sqlite(con)
         con.execute(f"ATTACH '{path}' AS {_ATTACH_ALIAS} (TYPE sqlite, READ_ONLY)")
     else:  # duckdb
         con.execute(f"ATTACH '{path}' AS {_ATTACH_ALIAS} (READ_ONLY)")
@@ -1584,7 +1599,17 @@ def run_etl_sql(
             # a read-only role.
             search_path = ",".join(["target", "memory", *_role_schema_path(con)])
             _reject_ambiguous_role_refs(sql, _ambiguous_role_tables(con), _shadowing_tables(con))
-            return _run_statements(con, search_path, sql, on_statement=on_statement)
+
+            # DuckDB's interrupt only stops the statement in flight: a cancel
+            # landing during the setup above, or between two statements, would
+            # otherwise be lost and the next statement run to its end.
+            def before_statement(index: int, total: int, stmt: str) -> None:
+                if on_statement is not None:
+                    on_statement(index, total, stmt)
+                if handle is not None and handle.cancelled:
+                    raise duckdb.InterruptException("ETL run cancelled")
+
+            return _run_statements(con, search_path, sql, on_statement=before_statement)
         except duckdb.InterruptException as e:
             # Only a cancel raises this — report it as such rather than as a SQL
             # error, so the caller does not surface "Interrupted!" to the user.
@@ -1936,8 +1961,7 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
     if kind == "file":
         path = _sql_path(spec["path"])
         if spec.get("engine") == "sqlite":
-            con.execute("INSTALL sqlite")
-            con.execute("LOAD sqlite")
+            _load_sqlite(con)
             con.execute(f"ATTACH '{path}' AS \"{role}\" (TYPE sqlite, READ_ONLY)")
         else:
             con.execute(f"ATTACH '{path}' AS \"{role}\" (READ_ONLY)")
