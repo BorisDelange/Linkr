@@ -1006,10 +1006,9 @@ async function loadWorkspaceInternals(
     if (!collection) continue
     const collectionId = ownerIdOf(collection)
     if (!collectionId) continue
-    await storage.sqlScriptCollections.create({ ...collection, workspaceId: wsId, updatedAt: now }).catch(() => {})
-    // Content lives at the file's tree path (`queries/cohort.sql`), which is also
-    // its manifest key — a nested script used to be looked up at a flat
-    // `<folder>/<name>` and silently seeded empty.
+    await storage.sqlScriptCollections.create({ ...collection, id: collectionId, workspaceId: wsId, updatedAt: now }).catch(() => {})
+    // The manifest keys a file by its path in the folder (`scripts/queries/cohort.sql`),
+    // prefix included — looked up by its bare tree path, every script seeded empty.
     const { tree: colTree, filePrefix } = await fetchScriptTree(`${base}/sql-scripts/${colFolder}`)
     const tree = fromPathTree<SqlScriptFile & { path: string }>(
       readPathTree(colTree),
@@ -1017,8 +1016,9 @@ async function loadWorkspaceInternals(
       'collectionId',
     )
     for (const f of tree) {
-      if (f.type === 'file' && index.sqlScriptFiles?.[`${colFolder}/${f.path}`]) {
-        const content = await fetchText(`${base}/sql-scripts/${colFolder}/${seedFilePath(filePrefix, f.path)}`)
+      const filePath = seedFilePath(filePrefix, f.path)
+      if (f.type === 'file' && index.sqlScriptFiles?.[`${colFolder}/${filePath}`]) {
+        const content = await fetchText(`${base}/sql-scripts/${colFolder}/${filePath}`)
         if (content !== null) f.content = content
       }
       await storage.sqlScriptFiles.create(storablePathNode(f)).catch(() => {})
@@ -1031,7 +1031,7 @@ async function loadWorkspaceInternals(
     if (!pipeline) continue
     const pipelineId = ownerIdOf(pipeline)
     if (!pipelineId) continue
-    await storage.etlPipelines.create({ ...pipeline, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
+    await storage.etlPipelines.create({ ...pipeline, id: pipelineId, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(() => {})
     const { tree: etlTree, filePrefix } = await fetchScriptTree(`${base}/etl/${etlFolder}`)
     const tree = fromPathTree<EtlFile & { path: string }>(
       readPathTree(etlTree),
@@ -1039,8 +1039,9 @@ async function loadWorkspaceInternals(
       'pipelineId',
     )
     for (const f of tree) {
-      if (f.type === 'file' && index.etlFiles?.[`${etlFolder}/${f.path}`]) {
-        const content = await fetchText(`${base}/etl/${etlFolder}/${seedFilePath(filePrefix, f.path)}`)
+      const filePath = seedFilePath(filePrefix, f.path)
+      if (f.type === 'file' && index.etlFiles?.[`${etlFolder}/${filePath}`]) {
+        const content = await fetchText(`${base}/etl/${etlFolder}/${filePath}`)
         if (content !== null) f.content = content
       }
       await storage.etlFiles.create(storablePathNode(f)).catch(() => {})

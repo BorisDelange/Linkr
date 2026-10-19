@@ -16,6 +16,18 @@ vi.mock('@/lib/plugins/default-plugins', () => ({ seedBuiltinPluginsForWorkspace
 vi.mock('@/lib/concept-mapping/import', () => ({ recomputeImportedStats: async () => {} }))
 
 const written: Array<Record<string, unknown>> = []
+/** Rows that reached a store keyed on `id`, per store. */
+const rows: Record<string, Array<Record<string, unknown>>> = {}
+
+/** A store keyed on `id`: like IndexedDB, it refuses a row without one. */
+function keyedStore(name: string) {
+  return {
+    create: async (row: Record<string, unknown>) => {
+      if (!row.id) throw new Error('DataError: no key')
+      ;(rows[name] ??= []).push(row)
+    },
+  }
+}
 
 /** Minimal storage double: records what reaches conceptMappings, no-ops the rest. */
 function makeStorage(): Storage {
@@ -35,6 +47,10 @@ function makeStorage(): Storage {
     organizations: { getById: async () => null, create: ok },
     projects: { getById: async () => null, create: ok, update: ok, getAll: async () => [] },
     dataSources: { getAll: async () => [] },
+    etlPipelines: keyedStore('etlPipelines'),
+    etlFiles: keyedStore('etlFiles'),
+    sqlScriptCollections: keyedStore('sqlScriptCollections'),
+    sqlScriptFiles: keyedStore('sqlScriptFiles'),
   }
   return new Proxy(store, {
     // Any collection the loader touches that this double does not model answers
@@ -70,7 +86,20 @@ const TREE: Record<string, unknown> = {
   'seed.json': { workspaces: ['ricdc'] },
   'ricdc/manifest.json': {
     entities: [{ type: 'mappingProject', id: 'adult-icu-rennes', folder: 'adult-icu-rennes' }],
+    internals: {
+      etlPipelines: ['to-omop'],
+      etlFiles: { 'to-omop/scripts/10_person.sql': 'scripts/10_person.sql' },
+      sqlCollections: ['checks'],
+      sqlScriptFiles: { 'checks/scripts/count.sql': 'scripts/count.sql' },
+    },
   },
+  // Published manifests carry the portable `entityId` and no local `id`.
+  'ricdc/etl/to-omop/entity.json': { entityId: 'to-omop', type: 'etl-pipeline', name: { en: 'To OMOP' } },
+  'ricdc/etl/to-omop/scripts/_tree.json': [{ path: '10_person.sql', type: 'file', language: 'sql', order: 1 }],
+  'ricdc/etl/to-omop/scripts/10_person.sql': 'SELECT 1',
+  'ricdc/sql-scripts/checks/entity.json': { entityId: 'checks', type: 'sql-collection', name: { en: 'Checks' } },
+  'ricdc/sql-scripts/checks/scripts/_tree.json': [{ path: 'count.sql', type: 'file', language: 'sql', order: 1 }],
+  'ricdc/sql-scripts/checks/scripts/count.sql': 'SELECT 2',
   'ricdc/entity.json': { entityId: 'ricdc', name: { en: 'RiCDC' } },
   'ricdc/mapping-projects/adult-icu-rennes/entity.json': {
     entityId: 'adult-icu-rennes',
@@ -97,6 +126,7 @@ function makeLocalStorage() {
 
 beforeEach(() => {
   written.length = 0
+  for (const k of Object.keys(rows)) delete rows[k]
   vi.stubGlobal('localStorage', makeLocalStorage())
   vi.stubGlobal('fetch', async (url: string) => {
     const path = String(url).replace(/^.*data\/seed\//, '')
@@ -107,7 +137,7 @@ beforeEach(() => {
       status: 200,
       headers: new Headers({ 'content-type': 'application/json' }),
       json: async () => body,
-      text: async () => JSON.stringify(body),
+      text: async () => (typeof body === 'string' ? body : JSON.stringify(body)),
     }
   })
 })
@@ -150,6 +180,29 @@ describe('seedWorkspaces — git-linked mapping project', () => {
     await Promise.all([seedWorkspaces(), seedWorkspaces()])
 
     expect(written).toHaveLength(2)
+  })
+})
+
+// The demo's ETL pipeline used to seed as 34 empty scripts and no pipeline row:
+// the manifest has no `id`, so the store refused the row, and its file list keys
+// each script under `scripts/`, which the loader looked up without.
+describe('seedWorkspaces — workspace ETL pipelines and SQL collections', () => {
+  it('stores each owner row under the id its files hang off', async () => {
+    const { seedWorkspaces } = await import('./seed-loader')
+    await seedWorkspaces()
+
+    expect(rows.etlPipelines?.map((p) => p.id)).toEqual(['to-omop'])
+    expect(rows.etlFiles?.map((f) => f.pipelineId)).toEqual(['to-omop'])
+    expect(rows.sqlScriptCollections?.map((c) => c.id)).toEqual(['checks'])
+    expect(rows.sqlScriptFiles?.map((f) => f.collectionId)).toEqual(['checks'])
+  })
+
+  it('seeds each script with its content', async () => {
+    const { seedWorkspaces } = await import('./seed-loader')
+    await seedWorkspaces()
+
+    expect(rows.etlFiles?.map((f) => f.content)).toEqual(['SELECT 1'])
+    expect(rows.sqlScriptFiles?.map((f) => f.content)).toEqual(['SELECT 2'])
   })
 })
 
