@@ -37,13 +37,24 @@ writes, and lost its tables when a job's cancellation invalidated it.
 - **`client`** — the client-only (WASM) build with the demo seed, served by
   `vite preview` on port 4317 (built by the config unless `E2E_SKIP_BUILD=1`;
   `E2E_BASE_URL` points it at a build already served). Needs the seed
-  (`npm run data:fetch`).
+  (`npm run data:fetch`). Covers the boot and a cold deep link, the workspace
+  databases, a concept search, a cohort, a patient board, a dashboard, a
+  dataset, the IDE running the demo SQL script, the demo ETL pipeline (its
+  scripts, one run against its source), the demo mapping project (filter, open a
+  mapping) and a project exported as a ZIP then re-imported. Python and R in the
+  IDE are left out (Pyodide / webR downloads), and so are data quality (the demo
+  ships no rule set) and git versioning (server only).
 - **`server`** — a running full stack named by `E2E_SERVER_URL`; the SPE
-  scenarios pass it. It creates the first account, so give it a disposable
-  instance.
+  scenarios pass it. Its `server-setup` dependency (`first-run.spec.ts`) creates
+  the first account, so give it a fresh, disposable instance; the other journeys
+  sign in as that account. They create a workspace, upload a SQLite database and
+  query it through the server, then link it to a new project.
 
 `e2e/fixtures.ts` fails every journey on an uncaught page exception and gives
-`bootDemo(page)`. Journeys select by role, label and visible text, never by CSS
+`bootDemo(page)` and, for the server, `signIn(page)`. The code editor binds its
+shortcuts by the user agent, which the `Desktop Chrome` device sets to Windows:
+press `Control+…`, never `ControlOrMeta+…`, and insert text with
+`keyboard.insertText` rather than typing it past the completion popup. Journeys select by role, label and visible text, never by CSS
 class, and assert what a user would check. A journey that reproduces an open bug
 is tagged `@known-bug` in its title and left out of normal runs; run those with
 `E2E_KNOWN_BUGS=1`. A failure keeps its trace and the page's accessibility tree
@@ -66,7 +77,9 @@ Oracle and SQL Server are listed as unsupported until Linkr has a connector.
 
 The data is the public MIMIC-IV demo in OMOP (100 patients), cloned into
 `.cache/test-data/` on first use; `--scale N` makes N copies of every patient
-under new ids (vocabulary once) for a bigger base. With `--spe`, the matrix runs
+under new ids (vocabulary once) for a bigger base — PostgreSQL and the file
+engines then, not MySQL, whose dialect the ×1 base already checks and which takes
+longer to load than the whole run (`--engines` still names it). With `--spe`, the matrix runs
 inside the SPE simulation, in the API image, capped by a machine profile, against
 the datamart containers.
 
@@ -95,6 +108,20 @@ npm run test:spe -- --machine tiny --e2e    # all of them, capped, with the jour
 ```
 
 Report: `.cache/spe/report-<machine>.md`.
+
+## Flaky tests
+
+A test that fails one run in five is a race, in the test or in the app — the
+Concepts deep link and a dozen API job tests were both. Neither tier retries
+(`retries: 0`, no rerun plugin), so a flake shows as a failure instead of
+hiding. Repeating every run would cost too much; repeat where races live:
+
+- after touching mounting, the seed, jobs, cancellation or WebSockets, run the
+  tests of that area five times: `npx playwright test <spec> --repeat-each 5`,
+  or the pytest files in a five-iteration loop;
+- before a release, the client journeys with `--repeat-each 5`;
+- a failure seen once and not reproduced is still investigated, not rerun until
+  it passes.
 
 ## Machine profiles
 

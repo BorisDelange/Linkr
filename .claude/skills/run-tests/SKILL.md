@@ -69,6 +69,13 @@ total per engine are the performance signal: compare a capped machine
 **spe** — `npm run test:spe [-- --machine M] [--e2e] [scenario…]`. Each scenario
 is a first install. Writes `.cache/spe/report-<machine>.md`.
 
+**Races** — when the diff touches mounting (`lib/duckdb/engine.ts`,
+`data-source-store`), the seed, background jobs, cancellation or WebSockets, run
+that area's tests five times (`--repeat-each 5` for Playwright, a five-iteration
+loop over the pytest files), and the client journeys with `--repeat-each 5` for a
+release. A failure seen once is reported, never rerun until it passes
+(`docs/testing.md` § Flaky tests).
+
 Run tiers in the background when they take minutes, and keep working on the
 next one meanwhile; Docker tiers one at a time (they share the SPE's containers).
 

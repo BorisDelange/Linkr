@@ -12,7 +12,8 @@
  * --engines   comma list (parquet, duckdb, sqlite, postgresql, mysql, doris, oracle, sqlserver)
  * --spe       run inside docker/spe-sim, capped by --machine (default laptop), with the datamarts
  * --machine   a profile of docker/spe-sim/machines/ (tiny, laptop, small-server, unlimited)
- * --scale N   N copies of every patient (tests/db-matrix/matrix.py upsample), cached under .cache/
+ * --scale N   N copies of every patient (tests/db-matrix/matrix.py upsample), cached under .cache/;
+ *             above 1, MySQL is left out unless --engines names it
  * --data DIR  a Parquet OMOP folder, instead of the MIMIC-IV demo (LINKR_TEST_OMOP_DIR works too)
  * --keep      leave the datamarts running after an --spe run
  *
@@ -52,7 +53,9 @@ function parseArgs(argv) {
     else if (k === '--data') a.data = resolve(argv[++i])
     else { console.error(`unknown option ${k}`); process.exit(2) }
   }
-  a.engines ??= a.spe ? 'parquet,duckdb,sqlite,postgresql,mysql' : 'parquet,duckdb,sqlite'
+  // MySQL checks the app's SQL dialect, which the ×1 base already proves; loading
+  // an upsampled base into a capped MySQL takes longer than the rest of the run.
+  a.engines ??= a.spe ? `parquet,duckdb,sqlite,postgresql${a.scale > 1 ? '' : ',mysql'}` : 'parquet,duckdb,sqlite'
   if (!Number.isInteger(a.scale) || a.scale < 1) { console.error('--scale takes a whole number ≥ 1'); process.exit(2) }
   return a
 }

@@ -7,8 +7,8 @@ import { defineConfig, devices } from '@playwright/test'
  *   `vite preview` on E2E_PORT. Set E2E_BASE_URL to test a build already served,
  *   E2E_SKIP_BUILD=1 to serve the existing dist/ without rebuilding.
  * - `server`: a running full stack (dev:all, or the SPE simulation's gateway),
- *   named by E2E_SERVER_URL. Skipped when unset. It creates the first account
- *   when the instance has none, so point it at a disposable instance.
+ *   named by E2E_SERVER_URL. Skipped when unset. Its `server-setup` dependency
+ *   creates the first account, so point it at a fresh, disposable instance.
  */
 const port = Number(process.env.E2E_PORT ?? 4317)
 const clientUrl = process.env.E2E_BASE_URL ?? `http://localhost:${port}`
@@ -37,8 +37,13 @@ export default defineConfig({
   },
   projects: [
     { name: 'client', testDir: './e2e/client', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: clientUrl } },
+    // The first run creates the administrator every other server journey signs in
+    // as, so it is a project of its own that `server` depends on.
     ...(serverUrl
-      ? [{ name: 'server', testDir: './e2e/server', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: serverUrl } }]
+      ? [
+          { name: 'server-setup', testDir: './e2e/server', testMatch: /first-run\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: serverUrl } },
+          { name: 'server', testDir: './e2e/server', testIgnore: /first-run\.spec\.ts/, dependencies: ['server-setup'], use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: serverUrl } },
+        ]
       : []),
   ],
   webServer: process.env.E2E_BASE_URL
