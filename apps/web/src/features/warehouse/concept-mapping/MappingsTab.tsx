@@ -708,7 +708,7 @@ function MappingDetailView({ mapping, sourceDetail, onBack, onReview, currentUse
                   {renderField(t('concept_mapping.col_target_vocabulary'), mapping.targetVocabularyId)}
                   {renderField(t('concept_mapping.col_target_concept_id'), mapping.targetConceptId, true)}
                   {renderField(t('concept_mapping.col_target_concept_name'), mapping.targetConceptName)}
-                  {renderField(t('concept_mapping.col_source_concept_code'), mapping.targetConceptCode, true)}
+                  {renderField(t('concept_mapping.col_target_concept_code'), mapping.targetConceptCode, true)}
                   {renderField(t('concept_mapping.col_domain_id'), mapping.targetDomainId)}
                   {renderField(t('concept_mapping.col_concept_class_id'), mapping.targetConceptClassId)}
                   <tr>
