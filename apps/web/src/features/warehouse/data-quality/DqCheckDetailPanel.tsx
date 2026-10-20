@@ -11,6 +11,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { copyText } from '@/lib/clipboard'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { CATEGORY_COLORS, STATUS_CONFIG } from './DqConstants'
@@ -184,8 +185,8 @@ export function DqCheckDetailPanel({ item, onInvestigate }: Props) {
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between gap-2">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="truncate text-right tabular-nums">{value}</span>
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <TruncatedText text={value} className="text-right tabular-nums" />
     </div>
   )
 }

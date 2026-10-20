@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { RelationsTable, type RelationRow } from './RelationsTable'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { RESIZE_HANDLE_CLASS } from '@/hooks/use-resizable-sidebar'
@@ -55,9 +56,11 @@ function DetailCell() {
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b py-1.5">
+    <div className="flex items-center justify-between gap-3 border-b py-1.5">
       <span className="text-xs text-muted-foreground shrink-0">{label}</span>
-      <span className="text-xs font-medium text-right">{children}</span>
+      {typeof children === 'string'
+        ? <TruncatedText text={children} className="text-right text-xs font-medium" />
+        : <span className="min-w-0 text-right text-xs font-medium">{children}</span>}
     </div>
   )
 }

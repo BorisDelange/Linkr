@@ -374,7 +374,7 @@ export function SectionRenderer({ section }: { section: Section }) {
           {section.rows.map((row) => (
             <div key={row.label} className="flex items-baseline justify-between gap-3 text-xs">
               <span className="shrink-0 text-muted-foreground">{row.label}</span>
-              <span className="min-w-0 truncate text-right font-medium" title={row.value}>{row.value}</span>
+              <TruncatedText text={row.value} className="text-right font-medium" />
             </div>
           ))}
         </div>

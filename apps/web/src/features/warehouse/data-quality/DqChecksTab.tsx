@@ -721,7 +721,7 @@ export function DqChecksTab({ ruleSetId, dataSourceId, onInvestigate }: Props) {
                 {/* Radix wraps viewport children in a shrink-to-fit `display:table` div;
                     force it to a full-width block so rows can't grow past the sidebar
                     (and thus truncate + pin their action cluster to the visible edge). */}
-                <ScrollArea className="min-h-0 flex-1 overflow-hidden [&>[data-slot=scroll-area-viewport]>div]:!block">
+                <ScrollArea className="min-h-0 flex-1 overflow-hidden">
                   <div className="p-1.5">
                     {filteredChecks.length === 0 ? (
                       <div className="py-8 text-center">

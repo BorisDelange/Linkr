@@ -398,7 +398,7 @@ export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
                 </div>
               </div>
 
-              <ScrollArea className="flex-1 min-h-0 [&>div>div]:!block [&>div>div]:!min-w-0">
+              <ScrollArea className="flex-1 min-h-0">
                 {/* Roving focus stays on the list container rather than the rows:
                     the arrows must keep working across a page change, where the
                     previously focused row unmounts. tabIndex makes it focusable. */}
@@ -555,7 +555,7 @@ export function PatientDataSidebar({ cohort }: PatientDataSidebarProps = {}) {
             which shrink-wraps to the widest content (long visit labels) and
             breaks `truncate`. Force that child to a width-respecting block. */}
         <Allotment.Pane minSize={100}>
-          <ScrollArea className="h-full [&>div>div]:!block [&>div>div]:!min-w-0">
+          <ScrollArea className="h-full">
             {/* Hospitalization selector */}
             <div className="shrink-0 border-b px-3 py-2.5">
               <div className="flex items-center justify-between gap-1">

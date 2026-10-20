@@ -665,7 +665,7 @@ export function DatasetFileTree({ search = '' }: DatasetFileTreeProps) {
       ) : (
       <>
       <FileTreeHeader sort={sort} onChange={setSort} showSize={false} />
-      <ScrollArea className="h-full min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
+      <ScrollArea className="h-full min-h-0 flex-1">
         <div
           className={cn('min-h-full py-1', rootDragOver && 'bg-accent/30')}
           onDragOver={handleRootDragOver}

@@ -213,7 +213,7 @@ export function EtlFileTree({ search = '' }: EtlFileTreeProps) {
       {/* Same right gutter as the rows (pr-3.5), so the "size" label stays above
           the values it heads once the scrollbar has its own lane. */}
       <FileTreeHeader sort={sort} onChange={setSort} className="pr-3.5" />
-      <ScrollArea className="min-h-0 flex-1 [&>[data-slot=scroll-area-viewport]>div]:!block">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="py-1">
           {[...rootFiles].sort(compare).map((file) => (
             <EtlFileTreeItem

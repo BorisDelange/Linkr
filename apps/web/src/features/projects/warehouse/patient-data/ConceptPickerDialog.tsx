@@ -393,7 +393,7 @@ export function ConceptPickerDialog({
                 </div>
               ) : (
                 <>
-                  <ScrollArea className="min-h-0 flex-1 [&>div>div]:!block [&>div>div]:!min-w-0">
+                  <ScrollArea className="min-h-0 flex-1">
                     <div className="p-1.5">
                       {selectedList.map((item, index) => (
                         <div
