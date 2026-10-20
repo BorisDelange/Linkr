@@ -188,6 +188,17 @@ export function setMountGuard(guard: (dataSourceId: string) => Promise<void>): v
 }
 
 /**
+ * Told when a query on a server source fails, a cancel aside. The server answers
+ * a broken connection and a wrong query alike, so the store re-tests the source,
+ * which alone tells them apart. Injected like `mountGuard`.
+ */
+let queryFailureHook: ((dataSourceId: string) => void) | undefined
+
+export function setQueryFailureHook(hook: (dataSourceId: string) => void): void {
+  queryFailureHook = hook
+}
+
+/**
  * The schema mapping of a data source, so `queryDataSource` can resolve the
  * `linkr_*` class relations a query names. Injected by the store for the same
  * reason as the mount guard.
@@ -693,7 +704,14 @@ async function runOnSource(
     if (dataSourceId.startsWith('filesrc_')) {
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
-    return queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, native, heavy, onExecution })
+    try {
+      return await queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, native, heavy, onExecution })
+    } catch (e) {
+      // 422: the query failed on the database; 5xx: it did not reach it.
+      const status = (e as { status?: unknown } | null)?.status
+      if (!signal?.aborted && typeof status === 'number' && (status === 422 || status >= 500)) queryFailureHook?.(dataSourceId)
+      throw e
+    }
   }
   // Wait for the source to be in DuckDB before naming its schema. Callers used
   // to have to do this themselves, and the ones that forgot raced the mount on

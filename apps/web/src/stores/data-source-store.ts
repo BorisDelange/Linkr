@@ -198,8 +198,9 @@ interface DataSourceState {
   rebuildFromSchema: (id: string) => Promise<void>
   /** Re-validate a server-mode external source (Postgres) using its stored
    *  credentials, refreshing status + stats. No-op in front-only mode. */
-  /** `background`: a repair the user did not ask for — never prompts for their
-   *  login, and leaves the database as it was when one is needed. */
+  /** `background`: a check the user did not ask for — never prompts for their
+   *  login, leaves the database as it was when one is needed, and keeps its
+   *  status until the answer (no 'configuring' gating its tabs meanwhile). */
   retestDataSource: (id: string, opts?: { background?: boolean }) => Promise<void>
   /** `deleteData` (server mode) also removes what Linkr created for it — see
    *  `createdData`. Never offered for a connection someone added. */
@@ -753,11 +754,13 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     engine.forgetSourceTables(id)
     const ds = get().dataSources.find((d) => d.id === id)
     if (!ds) return
-    set((s) => ({
-      dataSources: s.dataSources.map((d) =>
-        d.id === id ? { ...d, status: 'configuring' as DataSourceStatus } : d,
-      ),
-    }))
+    if (!opts?.background) {
+      set((s) => ({
+        dataSources: s.dataSources.map((d) =>
+          d.id === id ? { ...d, status: 'configuring' as DataSourceStatus } : d,
+        ),
+      }))
+    }
     // A file source (Parquet/CSV/DuckDB/SQLite) has no live connection to test:
     // the server attaches its files on demand, and /retest only knows external
     // engines — it would answer `ok: false` and mark a perfectly good database
@@ -1299,4 +1302,17 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
 // Every front-only query now waits for its source to be mounted, instead of
 // each caller having to remember to call ensureMounted first.
 engine.setMountGuard((id) => useDataSourceStore.getState().ensureMounted(id))
+// A failed query may be a connection gone (a database dropped, a password
+// changed): re-tested in the background, at most once a minute per database, so
+// the page says so rather than each query failing on its own.
+const QUERY_FAILURE_RETEST_MS = 60_000
+const lastFailureRetest = new Map<string, number>()
+engine.setQueryFailureHook((id) => {
+  const store = useDataSourceStore.getState()
+  if (store.dataSources.find((d) => d.id === id)?.status !== 'connected') return
+  const now = Date.now()
+  if (now - (lastFailureRetest.get(id) ?? 0) < QUERY_FAILURE_RETEST_MS) return
+  lastFailureRetest.set(id, now)
+  void store.retestDataSource(id, { background: true }).catch(() => {})
+})
 engine.setMappingResolver((id) => useDataSourceStore.getState().dataSources.find((d) => d.id === id)?.schemaMapping)

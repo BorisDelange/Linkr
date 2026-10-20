@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router-dom'
-import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import {
   Activity,
   FolderOpen,
@@ -17,7 +16,6 @@ import {
   Loader2,
   Minimize2,
   Plug,
-  RefreshCw,
   Table,
   Table2,
   SquareTerminal,
@@ -93,6 +91,8 @@ import { useOrganizationStore } from '@/stores/organization-store'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
 import { isExternalEngine, portOf } from '@/lib/database-engines'
 import { useFlightStatus } from './use-flight-status'
+import { ConnectionStatusBanner } from './connection-status-banner'
+import { connectionBannerShown } from './connection-status'
 
 const DATABASE_TAB_IDS = ['overview', 'statistics', 'concepts', 'schema', 'mapping', 'sql', 'cohorts', 'readme', 'license', 'versioning'] as const
 type DatabaseTabId = (typeof DATABASE_TAB_IDS)[number]
@@ -209,6 +209,17 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
     if (source?.id && connected) void refreshPatientCount(source.id, { force: true })
   }, [source?.id, connected, refreshPatientCount])
 
+  // Opening a database checks its connection: a database dropped, a password
+  // changed since the last check would otherwise read as working until a query
+  // failed. In the background — no 'configuring' gating the tabs meanwhile —
+  // once per opening, and not while a job sets it up.
+  const retestDataSource = useDataSourceStore((s) => s.retestDataSource)
+  const settingUp = source?.status === 'configuring'
+  useEffect(() => {
+    if (source?.id && !settingUp) void retestDataSource(source.id, { background: true }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opening, not again when it ends set up
+  }, [source?.id, retestDataSource])
+
   // A cohort's builder has its own route under the database, so it is linkable.
   // Leaving it through another tab goes back to the database's own URL.
   const onCohortRoute = !!cohortId && !readOnly
@@ -288,8 +299,13 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
           <div className="flex-1" />
         </div>
 
-        {/* Under the tab bar, so it reads the same from every tab: nothing in
-            this page works until the files are found again. */}
+        {/* Under the tab bar, so it reads the same from every tab. */}
+        <ConnectionStatusBanner
+          source={source}
+          onEditConnection={canEditLocation ? () => setEditOpen(true) : undefined}
+          className="mx-6 mb-3"
+        />
+        {/* Nothing in this page works until the files are found again. */}
         {location.missing && (
           <NoticeBanner
             tone="danger"
@@ -356,7 +372,6 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               onSeeStatistics={() => setActiveTab('statistics')}
               onEditReadme={readOnly ? undefined : () => { setReadmeEditing(true); setActiveTab('readme') }}
               onSeeLicense={readOnly ? undefined : () => setActiveTab('license')}
-              onEditConnection={canEditLocation ? () => setEditOpen(true) : undefined}
             />
           </div>
         </TabsContent>
@@ -893,7 +908,6 @@ function OverviewTab({
   onSeeStatistics,
   onEditReadme,
   onSeeLicense,
-  onEditConnection,
 }: {
   source: DataSource
   statsMapping: SchemaMapping
@@ -902,32 +916,17 @@ function OverviewTab({
   /** Absent from a project: the readme and licence tabs are the workspace's. */
   onEditReadme?: () => void
   onSeeLicense?: () => void
-  /** Opens the edit dialog on its Connection tab; absent without the right to edit. */
-  onEditConnection?: () => void
 }) {
   const { t, i18n } = useTranslation()
   const { resolveAttachmentUrls } = useReadmeAttachments('data-source', source.id, source.workspaceId)
-  const canWrite = useMyWorkspaceRole().can('databases:write')
-  const rebuildFromSchema = useDataSourceStore((s) => s.rebuildFromSchema)
-  const retestDataSource = useDataSourceStore((s) => s.retestDataSource)
-  const [rebuilding, setRebuilding] = useState(false)
-  const [confirmRebuild, setConfirmRebuild] = useState(false)
-  const [retesting, setRetesting] = useState(false)
   // Mounted here rather than inside the cards: the "not computed yet" banner sits
   // above them as a sibling in this grid, and both need the same state. One
   // instance, so the cards keep reading the very numbers the banner speaks for.
   const { cache, isLoading: statsLoading, error: statsError, refresh: refreshStats, cacheLoaded } = useDatabaseStats(
     source.id, statsMapping, source.status,
   )
-  // A rebuildable database is one that is not working and still holds the DDL it
-  // was built from. Not gated on `errorMessage`: a database imported before the
-  // import recorded a reason (or by a path that never did) is disconnected and
-  // silent, and gating the banner on the message made the ONLY action that can
-  // fix it unreachable — the user had to delete the database and recreate it.
-  // Not while it is being set up: a derivation job may be writing that file.
-  const configuring = source.status === 'configuring'
-  const canRebuild = source.status !== 'connected' && !configuring && !!source.schemaMapping?.ddl
-  const showStatusBanner = source.status !== 'connected' && (configuring || !!source.errorMessage || canRebuild)
+  // Shown above every tab by the page (ConnectionStatusBanner).
+  const showStatusBanner = connectionBannerShown(source)
   // Cards show a dash rather than a zero (which would read as "empty"), so
   // without a word here the tab looked like a database with nothing in it.
   // Not while the status banner is up: a database that cannot connect has no
@@ -940,43 +939,6 @@ function OverviewTab({
   // otherwise came back as if nothing had been tried.
   const showStatsError = statsError != null && !showStatusBanner
 
-  const handleRetest = async () => {
-    setRetesting(true)
-    try {
-      await retestDataSource(source.id)
-    } finally {
-      setRetesting(false)
-    }
-  }
-
-  // Re-check a failed database when its page opens. `loadDataSources` already
-  // sweeps every broken source, but only once per session: this covers the
-  // database that broke — or was repaired outside the app, an ETL releasing its
-  // file lock — after that sweep ran.
-  //
-  // Once per source id: `status` moving to 'configuring' during the test would
-  // otherwise re-enter this on the next render.
-  const autoRetested = useRef<string | null>(null)
-  useEffect(() => {
-    if (source.status !== 'error' || autoRetested.current === source.id) return
-    autoRetested.current = source.id
-    void handleRetest()
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the source, not on the handler identity
-  }, [source.id, source.status])
-
-  const handleRebuild = async () => {
-    setConfirmRebuild(false)
-    setRebuilding(true)
-    try {
-      await rebuildFromSchema(source.id)
-    } catch {
-      // The failure is already on the row as `errorMessage`, which the banner
-      // above renders — rethrowing here would only add an unhandled rejection.
-    } finally {
-      setRebuilding(false)
-    }
-  }
-
   return (
     /* One grid for the whole tab, so the two columns line up across both rows:
        the stat cards stop where About starts, and the README's bottom edge
@@ -987,84 +949,8 @@ function OverviewTab({
       // row. Each banner is another full-width child when shown, so a fixed
       // two-track template left it on an implicit row that `overflow-hidden`
       // then clipped — it rendered behind the cards instead of pushing them down.
-      BAND_ROWS[Number(showStatusBanner) + Number(showStatsBanner || showStatsError)],
+      BAND_ROWS[Number(showStatsBanner || showStatsError)],
     )}>
-      {/* Shown for any non-working state that carries a reason, not just 'error':
-          a database left disconnected by a data-free import has something to say
-          too, and gating this on 'error' alone made those states silent. */}
-      {showStatusBanner && (
-        <NoticeBanner
-          tone={source.status === 'error' ? 'danger' : configuring ? 'progress' : 'warning'}
-          className="col-span-full"
-          title={t(source.status === 'error' ? 'databases.detail_error'
-            : configuring ? 'databases.detail_configuring' : 'databases.detail_not_connected')}
-          description={(
-            <>
-              <p className={cn(
-                source.status === 'error' ? 'break-all font-mono text-destructive/80'
-                  : configuring ? undefined : 'break-all text-warning-foreground/80',
-              )}>
-                {configuring && (!source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT)
-                  ? t('databases.detail_configuring_hint')
-                  : !source.errorMessage || source.errorMessage === DB_ERROR_NO_DATA_ON_IMPORT
-                    ? t('databases.imported_without_data')
-                    : source.errorMessage}
-              </p>
-              {/* A database built from a schema carries its DDL but never its
-                  tables — the export leaves the DuckDB file behind on purpose. */}
-              {canWrite && canRebuild && <p className="mt-1 text-[10px]">{t('databases.rebuild_from_schema_hint')}</p>}
-            </>
-          )}
-          // Nothing to do while it is being set up: a job builds it, or a test is
-          // already running — kept while the user's own retest spins.
-          action={(!configuring || retesting) && (
-            <div className="flex items-center gap-2">
-              {onEditConnection && (
-                <Button size="sm" variant="outline" onClick={onEditConnection} disabled={retesting || rebuilding}>
-                  <Pencil size={14} />
-                  {t('databases.edit_connection')}
-                </Button>
-              )}
-              {/* The non-destructive way out, which fixes every transient cause;
-                  the rebuild beside it is the last resort. */}
-              <Button size="sm" onClick={handleRetest} disabled={retesting || rebuilding}>
-                {retesting ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-                {t('databases.test_connection_again')}
-              </Button>
-              {canWrite && canRebuild && (
-                // Confirmed, never immediate: the rebuild drops whatever the file
-                // holds, and a database that merely failed to connect may still
-                // carry every row it was loaded with.
-                <Button size="sm" variant="destructive" onClick={() => setConfirmRebuild(true)} disabled={rebuilding || retesting}>
-                  {rebuilding && <Loader2 size={14} className="animate-spin" />}
-                  {t('databases.rebuild_from_schema')}
-                </Button>
-              )}
-            </div>
-          )}
-        />
-      )}
-
-      <AlertDialog open={confirmRebuild} onOpenChange={setConfirmRebuild}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t('databases.rebuild_from_schema')}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t('databases.rebuild_from_schema_confirm', { name: localized(source.name, i18n.language) })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={handleRebuild}
-            >
-              {t('databases.rebuild_from_schema_action')}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
       {/* The counts below are COUNT(*) over what may be billions of rows, so
           server mode never runs them unasked — the cards then read "—" with
           nothing saying why, or that one click fixes it. */}
