@@ -516,11 +516,15 @@ do. **Arbitrated: three phases, plus a fourth for ETL generation.**
 ## Revised after the first test pass (2026-09-26)
 
 - **The form stays generic**: one table (schema + table, no visible alias), each
-  contract column mapped to one of its columns or a constant, an optional
-  filter, and the class options (gender values, drug kind, dictionary). Joins,
+  contract column mapped to one of its columns or a constant, and the class
+  options (gender values, drug kind, dictionary). Joins,
   aliases and expressions left the form; a relation using them (a v1
   conversion) keeps them and shows them read-only, the rest stays editable.
   Anything specific is written in SQL, with the contract shown beside the editor.
+- **The filter left the form too (2026-10-20)**: `where` stays in the format and
+  the generator, shown as code under the table like the joins; it is written in
+  SQL. An EAV table feeding several relations (§2.3) is therefore SQL, the
+  price of a simpler form.
 - **Parameters removed** (step 7): the per-database override of whole relations
   covers the case they served. §7's parameter design is historical.
 - The contract check records the columns a hand-written SQL fills, and runs on

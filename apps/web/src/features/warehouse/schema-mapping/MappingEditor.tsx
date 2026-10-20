@@ -26,7 +26,7 @@ import { CLASS_TONES } from './class-tones'
 import { RelationSqlDialog, type PreviewSource } from './RelationSqlDialog'
 import { indexSourceSchema, type SourceSchemaTable } from './source-schema'
 
-type TabId = 'all' | 'patient' | 'stays' | 'notes' | 'concepts' | 'events' | 'drugs'
+type TabId = 'all' | 'patient' | 'stays' | 'concepts' | 'events' | 'drugs' | 'notes'
 
 export interface MappingEditorProps {
   mapping: SchemaMapping
@@ -310,10 +310,10 @@ export function MappingEditor({ mapping, onChange, readOnly, columnsOf, sourceSc
   const SECTIONS: Section[] = [
     { id: 'patient', label: t('settings.schema_map_tab_patient'), tone: 'patient', blocks: patientBlocks },
     { id: 'stays', label: t('settings.schema_map_tab_stay'), tone: 'visit', blocks: stayBlocks },
-    { id: 'notes', label: t('settings.schema_map_tab_notes'), tone: 'note', blocks: noteBlocks },
     { id: 'concepts', label: t('settings.schema_map_tab_concepts'), tone: 'concept', blocks: conceptBlocks, add: { label: t('schema_mapping.add_concept'), run: addConcept } },
     { id: 'events', label: t('settings.schema_map_tab_events'), tone: 'event', blocks: () => list('events'), add: { label: t('schema_mapping.add_event'), run: () => addToList('events') } },
     { id: 'drugs', label: t('schema_mapping.tab_drugs'), tone: 'drug', blocks: () => list('drugs'), add: { label: t('schema_mapping.add_drug'), run: () => addToList('drugs') } },
+    { id: 'notes', label: t('settings.schema_map_tab_notes'), tone: 'note', blocks: noteBlocks },
   ]
   const dot = (tone: ClassName) => <span className={cn('size-2 shrink-0 rounded-full', CLASS_TONES[tone].dot)} />
   const addButton = (sec: Section) =>

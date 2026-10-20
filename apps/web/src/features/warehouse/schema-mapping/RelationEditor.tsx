@@ -26,8 +26,8 @@ import { generatedRelationSql } from '@/lib/schema-classes/relations'
 import { fieldRef, withSpec } from '@/lib/schema-classes/spec'
 import type { FieldSpec, RelationSpec, RelationTable, SchemaMapping } from '@/types/schema-mapping'
 import { CLASS_TONES } from './class-tones'
-import { formEditable, FORM_ALIAS } from './form-editable'
-import { DraftInput, DraftTextarea } from './draft-input'
+import { FORM_ALIAS } from './form-editable'
+import { DraftInput } from './draft-input'
 
 /** Columns derived by the generator when left unmapped — worth a hint. */
 const DERIVED_HINTS: Record<string, string> = {
@@ -63,7 +63,7 @@ export interface RelationEditorProps {
 
 /**
  * One class relation, from the form or from SQL (plan §3-4). The form maps one
- * table: its columns onto the contract, constants, a filter. The SQL button
+ * table: its columns onto the contract, or constants. The SQL button
  * opens the relation's SQL, where everything else is written. With custom SQL
  * set, a form edit that changes the generated SQL asks before discarding it.
  */
@@ -85,9 +85,6 @@ export function RelationEditor({
   const { t } = useTranslation()
   const [pending, setPending] = useState<RelationSpec | null>(null)
   const custom = !!spec.customSql?.trim()
-  // A join or an expression (a v1 conversion, say) stays as it is and is shown
-  // read-only; the table, the filter and the plain columns remain editable.
-  const advanced = !custom && !formEditable(spec)
   const editable = !readOnly && !custom
 
   const change = (next: RelationSpec) => {
@@ -193,27 +190,12 @@ export function RelationEditor({
               onChange={(next) => change({ ...spec, from: { ...next, alias } })}
             />
 
-            {advanced && (spec.joins?.length ?? 0) > 0 && (
+            {/* Joins and the filter (a v1 conversion, say) stay as they are, shown
+                as code; the table and the plain columns remain editable. */}
+            {((spec.joins?.length ?? 0) > 0 || !!spec.where?.trim()) && (
               <div className="space-y-1">
                 <AdvancedSummary spec={spec} />
                 {!readOnly && <p className="text-[10px] text-muted-foreground">{t('schema_mapping.advanced_relation')}</p>}
-              </div>
-            )}
-
-            {(spec.where || editable) && (
-              <div className="space-y-1">
-                <SectionLabel>{t('schema_mapping.where')}</SectionLabel>
-                {editable ? (
-                  <DraftTextarea
-                    value={spec.where ?? ''}
-                    onCommit={(v) => change({ ...spec, where: v || undefined })}
-                    placeholder={t('schema_mapping.where_placeholder')}
-                    className="min-h-8 font-mono text-xs"
-                    rows={1}
-                  />
-                ) : (
-                  <code className="block whitespace-pre-wrap text-xs">{spec.where}</code>
-                )}
               </div>
             )}
 
@@ -254,7 +236,8 @@ export function RelationEditor({
 // Rows
 // ---------------------------------------------------------------------------
 
-/** The joins of a relation the form cannot edit: kept as they are, changed in SQL. */
+/** The joins and the filter of a relation, which the form does not edit: kept
+ *  as they are, changed in SQL. */
 function AdvancedSummary({ spec }: { spec: RelationSpec }) {
   const table = (x: RelationTable) => `${x.schema ? `${x.schema}.` : ''}${x.table} ${x.alias}`
   return (
@@ -264,6 +247,7 @@ function AdvancedSummary({ spec }: { spec: RelationSpec }) {
           {j.type.toUpperCase()} JOIN {table(j)} ON {(j.on ?? []).map(([l, r]) => `${l} = ${r}`).join(' AND ')}
         </code>
       ))}
+      {spec.where?.trim() && <code className="block whitespace-pre-wrap text-xs">WHERE {spec.where.trim()}</code>}
     </div>
   )
 }

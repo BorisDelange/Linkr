@@ -1,6 +1,5 @@
 import { useState, type ComponentProps } from 'react'
 import { Input } from '@/components/ui/input'
-import { Textarea } from '@/components/ui/textarea'
 
 /**
  * Keeps what is typed locally and hands it over on blur or Enter. Every commit
@@ -41,26 +40,6 @@ export function DraftInput({ value, onCommit, onBlur, onKeyDown, ...rest }: Draf
       onKeyDown={(e) => {
         if (e.key === 'Enter') commit()
         onKeyDown?.(e)
-      }}
-    />
-  )
-}
-
-type DraftTextareaProps = Omit<ComponentProps<typeof Textarea>, 'value' | 'onChange'> & {
-  value: string
-  onCommit: (v: string) => void
-}
-
-export function DraftTextarea({ value, onCommit, onBlur, ...rest }: DraftTextareaProps) {
-  const { draft, setDraft, commit } = useDraft(value, onCommit)
-  return (
-    <Textarea
-      {...rest}
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={(e) => {
-        commit()
-        onBlur?.(e)
       }}
     />
   )
