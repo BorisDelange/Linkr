@@ -1,15 +1,17 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { GatedButton } from '@/components/ui/gated-button'
 import { resolveByIdPrefix } from '@/lib/short-id'
 import { paths } from '@/lib/paths'
-import { Plus, LayoutGrid, Pencil, Lock, Filter, Settings2, Download, Maximize, Minimize } from 'lucide-react'
+import { Plus, LayoutGrid, Pencil, Lock, Filter, Settings2, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { useDashboardStore } from '@/stores/dashboard-store'
 import { PortalContainerProvider } from '@/lib/portal-container'
+import { useFullscreen } from '@/hooks/use-fullscreen'
+import { FullscreenButton } from '@/components/ui/fullscreen-button'
 import { useDatasetStore } from '@/stores/dataset-store'
 import { DashboardTabBar } from './dashboard/DashboardTabBar'
 import { SubTabPreviewCard } from './dashboard/SubTabPreviewCard'
@@ -45,29 +47,7 @@ export function DashboardPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [exportOpen, setExportOpen] = useState(false)
   const [exportPreselectId, setExportPreselectId] = useState<string | null>(null)
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  const rootRef = useRef<HTMLDivElement>(null)
-
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen().catch(() => {})
-    } else {
-      rootRef.current?.requestFullscreen().catch(() => {})
-    }
-  }
-
-  // Track fullscreen changes (button click, Esc key, or browser chrome) to keep the icon in sync,
-  // and capture the fullscreen element so Radix portals (menus, dialogs, tooltips) render INSIDE
-  // it — otherwise they'd portal to document.body, outside the fullscreen subtree, and be invisible.
-  const [fullscreenEl, setFullscreenEl] = useState<HTMLElement | null>(null)
-  useEffect(() => {
-    const onChange = () => {
-      setIsFullscreen(document.fullscreenElement != null)
-      setFullscreenEl(document.fullscreenElement as HTMLElement | null)
-    }
-    document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
-  }, [])
+  const { ref: rootRef, isFullscreen, toggle: toggleFullscreen, portalContainer: fullscreenEl } = useFullscreen()
 
   const {
     dashboards,
@@ -309,14 +289,7 @@ export function DashboardPage() {
               ? t('dashboard.toggle_filters_count', { count: activeFilterCount })
               : t('dashboard.toggle_filters')}
           </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={toggleFullscreen}
-            title={isFullscreen ? t('dashboard.exit_fullscreen') : t('dashboard.enter_fullscreen')}
-          >
-            {isFullscreen ? <Minimize size={12} /> : <Maximize size={12} />}
-          </Button>
+          <FullscreenButton isFullscreen={isFullscreen} onToggle={toggleFullscreen} />
         </div>
       </div>
       </div>

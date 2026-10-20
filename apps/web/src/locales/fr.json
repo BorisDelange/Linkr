@@ -1247,6 +1247,8 @@
     "rename": "Renommer",
     "remove": "Supprimer",
     "execute": "Exécuter",
+    "export_csv_hint": "Télécharger l'onglet Table en CSV : ses {{count}} lignes, avec les colonnes qu'il affiche.",
+    "export_csv_hint_truncated": "Télécharger l'onglet Table en CSV : ses {{count}} premières lignes sur {{total}}, avec les colonnes qu'il affiche. Pour tous les membres, dérivez une base de la cohorte.",
     "executing": "Exécution...",
     "stop": "Arrêter",
     "materialize": "Alimenter",

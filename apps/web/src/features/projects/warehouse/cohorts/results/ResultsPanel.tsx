@@ -1,6 +1,7 @@
 import { useTranslation } from 'react-i18next'
-import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Square } from 'lucide-react'
+import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Square, Play } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
@@ -93,7 +94,7 @@ export function ResultsPanel({
                 {t('cohorts.results_see_output')}
               </Button>
             )}
-            <Button size="sm" onClick={onExecute}>{t('cohorts.execute')}</Button>
+            <Button size="sm" className="gap-1.5" onClick={onExecute}><Play size={14} />{t('cohorts.execute')}</Button>
           </div>
         </CenteredState>
       )
@@ -103,7 +104,7 @@ export function ResultsPanel({
         <CenteredState>
           <Users size={32} className="opacity-30" />
           <p className="text-sm">{t(error === 'CANCELLED' ? 'cohorts.results_cancelled' : 'cohorts.results_empty')}</p>
-          <Button size="sm" onClick={onExecute}>{t('cohorts.execute')}</Button>
+          <Button size="sm" className="gap-1.5" onClick={onExecute}><Play size={14} />{t('cohorts.execute')}</Button>
         </CenteredState>
       )
     }
@@ -144,7 +145,7 @@ export function ResultsPanel({
             <span className="min-w-0 flex-1 truncate" title={errorText ?? undefined}>
               {loading ? t('cohorts.executing') : errorText ? t('cohorts.results_failed') : t('cohorts.patients_not_run')}
             </span>
-            {!loading && <Button size="xs" onClick={onExecute}>{t('cohorts.execute')}</Button>}
+            {!loading && <Button size="xs" className="gap-1" onClick={onExecute}><Play size={12} />{t('cohorts.execute')}</Button>}
           </div>
           <div className="min-h-0 flex-1 overflow-hidden">{renderPatients(null)}</div>
         </div>
@@ -216,10 +217,21 @@ export function ResultsPanel({
               )}
               <div className="flex-1" />
               <span className="text-[10px] text-muted-foreground">{formatDuration(result.durationMs)}</span>
-              <Button variant="ghost" size="sm" onClick={onExportCsv} className="h-6 gap-1 text-xs">
-                <Download size={12} />
-                CSV
-              </Button>
+              <TooltipProvider delayDuration={300}>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button variant="ghost" size="sm" onClick={onExportCsv} className="h-6 gap-1 text-xs">
+                      <Download size={12} />
+                      CSV
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="max-w-xs">
+                    {result.rows.length < result.totalCount
+                      ? t('cohorts.export_csv_hint_truncated', { count: result.rows.length, total: result.totalCount })
+                      : t('cohorts.export_csv_hint', { count: result.rows.length })}
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </>
           ) : null}
         </div>

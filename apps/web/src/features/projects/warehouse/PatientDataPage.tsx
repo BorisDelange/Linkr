@@ -22,6 +22,9 @@ import { BoardTabGrids } from './patient-data/BoardTabGrids'
 import { PatientDataSidebar } from './patient-data/PatientDataSidebar'
 import { AddPatientWidgetDialog } from './patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from './patient-data/PatientDataSettingsDialog'
+import { useFullscreen } from '@/hooks/use-fullscreen'
+import { FullscreenButton } from '@/components/ui/fullscreen-button'
+import { PortalContainerProvider } from '@/lib/portal-container'
 import { CollectionSidebar } from './patient-data/collection/CollectionSidebar'
 import { CollectionStatusDot } from './patient-data/collection/CollectionStatusDot'
 import { usePatientCollection } from './patient-data/collection/use-patient-collection'
@@ -51,6 +54,7 @@ export function PatientDataPage() {
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [editMode, setEditMode] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen, portalContainer: fullscreenContainer } = useFullscreen()
   // Persisted, not component state: leaving the page and coming back should show
   // the workspace as it was left, the same way the board itself is remembered.
   const [collectionOpen, setCollectionOpen] = useStickyFlag('linkr.patient-collection-open', false)
@@ -251,7 +255,8 @@ export function PatientDataPage() {
     <PatientChartContext.Provider
       value={{ projectUid, boardId: currentBoard.id, dataSourceId, schemaMapping }}
     >
-      <div className="flex h-full flex-col overflow-hidden">
+      <PortalContainerProvider value={fullscreenContainer}>
+      <div ref={fullscreenRef} className="flex h-full flex-col overflow-hidden bg-background">
         {/* Tab bar + actions */}
         <div className="flex items-center border-b px-3 shrink-0">
           <PatientChartTabBar dashboardId={currentBoard.id} editMode={editMode} />
@@ -328,6 +333,7 @@ export function PatientDataPage() {
                   {t('patient_data.toggle_sidebar')}
                 </TooltipContent>
               </Tooltip>
+              <FullscreenButton isFullscreen={isFullscreen} onToggle={toggleFullscreen} />
             </div>
           </TooltipProvider>
         </div>
@@ -453,6 +459,7 @@ export function PatientDataPage() {
         />
 
       </div>
+      </PortalContainerProvider>
     </PatientChartContext.Provider>
   )
 }

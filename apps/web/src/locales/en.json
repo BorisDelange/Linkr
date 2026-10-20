@@ -1247,6 +1247,8 @@
     "rename": "Rename",
     "remove": "Delete",
     "execute": "Run query",
+    "export_csv_hint": "Download the Table tab as CSV: its {{count}} rows, with the columns shown there.",
+    "export_csv_hint_truncated": "Download the Table tab as CSV: its first {{count}} rows of {{total}}, with the columns shown there. For every member, derive a database from the cohort.",
     "executing": "Running...",
     "stop": "Stop",
     "materialize": "Materialize",

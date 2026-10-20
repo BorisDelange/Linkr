@@ -16,6 +16,9 @@ import { BoardTabGrids } from '@/features/projects/warehouse/patient-data/BoardT
 import { AddPatientWidgetDialog } from '@/features/projects/warehouse/patient-data/AddPatientWidgetDialog'
 import { PatientDataSettingsDialog } from '@/features/projects/warehouse/patient-data/PatientDataSettingsDialog'
 import { PatientDataSidebar } from '@/features/projects/warehouse/patient-data/PatientDataSidebar'
+import { useFullscreen } from '@/hooks/use-fullscreen'
+import { FullscreenButton } from '@/components/ui/fullscreen-button'
+import { PortalContainerProvider } from '@/lib/portal-container'
 import type { Cohort, SchemaMapping } from '@/types'
 
 interface CohortPatientsPanelProps {
@@ -66,6 +69,7 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
   const [editMode, setEditMode] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen, portalContainer: fullscreenContainer } = useFullscreen()
 
   useEffect(() => {
     void loadCohortBoard({ dataSourceId, projectUid }, cohort.id)
@@ -144,6 +148,8 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
 
   return (
     <PatientChartContext.Provider value={context}>
+      <PortalContainerProvider value={fullscreenContainer}>
+      <div ref={fullscreenRef} className="h-full bg-background">
       {/* Not proportional: folding the builder's pane widens this one, and that
           width goes to the board — the sidebar keeps its pixels. */}
       <Allotment proportionalLayout={false}>
@@ -179,6 +185,7 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
                     {editMode ? <Lock size={12} /> : <Pencil size={12} />}
                     {editMode ? t('dashboard.lock_layout') : t('dashboard.edit_layout')}
                   </Button>
+                  <FullscreenButton isFullscreen={isFullscreen} onToggle={toggleFullscreen} />
                 </div>
               </div>
               {/* The tab bar stays on an empty tab: it is how to reach the others. */}
@@ -216,6 +223,8 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
           <PatientDataSettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} dashboardId={board.id} />
         </>
       )}
+      </div>
+      </PortalContainerProvider>
     </PatientChartContext.Provider>
   )
 }
