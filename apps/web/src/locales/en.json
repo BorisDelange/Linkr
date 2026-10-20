@@ -587,6 +587,8 @@
     "stats_patient_count": "Patients",
     "stats_loading": "Computing statistics...",
     "stats_no_records": "No records found for this concept.",
+    "stats_unavailable": "Statistics unavailable: computing them failed.",
+    "detail_unavailable": "This concept's details could not be read.",
     "stats_disabled": "Statistics are not computed.",
     "stats_disabled_hint": "Tick “Stats” above to compute them.",
     "no_concepts": "No concepts found.",

@@ -587,6 +587,8 @@
     "stats_patient_count": "Patients",
     "stats_loading": "Calcul des statistiques...",
     "stats_no_records": "Aucun enregistrement trouvé pour ce concept.",
+    "stats_unavailable": "Statistiques indisponibles : leur calcul a échoué.",
+    "detail_unavailable": "Les détails de ce concept n'ont pas pu être lus.",
     "stats_disabled": "Les statistiques ne sont pas calculées.",
     "stats_disabled_hint": "Cochez « Stats » ci-dessus pour les calculer.",
     "no_concepts": "Aucun concept trouvé.",

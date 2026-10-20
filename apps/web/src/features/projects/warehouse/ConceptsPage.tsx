@@ -97,6 +97,8 @@ export function ConceptsPage() {
     selectedConcept,
     conceptStats,
     conceptStatsLoading,
+    conceptStatsError,
+    detailError,
     refresh,
     count,
     statsEnabled,
@@ -731,6 +733,8 @@ export function ConceptsPage() {
               availableColumns={availableColumns}
               stats={conceptStats}
               statsLoading={conceptStatsLoading}
+              statsError={conceptStatsError}
+              error={detailError}
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
               statsEnabled={statsEnabled}

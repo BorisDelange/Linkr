@@ -14,6 +14,8 @@ interface ConceptStatsPanelProps {
   hasValueColumn: boolean
   stats: ConceptStats | null
   isLoading: boolean
+  /** Why they could not be computed: "unavailable", not "no records". */
+  error?: string | null
   excludeOutliers: boolean
   /** False when the Stats checkbox is off — nothing is computed for any concept. */
   statsEnabled: boolean
@@ -131,6 +133,7 @@ export function ConceptStatsPanel({
   hasValueColumn,
   stats,
   isLoading,
+  error,
   excludeOutliers,
   statsEnabled,
   patientCount,
@@ -155,6 +158,15 @@ export function ConceptStatsPanel({
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-[180px] w-full" />
+      </div>
+    )
+  }
+
+  if (!stats && error) {
+    return (
+      <div className="space-y-0.5 text-xs">
+        <p className="text-muted-foreground">{t('concepts.stats_unavailable')}</p>
+        <p className="max-h-24 overflow-y-auto break-words text-[10px] text-muted-foreground/70">{error}</p>
       </div>
     )
   }

@@ -18,6 +18,10 @@ interface ConceptDetailProps {
   availableColumns: ColumnDescriptor[]
   stats: ConceptStats | null
   statsLoading: boolean
+  /** Why the stats could not be computed. */
+  statsError?: string | null
+  /** Why the selected concept could not be read: shown in place of "select a concept". */
+  error?: string | null
   hasValueColumn: boolean
   excludeOutliers: boolean
   statsEnabled: boolean
@@ -41,6 +45,8 @@ export function ConceptDetail({
   availableColumns,
   stats,
   statsLoading,
+  statsError,
+  error,
   hasValueColumn,
   excludeOutliers,
   statsEnabled,
@@ -58,8 +64,9 @@ export function ConceptDetail({
 
   if (!concept) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-muted-foreground">{t('concepts.select_concept')}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-1 px-4 text-center">
+        <p className="text-sm text-muted-foreground">{t(error ? 'concepts.detail_unavailable' : 'concepts.select_concept')}</p>
+        {error && <p className="break-words text-xs text-muted-foreground/70">{error}</p>}
       </div>
     )
   }
@@ -186,6 +193,7 @@ export function ConceptDetail({
           hasValueColumn={hasValueColumn}
           stats={stats}
           isLoading={statsLoading}
+          error={statsError}
           excludeOutliers={excludeOutliers}
           statsEnabled={statsEnabled}
           patientCount={

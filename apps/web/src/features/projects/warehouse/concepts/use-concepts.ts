@@ -265,6 +265,10 @@ export function useConcepts(
   const [selectedConcept, setSelectedConcept] = useState<Record<string, unknown> | null>(null)
   const [conceptStatsLoading, setConceptStatsLoading] = useState(false)
   const [conceptStats, setConceptStats] = useState<ConceptStats | null>(null)
+  // Why the selected concept's stats, or its row, could not be read — said in
+  // the detail panel rather than an empty "no records" or "select a concept".
+  const [conceptStatsError, setConceptStatsError] = useState<string | null>(null)
+  const [detailError, setDetailError] = useState<string | null>(null)
 
   // Server mode: the concept list is materialized to a shared Parquet cache,
   // loaded (with or without its counts) from the database's Concepts tab; every
@@ -339,6 +343,8 @@ export function useConcepts(
     // and numbers on screen until the new query lands.
     setSelectedConcept(null)
     setConceptStats(null)
+    setConceptStatsError(null)
+    setDetailError(null)
   }, [persist, stateKey])
 
   // ---------------------------------------------------------------------------
@@ -549,9 +555,11 @@ export function useConcepts(
   // ---------------------------------------------------------------------------
 
   useEffect(() => {
+    setDetailError(null)
     if (!dataSourceId || !schemaMapping || selectedConceptId === null) {
       setSelectedConcept(null)
       setConceptStats(null)
+      setConceptStatsError(null)
       return
     }
 
@@ -567,6 +575,7 @@ export function useConcepts(
           if (!cacheReady) return
           const rows = await queryConceptCache(dataSourceId, buildCacheDetailQuery(selectedConceptId))
           if (rows.length > 0) setSelectedConcept(rows[0] as Record<string, unknown>)
+          else setDetailError('not found')
           return
         }
         const sql = buildConceptFullQuery(schemaMapping, selectedConceptId, dictKey)
@@ -577,6 +586,7 @@ export function useConcepts(
         }
       } catch (err) {
         console.error('Failed to load concept detail:', err)
+        setDetailError(err instanceof Error ? err.message : String(err))
       }
     }
     load()
@@ -594,6 +604,7 @@ export function useConcepts(
     activeStatsConceptId.current = conceptId
     const isStale = () => activeStatsConceptId.current !== conceptId
 
+    setConceptStatsError(null)
     const cachedStats = statsCache.get(conceptId)
     if (cachedStats) {
       // Instant: cached clicks render immediately and clear any leftover spinner
@@ -610,7 +621,10 @@ export function useConcepts(
       if (!isStale()) setConceptStats(stats)
     } catch (err) {
       console.error('Failed to load concept stats:', err)
-      if (!isStale()) setConceptStats(null)
+      if (!isStale()) {
+        setConceptStats(null)
+        setConceptStatsError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       // Only the latest request controls the shared loading flag.
       if (!isStale()) setConceptStatsLoading(false)
@@ -669,6 +683,10 @@ export function useConcepts(
   }, [])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize))
+  // The row as the list shows it until the detail lands — or when it fails: the
+  // concept was clicked in the list, so it is never "nothing selected".
+  const listedConcept = selectedConceptId === null ? null : concepts.find((c) => c.concept_id === selectedConceptId) ?? null
+  const shownConcept = selectedConcept && Number(selectedConcept.concept_id) === selectedConceptId ? selectedConcept : listedConcept
 
   return {
     hasConceptTable,
@@ -688,9 +706,11 @@ export function useConcepts(
     filterOptions,
     selectedConceptId,
     setSelectedConceptId,
-    selectedConcept,
+    selectedConcept: shownConcept as Record<string, unknown> | null,
+    detailError: shownConcept ? null : detailError,
     conceptStats,
     conceptStatsLoading,
+    conceptStatsError,
     refresh,
     count,
     statsEnabled,
