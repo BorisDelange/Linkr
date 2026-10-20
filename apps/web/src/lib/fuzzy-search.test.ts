@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fuzzyTextMatch, buildFuzzySearchSql, buildLabelFilterSql, buildStrictLabelFilterSql, buildStrictSearchSql, labelMatcher, JW_FUZZY_THRESHOLD, JW_FILTER_THRESHOLD } from './fuzzy-search'
+import { fuzzyTextMatch, buildFuzzySearchSql, buildLabelFilterSql, labelMatcher, JW_FUZZY_THRESHOLD, JW_FILTER_THRESHOLD } from './fuzzy-search'
 import labelFixture from './label-filter.fixture.json'
 
 describe('fuzzyTextMatch', () => {
@@ -139,23 +139,5 @@ describe('labelMatcher', () => {
   it.each(labelFixture.filterCases)('keeps the rows the SQL keeps on DuckDB for "$term"', ({ term, expected }) => {
     const all = labelFixture.rows
     expect(all.filter(labelMatcher(all, (r) => r, term))).toEqual(expected)
-  })
-})
-
-describe('strict matching', () => {
-  it('needs every word in the name or the code, lowercased and escaped', () => {
-    const sql = buildStrictSearchSql("L'INR test", { nameColumn: 'n', codeColumn: 'c', alias: 'd' })!
-    expect(sql.where).toBe("((LOWER(d.n) LIKE '%l''inr%' OR LOWER(d.c) LIKE '%l''inr%') AND (LOWER(d.n) LIKE '%test%' OR LOWER(d.c) LIKE '%test%'))")
-  })
-
-  it('takes a number as an exact id too, ranked first', () => {
-    const sql = buildStrictSearchSql('42', { nameColumn: 'n', idColumn: 'id' })!
-    expect(sql.where).toBe("(id = 42 OR (LOWER(n) LIKE '%42%'))")
-    expect(sql.rankExpr).toMatch(/^\(CASE WHEN id = 42 THEN 0 /)
-  })
-
-  it('filters a label on every word, with no typo fallback', () => {
-    expect(buildStrictLabelFilterSql(' a  B ', 'label')).toBe("(LOWER(label) LIKE '%a%' AND LOWER(label) LIKE '%b%')")
-    expect(buildStrictLabelFilterSql('  ', 'label')).toBeNull()
   })
 })

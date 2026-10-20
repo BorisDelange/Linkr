@@ -4,7 +4,6 @@ import { ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { NoticeBanner } from '@/components/ui/notice-banner'
 import { paths } from '@/lib/paths'
-import { isServerMode } from '@/lib/api-client'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import type { ConceptCountView } from './use-concept-count'
 
@@ -15,10 +14,9 @@ function conceptsTabHref(wsUid: string, projectUid: string | undefined, dataSour
 }
 
 /**
- * What a view listing a database's concepts says when their counts are not
- * complete — never computed, partial, running or failed — with the way to the
- * database's Concepts tab, the one place the counting is run from. A dictionary
- * holding its own counts has none to compute, nor a cache: its search is strict.
+ * What a view listing a database's concepts says when they are not loaded, or
+ * their counts not complete — partial, running or failed — with the way to the
+ * database's Concepts tab, the one place they are loaded from.
  */
 export function ConceptCountNotice({
   count,
@@ -32,9 +30,6 @@ export function ConceptCountNotice({
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { wsUid, projectUid } = useResolvedParams()
-  if (count.held && isServerMode() && dataSourceId) {
-    return <NoticeBanner tone="warning" title={t('concepts.count_held')} description={t('concepts.search_strict')} className={className} />
-  }
   if (!count.enabled || !count.checked || !dataSourceId) return null
 
   const { live, progress } = count
@@ -57,8 +52,8 @@ export function ConceptCountNotice({
     title = t('concepts.count_running')
     description = steps
   } else if (!count.exists) {
-    title = t('concepts.count_none')
-  } else if (progress.state !== 'complete') {
+    title = t('concepts.cache_none_elsewhere')
+  } else if (progress.state === 'partial' && records.done + patients.done > 0) {
     title = t('concepts.count_partial')
     description = steps
   } else {

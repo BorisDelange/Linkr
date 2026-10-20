@@ -5,7 +5,7 @@ import {
   buildAttritionQueries, buildCohortCountSql, buildCohortCriteriaSql, buildCohortNativeSql, buildCohortResultsSql,
 } from '@/lib/duckdb/cohort-query'
 import {
-  buildConceptsQuery, computeAvailableColumns,
+  buildCachePageQuery, computeAvailableColumns,
 } from '@/features/projects/warehouse/concepts/concept-queries'
 import { conceptRelations, dictionaryOf, eventRelation } from '@/lib/schema-classes/relations'
 import { buildCohortReportModel, CohortReportUnavailable } from '@/lib/cohort-report/model'
@@ -108,7 +108,9 @@ export function registerWarehouseTools(server: Server): void {
     description:
       'Search the database\'s concept dictionaries (e.g. lab items, chart items, diagnoses) by name, code '
       + 'or id — fuzzy, typo-tolerant. Returns concept ids with how many records and patients use them, '
-      + 'which is how you pick the conceptIds of a concept criterion. Prefer concepts with many patients.',
+      + 'which is how you pick the conceptIds of a concept criterion. Prefer concepts with many patients. '
+      + 'Reads the concepts as loaded from the database\'s Concepts tab in Linkr: none until they are, and '
+      + 'empty counts when they were loaded without.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ database_id: string; query: string; dictionary?: string; limit?: number }>({
       type: 'object',
@@ -137,11 +139,18 @@ export function registerWarehouseTools(server: Server): void {
       dictKey = dict.key
     }
     const columns = computeAvailableColumns(dicts)
-    const filters = { _searchFuzzy: query, ...(dictKey ? { _dict_key: [dictKey] } : {}) }
-    const sql = buildConceptsQuery(mapping, filters, columns, 0, Math.min(limit ?? 20, 100),
+    // The cache has a `_dict_key` column only with several dictionaries.
+    const filters = { _searchFuzzy: query, ...(dictKey && dicts.length > 1 ? { _dict_key: [dictKey] } : {}) }
+    const sql = buildCachePageQuery(filters, columns, 0, Math.min(limit ?? 20, 100),
       { columnId: 'patient_count', desc: true })
-    if (!sql) return failure('Could not build a concept search for this mapping.')
-    const rows = await api.query(database_id, sql)
+    let rows: Record<string, unknown>[]
+    try {
+      rows = await api.queryConceptCache(database_id, sql)
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.status !== 404) throw e
+      return failure('This database\'s concepts are not loaded yet. Ask the user to load them in Linkr, from the '
+        + 'database\'s Concepts tab (button "Load concepts"); its counts are optional.')
+    }
     const keep = ['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'domain_id', 'concept_class_id',
       'standard_concept', '_dict_key',
       'record_count', 'patient_count']

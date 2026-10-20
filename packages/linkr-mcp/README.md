@@ -75,7 +75,7 @@ details, API keys, git host tokens) — see `docs/design/ai-agents-plan.md` §6.
 
 | Tool | Purpose |
 |---|---|
-| `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts; read-only SQL |
+| `describe_database`, `search_concepts`, `run_sql` | tables and columns; fuzzy concept search with record/patient counts, over the concepts loaded from the database's Concepts tab; read-only SQL |
 | `list_cohorts`, `get_cohort`, `create_cohort`, `update_cohort`, `delete_cohort` | criteria validated against the mapping, concept names filled in; or custom SQL |
 | `preview_cohort_sql`, `run_cohort` | generated SQL; count + attrition (sample rows opt-in) |
 | `freeze_cohort`, `unfreeze_cohort` | the app's Materialize: the server runs the full membership and stores it as the cohort's frozen list (what Patient data reads); project cohorts, not event level |

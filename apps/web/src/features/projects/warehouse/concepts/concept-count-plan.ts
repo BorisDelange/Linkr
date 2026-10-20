@@ -258,6 +258,17 @@ export function planStatsUnits(mapping: SchemaMapping, ranges: readonly StatsRan
   })
 }
 
+/** The steps a run has units for: rows and patients unless every dictionary
+ *  holds that count, statistics when some event records a value. */
+export function countableSteps(mapping: SchemaMapping | undefined): Record<ConceptCountStep, boolean> {
+  if (!mapping) return { records: false, patients: false, stats: false }
+  return {
+    records: countedEvents(mapping, 'record_count').length > 0,
+    patients: countedEvents(mapping, 'patient_count').length > 0,
+    stats: statsDictionaries(mapping).length > 0,
+  }
+}
+
 /** Every unit of a run over these patient slices, records first. */
 export function planConceptCountUnits(mapping: SchemaMapping, slices: readonly SerializedRange[]): ConceptCountUnit[] {
   const units: ConceptCountUnit[] = []

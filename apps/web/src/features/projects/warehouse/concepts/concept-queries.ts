@@ -1,7 +1,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql as esc } from '@/lib/format-helpers'
-import { buildFuzzySearchSql, buildLabelFilterSql, buildStrictLabelFilterSql, buildStrictSearchSql, lowerLikeSql } from '@/lib/fuzzy-search'
+import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 
 // ---------------------------------------------------------------------------
 // Column descriptors
@@ -163,15 +163,10 @@ function filterCondition(quotedCol: string, values: string[]): string | null {
 
 export const EMPTY_FILTERS: ConceptFilters = {}
 
-/** How the searches match: `fuzzy` (typos, accents) runs in DuckDB — the cache,
- *  or a database it reads itself; `strict` is what a list read straight from a
- *  remote database can ask of it, every word as typed, case aside. */
-export type SearchMatching = 'fuzzy' | 'strict'
-
 /** Relevance ranking over the *output* aliases (concept_name / concept_code /
  *  concept_id), usable in an outer ORDER BY where the dict's raw column names
  *  are no longer in scope. Null when the toolbar search is empty. */
-function aliasedFuzzyRank(filters: ConceptFilters, allColumns: ColumnDescriptor[], matching: SearchMatching = 'fuzzy'): string | null {
+function aliasedFuzzyRank(filters: ConceptFilters, allColumns: ColumnDescriptor[]): string | null {
   const term = filterText(filters._searchFuzzy)
   if (!term?.trim()) return null
   // No code column in the output (MIMIC d_items) means no code to rank on:
@@ -181,7 +176,7 @@ function aliasedFuzzyRank(filters: ConceptFilters, allColumns: ColumnDescriptor[
     codeColumn: allColumns.some((c) => c.id === 'concept_code') ? 'concept_code' : undefined,
     idColumn: 'concept_id',
   }
-  return (matching === 'strict' ? buildStrictSearchSql(term, cols) : buildFuzzySearchSql(term, cols))?.rankExpr ?? null
+  return buildFuzzySearchSql(term, cols)?.rankExpr ?? null
 }
 
 /** Fuzzy-search clauses for a dictionary relation, or null when the toolbar search is empty. */
@@ -189,7 +184,6 @@ function fuzzyClause(
   dict: ClassRelation,
   filters: ConceptFilters,
   alias: string | undefined,
-  matching: SearchMatching,
 ): string | null {
   const term = filterText(filters._searchFuzzy)
   if (!term?.trim()) return null
@@ -199,7 +193,7 @@ function fuzzyClause(
     idColumn: 'concept_id',
     alias,
   }
-  return (matching === 'strict' ? buildStrictSearchSql(term, cols) : buildFuzzySearchSql(term, cols))?.where ?? null
+  return buildFuzzySearchSql(term, cols)?.where ?? null
 }
 
 /** The labels the Name filter's typo fallback looks for its words in: every
@@ -216,7 +210,6 @@ function buildWhereClause(
   allColumns: ColumnDescriptor[],
   alias?: string,
   labels: string = dict.name,
-  matching: SearchMatching = 'fuzzy',
 ): string {
   const p = alias ? `${alias}.` : ''
   const conditions: string[] = []
@@ -224,29 +217,23 @@ function buildWhereClause(
   // Search by ID prefix
   const searchId = filterText(filters._searchId)
   if (searchId?.trim()) {
-    conditions.push(matching === 'strict'
-      ? lowerLikeSql(`CAST(${p}concept_id AS TEXT)`, `${searchId.trim()}%`)
-      : `CAST(${p}concept_id AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
+    conditions.push(`CAST(${p}concept_id AS TEXT) ILIKE '${esc(searchId.trim())}%'`)
   }
 
   // Name column filter: every word, accents and case aside; a typo when nothing matches.
   const nameTerm = filterText(filters._searchText) ?? ''
-  const name = matching === 'strict'
-    ? buildStrictLabelFilterSql(nameTerm, 'concept_name', alias)
-    : buildLabelFilterSql(nameTerm, 'concept_name', labels, alias)
+  const name = buildLabelFilterSql(nameTerm, 'concept_name', labels, alias)
   if (name) conditions.push(name)
 
   // Search by code
   const searchCode = filterText(filters._searchCode)
   if (searchCode?.trim() && has(dict, 'concept_code')) {
-    conditions.push(matching === 'strict'
-      ? lowerLikeSql(`${p}concept_code`, `%${searchCode.trim()}%`)
-      : `${p}concept_code ILIKE '%${esc(searchCode.trim())}%'`)
+    conditions.push(`${p}concept_code ILIKE '%${esc(searchCode.trim())}%'`)
   }
 
   // Toolbar fuzzy search — spans name/code/id with the shared tier ranking, so
   // a typo or a word order swap still finds the concept.
-  const fuzzy = fuzzyClause(dict, filters, alias, matching)
+  const fuzzy = fuzzyClause(dict, filters, alias)
   if (fuzzy) conditions.push(fuzzy)
 
   // Dropdown filters on vocabulary / extra columns. Multi-select: several values
@@ -367,7 +354,7 @@ function buildSelectForDict(
   filters: ConceptFilters,
   mapping: SchemaMapping,
   counts: CountsSource,
-  { extraWhere, labels, matching }: { extraWhere?: string; labels?: string; matching?: SearchMatching } = {},
+  { extraWhere, labels }: { extraWhere?: string; labels?: string } = {},
 ): string {
   const held = (col: 'record_count' | 'patient_count') => has(dict, col)
   const needsCounts = !held('record_count') || !held('patient_count')
@@ -380,7 +367,7 @@ function buildSelectForDict(
     held(col) ? `c.${col}::BIGINT AS ${col}`
       : !hasCounts ? (counts.kind === 'inline' ? `0::BIGINT AS ${col}` : `NULL::BIGINT AS ${col}`)
         : complete ? `COALESCE(_counts.${col}, 0) AS ${col}` : `_counts.${col} AS ${col}`
-  const filterWhere = buildWhereClause(dict, filters, allColumns, 'c', labels, matching)
+  const filterWhere = buildWhereClause(dict, filters, allColumns, 'c', labels)
   const where = extraWhere ? (filterWhere ? `${filterWhere} AND ${extraWhere}` : `WHERE ${extraWhere}`) : filterWhere
 
   const cols: string[] = ['c.concept_id', 'c.concept_name']
@@ -427,13 +414,12 @@ export function buildConceptsQuery(
   pageSize: number,
   sorting?: ConceptSorting | null,
   counts: CountsSource = { kind: 'inline' },
-  matching: SearchMatching = 'fuzzy',
 ): string | null {
   const dicts = activeDicts(mapping, filters)
   if (dicts.length === 0) return null
   const offset = page * pageSize
   const labels = labelScope(dicts)
-  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, counts, { labels, matching }))
+  const subQueries = dicts.map((d) => buildSelectForDict(d, allColumns, filters, mapping, counts, { labels }))
 
   // ORDER BY — all columns including record_count and patient_count. An explicit
   // sort wins; otherwise a fuzzy search orders by relevance (best tier first).
@@ -441,7 +427,7 @@ export function buildConceptsQuery(
   if (sorting) {
     orderBy = sortedBy(sorting)
   } else {
-    const rank = aliasedFuzzyRank(filters, allColumns, matching)
+    const rank = aliasedFuzzyRank(filters, allColumns)
     if (rank) orderBy = `${rank}, concept_name`
   }
 
@@ -474,12 +460,11 @@ export function buildConceptsCountQuery(
   mapping: SchemaMapping,
   filters: ConceptFilters,
   allColumns: ColumnDescriptor[],
-  matching: SearchMatching = 'fuzzy',
 ): string | null {
   const dicts = activeDicts(mapping, filters)
   if (dicts.length === 0) return null
   const labels = labelScope(dicts)
-  const parts = dicts.map((dict) => `SELECT COUNT(*)::INTEGER AS cnt FROM ${dict.name} ${buildWhereClause(dict, filters, allColumns, undefined, labels, matching)}`)
+  const parts = dicts.map((dict) => `SELECT COUNT(*)::INTEGER AS cnt FROM ${dict.name} ${buildWhereClause(dict, filters, allColumns, undefined, labels)}`)
   if (parts.length === 1) return parts[0]
   return `SELECT SUM(cnt)::INTEGER AS cnt FROM (${parts.join(' UNION ALL ')}) _counts`
 }

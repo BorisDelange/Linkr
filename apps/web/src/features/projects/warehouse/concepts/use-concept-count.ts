@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { isServerMode } from '@/lib/api-client'
-import { conceptRelations, has } from '@/lib/schema-classes/relations'
 import { getConceptCacheStatus } from '@/lib/api/concept-cache'
-import { conceptCountProgress, statsDictionaries, type ConceptCountProgress, type ConceptCountStep } from './concept-count-plan'
+import { conceptCountProgress, countableSteps, type ConceptCountProgress, type ConceptCountStep } from './concept-count-plan'
 import {
   getConceptCountRun,
   pauseConceptCount,
@@ -20,11 +19,11 @@ interface StoredStatus {
 }
 
 export interface ConceptCountView {
-  /** Server mode: the counted list can only come from the cache this computes. */
+  /** Server mode: the list can only come from the cache this loads. */
   enabled: boolean
-  /** Every dictionary holds its own counts (`record_count`, `patient_count`):
-   *  nothing to count. */
-  held: boolean
+  /** The steps with something to count: not one whose count every dictionary
+   *  already holds (`record_count`, `patient_count`). */
+  countable: Readonly<Record<ConceptCountStep, boolean>>
   /** The cache status has come back. */
   checked: boolean
   /** A list has been assembled (possibly partial). */
@@ -36,22 +35,19 @@ export interface ConceptCountView {
   live: ConceptCountSnapshot
   /** Bumped whenever the assembled list may have changed: reload it. */
   version: number
-  /** Some event table records a value: the `stats` step has something to describe. */
-  hasStats: boolean
-  /** `steps`: what to run besides the rows, which always are; a step left out
+  /** `steps`: what to count; none loads the dictionary alone. A step left out
    *  waits for a later start. */
   start: (restart: boolean, steps: readonly ConceptCountStep[]) => void
   pause: () => void
 }
 
 /**
- * The concept counts of a database: the stored state the server reports, and
- * the run going on in this browser. Every view of the database's concepts — the
+ * The concepts cache of a database and its counts: the stored state the server
+ * reports, and the run going on in this browser. Every view of the database's concepts — the
  * Concepts tab, the project's Concepts page, the concept pickers — reads it.
  */
 export function useConceptCount(dataSourceId: string | undefined, mapping: SchemaMapping | undefined): ConceptCountView {
-  const held = countsHeld(mapping)
-  const enabled = isServerMode() && !!dataSourceId && !held
+  const enabled = isServerMode() && !!dataSourceId
   const key = dataSourceId ?? ''
   const live = useSyncExternalStore(
     useCallback((notify: () => void) => watchConceptCountRun(key, notify), [key]),
@@ -90,20 +86,14 @@ export function useConceptCount(dataSourceId: string | undefined, mapping: Schem
 
   return {
     enabled,
-    held,
+    countable: countableSteps(mapping),
     checked: !enabled || status !== null,
     exists: status?.exists ?? false,
     refreshedAt: status?.refreshedAt ?? null,
     progress: status?.progress ?? conceptCountProgress(null),
     live,
     version,
-    hasStats: !!mapping && statsDictionaries(mapping).length > 0,
     start,
     pause,
   }
-}
-
-function countsHeld(mapping: SchemaMapping | undefined): boolean {
-  const dicts = mapping ? conceptRelations(mapping) : []
-  return dicts.length > 0 && dicts.every((d) => has(d, 'record_count') && has(d, 'patient_count'))
 }

@@ -28,7 +28,7 @@ import {
   EMPTY_FILTERS,
   NULL_FILTER_VALUE,
 } from './concept-queries'
-import type { ConceptFilters, ConceptFilterValue, ConceptSorting, SearchMatching } from './concept-queries'
+import type { ConceptFilters, ConceptFilterValue, ConceptSorting } from './concept-queries'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -266,17 +266,15 @@ export function useConcepts(
   const [conceptStatsLoading, setConceptStatsLoading] = useState(false)
   const [conceptStats, setConceptStats] = useState<ConceptStats | null>(null)
 
-  // Server mode: the concept list (with counts) is materialized to a shared
-  // Parquet cache, computed from the database's Concepts tab; the page reads
-  // from it, and reloads whenever a run assembles a newer one. Front-only mode
-  // ignores all this (queries the source, counts inline).
+  // Server mode: the concept list is materialized to a shared Parquet cache,
+  // loaded (with or without its counts) from the database's Concepts tab; every
+  // view reads it, and reloads whenever a run assembles a newer one. Not loaded
+  // yet, the list stays empty: the remote dictionary is never read, nor could it
+  // run the fuzzy search. Front-only mode ignores all this (queries the source,
+  // counts inline).
   const count = useConceptCount(dataSourceId, schemaMapping)
   const cacheReady = count.exists
   const cacheChecked = count.checked
-  // Without the cache, the list is read from the database itself, and a remote
-  // one cannot run the fuzzy match: it would bring the whole dictionary through
-  // Linkr on every search. So it matches strictly there.
-  const searchMatching: SearchMatching = isServerMode() && !cacheReady ? 'strict' : 'fuzzy'
   const [frontVersion, setFrontVersion] = useState(0)
   // Re-runs the loads when a run may have assembled a newer list. It is NOT the
   // cache key: it bumps on every status probe, so a picker reopened under the
@@ -426,10 +424,8 @@ export function useConcepts(
 
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
-    // Server mode: options come from the cache Parquet once counted, else from
-    // the dictionaries themselves.
-    const server = isServerMode() && cacheReady
-    if (isServerMode() && !cacheChecked) return
+    const server = isServerMode()
+    if (server && !cacheReady) return
 
     const loadOptions = async () => {
       try {
@@ -468,7 +464,7 @@ export function useConcepts(
       }
     }
     loadOptions()
-  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, cacheChecked, listVersion, availableColumns, dicts])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, listVersion, availableColumns, dicts])
 
   // ---------------------------------------------------------------------------
   // Load concepts when filters or page change
@@ -484,25 +480,24 @@ export function useConcepts(
     }
 
     // Server mode: read the page from the materialized Parquet cache (flat table
-    // `concepts`, counts already columns). Not counted yet: the dictionaries
-    // themselves, counts left empty — counting is the user's choice, from the
-    // database's Concepts tab. Front-only: the source, counted inline (fast
-    // in-browser DuckDB-WASM).
-    if (isServerMode() && !cacheChecked) {
-      // The table keeps its skeleton: reporting "not loading" would render
-      // "No concepts found" over a source that simply has not been read yet.
-      setIsLoading(true)
+    // `concepts`, counts already columns). Front-only: the source, counted inline
+    // (fast in-browser DuckDB-WASM).
+    const server = isServerMode()
+    if (server && !cacheReady) {
+      // Unchecked, the table keeps its skeleton: reporting "not loading" would
+      // render "No concepts found" over a cache not probed yet.
+      setIsLoading(!cacheChecked)
+      setConcepts([])
+      setTotalCount(0)
       return
     }
-    const server = isServerMode() && cacheReady
 
     const conceptsSql = server
       ? buildCachePageQuery(effectiveFilters, availableColumns, page, pageSize, sorting)
-      : buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting,
-        isServerMode() ? { kind: 'none' } : { kind: 'inline' }, searchMatching)
+      : buildConceptsQuery(schemaMapping, effectiveFilters, availableColumns, page, pageSize, sorting)
     const countSql = server
       ? buildCacheCountQuery(effectiveFilters, availableColumns)
-      : buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns, searchMatching)
+      : buildConceptsCountQuery(schemaMapping, effectiveFilters, availableColumns)
     if (!conceptsSql || !countSql || !resultCache) {
       setConcepts([])
       setTotalCount(0)
@@ -566,9 +561,10 @@ export function useConcepts(
 
     const load = async () => {
       try {
-        // Server mode: the concept row is already in the cache Parquet, so the
-        // detail reads from it (no source round-trip). Front-only queries source.
-        if (isServerMode() && cacheReady) {
+        // Server mode: the concept row is in the cache Parquet, never read from
+        // the remote dictionary. Front-only queries the source.
+        if (isServerMode()) {
+          if (!cacheReady) return
           const rows = await queryConceptCache(dataSourceId, buildCacheDetailQuery(selectedConceptId))
           if (rows.length > 0) setSelectedConcept(rows[0] as Record<string, unknown>)
           return
@@ -697,7 +693,6 @@ export function useConcepts(
     conceptStatsLoading,
     refresh,
     count,
-    searchMatching,
     statsEnabled,
     setStatsEnabled,
     excludeOutliers,

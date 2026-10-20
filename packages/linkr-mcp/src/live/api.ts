@@ -245,6 +245,12 @@ export class LinkrApi {
     (await this.request<{ rows: Record<string, unknown>[] }>(
       'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql), pushdown },
     )).rows
+  /** A query on the database's concepts cache (view `concepts`), loaded from its
+   *  Concepts tab in Linkr; 404 until it is. */
+  queryConceptCache = async (id: string, sql: string) =>
+    (await this.request<{ rows: Record<string, unknown>[] }>(
+      'POST', `/data-sources/${encodeURIComponent(id)}/concept-cache/query`, { sql },
+    )).rows
 
   /**
    * Resolve the `linkr_*` class relations a query names against the database's

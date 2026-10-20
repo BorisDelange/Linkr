@@ -1,16 +1,17 @@
 /**
- * Runs the concept list's counts for a database, unit by unit (see
- * `concept-count-plan.ts`): one run per database whoever starts it, kept going
- * while its tab is not shown. Each step — the rows, the patients, then the
- * value statistics when asked for — is one
+ * Loads a database's concept list into its cache, with the counts asked for,
+ * unit by unit (see `concept-count-plan.ts`): one run per database whoever
+ * starts it, kept going while its tab is not shown. Each step asked for — the
+ * rows, the patients, the value statistics — is one
  * server query job (`lib/api/query-jobs.ts`), so no request outlasts a
  * gateway's timeout, the units never run beside another heavy query, and a
  * closed tab leaves the job counting: the next start follows it. A pause
  * cancels the job, which interrupts the unit in flight.
  *
  * The list is re-assembled by the job itself, between two units — at the end of
- * the rows (it is usable from then on), up to `ASSEMBLIES_PER_STEP` times while
- * patients are counted, and at the end — and by the run on a pause.
+ * the rows, up to `ASSEMBLIES_PER_STEP` times while patients are counted, and
+ * at the end — and by the run on a pause, or when no step ran a job: asked for
+ * no count, the run loads the dictionary alone.
  */
 
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -73,8 +74,8 @@ export interface ConceptCountInput {
   mapping: SchemaMapping
   /** Drop the units already counted instead of resuming. */
   restart: boolean
-  /** The steps to run now, besides the rows, which always are: one left out
-   *  waits for a later start, which resumes there. */
+  /** The steps to run now; one left out waits for a later start, which
+   *  resumes there. None loads the dictionary alone. */
   steps: readonly ConceptCountStep[]
 }
 
@@ -238,7 +239,7 @@ async function execute(
     }
 
     for (const step of ['records', 'patients', 'stats'] as const) {
-      if (step !== 'records' && !steps.includes(step)) continue
+      if (!steps.includes(step)) continue
       signal.throwIfAborted()
       if (step === 'stats' && !manifest.statsRanges) {
         emit({ phase: 'planning', phaseStartedAt: Date.now(), planningStep: 'stats' }, true)
@@ -277,6 +278,13 @@ async function execute(
       emit({ phase: 'assembling', reading: null }, true)
       try { await assemble() } catch { /* the next run assembles it */ }
     }
+  }
+
+  // No job ran, so none assembled: the list is the dictionary as it stands, with
+  // the counts already there.
+  if (assembled === 0) {
+    emit({ phase: 'assembling', reading: null }, true)
+    await assemble()
   }
 
   const now = new Date().toISOString()
