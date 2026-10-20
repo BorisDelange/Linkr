@@ -149,7 +149,7 @@ interface DatabaseDetailPageProps {
  */
 export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId, siblingIds = [] }: DatabaseDetailPageProps) {
   const { t } = useTranslation()
-  const { wsUid, raw } = useResolvedParams()
+  const { raw } = useResolvedParams()
   const dbActions = useDatabaseActions()
   const location = useDatabaseLocation(source)
   const canEditLocation = useMyWorkspaceRole().can('databases:write') && !readOnly
@@ -172,34 +172,55 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
     tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,
     defaultTab: 'overview',
   })
+  // A cohort's builder has its own route under the database, so it is linkable.
+  // The other tabs are browsed without leaving it: the URL keeps the cohort, so
+  // Cohorts finds it still open, with whatever was being edited in it.
+  const onCohortRoute = !!cohortId && !readOnly
+  const [overCohort, setOverCohort] = useState<{ cohortId: string; tab: DatabaseTabId } | null>(null)
+  // Forgotten once the cohort is left, or reopening it would land on that tab.
+  if (!onCohortRoute && overCohort) setOverCohort(null)
+  const shownTab: DatabaseTabId = onCohortRoute
+    ? (overCohort?.cohortId === cohortId ? overCohort.tab : 'cohorts')
+    : activeTab
+  const selectTab = (tab: DatabaseTabId) => {
+    if (onCohortRoute && cohortId) setOverCohort({ cohortId, tab })
+    else setActiveTab(tab)
+  }
 
   // Set by the overview's Edit button so the Readme tab opens in edit mode.
   // Cleared on the way out, or reaching the tab through its own trigger later
   // would land in the editor unasked.
   const [readmeEditing, setReadmeEditing] = useState(false)
   // Cleared only once the Readme tab has actually been left. Checking
-  // `activeTab !== 'readme'` during render would fire immediately instead:
-  // setActiveTab writes the URL, so activeTab is still the previous tab on the
+  // `shownTab !== 'readme'` during render would fire immediately instead:
+  // setActiveTab writes the URL, so the tab is still the previous one on the
   // render right after the Edit click, and the flag died before it was read.
   const wasOnReadme = useRef(false)
   useEffect(() => {
-    if (activeTab === 'readme') wasOnReadme.current = true
+    if (shownTab === 'readme') wasOnReadme.current = true
     else if (wasOnReadme.current) {
       wasOnReadme.current = false
       setReadmeEditing(false)
     }
-  }, [activeTab])
+  }, [shownTab])
   // Sticky latch: once the schema tab has been opened its browser stays mounted,
   // so leaving and coming back does not re-introspect the database. Adjusted
   // during render rather than in an effect (the documented pattern for state
   // derived from a prop change): an effect would mount the browser one render
   // late, after the tab is already visible.
   const [schemaEverOpened, setSchemaEverOpened] = useState(false)
-  if (activeTab === 'schema' && !schemaEverOpened) setSchemaEverOpened(true)
+  if (shownTab === 'schema' && !schemaEverOpened) setSchemaEverOpened(true)
   // Same latch for the concept list: its page, filters, sort and selected
   // concept's stats survive a visit to another tab instead of being reloaded.
   const [conceptsEverOpened, setConceptsEverOpened] = useState(false)
-  if (activeTab === 'concepts' && !conceptsEverOpened) setConceptsEverOpened(true)
+  if (shownTab === 'concepts' && !conceptsEverOpened) setConceptsEverOpened(true)
+  // And for the SQL console: a result, or a query still running, outlives a
+  // visit to another tab.
+  const [sqlEverOpened, setSqlEverOpened] = useState(false)
+  if (shownTab === 'sql' && !sqlEverOpened) setSqlEverOpened(true)
+  // And for the cohorts: a builder left open keeps its edits across the tabs.
+  const [cohortsEverOpened, setCohortsEverOpened] = useState(false)
+  if (shownTab === 'cohorts' && !cohortsEverOpened) setCohortsEverOpened(true)
 
   // Opening a database refreshes the patient count its card shows — once per
   // opening, when it is reachable.
@@ -219,15 +240,6 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
     if (source?.id && !settingUp) void retestDataSource(source.id, { background: true }).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps -- once per opening, not again when it ends set up
   }, [source?.id, retestDataSource])
-
-  // A cohort's builder has its own route under the database, so it is linkable.
-  // Leaving it through another tab goes back to the database's own URL.
-  const onCohortRoute = !!cohortId && !readOnly
-  const shownTab: DatabaseTabId = onCohortRoute ? 'cohorts' : activeTab
-  const selectTab = (tab: DatabaseTabId) => {
-    if (!onCohortRoute || !source) return setActiveTab(tab)
-    setActiveTab(tab, { pathname: paths.warehouseDatabase(wsUid ?? '', source.id, siblingIds) })
-  }
 
   if (!source) {
     return (
@@ -369,9 +381,9 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               source={source}
               statsMapping={statsMapping}
               hasMappedSchema={hasMappedSchema}
-              onSeeStatistics={() => setActiveTab('statistics')}
-              onEditReadme={readOnly ? undefined : () => { setReadmeEditing(true); setActiveTab('readme') }}
-              onSeeLicense={readOnly ? undefined : () => setActiveTab('license')}
+              onSeeStatistics={() => selectTab('statistics')}
+              onEditReadme={readOnly ? undefined : () => { setReadmeEditing(true); selectTab('readme') }}
+              onSeeLicense={readOnly ? undefined : () => selectTab('license')}
             />
           </div>
         </TabsContent>
@@ -415,7 +427,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         <TabsContent
           value="schema"
           forceMount
-          className={`m-0 min-h-0 flex-1 p-0 ${activeTab === 'schema' ? '' : 'hidden'}`}
+          className={`m-0 min-h-0 flex-1 p-0 ${shownTab === 'schema' ? '' : 'hidden'}`}
         >
           {/* `configuring` counts as connected here. The browser calls
               testConnection when it mounts, and that sets `configuring` while it
@@ -429,7 +441,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
                 dataSourceId={source.id}
                 onQueryRows={(sql) => {
                   openInSqlConsole(source.id, sql)
-                  setActiveTab('sql')
+                  selectTab('sql')
                 }}
               />
             )
@@ -447,9 +459,13 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         <TabsContent value="mapping" className="m-0 min-h-0 flex-1 overflow-auto p-0">
           <DatabaseMappingTab source={source} readOnly={readOnly} />
         </TabsContent>
-        <TabsContent value="sql" className="m-0 min-h-0 flex-1 p-0">
+        <TabsContent
+          value="sql"
+          forceMount
+          className={`m-0 min-h-0 flex-1 p-0 ${shownTab === 'sql' ? '' : 'hidden'}`}
+        >
           {source.status === 'connected' || source.status === 'configuring' ? (
-            <DatabaseSqlTab dataSourceId={source.id} />
+            sqlEverOpened && <DatabaseSqlTab dataSourceId={source.id} />
           ) : (
             <div className="flex h-full flex-col items-center justify-center">
               <DatabaseIcon size={28} className="text-muted-foreground/40" />
@@ -459,10 +475,16 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         </TabsContent>
 
         {!readOnly && (
-          <TabsContent value="cohorts" className="m-0 min-h-0 flex-1 p-0">
-            <DatabaseCohortHost dataSourceId={source.id} siblingDatabaseIds={siblingIds}>
-              <DatabaseCohortsTab sourceId={source.id} status={source.status} showBuilder={onCohortRoute} />
-            </DatabaseCohortHost>
+          <TabsContent
+            value="cohorts"
+            forceMount
+            className={`m-0 min-h-0 flex-1 p-0 ${shownTab === 'cohorts' ? '' : 'hidden'}`}
+          >
+            {cohortsEverOpened && (
+              <DatabaseCohortHost dataSourceId={source.id} siblingDatabaseIds={siblingIds}>
+                <DatabaseCohortsTab sourceId={source.id} status={source.status} showBuilder={onCohortRoute} />
+              </DatabaseCohortHost>
+            )}
           </TabsContent>
         )}
 
