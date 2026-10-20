@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, Square, Trash2 } from 'lucide-react'
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -112,12 +116,31 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   const showInput = logTab === 'input' && !!jobInput
 
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length
+  // Stops asked for and not yet seen through: a cancel only lands once the
+  // unit in flight is interrupted, so the button says it was heard meanwhile.
+  const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set())
+  const isStopping = (job: Job) => stopping.has(job.id) && ACTIVE.has(job.status)
+  const [confirmStopAll, setConfirmStopAll] = useState(false)
 
   if (!enabled) return null
 
   const onCancel = async (id: string) => {
-    await cancelJob(id)
+    setStopping((prev) => new Set(prev).add(id))
+    try {
+      await cancelJob(id)
+    } catch {
+      setStopping((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
     setReloadTick((n) => n + 1)
+  }
+
+  const onStopAll = () => {
+    setConfirmStopAll(false)
+    for (const job of jobs) if (ACTIVE.has(job.status) && !stopping.has(job.id)) void onCancel(job.id)
   }
 
   const onClearAll = async () => {
@@ -153,15 +176,26 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
       >
         <div className="mb-2.5 flex items-center justify-between">
           <span className="font-medium">{t('jobs.recent')}</span>
-          {hasFinished && (
-            <button
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-              onClick={() => void onClearAll()}
-            >
-              <Trash2 size={11} />
-              {t('jobs.clear_all')}
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            {activeCount > 0 && (
+              <button
+                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive"
+                onClick={() => setConfirmStopAll(true)}
+              >
+                <Square size={11} />
+                {t('jobs.stop_all')}
+              </button>
+            )}
+            {hasFinished && (
+              <button
+                className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                onClick={() => void onClearAll()}
+              >
+                <Trash2 size={11} />
+                {t('jobs.clear_all')}
+              </button>
+            )}
+          </div>
         </div>
         {jobs.length === 0 && (
           <p className="px-1.5 py-3 text-center text-[11px] text-muted-foreground">
@@ -190,15 +224,16 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
-                        className="shrink-0 text-muted-foreground hover:text-destructive"
+                        className="shrink-0 text-muted-foreground hover:text-destructive disabled:text-destructive"
                         onClick={() => void onCancel(job.id)}
-                        aria-label={t('jobs.cancel')}
+                        disabled={isStopping(job)}
+                        aria-label={t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel')}
                       >
-                        <Square size={12} />
+                        {isStopping(job) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="top" sideOffset={4}>
-                      {t('jobs.cancel_tooltip')}
+                      {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
@@ -230,9 +265,9 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         {logJob && (
           <div className="flex items-center gap-3">
             {ACTIVE.has(logJob.status) && (
-              <Button size="xs" variant="destructive" className="gap-1" onClick={() => void onCancel(logJob.id)}>
-                <Square size={12} />
-                {t('jobs.stop')}
+              <Button size="xs" variant="destructive" className="gap-1" onClick={() => void onCancel(logJob.id)} disabled={isStopping(logJob)}>
+                {isStopping(logJob) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+                {t(isStopping(logJob) ? 'jobs.stopping' : 'jobs.stop')}
               </Button>
             )}
             <JobDuration job={logJob} className="text-xs text-muted-foreground" />
@@ -265,6 +300,21 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         )}
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={confirmStopAll} onOpenChange={setConfirmStopAll}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('jobs.stop_all_title', { count: activeCount })}</AlertDialogTitle>
+          <AlertDialogDescription>{t('jobs.stop_all_description')}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+          <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={onStopAll}>
+            {t('jobs.stop_all')}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   )
 }
