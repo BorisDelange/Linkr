@@ -50,7 +50,7 @@ export async function cohortDatabase(cohort: Cohort): Promise<string> {
 /** Look up concept names for every concept criterion, one query per dictionary. */
 async function fillConceptNames(databaseId: string, mapping: SchemaMapping, tree: Cohort['criteriaTree']) {
   const names = new Map<string, Map<number, string>>()
-  for (const [label, ids] of conceptIdsByTable(tree)) {
+  for (const [label, ids] of conceptIdsByTable(tree, mapping)) {
     const event = eventRelation(mapping, label)
     const dict = event ? dictionaryOf(mapping, event) : undefined
     if (!dict) continue
@@ -58,7 +58,7 @@ async function fillConceptNames(databaseId: string, mapping: SchemaMapping, tree
       `SELECT concept_id AS id, concept_name AS name FROM ${dict.name} WHERE concept_id IN (${[...ids].join(', ')})`)
     names.set(label, new Map(rows.map((r) => [Number(r.id), String(r.name)])))
   }
-  applyConceptNames(tree, names)
+  applyConceptNames(tree, names, mapping)
 }
 
 export function describeCohort(c: Cohort, mapping?: SchemaMapping): string {

@@ -21,7 +21,7 @@ export function defaultCriterionConfig(
     case 'care_site':
       return { careSiteLevel: 'visit_detail', values: [] }
     case 'concept':
-      return { eventTableLabel: '', conceptIds: [], conceptNames: {} }
+      return { conceptIds: [], conceptNames: {} }
     case 'text':
       return { description: '' }
     case 'id_list': {

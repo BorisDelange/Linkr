@@ -54,7 +54,7 @@ describe('importAtlasCohort', () => {
     expect(criterion(entry)).toMatchObject({
       type: 'concept',
       config: {
-        eventTableLabel: 'measurement', conceptIds: [3047181], conceptNames: { 3047181: 'Lactate' },
+        eventTableLabels: ['measurement'], conceptIds: [3047181], conceptNames: { 3047181: 'Lactate' },
         valueFilters: [{ operator: '>', value: 2 }],
       },
     })
@@ -64,7 +64,7 @@ describe('importAtlasCohort', () => {
     expect(criterion(group(adults).children[1]).config).toEqual({ values: ['8507'] })
     expect(group(noSepsis)).toMatchObject({ label: 'No sepsis', exclude: true })
     expect(criterion(group(noSepsis).children[0]).config).toMatchObject({
-      eventTableLabel: 'condition_occurrence', conceptIds: [132797], occurrenceCount: { operator: '>=', count: 1 },
+      eventTableLabels: ['condition_occurrence'], conceptIds: [132797], occurrenceCount: { operator: '>=', count: 1 },
     })
   })
 

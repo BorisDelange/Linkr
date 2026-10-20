@@ -38,7 +38,7 @@ describe('convertAtlas', () => {
     if (!('definition' in read)) throw new Error('unreadable')
     const { tree, warnings, criteria } = convertAtlas(read.definition)
     expect(criteria).toBe(3)
-    expect(tree.children[0]).toMatchObject({ type: 'concept', config: { eventTableLabel: 'measurement', conceptIds: [3047181] } })
+    expect(tree.children[0]).toMatchObject({ type: 'concept', config: { eventTableLabels: ['measurement'], conceptIds: [3047181] } })
     expect(warnings.join('\n')).toContain('includeDescendants')
   })
 

@@ -7,7 +7,7 @@
  * the codes it rests on.
  */
 import type { TFunction } from 'i18next'
-import { cleanIdList } from '@/lib/duckdb/cohort-query'
+import { cleanIdList, listedEventTables } from '@/lib/duckdb/cohort-query'
 import type {
   AgeCriteriaConfig,
   CareSiteCriteriaConfig,
@@ -98,7 +98,9 @@ function describeLeaf(
       const concepts = c.conceptIds
         .map((id) => (c.conceptNames?.[id] ? `${c.conceptNames[id]} (${id})` : String(id)))
         .join(', ')
-      const parts = [t(`${K}concept`, { table: c.eventTableLabel, concepts })]
+      const table = listedEventTables(c)?.join(', ') ?? t(`${K}all_tables`)
+      const every = c.conceptMatch === 'all' && c.conceptIds.length > 1
+      const parts = [t(every ? `${K}concept_all` : `${K}concept`, { table, concepts })]
       for (const f of c.valueFilters ?? []) {
         parts.push(f.operator === 'between'
           ? t(`${K}value_between`, { min: f.value, max: f.value2 })

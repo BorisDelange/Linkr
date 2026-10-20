@@ -49,7 +49,9 @@ EXPORT_APP_VERSION = _read_export_version()
 # misread; every export of that kind then stamps ``minAppVersion``.
 MIN_APP_VERSION: dict[str, str] = {
     "schema-preset": "2.4.3",
-    "database": "2.4.3",
+    # 2.4.5: a cohort's concept criterion lists eventTableLabels and a conceptMatch;
+    # a 2.4.4 reads no table and drops the criterion.
+    "database": "2.4.5",
     # 2.4.5: dashboards gained events and widgets an eventIds selection; a 2.4.4
     # drops the events silently.
     "project": "2.4.5",

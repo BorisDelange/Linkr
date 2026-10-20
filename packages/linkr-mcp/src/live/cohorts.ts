@@ -6,9 +6,9 @@
 import { classRelation, eventRelations, has } from '@/lib/schema-classes/relations'
 import { fieldRef, specEntries } from '@/lib/schema-classes/spec'
 import { randomUUID } from 'node:crypto'
-import { CUSTOM_SQL_NO_ID, cohortRunError, getNodeLabel } from '@/lib/duckdb/cohort-query'
+import { CUSTOM_SQL_NO_ID, cohortRunError, conceptEventTables, getNodeLabel } from '@/lib/duckdb/cohort-query'
 import type {
-  Cohort, CohortLevel, CriteriaGroupNode, CriteriaTreeNode, CriteriaType, SchemaMapping,
+  Cohort, CohortLevel, ConceptCriteriaConfig, CriteriaGroupNode, CriteriaTreeNode, CriteriaType, SchemaMapping,
 } from '@/types'
 
 // 'event' stays in the type for cohorts stored before it was withdrawn; it is not offered.
@@ -40,7 +40,8 @@ Criterion types and their config:
 - duration:  {"durationLevel": "visit"|"visit_detail", "durationUnit"?: "hours"|"days"|"months", "minDays"?: n, "maxDays"?: n}
              (minDays/maxDays are in durationUnit, despite the name)
 - care_site: {"careSiteLevel": "visit"|"visit_detail", "values": ["<unit name or id>", ...]}
-- concept:   {"eventTableLabel": "<key of the mapping's eventTables>", "conceptIds": [int, ...],
+- concept:   {"eventTableLabels"?: ["<label of an event or drug table>", ...] (omit = every table), "conceptIds": [int, ...],
+              "conceptMatch"?: "any" (default: one of the concepts) | "all" (every one, each meeting the filters and count),
               "valueFilters"?: [{"operator": ">"|">="|"="|"<="|"<"|"!="|"between", "value": n, "value2"?: n}],
               "occurrenceCount"?: {"operator": ">="|">"|"="|"<="|"<", "count": n}}
              conceptIds come from search_concepts; names are filled in for you.
@@ -216,11 +217,24 @@ function checkConfig(
       break
     case 'concept': {
       const tables = [...(mapping.events ?? []), ...(mapping.drugs ?? [])].map((e) => e.label)
-      const label = c.eventTableLabel
-      const exact = tables.find((t) => t === label)
-        ?? tables.find((t) => typeof label === 'string' && t.toLowerCase() === label.toLowerCase())
-      if (!exact) errors.push(`${at}.eventTableLabel: ${JSON.stringify(label)} is not an event or drug table (${tables.join(', ')}).`)
-      else c.eventTableLabel = exact
+      // One table, as cohorts written before a criterion could search several name it.
+      if (c.eventTableLabels === undefined && typeof c.eventTableLabel === 'string') c.eventTableLabels = [c.eventTableLabel]
+      delete c.eventTableLabel
+      let listed: string[] = tables
+      if (c.eventTableLabels !== undefined) {
+        if (!Array.isArray(c.eventTableLabels) || c.eventTableLabels.length === 0) {
+          errors.push(`${at}.eventTableLabels: a non-empty array of event or drug tables (${tables.join(', ')}), or omit it for all of them.`)
+        } else {
+          listed = (c.eventTableLabels as unknown[]).flatMap((label) => {
+            const exact = tables.find((t) => t === label)
+              ?? tables.find((t) => typeof label === 'string' && t.toLowerCase() === label.toLowerCase())
+            if (!exact) errors.push(`${at}.eventTableLabels: ${JSON.stringify(label)} is not an event or drug table (${tables.join(', ')}).`)
+            return exact ? [exact] : []
+          })
+          c.eventTableLabels = listed
+        }
+      }
+      if (c.conceptMatch !== undefined) oneOf('conceptMatch', ['any', 'all'], false)
       const ids = c.conceptIds
       if (!Array.isArray(ids) || ids.length === 0 || ids.some((v) => !Number.isInteger(Number(v)))) {
         errors.push(`${at}.conceptIds: a non-empty array of integer concept ids.`)
@@ -236,8 +250,8 @@ function checkConfig(
             errors.push(`${at}.valueFilters[${i}]: {"operator": one of ${VALUE_OPERATORS.join(' ')}, "value": n, "value2" when between}.`)
           }
         })
-        if (exact && !eventRelations(mapping).some((e) => e.key === exact && has(e, 'value_number'))) {
-          errors.push(`${at}.valueFilters: the "${exact}" table has no numeric value column.`)
+        if (listed.length && !eventRelations(mapping).some((e) => listed.includes(e.key ?? '') && has(e, 'value_number'))) {
+          errors.push(`${at}.valueFilters: none of ${listed.map((l) => `"${l}"`).join(', ')} has a numeric value column.`)
         }
       }
       if (c.occurrenceCount !== undefined) {
@@ -264,30 +278,35 @@ function checkConfig(
   }
 }
 
-/** Concept ids of every concept criterion, grouped by event table, for name lookup. */
-export function conceptIdsByTable(tree: CriteriaGroupNode): Map<string, Set<number>> {
+/** Concept ids of every concept criterion, grouped by the event tables it
+ *  searches, for name lookup. */
+export function conceptIdsByTable(tree: CriteriaGroupNode, mapping: SchemaMapping): Map<string, Set<number>> {
   const out = new Map<string, Set<number>>()
   const walk = (n: CriteriaTreeNode) => {
     if (n.kind === 'group') return n.children.forEach(walk)
     if (n.type !== 'concept') return
-    const c = n.config as { eventTableLabel: string; conceptIds: number[] }
-    const set = out.get(c.eventTableLabel) ?? new Set<number>()
-    c.conceptIds.forEach((id) => set.add(id))
-    out.set(c.eventTableLabel, set)
+    const c = n.config as ConceptCriteriaConfig
+    for (const label of conceptEventTables(c, mapping)) {
+      const set = out.get(label) ?? new Set<number>()
+      c.conceptIds.forEach((id) => set.add(id))
+      out.set(label, set)
+    }
   }
   walk(tree)
   return out
 }
 
-/** Fill every concept criterion's `conceptNames` from a table → id → name lookup. */
-export function applyConceptNames(tree: CriteriaGroupNode, names: Map<string, Map<number, string>>): void {
+/** Fill every concept criterion's `conceptNames` from a table → id → name lookup:
+ *  the first of its tables that knows the id. */
+export function applyConceptNames(tree: CriteriaGroupNode, names: Map<string, Map<number, string>>, mapping: SchemaMapping): void {
   const walk = (n: CriteriaTreeNode) => {
     if (n.kind === 'group') return n.children.forEach(walk)
     if (n.type !== 'concept') return
-    const c = n.config as { eventTableLabel: string; conceptIds: number[]; conceptNames: Record<number, string> }
-    const known = names.get(c.eventTableLabel)
+    const c = n.config as ConceptCriteriaConfig
+    const tables = conceptEventTables(c, mapping)
     for (const id of c.conceptIds) {
-      if (c.conceptNames[id] == null) c.conceptNames[id] = known?.get(id) ?? String(id)
+      if (c.conceptNames[id] != null) continue
+      c.conceptNames[id] = tables.map((label) => names.get(label)?.get(id)).find((name) => name != null) ?? String(id)
     }
   }
   walk(tree)
@@ -355,7 +374,7 @@ export function describeMapping(m: SchemaMapping): string {
   }
   const gv = m.patient?.genderValues
   if (gv) out.push(`Sex values: male=${gv.male}, female=${gv.female}${gv.unknown ? `, unknown=${gv.unknown}` : ''}`)
-  if (m.events?.length || m.drugs?.length) out.push('Use an event or drug label above, quoted, as eventTableLabel in a concept criterion.')
+  if (m.events?.length || m.drugs?.length) out.push('Use an event or drug label above, quoted, in a concept criterion\'s eventTableLabels.')
   return out.join('\n')
 }
 

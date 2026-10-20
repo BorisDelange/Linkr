@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { formatDate } from '@/lib/format-helpers'
-import { cleanIdList } from '@/lib/duckdb/cohort-query'
+import { cleanIdList, listedEventTables } from '@/lib/duckdb/cohort-query'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import {
@@ -248,8 +248,8 @@ function buildSummary(node: CriterionNode, t: (key: string) => string, lang: str
         const names = c.conceptIds.slice(0, 3).map((id) => c.conceptNames[id] ?? String(id))
         const label = names.join(', ')
         parts.push(c.conceptIds.length > 3 ? `${label} (+${c.conceptIds.length - 3})` : label)
-      } else if (c.eventTableLabel) {
-        parts.push(c.eventTableLabel)
+      } else if (listedEventTables(c)) {
+        parts.push(listedEventTables(c)!.join(', '))
       } else {
         parts.push(t('cohorts.criteria_concept'))
       }
@@ -331,7 +331,7 @@ function CriteriaConfigForm({
     case 'care_site':
       return <CareSiteCriteriaForm config={config as CareSiteCriteriaConfig} onChange={onChange} dataSourceId={dataSourceId} schemaMapping={schemaMapping} />
     case 'concept':
-      return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} cohortLevel={cohortLevel} schemaMapping={schemaMapping} />
+      return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} cohortLevel={cohortLevel} schemaMapping={schemaMapping} dataSourceId={dataSourceId} />
     case 'text':
       return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
     case 'id_list':

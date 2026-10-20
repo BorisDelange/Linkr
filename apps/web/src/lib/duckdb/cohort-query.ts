@@ -19,7 +19,7 @@ import type {
 } from '@/types'
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { classRelation, eventRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { classRelation, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
 
 // ---------------------------------------------------------------------------
@@ -1014,30 +1014,45 @@ function stayWindowClause(
   return withinStaySql(eventDate, `${baseTable}.${start}`, end ? `${baseTable}.${end}` : null)
 }
 
-/** Whether a concept criterion on this event table can be kept to the stay at
- *  this level; false means it still matches any time in the patient's history. */
+/**
+ * The event and drug tables a concept criterion reads: those it lists — every
+ * one when it lists none — or the single one a cohort written before it could
+ * list several names (`eventTableLabel`).
+ */
+export function conceptEventTables(config: ConceptCriteriaConfig, mapping: SchemaMapping): string[] {
+  return listedEventTables(config) ?? eventRelations(mapping).flatMap((r) => (r.key ? [r.key] : []))
+}
+
+/** The tables a concept criterion lists, undefined when it searches them all. */
+export function listedEventTables(config: ConceptCriteriaConfig): string[] | undefined {
+  if (config.eventTableLabels) return config.eventTableLabels
+  const legacy = (config as unknown as { eventTableLabel?: unknown }).eventTableLabel
+  return typeof legacy === 'string' && legacy ? [legacy] : undefined
+}
+
+/** Whether a concept criterion on these event tables can be kept to the stay at
+ *  this level; false means one of them still matches any time in the patient's history. */
 export function conceptCriterionBoundToStay(
   level: CohortLevel,
   mapping: SchemaMapping,
-  eventTableLabel: string,
+  eventTableLabels: readonly string[],
 ): boolean {
   if (level !== 'visit' && level !== 'visit_detail') return true
-  return has(eventRelation(mapping, eventTableLabel), 'start_datetime') && Boolean(getStartDateColumn(level, mapping))
+  if (!getStartDateColumn(level, mapping)) return false
+  return eventTableLabels.every((label) => has(eventRelation(mapping, label), 'start_datetime'))
 }
 
 // --- Concept ---
 
-function buildConceptCriteria(
+/** What an event row of `event` must meet for the criterion: one of its
+ *  concepts, the entity's patient (and stay), the value filters. */
+function conceptConditions(
+  event: ClassRelation,
   config: ConceptCriteriaConfig,
   level: CohortLevel,
   mapping: SchemaMapping,
   baseTable: string,
-): string {
-  if (config.conceptIds.length === 0) return '1=1'
-  if (!validateIntegerIds(config.conceptIds)) return '1=1'
-  const event = eventRelation(mapping, config.eventTableLabel)
-  if (!event || !has(event, 'patient_id')) return '1=1'
-
+): string[] {
   const ids = config.conceptIds.join(', ')
 
   // Build concept match condition
@@ -1086,7 +1101,31 @@ function buildConceptCriteria(
       }
     }
   }
+  return conditions
+}
 
+function buildConceptCriteria(
+  config: ConceptCriteriaConfig,
+  level: CohortLevel,
+  mapping: SchemaMapping,
+  baseTable: string,
+): string {
+  if (config.conceptIds.length === 0) return '1=1'
+  if (!validateIntegerIds(config.conceptIds)) return '1=1'
+
+  // Every concept, not any of them: each on its own, with the same tables,
+  // value filters and occurrence count.
+  if (config.conceptMatch === 'all' && config.conceptIds.length > 1) {
+    const each = config.conceptIds.map((id) =>
+      buildConceptCriteria({ ...config, conceptMatch: 'any', conceptIds: [id] }, level, mapping, baseTable))
+    return `(\n${indent(each.join('\nAND '))}\n)`
+  }
+
+  const scopes = conceptEventTables(config, mapping)
+    .map((label) => eventRelation(mapping, label))
+    .filter((event): event is ClassRelation => !!event && has(event, 'patient_id'))
+    .map((event) => ({ event, conditions: conceptConditions(event, config, level, mapping, baseTable) }))
+  if (scopes.length === 0) return '1=1'
 
   // Occurrence count → IN subquery with GROUP BY + HAVING. Both halves of the
   // HAVING are validated: an unchecked `count` here closes the subquery and
@@ -1097,20 +1136,28 @@ function buildConceptCriteria(
   const ocOperator = sqlOperator(oc?.operator, COUNT_OPERATORS)
   const ocCount = sqlNumber(oc?.count)
   if (oc && ocOperator && ocCount != null) {
-    return [
-      `${baseTable}.patient_id IN (`,
-      indent([
-        `SELECT e.patient_id`,
-        `FROM ${event.name} e`,
-        whereLines(conditions),
-        `GROUP BY e.patient_id`,
-        `HAVING COUNT(*) ${ocOperator} ${ocCount}`,
-      ].join('\n')),
-      `)`,
-    ].join('\n')
+    if (scopes.length === 1) {
+      const [{ event, conditions }] = scopes
+      return [
+        `${baseTable}.patient_id IN (`,
+        indent([
+          `SELECT e.patient_id`,
+          `FROM ${event.name} e`,
+          whereLines(conditions),
+          `GROUP BY e.patient_id`,
+          `HAVING COUNT(*) ${ocOperator} ${ocCount}`,
+        ].join('\n')),
+        `)`,
+      ].join('\n')
+    }
+    // Over several tables, the occurrences add up across them.
+    const counts = scopes.map(({ event, conditions }) =>
+      `(\n${indent([`SELECT COUNT(*)`, `FROM ${event.name} e`, whereLines(conditions)].join('\n'))}\n)`)
+    return `(\n${indent(counts.join('\n+ '))}\n) ${ocOperator} ${ocCount}`
   }
 
-  return existsSql(`${event.name} e`, conditions)
+  const exists = scopes.map(({ event, conditions }) => existsSql(`${event.name} e`, conditions))
+  return exists.length === 1 ? exists[0] : `(\n${indent(exists.join('\nOR '))}\n)`
 }
 
 // ---------------------------------------------------------------------------
@@ -1319,7 +1366,8 @@ export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): s
       const c = node.config as ConceptCriteriaConfig
       const names = Object.values(c.conceptNames ?? {})
       const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
-      return `${prefix}${c.eventTableLabel}: ${label}`
+      const tables = listedEventTables(c)?.join(', ') ?? 'All tables'
+      return `${prefix}${tables}: ${c.conceptMatch === 'all' && names.length > 1 ? `all of ${label}` : label}`
     }
     case 'text': {
       const c = node.config as TextCriteriaConfig

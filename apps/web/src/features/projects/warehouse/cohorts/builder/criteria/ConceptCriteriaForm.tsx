@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ChevronRight, X, Plus, Search } from 'lucide-react'
+import { AlertCircle, AlertTriangle, ChevronRight, X, Plus, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { NumberInput } from '@/components/ui/number-input'
 import { FormField } from '@/components/ui/form-field'
@@ -19,7 +19,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
-import { conceptCriterionBoundToStay } from '@/lib/duckdb/cohort-query'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { FieldInfo } from '@/components/ui/field-info'
+import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/multi-select-filter'
+import { columnLabel } from '@/lib/format-helpers'
+import { conceptCriterionBoundToStay, listedEventTables } from '@/lib/duckdb/cohort-query'
+import { useConceptInfo } from '@/features/projects/warehouse/concepts/concept-info'
 import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping, ValueFilter } from '@/types'
 
 interface ConceptCriteriaFormProps {
@@ -29,17 +34,86 @@ interface ConceptCriteriaFormProps {
   onOpenConceptPicker?: () => void
   cohortLevel?: CohortLevel
   schemaMapping?: SchemaMapping
+  /** The database the concepts are read from, for their details on hover. */
+  dataSourceId?: string
+}
+
+/** Concepts shown before the list folds behind "Show all". */
+const FOLDED_CONCEPTS = 12
+
+/** What a concept's tooltip lists, in this order, when the row has it. */
+const INFO_FIELDS = ['concept_name', 'concept_id', 'vocabulary_id', 'concept_code', 'domain_id', 'concept_class_id', 'standard_concept', '_dict_key']
+
+/** A selected concept, its details — terminology, code, label… — on hover. */
+function ConceptChip({ id, name, dataSourceId, schemaMapping, onRemove }: {
+  id: number
+  name: string | undefined
+  dataSourceId?: string
+  schemaMapping?: SchemaMapping
+  onRemove: () => void
+}) {
+  const { t } = useTranslation()
+  const [hovered, setHovered] = useState(false)
+  const { info, loading } = useConceptInfo(dataSourceId, schemaMapping, id, hovered)
+  const rows = info
+    ? INFO_FIELDS.filter((f) => info[f] != null && info[f] !== '').map((f) => [f, String(info[f])] as const)
+    : [['concept_name', name ?? String(id)], ['concept_id', String(id)]] as const
+  return (
+    <TooltipProvider delayDuration={300}>
+      <Tooltip onOpenChange={(open) => { if (open) setHovered(true) }}>
+        <TooltipTrigger asChild>
+          <Badge variant="secondary" className="gap-1 py-0.5 px-2">
+            <span className="truncate max-w-[180px]">{name ?? id}</span>
+            <button
+              type="button"
+              onClick={onRemove}
+              aria-label={t('common.remove')}
+              className="ml-0.5 rounded-full hover:bg-muted-foreground/20"
+            >
+              <X className="size-3" />
+            </button>
+          </Badge>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs">
+          <div className="space-y-0.5">
+            {rows.map(([field, value]) => (
+              <div key={field} className="flex items-baseline justify-between gap-3">
+                <span className="shrink-0 opacity-70">{columnLabel(field)}</span>
+                <span className="min-w-0 break-words text-right font-medium">{value}</span>
+              </div>
+            ))}
+            {loading && <p className="opacity-70">{t('common.loading')}</p>}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
 }
 
 const VALUE_OPERATORS = ['>', '>=', '=', '<=', '<', '!=', 'between'] as const
 const COUNT_OPERATORS = ['>=', '>', '=', '<=', '<'] as const
 
-export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpenConceptPicker, cohortLevel, schemaMapping }: ConceptCriteriaFormProps) {
+export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpenConceptPicker, cohortLevel, schemaMapping, dataSourceId }: ConceptCriteriaFormProps) {
   const { t } = useTranslation()
   const [valueFilterOpen, setValueFilterOpen] = useState((config.valueFilters?.length ?? 0) > 0)
   const [occurrenceOpen, setOccurrenceOpen] = useState(!!config.occurrenceCount)
-  const unboundToStay = !!cohortLevel && !!schemaMapping && !!config.eventTableLabel
-    && !conceptCriterionBoundToStay(cohortLevel, schemaMapping, config.eventTableLabel)
+  const [showAllConcepts, setShowAllConcepts] = useState(false)
+  // Absent: every table, ticked; one the mapping no longer has is dropped.
+  const searched = (listedEventTables(config) ?? eventTableLabels).filter((l) => eventTableLabels.includes(l))
+  const noTable = searched.length === 0
+  const unboundToStay = !!cohortLevel && !!schemaMapping && !noTable
+    && !conceptCriterionBoundToStay(cohortLevel, schemaMapping, searched)
+  const shownConcepts = showAllConcepts ? config.conceptIds : config.conceptIds.slice(0, FOLDED_CONCEPTS)
+  const hiddenConcepts = config.conceptIds.length - FOLDED_CONCEPTS
+
+  // Every table ticked is stored as none listed: a table the mapping gains later is searched too.
+  const setTables = (next: string[]) => {
+    const all = eventTableLabels.every((l) => next.includes(l))
+    const rest = { ...config } as ConceptCriteriaConfig & { eventTableLabel?: string }
+    delete rest.eventTableLabel
+    if (all) delete rest.eventTableLabels
+    onChange(all ? rest : { ...rest, eventTableLabels: eventTableLabels.filter((l) => next.includes(l)) })
+  }
 
   const removeConcept = (conceptId: number) => {
     const conceptIds = config.conceptIds.filter((id) => id !== conceptId)
@@ -66,26 +140,26 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
 
   return (
     <div className="space-y-3">
-      {/* Event table selector */}
-      <FormField label={t('cohorts.concept_event_table')}>
+      {/* Event tables searched: every one by default */}
+      <FormField label={t('cohorts.concept_event_tables')}>
         {() => (
-          <Select
-            value={config.eventTableLabel}
-            onValueChange={(value) => onChange({ ...config, eventTableLabel: value })}
-          >
-            <SelectTrigger className="h-8 text-xs">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {eventTableLabels.map((label) => (
-                <SelectItem key={label} value={label} className="text-xs">
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <MultiSelectFilter
+            value={searched}
+            options={eventTableLabels}
+            placeholder={t('cohorts.concept_event_tables_none')}
+            onChange={setTables}
+            showChevron
+            triggerClass={MULTI_SELECT_FORM_TRIGGER}
+            popoverWidthClass="w-64"
+          />
         )}
       </FormField>
+      {noTable && (
+        <p className="flex items-start gap-1.5 text-[10px] text-destructive">
+          <AlertCircle size={12} className="mt-px shrink-0" />
+          {t('cohorts.concept_event_tables_error')}
+        </p>
+      )}
       {unboundToStay && (
         <p className="flex items-start gap-1.5 text-[10px] text-warning-foreground">
           <AlertTriangle size={12} className="mt-px shrink-0" />
@@ -111,22 +185,44 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
             </Button>
           )}
         </div>
+        {config.conceptIds.length > 1 && (
+          <div className="flex items-center gap-1.5">
+            <Select
+              value={config.conceptMatch ?? 'any'}
+              onValueChange={(v) => onChange({ ...config, conceptMatch: v as 'any' | 'all' })}
+            >
+              <SelectTrigger className="h-7 w-auto text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="any" className="text-xs">{t('cohorts.concept_match_any')}</SelectItem>
+                <SelectItem value="all" className="text-xs">{t('cohorts.concept_match_all')}</SelectItem>
+              </SelectContent>
+            </Select>
+            <FieldInfo text={t('cohorts.concept_match_hint')} />
+          </div>
+        )}
         {config.conceptIds.length > 0 ? (
-          <div className="flex flex-wrap gap-1">
-            {config.conceptIds.map((id) => (
-              <Badge key={id} variant="secondary" className="gap-1 py-0.5 px-2">
-                <span className="truncate max-w-[180px]">
-                  {config.conceptNames[id] ?? id}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => removeConcept(id)}
-                  className="ml-0.5 rounded-full hover:bg-muted-foreground/20"
-                >
-                  <X className="size-3" />
-                </button>
-              </Badge>
+          <div className="flex flex-wrap items-center gap-1">
+            {shownConcepts.map((id) => (
+              <ConceptChip
+                key={id}
+                id={id}
+                name={config.conceptNames[id]}
+                dataSourceId={dataSourceId}
+                schemaMapping={schemaMapping}
+                onRemove={() => removeConcept(id)}
+              />
             ))}
+            {hiddenConcepts > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowAllConcepts((v) => !v)}
+                className="px-1 text-[10px] text-muted-foreground hover:text-foreground"
+              >
+                {showAllConcepts ? t('cohorts.concept_show_less') : t('cohorts.concept_show_all', { count: config.conceptIds.length })}
+              </button>
+            )}
           </div>
         ) : (
           <button
@@ -205,10 +301,13 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
 
       {/* Occurrence count (collapsible) */}
       <Collapsible open={occurrenceOpen} onOpenChange={setOccurrenceOpen}>
-        <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-          <ChevronRight className={`size-3.5 transition-transform ${occurrenceOpen ? 'rotate-90' : ''}`} />
-          {t('cohorts.concept_occurrence')}
-        </CollapsibleTrigger>
+        <div className="flex items-center gap-1.5">
+          <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+            <ChevronRight className={`size-3.5 transition-transform ${occurrenceOpen ? 'rotate-90' : ''}`} />
+            {t('cohorts.concept_occurrence')}
+          </CollapsibleTrigger>
+          <FieldInfo text={t('cohorts.concept_occurrence_hint')} />
+        </div>
         <CollapsibleContent className="pt-2 pl-5">
           <div className="flex gap-2">
             <Select
@@ -248,9 +347,6 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
               className="h-8 text-xs flex-1"
             />
           </div>
-          <p className="mt-1 text-[10px] text-muted-foreground">
-            {t('cohorts.concept_occurrence_hint')}
-          </p>
         </CollapsibleContent>
       </Collapsible>
     </div>

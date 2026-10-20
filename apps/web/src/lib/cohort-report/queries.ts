@@ -8,6 +8,7 @@
 import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping } from '@/types'
 import { classRelation, eventRelation, eventRelations, has } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
+import { conceptEventTables } from '@/lib/duckdb/cohort-query'
 
 /** `SELECT … FROM (membership) m`, the shape every query below starts from. */
 function members(membershipSql: string): string {
@@ -162,30 +163,39 @@ export function buildEventTablesSql(membershipSql: string, mapping: SchemaMappin
 
 /**
  * For one concept criterion: rows and patients per concept among the cohort's
- * patients. A row matching on its source concept counts under that id, as the
- * cohort's own criterion matches either column.
+ * patients, over every table it searches. A row matching on its source concept
+ * counts under that id, as the cohort's own criterion matches either column.
  */
 export function buildConceptSql(
   membershipSql: string,
   mapping: SchemaMapping,
   config: ConceptCriteriaConfig,
 ): string | null {
-  const event = eventRelation(mapping, config.eventTableLabel)
   const ids = config.conceptIds
-  if (!event || !has(event, 'patient_id') || ids.length === 0 || !validateIntegerIds(ids)) return null
+  if (ids.length === 0 || !validateIntegerIds(ids)) return null
+  const events = conceptEventTables(config, mapping)
+    .map((label) => eventRelation(mapping, label))
+    .filter((event) => !!event && has(event, 'patient_id'))
+  if (events.length === 0) return null
   const list = ids.join(', ')
-  const withSource = has(event, 'source_concept_id')
-  const concept = withSource
-    ? `CASE WHEN e.concept_id IN (${list}) THEN e.concept_id ELSE e.source_concept_id END`
-    : 'e.concept_id'
-  const match = withSource
-    ? `(e.concept_id IN (${list}) OR e.source_concept_id IN (${list}))`
-    : `e.concept_id IN (${list})`
+  const parts = events.map((event) => {
+    const withSource = has(event, 'source_concept_id')
+    const concept = withSource
+      ? `CASE WHEN e.concept_id IN (${list}) THEN e.concept_id ELSE e.source_concept_id END`
+      : 'e.concept_id'
+    const match = withSource
+      ? `(e.concept_id IN (${list}) OR e.source_concept_id IN (${list}))`
+      : `e.concept_id IN (${list})`
+    return [
+      `SELECT ${concept} AS concept_id, e.patient_id`,
+      `FROM ${event!.name} e`,
+      `WHERE ${match}`,
+      `  AND e.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
+    ].join('\n')
+  })
   return [
-    `SELECT ${concept} AS concept_id, COUNT(*) AS rows, COUNT(DISTINCT e.patient_id) AS patients`,
-    `FROM ${event.name} e`,
-    `WHERE ${match}`,
-    `  AND e.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
+    'SELECT concept_id, COUNT(*) AS rows, COUNT(DISTINCT patient_id) AS patients',
+    `FROM (\n${parts.join('\nUNION ALL\n')}\n) _ev`,
     'GROUP BY 1',
   ].join('\n')
 }

@@ -78,10 +78,14 @@ export interface ValueFilter {
 }
 
 export interface ConceptCriteriaConfig {
-  /** Key in schemaMapping.eventTables */
-  eventTableLabel: string
+  /** The event and drug tables searched, by label; absent = every one of them
+   *  (see `conceptEventTables`). */
+  eventTableLabels?: string[]
   /** Concept IDs to match */
   conceptIds: number[]
+  /** `any` (default): an entity with one of the concepts; `all`: with every one,
+   *  each meeting the value filters and the occurrence count. */
+  conceptMatch?: 'any' | 'all'
   /** Human-readable names keyed by concept_id */
   conceptNames: Record<number, string>
   /** Optional value filters (measurements) — multiple conditions ANDed together */

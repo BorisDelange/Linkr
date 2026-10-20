@@ -29,6 +29,7 @@ import type {
   SexCriteriaConfig,
   ValueFilter,
 } from '@/types'
+import { listedEventTables } from '@/lib/duckdb/cohort-query'
 
 // ---------------------------------------------------------------------------
 // ATLAS JSON types (subset we care about)
@@ -132,7 +133,7 @@ export interface AtlasCohortDefinition {
 }
 
 // ---------------------------------------------------------------------------
-// ATLAS domain key → eventTableLabel mapping
+// ATLAS domain key → event table label mapping
 // ---------------------------------------------------------------------------
 
 const ATLAS_DOMAIN_MAP: Record<string, string> = {
@@ -490,7 +491,7 @@ function buildConceptCriterion(
     id: crypto.randomUUID(),
     type: 'concept',
     config: {
-      eventTableLabel,
+      eventTableLabels: [eventTableLabel],
       conceptIds,
       conceptNames,
       valueFilters,
@@ -886,11 +887,22 @@ function exportCriterion(
 
     case 'concept': {
       const config = node.config as ConceptCriteriaConfig
-      if (config.conceptIds.length === 0 && !config.eventTableLabel) return null
+      const tables = listedEventTables(config)
+      if (config.conceptIds.length === 0 && !tables) return null
+      // An ATLAS criterion reads one domain, and its concept set matches any of
+      // its concepts.
+      if (tables?.length !== 1) {
+        warnings.push('A concept criterion searching several event tables, or all of them, has no ATLAS equivalent: one domain per criterion.')
+        return null
+      }
+      if (config.conceptMatch === 'all' && config.conceptIds.length > 1) {
+        warnings.push('A concept criterion requiring every one of its concepts has no ATLAS equivalent: a concept set matches any of them.')
+        return null
+      }
 
-      const atlasDomain = LINKR_TO_ATLAS_DOMAIN[config.eventTableLabel]
+      const atlasDomain = LINKR_TO_ATLAS_DOMAIN[tables[0]]
       if (!atlasDomain) {
-        warnings.push(`Event table "${config.eventTableLabel}" has no ATLAS domain equivalent.`)
+        warnings.push(`Event table "${tables[0]}" has no ATLAS domain equivalent.`)
         return null
       }
 

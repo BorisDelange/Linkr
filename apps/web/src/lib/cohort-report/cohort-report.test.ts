@@ -35,7 +35,7 @@ const criteriaTree = {
   children: [
     { kind: 'criterion', id: 'a', type: 'age', operator: 'AND', exclude: false, enabled: true, config: { ageReference: 'admission', min: 18 } },
     { kind: 'criterion', id: 'b', type: 'concept', operator: 'AND', exclude: false, enabled: true,
-      config: { eventTableLabel: 'Measurement', conceptIds: [3027018], conceptNames: { 3027018: 'Heart rate' } } },
+      config: { eventTableLabels: ['Measurement'], conceptIds: [3027018], conceptNames: { 3027018: 'Heart rate' } } },
     { kind: 'criterion', id: 'c', type: 'sex', operator: 'OR', exclude: true, enabled: true, config: { values: ['8507'] } },
     { kind: 'criterion', id: 'd', type: 'age', operator: 'AND', exclude: false, enabled: false, config: { ageReference: 'current', max: 90 } },
   ],
@@ -96,14 +96,14 @@ describe('queries', () => {
   })
 
   it('matches concepts on either column, as the criterion does', () => {
-    const sql = buildConceptSql(m, mapping, { eventTableLabel: 'Measurement', conceptIds: [1, 2], conceptNames: {} })!
+    const sql = buildConceptSql(m, mapping, { eventTableLabels: ['Measurement'], conceptIds: [1, 2], conceptNames: {} })!
     expect(sql).toContain('(e.concept_id IN (1, 2) OR e.source_concept_id IN (1, 2))')
-    expect(buildConceptSql(m, mapping, { eventTableLabel: 'Nope', conceptIds: [1], conceptNames: {} })).toBeNull()
+    expect(buildConceptSql(m, mapping, { eventTableLabels: ['Nope'], conceptIds: [1], conceptNames: {} })).toBeNull()
   })
 
   it('refuses a concept list that is not all integers', () => {
-    expect(buildConceptSql(m, mapping, { eventTableLabel: 'Measurement', conceptIds: [1, 1.5], conceptNames: {} })).toBeNull()
-    expect(buildConceptSql(m, mapping, { eventTableLabel: 'Measurement', conceptIds: [1, NaN], conceptNames: {} })).toBeNull()
+    expect(buildConceptSql(m, mapping, { eventTableLabels: ['Measurement'], conceptIds: [1, 1.5], conceptNames: {} })).toBeNull()
+    expect(buildConceptSql(m, mapping, { eventTableLabels: ['Measurement'], conceptIds: [1, NaN], conceptNames: {} })).toBeNull()
   })
 
   it('falls back to the birth year when the birth date is empty, as in MIMIC-IV', () => {

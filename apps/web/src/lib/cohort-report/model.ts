@@ -6,7 +6,7 @@
  */
 import type { TFunction } from 'i18next'
 import { localized } from '@/lib/localized'
-import { buildAttritionQueries, buildCohortMembershipSql, CUSTOM_SQL_STEP_ID } from '@/lib/duckdb/cohort-query'
+import { buildAttritionQueries, buildCohortMembershipSql, conceptEventTables, CUSTOM_SQL_STEP_ID } from '@/lib/duckdb/cohort-query'
 import type { Cohort, CohortLevel, ConceptCriteriaConfig, CriteriaTreeNode, SchemaMapping } from '@/types'
 import type { ChartItem } from './charts'
 import { describeCriteria, describeCriterion, type DescribedCriterion } from './describe'
@@ -160,7 +160,7 @@ export async function buildCohortReportModel(args: {
       const conceptPatients = count(r?.patients)
       concepts.push({
         criterion: describeCriterion(node, t, mapping),
-        table: config.eventTableLabel,
+        table: conceptEventTables(config, mapping).join(', '),
         conceptId: id,
         name: config.conceptNames?.[id] ?? String(id),
         rows: count(r?.rows),

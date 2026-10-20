@@ -78,7 +78,7 @@ describe('normalizeCriteria', () => {
     ], MAPPING)
     expect(errors).toEqual([])
     expect((tree.children[0] as CriterionNode).config).toMatchObject({
-      eventTableLabel: 'Lab events', conceptIds: [50813], conceptNames: {},
+      eventTableLabels: ['Lab events'], conceptIds: [50813], conceptNames: {},
     })
   })
 
@@ -87,7 +87,7 @@ describe('normalizeCriteria', () => {
     const { errors } = normalizeCriteria([
       { type: 'concept', config: { eventTableLabel: 'Notes', conceptIds: [1], valueFilters: [{ operator: '>', value: 2 }] } },
     ], noValue)
-    expect(errors.join('\n')).toMatch(/no numeric value column/)
+    expect(errors.join('\n')).toMatch(/has a numeric value column/)
   })
 
   it('warns that an age criterion is ignored when no birth column is mapped', () => {
@@ -115,8 +115,8 @@ describe('concept names', () => {
     const { tree } = normalizeCriteria([
       { type: 'concept', config: { eventTableLabel: 'Lab events', conceptIds: [1, 2] } },
     ], MAPPING)
-    expect([...conceptIdsByTable(tree).get('Lab events')!]).toEqual([1, 2])
-    applyConceptNames(tree, new Map([['Lab events', new Map([[1, 'Lactate']])]]))
+    expect([...conceptIdsByTable(tree, MAPPING).get('Lab events')!]).toEqual([1, 2])
+    applyConceptNames(tree, new Map([['Lab events', new Map([[1, 'Lactate']])]]), MAPPING)
     expect((tree.children[0] as CriterionNode).config).toMatchObject({ conceptNames: { 1: 'Lactate', 2: '2' } })
   })
 })
