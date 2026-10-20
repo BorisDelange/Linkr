@@ -64,16 +64,38 @@ async def test_save_then_get(client):
     assert got["stats"]["rowCount"] == 42
 
 
-async def test_source_update_clears_stats(client):
+async def test_source_retarget_clears_stats(client):
     headers = await _admin_headers(client)
     ws = await _workspace(client, headers)
     src = await _source(client, headers, ws)
     await client.put(
         f"{API}/data-sources/{src}/concept-stats/1", headers=headers, json={"stats": _STATS}
     )
-    await client.patch(f"{API}/data-sources/{src}", headers=headers, json={"name": "PG2"})
+    await client.patch(
+        f"{API}/data-sources/{src}", headers=headers,
+        json={"connectionConfig": {"engine": "postgresql", "host": "other"}},
+    )
     r = await client.get(f"{API}/data-sources/{src}/concept-stats/1", headers=headers)
     assert r.status_code == 404
+
+
+async def test_status_and_name_updates_keep_stats(client):
+    """A re-test writes the status and stats back on every database page opened:
+    the caches must outlive it, or the loaded concepts vanished on each visit."""
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    src = await _source(client, headers, ws)
+    await client.put(
+        f"{API}/data-sources/{src}/concept-stats/1", headers=headers, json={"stats": _STATS}
+    )
+    for change in (
+        {"status": "connected", "errorMessage": None, "stats": {"tableCount": 3}},
+        {"name": "PG2"},
+        {"connectionConfig": {"engine": "postgresql", "host": "h"}},
+    ):
+        await client.patch(f"{API}/data-sources/{src}", headers=headers, json=change)
+    r = await client.get(f"{API}/data-sources/{src}/concept-stats/1", headers=headers)
+    assert r.status_code == 200
 
 
 async def test_cache_status_empty(client):

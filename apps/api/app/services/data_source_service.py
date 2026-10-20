@@ -329,6 +329,10 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     return source
 
 
+# The fields a database's data and concept list are read through.
+_CACHE_INPUTS = ("connection_config", "schema_mapping", "schema_overrides", "derived_from")
+
+
 async def update(
     db: AsyncSession,
     source: DataSource,
@@ -360,6 +364,13 @@ async def update(
         before, changes["connection_config"]
     )
     now_session_only = changes.get("require_session_only") and not source.require_session_only
+    # What the caches are computed from. Not the status, the stats, the name…: a
+    # re-test writes those back every time a database page opens, and dropping
+    # the concepts loaded from it there made them vanish on every visit.
+    data_changed = any(
+        key in changes and changes[key] != (before if key == "connection_config" else getattr(source, key))
+        for key in _CACHE_INPUTS
+    )
     git_secret.apply_to_entity(source, changes)
     for key, value in changes.items():
         setattr(source, key, value)
@@ -378,11 +389,13 @@ async def update(
         await stats_cache_service.delete_with_prefix(db, "database", source.id)
     # A changed host/credential/file must not keep being served through a warm
     # connection opened against the old config.
-    connection_pool.invalidate(source.id)
+    if data_changed or login:
+        connection_pool.invalidate(source.id)
     # The concept caches reflect the old data; drop them so the next visitor
     # recomputes against the new config.
-    concept_cache_fs.invalidate(source.id)
-    await concept_stats_cache_service.delete_for_source(db, source.id)
+    if data_changed:
+        concept_cache_fs.invalidate(source.id)
+        await concept_stats_cache_service.delete_for_source(db, source.id)
     if login and editor_id is not None and database_credential_service.is_external(source):
         await database_credential_service.save(
             db, source, editor_id, *login, remember=not source.require_session_only
