@@ -1,11 +1,14 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Database, Loader2, Stethoscope } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Separator } from '@/components/ui/separator'
 import { Checkbox } from '@/components/ui/checkbox'
+import { Button } from '@/components/ui/button'
+import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { zeroAnchoredHistogramScale, tightHistogramScale } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
 import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
@@ -22,6 +25,10 @@ interface ConceptStatsPanelProps {
   /** Distinct patients carrying the concept. Already on the selected row (the
    *  table computes it with the record count), so it costs no extra query. */
   patientCount?: number
+  /** Read them from the source, when the precomputed ones hold no value. */
+  onComputeLive?: () => void
+  /** Why the precomputed ones hold no value (concept_cache_fs.diagnose_stats). */
+  onDiagnose?: () => Promise<Record<string, unknown>>
 }
 
 function StatRow({ label, value }: { label: string; value: string | number }) {
@@ -137,9 +144,13 @@ export function ConceptStatsPanel({
   excludeOutliers,
   statsEnabled,
   patientCount,
+  onComputeLive,
+  onDiagnose,
 }: ConceptStatsPanelProps) {
   const { t } = useTranslation()
   const [startAtZero, setStartAtZero] = useState(true)
+  const [diagnosis, setDiagnosis] = useState<{ stats: ConceptStats | null; text: string } | null>(null)
+  const [diagnosing, setDiagnosing] = useState(false)
 
   // Stats off: say so explicitly. Falling through would render "no records",
   // which reads as "this concept has none" rather than "nothing was computed".
@@ -180,6 +191,20 @@ export function ConceptStatsPanel({
   }
 
   const d = stats.distribution
+  // The run's statistics hold no value for it: a concept without any — or one
+  // they missed, which only the source or the diagnosis can tell.
+  const precomputedEmpty = stats.histogramVariant === PRECOMPUTED_STATS_VARIANT && !d?.non_null_count
+  const diagnose = async () => {
+    if (!onDiagnose) return
+    setDiagnosing(true)
+    try {
+      setDiagnosis({ stats, text: JSON.stringify(await onDiagnose(), null, 2) })
+    } catch (err) {
+      setDiagnosis({ stats, text: err instanceof Error ? err.message : String(err) })
+    } finally {
+      setDiagnosing(false)
+    }
+  }
 
   // One rhythm for the whole sidebar: rows sit tight inside a block, and each
   // heading hugs the rule above it while leaving room before its own rows — so a
@@ -195,7 +220,37 @@ export function ConceptStatsPanel({
         )}
       </div>
 
-      {hasValueColumn && d && (
+      {hasValueColumn && precomputedEmpty && (
+        <>
+          <Separator />
+          <div className="space-y-2">
+            <h4 className="text-xs font-medium">{t('concepts.stats_value_distribution')}</h4>
+            <p className="text-xs text-muted-foreground">{t('concepts.stats_precomputed_empty')}</p>
+            <div className="flex flex-wrap gap-2">
+              {onComputeLive && (
+                <Button size="xs" variant="outline" onClick={onComputeLive}>
+                  <Database size={12} />
+                  {t('concepts.stats_compute_live')}
+                </Button>
+              )}
+              {onDiagnose && (
+                <Button size="xs" variant="ghost" onClick={diagnose} disabled={diagnosing}>
+                  {diagnosing ? <Loader2 size={12} className="animate-spin" /> : <Stethoscope size={12} />}
+                  {t('concepts.stats_diagnose')}
+                </Button>
+              )}
+            </div>
+            {diagnosis?.stats === stats && (
+              <div className="relative">
+                <CopyIconButton text={diagnosis.text} className="absolute right-1.5 top-1.5" />
+                <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 pr-7 font-mono text-[10px]">{diagnosis.text}</pre>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      {hasValueColumn && d && !precomputedEmpty && (
         <>
           {/* The histogram first: the shape of the values is what a reader looks
               at, and the summary numbers below then say what it is made of. */}

@@ -169,6 +169,17 @@ def _complete_record_units(source_id: str, principal: str) -> list:
     ]
 
 
+# A unit's concept_id has whatever type its event table gives it: a DOUBLE
+# (ids that went through pandas or a CSV) reads '54081624.0' as text, so a match
+# on the text alone missed every concept of such a table. Matched as a number,
+# and as text for the ids that are not one.
+_SAME_ID = "(TRY_CAST(concept_id AS BIGINT) = TRY_CAST(? AS BIGINT) OR CAST(concept_id AS VARCHAR) = ?)"
+_ID_IN = (
+    "(TRY_CAST(concept_id AS BIGINT) IN (SELECT TRY_CAST(unnest(?::VARCHAR[]) AS BIGINT))"
+    " OR CAST(concept_id AS VARCHAR) IN (SELECT unnest(?::VARCHAR[])))"
+)
+
+
 def counted_relations(source_id: str, principal: str, concept_ids: list[str]) -> list[dict]:
     """The event relations the record units of the last run counted — each with
     the signature of its SQL when counted and whether it holds any of
@@ -183,11 +194,11 @@ def counted_relations(source_id: str, principal: str, concept_ids: list[str]) ->
     try:
         rows = con.execute(
             f"""SELECT relation, relation_sig,
-                  bool_or(CAST(concept_id AS VARCHAR) IN (SELECT unnest(?::VARCHAR[]))) AS holds
+                  bool_or({_ID_IN}) AS holds
                 FROM read_parquet([{paths}], union_by_name = true)
                 WHERE relation IS NOT NULL
                 GROUP BY relation, relation_sig""",
-            [concept_ids],
+            [concept_ids, concept_ids],
         ).fetchall()
     except duckdb.BinderException:
         return []
@@ -389,8 +400,8 @@ def precomputed_stats(source_id: str, principal: str, concept_id: int, dict_key:
             f"""SELECT dict_key, bin, bin_count, value_count, min_val, max_val, mean_val, std_val,
                        p01, q1_val, median_val, q3_val, p99
                 FROM read_parquet([{_paths_sql(stats_files)}], union_by_name = true)
-                WHERE CAST(concept_id AS VARCHAR) = ?""",
-            [str(concept_id)],
+                WHERE {_SAME_ID}""",
+            [str(concept_id)] * 2,
         ).fetchall()
         dict_keys = sorted({r[0] for r in rows})
         key = dict_key if dict_key is not None else (dict_keys[0] if dict_keys else None)
@@ -403,8 +414,8 @@ def precomputed_stats(source_id: str, principal: str, concept_id: int, dict_key:
             row_count = con.execute(
                 f"""SELECT COALESCE(SUM(record_count), 0)::BIGINT
                     FROM read_parquet([{_paths_sql(record_files)}], union_by_name = true)
-                    WHERE CAST(concept_id AS VARCHAR) = ? {dict_filter}""",
-                [str(concept_id)] + ([] if key is None else [key]),
+                    WHERE {_SAME_ID} {dict_filter}""",
+                [str(concept_id)] * 2 + ([] if key is None else [key]),
             ).fetchone()[0]
     finally:
         con.close()
@@ -434,6 +445,74 @@ def precomputed_stats(source_id: str, principal: str, concept_id: int, dict_key:
         for r in bins
     ]
     return stats, computed_at
+
+
+def diagnose_stats(source_id: str, principal: str, concept_id: int, dict_key: str | None) -> dict:
+    """Why the `stats` step describes a concept or not, for the detail panel to
+    say when it holds no value for one the database has values of: the range of
+    ids that should cover it and what that unit wrote, where the concept shows
+    up in the stats and record units — matched as text and as a number, since a
+    type drift between the two is the first suspect — and the step overall."""
+    run = _run_dir(source_id, principal)
+    try:
+        manifest = json.loads((run / "manifest.json").read_text())
+    except (FileNotFoundError, ValueError):
+        manifest = {}
+    ranges = manifest.get("statsRanges") or [] if isinstance(manifest, dict) else []
+    files = {f.stem: f for f in _unit_files(source_id, principal)}
+    stats_files = [f for k, f in files.items() if k.startswith(_STATS_UNIT_PREFIX)]
+    out: dict = {
+        "conceptId": concept_id,
+        "dictKey": dict_key,
+        "statsUnitsPlanned": len(ranges),
+        "statsUnitsDone": len(stats_files),
+        "covering": [],
+        "inStatsUnits": [],
+        "inRecordUnits": [],
+    }
+
+    def covers(r: dict) -> bool:
+        lo, hi = r.get("lo"), r.get("hi")
+        return (dict_key is None or r.get("dictKey") == dict_key) and (lo is None or lo <= concept_id) and (hi is None or concept_id <= hi)
+
+    con = db_connect._open()
+    try:
+        for i, r in enumerate(ranges):
+            if not isinstance(r, dict) or not covers(r):
+                continue
+            key = f"{_STATS_UNIT_PREFIX}{i + 1}-of-{len(ranges)}"
+            unit: dict = {"unit": key, "dictKey": r.get("dictKey"), "lo": r.get("lo"), "hi": r.get("hi"), "done": key in files}
+            if key in files:
+                rows, concepts, lo, hi, kind = con.execute(
+                    f"""SELECT COUNT(*), COUNT(DISTINCT concept_id), MIN(TRY_CAST(concept_id AS BIGINT)),
+                               MAX(TRY_CAST(concept_id AS BIGINT)), ANY_VALUE(typeof(concept_id))
+                        FROM read_parquet('{db_connect._sql_path(files[key].as_posix())}')"""
+                ).fetchone()
+                unit.update(rows=rows, concepts=concepts, minConceptId=lo, maxConceptId=hi, conceptIdType=kind)
+            out["covering"].append(unit)
+        for label, chosen in (("inStatsUnits", stats_files), ("inRecordUnits", [f for k, f in files.items() if k.startswith("records-")])):
+            for f in chosen:
+                try:
+                    hit = con.execute(
+                        f"""SELECT COUNT(*) FILTER (WHERE CAST(concept_id AS VARCHAR) = ?),
+                                   COUNT(*) FILTER (WHERE TRY_CAST(concept_id AS BIGINT) = ?),
+                                   string_agg(DISTINCT dict_key, ', ') FILTER (WHERE TRY_CAST(concept_id AS BIGINT) = ?)
+                            FROM read_parquet('{db_connect._sql_path(f.as_posix())}')""",
+                        [str(concept_id), concept_id, concept_id],
+                    ).fetchone()
+                except duckdb.Error as e:
+                    out[label].append({"unit": f.stem, "error": str(e)})
+                    continue
+                if hit[0] or hit[1]:
+                    out[label].append({"unit": f.stem, "asText": hit[0], "asNumber": hit[1], "dictKeys": hit[2]})
+        if stats_files:
+            rows, concepts = con.execute(
+                f"SELECT COUNT(*), COUNT(DISTINCT concept_id) FROM read_parquet([{_paths_sql(stats_files)}], union_by_name = true)"
+            ).fetchone()
+            out.update(statsRows=rows, statsConcepts=concepts)
+    finally:
+        con.close()
+    return out
 
 
 def query_page(source_id: str, principal: str, sql: str) -> list[dict]:

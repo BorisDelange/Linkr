@@ -4,6 +4,7 @@ import { conceptRelations } from '@/lib/schema-classes/relations'
 import { isServerMode } from '@/lib/api-client'
 import {
   queryConceptCache,
+  diagnoseConceptStats,
   getConceptStats,
   saveConceptStats,
 } from '@/lib/api/concept-cache'
@@ -156,7 +157,7 @@ const statsInFlight = new Map<string, Promise<ConceptStats | null>>()
  * popover alike: this session's copy, else (server mode, clipped form) the
  * server's — precomputed by the counting run or cached by an earlier click —
  * else computed on the source and shared. Concurrent asks for the same concept
- * share one load.
+ * share one load. `live`: straight from the source, past what the server holds.
  */
 export function fetchConceptStats(
   dataSourceId: string,
@@ -164,19 +165,20 @@ export function fetchConceptStats(
   conceptId: number,
   dictKey: string,
   excludeOutliers: boolean,
+  { live = false }: { live?: boolean } = {},
 ): Promise<ConceptStats | null> {
   const cacheKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`
   const statsCache = cacheFor(statsCaches, cacheKey)
-  const cached = statsCache.get(conceptId)
+  const cached = live ? undefined : statsCache.get(conceptId)
   if (cached) return Promise.resolve(cached)
-  const flightKey = `${cacheKey}::${dictKey}::${conceptId}`
+  const flightKey = `${cacheKey}::${dictKey}::${conceptId}${live ? '::live' : ''}`
   const pending = statsInFlight.get(flightKey)
   if (pending) return pending
 
   const load = async (): Promise<ConceptStats | null> => {
     // Server mode: another user, or the counting run, may have computed these
     // already. On a hit, render without touching the source.
-    if (isServerMode() && excludeOutliers) {
+    if (isServerMode() && excludeOutliers && !live) {
       const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey).catch(() => undefined)
       if (shared && isFreshCachedStats(shared)) {
         statsCache.set(conceptId, shared)
@@ -665,6 +667,34 @@ export function useConcepts(
     setFrontVersion((v) => v + 1)
   }, [dataSourceId])
 
+  const selectedDictKey = () => {
+    const row = concepts.find((c) => c.concept_id === selectedConceptId)
+    return (row?._dict_key as string) ?? dicts[0]?.key
+  }
+
+  // When the precomputed statistics hold no value for the selected concept: read
+  // them from the source instead, or ask the server why.
+  const computeStatsLive = async () => {
+    const dictKey = selectedDictKey()
+    if (!dataSourceId || !schemaMapping || selectedConceptId === null || !dictKey) return
+    const conceptId = selectedConceptId
+    activeStatsConceptId.current = conceptId
+    setConceptStatsLoading(true)
+    setConceptStatsError(null)
+    try {
+      const stats = await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers, { live: true })
+      if (activeStatsConceptId.current === conceptId) setConceptStats(stats)
+    } catch (err) {
+      if (activeStatsConceptId.current === conceptId) setConceptStatsError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (activeStatsConceptId.current === conceptId) setConceptStatsLoading(false)
+    }
+  }
+  const diagnoseStats = () => {
+    if (!dataSourceId || selectedConceptId === null) return Promise.resolve({})
+    return diagnoseConceptStats(dataSourceId, selectedConceptId, selectedDictKey())
+  }
+
   const updateFilter = useCallback((key: string, value: ConceptFilterValue) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
     // Text search fields reset page via debounce, others reset immediately
@@ -711,6 +741,8 @@ export function useConcepts(
     conceptStats,
     conceptStatsLoading,
     conceptStatsError,
+    computeStatsLive: isServerMode() ? computeStatsLive : undefined,
+    diagnoseStats: isServerMode() ? diagnoseStats : undefined,
     refresh,
     count,
     statsEnabled,

@@ -1091,6 +1091,22 @@ async def get_concept_stats(
     return row
 
 
+@router.get("/{source_id}/concept-stats/{concept_id}/diagnose")
+async def diagnose_concept_stats(
+    source_id: str,
+    concept_id: int,
+    dict_key: str | None = Query(default=None, alias="dictKey"),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """What the counting run's `stats` step holds for one concept, and the unit
+    that should have described it — for the detail panel, when it has none."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    return await asyncio.to_thread(
+        concept_cache_fs.diagnose_stats, source_id, _principal(source, user), concept_id, dict_key,
+    )
+
+
 @router.put(
     "/{source_id}/concept-stats/{concept_id}", response_model=ConceptStatsResponse
 )

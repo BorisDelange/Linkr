@@ -99,6 +99,8 @@ export function ConceptsPage() {
     conceptStatsLoading,
     conceptStatsError,
     detailError,
+    computeStatsLive,
+    diagnoseStats,
     refresh,
     count,
     statsEnabled,
@@ -735,6 +737,8 @@ export function ConceptsPage() {
               statsLoading={conceptStatsLoading}
               statsError={conceptStatsError}
               error={detailError}
+              onComputeStatsLive={computeStatsLive}
+              onDiagnoseStats={diagnoseStats}
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
               statsEnabled={statsEnabled}

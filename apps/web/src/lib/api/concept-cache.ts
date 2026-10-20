@@ -100,6 +100,15 @@ export async function getCountedRelations(sourceId: string, conceptIds: readonly
 
 /** Detail-panel stats for one concept — precomputed by the counting run, or
  *  shared by a click — undefined if neither exists. */
+/** What the counting run's `stats` step holds for one concept, and the unit that
+ *  should have described it (concept_cache_fs.diagnose_stats). */
+export function diagnoseConceptStats(sourceId: string, conceptId: number, dictKey?: string): Promise<Record<string, unknown>> {
+  const query = dictKey ? `?dictKey=${encodeURIComponent(dictKey)}` : ''
+  return apiRequest<Record<string, unknown>>(
+    `/data-sources/${encodeURIComponent(sourceId)}/concept-stats/${conceptId}/diagnose${query}`,
+  )
+}
+
 export async function getConceptStats<T>(
   sourceId: string,
   conceptId: number,

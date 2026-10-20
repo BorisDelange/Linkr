@@ -4,6 +4,7 @@ import { Code2, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { TruncatedText } from '@/components/ui/truncated-text'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { columnLabel } from '@/lib/format-helpers'
@@ -22,6 +23,9 @@ interface ConceptDetailProps {
   statsError?: string | null
   /** Why the selected concept could not be read: shown in place of "select a concept". */
   error?: string | null
+  /** When the precomputed statistics hold no value: read them from the source, or ask why. */
+  onComputeStatsLive?: () => void
+  onDiagnoseStats?: () => Promise<Record<string, unknown>>
   hasValueColumn: boolean
   excludeOutliers: boolean
   statsEnabled: boolean
@@ -33,9 +37,10 @@ interface ConceptDetailProps {
 
 function MetaRow({ label, value }: { label: string; value: string | null | undefined }) {
   return (
-    <div className="flex items-start justify-between gap-2 py-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="min-w-0 break-words text-right text-xs font-medium">{value || '—'}</span>
+    <div className="flex items-center justify-between gap-3 py-0.5">
+      <span className="shrink-0 text-xs text-muted-foreground">{label}</span>
+      {/* Cut, not wrapped: one long value (a domain name) kept squeezing the others. */}
+      <TruncatedText text={value || '—'} className="text-right text-xs font-medium" />
     </div>
   )
 }
@@ -47,6 +52,8 @@ export function ConceptDetail({
   statsLoading,
   statsError,
   error,
+  onComputeStatsLive,
+  onDiagnoseStats,
   hasValueColumn,
   excludeOutliers,
   statsEnabled,
@@ -194,6 +201,8 @@ export function ConceptDetail({
           stats={stats}
           isLoading={statsLoading}
           error={statsError}
+          onComputeLive={onComputeStatsLive}
+          onDiagnose={onDiagnoseStats}
           excludeOutliers={excludeOutliers}
           statsEnabled={statsEnabled}
           patientCount={

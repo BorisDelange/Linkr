@@ -423,6 +423,53 @@ def test_precomputed_stats_read_like_the_panel_query(duckdb_source, data_dir):
     assert stats["histogram"] == []
 
 
+def test_double_concept_ids_are_matched_as_numbers(duckdb_source, data_dir):
+    """Ids that went through pandas or a CSV are DOUBLE: '1.0' as text. The stats,
+    the row count and the relations holding a concept must still find it."""
+    config, files = duckdb_source
+    units = [{"key": "records-0-std", "step": "records"}, {"key": "stats-1-of-1", "step": "stats"}]
+    concept_cache_fs.write_manifest("src", "", {"runId": "r1", "units": units}, reset=True)
+    records = (
+        "SELECT 'd' AS dict_key, concept_id::DOUBLE AS concept_id, COUNT(*)::BIGINT AS record_count,"
+        " NULL::BIGINT AS patient_count, 'ev_m' AS relation, 'sig' AS relation_sig"
+        " FROM ext.measurement GROUP BY concept_id"
+    )
+    concept_cache_fs.write_unit(config, None, files, [], records, "src", "", "records-0-std", "r1")
+    doubled = _VALUED_UNIT.replace("SELECT 'd' AS dict_key, concept_id,", "SELECT 'd' AS dict_key, concept_id::DOUBLE AS concept_id,")
+    concept_cache_fs.write_unit(config, None, files, [], doubled, "src", "", "stats-1-of-1", "r1")
+
+    stats, _ = concept_cache_fs.precomputed_stats("src", "", 1, "d")
+    assert stats["rowCount"] == 3
+    assert stats["distribution"]["non_null_count"] == 50
+    assert concept_cache_fs.counted_relations("src", "", ["1"]) == [{"relation": "ev_m", "signature": "sig", "holds": True}]
+    assert concept_cache_fs.counted_relations("src", "", ["9"])[0]["holds"] is False
+
+
+def test_diagnose_names_the_unit_that_should_describe_a_concept(duckdb_source, data_dir):
+    config, files = _stats_run(duckdb_source, ["stats-1-of-2", "stats-2-of-2"])
+    run = {"runId": "r1", "units": [{"key": "records-0-std", "step": "records"},
+           {"key": "stats-1-of-2", "step": "stats"}, {"key": "stats-2-of-2", "step": "stats"}],
+           "statsRanges": [{"dictKey": "d", "lo": None, "hi": 1}, {"dictKey": "d", "lo": 2, "hi": None}]}
+    concept_cache_fs.write_manifest("src", "", run, reset=False)
+    concept_cache_fs.write_unit(config, None, files, [], _VALUED_UNIT, "src", "", "stats-1-of-2", "r1")
+    concept_cache_fs.write_unit(config, None, files, [], _VALUED_UNIT + " WHERE false", "src", "", "stats-2-of-2", "r1")
+
+    described = concept_cache_fs.diagnose_stats("src", "", 1, "d")
+    assert described["statsUnitsPlanned"] == 2 and described["statsUnitsDone"] == 2
+    assert [u["unit"] for u in described["covering"]] == ["stats-1-of-2"]
+    assert described["covering"][0]["rows"] == 3
+    assert described["inStatsUnits"][0]["asNumber"] == 3
+    assert described["inRecordUnits"][0]["unit"] == "records-0-std"
+
+    # Concept 2 has rows, but the unit of its range wrote nothing: said so.
+    missed = concept_cache_fs.diagnose_stats("src", "", 2, "d")
+    assert missed["covering"] == [{"unit": "stats-2-of-2", "dictKey": "d", "lo": 2, "hi": None, "done": True,
+                                   "rows": 0, "concepts": 0, "minConceptId": None, "maxConceptId": None,
+                                   "conceptIdType": None}]
+    assert missed["inStatsUnits"] == []
+    assert missed["inRecordUnits"][0]["asNumber"] == 1
+
+
 def test_the_list_is_assembled_from_the_count_units_alone(duckdb_source, data_dir):
     config, files = _stats_run(duckdb_source, ["stats-1-of-1"])
     concept_cache_fs.write_unit(config, None, files, [], _VALUED_UNIT, "src", "", "stats-1-of-1", "r1")
