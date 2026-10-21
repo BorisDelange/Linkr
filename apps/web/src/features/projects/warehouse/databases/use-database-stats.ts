@@ -64,8 +64,7 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
         // being kept on the source.
         keepCountsRef.current(cached)
       }
-      setCacheLoaded(true)
-    })
+    }).catch(() => {}).finally(() => setCacheLoaded(true))
     const listeners = _listeners.get(dataSourceId) ?? new Set()
     _listeners.set(dataSourceId, listeners)
     listeners.add(setCache)

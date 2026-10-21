@@ -35,7 +35,7 @@ export function DatabaseStatsDashboard({
   hasMappedSchema = true,
 }: DatabaseStatsDashboardProps) {
   const { t, i18n } = useTranslation()
-  const { cache, isLoading, isStopping, error, refresh, stop } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
+  const { cache, isLoading, isStopping, error, refresh, stop, cacheLoaded } = useDatabaseStats(dataSourceId, schemaMapping, sourceStatus)
 
   const formatDate = (iso: string) => {
     return new Date(iso).toLocaleString(i18n.language, {
@@ -45,8 +45,11 @@ export function DatabaseStatsDashboard({
   }
 
   // Before the first run the prompt below is the trigger, so the toolbar would
-  // be a second button for the same action right above it.
-  const neverLoaded = !cache && !isLoading
+  // be a second button for the same action right above it. Only once the stored
+  // statistics have been looked up: before that the prompt flashed on every
+  // visit to a database that does have them.
+  const neverLoaded = cacheLoaded && !cache && !isLoading
+  const hasStats = !!cache || isLoading
 
   return (
     // Sections sit 8 apart. The toolbar is a control strip, not a section, so
@@ -56,7 +59,7 @@ export function DatabaseStatsDashboard({
     // A negative margin did this before and pulled up whatever followed,
     // including the no-data-model notice, which slid under the refresh button.
     <div className="space-y-5">
-      {!neverLoaded && (
+      {hasStats && (
         <div className="flex items-center justify-between [&+*]:!mt-3">
           <span className="text-xs text-muted-foreground">
             {cache
@@ -97,7 +100,7 @@ export function DatabaseStatsDashboard({
       )}
 
       {/* ── Section 1: Patients ── */}
-      {hasMappedSchema && !neverLoaded && (
+      {hasMappedSchema && hasStats && (
       <section>
         <SectionHeader icon={Users} title={t('databases.stats_section_patients')} />
 
@@ -139,7 +142,7 @@ export function DatabaseStatsDashboard({
       )}
 
       {/* ── Section 2: Visits & visit units ── */}
-      {hasMappedSchema && !neverLoaded && (
+      {hasMappedSchema && hasStats && (
       <section>
         <SectionHeader icon={Activity} title={t('databases.stats_section_visits')} />
 
