@@ -34,7 +34,10 @@ export interface CatalogPhaseQuery {
   sql: string
 }
 
-export type CatalogPhase = 'base' | 'crossings'
+/** The phases made of units, which a paused run can resume inside. */
+export type CatalogUnitPhase = 'base' | 'crossings'
+/** `sizing` is the warehouse's size and patient bounds, before any unit. */
+export type CatalogPhase = 'sizing' | CatalogUnitPhase
 
 /**
  * Runs one phase's queries in order and hands each result over as it lands.
@@ -146,7 +149,7 @@ export async function runCatalogComputation(
   let offset = 0
   let savedOffset = 0
   let plan: CrossingPlan | null = null
-  let job: { id: string; phase: CatalogPhase } | null = null
+  let job: { id: string; phase: CatalogUnitPhase } | null = null
   let base: Pick<CatalogResultCache, 'catalogId' | 'computedAt' | 'durationMs'> = { catalogId: catalog.id, computedAt: new Date().toISOString(), durationMs: 0 }
 
   const save = async (done: boolean) => {
@@ -175,14 +178,29 @@ export async function runCatalogComputation(
     } else {
       hooks.step?.('sizing')
       hooks.progress?.(0, { sizing: { done: 0, total: 1 } }, null)
-      state.slices = await planSlices(mapping, query, signal, undefined, input.tables)
+      // Through the executor like the units: on a server, a job of its own that
+      // no gateway timeout cuts and the jobs panel shows.
+      const sizingQuery: CatalogQuery = async (sql) => {
+        let rows: Record<string, unknown>[] = []
+        await execute({
+          name: 'sizing',
+          queries: [{ offset: 0, sql }],
+          resumeJob: null,
+          jobStarted: async () => {},
+          starting: (_, reading) => hooks.reading?.(reading ?? null),
+          onRows: async (_, r) => { rows = r },
+          signal,
+        })
+        return rows
+      }
+      state.slices = await planSlices(mapping, sizingQuery, signal, undefined, input.tables)
     }
     const sized = { sizing: { done: 1, total: 1 } }
 
     let savedAt = Date.now()
     let step: CatalogRunStep | null = null
     let total: number | null = null
-    const runUnits = async (units: readonly CatalogRunUnit[], first: number, all: () => CatalogRunUnit[], phase: CatalogPhase) => {
+    const runUnits = async (units: readonly CatalogRunUnit[], first: number, all: () => CatalogRunUnit[], phase: CatalogUnitPhase) => {
       const announce = (at: number) => {
         const unit = units[at - first]
         if (unit.info.step !== step) hooks.step?.((step = unit.info.step))

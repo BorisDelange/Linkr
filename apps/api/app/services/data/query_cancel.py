@@ -30,7 +30,10 @@ import duckdb
 # (query id, owner) of the query the current request runs, or None.
 current_query: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar("current_query", default=None)
 
-_EARLY_CANCEL_TTL_S = 60.0
+# A heavy query can wait in its lane behind a catalog job for hours before it
+# reaches a connection: its cancel must still be there when it does. An entry
+# is a few bytes and goes as soon as its query starts.
+_EARLY_CANCEL_TTL_S = 24 * 3600.0
 
 # Runs when the query is cancelled, after the interrupt; must not block.
 _cancel_hook: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar("cancel_hook", default=None)

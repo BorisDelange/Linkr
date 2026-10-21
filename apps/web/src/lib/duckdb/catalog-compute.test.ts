@@ -153,8 +153,15 @@ describe('catalog run on a phase executor', () => {
     const jobs = new Map<string, Record<string, unknown>[][]>()
     const resumed: (string | null)[] = []
     let deliveries = 0
+    let sizings = 0
     let interrupt: ((n: number) => 'abort' | 'cancel' | null) = () => null
-    const executor: CatalogPhaseExecutor = async ({ queries, resumeJob, jobStarted, starting, onRows, signal }) => {
+    const executor: CatalogPhaseExecutor = async ({ name, queries, resumeJob, jobStarted, starting, onRows, signal }) => {
+      // The sizing's queries are jobs too, but nothing a resume follows.
+      if (name === 'sizing') {
+        sizings++
+        for (const q of queries) await onRows(q.offset, await warehouse(q.sql))
+        return
+      }
       resumed.push(resumeJob)
       let id = resumeJob && jobs.has(resumeJob) ? resumeJob : null
       if (!id) {
@@ -177,6 +184,7 @@ describe('catalog run on a phase executor', () => {
     let controller = new AbortController()
     return {
       executor, resumed,
+      sizings: () => sizings,
       signal: () => (controller = new AbortController()).signal,
       stopAt: (n: number, how: 'abort' | 'cancel') => { deliveries = 0; interrupt = (k) => (k === n ? how : null) },
       go: () => { interrupt = () => null },
@@ -199,6 +207,7 @@ describe('catalog run on a phase executor', () => {
     expect(saved.at(-1)!.crossings).toEqual(reference.crossings)
     expect(saved.at(-1)!.grandTotal).toEqual(reference.grandTotal)
     expect(server.resumed).toEqual([null, null])
+    expect(server.sizings()).toBeGreaterThan(0)
   })
 
   it('saves the job a phase runs in, and a resume follows it rather than starting over', async () => {

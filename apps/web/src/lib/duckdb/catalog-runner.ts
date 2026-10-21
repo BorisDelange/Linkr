@@ -38,6 +38,9 @@ export type CatalogRunPhase = 'mounting' | CatalogRunStep | 'saving'
 /** What a watcher needs to render, whether or not it started the run. */
 export interface CatalogRunSnapshot {
   running: boolean
+  /** A pause was asked for and the run is winding down: interrupting the query
+   *  in flight and saving the units done. */
+  pausing: boolean
   phase: CatalogRunPhase | null
   /** Live unit offset, or null when no run is in flight. */
   computed: number | null
@@ -55,7 +58,7 @@ export interface CatalogRunSnapshot {
 }
 
 const IDLE: CatalogRunSnapshot = {
-  running: false, phase: null, computed: null, total: null, steps: {}, current: null, phaseStartedAt: null, reading: null, error: null,
+  running: false, pausing: false, phase: null, computed: null, total: null, steps: {}, current: null, phaseStartedAt: null, reading: null, error: null,
 }
 
 interface Run {
@@ -140,7 +143,10 @@ export function watchCatalogRun(
 /** Stop a catalog's run now: the query in flight is interrupted and its unit redone on resume. */
 export function pauseCatalogRun(catalogId: string): void {
   queued.delete(catalogId)
-  runs.get(catalogId)?.controller.abort()
+  const run = runs.get(catalogId)
+  if (!run?.snapshot.running || run.controller.signal.aborted) return
+  run.controller.abort()
+  emitNow(catalogId, { pausing: true })
 }
 
 /** Forget a finished run's error, so the next start renders clean. */
@@ -192,6 +198,7 @@ export function startCatalogRun(input: StartCatalogRunInput): void {
   const run: Run = {
     snapshot: {
       running: true,
+      pausing: false,
       phase: 'mounting',
       computed: input.resumeFrom?.cache.completedSteps ?? 0,
       // Unknown until the crossings are planned. A restart in particular must NOT
@@ -258,7 +265,7 @@ async function loop(input: StartCatalogRunInput, controller: AbortController): P
     // the live counts so the view falls back to the persisted ones — which by now
     // describe this run, since every save point wrote them.
     const error = run?.snapshot.error ?? null
-    emitNow(catalogId, { running: false, phase: null, computed: null, total: null, steps: {}, current: null, phaseStartedAt: null, reading: null })
+    emitNow(catalogId, { running: false, pausing: false, phase: null, computed: null, total: null, steps: {}, current: null, phaseStartedAt: null, reading: null })
     if (run) {
       run.snapshot = { ...IDLE, error }
       if (run.watchers.size === 0 && !error) runs.delete(catalogId)

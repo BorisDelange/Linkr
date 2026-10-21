@@ -94,7 +94,7 @@ export function CatalogConfigTab({ catalog }: Props) {
     return watchCatalogRun(catalog.id, setSnapshot)
   }, [catalog.id])
 
-  const { running, error } = snapshot
+  const { running, pausing, error } = snapshot
   // The crossing units are planned only once the rankings are in: until then the bar has no total.
   const preparing = running && snapshot.total == null
 
@@ -508,7 +508,9 @@ export function CatalogConfigTab({ catalog }: Props) {
           <span className="text-xs text-muted-foreground">
             {/* Each phase says what it is doing: silence here reads as a button
                 that did nothing, and the concept pass alone can take minutes. */}
-            {running
+            {pausing
+              ? t('data_catalog.compute_pausing_status')
+              : running
               ? (catalog.lastComputeDurationMs != null
                 ? t('data_catalog.compute_running_last', { duration: formatDuration(catalog.lastComputeDurationMs) })
                 : t('data_catalog.compute_running'))
@@ -541,9 +543,9 @@ export function CatalogConfigTab({ catalog }: Props) {
 
         <div className="flex items-center gap-2">
           {running ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => pauseCatalogRun(catalog.id)}>
-              <Pause size={14} />
-              {t('data_catalog.compute_pause')}
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => pauseCatalogRun(catalog.id)} disabled={pausing}>
+              {pausing ? <Loader2 size={14} className="animate-spin" /> : <Pause size={14} />}
+              {pausing ? t('data_catalog.compute_pausing') : t('data_catalog.compute_pause')}
             </Button>
           ) : (
             <Button size="sm" className="gap-1.5" onClick={() => void run(false)} disabled={!mapping || !canWrite}>
@@ -569,7 +571,7 @@ export function CatalogConfigTab({ catalog }: Props) {
               {t('data_catalog.compute_discard')}
             </Button>
           )}
-          {running && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
+          {running && !pausing && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
         </div>
 
         {locked && <p className="text-[10px] text-muted-foreground">{t('data_catalog.config_locked')}</p>}

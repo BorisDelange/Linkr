@@ -87,6 +87,10 @@ export async function queryDataSourceOnServer(
  * `signal`. Aborting the fetch alone would leave the query running on the
  * server: the request is tagged with a query id, and an abort posts it to the
  * cancel route, which interrupts the query — the request then fails with a 409.
+ *
+ * The call rejects as soon as `signal` aborts, without waiting for that answer:
+ * a query still waiting its turn in the server's heavy lane, or one an external
+ * database is slow to stop, would otherwise hold the caller until it ends.
  */
 export async function cancellableOnServer<T>(
   dataSourceId: string,
@@ -96,7 +100,10 @@ export async function cancellableOnServer<T>(
   if (!signal) return request(undefined)
   signal.throwIfAborted()
   const queryId = crypto.randomUUID()
+  let rejectOnAbort: (reason: unknown) => void = () => {}
+  const aborted = new Promise<never>((_, reject) => { rejectOnAbort = reject })
   const onAbort = () => {
+    rejectOnAbort(signal.reason)
     void apiRequest(`/data-sources/${dataSourceId}/query/cancel`, {
       method: 'POST',
       body: JSON.stringify({ queryId }),
@@ -104,7 +111,10 @@ export async function cancellableOnServer<T>(
   }
   signal.addEventListener('abort', onAbort, { once: true })
   try {
-    const res = await request(queryId)
+    const pending = request(queryId)
+    // Its late failure (the 409 of the cancel) has nobody left to hear it.
+    pending.catch(() => {})
+    const res = await Promise.race([pending, aborted])
     signal.throwIfAborted()
     return res
   } catch (err) {
