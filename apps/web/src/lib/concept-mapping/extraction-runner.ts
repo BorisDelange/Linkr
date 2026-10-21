@@ -464,7 +464,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         Math.min(SAVE_EVERY, sizes[index] - local),
         runTotal, query, controller.signal,
         (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
-        sort, ranking, homes[index], recordTotals[index],
+        sort, ranking, homes[index], recordTotals[index], queryAggregate,
       )
       if (ranking && batch.gone) {
         const gone = new Set(batch.gone)

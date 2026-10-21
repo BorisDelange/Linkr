@@ -7,9 +7,12 @@ import {
   DEFAULT_PROFILE_SECTIONS,
   assembleProfileJson,
   availableSections,
+  buildBatchDetailQuery,
+  buildBatchScalarQuery,
   buildCategoricalQuery,
   buildCombinedScalarQuery,
   buildConceptProfile,
+  buildConceptProfiles,
   buildHistogramQuery,
   buildHospitalUnitsQuery,
   buildNumericStatsQuery,
@@ -21,6 +24,7 @@ import {
   histogramBins,
   histogramFromRows,
   outlierBounds,
+  packProfileBatches,
   resolveProfileSource,
   type ProfileSource,
 } from './concept-profile'
@@ -541,5 +545,94 @@ describe('buildConceptProfile', () => {
     )
     expect(seen.some((s) => s.includes('care_site'))).toBe(false)
     expect(seen.some((s) => s.includes('EXTRACT(YEAR'))).toBe(false)
+  })
+})
+
+describe('batched profiles', () => {
+  it('matches each concept column in its own IN branch, so a database can filter it', () => {
+    // An attached PostgreSQL receives `col IN (…)` but not an OR across two
+    // columns: with the OR, the whole table crossed the network for each query.
+    const sql = buildBatchScalarQuery(source(), [1, 2], DEFAULT_PROFILE_SECTIONS)
+    expect(sql).toContain('WHERE e.concept_id IN (1, 2)')
+    expect(sql).toContain('WHERE e.source_concept_id IN (1, 2) AND e.concept_id IS DISTINCT FROM e.source_concept_id')
+    expect(sql).not.toMatch(/concept_id IN \([^)]*\) OR/)
+    expect(sql).toContain('GROUP BY e.k')
+    // The same per-concept aggregates, grouped.
+    expect(sql).toContain('PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY e.value_number) AS p25')
+    expect(sql).toContain('PARTITION BY k, patient_id')
+  })
+
+  it('reads one branch when the event table has no source concept column', () => {
+    const conditions = { ...source(), event: source().events.find((e) => e.name.includes('condition'))! }
+    const sql = buildBatchScalarQuery(conditions, [7], DEFAULT_PROFILE_SECTIONS)
+    expect(sql).not.toContain('UNION ALL')
+    expect(sql).not.toContain('source_concept_id')
+  })
+
+  it('hashes a code-only dictionary\'s column the way the per-concept match does', () => {
+    const codeOnly = mappingV1ToV2({
+      ...OMOP_V1,
+      conceptTables: [{ key: 'icd', table: 'd_icd', codeColumn: 'icd_code', nameColumn: 'long_title' }],
+      eventTables: { Diagnoses: { table: 'diagnoses_icd', conceptIdColumn: 'icd_code', patientIdColumn: 'subject_id' } },
+    })
+    expect(buildBatchScalarQuery(source(codeOnly, 'icd'), [610472820], DEFAULT_PROFILE_SECTIONS))
+      .toContain('(hash(e.concept_id) % 2147483647)::INTEGER IN (610472820)')
+  })
+
+  it('fences each concept on its own bounds, and none when they are not finite', () => {
+    const sql = buildBatchDetailQuery(OMOP, source(), [
+      { conceptId: 1, bounds: { lower: -5, upper: 12.35 }, bins: 7 },
+      { conceptId: 2, bounds: { lower: Number.NaN, upper: 3 }, bins: 1 },
+      { conceptId: 3, bounds: null, bins: 1 },
+    ], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS)
+    expect(sql).toContain("(1, CAST('-5' AS DOUBLE), CAST('12.35' AS DOUBLE), 7)")
+    expect(sql).toContain('(2, CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE), 1)')
+    expect(sql).toContain('(f.lo IS NULL OR (e.value_number >= f.lo AND e.value_number <= f.hi))')
+    // Top N per concept, not over the batch.
+    expect(sql).toContain('ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, category ASC) AS ord')
+    expect(sql).toContain('QUALIFY ord <= 10')
+    expect(buildBatchDetailQuery(OMOP, source(), [], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS)).toBe('')
+  })
+
+  it('packs concepts by records and by count, a huge one alone', () => {
+    const rows = new Map([[1, 3], [2, 3], [3, 20], [4, 1], [5, 1], [6, 1]])
+    expect(packProfileBatches([1, 2, 3, 4, 5, 6], (id) => rows.get(id), 10, 2)).toEqual([[1, 2], [3], [4, 5], [6]])
+    expect(packProfileBatches([1, 2, 4, 5], () => undefined, 10, 3)).toEqual([[1, 2, 4], [5]])
+  })
+
+  it('gives each concept the outcome its rows say, a concept without rows its zero counts', async () => {
+    const query = async (sql: string) => {
+      if (sql.includes('rows_count')) {
+        return [{ concept_id: 1, rows_count: 1000, patients_count: 200, p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 500 }]
+      }
+      if (sql.includes('AS n FROM scope')) return [{ concept_id: 1, n: 1000 }]
+      if (sql.includes("'numeric' AS block")) {
+        return [
+          { block: 'histogram', k: 1, ord: 3, bin_idx: 3, step_m: 2, step_e: 0, count: 5, patients_count: 4 },
+          { block: 'numeric', k: 1, ord: 0, min: 1, max: 60, mean: 20, median: 20, sd: 5 },
+          { block: 'histogram', k: 1, ord: 2, bin_idx: 2, step_m: 2, step_e: 0, count: 100, patients_count: 50 },
+        ]
+      }
+      return []
+    }
+    const out = await buildConceptProfiles(OMOP, source(), [{ conceptId: 1 }, { conceptId: 2 }], DEFAULT_PROFILE_OPTIONS, query)
+    expect(out.get(1)?.json?.numeric_data).toMatchObject({ min: 1, max: 60 })
+    // In bin order, whatever order the rows came in.
+    expect((out.get(1)?.json?.histogram as { x: number }[]).map((b) => b.x)).toEqual([5, 7])
+    expect(out.get(2)).toEqual({ json: null, rowsCount: 0, patientsCount: 0 })
+  })
+
+  it('profiles a batch concept by concept when its query fails', async () => {
+    const seen: string[] = []
+    const query = async (sql: string) => {
+      seen.push(sql)
+      if (sql.includes('scope AS MATERIALIZED')) throw new Error('not supported')
+      if (sql.includes('rows_count')) return [{ rows_count: 9, patients_count: 2 }]
+      return []
+    }
+    const out = await buildConceptProfiles(OMOP, source(), [{ conceptId: 1 }, { conceptId: 2 }], DEFAULT_PROFILE_OPTIONS, query)
+    expect([...out.keys()]).toEqual([1, 2])
+    expect(out.get(2)).toEqual({ json: null, rowsCount: 9, patientsCount: 2 })
+    expect(seen.filter((q) => q.includes('e.concept_id = 2 OR'))).toHaveLength(1)
   })
 })

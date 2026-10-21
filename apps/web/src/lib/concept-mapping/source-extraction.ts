@@ -22,9 +22,11 @@ import Papa from 'papaparse'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { FileColumnMapping } from '@/types'
 import {
-  buildConceptProfile,
+  buildConceptProfiles,
   eventConceptKey,
+  type ConceptToProfile,
   type ProfileOptions,
+  type ProfileOutcome,
   type ProfileSource,
 } from './concept-profile'
 import { csvEscape } from './export'
@@ -552,11 +554,12 @@ export type ProgressFn = (
 /**
  * Extract one batch of concepts, profiling each.
  *
- * Concepts are profiled one at a time rather than in parallel: every block is a
- * scan of the same event table, and a warehouse answers one at a time faster
- * than it answers eight competing ones. This is also what makes cancellation
- * responsive — `signal` is checked between concepts, so stopping is immediate
- * rather than waiting for a fan-out to drain.
+ * The page's concepts are profiled together, per event table, in batches that
+ * read the table once for all their concepts (`buildConceptProfiles`); the
+ * batches run one after another, since a warehouse answers one scan at a time
+ * faster than several competing ones. `signal` is checked between batches; the
+ * rows returned stop at the first concept left unprofiled, so a resume picks up
+ * there.
  *
  * A concept whose profile fails still yields a row, carrying its identity and
  * an empty `info_json`. Dropping it instead would leave a hole in the source
@@ -584,6 +587,8 @@ export async function extractBatch(
    * over several; patients stay the profile's, since they do not add up.
    */
   recordTotals?: Map<number, number>,
+  /** Runs the profile queries, whose results can exceed `query`'s row cap. */
+  profileQuery: QueryFn = query,
 ): Promise<BatchResult> {
   const sql = buildDictionaryPageQuery(source, batchSize, offset, sort, orderedIds)
   // An empty ranking slice means the ranked list is exhausted — there is no
@@ -600,28 +605,59 @@ export async function extractBatch(
 
   const metadata = computesMetadata(options)
   const counts = computesCounts(options)
-  const rows: ExtractedConcept[] = []
+  const concepts: { concept: DictionaryConcept; conceptId: number; conceptName: string }[] = []
   const seen = new Set<number>()
   for (const raw of page) {
-    if (signal?.aborted) break
     const concept = raw as unknown as DictionaryConcept
     const conceptId = Number(concept.concept_id)
     if (seen.has(conceptId)) continue
     seen.add(conceptId)
-    const conceptName = concept.concept_name == null ? '' : String(concept.concept_name)
+    concepts.push({ concept, conceptId, conceptName: concept.concept_name == null ? '' : String(concept.concept_name) })
+  }
 
-    const home = source.events[homes?.get(conceptId) ?? 0] ?? source.event
-    const profile = metadata
-      ? await buildConceptProfile(
-        mapping, home === source.event ? source : { ...source, event: home },
-        { conceptId, conceptName, category: concept.category ?? undefined },
-        options, query,
+  const profiles = new Map<number, ProfileOutcome>()
+  if (metadata) {
+    // Each concept in its home table: a batch reads one table.
+    const byTable = new Map<number, ConceptToProfile[]>()
+    for (const { concept, conceptId, conceptName } of concepts) {
+      const index = homes?.get(conceptId) ?? 0
+      const group = byTable.get(index) ?? []
+      group.push({ conceptId, conceptName, category: concept.category ?? undefined })
+      byTable.set(index, group)
+    }
+    const named = new Map(concepts.map((c) => [c.conceptId, c]))
+    let profiled = 0
+    for (const [index, group] of byTable) {
+      if (signal?.aborted) break
+      const home = source.events[index] ?? source.event
+      const done = await buildConceptProfiles(
+        mapping, home === source.event ? source : { ...source, event: home }, group, options, profileQuery,
+        {
+          // The records over every table bound the home table's: enough to size
+          // a batch. A concept absent from the totals has none.
+          rowsOf: recordTotals ? (id) => recordTotals.get(id) ?? 0 : undefined,
+          signal,
+          onBatch: (ids) => {
+            profiled += ids.length
+            const last = named.get(ids[ids.length - 1])
+            if (!last) return
+            onProgress?.(offset + profiled, total, {
+              conceptCode: last.concept.concept_code == null ? '' : String(last.concept.concept_code),
+              conceptName: last.conceptName,
+            })
+          },
+        },
       )
-      : null
-    // A pause abandons the concept in flight: its queries were cut short, so
-    // its profile is incomplete. The resume profiles it again.
-    if (signal?.aborted) break
+      for (const [id, profile] of done) profiles.set(id, profile)
+    }
+  }
 
+  const rows: ExtractedConcept[] = []
+  for (const { concept, conceptId, conceptName } of concepts) {
+    const profile = profiles.get(conceptId) ?? null
+    // A pause abandons the batch in flight: its concepts are profiled again on
+    // resume, and the rows stop before the first of them.
+    if (metadata && !profile) break
     const conceptCode = concept.concept_code == null ? '' : String(concept.concept_code)
     rows.push({
       terminology: concept.vocabulary_id ?? '',
@@ -635,7 +671,7 @@ export async function extractBatch(
       // treats anything unparseable as absent, which is what a withheld profile is.
       info_json: profile?.json ? JSON.stringify(profile.json) : '',
     })
-    onProgress?.(offset + rows.length, total, { conceptCode, conceptName })
+    if (!metadata) onProgress?.(offset + rows.length, total, { conceptCode, conceptName })
   }
 
   const nextOffset = offset + rows.length

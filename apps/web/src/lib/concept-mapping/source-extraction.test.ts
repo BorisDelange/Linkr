@@ -2,7 +2,7 @@ import { withClassRelations } from '@/lib/schema-classes/inject'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { describe, expect, it } from 'vitest'
 
-import { DEFAULT_PROFILE_OPTIONS, resolveProfileSource, type ProfileSource } from './concept-profile'
+import { DEFAULT_PROFILE_OPTIONS, PROFILE_BATCH_ROWS, resolveProfileSource, type ProfileSource } from './concept-profile'
 import {
   EXTRACTION_COLUMNS,
   EXTRACTION_COLUMN_MAPPING,
@@ -67,6 +67,11 @@ function engine(answers: { match: string; rows: Record<string, unknown>[] }[]) {
     return answers.find((a) => sql.includes(a.match))?.rows ?? []
   }
   return { query, seen }
+}
+
+/** Record totals putting each of the concepts `from`+1..`from`+n in a profile batch of its own. */
+function huge(n: number, from = 0) {
+  return new Map(Array.from({ length: n }, (_, i) => [from + i + 1, PROFILE_BATCH_ROWS] as [number, number]))
 }
 
 /** A dictionary page of n concepts, ids 1..n offset by `from`. */
@@ -202,16 +207,16 @@ describe('extractBatch', () => {
   it('turns a dictionary page into rows carrying their profile', async () => {
     const { query } = engine([
       { match: 'LIMIT 10 OFFSET 0', rows: page(2) },
-      // Counts and percentiles arrive together: they are single-row aggregates
-      // over the same scope, so they travel as one query rather than six.
+      // The page's concepts are profiled together: one row per concept for
+      // the counts and percentiles, then the blocks, each row naming its concept.
       {
         match: 'COUNT(*) AS rows_count',
-        rows: [{
-          rows_count: 500, patients_count: 42,
+        rows: [1, 2].map((concept_id) => ({
+          concept_id, rows_count: 500, patients_count: 42,
           p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 100,
-        }],
+        })),
       },
-      { match: 'STDDEV', rows: [{ min: 1, max: 60, mean: 20, median: 20, sd: 5 }] },
+      { match: 'STDDEV', rows: [{ block: 'numeric', k: 1, ord: 0, min: 1, max: 60, mean: 20, median: 20, sd: 5 }] },
     ])
     const result = await extractBatch(OMOP, source(), opts, 0, 10, 2, query)
 
@@ -244,19 +249,18 @@ describe('extractBatch', () => {
     expect(noCounts.infoJsonColumn).toBe('info_json')
   })
 
-  it('drops the concept in flight when paused', async () => {
+  it('drops the batch in flight when paused', async () => {
     const controller = new AbortController()
-    let n = 0
     const { query } = engine([
       { match: 'LIMIT 10 OFFSET 0', rows: page(3) },
-      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 1, patients_count: 1 }] },
+      { match: 'COUNT(*) AS rows_count', rows: [1, 2, 3].map((concept_id) => ({ concept_id, rows_count: 1, patients_count: 1 })) },
     ])
     const pausing = (sql: string) => {
-      if (sql.includes('rows_count') && ++n === 2) controller.abort()
+      if (sql.includes('rows_count')) controller.abort()
       return query(sql)
     }
     const result = await extractBatch(OMOP, source(), opts, 0, 10, 3, pausing, controller.signal)
-    expect(result.rows).toHaveLength(1)
+    expect(result.rows).toHaveLength(0)
     expect(result.done).toBe(false)
   })
 
@@ -287,7 +291,7 @@ describe('extractBatch', () => {
     expect(result).toEqual({ rows: [], nextOffset: 100, done: true })
   })
 
-  it('stops between concepts when cancelled, without claiming to be done', async () => {
+  it('stops between profile batches when cancelled, without claiming to be done', async () => {
     // A cancelled batch is short for a different reason than an exhausted one;
     // calling it done would strand the rest of the dictionary.
     const controller = new AbortController()
@@ -297,14 +301,17 @@ describe('extractBatch', () => {
       if (sql.includes('COUNT(*) AS rows_count')) {
         profiled++
         if (profiled === 2) controller.abort()
-        return [{ rows_count: 1, patients_count: 1 }]
+        return [{ concept_id: profiled, rows_count: 1, patients_count: 1 }]
       }
       return []
     }
-    const result = await extractBatch(OMOP, source(), opts, 0, 10, 100, query, controller.signal)
+    const result = await extractBatch(
+      OMOP, source(), opts, 0, 10, 100, query, controller.signal,
+      undefined, undefined, undefined, undefined, huge(10),
+    )
     expect(result.done).toBe(false)
-    expect(result.rows.length).toBeLessThan(10)
-    expect(result.nextOffset).toBe(result.rows.length)
+    expect(result.rows).toHaveLength(1)
+    expect(result.nextOffset).toBe(1)
   })
 
   it('keeps a concept whose profile failed, rather than leaving a hole', async () => {
@@ -322,7 +329,7 @@ describe('extractBatch', () => {
   it('leaves info_json empty for a concept below the privacy threshold', async () => {
     const { query } = engine([
       { match: 'ORDER BY d.', rows: page(1) },
-      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 9, patients_count: 2 }] },
+      { match: 'COUNT(*) AS rows_count', rows: [{ concept_id: 1, rows_count: 9, patients_count: 2 }] },
     ])
     const result = await extractBatch(
       OMOP, source(), { ...DEFAULT_PROFILE_OPTIONS, minPatients: 11 }, 0, 10, 1, query,
@@ -337,10 +344,14 @@ describe('extractBatch', () => {
     // count rather than restart it.
     const { query } = engine([
       { match: 'ORDER BY d.', rows: page(3, 500) },
-      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 1, patients_count: 1 }] },
+      { match: 'COUNT(*) AS rows_count', rows: [501, 502, 503].map((concept_id) => ({ concept_id, rows_count: 1, patients_count: 1 })) },
     ])
     const seen: number[] = []
-    await extractBatch(OMOP, source(), opts, 500, 10, 9000, query, undefined, (n) => seen.push(n))
+    // One concept per profile batch, each too big to share one.
+    await extractBatch(
+      OMOP, source(), opts, 500, 10, 9000, query, undefined, (n) => seen.push(n),
+      undefined, undefined, undefined, huge(3, 500),
+    )
     expect(seen).toEqual([501, 502, 503])
   })
 })
@@ -574,7 +585,7 @@ describe('a dictionary spread over several event tables', () => {
     const s = source(twoTables)
     const { query } = engine([
       { match: 'LIMIT 10 OFFSET 0', rows: page(2) },
-      { match: 'COUNT(*) AS rows_count', rows: [{ rows_count: 50, patients_count: 7 }] },
+      { match: 'COUNT(*) AS rows_count', rows: [1, 2].map((concept_id) => ({ concept_id, rows_count: 50, patients_count: 7 })) },
     ])
     const result = await extractBatch(
       twoTables, s, { ...DEFAULT_PROFILE_OPTIONS, minPatients: 0 }, 0, 10, 2, query,

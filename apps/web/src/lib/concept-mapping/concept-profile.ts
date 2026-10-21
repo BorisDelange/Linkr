@@ -353,29 +353,10 @@ export function buildPercentileQuery(
 }
 
 /**
- * Everything about one concept that fits in a single row, in one query.
- *
- * Six blocks — counts, missing rate, percentiles, records per patient, the modal
- * unit and the measurement interval — are all aggregates over the same rows.
- * Asked one at a time they were six round trips per concept, and over a 5,600
- * concept dictionary that is tens of thousands of requests driven from one
- * browser tab: the dominant cost of a run, and the reason the tab stalled.
- *
- * The blocks that CANNOT join this are the ones that return many rows
- * (histogram, categories, temporal, wards) or that depend on this one's result
- * (the trimmed numeric stats need the fences these percentiles give).
- *
- * Sections the caller did not ask for are left out rather than computed and
- * discarded — the point is to scan less, not to scan the same and ask once.
+ * The row-level aggregates of the combined scalar query, over rows read as `e`:
+ * the event table for one concept, or a batch's rows grouped by concept.
  */
-export function buildCombinedScalarQuery(
-  _mapping: SchemaMapping,
-  source: ProfileSource,
-  conceptId: number,
-  sections: ProfileSections,
-): string {
-  const event = source.event
-  const hasPatient = has(event, 'patient_id')
+function scalarAggregates(event: ClassRelation, sections: ProfileSections): string[] {
   const parts: string[] = ['COUNT(*) AS rows_count', `${patientsExpr(event)} AS patients_count`]
 
   const empty = sections.missingRate ? emptyValue(event) : null
@@ -404,7 +385,34 @@ export function buildCombinedScalarQuery(
     // already visit, where the standalone query needed its own GROUP BY pass.
     parts.push(`mode(${u}) FILTER (WHERE ${u} IS NOT NULL AND TRIM(${u}) <> '') AS unit`)
   }
+  return parts
+}
 
+/**
+ * Everything about one concept that fits in a single row, in one query.
+ *
+ * Six blocks — counts, missing rate, percentiles, records per patient, the modal
+ * unit and the measurement interval — are all aggregates over the same rows.
+ * Asked one at a time they were six round trips per concept, and over a 5,600
+ * concept dictionary that is tens of thousands of requests driven from one
+ * browser tab: the dominant cost of a run, and the reason the tab stalled.
+ *
+ * The blocks that CANNOT join this are the ones that return many rows
+ * (histogram, categories, temporal, wards) or that depend on this one's result
+ * (the trimmed numeric stats need the fences these percentiles give).
+ *
+ * Sections the caller did not ask for are left out rather than computed and
+ * discarded — the point is to scan less, not to scan the same and ask once.
+ */
+export function buildCombinedScalarQuery(
+  _mapping: SchemaMapping,
+  source: ProfileSource,
+  conceptId: number,
+  sections: ProfileSections,
+): string {
+  const event = source.event
+  const hasPatient = has(event, 'patient_id')
+  const parts = scalarAggregates(event, sections)
   const scope = eventScope(source, conceptId)
 
   // Per-patient counts and inter-record delays are aggregates over GROUPS, so
@@ -841,40 +849,26 @@ export interface ConceptToProfile {
   category?: string
 }
 
-/**
- * Run one concept's profile end to end.
- *
- * `query` executes SQL against the source database; the caller owns mounting and
- * routing (WASM or server). Blocks run in sequence rather than in parallel: they
- * scan the same event table, and a warehouse answers one big scan faster than
- * eight competing ones.
- *
- * A block that fails is skipped, not fatal — a profile missing its wards is
- * still worth having, and one malformed date column should not cost the whole
- * extraction.
- */
-export async function buildConceptProfile(
-  mapping: SchemaMapping,
-  source: ProfileSource,
-  concept: ConceptToProfile,
-  options: ProfileOptions,
-  query: (sql: string) => Promise<Record<string, unknown>[]>,
-): Promise<{ json: Record<string, unknown> | null; rowsCount: number; patientsCount: number | null }> {
-  const sections = effectiveSections(options.sections, availableSections(mapping, source))
-  const run = async (sql: string): Promise<Record<string, unknown>[]> => {
-    if (!sql) return []
-    try {
-      return await query(sql)
-    } catch {
-      return []
-    }
-  }
+/** A concept's profile, or null when it is withheld, with its counts. */
+export interface ProfileOutcome {
+  json: Record<string, unknown> | null
+  rowsCount: number
+  patientsCount: number | null
+}
 
-  // One query for every block that fits in a single row. See
-  // buildCombinedScalarQuery: this is what took a concept from six round trips
-  // to one, and a whole run from tens of thousands of requests to a few.
-  const scalarRows = await run(buildCombinedScalarQuery(mapping, source, concept.conceptId, sections))
-  const scalar = (scalarRows[0] ?? {}) as Record<string, unknown>
+/** What the scalar row says, and what the blocks after it need from it. */
+interface ScalarReading {
+  results: ProfileQueryResults
+  /** Below the k-anonymity threshold: nothing else is computed. */
+  withheld: boolean
+  /** The numeric block was asked for and the row carries its percentiles. */
+  numericRead: boolean
+  bounds: OutlierBounds | null
+  numericCount: number
+}
+
+/** Read the combined scalar row (single or batched, the same columns). */
+function readScalar(scalar: Record<string, unknown>, sections: ProfileSections, options: ProfileOptions): ScalarReading {
   const num = (key: string): number | null =>
     scalar[key] == null ? null : Number(scalar[key])
 
@@ -887,7 +881,7 @@ export async function buildConceptProfile(
   // Below the threshold nothing else is computed: the JSON would be withheld
   // anyway, and everything still to come is the expensive part.
   if (base.patients_count != null && base.patients_count < options.minPatients) {
-    return { json: null, rowsCount: base.rows_count, patientsCount: base.patients_count }
+    return { results, withheld: true, numericRead: false, bounds: null, numericCount: 0 }
   }
 
   if (sections.missingRate && 'missing_rate' in scalar) {
@@ -910,7 +904,8 @@ export async function buildConceptProfile(
 
   let bounds: OutlierBounds | null = null
   let numericCount = 0
-  if (sections.numeric && 'numeric_count' in scalar) {
+  const numericRead = sections.numeric && 'numeric_count' in scalar
+  if (numericRead) {
     numericCount = Number(scalar.numeric_count ?? 0)
     bounds = outlierBounds(
       {
@@ -920,6 +915,64 @@ export async function buildConceptProfile(
       options.outlierMethod,
       options.outlierCoef,
     )
+  }
+  return { results, withheld: false, numericRead, bounds, numericCount }
+}
+
+function outcome(mapping: SchemaMapping, reading: ScalarReading, concept: ConceptToProfile, options: ProfileOptions): ProfileOutcome {
+  const { base } = reading.results
+  const json = reading.withheld
+    ? null
+    : assembleProfileJson(
+      reading.results,
+      { fullName: concept.conceptName, dataSource: localizedPresetLabel(mapping) },
+      options,
+    )
+  return { json, rowsCount: base.rows_count, patientsCount: base.patients_count }
+}
+
+/**
+ * Run one concept's profile end to end.
+ *
+ * `query` executes SQL against the source database; the caller owns mounting and
+ * routing (WASM or server). Blocks run in sequence rather than in parallel: they
+ * scan the same event table, and a warehouse answers one big scan faster than
+ * eight competing ones.
+ *
+ * A block that fails is skipped, not fatal — a profile missing its wards is
+ * still worth having, and one malformed date column should not cost the whole
+ * extraction.
+ *
+ * Each query reads the whole event table, unsorted by concept, so a run of
+ * concepts goes through `buildConceptProfiles` instead; this stays for one
+ * concept, and for a batch whose queries failed.
+ */
+export async function buildConceptProfile(
+  mapping: SchemaMapping,
+  source: ProfileSource,
+  concept: ConceptToProfile,
+  options: ProfileOptions,
+  query: (sql: string) => Promise<Record<string, unknown>[]>,
+): Promise<ProfileOutcome> {
+  const sections = effectiveSections(options.sections, availableSections(mapping, source))
+  const run = async (sql: string): Promise<Record<string, unknown>[]> => {
+    if (!sql) return []
+    try {
+      return await query(sql)
+    } catch {
+      return []
+    }
+  }
+
+  // One query for every block that fits in a single row. See
+  // buildCombinedScalarQuery: this is what took a concept from six round trips
+  // to one, and a whole run from tens of thousands of requests to a few.
+  const scalarRows = await run(buildCombinedScalarQuery(mapping, source, concept.conceptId, sections))
+  const reading = readScalar((scalarRows[0] ?? {}) as Record<string, unknown>, sections, options)
+  if (reading.withheld) return outcome(mapping, reading, concept, options)
+  const { results, bounds, numericCount } = reading
+
+  if (reading.numericRead) {
     // Still its own query: these describe the TRIMMED distribution, so they
     // cannot be computed before the fences above are known.
     const stats = await run(buildNumericStatsQuery(source, concept.conceptId, bounds))
@@ -950,12 +1003,376 @@ export async function buildConceptProfile(
     if (rows.length) results.hospitalUnits = rows as unknown as ProfileQueryResults['hospitalUnits']
   }
 
-  const json = assembleProfileJson(
-    results,
-    { fullName: concept.conceptName, dataSource: localizedPresetLabel(mapping) },
-    options,
-  )
-  return { json, rowsCount: base.rows_count, patientsCount: base.patients_count }
+  return outcome(mapping, reading, concept, options)
+}
+
+// ---------------------------------------------------------------------------
+// Batched profiles
+// ---------------------------------------------------------------------------
+//
+// The event table is not sorted by concept, so every per-concept query reads it
+// whole: about eight reads per concept, whatever its size. A batch reads the
+// rows of all its concepts once into a materialised CTE and groups by concept —
+// two reads per batch (the scalar row, then the blocks the fences decide).
+// Measured on 250 concepts of a 50M-row table: 714 s per concept, 28-35 s in
+// batches of 100, the same JSON (2026-10-20).
+//
+// Each concept column is matched by its own IN list, in its own branch: an
+// attached PostgreSQL receives `col IN (…)` as a filter, but an OR across two
+// columns is not pushed down, and the whole table then crosses the network.
+
+/** Rows a batch reads at most: its rows are held in memory while it runs. */
+export const PROFILE_BATCH_ROWS = 5_000_000
+/** Concepts a batch holds at most. */
+export const PROFILE_BATCH_CONCEPTS = 100
+
+/** The columns a batch keeps of each row, besides the concept key `k`. */
+const BATCH_COLUMNS = ['patient_id', 'value_number', 'value_string', 'unit', 'start_datetime'] as const
+
+/**
+ * The batch's rows, keyed by concept: a CTE named `scope`. A row naming two of
+ * the batch's concepts (concept_id A, source_concept_id B) belongs to both, as
+ * the per-concept OR counts it; one naming the same concept twice, once.
+ */
+function batchScope(source: ProfileSource, conceptIds: readonly number[]): string {
+  const ids = [...new Set(conceptIds.map((id) => Math.trunc(id)))].join(', ')
+  const columns = BATCH_COLUMNS.filter((c) => has(source.event, c)).map((c) => `, e.${c}`).join('')
+  const key = (column: string) => eventConceptKey(source.dictionary, column)
+  const branch = (column: string, extra = '') =>
+    `SELECT ${key(column)} AS k${columns} FROM ${source.event.name} e WHERE ${key(column)} IN (${ids})${extra}`
+  const branches = [branch('e.concept_id')]
+  if (has(source.event, 'source_concept_id')) {
+    branches.push(branch('e.source_concept_id', ` AND ${key('e.concept_id')} IS DISTINCT FROM ${key('e.source_concept_id')}`))
+  }
+  return `scope AS MATERIALIZED (
+  ${branches.join('\n  UNION ALL\n  ')}
+)`
+}
+
+/** Records per concept of a batch — to size the batches when no count is known. */
+export function buildBatchCountsQuery(source: ProfileSource, conceptIds: readonly number[]): string {
+  return `WITH ${batchScope(source, conceptIds)}
+  SELECT e.k AS concept_id, COUNT(*) AS n FROM scope e GROUP BY e.k`
+}
+
+/** `buildCombinedScalarQuery` for a batch: one row per concept with records. */
+export function buildBatchScalarQuery(
+  source: ProfileSource,
+  conceptIds: readonly number[],
+  sections: ProfileSections,
+): string {
+  const event = source.event
+  const hasPatient = has(event, 'patient_id')
+  const ctes = [
+    batchScope(source, conceptIds),
+    `base AS (SELECT e.k, ${scalarAggregates(event, sections).join(', ')} FROM scope e GROUP BY e.k)`,
+  ]
+  const joined: string[] = []
+  if (sections.perPatient && hasPatient) {
+    ctes.push(`per_patient AS (
+    SELECT k, ROUND(AVG(n), 1) AS per_patient_mean, MEDIAN(n) AS per_patient_median, MIN(n) AS per_patient_min, MAX(n) AS per_patient_max
+    FROM (SELECT e.k, COUNT(*) AS n FROM scope e GROUP BY e.k, e.patient_id) GROUP BY k)`)
+    joined.push('per_patient')
+  }
+  if (sections.frequency && has(event, 'start_datetime') && hasPatient) {
+    ctes.push(`frequency AS (
+    SELECT k, MEDIAN(hours) AS median_hours FROM (
+      SELECT k, EXTRACT(EPOCH FROM (ts - LAG(ts) OVER (PARTITION BY k, patient_id ORDER BY ts))) / 3600.0 AS hours
+      FROM (SELECT e.k, e.patient_id AS patient_id, CAST(e.start_datetime AS TIMESTAMP) AS ts FROM scope e WHERE e.start_datetime IS NOT NULL)
+    ) WHERE hours > 0 GROUP BY k)`)
+    joined.push('frequency')
+  }
+  return `WITH ${ctes.join(',\n  ')}
+  SELECT base.k AS concept_id, base.* EXCLUDE (k)${joined.map((j) => `, ${j}.* EXCLUDE (k)`).join('')}
+  FROM base${joined.map((j) => ` LEFT JOIN ${j} USING (k)`).join('')}`
+}
+
+/** A concept of a batch past the k-anonymity threshold, with what its blocks need. */
+export interface BatchFence {
+  conceptId: number
+  bounds: OutlierBounds | null
+  bins: number
+}
+
+/** A SQL literal for a fence, exactly the double the per-concept query writes. */
+const fenceLiteral = (bounds: OutlierBounds | null, side: 'lower' | 'upper'): string =>
+  bounds && Number.isFinite(bounds.lower) && Number.isFinite(bounds.upper) ? `CAST('${bounds[side]}' AS DOUBLE)` : 'CAST(NULL AS DOUBLE)'
+
+/**
+ * The blocks after the scalar row, for a batch, as one result: each row says
+ * its `block` and its concept, and `ord` orders the rows of a block (the server
+ * may re-sort a result, so the order travels as a column).
+ */
+export function buildBatchDetailQuery(
+  mapping: SchemaMapping,
+  source: ProfileSource,
+  fences: readonly BatchFence[],
+  sections: ProfileSections,
+  options: Pick<ProfileOptions, 'minCategoryCount' | 'topN'>,
+): string {
+  const event = source.event
+  const withPatient = has(event, 'patient_id')
+  const values = fences
+    .map((f) => `(${Math.trunc(f.conceptId)}, ${fenceLiteral(f.bounds, 'lower')}, ${fenceLiteral(f.bounds, 'upper')}, ${Math.trunc(f.bins)})`)
+    .join(', ')
+  const ctes = [batchScope(source, fences.map((f) => f.conceptId)), `fences(k, lo, hi, bins) AS (VALUES ${values})`]
+  const inFence = '(f.lo IS NULL OR (e.value_number >= f.lo AND e.value_number <= f.hi))'
+  const blocks: string[] = []
+
+  if (sections.numeric && has(event, 'value_number')) {
+    const v = 'e.value_number'
+    blocks.push(`SELECT 'numeric' AS block, e.k, 0 AS ord,
+    MIN(${v}) AS min,
+    MAX(${v}) AS max,
+    ROUND(AVG(${v}), 1) AS mean,
+    ROUND(MEDIAN(${v}), 1) AS median,
+    ROUND(STDDEV(${v}), 1) AS sd,
+    ROUND(PERCENTILE_CONT(0.05) WITHIN GROUP (ORDER BY ${v}), 1) AS p5,
+    ROUND(PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ${v}), 1) AS p25,
+    ROUND(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ${v}), 1) AS p75,
+    ROUND(PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY ${v}), 1) AS p95,
+    COUNT(${v}) AS numeric_count
+  FROM scope e JOIN fences f ON f.k = e.k WHERE ${v} IS NOT NULL AND ${inFence} GROUP BY e.k`)
+  }
+
+  if (sections.histogram && has(event, 'value_number')) {
+    ctes.push(`filtered AS (
+    SELECT e.k, e.value_number AS value${withPatient ? ', e.patient_id AS patient_id' : ''}
+    FROM scope e JOIN fences f ON f.k = e.k WHERE e.value_number IS NOT NULL AND ${inFence}
+  )`, `spread AS (
+    SELECT x.k, (MAX(x.value) - MIN(x.value)) / ANY_VALUE(f.bins) AS width FROM filtered x JOIN fences f ON f.k = x.k GROUP BY x.k
+  )`, `magnitude AS (
+    SELECT k, width / POW(10, FLOOR(LOG10(width))) AS mantissa, CAST(FLOOR(LOG10(width)) AS INTEGER) AS step_e
+    FROM spread WHERE width > 0
+  )`, `step AS (
+    SELECT k, CASE WHEN mantissa <= 1 THEN 1 WHEN mantissa <= 2 THEN 2 WHEN mantissa <= 5 THEN 5 ELSE 10 END AS step_m, step_e
+    FROM magnitude
+  )`, `bins AS (
+    SELECT x.k, CAST(FLOOR(CASE WHEN s.step_e < 0 THEN x.value * POW(10, -s.step_e) / s.step_m
+                              ELSE x.value / (s.step_m * POW(10, s.step_e)) END) AS INTEGER) AS bin_idx,
+           s.step_m, s.step_e, COUNT(*) AS count,
+           ${withPatient ? 'COUNT(DISTINCT x.patient_id)' : 'NULL'} AS patients_count
+    FROM filtered x JOIN step s ON s.k = x.k GROUP BY ALL
+  )`)
+    blocks.push(`SELECT 'histogram' AS block, k, bin_idx AS ord, bin_idx, step_m, step_e, count, patients_count FROM bins`)
+  }
+
+  if (sections.categorical && has(event, 'value_string')) {
+    const v = 'CAST(e.value_string AS VARCHAR)'
+    blocks.push(`SELECT 'categorical' AS block, k, ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, category ASC) AS ord,
+    category, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (PARTITION BY k), 1) AS percentage FROM (
+    SELECT e.k, ${v} AS category, COUNT(*) AS count, ${patientsExpr(event)} AS patients_count
+    FROM scope e WHERE ${v} IS NOT NULL AND TRIM(${v}) <> ''
+    GROUP BY e.k, ${v}
+    HAVING COUNT(*) >= ${Math.trunc(options.minCategoryCount)}
+  ) QUALIFY ord <= ${Math.trunc(options.topN)}`)
+  }
+
+  if (sections.temporal && has(event, 'start_datetime')) {
+    blocks.push(`SELECT 'temporal' AS block, k, year AS ord, year, count, patients_count, percentage, start_date, end_date FROM (
+    SELECT k, EXTRACT(YEAR FROM ts) AS year, COUNT(*) AS count,
+         ${withPatient ? 'COUNT(DISTINCT patient_id)' : 'NULL'} AS patients_count,
+         ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY k), 1) AS percentage,
+         MIN(MIN(ts)) OVER (PARTITION BY k)::DATE AS start_date,
+         MAX(MAX(ts)) OVER (PARTITION BY k)::DATE AS end_date
+    FROM (SELECT e.k, CAST(e.start_datetime AS TIMESTAMP) AS ts${withPatient ? ', e.patient_id AS patient_id' : ''}
+          FROM scope e WHERE e.start_datetime IS NOT NULL)
+    GROUP BY k, EXTRACT(YEAR FROM ts))`)
+  }
+
+  const ward = sections.hospitalUnits ? resolveWardExpr(mapping, event) : null
+  if (ward) {
+    blocks.push(`SELECT 'hospitalUnits' AS block, k, ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, unit ASC) AS ord,
+    unit, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (PARTITION BY k), 1) AS percentage FROM (
+    SELECT e.k, ${ward.expr} AS unit, COUNT(*) AS count, COUNT(DISTINCT e.patient_id) AS patients_count
+    FROM scope e
+    ${ward.joins}
+    WHERE ${ward.expr} IS NOT NULL
+    GROUP BY e.k, ${ward.expr}
+  ) QUALIFY ord <= ${Math.trunc(options.topN)}`)
+  }
+
+  if (blocks.length === 0 || fences.length === 0) return ''
+  return `WITH ${ctes.join(',\n  ')}
+  ${blocks.map((b) => `(${b})`).join('\n  UNION ALL BY NAME\n  ')}`
+}
+
+/**
+ * Split concepts into batches of at most `maxRows` records and `maxConcepts`
+ * concepts, in their order. A concept bigger than `maxRows` is a batch of its
+ * own; one with no known count weighs nothing.
+ */
+export function packProfileBatches(
+  conceptIds: readonly number[],
+  rowsOf: (conceptId: number) => number | undefined,
+  maxRows = PROFILE_BATCH_ROWS,
+  maxConcepts = PROFILE_BATCH_CONCEPTS,
+): number[][] {
+  const batches: number[][] = []
+  let current: number[] = []
+  let rows = 0
+  for (const id of conceptIds) {
+    const n = rowsOf(id) ?? 0
+    if (current.length > 0 && (rows + n > maxRows || current.length >= maxConcepts)) {
+      batches.push(current)
+      current = []
+      rows = 0
+    }
+    current.push(id)
+    rows += n
+  }
+  if (current.length > 0) batches.push(current)
+  return batches
+}
+
+/**
+ * Profile several concepts of one event table, in batches (see above): the
+ * same outcome as `buildConceptProfile` for each. `rowsOf` gives a concept's
+ * records when known, to size the batches; unknown, they are counted first.
+ *
+ * A batch whose query fails falls back to the per-concept profile of each of
+ * its concepts, so a database that refuses the batched SQL still extracts. With
+ * `signal` aborted, it stops between batches and returns what is done.
+ */
+export async function buildConceptProfiles(
+  mapping: SchemaMapping,
+  source: ProfileSource,
+  concepts: readonly ConceptToProfile[],
+  options: ProfileOptions,
+  query: (sql: string) => Promise<Record<string, unknown>[]>,
+  opts: {
+    rowsOf?: (conceptId: number) => number | undefined
+    signal?: AbortSignal
+    onBatch?: (done: readonly number[]) => void
+  } = {},
+): Promise<Map<number, ProfileOutcome>> {
+  const sections = effectiveSections(options.sections, availableSections(mapping, source))
+  const byId = new Map(concepts.map((c) => [Math.trunc(c.conceptId), c]))
+  const ids = [...byId.keys()]
+  const out = new Map<number, ProfileOutcome>()
+
+  let rowsOf = opts.rowsOf
+  if (!rowsOf || ids.some((id) => rowsOf!(id) === undefined)) {
+    const known = rowsOf
+    const counted = new Map<number, number>()
+    try {
+      for (const row of await query(buildBatchCountsQuery(source, ids))) counted.set(Number(row.concept_id), Number(row.n))
+    } catch {
+      if (opts.signal?.aborted) return out
+      // Sized by concepts alone, then.
+    }
+    rowsOf = (id) => known?.(id) ?? counted.get(id) ?? 0
+  }
+
+  for (const batch of packProfileBatches(ids, rowsOf)) {
+    if (opts.signal?.aborted) break
+    let done: Map<number, ProfileOutcome> | null = null
+    try {
+      done = await profileBatch(mapping, source, batch.map((id) => byId.get(id)!), sections, options, query)
+    } catch {
+      if (opts.signal?.aborted) break
+    }
+    if (!done) {
+      done = new Map()
+      for (const id of batch) {
+        if (opts.signal?.aborted) break
+        done.set(id, await buildConceptProfile(mapping, source, byId.get(id)!, options, query))
+      }
+    }
+    // A pause may have cut the batch's queries short: it is profiled again on resume.
+    if (opts.signal?.aborted) break
+    for (const [id, profile] of done) out.set(id, profile)
+    opts.onBatch?.(batch)
+  }
+  return out
+}
+
+/** One batch: the scalar rows, then the blocks for the concepts past the threshold. Throws when a query fails. */
+async function profileBatch(
+  mapping: SchemaMapping,
+  source: ProfileSource,
+  concepts: readonly ConceptToProfile[],
+  sections: ProfileSections,
+  options: ProfileOptions,
+  query: (sql: string) => Promise<Record<string, unknown>[]>,
+): Promise<Map<number, ProfileOutcome>> {
+  const ids = concepts.map((c) => Math.trunc(c.conceptId))
+  const scalars = new Map<number, Record<string, unknown>>()
+  for (const row of await query(buildBatchScalarQuery(source, ids, sections))) scalars.set(Number(row.concept_id), row)
+
+  const readings = new Map<number, ScalarReading>()
+  const fences: BatchFence[] = []
+  for (const id of ids) {
+    // No row: the concept has no records here. The per-concept query still
+    // answers one row of counts at zero, its other aggregates NULL.
+    const scalar = scalars.get(id) ?? emptyScalar(source.event, sections)
+    const reading = readScalar(scalar, sections, options)
+    readings.set(id, reading)
+    if (!reading.withheld) fences.push({ conceptId: id, bounds: reading.bounds, bins: histogramBins(reading.numericCount, options.bins) })
+  }
+
+  const detail = fences.length > 0 ? buildBatchDetailQuery(mapping, source, fences, sections, options) : ''
+  const rows = detail ? await query(detail) : []
+  const blocks = new Map<string, Record<string, unknown>[]>()
+  for (const row of rows) {
+    const key = `${Number(row.k)}:${String(row.block)}`
+    const list = blocks.get(key)
+    if (list) list.push(row)
+    else blocks.set(key, [row])
+  }
+  const blockRows = (id: number, block: string): Record<string, unknown>[] =>
+    (blocks.get(`${id}:${block}`) ?? [])
+      .sort((a, b) => Number(a.ord) - Number(b.ord))
+      // UNION BY NAME pads every row with the other blocks' columns: keep this
+      // block's, in the order the per-concept query gives them, which the
+      // profile JSON keeps.
+      .map((row) => Object.fromEntries(BLOCK_COLUMNS[block].map((column) => [column, row[column]])))
+
+  const out = new Map<number, ProfileOutcome>()
+  for (const concept of concepts) {
+    const id = Math.trunc(concept.conceptId)
+    const reading = readings.get(id)!
+    if (!reading.withheld) {
+      const { results } = reading
+      const numeric = blockRows(id, 'numeric')[0]
+      // The per-concept stats query answers a row of NULLs when the fence
+      // leaves no value; the assembler reads both as no numeric block.
+      if (reading.numericRead && numeric) results.numeric = numeric as Record<string, number | null>
+      if (sections.histogram && reading.numericCount > 0) {
+        const histogram = blockRows(id, 'histogram')
+        if (histogram.length) results.histogram = histogramFromRows(histogram)
+      }
+      const categorical = blockRows(id, 'categorical')
+      if (categorical.length) results.categorical = categorical as unknown as ProfileQueryResults['categorical']
+      const temporal = blockRows(id, 'temporal')
+      if (temporal.length) results.temporal = temporal as unknown as ProfileQueryResults['temporal']
+      const wards = blockRows(id, 'hospitalUnits')
+      if (wards.length) results.hospitalUnits = wards as unknown as ProfileQueryResults['hospitalUnits']
+    }
+    out.set(id, outcome(mapping, reading, concept, options))
+  }
+  return out
+}
+
+/** The columns of each block of the detail query, in the per-concept query's order. */
+const BLOCK_COLUMNS: Record<string, readonly string[]> = {
+  numeric: ['min', 'max', 'mean', 'median', 'sd', 'p5', 'p25', 'p75', 'p95', 'numeric_count'],
+  histogram: ['bin_idx', 'step_m', 'step_e', 'count', 'patients_count'],
+  categorical: ['category', 'count', 'patients_count', 'percentage'],
+  temporal: ['year', 'count', 'patients_count', 'percentage', 'start_date', 'end_date'],
+  hospitalUnits: ['unit', 'count', 'patients_count', 'percentage'],
+}
+
+/** The scalar row the per-concept query gives a concept with no records. */
+function emptyScalar(event: ClassRelation, sections: ProfileSections): Record<string, unknown> {
+  const hasPatient = has(event, 'patient_id')
+  const row: Record<string, unknown> = { rows_count: 0, patients_count: hasPatient ? 0 : null }
+  if (sections.missingRate && emptyValue(event)) row.missing_rate = null
+  if (sections.numeric && has(event, 'value_number')) Object.assign(row, { p1: null, p25: null, median: null, p75: null, p99: null, numeric_count: 0 })
+  if (sections.unit && has(event, 'unit')) row.unit = null
+  if (sections.perPatient && hasPatient) Object.assign(row, { per_patient_mean: null, per_patient_median: null, per_patient_min: null, per_patient_max: null })
+  if (sections.frequency && has(event, 'start_datetime') && hasPatient) row.median_hours = null
+  return row
 }
 
 /** The schema's own name, recorded as the profile's `data_source`. */
