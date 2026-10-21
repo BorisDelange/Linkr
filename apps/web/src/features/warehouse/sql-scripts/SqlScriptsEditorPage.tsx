@@ -64,6 +64,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useSqlCollectionActions } from './use-sql-collection-actions'
 import { cn } from '@/lib/utils'
+import { editorTabClass } from '@/components/editor/editor-tab'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
@@ -804,10 +805,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                                   if (!editorVisible) setEditorVisible(true)
                                 }}
                                 className={cn(
-                                  'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                  isActive
-                                    ? 'bg-background text-foreground'
-                                    : 'text-muted-foreground hover:bg-accent/50',
+                                  editorTabClass(isActive),
                                 )}
                               >
                                 <span className="max-w-[140px] truncate" title={file.name}>{file.name}</span>
@@ -876,10 +874,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                                     if (!outputVisible) setOutputVisible(true)
                                   }}
                                   className={cn(
-                                    'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                    isActive && outputVisible
-                                      ? 'bg-primary/10 text-foreground'
-                                      : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                                    editorTabClass(isActive && outputVisible),
                                   )}
                                 >
                                   <span>{t('files.console')}</span>
@@ -922,10 +917,7 @@ export function SqlScriptsEditorPage({ collectionId }: Props) {
                                   if (!outputVisible) setOutputVisible(true)
                                 }}
                                 className={cn(
-                                  'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                  tab.id === activeOutputTab && outputVisible
-                                    ? 'bg-primary/10 text-foreground'
-                                    : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                                  editorTabClass(tab.id === activeOutputTab && outputVisible),
                                 )}
                               >
                                 {tab.type === 'table' ? <TableIcon size={12} /> : <FileText size={12} />}

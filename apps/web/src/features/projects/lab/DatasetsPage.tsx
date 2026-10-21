@@ -18,6 +18,7 @@ import {
   ContextMenuTrigger,
 } from '@/components/ui/context-menu'
 import { cn } from '@/lib/utils'
+import { editorTabClass } from '@/components/editor/editor-tab'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import { TabScrollArrow, useTabScroll } from '@/components/editor/use-tab-scroll'
 import { TabInsertCaret, useTabReorder } from '@/components/editor/use-tab-reorder'
@@ -105,8 +106,8 @@ function DatasetTab({
           onClick={onActivate}
           title={name}
           className={cn(
-            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
-            isActive ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/50',
+            editorTabClass(isActive),
+            'select-none',
             isDragging && 'opacity-40',
           )}
         >
@@ -172,8 +173,8 @@ function AnalysisTab({
           onClick={onActivate}
           title={name}
           className={cn(
-            'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0 select-none',
-            isActive ? 'bg-background text-foreground' : 'text-muted-foreground hover:bg-accent/50',
+            editorTabClass(isActive),
+            'select-none',
             isDragging && 'opacity-40',
           )}
         >

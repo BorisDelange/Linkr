@@ -18,6 +18,10 @@ const reset = (over: Partial<ReturnType<typeof useFileStore.getState>> = {}) =>
     editorGroupOutputTab: null,
     openFileIds: [],
     selectedFileId: null,
+    terminalTabs: [],
+    editorTabsInOutputGroup: [],
+    outputGroupEditorTab: null,
+    focusedGroup: 'left',
     ...over,
   })
 
@@ -146,4 +150,102 @@ describe('closing a tab that lives in the editor group', () => {
     expect(s.outputTabsInEditorGroup).toEqual(['t1'])
     expect(s.editorGroupOutputTab).toBe('t1')
   })
+})
+
+describe('moving a file or terminal to the output group', () => {
+  beforeEach(() => reset({ openFileIds: ['f1', 'f2', 'f3'], selectedFileId: 'f2' }))
+
+  it('makes it the right group active tab, focused, and gives the left another file', () => {
+    useFileStore.getState().moveEditorTabToOutputGroup('f2')
+    const s = useFileStore.getState()
+    expect(s.editorTabsInOutputGroup).toEqual(['f2'])
+    expect(s.outputGroupEditorTab).toBe('f2')
+    expect(s.focusedGroup).toBe('right')
+    expect(s.outputVisible).toBe(true)
+    // Still open: only its group changed.
+    expect(s.openFileIds).toEqual(['f1', 'f2', 'f3'])
+    expect(s.selectedFileId).toBe('f3')
+  })
+
+  it('selecting a file that lives on the right activates it there, not on the left', () => {
+    useFileStore.getState().moveEditorTabToOutputGroup('f1')
+    useFileStore.getState().selectFile('f2')
+    useFileStore.getState().selectFile('f1')
+    const s = useFileStore.getState()
+    expect(s.selectedFileId).toBe('f2')
+    expect(s.outputGroupEditorTab).toBe('f1')
+    expect(s.focusedGroup).toBe('right')
+  })
+
+  it('an output becoming active on the right takes the pane back', () => {
+    useFileStore.getState().moveEditorTabToOutputGroup('f1')
+    useFileStore.getState().setActiveOutputTab('t2')
+    expect(useFileStore.getState().outputGroupEditorTab).toBeNull()
+  })
+
+  it('an output activated in the left group leaves the right file shown', () => {
+    useFileStore.getState().moveOutputTabToEditorGroup('t2')
+    useFileStore.getState().moveEditorTabToOutputGroup('f1')
+    useFileStore.getState().setActiveOutputTab('t2')
+    expect(useFileStore.getState().outputGroupEditorTab).toBe('f1')
+  })
+
+  it('a reused output living on the left is re-shown there, never in the right pane', () => {
+    useFileStore.getState().moveOutputTabToEditorGroup('t2')
+    useFileStore.getState().selectFile('f2')
+    // A re-run upserts the same tab and activates it.
+    useFileStore.getState().addOutputTab(tab('t2'))
+    useFileStore.getState().setActiveOutputTab('t2')
+    const s = useFileStore.getState()
+    expect(s.editorGroupOutputTab).toBe('t2')
+    expect(s.activeOutputTab).not.toBe('t2')
+  })
+
+  it('closing the right file hands the right group the tab before it', () => {
+    const move = useFileStore.getState().moveEditorTabToOutputGroup
+    move('f1')
+    move('f3')
+    useFileStore.getState().closeFile('f3')
+    const s = useFileStore.getState()
+    expect(s.editorTabsInOutputGroup).toEqual(['f1'])
+    expect(s.outputGroupEditorTab).toBe('f1')
+    expect(s.selectedFileId).toBe('f2')
+  })
+
+  it('closing the left file never selects one that lives on the right', () => {
+    useFileStore.getState().moveEditorTabToOutputGroup('f1')
+    useFileStore.getState().selectFile('f2')
+    useFileStore.getState().closeFile('f2')
+    expect(useFileStore.getState().selectedFileId).toBe('f3')
+    useFileStore.getState().closeFile('f3')
+    expect(useFileStore.getState().selectedFileId).toBeNull()
+  })
+
+  it('moving it back makes it the left active tab again', () => {
+    useFileStore.getState().moveEditorTabToOutputGroup('f1')
+    useFileStore.getState().moveEditorTabToEditorGroup('f1')
+    const s = useFileStore.getState()
+    expect(s.editorTabsInOutputGroup).toEqual([])
+    expect(s.outputGroupEditorTab).toBeNull()
+    expect(s.selectedFileId).toBe('f1')
+    expect(s.focusedGroup).toBe('left')
+  })
+
+  it('moves a terminal the same way, and closing it cleans the group', () => {
+    reset({
+      openFileIds: ['f1'],
+      selectedFileId: 'term:r:1',
+      terminalTabs: [{ id: 'term:r:1', kind: 'r', label: 'R 1' }],
+    })
+    useFileStore.getState().moveEditorTabToOutputGroup('term:r:1')
+    let s = useFileStore.getState()
+    expect(s.outputGroupEditorTab).toBe('term:r:1')
+    expect(s.selectedFileId).toBe('f1')
+    expect(s.openFileIds).toEqual(['f1'])
+    useFileStore.getState().closeTerminalTab('term:r:1')
+    s = useFileStore.getState()
+    expect(s.editorTabsInOutputGroup).toEqual([])
+    expect(s.outputGroupEditorTab).toBeNull()
+  })
+
 })

@@ -572,8 +572,24 @@ something completion can read:
   /execute/complete`, never starts a kernel; Python falls back to static jedi.
   Client: Pyodide / webR, only once loaded.
 
+The kernel context also takes `dataSourceId` and `databases`: inside
+`linkr_connect("…")` the editor offers the project's database identifiers
+(quotes included right after the parenthesis), inside `sql_query("…")` the
+string is completed as SQL against `dataSourceId` (`lib/string-call.ts` finds
+the call). Notebook cells bind the same contexts per cell.
+
 Monaco providers are global per language; `components/editor/completion-providers.ts`
 maps each editor's model to its context — never register a provider elsewhere.
+
+### Editor tab bars: `editorTabClass`
+
+Every tab in an editor's tab bar — IDE scripts, terminals and outputs, datasets,
+ETL and SQL scripts, the plugin editor — takes its look from
+`editorTabClass(active)` (`components/editor/editor-tab.ts`): white at rest,
+tinted on hover, the open tab underlined in the primary colour. Add
+state classes (dragging, drop target) beside it in `cn()`; never restyle a tab
+locally. In the IDE, tabs of every kind share one order (`lib/ide-tab-order.ts`)
+and move between the two panels by drag-and-drop or the tab's context menu.
 
 ### File drop zones: `FileDropZone`
 

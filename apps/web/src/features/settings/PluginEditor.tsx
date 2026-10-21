@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/tooltip'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
+import { editorTabClass } from '@/components/editor/editor-tab'
 import { usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
@@ -599,10 +600,7 @@ export function PluginEditor() {
                           if (!editorVisible) setEditorVisible(true)
                         }}
                         className={cn(
-                          'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                          isActive
-                            ? 'bg-background text-foreground'
-                            : 'text-muted-foreground hover:bg-accent/50',
+                          editorTabClass(isActive),
                           dragFile === filename && 'opacity-40',
                         )}
                       >
@@ -660,10 +658,7 @@ export function PluginEditor() {
                       if (!outputVisible) setOutputVisible(true)
                     }}
                     className={cn(
-                      'shrink-0 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap',
-                      activeOutputTab === tab && outputVisible
-                        ? 'bg-background text-foreground font-medium'
-                        : 'text-muted-foreground hover:bg-accent/50',
+                      editorTabClass(activeOutputTab === tab && outputVisible),
                     )}
                   >
                     {t(`plugins.tab_${tab}`)}

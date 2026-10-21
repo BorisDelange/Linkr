@@ -4,6 +4,7 @@ import { CodeViewer } from '@/components/editor/CodeViewer'
 import { useFileStore, type ExecutionResult } from '@/stores/file-store'
 import { X, ImageIcon, TableIcon, FileText, Globe, Trash2, ChevronLeft, ChevronRight, Copy, Code, Check, ChevronsUpDown, Package, ArrowDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { editorTabClass } from '@/components/editor/editor-tab'
 import { formatDuration } from '@/lib/format-helpers'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -194,10 +195,7 @@ export function OutputPanel({ onClose, hideTabBar, tabId }: OutputPanelProps) {
                     onDragEnd={handleTabDragEnd}
                     onClick={() => setActiveOutputTab(tabId)}
                     className={cn(
-                      'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                      isActive
-                        ? 'bg-background text-foreground'
-                        : 'text-muted-foreground hover:bg-accent/50',
+                      editorTabClass(isActive),
                       dragTabId === tabId && 'opacity-40',
                       dropTargetId === tabId && dragTabId !== tabId && 'ring-1 ring-inset ring-primary/50'
                     )}
@@ -234,10 +232,7 @@ export function OutputPanel({ onClose, hideTabBar, tabId }: OutputPanelProps) {
                   onDragEnd={handleTabDragEnd}
                   onClick={() => setActiveOutputTab(tab.id)}
                   className={cn(
-                    'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                    tab.id === activeOutputTab
-                      ? 'bg-background text-foreground'
-                      : 'text-muted-foreground hover:bg-accent/50',
+                    editorTabClass(tab.id === activeOutputTab),
                     dragTabId === tab.id && 'opacity-40',
                     dropTargetId === tab.id && dragTabId !== tab.id && 'ring-1 ring-inset ring-primary/50'
                   )}

@@ -147,6 +147,29 @@ interface FileState {
   moveOutputTabToOutputGroup: (id: string) => void
   setEditorGroupOutputTab: (id: string | null) => void
 
+  /**
+   * Files and terminals the user moved to the output (right) group, in their tab
+   * order there. They stay in `openFileIds` / `terminalTabs`: like outputs moved
+   * left, only their group changes.
+   */
+  editorTabsInOutputGroup: string[]
+  /** The right group's active tab, when it is a file or terminal rather than an output. */
+  outputGroupEditorTab: string | null
+  /**
+   * The group the user last worked in. The toolbar (Run, Save, language, session)
+   * acts on that group's file: `selectedFileId` stays the LEFT group's active tab.
+   */
+  focusedGroup: 'left' | 'right'
+  moveEditorTabToOutputGroup: (id: string) => void
+  moveEditorTabToEditorGroup: (id: string) => void
+  /**
+   * One order for every tab of both panels — scripts, terminals and outputs — so
+   * tabs of any kind mix within a panel (see lib/ide-tab-order).
+   */
+  tabOrder: string[]
+  setTabOrder: (order: string[]) => void
+  setFocusedGroup: (group: 'left' | 'right') => void
+
   outputVisible: boolean
   setOutputVisible: (v: boolean) => void
 
@@ -680,6 +703,54 @@ const _loadedFilesBinding = new Map<string, string | undefined>()
 
 const MAX_UNDO = 50
 
+type TabGroups = Pick<
+  FileState,
+  'openFileIds' | 'editorTabsInOutputGroup' | 'outputGroupEditorTab' | 'outputTabsInEditorGroup'
+>
+
+/**
+ * Makes a file or terminal the active tab of the group it lives in. Opening a
+ * file that is not open yet puts it in the left group.
+ */
+function activateEditorTab(s: TabGroups, id: string): Partial<FileState> {
+  if (s.editorTabsInOutputGroup.includes(id)) {
+    return { outputGroupEditorTab: id, focusedGroup: 'right', outputVisible: true }
+  }
+  return {
+    selectedFileId: id,
+    // An output parked in the left group gives the pane back, or the click looks ignored.
+    editorGroupOutputTab: null,
+    focusedGroup: 'left',
+    openFileIds: s.openFileIds.includes(id) || id.startsWith('term:') ? s.openFileIds : [...s.openFileIds, id],
+  }
+}
+
+/** Drops a closed or returning tab from the right group, handing that group's
+ *  selection to the tab before it there. */
+function leaveOutputGroup(s: TabGroups, id: string): Partial<FileState> {
+  if (!s.editorTabsInOutputGroup.includes(id)) return {}
+  const remaining = s.editorTabsInOutputGroup.filter((tid) => tid !== id)
+  const idx = s.editorTabsInOutputGroup.indexOf(id)
+  return {
+    editorTabsInOutputGroup: remaining,
+    outputGroupEditorTab: s.outputGroupEditorTab === id
+      ? (remaining[Math.min(idx, remaining.length - 1)] ?? null)
+      : s.outputGroupEditorTab,
+  }
+}
+
+/**
+ * An output becoming active is shown in the group it lives in. A reused tab the
+ * user moved left is re-shown there: making it the right group's active tab put
+ * its content in the right pane, under no tab. In the right group it takes the
+ * pane back from a file or terminal shown there.
+ */
+function showOutput(s: TabGroups, id: string): Partial<FileState> {
+  return s.outputTabsInEditorGroup.includes(id)
+    ? { editorGroupOutputTab: id }
+    : { activeOutputTab: id, outputGroupEditorTab: null }
+}
+
 export const useFileStore = create<FileState>((set, get) => ({
   files: [],
   expandedFolders: [],
@@ -752,6 +823,7 @@ export const useFileStore = create<FileState>((set, get) => ({
     set({
       outputTabs: [], activeOutputTab: null, executionResults: [],
       outputTabsInEditorGroup: [], editorGroupOutputTab: null,
+      editorTabsInOutputGroup: [], outputGroupEditorTab: null, focusedGroup: 'left', tabOrder: [],
       selection: EMPTY_SELECTION,
     })
 
@@ -1087,12 +1159,18 @@ export const useFileStore = create<FileState>((set, get) => ({
       let nextSelected = s.selectedFileId
       if (isSelectedRemoved) {
         const idx = s.openFileIds.indexOf(s.selectedFileId!)
-        nextSelected = remainingOpen[Math.min(idx, remainingOpen.length - 1)] ?? null
+        const leftRemaining = remainingOpen.filter((fid) => !s.editorTabsInOutputGroup.includes(fid))
+        nextSelected = leftRemaining[Math.min(idx, leftRemaining.length - 1)] ?? null
       }
+      const rightRemaining = s.editorTabsInOutputGroup.filter((fid) => !idsToRemove.includes(fid))
       return {
         files: s.files.filter((f) => !idsToRemove.includes(f.id)),
         selectedFileId: nextSelected,
         openFileIds: remainingOpen,
+        editorTabsInOutputGroup: rightRemaining,
+        outputGroupEditorTab: idsToRemove.includes(s.outputGroupEditorTab ?? '')
+          ? (rightRemaining.at(-1) ?? null)
+          : s.outputGroupEditorTab,
         expandedFolders: s.expandedFolders.filter(
           (fid) => !idsToRemove.includes(fid)
         ),
@@ -1303,30 +1381,23 @@ export const useFileStore = create<FileState>((set, get) => ({
       set({ selectedFileId: null, editorGroupOutputTab: null })
       return
     }
-    set((s) => ({
-      selectedFileId: id,
-      editorGroupOutputTab: null,
-      openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
-    }))
+    set((s) => activateEditorTab(s, id))
   },
 
-  openFile: (id) =>
-    set((s) => ({
-      selectedFileId: id,
-      editorGroupOutputTab: null,
-      openFileIds: s.openFileIds.includes(id) ? s.openFileIds : [...s.openFileIds, id],
-    })),
+  openFile: (id) => set((s) => activateEditorTab(s, id)),
 
   closeFile: (id) =>
     set((s) => {
       const remaining = s.openFileIds.filter((fid) => fid !== id)
       let nextSelected = s.selectedFileId
       if (s.selectedFileId === id) {
-        // Select the tab to the left, or the first remaining, or null
-        const idx = s.openFileIds.indexOf(id)
-        nextSelected = remaining[Math.min(idx, remaining.length - 1)] ?? null
+        // Select the tab to the left, or the first remaining, or null — among
+        // the left group's own tabs.
+        const left = s.openFileIds.filter((fid) => fid === id || !s.editorTabsInOutputGroup.includes(fid))
+        const leftRemaining = left.filter((fid) => fid !== id)
+        nextSelected = leftRemaining[Math.min(left.indexOf(id), leftRemaining.length - 1)] ?? null
       }
-      return { openFileIds: remaining, selectedFileId: nextSelected }
+      return { openFileIds: remaining, selectedFileId: nextSelected, ...leaveOutputGroup(s, id) }
     }),
 
   reorderOpenFiles: (fromIndex, toIndex) =>
@@ -1354,12 +1425,12 @@ export const useFileStore = create<FileState>((set, get) => ({
       if (exists) {
         return {
           outputTabs: s.outputTabs.map((t) => (t.id === tab.id ? tab : t)),
-          activeOutputTab: tab.id,
+          ...showOutput(s, tab.id),
         }
       }
       return {
         outputTabs: [...s.outputTabs, tab],
-        activeOutputTab: tab.id,
+        ...showOutput(s, tab.id),
         outputTabOrder: [...s.outputTabOrder, tab.id],
       }
     }),
@@ -1400,7 +1471,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       return { outputTabOrder: order }
     }),
 
-  setActiveOutputTab: (id) => set({ activeOutputTab: id }),
+  setActiveOutputTab: (id) => set((s) => showOutput(s, id)),
 
   outputTabsInEditorGroup: [],
   editorGroupOutputTab: null,
@@ -1436,6 +1507,43 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   setEditorGroupOutputTab: (id) => set({ editorGroupOutputTab: id }),
 
+  editorTabsInOutputGroup: [],
+  outputGroupEditorTab: null,
+  focusedGroup: 'left',
+
+  moveEditorTabToOutputGroup: (id) =>
+    set((s) => {
+      if (s.editorTabsInOutputGroup.includes(id)) return s
+      const moved = [...s.editorTabsInOutputGroup, id]
+      // The left group hands its selection to a tab it still holds.
+      const leftIds = [...s.openFileIds, ...s.terminalTabs.map((t) => t.id)].filter((tid) => !moved.includes(tid))
+      return {
+        editorTabsInOutputGroup: moved,
+        outputGroupEditorTab: id,
+        focusedGroup: 'right',
+        outputVisible: true,
+        selectedFileId: s.selectedFileId === id
+          ? (leftIds[Math.max(0, leftIds.length - 1)] ?? null)
+          : s.selectedFileId,
+      }
+    }),
+
+  moveEditorTabToEditorGroup: (id) =>
+    set((s) => {
+      if (!s.editorTabsInOutputGroup.includes(id)) return s
+      return {
+        ...leaveOutputGroup(s, id),
+        selectedFileId: id,
+        editorGroupOutputTab: null,
+        focusedGroup: 'left',
+      }
+    }),
+
+  setFocusedGroup: (group) => set((s) => (s.focusedGroup === group ? s : { focusedGroup: group })),
+
+  tabOrder: [],
+  setTabOrder: (order) => set({ tabOrder: order }),
+
   outputVisible: false,
   setOutputVisible: (v) => set({ outputVisible: v }),
 
@@ -1451,10 +1559,11 @@ export const useFileStore = create<FileState>((set, get) => ({
         terminalTabs: [...s.terminalTabs, tab],
         selectedFileId: id,  // the unified tab bar makes it the active tab
         editorGroupOutputTab: null,
+        focusedGroup: 'left' as const,
       }
     }),
 
-  selectTerminalTab: (id) => set({ selectedFileId: id, editorGroupOutputTab: null }),
+  selectTerminalTab: (id) => set((s) => activateEditorTab(s, id)),
 
   closeTerminalTab: (id) => {
     disposeLiveTerminal(id)
@@ -1464,11 +1573,12 @@ export const useFileStore = create<FileState>((set, get) => ({
       // another terminal), mirroring closeFile's fallback.
       let selected = s.selectedFileId
       if (selected === id) {
-        selected = s.openFileIds[s.openFileIds.length - 1]
-          ?? remaining[remaining.length - 1]?.id
+        const onLeft = (tid: string) => !s.editorTabsInOutputGroup.includes(tid)
+        selected = s.openFileIds.filter(onLeft).at(-1)
+          ?? remaining.map((t) => t.id).filter(onLeft).at(-1)
           ?? null
       }
-      return { terminalTabs: remaining, selectedFileId: selected }
+      return { terminalTabs: remaining, selectedFileId: selected, ...leaveOutputGroup(s, id) }
     })
   },
 
@@ -1478,7 +1588,7 @@ export const useFileStore = create<FileState>((set, get) => ({
       const execTabId = '__exec_console__'
       return {
         executionResults: [...s.executionResults, result],
-        activeOutputTab: execTabId,
+        ...showOutput(s, execTabId),
         outputVisible: true,
         outputTabOrder: s.outputTabOrder.includes(execTabId)
           ? s.outputTabOrder

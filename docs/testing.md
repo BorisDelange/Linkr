@@ -47,7 +47,8 @@ writes, and lost its tables when a job's cancellation invalidated it.
   4500, out of that range. Needs the seed
   (`npm run data:fetch`). Covers the boot and a cold deep link, the workspace
   databases, a concept search, a cohort, a patient board, a dashboard, a
-  dataset, the IDE running the demo SQL script, the demo ETL pipeline (its
+  dataset, the IDE running the demo SQL script and moving it and its result
+  between the two panels, the demo ETL pipeline (its
   scripts, one run against its source), the demo mapping project (filter, open a
   mapping) and a project exported as a ZIP then re-imported. Python and R in the
   IDE are left out (Pyodide / webR downloads), and so are data quality (the demo

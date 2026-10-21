@@ -63,6 +63,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { editorTabClass } from '@/components/editor/editor-tab'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import type * as Monaco from 'monaco-editor'
 import { CodeEditor } from '@/components/editor/CodeEditor'
@@ -876,10 +877,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                                 if (!editorVisible) setEditorVisible(true)
                               }}
                               className={cn(
-                                'relative group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                isActive
-                                  ? 'bg-background text-foreground'
-                                  : 'text-muted-foreground hover:bg-accent/50',
+                                editorTabClass(isActive),
                                 dragFileId === fid && 'opacity-40',
                               )}
                             >
@@ -958,10 +956,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                                   if (!outputVisible) setOutputVisible(true)
                                 }}
                                 className={cn(
-                                  'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                  isActive && outputVisible
-                                    ? 'bg-primary/10 text-foreground'
-                                    : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                                  editorTabClass(isActive && outputVisible),
                                 )}
                               >
                                 <span>{t('files.console')}</span>
@@ -1012,10 +1007,7 @@ export function EtlScriptsTab({ pipelineId, onBrowseSchema }: Props) {
                                 if (!outputVisible) setOutputVisible(true)
                               }}
                               className={cn(
-                                'group flex items-center gap-1.5 border-r px-3 py-1.5 text-xs transition-colors whitespace-nowrap shrink-0',
-                                tab.id === activeOutputTab && outputVisible
-                                  ? 'bg-primary/10 text-foreground'
-                                  : 'bg-primary/5 text-muted-foreground hover:bg-primary/10',
+                                editorTabClass(tab.id === activeOutputTab && outputVisible),
                               )}
                             >
                               {getTabIcon(tab.type)}
