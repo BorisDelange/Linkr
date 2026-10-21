@@ -40,10 +40,13 @@ async def record_change(
     detail: dict | None = None,
     undo: dict | None = None,
     notify: bool = True,
+    live_from_app: bool = False,
 ) -> None:
     """Tell the user's open tabs an entity changed, and record it in their
-    notification centre. No-op for the app's own UI (source None)."""
-    if source is None:
+    notification centre. No-op for the app's own UI (source None), unless
+    `live_from_app`: the tabs are told, never the bell — for what every other open
+    tab must see (a run's outcome), not an edit the tab that made it already holds."""
+    if source is None and not live_from_app:
         return
     event: dict = {
         "type": "change",
@@ -54,7 +57,7 @@ async def record_change(
         # Lets an open tab re-read a workspace-scoped list without a notification.
         "workspaceId": (detail or {}).get("workspaceId"),
     }
-    if notify:
+    if notify and source is not None:
         row = Notification(
             # Stamped here, not by the server default: SQLite's CURRENT_TIMESTAMP
             # has whole seconds, and an agent's writes land within one, so the

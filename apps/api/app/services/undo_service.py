@@ -10,14 +10,16 @@ it (the delete would cascade to it).
 """
 import hashlib
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import HTTPException, status
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import inspect
+from sqlalchemy import inspect, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.permissions import check_project_permission, check_workspace_permission
+from app.models.notification import Notification
 from app.models.project import Project
 from app.models.user import User
 from app.schemas.cohort import CohortCreate, CohortResponse, CohortUpdate
@@ -77,10 +79,11 @@ async def dashboard_snapshot(db: AsyncSession, dashboard) -> dict:
 MAX_UNDO_CHARS = 1_000_000
 
 # Never compared: timestamps move with any write, and these only record a run's
-# outcome or an order a reorder rewrites — a run after a creation is no edit.
+# outcome or a position a reorder rewrites — a run after a creation is no edit,
+# nor is a drag in the grid, which rewrites every widget's layout around it.
 _UNGUARDED = {
     "updated_at", "created_at", "result_count", "attrition", "materialization",
-    "status", "last_run_at", "last_run_duration_ms", "order",
+    "status", "last_run_at", "last_run_duration_ms", "order", "display_order", "layout",
 }
 
 
@@ -179,6 +182,13 @@ def _fields(snapshot: dict, model) -> dict:
     return {k: v for k, v in snapshot.items() if k in model.model_fields}
 
 
+def _restored(undo: dict, model):
+    """The update writing back only the fields the undone write changed: the
+    snapshot holds every field, and a later edit to another one must stay."""
+    snapshot, changed = undo["snapshot"], undo["guard"]["fields"]
+    return model(**_fields({k: snapshot[k] for k in changed if k in snapshot}, model))
+
+
 # --- Apply ------------------------------------------------------------------
 
 
@@ -187,6 +197,32 @@ async def _require(db: AsyncSession, project_uid: str | None, user: User, permis
     if project is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "The project no longer exists")
     await check_project_permission(db, project, user, permission)
+
+
+def _require_parent(parent, kind: str) -> None:
+    # A tab or widget would fail its foreign key; a file would be an orphan no
+    # tree shows (parent_id is no foreign key).
+    if parent is None:
+        raise _gone(kind)
+
+
+async def _untouched_agent_tabs(db: AsyncSession, user: User, dashboard_id: str, tabs: list) -> list[Notification]:
+    """The creations of `tabs` recorded for `user`, when every tab is one still as
+    created and empty — MCP create_dashboard always adds a first tab, which must
+    not keep the dashboard's own creation from being undone. Empty otherwise."""
+    rows = (await db.execute(select(Notification).where(
+        Notification.user_id == user.id, Notification.entity_id == dashboard_id, Notification.undone_at.is_(None),
+    ))).scalars()
+    creations = {n.undo["id"]: n for n in rows if n.undo and n.undo.get("kind") == "tab" and n.undo.get("op") == "delete"}
+    out = []
+    for tab in tabs:
+        creation = creations.get(tab.id)
+        if creation is None or creation.undo.get("guard") != _created_digest(tab):
+            return []
+        if await dashboard_service.list_widgets(db, tab.id):
+            return []
+        out.append(creation)
+    return out
 
 
 async def _recreate_tab(db: AsyncSession, snap: dict) -> None:
@@ -223,7 +259,7 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
         if op == "delete":
             await cohort_service.delete(db, cohort)
             return True
-        await cohort_service.update(db, cohort, CohortUpdate(**_fields(snap, CohortUpdate)))
+        await cohort_service.update(db, cohort, _restored(undo, CohortUpdate))
         return False
 
     if kind == "dashboard":
@@ -240,10 +276,16 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
         await _require(db, project_uid, user, "dashboards:delete" if op == "delete" else "dashboards:write")
         _require_unchanged(undo, dashboard)
         if op == "delete":
-            _require_empty(await dashboard_service.list_tabs(db, dashboard.id))
+            tabs = await dashboard_service.list_tabs(db, dashboard.id)
+            spent = await _untouched_agent_tabs(db, user, dashboard.id, tabs)
+            if len(spent) < len(tabs):
+                _require_empty(tabs)
+            # They go with the dashboard (FK cascade): their own undo is spent.
+            for creation in spent:
+                creation.undone_at = datetime.now(UTC)
             await dashboard_service.delete(db, dashboard)
             return True
-        await dashboard_service.update(db, dashboard, DashboardUpdate(**_fields(snap, DashboardUpdate)))
+        await dashboard_service.update(db, dashboard, _restored(undo, DashboardUpdate))
         return False
 
     if kind in ("tab", "widget"):
@@ -252,8 +294,10 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
         if op == "recreate":
             _require_absent(await get(db, target))
             if kind == "tab":
+                _require_parent(await dashboard_service.get(db, snap.get("dashboard_id")), "dashboard")
                 await _recreate_tab(db, snap)
             else:
+                _require_parent(await dashboard_service.get_tab(db, snap.get("tab_id")), "tab")
                 await dashboard_service.create_widget(db, DashboardWidgetCreate(**_fields(snap, DashboardWidgetCreate)))
             return False
         row = await get(db, target)
@@ -265,9 +309,9 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
                 _require_empty(await dashboard_service.list_widgets(db, row.id))
             await (dashboard_service.delete_tab if kind == "tab" else dashboard_service.delete_widget)(db, row)
         elif kind == "tab":
-            await dashboard_service.update_tab(db, row, DashboardTabUpdate(**_fields(snap, DashboardTabUpdate)))
+            await dashboard_service.update_tab(db, row, _restored(undo, DashboardTabUpdate))
         else:
-            await dashboard_service.update_widget(db, row, DashboardWidgetUpdate(**_fields(snap, DashboardWidgetUpdate)))
+            await dashboard_service.update_widget(db, row, _restored(undo, DashboardWidgetUpdate))
         return False
 
     if kind == "etl_pipeline":
@@ -281,7 +325,7 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
             _require_empty(await etl_pipeline_service.list_files(db, pipeline.id))
             await etl_pipeline_service.delete(db, pipeline)
             return True
-        await etl_pipeline_service.update(db, pipeline, EtlPipelineUpdate(**_fields(snap, EtlPipelineUpdate)))
+        await etl_pipeline_service.update(db, pipeline, _restored(undo, EtlPipelineUpdate))
         return False
 
     if kind == "etl_file":
@@ -301,6 +345,8 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
         if op == "recreate":
             # File ids derive from the path: the same path re-created takes the same id.
             _require_absent(await etl_pipeline_service.get_file(db, target))
+            if snap.get("parent_id"):
+                _require_parent(await etl_pipeline_service.get_file(db, snap["parent_id"]), "folder")
             await etl_pipeline_service.create_file(db, EtlFileCreate(**_fields(snap, EtlFileCreate)))
             return False
         _require_unchanged(undo, node)
@@ -309,7 +355,7 @@ async def apply(db: AsyncSession, user: User, project_uid: str | None, undo: dic
             _require_empty([f for f in files if f.parent_id == node.id])
             await etl_pipeline_service.delete_file(db, node)
         else:
-            await etl_pipeline_service.update_file(db, node, EtlFileUpdate(**_fields(snap, EtlFileUpdate)))
+            await etl_pipeline_service.update_file(db, node, _restored(undo, EtlFileUpdate))
         return False
 
     if kind == "dataset" and op == "delete":

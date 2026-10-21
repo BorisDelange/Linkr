@@ -44,6 +44,20 @@ def test_a_url_without_a_password_is_unchanged():
         assert redact_secrets(text) == text
 
 
+def test_a_port_and_a_path_holding_an_at_sign_are_not_a_password():
+    for text in ("http://host:8080/path@x", "https://h:443/users/@me/repos"):
+        assert redact_secrets(text) == text
+
+
+@pytest.mark.parametrize("text", ["a." * 50000, "a://b:c" * 15000, "a://" + "b" * 100000, "password=" * 12000, 'password="' * 10000])
+def test_long_adversarial_text_is_redacted_in_linear_time(text):
+    import time
+
+    start = time.perf_counter()
+    redact_secrets(text)
+    assert time.perf_counter() - start < 0.5
+
+
 def test_text_without_a_dsn_password_is_unchanged():
     for text in ("password authentication failed for user \"u\"", "Access denied for user 'u'@'h' (using password: YES)"):
         assert redact_secrets(text) == text

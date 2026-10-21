@@ -194,6 +194,13 @@ async def test_an_etl_run_refreshes_but_does_not_notify(client):
         assert (await client.post(f"{API}/etl-runs", headers=agent, json=run)).status_code == 201
         event = queue.get_nowait()
         assert (event["entityType"], event["entityId"]) == ("etl_run", "p1") and "notification" not in event
+        # Another tab of the app: told too (it may keep that database's rows), no bell.
+        assert (await client.patch(f"{API}/etl-runs/r1", headers=headers, json={"status": "success"})).status_code == 200
+        event = queue.get_nowait()
+        assert (event["entityType"], event["entityId"]) == ("etl_run", "p1") and "notification" not in event
+        # An edit from the app is still not echoed.
+        await client.patch(f"{API}/etl-pipelines/p1", headers=headers, json={"name": {"en": "Mine"}})
+        assert queue.empty()
     finally:
         notification_hub.unsubscribe(1, queue)
     assert await _list(client, headers) == []

@@ -11,7 +11,9 @@ _DSN_PASSWORD = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 # A connection URL's userinfo: `postgresql://user:pw@host` keeps the user only.
-_URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.-]*://[^\s/:@]*:)[^\s@]+(?=@)", re.IGNORECASE)
+# Bounded runs keep it linear on long text (unbounded, `a.a.…` was quadratic);
+# a password has no `/` (percent-encoded), so `http://host:8080/p@x` is no userinfo.
+_URL_PASSWORD = re.compile(r"(\b[a-z][a-z0-9+.-]{0,30}://[^\s/:@]{0,256}:)[^\s/@]{1,256}(?=@)", re.IGNORECASE)
 
 
 def redact_secrets(text: str) -> str:

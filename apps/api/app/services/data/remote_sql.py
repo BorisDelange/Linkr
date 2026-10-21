@@ -612,8 +612,19 @@ class _LinkrDoris(Doris):
 
 
 def _is_correlated(cte: exp.CTE) -> bool:
-    scope = build_scope(cte.this)
-    return scope is None or bool(scope.external_columns)
+    """Whether a column anywhere in the CTE reads a source outside it — a
+    subquery's column naming a source of an enclosing scope inside the CTE is not."""
+    root = build_scope(cte.this)
+    if root is None:
+        return True
+    for scope in root.traverse():
+        for column in scope.external_columns:
+            table, outer = column.text("table"), scope.parent
+            while outer is not None and table not in {name for name, _ in outer.references}:
+                outer = outer.parent
+            if outer is None:
+                return True
+    return False
 
 
 def _hoist_ctes(tree: exp.Expression) -> exp.Expression:

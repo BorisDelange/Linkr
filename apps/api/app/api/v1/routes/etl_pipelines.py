@@ -96,10 +96,13 @@ async def _notify(
 
 
 async def _notify_runs(db: AsyncSession, request: Request, user: User, pipeline_id: str) -> None:
-    """A run is an execution, not an edit: refresh the open history, no notification."""
+    """A run is an execution, not an edit: refresh the open history, no notification.
+    Told to the app's own tabs too — a run from another tab rewrites the databases
+    whose patient rows this one keeps."""
     await notification_service.record_change(
         db, user=user, source=notification_service.client_source(request), action="updated",
         entity_type="etl_run", entity_id=pipeline_id, project_uid=None, label=None, notify=False,
+        live_from_app=True,
     )
 
 

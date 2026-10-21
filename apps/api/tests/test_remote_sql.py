@@ -479,6 +479,17 @@ def test_a_nested_with_reading_an_outer_column_stays_local():
         doris("SELECT (WITH c AS (SELECT p.person_id AS x) SELECT x FROM c) AS y FROM person p")
 
 
+def test_a_nested_with_reading_an_outer_column_from_a_subquery_stays_local():
+    with pytest.raises(NotPortable, match="correlated WITH"):
+        doris("SELECT (WITH c AS (SELECT x FROM (SELECT p.person_id AS x) t) SELECT x FROM c) AS y FROM person p")
+
+
+def test_a_nested_with_whose_subquery_reads_its_own_outer_scope_moves():
+    sql = doris("SELECT y AS p FROM (WITH c AS (SELECT m.person_id FROM measurement m WHERE EXISTS "
+                "(SELECT 1 FROM person q WHERE q.person_id = m.person_id)) SELECT person_id AS y FROM c) s")
+    assert sql.startswith("WITH `c` AS (") and sql.count("WITH") == 1
+
+
 def test_a_nested_with_under_exists_reading_an_outer_column_stays_local():
     with pytest.raises(NotPortable, match="correlated WITH"):
         doris("SELECT person_id AS p FROM person WHERE EXISTS (WITH c AS (SELECT m.person_id FROM measurement m "

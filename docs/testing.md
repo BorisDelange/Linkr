@@ -20,10 +20,12 @@ where its code lives. What deserves a unit test and how to write one is in
 `scripts/git-hooks/pre-push` (installed by `npm install` through
 `scripts/install-git-hooks.mjs`) runs the unit tiers, each only when the push
 touches what it guards: web tests, lint and typecheck for `apps/web`,
-`packages/linkr-format`, `packages/linkr-mcp`, `VERSION` (the export goldens pin
-it) and the root `package.json` / `package-lock.json` / `turbo.json`; the API suite for
-`apps/api` and `VERSION`; each package's suite for itself, what it imports and
-`VERSION`. `LINKR_PREPUSH_ALL=1 git push` runs everything.
+`packages/linkr-format`, `packages/linkr-mcp`, `packages/default-plugins` (the app
+bundles their manifests), `VERSION` (the export goldens pin it) and the root
+`package.json` / `package-lock.json` / `turbo.json`; the API suite for `apps/api`
+and `VERSION`; each package's suite for itself, what it imports or reads
+(`packages/default-plugins` for the MCP), `VERSION` and the root `package.json` /
+`package-lock.json`. `LINKR_PREPUSH_ALL=1 git push` runs everything.
 The API suite runs in parallel (`pytest-xdist`, 4 workers, 120 s per test at most) and leaves out tests
 marked `@pytest.mark.slow` (the marker is registered in `apps/api/pyproject.toml`;
 none carries it yet). The slow tiers are never in the hook.
