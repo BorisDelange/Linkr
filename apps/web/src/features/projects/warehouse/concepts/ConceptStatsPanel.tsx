@@ -12,6 +12,7 @@ import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { zeroAnchoredHistogramScale, tightHistogramScale } from '@/lib/chart-ticks'
 import type { ConceptStats, HistogramBin } from './use-concepts'
 import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
+import { diagnosisLines, type DiagnosisLine } from './stats-diagnosis'
 
 interface ConceptStatsPanelProps {
   hasValueColumn: boolean
@@ -30,7 +31,8 @@ interface ConceptStatsPanelProps {
   /** Not known without a query on the source: offer to compute them. */
   deferred?: boolean
   onLoad?: () => void
-  /** Why the precomputed ones hold no value (concept_cache_fs.diagnose_stats). */
+  /** Why the precomputed ones hold no value (concept_cache_fs.diagnose_stats).
+   *  Left out for users the server would refuse (`useConcepts` decides). */
   onDiagnose?: () => Promise<Record<string, unknown>>
 }
 
@@ -154,8 +156,9 @@ export function ConceptStatsPanel({
 }: ConceptStatsPanelProps) {
   const { t } = useTranslation()
   const [startAtZero, setStartAtZero] = useState(true)
-  const [diagnosis, setDiagnosis] = useState<{ stats: ConceptStats | null; text: string } | null>(null)
+  const [diagnosis, setDiagnosis] = useState<{ stats: ConceptStats | null; lines: DiagnosisLine[]; error?: string } | null>(null)
   const [diagnosing, setDiagnosing] = useState(false)
+  const canDiagnose = !!onDiagnose
 
   // Stats off: say so explicitly. Falling through would render "no records",
   // which reads as "this concept has none" rather than "nothing was computed".
@@ -218,9 +221,9 @@ export function ConceptStatsPanel({
     if (!onDiagnose) return
     setDiagnosing(true)
     try {
-      setDiagnosis({ stats, text: JSON.stringify(await onDiagnose(), null, 2) })
+      setDiagnosis({ stats, lines: diagnosisLines(await onDiagnose()) })
     } catch (err) {
-      setDiagnosis({ stats, text: err instanceof Error ? err.message : String(err) })
+      setDiagnosis({ stats, lines: [], error: err instanceof Error ? err.message : String(err) })
     } finally {
       setDiagnosing(false)
     }
@@ -246,25 +249,43 @@ export function ConceptStatsPanel({
           <div className="space-y-2">
             <h4 className="text-xs font-medium">{t('concepts.stats_value_distribution')}</h4>
             <p className="text-xs text-muted-foreground">{t('concepts.stats_precomputed_empty')}</p>
-            <div className="flex flex-wrap gap-2">
-              {onComputeLive && (
-                <Button size="xs" variant="outline" onClick={onComputeLive}>
-                  <Database size={12} />
-                  {t('concepts.stats_compute_live')}
-                </Button>
-              )}
-              {onDiagnose && (
-                <Button size="xs" variant="ghost" onClick={diagnose} disabled={diagnosing}>
-                  {diagnosing ? <Loader2 size={12} className="animate-spin" /> : <Stethoscope size={12} />}
-                  {t('concepts.stats_diagnose')}
-                </Button>
-              )}
-            </div>
-            {diagnosis?.stats === stats && (
-              <div className="relative">
-                <CopyIconButton text={diagnosis.text} className="absolute right-1.5 top-1.5" />
-                <pre className="max-h-64 overflow-auto rounded-md bg-muted p-2 pr-7 font-mono text-[10px]">{diagnosis.text}</pre>
+            {/* Most concepts listed here simply carry no value: checking the
+                source is a secondary action, not a fix to apply. */}
+            {(onComputeLive || canDiagnose) && (
+              <div className="flex flex-wrap gap-1">
+                {onComputeLive && (
+                  <Button size="xs" variant="ghost" className="text-muted-foreground" onClick={onComputeLive}>
+                    <Database size={12} />
+                    {t('concepts.stats_compute_live')}
+                  </Button>
+                )}
+                {canDiagnose && (
+                  <Button size="xs" variant="ghost" className="text-muted-foreground" onClick={diagnose} disabled={diagnosing}>
+                    {diagnosing ? <Loader2 size={12} className="animate-spin" /> : <Stethoscope size={12} />}
+                    {t('concepts.stats_diagnose')}
+                  </Button>
+                )}
               </div>
+            )}
+            {canDiagnose && diagnosis?.stats === stats && (
+              diagnosis.error ? (
+                <p className="break-words text-[10px] text-muted-foreground">{t('concepts.stats_diagnose_failed', { error: diagnosis.error })}</p>
+              ) : (
+                <div className="relative rounded-md bg-muted p-2 pr-7">
+                  <CopyIconButton
+                    text={diagnosis.lines.map((l) => `${l.label}: ${l.value}`).join('\n')}
+                    className="absolute right-1.5 top-1.5"
+                  />
+                  <dl className="max-h-64 space-y-0.5 overflow-auto text-[10px]">
+                    {diagnosis.lines.map((l, i) => (
+                      <div key={i} className="flex gap-2">
+                        <dt className="shrink-0 text-muted-foreground">{l.label}</dt>
+                        <dd className="min-w-0 break-words font-mono">{l.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                </div>
+              )
             )}
           </div>
         </>

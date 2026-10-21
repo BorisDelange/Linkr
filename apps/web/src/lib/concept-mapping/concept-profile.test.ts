@@ -25,6 +25,7 @@ import {
   histogramFromRows,
   outlierBounds,
   packProfileBatches,
+  PROFILE_BATCH_CONCEPTS_UNSIZED,
   resolveProfileSource,
   type ProfileSource,
 } from './concept-profile'
@@ -634,5 +635,26 @@ describe('batched profiles', () => {
     expect([...out.keys()]).toEqual([1, 2])
     expect(out.get(2)).toEqual({ json: null, rowsCount: 9, patientsCount: 2 })
     expect(seen.filter((q) => q.includes('e.concept_id = 2 OR'))).toHaveLength(1)
+  })
+
+  it('counts the records without materialising them, and keeps unsized batches small', async () => {
+    const scalarBatches: number[] = []
+    let countSql = ''
+    const query = async (sql: string) => {
+      if (sql.includes('AS concept_id, COUNT(*) AS n FROM scope')) {
+        countSql = sql
+        throw new Error('count refused')
+      }
+      if (sql.includes('scope AS MATERIALIZED') && sql.includes('rows_count')) {
+        scalarBatches.push((sql.match(/IN \(([^)]*)\)/)?.[1] ?? '').split(',').length)
+      }
+      return []
+    }
+    const concepts = Array.from({ length: 25 }, (_, i) => ({ conceptId: i + 1 }))
+    const out = await buildConceptProfiles(OMOP, source(), concepts, DEFAULT_PROFILE_OPTIONS, query)
+    expect(out.size).toBe(25)
+    expect(countSql).not.toContain('MATERIALIZED')
+    expect(countSql).not.toContain('e.value_number')
+    expect(scalarBatches).toEqual([PROFILE_BATCH_CONCEPTS_UNSIZED, PROFILE_BATCH_CONCEPTS_UNSIZED, 5])
   })
 })

@@ -121,14 +121,18 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set())
   const isStopping = (job: Job) => stopping.has(job.id) && ACTIVE.has(job.status)
   const [confirmStopAll, setConfirmStopAll] = useState(false)
+  const [cancelError, setCancelError] = useState<string | null>(null)
 
   if (!enabled) return null
 
   const onCancel = async (id: string) => {
     setStopping((prev) => new Set(prev).add(id))
+    setCancelError(null)
     try {
       await cancelJob(id)
-    } catch {
+    } catch (err) {
+      console.error('Failed to cancel job', err)
+      setCancelError(t('jobs.cancel_failed', { error: err instanceof Error ? err.message : String(err) }))
       setStopping((prev) => {
         const next = new Set(prev)
         next.delete(id)
@@ -197,6 +201,9 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             )}
           </div>
         </div>
+        {cancelError && (
+          <p role="alert" className="mb-2 px-1.5 text-[10px] text-destructive">{cancelError}</p>
+        )}
         {jobs.length === 0 && (
           <p className="px-1.5 py-3 text-center text-[11px] text-muted-foreground">
             {t('jobs.empty')}
@@ -271,6 +278,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
               </Button>
             )}
             <JobDuration job={logJob} className="text-xs text-muted-foreground" />
+            {cancelError && <span role="alert" className="text-xs text-destructive">{cancelError}</span>}
             {jobInput && (
               <Tabs value={logTab} onValueChange={(v) => setLogTab(v as 'output' | 'input')} className="ml-auto">
                 <TabsList variant="line">
@@ -309,7 +317,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-          <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={onStopAll}>
+          <AlertDialogAction variant="destructive" onClick={onStopAll}>
             {t('jobs.stop_all')}
           </AlertDialogAction>
         </AlertDialogFooter>

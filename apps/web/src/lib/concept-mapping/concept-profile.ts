@@ -1025,6 +1025,9 @@ export async function buildConceptProfile(
 export const PROFILE_BATCH_ROWS = 5_000_000
 /** Concepts a batch holds at most. */
 export const PROFILE_BATCH_CONCEPTS = 100
+/** Concepts a batch holds at most when their records could not be counted:
+ *  nothing then bounds its rows, which the browser holds in memory. */
+export const PROFILE_BATCH_CONCEPTS_UNSIZED = 10
 
 /** The columns a batch keeps of each row, besides the concept key `k`. */
 const BATCH_COLUMNS = ['patient_id', 'value_number', 'value_string', 'unit', 'start_datetime'] as const
@@ -1034,9 +1037,9 @@ const BATCH_COLUMNS = ['patient_id', 'value_number', 'value_string', 'unit', 'st
  * the batch's concepts (concept_id A, source_concept_id B) belongs to both, as
  * the per-concept OR counts it; one naming the same concept twice, once.
  */
-function batchScope(source: ProfileSource, conceptIds: readonly number[]): string {
+function batchScope(source: ProfileSource, conceptIds: readonly number[], { keyOnly = false } = {}): string {
   const ids = [...new Set(conceptIds.map((id) => Math.trunc(id)))].join(', ')
-  const columns = BATCH_COLUMNS.filter((c) => has(source.event, c)).map((c) => `, e.${c}`).join('')
+  const columns = keyOnly ? '' : BATCH_COLUMNS.filter((c) => has(source.event, c)).map((c) => `, e.${c}`).join('')
   const key = (column: string) => eventConceptKey(source.dictionary, column)
   const branch = (column: string, extra = '') =>
     `SELECT ${key(column)} AS k${columns} FROM ${source.event.name} e WHERE ${key(column)} IN (${ids})${extra}`
@@ -1044,14 +1047,16 @@ function batchScope(source: ProfileSource, conceptIds: readonly number[]): strin
   if (has(source.event, 'source_concept_id')) {
     branches.push(branch('e.source_concept_id', ` AND ${key('e.concept_id')} IS DISTINCT FROM ${key('e.source_concept_id')}`))
   }
-  return `scope AS MATERIALIZED (
+  return `scope AS ${keyOnly ? '' : 'MATERIALIZED '}(
   ${branches.join('\n  UNION ALL\n  ')}
 )`
 }
 
-/** Records per concept of a batch — to size the batches when no count is known. */
+/** Records per concept of a batch — to size the batches when no count is known.
+ *  Streams the concept keys alone: materialising the rows to count them is the
+ *  memory spike the sizing is there to prevent. */
 export function buildBatchCountsQuery(source: ProfileSource, conceptIds: readonly number[]): string {
-  return `WITH ${batchScope(source, conceptIds)}
+  return `WITH ${batchScope(source, conceptIds, { keyOnly: true })}
   SELECT e.k AS concept_id, COUNT(*) AS n FROM scope e GROUP BY e.k`
 }
 
@@ -1252,19 +1257,27 @@ export async function buildConceptProfiles(
   const out = new Map<number, ProfileOutcome>()
 
   let rowsOf = opts.rowsOf
+  let maxConcepts = PROFILE_BATCH_CONCEPTS
   if (!rowsOf || ids.some((id) => rowsOf!(id) === undefined)) {
     const known = rowsOf
     const counted = new Map<number, number>()
+    let countedOk = true
     try {
       for (const row of await query(buildBatchCountsQuery(source, ids))) counted.set(Number(row.concept_id), Number(row.n))
     } catch {
       if (opts.signal?.aborted) return out
-      // Sized by concepts alone, then.
+      countedOk = false
     }
-    rowsOf = (id) => known?.(id) ?? counted.get(id) ?? 0
+    if (countedOk) {
+      // Not in the counts: no records.
+      rowsOf = (id) => known?.(id) ?? counted.get(id) ?? 0
+    } else {
+      rowsOf = known
+      maxConcepts = PROFILE_BATCH_CONCEPTS_UNSIZED
+    }
   }
 
-  for (const batch of packProfileBatches(ids, rowsOf)) {
+  for (const batch of packProfileBatches(ids, rowsOf ?? (() => undefined), PROFILE_BATCH_ROWS, maxConcepts)) {
     if (opts.signal?.aborted) break
     let done: Map<number, ProfileOutcome> | null = null
     try {

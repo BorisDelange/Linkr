@@ -57,18 +57,22 @@ export function useDatabaseStats(dataSourceId: string, schemaMapping: SchemaMapp
     autoRefreshed.current = false
     setCacheLoaded(false)
     setCache(null)
+    let cancelled = false
     getStorage().databaseStatsCache.get(dataSourceId).then((cached) => {
-      if (cached) {
+      if (cached && !cancelled) {
         setCache(cached)
         // Backfills the card of a database whose statistics predate the counts
         // being kept on the source.
         keepCountsRef.current(cached)
       }
-    }).catch(() => {}).finally(() => setCacheLoaded(true))
+    }).catch(() => {}).finally(() => { if (!cancelled) setCacheLoaded(true) })
     const listeners = _listeners.get(dataSourceId) ?? new Set()
     _listeners.set(dataSourceId, listeners)
     listeners.add(setCache)
-    return () => { listeners.delete(setCache) }
+    return () => {
+      cancelled = true
+      listeners.delete(setCache)
+    }
   }, [dataSourceId])
 
   /** `resume`: only follow the job of that phase a closed tab left (server

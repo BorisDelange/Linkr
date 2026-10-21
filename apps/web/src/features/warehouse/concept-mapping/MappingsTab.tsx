@@ -486,7 +486,7 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
         const key = e.key.toLowerCase()
         if (key === 'a' && canVote) action = () => void onReview(mapping.id, 'approved')
         else if (key === 'r' && canVote) action = () => void onReview(mapping.id, 'rejected')
-        else if (key === 'f') action = () => void onReview(mapping.id, 'flagged')
+        else if (key === 'f' && canWrite) action = () => void onReview(mapping.id, 'flagged')
       }
       if (!action) return
       e.preventDefault()
@@ -494,7 +494,7 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [canGoPrev, canGoNext, canVote, onPrev, onNext, onReview, mapping.id])
+  }, [canGoPrev, canGoNext, canVote, canWrite, onPrev, onNext, onReview, mapping.id])
 
   const formatDate = (iso?: string) => {
     if (!iso) return '—'
@@ -662,6 +662,7 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
                 size="icon-sm"
                 className={`size-7 ${myReview === 'flagged' ? 'bg-orange-500 text-white hover:bg-orange-600' : 'hover:border-orange-500 hover:text-orange-500'}`}
                 onClick={() => onReview(mapping.id, 'flagged')}
+                disabled={!canWrite}
               >
                 <Flag size={14} />
               </Button>
@@ -702,10 +703,7 @@ function MappingDetailView({ mapping, sourceDetail, conceptSetName, onBack, onRe
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => onDelete(mapping.id)}
-            >
+            <AlertDialogAction variant="destructive" onClick={() => onDelete(mapping.id)}>
               {t('common.delete')}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -1581,9 +1579,16 @@ export function MappingsTab({ project }: MappingsTabProps) {
     })
   }
 
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const handleDeleteSelected = () => {
-    deleteMappings([...selected])
-      .catch((err) => console.error('Failed to delete mappings', err))
+    deleteMappings([...selected]).catch((err) => {
+      console.error('Failed to delete mappings', err)
+      setDeleteError(err instanceof Error ? err.message : String(err))
+      // A failure part-way through the chunks leaves some rows deleted and the store untouched.
+      loadProjectMappings(project.id, { force: true }).catch((e) =>
+        console.error('Failed to reload mappings', e),
+      )
+    })
     setSelected(new Set())
   }
 
@@ -3362,12 +3367,23 @@ export function MappingsTab({ project }: MappingsTabProps) {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={handleDeleteSelected}
-            >
+            <AlertDialogAction variant="destructive" onClick={handleDeleteSelected}>
               {t('common.delete')}
             </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteError !== null} onOpenChange={(open) => { if (!open) setDeleteError(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('concept_mapping.delete_failed_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('concept_mapping.delete_failed_desc', { error: deleteError ?? '' })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction>{t('common.ok')}</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

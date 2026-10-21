@@ -42,6 +42,7 @@ import { useConceptListStore } from '@/stores/concept-list-store'
 import { ConceptListModal } from './concepts/ConceptListModal'
 import { ConceptListEditDialog } from './concepts/ConceptListEditDialog'
 import { ConceptsSettingsDialog } from './concepts/ConceptsSettingsDialog'
+import { useCanDiagnoseConceptStats } from './concepts/use-can-diagnose-stats'
 import type { ConceptRow } from './concepts/use-concepts'
 import type { ConceptList, ConceptListItem, DataDictionary } from '@/types'
 import { useConcepts } from './concepts/use-concepts'
@@ -75,6 +76,7 @@ export function ConceptsPage() {
   const navigate = useNavigate()
   const [chosenDatabaseId, chooseDatabase] = useConceptsDatabase(uid)
   const mappedSource = useProjectSource(uid, chosenDatabaseId)
+  const canDiagnoseStats = useCanDiagnoseConceptStats(mappedSource?.id)
 
   const {
     hasConceptTable,
@@ -742,7 +744,7 @@ export function ConceptsPage() {
               onComputeStatsLive={computeStatsLive}
               statsDeferred={conceptStatsDeferred}
               onLoadStats={loadSelectedStats}
-              onDiagnoseStats={diagnoseStats}
+              onDiagnoseStats={canDiagnoseStats ? diagnoseStats : undefined}
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
               statsEnabled={statsEnabled}

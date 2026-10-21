@@ -18,6 +18,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { useConcepts } from '../concepts/use-concepts'
+import { useCanDiagnoseConceptStats } from '../concepts/use-can-diagnose-stats'
 import { ConceptTable } from '../concepts/ConceptTable'
 import { ConceptPickerToolbar } from '../concepts/ConceptPickerToolbar'
 import { ConceptDetail } from '../concepts/ConceptDetail'
@@ -43,6 +44,7 @@ interface DatabaseConceptsTabProps {
 export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = false }: DatabaseConceptsTabProps) {
   const { t, i18n } = useTranslation()
   const concepts = useConcepts(dataSourceId, schemaMapping, 'database')
+  const canDiagnoseStats = useCanDiagnoseConceptStats(dataSourceId)
   const { count } = concepts
   const [confirmRestart, setConfirmRestart] = useState(false)
   // What the user ticked, for this database; untouched, every step. None loads
@@ -351,7 +353,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
                   onComputeStatsLive={concepts.computeStatsLive}
                   statsDeferred={concepts.conceptStatsDeferred}
                   onLoadStats={concepts.loadSelectedStats}
-                  onDiagnoseStats={concepts.diagnoseStats}
+                  onDiagnoseStats={canDiagnoseStats ? concepts.diagnoseStats : undefined}
                   hasValueColumn={hasValueColumn}
                   excludeOutliers={concepts.excludeOutliers}
                   statsEnabled={concepts.statsEnabled}

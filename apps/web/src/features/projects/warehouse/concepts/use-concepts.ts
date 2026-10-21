@@ -132,7 +132,9 @@ const stateCache = new Map<string, CachedState>()
 // Data, unlike the UI state, is the same for every view of a database: a page
 // fetched by the Concepts page is served to a picker asking for the same SQL.
 const resultCaches = new Map<string, Map<string, CachedResult>>()
-const statsCaches = new Map<string, Map<number, ConceptStats>>()
+// Per database and outlier setting, keyed by `statsKey`: a concept id is only
+// unique within its dictionary.
+const statsCaches = new Map<string, Map<string, ConceptStats>>()
 const RESULT_CACHE_LIMIT = 200
 
 function cacheFor<K, V>(caches: Map<string, Map<K, V>>, key: string): Map<K, V> {
@@ -152,6 +154,19 @@ function rememberResult(cache: Map<string, CachedResult>, key: string, result: C
 
 const statsInFlight = new Map<string, Promise<ConceptStats | null>>()
 
+const statsKey = (dictKey: string, conceptId: number) => `${dictKey}::${conceptId}`
+
+/** A load of these stats already running (computed or live), if any. */
+function pendingConceptStats(
+  dataSourceId: string,
+  conceptId: number,
+  dictKey: string,
+  excludeOutliers: boolean,
+): Promise<ConceptStats | null> | undefined {
+  const flightKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}::${statsKey(dictKey, conceptId)}`
+  return statsInFlight.get(flightKey) ?? statsInFlight.get(`${flightKey}::live`)
+}
+
 /**
  * One concept's stats when they cost no query on the source: this session's
  * copy, or (server mode, clipped form) the server's — precomputed by the
@@ -165,12 +180,12 @@ export async function peekConceptStats(
   excludeOutliers: boolean,
 ): Promise<ConceptStats | undefined> {
   const statsCache = cacheFor(statsCaches, `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`)
-  const cached = statsCache.get(conceptId)
+  const cached = statsCache.get(statsKey(dictKey, conceptId))
   if (cached) return cached
   if (!isServerMode() || !excludeOutliers) return undefined
   const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey).catch(() => undefined)
   if (!shared || !isFreshCachedStats(shared)) return undefined
-  statsCache.set(conceptId, shared)
+  statsCache.set(statsKey(dictKey, conceptId), shared)
   return shared
 }
 
@@ -191,9 +206,9 @@ export function fetchConceptStats(
 ): Promise<ConceptStats | null> {
   const cacheKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`
   const statsCache = cacheFor(statsCaches, cacheKey)
-  const cached = live ? undefined : statsCache.get(conceptId)
+  const cached = live ? undefined : statsCache.get(statsKey(dictKey, conceptId))
   if (cached) return Promise.resolve(cached)
-  const flightKey = `${cacheKey}::${dictKey}::${conceptId}${live ? '::live' : ''}`
+  const flightKey = `${cacheKey}::${statsKey(dictKey, conceptId)}${live ? '::live' : ''}`
   const pending = statsInFlight.get(flightKey)
   if (pending) return pending
 
@@ -235,7 +250,7 @@ export function fetchConceptStats(
       histogram,
       ...(excludeOutliers ? { histogramVariant: HISTOGRAM_VARIANT } : {}),
     }
-    statsCache.set(conceptId, stats)
+    statsCache.set(statsKey(dictKey, conceptId), stats)
     // Share the computed stats with every user of this source — but only the
     // default (outliers excluded) form: the shared cache is keyed by concept
     // id alone, so storing a raw histogram would serve it to everyone.
@@ -633,7 +648,7 @@ export function useConcepts(
 
     setConceptStatsError(null)
     setConceptStatsDeferred(false)
-    const cachedStats = statsCache.get(conceptId)
+    const cachedStats = statsCache.get(statsKey(dictKey, conceptId))
     if (cachedStats) {
       // Instant: cached clicks render immediately and clear any leftover spinner
       // from a still-running load for a different concept.
@@ -644,9 +659,14 @@ export function useConcepts(
 
     setConceptStatsLoading(true)
     try {
-      const stats = compute
-        ? await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers)
-        : await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
+      // A peek while these stats are being computed waits for that load: its
+      // "not known yet" would otherwise replace the spinner with the prompt.
+      const pending = compute ? undefined : pendingConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
+      const stats = pending
+        ? await pending
+        : compute
+          ? await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers)
+          : await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
       // Only apply if this is still the selected concept — a newer click wins.
       if (!isStale()) {
         setConceptStats(stats ?? null)
@@ -664,9 +684,16 @@ export function useConcepts(
     }
   }, [dataSourceId, schemaMapping, excludeOutliers, statsCache])
 
-  // Auto-load stats when selected concept changes. With stats off, drop what is
-  // on screen: keeping it would show the previous concept's histogram under the
-  // newly selected one.
+  const selectedRowDictKey = useMemo(() => {
+    if (selectedConceptId === null) return undefined
+    const row = concepts.find((c) => c.concept_id === selectedConceptId)
+    return (row?._dict_key as string) ?? dicts[0]?.key
+  }, [selectedConceptId, concepts, dicts])
+
+  // Auto-load stats when the selected concept changes — keyed by the concept,
+  // not the list: a list reloaded under a count run must not re-peek. With
+  // stats off, drop what is on screen: keeping it would show the previous
+  // concept's histogram under the newly selected one.
   useEffect(() => {
     if (!statsEnabled) {
       setConceptStats(null)
@@ -674,14 +701,10 @@ export function useConcepts(
       setConceptStatsDeferred(false)
       return
     }
-    if (selectedConceptId !== null) {
-      const row = concepts.find((c) => c.concept_id === selectedConceptId)
-      const dictKey = (row?._dict_key as string) ?? dicts[0]?.key
-      if (dictKey) {
-        loadConceptStats(selectedConceptId, dictKey, false)
-      }
+    if (selectedConceptId !== null && selectedRowDictKey) {
+      loadConceptStats(selectedConceptId, selectedRowDictKey, false)
     }
-  }, [selectedConceptId, concepts, dicts, loadConceptStats, statsEnabled])
+  }, [selectedConceptId, selectedRowDictKey, loadConceptStats, statsEnabled])
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -699,20 +722,15 @@ export function useConcepts(
     setFrontVersion((v) => v + 1)
   }, [dataSourceId])
 
-  const selectedDictKey = () => {
-    const row = concepts.find((c) => c.concept_id === selectedConceptId)
-    return (row?._dict_key as string) ?? dicts[0]?.key
-  }
-
   const loadSelectedStats = () => {
-    const dictKey = selectedDictKey()
+    const dictKey = selectedRowDictKey
     if (selectedConceptId !== null && dictKey) loadConceptStats(selectedConceptId, dictKey, true)
   }
 
   // When the precomputed statistics hold no value for the selected concept: read
   // them from the source instead, or ask the server why.
   const computeStatsLive = async () => {
-    const dictKey = selectedDictKey()
+    const dictKey = selectedRowDictKey
     if (!dataSourceId || !schemaMapping || selectedConceptId === null || !dictKey) return
     const conceptId = selectedConceptId
     activeStatsConceptId.current = conceptId
@@ -729,7 +747,7 @@ export function useConcepts(
   }
   const diagnoseStats = () => {
     if (!dataSourceId || selectedConceptId === null) return Promise.resolve({})
-    return diagnoseConceptStats(dataSourceId, selectedConceptId, selectedDictKey())
+    return diagnoseConceptStats(dataSourceId, selectedConceptId, selectedRowDictKey)
   }
 
   const updateFilter = useCallback((key: string, value: ConceptFilterValue) => {
