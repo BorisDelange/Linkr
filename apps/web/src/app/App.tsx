@@ -186,7 +186,9 @@ export function App() {
 
   // The path alone, so that a page driving its own state through the query string
   // (a tab, a filter, a selected row) updates in place instead of remounting.
-  const pageKey = location.pathname
+  // A database's cohort is a sub-route of the same page: opening or leaving one
+  // must not remount it, which reset every other tab.
+  const pageKey = location.pathname.replace(/(\/databases\/[^/]+)\/cohorts\/[^/]+\/?$/, '$1')
 
   // Subscribed rather than read once: the seed advances outside React, and the
   // gate has to notice the moment it opens and the moment it closes.
