@@ -82,26 +82,37 @@ function cacheKey(url, ref) {
 /**
  * Clone `url` at `ref` into the cache and return the path.
  *
- * Cached by `<repo>@<ref>`: pinned refs make this a perfect hit, so a build that
- * changes no data pays nothing. `--offline` refuses to reach the network at all,
- * which is what makes an offline build fail loudly instead of silently producing
- * an app with no default data.
+ * Cached by `<repo>@<ref>`, but the links name branches, so an online run always
+ * fetches the ref's tip into the cached clone — otherwise a cache filled once
+ * would keep shipping that old snapshot forever. `--offline` refuses to reach the
+ * network at all, which is what makes an offline build fail loudly instead of
+ * silently producing an app with no default data.
  */
 function cloneCached(url, ref, label) {
   const dest = join(CACHE_DIR, cacheKey(url, ref))
   if (existsSync(join(dest, '.git'))) {
-    log(`${label}: cached`)
-    return dest
-  }
-  if (OFFLINE) fail(`--offline, and ${label} is not in the cache (${url}@${ref})`)
+    if (OFFLINE) {
+      log(`${label}: cached`)
+      return dest
+    }
+    try {
+      execFileSync('git', ['fetch', '--depth', '1', 'origin', ref], { cwd: dest, stdio: 'pipe' })
+      execFileSync('git', ['reset', '--hard', 'FETCH_HEAD'], { cwd: dest, stdio: 'pipe' })
+      log(`${label}: updated ${url}@${ref}`)
+    } catch (e) {
+      fail(`could not update ${label} (${url}@${ref})\n${e.stderr?.toString() ?? e.message}`)
+    }
+  } else {
+    if (OFFLINE) fail(`--offline, and ${label} is not in the cache (${url}@${ref})`)
 
-  log(`${label}: cloning ${url}@${ref}`)
-  rmSync(dest, { recursive: true, force: true })
-  mkdirSync(dirname(dest), { recursive: true })
-  try {
-    execFileSync('git', ['clone', '--depth', '1', '--branch', ref, url, dest], { stdio: 'pipe' })
-  } catch (e) {
-    fail(`could not clone ${label} (${url}@${ref})\n${e.stderr?.toString() ?? e.message}`)
+    log(`${label}: cloning ${url}@${ref}`)
+    rmSync(dest, { recursive: true, force: true })
+    mkdirSync(dirname(dest), { recursive: true })
+    try {
+      execFileSync('git', ['clone', '--depth', '1', '--branch', ref, url, dest], { stdio: 'pipe' })
+    } catch (e) {
+      fail(`could not clone ${label} (${url}@${ref})\n${e.stderr?.toString() ?? e.message}`)
+    }
   }
   // LFS-tracked Parquet would otherwise land as 3-line pointer files, and the
   // seeded database would mount nothing. Only when the repo actually declares it.
