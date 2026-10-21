@@ -8,6 +8,7 @@ import {
   buildCohortMembershipSql,
   buildCohortResultsSql,
   conceptCriterionBoundToStay,
+  conceptEventTables,
   getNodeLabel,
   cohortRunError,
   sqlComment,
@@ -655,9 +656,19 @@ describe('concept criteria over several tables, any or every concept', () => {
     expect(sqlOf({ eventTableLabel: 'Lab' })).not.toMatch(fromChart)
   })
 
-  it('adds the occurrences up across the tables', () => {
-    const sql = squash(sqlOf({ occurrenceCount: { operator: '>=', count: 3 } }))
-    expect(sql).toMatch(/\( \( SELECT COUNT\(\*\) FROM linkr_event_lab e .*\) \+ \( SELECT COUNT\(\*\) FROM linkr_event_chart e .*\) \) >= 3/)
+  it('counts the occurrences over the rows of every table, as over one', () => {
+    const sql = squash(sqlOf({ occurrenceCount: { operator: '<', count: 3 } }))
+    expect(sql).toMatch(/linkr_patient\.patient_id IN \( SELECT occurrence\.patient_id FROM \( SELECT e\.patient_id FROM linkr_event_lab e .* UNION ALL SELECT e\.patient_id FROM linkr_event_chart e .*\) occurrence GROUP BY occurrence\.patient_id HAVING COUNT\(\*\) < 3 \)/)
+    expect(sql).not.toContain('SELECT COUNT(*)')
+    const one = squash(sqlOf({ eventTableLabels: ['Lab'], occurrenceCount: { operator: '<', count: 3 } }))
+    expect(one).toMatch(/linkr_patient\.patient_id IN \( SELECT e\.patient_id FROM linkr_event_lab e WHERE .* GROUP BY e\.patient_id HAVING COUNT\(\*\) < 3 \)/)
+  })
+
+  it('counts every concept on its own over every table when every one must be there', () => {
+    const sql = squash(sqlOf({ conceptMatch: 'all', occurrenceCount: { operator: '>=', count: 2 } }))
+    expect(sql.match(/UNION ALL/g)).toHaveLength(2)
+    expect(sql).toContain('e.concept_id IN (1)')
+    expect(sql).toContain('e.concept_id IN (2)')
   })
 
   it('requires each concept on its own when every one must be there', () => {
@@ -666,6 +677,69 @@ describe('concept criteria over several tables, any or every concept', () => {
     expect(sql).toContain('e.concept_id IN (2)')
     expect(sql).not.toContain('IN (1, 2)')
     expect(sqlOf({ eventTableLabels: ['Lab'] })).toContain('IN (1, 2)')
+  })
+})
+
+describe('concept criteria on all tables, a table listed or none', () => {
+  // Two dictionaries, an event table each, and a drug table naming its
+  // concepts inline: its concept_id is a drug name, never an id of the picker.
+  const dictMapping = mappingV1ToV2({
+    ...mapping_V1,
+    conceptTables: [
+      { table: 'd_labitems', key: 'labitems', idColumn: 'itemid', nameColumn: 'label' },
+      { table: 'd_items', key: 'items', idColumn: 'itemid', nameColumn: 'label' },
+    ],
+    eventTables: {
+      Lab: { table: 'lab', conceptIdColumn: 'itemid', conceptDictionaryKey: 'labitems', patientIdColumn: 'person_id', valueColumn: 'valuenum' },
+      Chart: { table: 'chart', conceptIdColumn: 'itemid', conceptDictionaryKey: 'items', patientIdColumn: 'person_id' },
+      Prescriptions: { table: 'prescriptions', conceptIdColumn: 'drug', conceptDictionaryKey: 'none', patientIdColumn: 'person_id' },
+    },
+  } as never)
+  const cohortWith = (config: object, exclude = false): Cohort => {
+    const c = makeCohort('patient')
+    c.criteriaTree.children = [{
+      kind: 'criterion', id: 'x', type: 'concept', enabled: true, operator: 'AND', exclude,
+      config: { conceptIds: [50912], conceptNames: { 50912: 'Creatinine' }, ...config },
+    }] as never
+    return c
+  }
+  const sqlOf = (config: object, exclude = false) => buildCohortCountSql(cohortWith(config, exclude), dictMapping)!
+
+  it('never searches a table naming no dictionary', () => {
+    expect(conceptEventTables({ conceptIds: [1], conceptNames: {} }, dictMapping)).toEqual(['Lab', 'Chart'])
+    expect(sqlOf({})).not.toContain('linkr_event_prescriptions')
+  })
+
+  it('searches the tables of the dictionaries the concepts were picked from', () => {
+    expect(conceptEventTables({ conceptIds: [1], conceptNames: {}, dictionaryKeys: ['labitems'] }, dictMapping)).toEqual(['Lab'])
+    const sql = sqlOf({ dictionaryKeys: ['labitems'] })
+    expect(sql).toContain('FROM linkr_event_lab e')
+    expect(sql).not.toContain('linkr_event_chart')
+    // A dictionary the mapping no longer has: every table naming one.
+    expect(conceptEventTables({ conceptIds: [1], conceptNames: {}, dictionaryKeys: ['gone'] }, dictMapping)).toEqual(['Lab', 'Chart'])
+  })
+
+  it('keeps a table listed by hand, whatever its dictionary', () => {
+    expect(conceptEventTables({ conceptIds: [1], conceptNames: {}, eventTableLabels: ['Chart'], dictionaryKeys: ['labitems'] }, dictMapping)).toEqual(['Chart'])
+  })
+
+  it('skips a criterion listing no table, excluded or not, and names no empty table', () => {
+    const none = makeCohort('patient')
+    expect(sqlOf({ eventTableLabels: [] })).toBe(buildCohortCountSql(none, dictMapping))
+    expect(sqlOf({ eventTableLabels: [] }, true)).toBe(buildCohortCountSql(none, dictMapping))
+    expect(withoutComments(sqlOf({ eventTableLabels: [] }))).not.toContain('WHERE')
+    expect(getNodeLabel(cohortWith({ eventTableLabels: [] }).criteriaTree.children[0])).toBe('No table: Creatinine')
+  })
+
+  it('leaves out the tables with no value when a value filter applies', () => {
+    const sql = sqlOf({ valueFilters: [{ operator: '>', value: 1 }] })
+    expect(sql).toContain('FROM linkr_event_lab e')
+    expect(sql).toContain('e.value_number > 1')
+    expect(sql).not.toContain('linkr_event_chart')
+    // An invalid filter applies to nothing, and removes no table.
+    expect(sqlOf({ valueFilters: [{ operator: '>', value: '1 OR 1=1' }] })).toContain('linkr_event_chart')
+    // Only tables without a value: nothing to search, the criterion is skipped.
+    expect(withoutComments(sqlOf({ eventTableLabels: ['Chart'], valueFilters: [{ operator: '>', value: 1 }] }))).not.toContain('WHERE')
   })
 })
 

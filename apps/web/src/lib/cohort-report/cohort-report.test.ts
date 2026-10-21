@@ -80,6 +80,11 @@ describe('describeCriteria', () => {
     // The gender concept id is named through the mapping, never shown raw.
     expect(out[2].text).toBe('cohort_report.crit_not(text=cohort_report.crit_sex(values=cohort_report.crit_sex_male))')
   })
+
+  it('says a concept criterion listing no table is ignored, rather than naming an empty table', () => {
+    const tree = { ...criteriaTree, children: [{ ...criteriaTree.children[1], config: { eventTableLabels: [], conceptIds: [1], conceptNames: {} } }] } as Cohort['criteriaTree']
+    expect(describeCriteria(tree, t, mapping)[0].text).toBe('cohort_report.crit_concept(table=cohort_report.crit_no_table,concepts=1)')
+  })
 })
 
 describe('queries', () => {
@@ -99,6 +104,24 @@ describe('queries', () => {
     const sql = buildConceptSql(m, mapping, { eventTableLabels: ['Measurement'], conceptIds: [1, 2], conceptNames: {} })!
     expect(sql).toContain('(e.concept_id IN (1, 2) OR e.source_concept_id IN (1, 2))')
     expect(buildConceptSql(m, mapping, { eventTableLabels: ['Nope'], conceptIds: [1], conceptNames: {} })).toBeNull()
+  })
+
+  it('counts on the tables the criterion searches: never a dictionary-less one, nor one with no value under a value filter', () => {
+    const m2 = mappingV1ToV2({
+      ...mapping_V1,
+      conceptTables: [{ table: 'concept', key: 'omop', idColumn: 'concept_id', nameColumn: 'concept_name' }],
+      eventTables: {
+        Measurement: { table: 'measurement', conceptIdColumn: 'measurement_concept_id', patientIdColumn: 'person_id', valueColumn: 'value_as_number' },
+        Observation: { table: 'observation', conceptIdColumn: 'observation_concept_id', patientIdColumn: 'person_id' },
+        Drugs: { table: 'drugs', conceptIdColumn: 'drug', conceptDictionaryKey: 'none', patientIdColumn: 'person_id' },
+      },
+    } as never)
+    const all = buildConceptSql(m, m2, { conceptIds: [1], conceptNames: {} })!
+    expect(all).toContain('FROM linkr_event_observation e')
+    expect(all).not.toContain('linkr_event_drugs')
+    const valued = buildConceptSql(m, m2, { conceptIds: [1], conceptNames: {}, valueFilters: [{ operator: '>', value: 0 }] })!
+    expect(valued).toContain('FROM linkr_event_measurement e')
+    expect(valued).not.toContain('linkr_event_observation')
   })
 
   it('refuses a concept list that is not all integers', () => {

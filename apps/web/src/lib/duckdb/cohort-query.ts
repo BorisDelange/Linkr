@@ -19,7 +19,7 @@ import type {
 } from '@/types'
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { classRelation, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { classRelation, conceptRelation, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
 
 // ---------------------------------------------------------------------------
@@ -472,7 +472,8 @@ function buildTreeWhereClause(
 
   if (node.kind === 'criterion') {
     const clause = buildCriterionClause(node, level, mapping, baseTable)
-    return node.exclude ? notSql(clause) : clause
+    // A criterion with nothing to apply is skipped, excluded or not.
+    return node.exclude && clause !== '1=1' ? notSql(clause) : clause
   }
 
   // Group node: each child carries its own operator linking it to the previous sibling
@@ -1015,12 +1016,24 @@ function stayWindowClause(
 }
 
 /**
- * The event and drug tables a concept criterion reads: those it lists — every
- * one when it lists none — or the single one a cohort written before it could
- * list several names (`eventTableLabel`).
+ * The event and drug tables a concept criterion reads: those it lists, or the
+ * single one a cohort written before it could list several names
+ * (`eventTableLabel`). Listing none means all of them — the tables naming the
+ * dictionaries its concepts were picked from, else every table naming one. A
+ * table naming no dictionary is never among them: its concept_id is a value of
+ * its own (a drug name), which an id of the picker cannot match.
  */
 export function conceptEventTables(config: ConceptCriteriaConfig, mapping: SchemaMapping): string[] {
-  return listedEventTables(config) ?? eventRelations(mapping).flatMap((r) => (r.key ? [r.key] : []))
+  const listed = listedEventTables(config)
+  if (listed) return listed
+  const events = eventRelations(mapping).filter((r) => r.key && r.dictionary !== null)
+  const picked = new Set((config.dictionaryKeys ?? []).flatMap((key) => conceptRelation(mapping, key)?.name ?? []))
+  const withDictionary = events.filter((r) => r.dictionary)
+  // No dictionary loaded at all: the ids are the tables' own, filterable as such.
+  const searched = picked.size > 0
+    ? withDictionary.filter((r) => picked.has(r.dictionary!))
+    : withDictionary.length > 0 ? withDictionary : events
+  return searched.map((r) => r.key!)
 }
 
 /** The tables a concept criterion lists, undefined when it searches them all. */
@@ -1028,6 +1041,19 @@ export function listedEventTables(config: ConceptCriteriaConfig): string[] | und
   if (config.eventTableLabels) return config.eventTableLabels
   const legacy = (config as unknown as { eventTableLabel?: unknown }).eventTableLabel
   return typeof legacy === 'string' && legacy ? [legacy] : undefined
+}
+
+/**
+ * The relations a concept criterion searches: its tables the mapping has, with
+ * a patient — and, when a value filter applies, a value, which a table without
+ * one cannot meet. Empty: the criterion has nothing to search and is skipped.
+ */
+export function conceptCriterionRelations(config: ConceptCriteriaConfig, mapping: SchemaMapping): ClassRelation[] {
+  const valued = valueConditions(config).length > 0
+  return conceptEventTables(config, mapping)
+    .map((label) => eventRelation(mapping, label))
+    .filter((event): event is ClassRelation =>
+      !!event && has(event, 'patient_id') && (!valued || has(event, 'value_number')))
 }
 
 /** Whether a concept criterion on these event tables can be kept to the stay at
@@ -1044,6 +1070,27 @@ export function conceptCriterionBoundToStay(
 
 // --- Concept ---
 
+/** The value filters on `e.value_number`, ANDed. Operator and bounds are both
+ *  validated: an imported cohort can put arbitrary strings in either. */
+function valueConditions(config: ConceptCriteriaConfig): string[] {
+  const condition = (operator: unknown, v: unknown, v2: unknown): string | null => {
+    const op = sqlOperator(operator, VALUE_FILTER_OPERATORS)
+    const value = sqlNumber(v)
+    if (!op || value == null) return null
+    const value2 = sqlNumber(v2)
+    if (op === 'between') return value2 != null ? `e.value_number BETWEEN ${value} AND ${value2}` : null
+    return `e.value_number ${op} ${value}`
+  }
+  if (config.valueFilters && config.valueFilters.length > 0) {
+    return config.valueFilters.flatMap((vf) => condition(vf.operator, vf.value, vf.value2) ?? [])
+  }
+  // Legacy single valueFilter (saved cohorts). The field no longer exists on
+  // the current type, so read it through `unknown`.
+  const legacy = (config as unknown as Record<string, unknown>).valueFilter as { operator?: unknown; value?: unknown; value2?: unknown } | undefined
+  const single = legacy ? condition(legacy.operator, legacy.value, legacy.value2) : null
+  return single ? [single] : []
+}
+
 /** What an event row of `event` must meet for the criterion: one of its
  *  concepts, the entity's patient (and stay), the value filters. */
 function conceptConditions(
@@ -1054,53 +1101,14 @@ function conceptConditions(
   baseTable: string,
 ): string[] {
   const ids = config.conceptIds.join(', ')
-
-  // Build concept match condition
   let conceptMatch = `e.concept_id IN (${ids})`
   if (has(event, 'source_concept_id')) {
     conceptMatch = `(${conceptMatch} OR e.source_concept_id IN (${ids}))`
   }
-
-  // Build additional conditions
-  const conditions: string[] = [conceptMatch]
-
-  // Link to base table patient
-  conditions.push(`e.patient_id = ${baseTable}.patient_id`)
+  const conditions = [conceptMatch, `e.patient_id = ${baseTable}.patient_id`]
   const window = stayWindowClause(level, mapping, baseTable, has(event, 'start_datetime') ? 'e.start_datetime' : undefined)
   if (window) conditions.push(window)
-
-  // Multiple value filters (ANDed together). Operator and bounds are both
-  // validated: an imported cohort can put arbitrary strings in either.
-  const hasValue = has(event, 'value_number')
-  if (config.valueFilters && config.valueFilters.length > 0 && hasValue) {
-    for (const vf of config.valueFilters) {
-      const op = sqlOperator(vf.operator, VALUE_FILTER_OPERATORS)
-      const value = sqlNumber(vf.value)
-      if (!op || value == null) continue
-      const value2 = sqlNumber(vf.value2)
-      if (op === 'between' && value2 != null) {
-        conditions.push(`e.value_number BETWEEN ${value} AND ${value2}`)
-      } else if (op !== 'between') {
-        conditions.push(`e.value_number ${op} ${value}`)
-      }
-    }
-  }
-
-  // Legacy single valueFilter support (for existing saved cohorts). The field
-  // no longer exists on the current type, so read it through `unknown`.
-  const legacyVf = (config as unknown as Record<string, unknown>).valueFilter as { operator: string; value: number; value2?: number } | undefined
-  if (legacyVf && hasValue && (!config.valueFilters || config.valueFilters.length === 0)) {
-    const op = sqlOperator(legacyVf.operator, VALUE_FILTER_OPERATORS)
-    const value = sqlNumber(legacyVf.value)
-    const value2 = sqlNumber(legacyVf.value2)
-    if (op && value != null) {
-      if (op === 'between' && value2 != null) {
-        conditions.push(`e.value_number BETWEEN ${value} AND ${value2}`)
-      } else if (op !== 'between') {
-        conditions.push(`e.value_number ${op} ${value}`)
-      }
-    }
-  }
+  conditions.push(...valueConditions(config))
   return conditions
 }
 
@@ -1118,42 +1126,41 @@ function buildConceptCriteria(
   if (config.conceptMatch === 'all' && config.conceptIds.length > 1) {
     const each = config.conceptIds.map((id) =>
       buildConceptCriteria({ ...config, conceptMatch: 'any', conceptIds: [id] }, level, mapping, baseTable))
+    if (each.includes('1=1')) return '1=1'
     return `(\n${indent(each.join('\nAND '))}\n)`
   }
 
-  const scopes = conceptEventTables(config, mapping)
-    .map((label) => eventRelation(mapping, label))
-    .filter((event): event is ClassRelation => !!event && has(event, 'patient_id'))
+  const scopes = conceptCriterionRelations(config, mapping)
     .map((event) => ({ event, conditions: conceptConditions(event, config, level, mapping, baseTable) }))
   if (scopes.length === 0) return '1=1'
 
-  // Occurrence count → IN subquery with GROUP BY + HAVING. Both halves of the
-  // HAVING are validated: an unchecked `count` here closes the subquery and
-  // appends arbitrary SQL (a `UNION ALL ... read_csv('http://...')` egress
-  // channel), so a rejected operator or count drops the clause entirely rather
-  // than falling through to an unfiltered one.
+  // Occurrence count → IN subquery with GROUP BY + HAVING, over the rows of
+  // every table searched: one table or several, an entity with no occurrence
+  // never matches, whatever the operator. Both halves of the HAVING are
+  // validated: an unchecked `count` here closes the subquery and appends
+  // arbitrary SQL (a `UNION ALL ... read_csv('http://...')` egress channel), so
+  // a rejected operator or count drops the clause entirely rather than falling
+  // through to an unfiltered one.
   const oc = config.occurrenceCount
   const ocOperator = sqlOperator(oc?.operator, COUNT_OPERATORS)
   const ocCount = sqlNumber(oc?.count)
   if (oc && ocOperator && ocCount != null) {
-    if (scopes.length === 1) {
-      const [{ event, conditions }] = scopes
-      return [
-        `${baseTable}.patient_id IN (`,
-        indent([
-          `SELECT e.patient_id`,
-          `FROM ${event.name} e`,
-          whereLines(conditions),
-          `GROUP BY e.patient_id`,
-          `HAVING COUNT(*) ${ocOperator} ${ocCount}`,
-        ].join('\n')),
-        `)`,
-      ].join('\n')
-    }
-    // Over several tables, the occurrences add up across them.
-    const counts = scopes.map(({ event, conditions }) =>
-      `(\n${indent([`SELECT COUNT(*)`, `FROM ${event.name} e`, whereLines(conditions)].join('\n'))}\n)`)
-    return `(\n${indent(counts.join('\n+ '))}\n) ${ocOperator} ${ocCount}`
+    const rows = scopes.map(({ event, conditions }) =>
+      [`SELECT e.patient_id`, `FROM ${event.name} e`, whereLines(conditions)].join('\n'))
+    const grouped = rows.length === 1
+      ? [rows[0], `GROUP BY e.patient_id`]
+      : [
+        `SELECT occurrence.patient_id`,
+        `FROM (`,
+        indent(rows.join('\nUNION ALL\n')),
+        `) occurrence`,
+        `GROUP BY occurrence.patient_id`,
+      ]
+    return [
+      `${baseTable}.patient_id IN (`,
+      indent([...grouped, `HAVING COUNT(*) ${ocOperator} ${ocCount}`].join('\n')),
+      `)`,
+    ].join('\n')
   }
 
   const exists = scopes.map(({ event, conditions }) => existsSql(`${event.name} e`, conditions))
@@ -1366,7 +1373,8 @@ export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): s
       const c = node.config as ConceptCriteriaConfig
       const names = Object.values(c.conceptNames ?? {})
       const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
-      const tables = listedEventTables(c)?.join(', ') ?? 'All tables'
+      const listed = listedEventTables(c)
+      const tables = !listed ? 'All tables' : listed.length ? listed.join(', ') : 'No table'
       return `${prefix}${tables}: ${c.conceptMatch === 'all' && names.length > 1 ? `all of ${label}` : label}`
     }
     case 'text': {

@@ -90,6 +90,14 @@ describe('normalizeCriteria', () => {
     expect(errors.join('\n')).toMatch(/has a numeric value column/)
   })
 
+  it('takes the dictionaries the concepts come from, and only known ones', () => {
+    const ok = normalizeCriteria([{ type: 'concept', config: { dictionaryKeys: ['d_labitems'], conceptIds: [1] } }], MAPPING)
+    expect(ok.errors).toEqual([])
+    expect((ok.tree.children[0] as CriterionNode).config).toMatchObject({ dictionaryKeys: ['d_labitems'] })
+    const bad = normalizeCriteria([{ type: 'concept', config: { dictionaryKeys: ['d_items'], conceptIds: [1] } }], MAPPING)
+    expect(bad.errors.join('\n')).toMatch(/dictionaryKeys: .*\(d_labitems\)/)
+  })
+
   it('warns that an age criterion is ignored when no birth column is mapped', () => {
     const { errors, warnings } = normalizeCriteria([
       { type: 'age', config: { ageReference: 'admission', min: 18 } },

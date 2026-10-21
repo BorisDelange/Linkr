@@ -6,9 +6,9 @@
  * the schema mapping, as the cohort builder's own SQL does.
  */
 import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping } from '@/types'
-import { classRelation, eventRelation, eventRelations, has } from '@/lib/schema-classes/relations'
+import { classRelation, eventRelations, has } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { conceptEventTables } from '@/lib/duckdb/cohort-query'
+import { conceptCriterionRelations } from '@/lib/duckdb/cohort-query'
 
 /** `SELECT … FROM (membership) m`, the shape every query below starts from. */
 function members(membershipSql: string): string {
@@ -173,9 +173,7 @@ export function buildConceptSql(
 ): string | null {
   const ids = config.conceptIds
   if (ids.length === 0 || !validateIntegerIds(ids)) return null
-  const events = conceptEventTables(config, mapping)
-    .map((label) => eventRelation(mapping, label))
-    .filter((event) => !!event && has(event, 'patient_id'))
+  const events = conceptCriterionRelations(config, mapping)
   if (events.length === 0) return null
   const list = ids.join(', ')
   const parts = events.map((event) => {
@@ -188,7 +186,7 @@ export function buildConceptSql(
       : `e.concept_id IN (${list})`
     return [
       `SELECT ${concept} AS concept_id, e.patient_id`,
-      `FROM ${event!.name} e`,
+      `FROM ${event.name} e`,
       `WHERE ${match}`,
       `  AND e.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
     ].join('\n')

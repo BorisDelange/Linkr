@@ -98,7 +98,8 @@ function describeLeaf(
       const concepts = c.conceptIds
         .map((id) => (c.conceptNames?.[id] ? `${c.conceptNames[id]} (${id})` : String(id)))
         .join(', ')
-      const table = listedEventTables(c)?.join(', ') ?? t(`${K}all_tables`)
+      const listed = listedEventTables(c)
+      const table = !listed ? t(`${K}all_tables`) : listed.length ? listed.join(', ') : t(`${K}no_table`)
       const every = c.conceptMatch === 'all' && c.conceptIds.length > 1
       const parts = [t(every ? `${K}concept_all` : `${K}concept`, { table, concepts })]
       for (const f of c.valueFilters ?? []) {

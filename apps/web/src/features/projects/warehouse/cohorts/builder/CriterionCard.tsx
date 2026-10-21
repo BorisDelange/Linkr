@@ -248,7 +248,7 @@ function buildSummary(node: CriterionNode, t: (key: string) => string, lang: str
         const names = c.conceptIds.slice(0, 3).map((id) => c.conceptNames[id] ?? String(id))
         const label = names.join(', ')
         parts.push(c.conceptIds.length > 3 ? `${label} (+${c.conceptIds.length - 3})` : label)
-      } else if (listedEventTables(c)) {
+      } else if (listedEventTables(c)?.length) {
         parts.push(listedEventTables(c)!.join(', '))
       } else {
         parts.push(t('cohorts.criteria_concept'))
@@ -391,10 +391,10 @@ export function CriterionCard({
     onUpdate(node.id, { config })
   }
 
-  const handleConceptPickerConfirm = (conceptIds: number[], conceptNames: Record<number, string>) => {
-    const currentConfig = node.config as ConceptCriteriaConfig
+  const handleConceptPickerConfirm = (conceptIds: number[], conceptNames: Record<number, string>, dictionaryKeys: string[] | undefined) => {
+    const { dictionaryKeys: _previous, ...currentConfig } = node.config as ConceptCriteriaConfig
     onUpdate(node.id, {
-      config: { ...currentConfig, conceptIds, conceptNames },
+      config: { ...currentConfig, conceptIds, conceptNames, ...(dictionaryKeys ? { dictionaryKeys } : {}) },
     })
     setConceptPickerOpen(false)
   }
@@ -550,6 +550,7 @@ export function CriterionCard({
           open={conceptPickerOpen}
           onOpenChange={setConceptPickerOpen}
           selectedConceptIds={(node.config as ConceptCriteriaConfig).conceptIds}
+          selectedDictionaryKeys={(node.config as ConceptCriteriaConfig).dictionaryKeys}
           onConfirm={handleConceptPickerConfirm}
           dataSourceId={dataSourceId}
           schemaMapping={schemaMapping}

@@ -131,6 +131,20 @@ add('cohort.concept.count', 'buildCohortCountSql', buildCohortCountSql(conceptCo
 add('cohort.concept.results', 'buildCohortResultsSql', buildCohortResultsSql(conceptCohort, mapping, 1000, 0))
 add('cohort.visit-age-concept.count', 'buildCohortCountSql', buildCohortCountSql(mixedCohort, mapping))
 buildAttritionQueries(mixedCohort, mapping, { withPatients: true }).forEach((q, i) => add(`cohort.attrition.${i}`, 'buildAttritionQueries', q.sql))
+const conceptConfig = (config: object) => ({
+  kind: 'criterion', id: 'c-config', type: 'concept', enabled: true, operator: 'AND', exclude: false,
+  config: { conceptNames: {}, ...config },
+})
+const twoLabels = Object.keys(facts.concepts).slice(0, 2)
+const twoTablesConcepts = twoLabels.flatMap((label) => facts.concepts[label].slice(0, 2))
+add('cohort.concept-all-tables.count', 'buildCohortCountSql', buildCohortCountSql(
+  cohort('patient', [conceptConfig({ conceptIds: firstConcepts })]), mapping))
+add('cohort.concept-two-tables.count', 'buildCohortCountSql', buildCohortCountSql(
+  cohort('visit', [conceptConfig({ eventTableLabels: twoLabels, conceptIds: twoTablesConcepts })]), mapping))
+add('cohort.concept-every-one.count', 'buildCohortCountSql', buildCohortCountSql(
+  cohort('patient', [conceptConfig({ conceptIds: firstConcepts.slice(0, 2), conceptMatch: 'all' })]), mapping))
+add('cohort.concept-occurrences-two-tables.count', 'buildCohortCountSql', buildCohortCountSql(
+  cohort('patient', [conceptConfig({ eventTableLabels: twoLabels, conceptIds: twoTablesConcepts, occurrenceCount: { operator: '<', count: 20 } })]), mapping))
 
 // ── Concept counts (the Concepts page) ────────────────────────────────────────
 planConceptCountUnits(mapping, [{ hi: facts.midPatientId }, { lo: facts.midPatientId }])

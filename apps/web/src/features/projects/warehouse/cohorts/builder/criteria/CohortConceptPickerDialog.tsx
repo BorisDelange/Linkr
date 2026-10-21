@@ -18,13 +18,18 @@ import { ConceptTable } from '../../../concepts/ConceptTable'
 import { ConceptPickerToolbar } from '../../../concepts/ConceptPickerToolbar'
 import { PICKER_HIDDEN_COLUMNS } from '../../../concepts/concept-queries'
 import { useConceptStatsRowAction } from '../../../concepts/use-concept-stats-row-action'
+import { conceptRelations } from '@/lib/schema-classes/relations'
 import type { SchemaMapping } from '@/types'
 
 interface CohortConceptPickerDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   selectedConceptIds: number[]
-  onConfirm: (conceptIds: number[], conceptNames: Record<number, string>) => void
+  /** The dictionaries `selectedConceptIds` come from, as stored. */
+  selectedDictionaryKeys: string[] | undefined
+  /** `dictionaryKeys`: the dictionaries the concepts come from; undefined when
+   *  one of them was neither picked here nor known before. */
+  onConfirm: (conceptIds: number[], conceptNames: Record<number, string>, dictionaryKeys: string[] | undefined) => void
   dataSourceId: string | undefined
   schemaMapping: SchemaMapping | undefined
 }
@@ -33,6 +38,7 @@ export function CohortConceptPickerDialog({
   open,
   onOpenChange,
   selectedConceptIds,
+  selectedDictionaryKeys,
   onConfirm,
   dataSourceId,
   schemaMapping,
@@ -41,6 +47,7 @@ export function CohortConceptPickerDialog({
 
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [selectedNames, setSelectedNames] = useState<Map<number, string>>(new Map())
+  const [pickedDictionaries, setPickedDictionaries] = useState<Map<number, string>>(new Map())
 
   const hook = useConcepts(open ? dataSourceId : undefined, open ? schemaMapping : undefined, 'picker')
 
@@ -70,14 +77,21 @@ export function CohortConceptPickerDialog({
     })
   }, [hook.concepts])
 
+  // A single-dictionary source leaves `_dict_key` out of its rows.
+  const defaultDictKey = useMemo(() => (schemaMapping ? conceptRelations(schemaMapping)[0]?.key : undefined), [schemaMapping])
+
   const rememberName = useCallback((row: ConceptRow) => {
+    const dictKey = row._dict_key ?? defaultDictKey
+    if (dictKey) {
+      setPickedDictionaries((prev) => (prev.get(row.concept_id) === dictKey ? prev : new Map(prev).set(row.concept_id, dictKey)))
+    }
     setSelectedNames((prev) => {
       if (prev.get(row.concept_id) === row.concept_name) return prev
       const next = new Map(prev)
       next.set(row.concept_id, row.concept_name)
       return next
     })
-  }, [])
+  }, [defaultDictKey])
 
   const removeConcept = useCallback((conceptId: number) => {
     setSelectedIds((prev) => {
@@ -94,7 +108,11 @@ export function CohortConceptPickerDialog({
     for (const id of selectedIds) {
       names[id] = selectedNames.get(id) ?? `#${id}`
     }
-    onConfirm([...selectedIds], names)
+    const ids = [...selectedIds]
+    const known = new Set(ids.flatMap((id) => pickedDictionaries.get(id) ?? []))
+    const before = ids.every((id) => pickedDictionaries.has(id)) ? [] : selectedDictionaryKeys
+    const dictionaryKeys = before && ids.length > 0 ? [...new Set([...before, ...known])] : undefined
+    onConfirm(ids, names, dictionaryKeys)
   }
 
   const selectedList = useMemo(

@@ -23,7 +23,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { FieldInfo } from '@/components/ui/field-info'
 import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { columnLabel } from '@/lib/format-helpers'
-import { conceptCriterionBoundToStay, listedEventTables } from '@/lib/duckdb/cohort-query'
+import { conceptCriterionBoundToStay, conceptEventTables, listedEventTables } from '@/lib/duckdb/cohort-query'
 import { useConceptInfo } from '@/features/projects/warehouse/concepts/concept-info'
 import { computeAvailableColumns, conceptColumnLabel } from '@/features/projects/warehouse/concepts/concept-queries'
 import { conceptRelations } from '@/lib/schema-classes/relations'
@@ -108,17 +108,19 @@ export function ConceptCriteriaForm({ config, onChange, eventTableLabels, onOpen
   const [valueFilterOpen, setValueFilterOpen] = useState((config.valueFilters?.length ?? 0) > 0)
   const [occurrenceOpen, setOccurrenceOpen] = useState(!!config.occurrenceCount)
   const [showAllConcepts, setShowAllConcepts] = useState(false)
-  // Absent: every table, ticked; one the mapping no longer has is dropped.
-  const searched = (listedEventTables(config) ?? eventTableLabels).filter((l) => eventTableLabels.includes(l))
+  // Absent: the tables "all" stands for, ticked; one the mapping no longer has is dropped.
+  const allTables = schemaMapping ? conceptEventTables({ conceptIds: [], conceptNames: {}, dictionaryKeys: config.dictionaryKeys }, schemaMapping) : eventTableLabels
+  const searched = (listedEventTables(config) ?? allTables).filter((l) => eventTableLabels.includes(l))
   const noTable = searched.length === 0
   const unboundToStay = !!cohortLevel && !!schemaMapping && !noTable
     && !conceptCriterionBoundToStay(cohortLevel, schemaMapping, searched)
   const shownConcepts = showAllConcepts ? config.conceptIds : config.conceptIds.slice(0, FOLDED_CONCEPTS)
   const hiddenConcepts = config.conceptIds.length - FOLDED_CONCEPTS
 
-  // Every table ticked is stored as none listed: a table the mapping gains later is searched too.
+  // The tables "all" stands for, ticked, are stored as none listed: a table the
+  // mapping gains later is searched too.
   const setTables = (next: string[]) => {
-    const all = eventTableLabels.every((l) => next.includes(l))
+    const all = next.length === allTables.length && allTables.every((l) => next.includes(l))
     const rest = { ...config } as ConceptCriteriaConfig & { eventTableLabel?: string }
     delete rest.eventTableLabel
     if (all) delete rest.eventTableLabels

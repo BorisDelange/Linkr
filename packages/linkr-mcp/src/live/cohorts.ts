@@ -3,7 +3,7 @@
  * into the exact tree the app stores, and describe trees and schema mappings in
  * words a model can act on. No I/O here — the server does the calls.
  */
-import { classRelation, eventRelations, has } from '@/lib/schema-classes/relations'
+import { classRelation, conceptRelations, eventRelations, has } from '@/lib/schema-classes/relations'
 import { fieldRef, specEntries } from '@/lib/schema-classes/spec'
 import { randomUUID } from 'node:crypto'
 import { CUSTOM_SQL_NO_ID, cohortRunError, conceptEventTables, getNodeLabel } from '@/lib/duckdb/cohort-query'
@@ -40,7 +40,8 @@ Criterion types and their config:
 - duration:  {"durationLevel": "visit"|"visit_detail", "durationUnit"?: "hours"|"days"|"months", "minDays"?: n, "maxDays"?: n}
              (minDays/maxDays are in durationUnit, despite the name)
 - care_site: {"careSiteLevel": "visit"|"visit_detail", "values": ["<unit name or id>", ...]}
-- concept:   {"eventTableLabels"?: ["<label of an event or drug table>", ...] (omit = every table), "conceptIds": [int, ...],
+- concept:   {"eventTableLabels"?: ["<label of an event or drug table>", ...] (omit = every table naming a concept dictionary),
+              "dictionaryKeys"?: ["<search_concepts' dictionary>", ...] (with no table listed, only the tables naming them), "conceptIds": [int, ...],
               "conceptMatch"?: "any" (default: one of the concepts) | "all" (every one, each meeting the filters and count),
               "valueFilters"?: [{"operator": ">"|">="|"="|"<="|"<"|"!="|"between", "value": n, "value2"?: n}],
               "occurrenceCount"?: {"operator": ">="|">"|"="|"<="|"<", "count": n}}
@@ -220,7 +221,15 @@ function checkConfig(
       // One table, as cohorts written before a criterion could search several name it.
       if (c.eventTableLabels === undefined && typeof c.eventTableLabel === 'string') c.eventTableLabels = [c.eventTableLabel]
       delete c.eventTableLabel
-      let listed: string[] = tables
+      if (c.dictionaryKeys !== undefined) {
+        const dicts = conceptRelations(mapping).flatMap((d) => d.key ?? [])
+        if (!Array.isArray(c.dictionaryKeys) || c.dictionaryKeys.length === 0
+          || (c.dictionaryKeys as unknown[]).some((k) => typeof k !== 'string' || !dicts.includes(k))) {
+          errors.push(`${at}.dictionaryKeys: a non-empty array of concept dictionaries (${dicts.join(', ')}), or omit it.`)
+        }
+      }
+      const dictionaryKeys = Array.isArray(c.dictionaryKeys) ? (c.dictionaryKeys as string[]) : undefined
+      let listed = conceptEventTables({ conceptIds: [], conceptNames: {}, dictionaryKeys }, mapping)
       if (c.eventTableLabels !== undefined) {
         if (!Array.isArray(c.eventTableLabels) || c.eventTableLabels.length === 0) {
           errors.push(`${at}.eventTableLabels: a non-empty array of event or drug tables (${tables.join(', ')}), or omit it for all of them.`)

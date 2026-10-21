@@ -81,6 +81,9 @@ export interface ConceptCriteriaConfig {
   /** The event and drug tables searched, by label; absent = every one of them
    *  (see `conceptEventTables`). */
   eventTableLabels?: string[]
+  /** The concept dictionaries the concepts were picked from, by key: with no
+   *  table listed, the criterion searches the event tables naming them. */
+  dictionaryKeys?: string[]
   /** Concept IDs to match */
   conceptIds: number[]
   /** `any` (default): an entity with one of the concepts; `all`: with every one,
