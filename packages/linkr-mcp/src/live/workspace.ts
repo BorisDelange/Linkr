@@ -271,10 +271,10 @@ export function sourcePreset(
 }
 
 /**
- * The PATCH that puts a preset's mapping on a database. Its own preset again
- * refreshes the base copy: the local overrides stay on top. Another
- * preset is the edit dialog's change of schema: the overrides name relations the
- * new schema may not have, so they go.
+ * The PATCH that puts a preset's mapping on a database, dropping its local
+ * overrides either way. Its own preset again is the Mapping tab's "Reset to
+ * preset" (the version moves on, the lineage stays); another preset is the edit
+ * dialog's change of schema.
  */
 export function presetMappingChange(db: DataSource, preset: CustomSchemaPreset, presets: CustomSchemaPreset[]) {
   const mapping = sanitizeSchemaMapping(preset.mapping) as SchemaMapping
@@ -283,6 +283,7 @@ export function presetMappingChange(db: DataSource, preset: CustomSchemaPreset, 
       update: true,
       changes: {
         schemaMapping: mapping,
+        schemaOverrides: null,
         ...(db.schemaSource ? { schemaSource: { ...db.schemaSource, ...(preset.version ? { version: preset.version } : {}) } } : {}),
       },
     }

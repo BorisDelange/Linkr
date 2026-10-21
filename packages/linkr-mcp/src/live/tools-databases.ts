@@ -175,9 +175,9 @@ export function registerDatabaseTools(server: Server): void {
 
   server.registerTool('set_database_schema', {
     description:
-      'Give a database the schema mapping of a preset of its workspace (list_schema_presets). The same preset again '
-      + 'updates it to the preset\'s current version and keeps the local overrides; another preset replaces the mapping '
-      + 'and drops the overrides. Then re-tests the database. Cohorts and concept search follow the new mapping.',
+      'Give a database the schema mapping of a preset of its workspace (list_schema_presets), dropping its local '
+      + 'overrides. The same preset again resets it to the preset\'s current version (the Mapping tab\'s Reset to preset); '
+      + 'another preset replaces the schema. Then re-tests the database. Cohorts and concept search follow the new mapping.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ database_id: string; preset_id: string }>({
       type: 'object',
@@ -195,7 +195,7 @@ export function registerDatabaseTools(server: Server): void {
     const { db: tested, loginNeeded } = await retestAndStore(updated)
     return text([
       `"${name(db.name)}" now ${update ? 'follows the current version of' : 'uses'} the schema "${name(preset.mapping.presetLabel)}"`
-        + `${update && db.schemaOverrides ? ' (local overrides kept)' : ''}. ${statusLine(tested)}.`,
+        + `${db.schemaOverrides ? ' (local overrides dropped)' : ''}. ${statusLine(tested)}.`,
       ...(loginNeeded ? [loginNeeded] : []),
     ].join('\n'))
   }))

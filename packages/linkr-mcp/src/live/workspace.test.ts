@@ -151,13 +151,13 @@ describe('databases', () => {
     expect(body).not.toHaveProperty('schemaMapping')
   })
 
-  it('updates from its own preset keeping overrides, switches to another dropping them', () => {
+  it('resets to its own preset or switches to another, dropping the overrides either way', () => {
     const own = preset()
     const other = preset({ id: 'p2', presetId: 'mimic', lineageId: 'lin-mimic', version: '1.0' })
     const withOverrides = db({ schemaMapping: mapping as never, schemaSource: { lineageId: 'lin-omop', version: '5.3' }, schemaOverrides: { relations: {} } })
     const same = presetMappingChange(withOverrides, own, [own, other])
     expect(same.update).toBe(true)
-    expect(same.changes).not.toHaveProperty('schemaOverrides')
+    expect(same.changes).toMatchObject({ schemaOverrides: null })
     expect(same.changes).toMatchObject({ schemaSource: { lineageId: 'lin-omop', version: '5.4' } })
     const switched = presetMappingChange(withOverrides, other, [own, other])
     expect(switched).toMatchObject({ update: false, changes: { schemaOverrides: null, schemaSource: { lineageId: 'lin-mimic' } } })

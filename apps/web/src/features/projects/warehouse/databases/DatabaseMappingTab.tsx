@@ -274,11 +274,11 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
           open={resetOpen}
           onOpenChange={setResetOpen}
           title={t('schema_mapping.reset_title')}
-          description={t('schema_mapping.reset_description', {
-            from: source.schemaSource?.version ?? '—',
-            to: preset.version ?? '—',
-          })}
+          description={versionChanged
+            ? t('schema_mapping.reset_description_version', { from: source.schemaSource?.version ?? '—', to: preset.version })
+            : t('schema_mapping.reset_description')}
           confirmLabel={t('schema_mapping.reset_confirm')}
+          destructive
           onConfirm={async () => {
             await updateDataSource(source.id, {
               schemaMapping: sanitizeSchemaMapping(preset.mapping),

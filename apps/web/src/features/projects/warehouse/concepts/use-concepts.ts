@@ -146,6 +146,10 @@ function forgetConceptData(dataSourceId: string) {
   for (const key of statsCaches.keys()) {
     if (key.startsWith(`${dataSourceId}::`)) statsCaches.delete(key)
   }
+  // A load started under the old mapping would otherwise be joined by the next ask.
+  for (const key of statsInFlight.keys()) {
+    if (key.startsWith(`${dataSourceId}::`)) statsInFlight.delete(key)
+  }
 }
 
 function cacheFor<K, V>(caches: Map<string, Map<K, V>>, key: string): Map<K, V> {
@@ -271,7 +275,9 @@ export function fetchConceptStats(
     return stats
   }
 
-  const promise = load().finally(() => statsInFlight.delete(flightKey))
+  const promise: Promise<ConceptStats | null> = load().finally(() => {
+    if (statsInFlight.get(flightKey) === promise) statsInFlight.delete(flightKey)
+  })
   statsInFlight.set(flightKey, promise)
   return promise
 }
