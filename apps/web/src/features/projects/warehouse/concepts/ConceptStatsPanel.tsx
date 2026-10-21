@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Database, Loader2, Stethoscope } from 'lucide-react'
+import { BarChart3, Database, Loader2, Stethoscope } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -27,6 +27,9 @@ interface ConceptStatsPanelProps {
   patientCount?: number
   /** Read them from the source, when the precomputed ones hold no value. */
   onComputeLive?: () => void
+  /** Not known without a query on the source: offer to compute them. */
+  deferred?: boolean
+  onLoad?: () => void
   /** Why the precomputed ones hold no value (concept_cache_fs.diagnose_stats). */
   onDiagnose?: () => Promise<Record<string, unknown>>
 }
@@ -145,6 +148,8 @@ export function ConceptStatsPanel({
   statsEnabled,
   patientCount,
   onComputeLive,
+  deferred = false,
+  onLoad,
   onDiagnose,
 }: ConceptStatsPanelProps) {
   const { t } = useTranslation()
@@ -169,6 +174,21 @@ export function ConceptStatsPanel({
         <Skeleton className="h-4 w-32" />
         <Skeleton className="h-4 w-24" />
         <Skeleton className="h-[180px] w-full" />
+      </div>
+    )
+  }
+
+  if (deferred && onLoad) {
+    return (
+      <div className="space-y-2">
+        <h4 className="text-xs font-medium">{t('concepts.stats_title')}</h4>
+        <p className="text-xs text-muted-foreground">{t('concepts.stats_not_loaded')}</p>
+        <div className="flex justify-center pt-3">
+          <Button size="xs" variant="outline" onClick={onLoad}>
+            <BarChart3 size={12} />
+            {t('concepts.stats_load')}
+          </Button>
+        </div>
       </div>
     )
   }

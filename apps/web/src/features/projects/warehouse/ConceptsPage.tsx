@@ -98,6 +98,8 @@ export function ConceptsPage() {
     conceptStats,
     conceptStatsLoading,
     conceptStatsError,
+    conceptStatsDeferred,
+    loadSelectedStats,
     detailError,
     computeStatsLive,
     diagnoseStats,
@@ -738,6 +740,8 @@ export function ConceptsPage() {
               statsError={conceptStatsError}
               error={detailError}
               onComputeStatsLive={computeStatsLive}
+              statsDeferred={conceptStatsDeferred}
+              onLoadStats={loadSelectedStats}
               onDiagnoseStats={diagnoseStats}
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}

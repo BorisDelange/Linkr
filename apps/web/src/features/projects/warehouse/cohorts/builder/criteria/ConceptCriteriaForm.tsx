@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertCircle, AlertTriangle, ChevronRight, X, Plus, Search } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -25,6 +25,8 @@ import { MULTI_SELECT_FORM_TRIGGER, MultiSelectFilter } from '@/components/ui/mu
 import { columnLabel } from '@/lib/format-helpers'
 import { conceptCriterionBoundToStay, listedEventTables } from '@/lib/duckdb/cohort-query'
 import { useConceptInfo } from '@/features/projects/warehouse/concepts/concept-info'
+import { computeAvailableColumns, conceptColumnLabel } from '@/features/projects/warehouse/concepts/concept-queries'
+import { conceptRelations } from '@/lib/schema-classes/relations'
 import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping, ValueFilter } from '@/types'
 
 interface ConceptCriteriaFormProps {
@@ -55,6 +57,14 @@ function ConceptChip({ id, name, dataSourceId, schemaMapping, onRemove }: {
   const { t } = useTranslation()
   const [hovered, setHovered] = useState(false)
   const { info, loading } = useConceptInfo(dataSourceId, schemaMapping, id, hovered)
+  const columns = useMemo(
+    () => (schemaMapping ? computeAvailableColumns(conceptRelations(schemaMapping)) : []),
+    [schemaMapping],
+  )
+  const fieldLabel = (field: string) => {
+    const col = columns.find((c) => c.id === field)
+    return col ? conceptColumnLabel(col, t) : columnLabel(field)
+  }
   const rows = info
     ? INFO_FIELDS.filter((f) => info[f] != null && info[f] !== '').map((f) => [f, String(info[f])] as const)
     : [['concept_name', name ?? String(id)], ['concept_id', String(id)]] as const
@@ -78,7 +88,7 @@ function ConceptChip({ id, name, dataSourceId, schemaMapping, onRemove }: {
           <div className="space-y-0.5">
             {rows.map(([field, value]) => (
               <div key={field} className="flex items-baseline justify-between gap-3">
-                <span className="shrink-0 opacity-70">{columnLabel(field)}</span>
+                <span className="shrink-0 opacity-70">{fieldLabel(field)}</span>
                 <span className="min-w-0 break-words text-right font-medium">{value}</span>
               </div>
             ))}

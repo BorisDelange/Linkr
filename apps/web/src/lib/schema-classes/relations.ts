@@ -2,7 +2,7 @@ import type { DrugSpec, EventSpec, FieldSpec, PatientSpec, RelationSpec, Relatio
 import { escSql, isSafeIdentifier } from '@/lib/format-helpers'
 import { protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import { CLASS_CONTRACTS, RELATION_PREFIX, type ClassName } from './contracts'
-import { specTables } from './spec'
+import { specSourceColumns, specTables } from './spec'
 
 /**
  * One class relation: a SELECT honouring its class contract, and the name
@@ -38,6 +38,9 @@ export interface ClassRelation {
   codeSql?: string
   /** Concept: `extra_<alias>` columns, keyed by the mapping's alias. */
   extras?: Readonly<Record<string, string>>
+  /** Concept: contract column → source column, where a field is a plain column
+   *  reference (`specSourceColumns`). */
+  sourceColumns?: Readonly<Record<string, string>>
 }
 
 const cache = new WeakMap<SchemaMapping, ClassRelation[]>()
@@ -447,7 +450,7 @@ function buildRelations(mapping: SchemaMapping): ClassRelation[] {
     rels.push({
       name, cls: 'concept', key: spec.key, specKey: `concepts.${spec.key}`,
       sql: compiled.sql, mapped: compiled.mapped, custom: compiled.custom, problems: compiled.problems, extras: compiled.extras,
-      tables: specTables(spec),
+      tables: specTables(spec), sourceColumns: specSourceColumns(spec),
     })
   }
 

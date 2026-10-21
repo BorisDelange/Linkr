@@ -153,6 +153,28 @@ function rememberResult(cache: Map<string, CachedResult>, key: string, result: C
 const statsInFlight = new Map<string, Promise<ConceptStats | null>>()
 
 /**
+ * One concept's stats when they cost no query on the source: this session's
+ * copy, or (server mode, clipped form) the server's — precomputed by the
+ * counting run or cached by an earlier load. Undefined when they would have to
+ * be computed.
+ */
+export async function peekConceptStats(
+  dataSourceId: string,
+  conceptId: number,
+  dictKey: string,
+  excludeOutliers: boolean,
+): Promise<ConceptStats | undefined> {
+  const statsCache = cacheFor(statsCaches, `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`)
+  const cached = statsCache.get(conceptId)
+  if (cached) return cached
+  if (!isServerMode() || !excludeOutliers) return undefined
+  const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey).catch(() => undefined)
+  if (!shared || !isFreshCachedStats(shared)) return undefined
+  statsCache.set(conceptId, shared)
+  return shared
+}
+
+/**
  * One concept's stats as every view shows them — the detail panel and the row
  * popover alike: this session's copy, else (server mode, clipped form) the
  * server's — precomputed by the counting run or cached by an earlier click —
@@ -178,12 +200,9 @@ export function fetchConceptStats(
   const load = async (): Promise<ConceptStats | null> => {
     // Server mode: another user, or the counting run, may have computed these
     // already. On a hit, render without touching the source.
-    if (isServerMode() && excludeOutliers && !live) {
-      const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey).catch(() => undefined)
-      if (shared && isFreshCachedStats(shared)) {
-        statsCache.set(conceptId, shared)
-        return shared
-      }
+    if (!live) {
+      const known = await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
+      if (known) return known
     }
 
     const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
@@ -270,6 +289,9 @@ export function useConcepts(
   // Why the selected concept's stats, or its row, could not be read — said in
   // the detail panel rather than an empty "no records" or "select a concept".
   const [conceptStatsError, setConceptStatsError] = useState<string | null>(null)
+  // The selected concept's stats are not known without a query on the source:
+  // they wait for the user to ask, one concept at a time.
+  const [conceptStatsDeferred, setConceptStatsDeferred] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
 
   // Server mode: the concept list is materialized to a shared Parquet cache,
@@ -598,7 +620,10 @@ export function useConcepts(
   // Load concept stats (with cache)
   // ---------------------------------------------------------------------------
 
-  const loadConceptStats = useCallback(async (conceptId: number, dictKey: string) => {
+  /** `compute`: run the queries when nothing holds them yet. Without it a click
+   *  only shows what is already known — on a large database, computing on every
+   *  click would make browsing crawl. */
+  const loadConceptStats = useCallback(async (conceptId: number, dictKey: string, compute: boolean) => {
     if (!dataSourceId || !schemaMapping || !statsCache) return
 
     // This concept is now the one we want shown. Any older in-flight load that
@@ -607,6 +632,7 @@ export function useConcepts(
     const isStale = () => activeStatsConceptId.current !== conceptId
 
     setConceptStatsError(null)
+    setConceptStatsDeferred(false)
     const cachedStats = statsCache.get(conceptId)
     if (cachedStats) {
       // Instant: cached clicks render immediately and clear any leftover spinner
@@ -618,9 +644,14 @@ export function useConcepts(
 
     setConceptStatsLoading(true)
     try {
-      const stats = await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers)
+      const stats = compute
+        ? await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers)
+        : await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
       // Only apply if this is still the selected concept — a newer click wins.
-      if (!isStale()) setConceptStats(stats)
+      if (!isStale()) {
+        setConceptStats(stats ?? null)
+        setConceptStatsDeferred(stats === undefined)
+      }
     } catch (err) {
       console.error('Failed to load concept stats:', err)
       if (!isStale()) {
@@ -640,13 +671,14 @@ export function useConcepts(
     if (!statsEnabled) {
       setConceptStats(null)
       setConceptStatsLoading(false)
+      setConceptStatsDeferred(false)
       return
     }
     if (selectedConceptId !== null) {
       const row = concepts.find((c) => c.concept_id === selectedConceptId)
       const dictKey = (row?._dict_key as string) ?? dicts[0]?.key
       if (dictKey) {
-        loadConceptStats(selectedConceptId, dictKey)
+        loadConceptStats(selectedConceptId, dictKey, false)
       }
     }
   }, [selectedConceptId, concepts, dicts, loadConceptStats, statsEnabled])
@@ -670,6 +702,11 @@ export function useConcepts(
   const selectedDictKey = () => {
     const row = concepts.find((c) => c.concept_id === selectedConceptId)
     return (row?._dict_key as string) ?? dicts[0]?.key
+  }
+
+  const loadSelectedStats = () => {
+    const dictKey = selectedDictKey()
+    if (selectedConceptId !== null && dictKey) loadConceptStats(selectedConceptId, dictKey, true)
   }
 
   // When the precomputed statistics hold no value for the selected concept: read
@@ -741,6 +778,8 @@ export function useConcepts(
     conceptStats,
     conceptStatsLoading,
     conceptStatsError,
+    conceptStatsDeferred,
+    loadSelectedStats,
     computeStatsLive: isServerMode() ? computeStatsLive : undefined,
     diagnoseStats: isServerMode() ? diagnoseStats : undefined,
     refresh,

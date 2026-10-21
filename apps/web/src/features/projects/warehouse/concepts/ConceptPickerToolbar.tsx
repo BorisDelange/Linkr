@@ -6,8 +6,7 @@ import { Input } from '@/components/ui/input'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { columnLabel } from '@/lib/format-helpers'
-import { filterText, type ColumnDescriptor, type ConceptFilters, type ConceptFilterValue } from './concept-queries'
+import { conceptColumnLabel, filterText, type ColumnDescriptor, type ConceptFilters, type ConceptFilterValue } from './concept-queries'
 
 interface ConceptPickerToolbarProps {
   availableColumns: ColumnDescriptor[]
@@ -96,7 +95,7 @@ export function ConceptPickerToolbar({
               filterableColumns.map((col) => (
                 <div key={col.id} className="space-y-1">
                   <p className="text-xs font-medium text-muted-foreground">
-                    {columnLabel(col.id)}
+                    {conceptColumnLabel(col, t)}
                   </p>
                   <MultiSelectFilter
                     value={selectedFilterValues(col.id)}
@@ -105,7 +104,7 @@ export function ConceptPickerToolbar({
                         ? { value: v, label: standardOptionLabel(v) }
                         : v,
                     )}
-                    placeholder={columnLabel(col.id)}
+                    placeholder={conceptColumnLabel(col, t)}
                     onChange={(next) => onFilterChange(col.id, next.length ? next : null)}
                     triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
                     popoverWidthClass="w-[300px]"

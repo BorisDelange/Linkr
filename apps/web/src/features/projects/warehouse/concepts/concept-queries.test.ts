@@ -8,7 +8,6 @@ import {
   VALIDITY_COLUMNS,
   CONCEPT_SET_COLUMNS,
   DEFAULT_HIDDEN_COLUMNS,
-  pickerColumnOrder,
   type ColumnDescriptor,
 } from './concept-queries'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
@@ -131,6 +130,25 @@ describe('computeAvailableColumns ordering', () => {
     },
   }
 
+  it('keeps the OMOP names when the dictionary reads domain_id / concept_class_id', () => {
+    const cols = computeAvailableColumns(rels(dict))
+    expect(cols.find((c) => c.id === 'domain_id')?.labelKey).toBeUndefined()
+    expect(cols.find((c) => c.id === 'concept_class_id')?.labelKey).toBeUndefined()
+  })
+
+  it('calls them category / subcategory for another schema', () => {
+    const cols = computeAvailableColumns(rels({ ...dict, categoryColumn: 'category', subcategoryColumn: 'type' }))
+    expect(cols.find((c) => c.id === 'domain_id')?.labelKey).toBe('concepts.column_category')
+    expect(cols.find((c) => c.id === 'concept_class_id')?.labelKey).toBe('concepts.column_subcategory')
+  })
+
+  it('puts the domain and the class right after the vocabulary', () => {
+    const ids = computeAvailableColumns(rels(dict)).map((c) => c.id)
+    expect(ids.slice(0, 6)).toEqual(
+      ['vocabulary_id', 'domain_id', 'concept_class_id', 'concept_id', 'concept_name', 'concept_code'],
+    )
+  })
+
   it('puts patient_count before record_count', () => {
     const ids = computeAvailableColumns(rels(dict)).map((c) => c.id)
     expect(ids.indexOf('patient_count')).toBeLessThan(ids.indexOf('record_count'))
@@ -242,22 +260,5 @@ describe('Name filter over several dictionaries', () => {
     const sql = buildConceptsCountQuery(mapping, { _searchText: 'x', _dict_key: ['d_items'] }, computeAvailableColumns(conceptRelations(mapping)))!
     expect(sql).toContain(`NOT EXISTS (SELECT 1 FROM ${b.name} _lf`)
     expect(sql).not.toContain('UNION ALL')
-  })
-})
-
-describe('pickerColumnOrder', () => {
-  const col = (id: string): ColumnDescriptor => ({ id, source: 'core', filterable: false })
-  const ids = (cols: ColumnDescriptor[]) => cols.map((c) => c.id)
-
-  it('moves the domain right after the vocabulary', () => {
-    const cols = ['vocabulary_id', 'concept_id', 'concept_name', 'domain_id', 'record_count'].map(col)
-    expect(ids(pickerColumnOrder(cols))).toEqual(
-      ['vocabulary_id', 'domain_id', 'concept_id', 'concept_name', 'record_count'],
-    )
-  })
-
-  it('keeps the order when either column is missing', () => {
-    const cols = ['concept_id', 'concept_name', 'domain_id'].map(col)
-    expect(pickerColumnOrder(cols)).toBe(cols)
   })
 })

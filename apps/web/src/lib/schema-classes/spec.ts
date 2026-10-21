@@ -36,6 +36,22 @@ export function specTables(spec: RelationSpec | undefined): RelationTable[] {
 }
 
 /**
+ * Contract column → the source column it is read from, for the fields mapped as
+ * a plain column reference (`c.domain_id`). Expressions, constants and SQL
+ * relations name no single column, so they are absent.
+ */
+export function specSourceColumns(spec: RelationSpec | undefined): Record<string, string> {
+  if (!spec || spec.customSql?.trim()) return {}
+  const out: Record<string, string> = {}
+  for (const [field, source] of Object.entries(spec.fields ?? {})) {
+    if (typeof source !== 'string') continue
+    const column = source.split('.').pop()?.replace(/^"|"$/g, '')
+    if (column) out[field] = column
+  }
+  return out
+}
+
+/**
  * The grain table of a visual relation with no filter: counting its rows counts
  * the relation's rows, without going through the relation. Undefined for SQL,
  * or when a WHERE or an inner join changes the row count.

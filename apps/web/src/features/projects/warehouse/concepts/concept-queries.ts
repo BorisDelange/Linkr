@@ -1,6 +1,6 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
-import { escSql as esc } from '@/lib/format-helpers'
+import { columnLabel, escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 
 // ---------------------------------------------------------------------------
@@ -15,6 +15,23 @@ export interface ColumnDescriptor {
   source: 'core' | 'code' | 'vocabulary' | 'extra' | 'dict' | 'computed' | 'conceptSet'
   /** Whether a dropdown filter should be generated (few distinct values). */
   filterable: boolean
+  /** i18n key of the header, when the id's own (OMOP) name would mislead. */
+  labelKey?: string
+}
+
+/** A column's header: its i18n label when it has one, else its id spelled out. */
+export function conceptColumnLabel(col: ColumnDescriptor, t: (key: string) => string): string {
+  return col.labelKey ? t(col.labelKey) : columnLabel(col.id)
+}
+
+/**
+ * The `domain_id` / `concept_class_id` columns carry the dictionary's category
+ * and subcategory. They keep their OMOP name only when every dictionary reads
+ * them from a column of that name; another schema's category is not a domain.
+ */
+function omopNamed(dicts: readonly ClassRelation[], field: string, omopColumn: string): boolean {
+  const mapping = dicts.filter((d) => has(d, field))
+  return mapping.length > 0 && mapping.every((d) => d.sourceColumns?.[field] === omopColumn)
 }
 
 /** OMOP validity metadata, ordered as they sit at the end of the table. */
@@ -40,25 +57,14 @@ export const DEFAULT_HIDDEN_COLUMNS = [...VALIDITY_COLUMNS, ...CONCEPT_SET_COLUM
 /** A picker is read by name, vocabulary and domain; the id stays one click away. */
 export const PICKER_HIDDEN_COLUMNS = [...DEFAULT_HIDDEN_COLUMNS, 'concept_id']
 
-/** Picker layout: the domain right after the vocabulary, the two columns that
- *  narrow a pick down before the name is read. */
-export function pickerColumnOrder(cols: ColumnDescriptor[]): ColumnDescriptor[] {
-  const domain = cols.find((c) => c.id === 'domain_id')
-  const vocabularyIndex = cols.findIndex((c) => c.id === 'vocabulary_id')
-  if (!domain || vocabularyIndex < 0) return cols
-  const rest = cols.filter((c) => c !== domain)
-  const at = rest.findIndex((c) => c.id === 'vocabulary_id') + 1
-  return [...rest.slice(0, at), domain, ...rest.slice(at)]
-}
-
 /**
  * Compute the union of all columns across multiple concept dictionaries.
  * Returns stable column descriptors that drive the table, filters, and sort.
  */
 export function computeAvailableColumns(dicts: readonly ClassRelation[]): ColumnDescriptor[] {
-  // Order mirrors the conventional concept layout:
-  // vocabulary_id, concept_id, concept_name, concept_code, domain_id,
-  // concept_class_id, [other extras], standard_concept, then counts last.
+  // Order: what classifies a concept (vocabulary_id, domain_id,
+  // concept_class_id), then concept_id, concept_name, concept_code,
+  // [other extras], standard_concept, then counts last.
   const cols: ColumnDescriptor[] = []
 
   // Which dictionary the row came from — the same "what terminology is this?"
@@ -69,16 +75,22 @@ export function computeAvailableColumns(dicts: readonly ClassRelation[]): Column
   if (dicts.some((d) => has(d, 'terminology_id'))) {
     cols.push({ id: 'vocabulary_id', source: 'vocabulary', filterable: true })
   }
+  if (dicts.some((d) => has(d, 'category'))) {
+    cols.push({
+      id: 'domain_id', source: 'extra', filterable: true,
+      ...(!omopNamed(dicts, 'category', 'domain_id') && { labelKey: 'concepts.column_category' }),
+    })
+  }
+  if (dicts.some((d) => has(d, 'subcategory'))) {
+    cols.push({
+      id: 'concept_class_id', source: 'extra', filterable: true,
+      ...(!omopNamed(dicts, 'subcategory', 'concept_class_id') && { labelKey: 'concepts.column_subcategory' }),
+    })
+  }
   cols.push({ id: 'concept_id', source: 'core', filterable: false })
   cols.push({ id: 'concept_name', source: 'core', filterable: false })
   if (dicts.some((d) => has(d, 'concept_code'))) {
     cols.push({ id: 'concept_code', source: 'code', filterable: false })
-  }
-  if (dicts.some((d) => has(d, 'category'))) {
-    cols.push({ id: 'domain_id', source: 'extra', filterable: true })
-  }
-  if (dicts.some((d) => has(d, 'subcategory'))) {
-    cols.push({ id: 'concept_class_id', source: 'extra', filterable: true })
   }
 
   // Union of all extraColumns keys across all dicts, skipping any already

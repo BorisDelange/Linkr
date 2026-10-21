@@ -12,7 +12,7 @@ import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-bad
 import { ConceptStatsPanel } from './ConceptStatsPanel'
 import { ConceptStatsSqlDialog } from './ConceptStatsSqlDialog'
 import type { ConceptStats } from './use-concepts'
-import type { ColumnDescriptor } from './concept-queries'
+import { conceptColumnLabel, type ColumnDescriptor } from './concept-queries'
 
 interface ConceptDetailProps {
   concept: Record<string, unknown> | null
@@ -25,6 +25,9 @@ interface ConceptDetailProps {
   error?: string | null
   /** When the precomputed statistics hold no value: read them from the source, or ask why. */
   onComputeStatsLive?: () => void
+  /** The stats are not known without a query on the source, and this computes them. */
+  statsDeferred?: boolean
+  onLoadStats?: () => void
   onDiagnoseStats?: () => Promise<Record<string, unknown>>
   hasValueColumn: boolean
   excludeOutliers: boolean
@@ -53,6 +56,8 @@ export function ConceptDetail({
   statsError,
   error,
   onComputeStatsLive,
+  statsDeferred,
+  onLoadStats,
   onDiagnoseStats,
   hasValueColumn,
   excludeOutliers,
@@ -173,13 +178,13 @@ export function ConceptDetail({
               if (col.id === 'standard_concept') {
                 return (
                   <div key={col.id} className="flex items-center justify-between gap-2 py-0.5">
-                    <span className="text-xs text-muted-foreground">{columnLabel(col.id)}</span>
+                    <span className="text-xs text-muted-foreground">{conceptColumnLabel(col, t)}</span>
                     <StandardConceptBadge value={raw == null ? null : String(raw)} />
                   </div>
                 )
               }
               const value = raw != null ? String(raw) : null
-              return <MetaRow key={col.id} label={columnLabel(col.id)} value={value} />
+              return <MetaRow key={col.id} label={conceptColumnLabel(col, t)} value={value} />
             })}
 
             {/* Show all extra fields from SELECT * that are not in availableColumns */}
@@ -202,6 +207,8 @@ export function ConceptDetail({
           isLoading={statsLoading}
           error={statsError}
           onComputeLive={onComputeStatsLive}
+          deferred={statsDeferred}
+          onLoad={onLoadStats}
           onDiagnose={onDiagnoseStats}
           excludeOutliers={excludeOutliers}
           statsEnabled={statsEnabled}
