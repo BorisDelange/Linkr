@@ -271,8 +271,8 @@ export function sourcePreset(
 }
 
 /**
- * The PATCH that puts a preset's mapping on a database. Its own preset again is
- * the Mapping tab's "Update from preset": the local overrides stay on top. Another
+ * The PATCH that puts a preset's mapping on a database. Its own preset again
+ * refreshes the base copy: the local overrides stay on top. Another
  * preset is the edit dialog's change of schema: the overrides name relations the
  * new schema may not have, so they go.
  */

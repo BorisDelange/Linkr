@@ -136,6 +136,17 @@ const resultCaches = new Map<string, Map<string, CachedResult>>()
 // unique within its dictionary.
 const statsCaches = new Map<string, Map<string, ConceptStats>>()
 const RESULT_CACHE_LIMIT = 200
+// The mapping each database's cached rows and stats were read through. Their
+// keys are SQL over the concept list, the same text whatever the mapping says,
+// so a changed mapping (another category column…) would keep serving them.
+const cachedMappings = new Map<string, string>()
+
+function forgetConceptData(dataSourceId: string) {
+  resultCaches.delete(dataSourceId)
+  for (const key of statsCaches.keys()) {
+    if (key.startsWith(`${dataSourceId}::`)) statsCaches.delete(key)
+  }
+}
 
 function cacheFor<K, V>(caches: Map<string, Map<K, V>>, key: string): Map<K, V> {
   let cache = caches.get(key)
@@ -315,7 +326,12 @@ export function useConcepts(
   // yet, the list stays empty: the remote dictionary is never read, nor could it
   // run the fuzzy search. Front-only mode ignores all this (queries the source,
   // counts inline).
-  const count = useConceptCount(dataSourceId, schemaMapping)
+  const mappingKey = useMemo(() => (schemaMapping ? JSON.stringify(schemaMapping) : ''), [schemaMapping])
+  if (dataSourceId && mappingKey && cachedMappings.get(dataSourceId) !== mappingKey) {
+    if (cachedMappings.has(dataSourceId)) forgetConceptData(dataSourceId)
+    cachedMappings.set(dataSourceId, mappingKey)
+  }
+  const count = useConceptCount(dataSourceId, schemaMapping, mappingKey)
   const cacheReady = count.exists
   const cacheChecked = count.checked
   const [frontVersion, setFrontVersion] = useState(0)

@@ -29,8 +29,8 @@ const absentNoticeKey = (sourceId: string, absent: readonly { specKey: string; t
 
 /**
  * A database's mapping: its preset's copy (the base) with what this site changes
- * on top (plan §7): whole relations, replaced, added or removed. The base is replaced only by an explicit "Update from preset",
- * which keeps the overrides and flags those whose base the preset changed.
+ * on top (plan §7): whole relations, replaced, added or removed. "Reset to preset"
+ * puts the installed preset's mapping back and drops the overrides.
  */
 export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; readOnly?: boolean }) {
   const { t, i18n } = useTranslation()
@@ -39,7 +39,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   const savePreset = useSchemaPresetStore((s) => s.savePreset)
   const presetsLoaded = useSchemaPresetStore((s) => s.loaded)
   const loadPresets = useSchemaPresetStore((s) => s.loadPresets)
-  // The installed preset is what "Update from preset" and "Promote" act on; the
+  // The installed preset is what "Reset to preset" and "Promote" act on; the
   // store is filled by the Schemas page, which this tab may be opened without.
   useEffect(() => {
     if (!presetsLoaded) void loadPresets(source.workspaceId)
@@ -54,7 +54,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
 
   const [draft, setDraft] = useState<{ mapping: SchemaMapping } | null>(null)
   const [, setDismissals] = useState(0)
-  const [updateOpen, setUpdateOpen] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
 
   // What the database actually holds: the editor suggests its tables and
   // columns, and the relations reading a table it lacks are flagged — all of
@@ -167,7 +167,9 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   }
 
   const presetChanged = !!preset && JSON.stringify(sanitizeSchemaMapping(preset.mapping)) !== JSON.stringify(base)
-  const staleAfterUpdate = preset ? staleOverrides(sanitizeSchemaMapping(preset.mapping), overrides) : []
+  const versionChanged = !!preset?.version && preset.version !== source.schemaSource?.version
+  const canReset = presetChanged || versionChanged || !isEmptyOverrides(overrides)
+  const droppedKeys = [...overridden, ...removedKeys]
 
   const notice = absent.length > 0 && !editing && !dismissedAbsent.has(noticeKey) ? (
     <NoticeBanner
@@ -196,10 +198,10 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
 
   const toolbar = (
     <>
-      {canWrite && !editing && presetChanged && (
-        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setUpdateOpen(true)}>
+      {canWrite && !editing && preset && canReset && (
+        <Button variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => setResetOpen(true)}>
           <RefreshCw size={12} />
-          {t('schema_mapping.update_from_preset')}
+          {t('schema_mapping.reset_to_preset')}
         </Button>
       )}
       {canWrite && !editing && (
@@ -269,33 +271,32 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
 
       {preset && (
         <DialogShell
-          open={updateOpen}
-          onOpenChange={setUpdateOpen}
-          title={t('schema_mapping.update_title')}
-          description={t('schema_mapping.update_description', {
+          open={resetOpen}
+          onOpenChange={setResetOpen}
+          title={t('schema_mapping.reset_title')}
+          description={t('schema_mapping.reset_description', {
             from: source.schemaSource?.version ?? '—',
             to: preset.version ?? '—',
           })}
-          confirmLabel={t('schema_mapping.update_confirm')}
+          confirmLabel={t('schema_mapping.reset_confirm')}
           onConfirm={async () => {
             await updateDataSource(source.id, {
               schemaMapping: sanitizeSchemaMapping(preset.mapping),
+              schemaOverrides: null,
               ...(source.schemaSource
                 ? { schemaSource: { ...source.schemaSource, ...(preset.version ? { version: preset.version } : {}) } }
                 : {}),
             })
-            setUpdateOpen(false)
+            setResetOpen(false)
           }}
         >
-          {overridden.size === 0 ? (
-            <p className="text-xs text-muted-foreground">{t('schema_mapping.update_no_overrides')}</p>
-          ) : staleAfterUpdate.length === 0 ? (
-            <p className="text-xs text-muted-foreground">{t('schema_mapping.update_overrides_kept')}</p>
+          {droppedKeys.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('schema_mapping.reset_no_overrides')}</p>
           ) : (
             <div className="space-y-1 text-xs">
-              <p>{t('schema_mapping.update_stale')}</p>
+              <p>{t('schema_mapping.reset_dropped')}</p>
               <ul className="list-inside list-disc font-mono">
-                {staleAfterUpdate.map((k) => (
+                {droppedKeys.map((k) => (
                   <li key={k}>{k}</li>
                 ))}
               </ul>

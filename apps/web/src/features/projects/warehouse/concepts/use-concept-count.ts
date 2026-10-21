@@ -13,6 +13,7 @@ import {
 
 interface StoredStatus {
   dataSourceId: string
+  mappingKey: string
   exists: boolean
   refreshedAt: string | null
   progress: ConceptCountProgress
@@ -45,26 +46,32 @@ export interface ConceptCountView {
  * The concepts cache of a database and its counts: the stored state the server
  * reports, and the run going on in this browser. Every view of the database's concepts — the
  * Concepts tab, the project's Concepts page, the concept pickers — reads it.
+ *
+ * `mappingKey` identifies the mapping's content: the server drops the list when
+ * the mapping changes, so a view that stays mounted across the change re-reads
+ * the state rather than go on reporting the old list as loaded.
  */
-export function useConceptCount(dataSourceId: string | undefined, mapping: SchemaMapping | undefined): ConceptCountView {
+export function useConceptCount(dataSourceId: string | undefined, mapping: SchemaMapping | undefined, mappingKey: string): ConceptCountView {
   const enabled = isServerMode() && !!dataSourceId
   const key = dataSourceId ?? ''
   const live = useSyncExternalStore(
     useCallback((notify: () => void) => watchConceptCountRun(key, notify), [key]),
     () => getConceptCountRun(key),
   )
-  // Tagged with its database, so switching database never shows the previous one's.
+  // Tagged with its database and mapping, so neither a switch of database nor a
+  // changed mapping shows the previous list as loaded.
   const [stored, setStored] = useState<StoredStatus | null>(null)
-  const status = stored?.dataSourceId === dataSourceId ? stored : null
+  const status = stored?.dataSourceId === dataSourceId && stored?.mappingKey === mappingKey ? stored : null
   const [version, setVersion] = useState(0)
 
-  // Re-read the stored state when a run starts, assembles, or ends.
+  // Re-read the stored state when a run starts, assembles, or ends, and when the
+  // mapping changes.
   useEffect(() => {
     if (!enabled || !dataSourceId) return
     let cancelled = false
-    const store = (s: Omit<StoredStatus, 'dataSourceId'>) => {
+    const store = (s: Omit<StoredStatus, 'dataSourceId' | 'mappingKey'>) => {
       if (cancelled) return
-      setStored({ dataSourceId, ...s })
+      setStored({ dataSourceId, mappingKey, ...s })
       setVersion((v) => v + 1)
     }
     getConceptCacheStatus(dataSourceId).then((s) => store({
@@ -73,7 +80,7 @@ export function useConceptCount(dataSourceId: string | undefined, mapping: Schem
       progress: conceptCountProgress(s.run),
     })).catch(() => store({ exists: false, refreshedAt: null, progress: conceptCountProgress(null) }))
     return () => { cancelled = true }
-  }, [enabled, dataSourceId, live.running, live.assembled])
+  }, [enabled, dataSourceId, live.running, live.assembled, mappingKey])
 
   const start = useCallback((restart: boolean, steps: readonly ConceptCountStep[]) => {
     if (!dataSourceId || !mapping) return
