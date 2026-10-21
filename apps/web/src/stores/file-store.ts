@@ -782,6 +782,17 @@ export const useFileStore = create<FileState>((set, get) => ({
       && (ids.has(prev.selectedFileId) || prev.terminalTabs.some((t) => t.id === prev.selectedFileId))
       ? prev.selectedFileId : null
     const openFileIds = keepActive ? prev.openFileIds.filter((id) => ids.has(id)) : []
+    // A rename or move gives the file a new id (sha1 of its path in server mode):
+    // the right group must let go of the old one like the left does, or its pane
+    // goes blank and the toolbar acts on a file that no longer exists.
+    const isTerminal = (id: string) => prev.terminalTabs.some((t) => t.id === id)
+    const editorTabsInOutputGroup = prev.editorTabsInOutputGroup.filter((id) => ids.has(id) || isTerminal(id))
+    const outputGroupEditorTab = prev.outputGroupEditorTab && editorTabsInOutputGroup.includes(prev.outputGroupEditorTab)
+      ? prev.outputGroupEditorTab
+      : (editorTabsInOutputGroup.at(-1) ?? null)
+    const vanished = new Set(
+      [...prev.openFileIds, ...prev.editorTabsInOutputGroup].filter((id) => !openFileIds.includes(id) && !isTerminal(id)),
+    )
     const expandedFolders = keepActive
       ? prev.expandedFolders.filter((id) => ids.has(id))
       : stored.filter((f) => f.type === 'folder' && f.parentId === null).map((f) => f.id)
@@ -794,6 +805,10 @@ export const useFileStore = create<FileState>((set, get) => ({
       activeProjectUid: projectUid,
       selectedFileId,
       openFileIds,
+      editorTabsInOutputGroup,
+      outputGroupEditorTab,
+      focusedGroup: prev.focusedGroup === 'right' && !outputGroupEditorTab ? 'left' : prev.focusedGroup,
+      tabOrder: vanished.size ? prev.tabOrder.filter((id) => !vanished.has(id)) : prev.tabOrder,
       expandedFolders,
       selection,
       _dirtyVersion: 0,
@@ -1171,6 +1186,7 @@ export const useFileStore = create<FileState>((set, get) => ({
         outputGroupEditorTab: idsToRemove.includes(s.outputGroupEditorTab ?? '')
           ? (rightRemaining.at(-1) ?? null)
           : s.outputGroupEditorTab,
+        tabOrder: s.tabOrder.filter((fid) => !idsToRemove.includes(fid)),
         expandedFolders: s.expandedFolders.filter(
           (fid) => !idsToRemove.includes(fid)
         ),
@@ -1397,7 +1413,12 @@ export const useFileStore = create<FileState>((set, get) => ({
         const leftRemaining = left.filter((fid) => fid !== id)
         nextSelected = leftRemaining[Math.min(left.indexOf(id), leftRemaining.length - 1)] ?? null
       }
-      return { openFileIds: remaining, selectedFileId: nextSelected, ...leaveOutputGroup(s, id) }
+      return {
+        openFileIds: remaining,
+        selectedFileId: nextSelected,
+        tabOrder: s.tabOrder.filter((tid) => tid !== id),
+        ...leaveOutputGroup(s, id),
+      }
     }),
 
   reorderOpenFiles: (fromIndex, toIndex) =>
@@ -1449,6 +1470,7 @@ export const useFileStore = create<FileState>((set, get) => ({
             ? (remaining[remaining.length - 1]?.id ?? null)
             : s.activeOutputTab,
         outputTabOrder: s.outputTabOrder.filter((tid) => tid !== id),
+        tabOrder: s.tabOrder.filter((tid) => tid !== id),
         outputTabsInEditorGroup: inEditorGroup,
         editorGroupOutputTab:
           s.editorGroupOutputTab === id ? editorGroupFallback : s.editorGroupOutputTab,
@@ -1578,7 +1600,12 @@ export const useFileStore = create<FileState>((set, get) => ({
           ?? remaining.map((t) => t.id).filter(onLeft).at(-1)
           ?? null
       }
-      return { terminalTabs: remaining, selectedFileId: selected, ...leaveOutputGroup(s, id) }
+      return {
+        terminalTabs: remaining,
+        selectedFileId: selected,
+        tabOrder: s.tabOrder.filter((tid) => tid !== id),
+        ...leaveOutputGroup(s, id),
+      }
     })
   },
 
@@ -1617,6 +1644,7 @@ export const useFileStore = create<FileState>((set, get) => ({
           executionResults: remaining,
           activeOutputTab: activeTab,
           outputTabOrder: s.outputTabOrder.filter((tid) => tid !== tabId),
+          tabOrder: s.tabOrder.filter((tid) => tid !== tabId),
         }
       }
       return { executionResults: remaining }

@@ -175,11 +175,14 @@ function registerProviders(monaco: typeof Monaco) {
   }
 
   for (const language of ['python', 'r'] as const) {
-    const kernelTriggers = language === 'python' ? ['.'] : ['$', '@', ':']
+    // The dot also opens the SQL list inside a query. In R it is part of a name
+    // (`read.csv`), and an open list re-asks on every trigger: outside a query the
+    // kernel must answer, or typing `read.` would close the list.
+    const kernelTriggers = language === 'python' ? ['.'] : ['$', '@', ':', '.']
     monaco.languages.registerCompletionItemProvider(language, {
-      // Quotes open the identifier list, space and dot the SQL one; neither means
+      // Quotes open the identifier list, space the SQL one; neither means
       // anything to the kernel's own completion outside those strings.
-      triggerCharacters: [...new Set([...kernelTriggers, '.', '"', "'", ' ', '('])],
+      triggerCharacters: [...new Set([...kernelTriggers, '"', "'", ' ', '('])],
       async provideCompletionItems(model, position, context, token) {
         const ctx = contextOf(model)
         if (ctx?.kind !== 'kernel') return { suggestions: [] }
@@ -237,10 +240,15 @@ function registerProviders(monaco: typeof Monaco) {
 const STRING_WINDOW_LINES = 200
 
 function stringCallAtPosition(model: Monaco.editor.ITextModel, position: Monaco.Position, language: 'python' | 'r') {
-  const base = model.getOffsetAt({ lineNumber: Math.max(1, position.lineNumber - STRING_WINDOW_LINES), column: 1 })
+  const firstLine = Math.max(1, position.lineNumber - STRING_WINDOW_LINES)
+  const base = model.getOffsetAt({ lineNumber: firstLine, column: 1 })
   const lastLine = Math.min(model.getLineCount(), position.lineNumber + STRING_WINDOW_LINES)
-  const end = model.getOffsetAt({ lineNumber: lastLine, column: model.getLineMaxColumn(lastLine) })
-  const window = model.getValue().slice(base, end)
+  const window = model.getValueInRange({
+    startLineNumber: firstLine,
+    startColumn: 1,
+    endLineNumber: lastLine,
+    endColumn: model.getLineMaxColumn(lastLine),
+  })
   const call = stringCallAt(window, model.getOffsetAt(position) - base, language)
   return call && { call, base, window }
 }

@@ -76,9 +76,9 @@ export function SessionDropdown({
           {t('sessions.title')}
           <Tooltip>
             <TooltipTrigger asChild>
-              <span className="inline-flex cursor-help" aria-label={t('sessions.dropdown_hint')}>
+              <button type="button" className="inline-flex cursor-help text-muted-foreground hover:text-foreground" aria-label={t('sessions.dropdown_hint')}>
                 <Info size={11} />
-              </span>
+              </button>
             </TooltipTrigger>
             <TooltipContent side="right" className="max-w-72">{t('sessions.dropdown_hint')}</TooltipContent>
           </Tooltip>

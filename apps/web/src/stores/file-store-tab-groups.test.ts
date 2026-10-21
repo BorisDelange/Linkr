@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeEach } from 'vitest'
-import { useFileStore, type OutputTab } from './file-store'
+import { describe, expect, it, beforeEach, afterEach } from 'vitest'
+import { useFileStore, type FileNode, type OutputTab } from './file-store'
+import { initStorage } from '@/lib/storage'
 
 /**
  * Output tabs can be moved from the output (right) group to the editor (left)
@@ -22,6 +23,7 @@ const reset = (over: Partial<ReturnType<typeof useFileStore.getState>> = {}) =>
     editorTabsInOutputGroup: [],
     outputGroupEditorTab: null,
     focusedGroup: 'left',
+    tabOrder: [],
     ...over,
   })
 
@@ -248,4 +250,84 @@ describe('moving a file or terminal to the output group', () => {
     expect(s.outputGroupEditorTab).toBeNull()
   })
 
+})
+
+describe('the shared tab order forgets a closed tab', () => {
+  // Ids come back (`csv-preview:<id>`, `render-<fid>`, the console, file ids): a
+  // reopened tab must arrive at the end, not in the slot it held before.
+  it('drops a closed file, terminal and output', () => {
+    reset({
+      openFileIds: ['f1', 'f2'],
+      selectedFileId: 'f1',
+      terminalTabs: [{ id: 'term:r:1', kind: 'r', label: 'R 1' }],
+      tabOrder: ['t1', 'f2', 'term:r:1', 'f1', 't2'],
+    })
+    const s = useFileStore.getState()
+    s.closeFile('f2')
+    s.closeTerminalTab('term:r:1')
+    s.closeOutputTab('t1')
+    expect(useFileStore.getState().tabOrder).toEqual(['f1', 't2'])
+  })
+
+  it('drops the console once its last result is cleared', () => {
+    reset({
+      tabOrder: ['__exec_console__', 't1'],
+      outputTabOrder: ['__exec_console__', 't1'],
+      executionResults: [{ id: 'e1', fileName: 'a.R', language: 'r', timestamp: 0, duration: 0, success: true, output: '', code: '' }],
+    })
+    useFileStore.getState().clearExecutionResultsByLanguage('r')
+    expect(useFileStore.getState().tabOrder).toEqual(['t1'])
+  })
+})
+
+describe('re-scanning the disk after a rename', () => {
+  const file = (id: string): FileNode => ({ id, projectUid: 'p', name: `${id}.R`, type: 'file', parentId: null, createdAt: '2026-01-01' })
+
+  afterEach(() => {
+    initStorage(undefined as unknown as Parameters<typeof initStorage>[0])
+  })
+
+  // Server-mode ids are sha1(path): a renamed file comes back under a new id.
+  const rescan = async (onDisk: FileNode[]) => {
+    initStorage({ ideFiles: { getByProject: async () => onDisk } } as unknown as Parameters<typeof initStorage>[0])
+    await useFileStore.getState().reloadFromDisk('p')
+  }
+
+  it('lets the right group go of a file that vanished, keeping its terminals', async () => {
+    reset({
+      activeProjectUid: 'p',
+      files: [file('f1'), file('f2')],
+      openFileIds: ['f1', 'f2'],
+      selectedFileId: 'f1',
+      terminalTabs: [{ id: 'term:r:1', kind: 'r', label: 'R 1' }],
+      editorTabsInOutputGroup: ['term:r:1', 'f2'],
+      outputGroupEditorTab: 'f2',
+      focusedGroup: 'right',
+      tabOrder: ['f1', 'term:r:1', 'f2'],
+    })
+    await rescan([file('f1'), file('f2-renamed')])
+    const s = useFileStore.getState()
+    expect(s.openFileIds).toEqual(['f1'])
+    expect(s.editorTabsInOutputGroup).toEqual(['term:r:1'])
+    expect(s.outputGroupEditorTab).toBe('term:r:1')
+    expect(s.focusedGroup).toBe('right')
+    expect(s.tabOrder).toEqual(['f1', 'term:r:1'])
+  })
+
+  it('hands the toolbar back to the left group when the right one empties', async () => {
+    reset({
+      activeProjectUid: 'p',
+      files: [file('f1'), file('f2')],
+      openFileIds: ['f1', 'f2'],
+      selectedFileId: 'f1',
+      editorTabsInOutputGroup: ['f2'],
+      outputGroupEditorTab: 'f2',
+      focusedGroup: 'right',
+    })
+    await rescan([file('f1')])
+    const s = useFileStore.getState()
+    expect(s.editorTabsInOutputGroup).toEqual([])
+    expect(s.outputGroupEditorTab).toBeNull()
+    expect(s.focusedGroup).toBe('left')
+  })
 })

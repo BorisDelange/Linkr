@@ -16,8 +16,6 @@ import {
   Info,
   RefreshCw,
   Plug,
-  X,
-  Lock,
   Eye,
   EyeOff,
   Play,
@@ -40,10 +38,6 @@ import {
   FileCode2,
   Database,
   Square,
-  ArrowLeftRight,
-  ArrowUpDown,
-  ListX,
-  SquareX,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -54,12 +48,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from '@/components/ui/context-menu'
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -68,7 +56,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
-import { editorTabClass } from '@/components/editor/editor-tab'
 import { TabGroupSplitter, useTabGroupSplit } from '@/components/editor/TabGroupSplitter'
 import { TabScrollArrow, useTabScroll } from '@/components/editor/use-tab-scroll'
 import { CodeEditor, type PendingEdits } from '@/components/editor/CodeEditor'
@@ -78,7 +65,7 @@ import { useConnectionStore } from '@/stores/connection-store'
 import { useRuntimeStore } from '@/stores/runtime-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { localized } from '@/lib/localized'
-import { orderTabs, placeTab } from '@/lib/ide-tab-order'
+import { orderTabs } from '@/lib/ide-tab-order'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -95,11 +82,13 @@ import { isImperativeInstall, extractInstallPackages } from '@/lib/runtimes/inst
 import { FileTree } from './files/FileTree'
 import { IdeDirContext } from './files/ide-dir-context'
 import { FolderPathBar } from './files/FolderPathBar'
-import { OutputPanel, getTabIcon } from './files/OutputPanel'
+import { OutputPanel } from './files/OutputPanel'
 import { CreateFileDialog } from './files/CreateFileDialog'
 import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
+import { useIdeTabBar, type TabGroup } from './files/ide-tab-bar'
+import { KeepAlivePortal } from './files/keep-alive-portal'
 import { SessionDropdown } from '@/components/execution/SessionDropdown'
 import { PythonLogo, RLogo } from '@/components/ui/language-icon'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -123,16 +112,6 @@ import { comboToString } from '@/lib/format-shortcut'
 import { widenToBlock, nextRunnableLine, firstRunnableLine, bracketProbeColumn, opensBlockAtEol, type RunSpan } from '@/lib/editor-run-block'
 import type { ShortcutActionId } from '@/types/shortcuts'
 
-type TabGroup = 'left' | 'right'
-
-/** Tints a pane while a tab from the other group is dragged over it. */
-function DropHighlight() {
-  return <div className="pointer-events-none absolute inset-0 z-20 bg-primary/5 ring-2 ring-inset ring-primary/40" />
-}
-
-/** A tab being dragged, and the group it comes from. */
-type DragTab = { id: string; kind: 'file' | 'terminal' | 'output'; group: TabGroup }
-
 const LazyRmdNotebook = lazy(() => import('./files/RmdNotebook').then(m => ({ default: m.RmdNotebook })))
 const LazyIpynbNotebook = lazy(() => import('./files/IpynbNotebook').then(m => ({ default: m.IpynbNotebook })))
 import type { RmdNotebookHandle, CellState } from './files/RmdNotebook'
@@ -150,11 +129,8 @@ export function FilesPage() {
   const editorTabsInOutputGroup = useFileStore((s) => s.editorTabsInOutputGroup)
   const outputGroupEditorTab = useFileStore((s) => s.outputGroupEditorTab)
   const focusedGroup = useFileStore((s) => s.focusedGroup)
-  const moveEditorTabToOutputGroup = useFileStore((s) => s.moveEditorTabToOutputGroup)
-  const moveEditorTabToEditorGroup = useFileStore((s) => s.moveEditorTabToEditorGroup)
   const setFocusedGroup = useFileStore((s) => s.setFocusedGroup)
   const tabOrder = useFileStore((s) => s.tabOrder)
-  const setTabOrder = useFileStore((s) => s.setTabOrder)
   // The store's `selectedFileId` is the left group's active tab. Here it is the
   // tab the toolbar acts on: the active one of the group last worked in.
   const toolbarOnRight = focusedGroup === 'right' && outputGroupEditorTab !== null
@@ -162,7 +138,6 @@ export function FilesPage() {
   const openFileIds = useFileStore((s) => s.openFileIds)
   const outputTabs = useFileStore((s) => s.outputTabs)
   const outputTabOrder = useFileStore((s) => s.outputTabOrder)
-  const activeOutputTab = useFileStore((s) => s.activeOutputTab)
   const executionResults = useFileStore((s) => s.executionResults)
   const outputVisible = useFileStore((s) => s.outputVisible)
   const terminalTabs = useFileStore((s) => s.terminalTabs)
@@ -176,12 +151,9 @@ export function FilesPage() {
   const updateExecutionResult = useFileStore((s) => s.updateExecutionResult)
   const addOutputTab = useFileStore((s) => s.addOutputTab)
   const setActiveOutputTab = useFileStore((s) => s.setActiveOutputTab)
-  const closeOutputTab = useFileStore((s) => s.closeOutputTab)
   const clearExecutionResults = useFileStore((s) => s.clearExecutionResults)
   const setOutputVisible = useFileStore((s) => s.setOutputVisible)
   const openTerminalTab = useFileStore((s) => s.openTerminalTab)
-  const closeTerminalTab = useFileStore((s) => s.closeTerminalTab)
-  const selectTerminalTab = useFileStore((s) => s.selectTerminalTab)
   const loadProjectFiles = useFileStore((s) => s.loadProjectFiles)
   const reloadFromDisk = useFileStore((s) => s.reloadFromDisk)
   const isFileDirty = useFileStore((s) => s.isFileDirty)
@@ -219,9 +191,6 @@ export function FilesPage() {
   const reuseOutputTabs = useAppStore((s) => s.editorSettings.reuseOutputTabs)
   const outputTabsInEditorGroup = useFileStore((s) => s.outputTabsInEditorGroup)
   const editorGroupOutputTab = useFileStore((s) => s.editorGroupOutputTab)
-  const moveOutputTabToEditorGroup = useFileStore((s) => s.moveOutputTabToEditorGroup)
-  const moveOutputTabToOutputGroup = useFileStore((s) => s.moveOutputTabToOutputGroup)
-  const setEditorGroupOutputTab = useFileStore((s) => s.setEditorGroupOutputTab)
   const resolvedDirs = useResolvedDirs(activeProjectUid, idePath ?? '')
 
   const [createFileOpen, setCreateFileOpen] = useState(false)
@@ -238,17 +207,6 @@ export function FilesPage() {
   const [explorerVisible, setExplorerVisible] = useState(true)
   const fileSearch = useSidebarSearch()
   const [editorVisible, setEditorVisible] = useState(true)
-  const [dragTab, setDragTabState] = useState<DragTab | null>(null)
-  // Read by the drag handlers: drag events fire before React re-renders with the
-  // state set on dragstart, so a closure over `dragTab` can still see null.
-  const dragTabRef = useRef<DragTab | null>(null)
-  const setDragTab = useCallback((tab: DragTab | null) => {
-    dragTabRef.current = tab
-    setDragTabState(tab)
-  }, [])
-  const [dropGroup, setDropGroup] = useState<TabGroup | null>(null)
-  // Where a dragged tab would land: beside which tab, on which side.
-  const [dropInsert, setDropInsert] = useState<{ id: string; side: 'left' | 'right' } | null>(null)
   const [closeConfirmFileId, setCloseConfirmFileId] = useState<string | null>(null)
 
   // The bar's two groups, after honouring the tabs the user moved across.
@@ -400,23 +358,29 @@ export function FilesPage() {
     setOutlineCellStates(new Map())
   }, [selectedFileId])
 
-  // Whether the SELECTED notebook is running — drives Run ⇄ Stop in the toolbar.
-  // Pushed for the same reason as the outline: the toolbar reads the notebook
-  // through a ref, so nothing would re-render it when a run starts or ends.
-  const [notebookRunning, setNotebookRunning] = useState(false)
-  const runningFileIdRef = useRef<string | null>(null)
+  // Which notebooks are running — drives Run ⇄ Stop in the toolbar for the
+  // selected one. Pushed for the same reason as the outline: the toolbar reads the
+  // notebook through a ref, so nothing would re-render it when a run starts or
+  // ends. Kept per notebook, not for the selected one only: the toolbar can move
+  // to another panel's notebook without that notebook pushing again.
+  const [runningNotebookIds, setRunningNotebookIds] = useState<ReadonlySet<string>>(() => new Set())
   const handleNotebookRunningChange = useCallback((fid: string, running: boolean) => {
-    if (fid !== selectedFileIdRef.current) return
-    runningFileIdRef.current = fid
-    setNotebookRunning(running)
+    setRunningNotebookIds((prev) => {
+      if (prev.has(fid) === running) return prev
+      const next = new Set(prev)
+      if (running) next.add(fid)
+      else next.delete(fid)
+      return next
+    })
   }, [])
-
-  // A background notebook may still be running, but the toolbar describes the
-  // selected one — reset until it pushes its own state.
+  // A notebook closed mid-run never pushes its end.
   useEffect(() => {
-    if (runningFileIdRef.current === selectedFileId) return
-    setNotebookRunning(false)
-  }, [selectedFileId])
+    setRunningNotebookIds((prev) => {
+      const open = [...prev].filter((fid) => openFileIds.includes(fid))
+      return open.length === prev.size ? prev : new Set(open)
+    })
+  }, [openFileIds])
+  const notebookRunning = selectedFileId !== null && runningNotebookIds.has(selectedFileId)
 
   // When a dataset file is selected, redirect it to an output tab (the dataset
   // viewer) instead of a file tab showing raw JSON. Matches both the legacy
@@ -1107,160 +1071,33 @@ export function FilesPage() {
     }
   }, [isFileDirty, closeFile])
 
+  // The pending keystrokes of the file being closed: those of its group's editor,
+  // when that editor is showing it. Not the toolbar's group, which may be the other.
+  const pendingEditsOf = useCallback((fid: string) => {
+    const s = useFileStore.getState()
+    const onRight = s.editorTabsInOutputGroup.includes(fid)
+    const shown = onRight ? s.outputGroupEditorTab : s.editorGroupOutputTab ? null : s.selectedFileId
+    if (shown !== fid) return null
+    return (onRight ? rightPendingEditsRef : leftPendingEditsRef).current
+  }, [])
+
   const handleSaveAndClose = useCallback(async () => {
     if (!closeConfirmFileId) return
+    pendingEditsOf(closeConfirmFileId)?.flush()
     await saveFile(closeConfirmFileId)
     closeFile(closeConfirmFileId)
     setCloseConfirmFileId(null)
-  }, [closeConfirmFileId, saveFile, closeFile])
+  }, [closeConfirmFileId, saveFile, closeFile, pendingEditsOf])
 
   const handleDiscardAndClose = useCallback(() => {
     if (!closeConfirmFileId) return
     // Drop the editor's pending keystrokes BEFORE reverting: its unmount flush
     // would otherwise write them back and re-dirty the file we just discarded.
-    pendingEditsRef.current?.discard()
+    pendingEditsOf(closeConfirmFileId)?.discard()
     revertFile(closeConfirmFileId)
     closeFile(closeConfirmFileId)
     setCloseConfirmFileId(null)
-  }, [closeConfirmFileId, revertFile, closeFile, pendingEditsRef])
-
-  const handleCloseAllFiles = useCallback(() => {
-    for (const fid of openFileIds) closeFile(fid)
-  }, [openFileIds, closeFile])
-
-  const handleCloseOtherFiles = useCallback((keepId: string) => {
-    for (const fid of openFileIds) {
-      if (fid !== keepId) closeFile(fid)
-    }
-  }, [openFileIds, closeFile])
-
-  const handleCloseAllOutputTabs = useCallback(() => {
-    clearExecutionResults()
-    for (const tab of outputTabs) closeOutputTab(tab.id)
-  }, [outputTabs, closeOutputTab, clearExecutionResults])
-
-  const handleCloseOtherOutputTabs = useCallback((keepId: string) => {
-    if (keepId === '__exec_console__') {
-      for (const tab of outputTabs) closeOutputTab(tab.id)
-    } else {
-      clearExecutionResults()
-      for (const tab of outputTabs) {
-        if (tab.id !== keepId) closeOutputTab(tab.id)
-      }
-    }
-  }, [outputTabs, closeOutputTab, clearExecutionResults])
-
-  /** Activate a tab within its own group; the other group keeps its selection. */
-  const activateOutputTab = (tabId: string, group: 'left' | 'right') => {
-    if (group === 'left') {
-      setEditorGroupOutputTab(tabId)
-      return
-    }
-    setActiveOutputTab(tabId)
-    if (!outputVisible) setOutputVisible(true)
-  }
-
-
-  const renderOutputTab = (tabId: string, group: 'left' | 'right') => {
-    const isConsole = tabId === '__exec_console__'
-    const isActive = group === 'left'
-      ? editorGroupOutputTab === tabId
-      : activeOutputTab === tabId && outputVisible
-
-    if (isConsole) {
-      return (
-        <ContextMenu key={tabId}>
-          <ContextMenuTrigger asChild>
-            <button
-              {...tabDragProps(tabId, 'output', group)}
-              onClick={() => activateOutputTab(tabId, group)}
-              className={cn(
-                editorTabClass(isActive),
-                dragTab?.id === tabId && 'opacity-40',
-              )}
-            >
-              {insertMarker(tabId)}
-              <span>{t('files.console')}</span>
-              <span className="rounded-full bg-muted px-1.5 text-[10px] text-muted-foreground">
-                {executionResults.length}
-              </span>
-              <span
-                onClick={(e) => {
-                  e.stopPropagation()
-                  clearExecutionResults()
-                }}
-                className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-              >
-                <X size={10} />
-              </span>
-            </button>
-          </ContextMenuTrigger>
-          <ContextMenuContent>
-            {moveToOtherGroupItem({ id: tabId, kind: 'output', group })}
-            <ContextMenuItem onClick={() => clearExecutionResults()}>
-              <X size={14} />
-              {t('files.close')}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tabId)}>
-              <ListX size={14} />
-              {t('files.close_others')}
-            </ContextMenuItem>
-            <ContextMenuItem onClick={handleCloseAllOutputTabs}>
-              <SquareX size={14} />
-              {t('files.close_all')}
-            </ContextMenuItem>
-          </ContextMenuContent>
-        </ContextMenu>
-      )
-    }
-
-    const tab = outputTabs.find((ot) => ot.id === tabId)
-    if (!tab) return null
-
-    return (
-      <ContextMenu key={tab.id}>
-        <ContextMenuTrigger asChild>
-          <button
-            {...tabDragProps(tab.id, 'output', group)}
-            onClick={() => activateOutputTab(tab.id, group)}
-            className={cn(
-              editorTabClass(isActive),
-              dragTab?.id === tab.id && 'opacity-40',
-            )}
-          >
-            {insertMarker(tab.id)}
-            {getTabIcon(tab.type)}
-            <span className="max-w-[120px] truncate" title={tab.label}>{tab.label}</span>
-            <span
-              onClick={(e) => {
-                e.stopPropagation()
-                closeOutputTab(tab.id)
-              }}
-              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-            >
-              <X size={10} />
-            </span>
-          </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {moveToOtherGroupItem({ id: tabId, kind: 'output', group })}
-          <ContextMenuItem onClick={() => closeOutputTab(tab.id)}>
-            <X size={14} />
-            {t('files.close')}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => handleCloseOtherOutputTabs(tab.id)}>
-            <ListX size={14} />
-            {t('files.close_others')}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleCloseAllOutputTabs}>
-            <SquareX size={14} />
-            {t('files.close_all')}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    )
-  }
-
+  }, [closeConfirmFileId, revertFile, closeFile, pendingEditsOf])
 
   // Cmd+K from a script editor: clear ONLY the Console output tab. A terminal has
   // its own Cmd+K (handled inside xterm) that clears its scrollback, not this.
@@ -1324,50 +1161,6 @@ export function FilesPage() {
   const leftTerminalTab = leftTerminalTabs.find((tt) => tt.id === leftFileId)
   const rightNode = outputGroupEditorTab ? nodes.find((n) => n.id === outputGroupEditorTab) : undefined
 
-  /** Moves any tab — file, terminal or output — to the other group. */
-  const moveTab = (tab: DragTab, target: TabGroup) => {
-    if (tab.group === target) return
-    if (tab.kind === 'output') {
-      if (target === 'left') moveOutputTabToEditorGroup(tab.id)
-      else moveOutputTabToOutputGroup(tab.id)
-    } else if (target === 'right') {
-      moveEditorTabToOutputGroup(tab.id)
-    } else {
-      moveEditorTabToEditorGroup(tab.id)
-      if (!editorVisible) setEditorVisible(true)
-    }
-  }
-
-  /**
-   * Drop target for a tab dragged from the other group: its tab bar and its
-   * whole pane. Captured, so a Monaco editor under the pointer cannot take the
-   * drop as text; anything but a tab drag passes through untouched.
-   */
-  const groupDropProps = (group: TabGroup) => ({
-    onDragOverCapture: (e: React.DragEvent) => {
-      const dragTab = dragTabRef.current
-      if (!dragTab || dragTab.group === group) return
-      e.preventDefault()
-      e.stopPropagation()
-      e.dataTransfer.dropEffect = 'move'
-      if (dropGroup !== group) setDropGroup(group)
-    },
-    // Fires on every crossing between children, without a relatedTarget in
-    // Chromium: only a pointer outside the box means the drag left the group.
-    onDragLeave: (e: React.DragEvent) => {
-      const r = e.currentTarget.getBoundingClientRect()
-      if (e.clientX <= r.left || e.clientX >= r.right || e.clientY <= r.top || e.clientY >= r.bottom) setDropGroup(null)
-    },
-    onDropCapture: (e: React.DragEvent) => {
-      const dragTab = dragTabRef.current
-      if (!dragTab || dragTab.group === group) return
-      e.preventDefault()
-      e.stopPropagation()
-      moveTab(dragTab, group)
-      endTabDrag()
-    },
-  })
-
   /** Every open tab of a panel, of any kind, in the shared order. */
   const leftTabs = orderTabs(
     [...leftFileTabIds, ...leftTerminalTabs.map((tt) => tt.id), ...leftOutputTabIds],
@@ -1375,191 +1168,33 @@ export function FilesPage() {
   )
   const rightTabs = orderTabs([...rightEditorTabIds, ...rightOutputTabIds], tabOrder)
 
-  // The dragged tab may re-mount in the other group, and then its own dragend
-  // never reaches React: a drop clears every drag marker itself.
-  const endTabDrag = () => {
-    setDragTab(null)
-    setDropGroup(null)
-    setDropInsert(null)
-  }
-
-  const tabDragProps = (id: string, kind: DragTab['kind'], group: TabGroup) => ({
-    draggable: true,
-    'data-tab-id': id,
-    onDragStart: (e: React.DragEvent) => {
-      e.dataTransfer.setData('application/x-linkr-tab', id)
-      e.dataTransfer.effectAllowed = 'move'
-      setDragTab({ id, kind, group })
-    },
-    onDragEnd: endTabDrag,
+  const { renderTab, stripDropProps, groupDropProps, dropGroup, dropHighlight } = useIdeTabBar({
+    nodes,
+    leftTabs,
+    rightTabs,
+    editorVisible,
+    setEditorVisible,
+    outputBelow,
+    onCloseFile: handleCloseFile,
   })
 
-  const insertMarker = (id: string) =>
-    dropInsert?.id === id && dragTab?.id !== id && (
-      <div className={cn('absolute top-1 bottom-1 w-0.5 rounded-full bg-primary', dropInsert.side === 'left' ? 'left-0' : 'right-0')} />
-    )
-
-  /** The tab under the pointer and the half of it the pointer is on. */
-  const tabUnder = (e: React.DragEvent) => {
-    const el = (e.target as HTMLElement).closest<HTMLElement>('[data-tab-id]')
-    if (!el?.dataset.tabId) return null
-    const r = el.getBoundingClientRect()
-    return { id: el.dataset.tabId, side: e.clientX < r.left + r.width / 2 ? 'left' as const : 'right' as const }
-  }
-
-  /**
-   * A panel's tab bar takes a tab of any kind from either panel and puts it
-   * where it is dropped: beside the tab under the pointer, or after the last one.
-   */
-  const stripDropProps = (group: TabGroup) => ({
-    onDragOverCapture: (e: React.DragEvent) => {
-      const drag = dragTabRef.current
-      if (!drag) return
-      e.preventDefault()
-      e.stopPropagation()
-      e.dataTransfer.dropEffect = 'move'
-      const at = tabUnder(e)
-      if (at?.id !== dropInsert?.id || at?.side !== dropInsert?.side) setDropInsert(at)
-      const target = drag.group === group ? null : group
-      if (dropGroup !== target) setDropGroup(target)
-    },
-    onDragLeave: (e: React.DragEvent) => {
-      const r = e.currentTarget.getBoundingClientRect()
-      if (e.clientX <= r.left || e.clientX >= r.right || e.clientY <= r.top || e.clientY >= r.bottom) {
-        setDropInsert(null)
-        setDropGroup(null)
-      }
-    },
-    onDropCapture: (e: React.DragEvent) => {
-      const drag = dragTabRef.current
-      if (!drag) return
-      e.preventDefault()
-      e.stopPropagation()
-      const panelTabs = group === 'left' ? leftTabs : rightTabs
-      const at = tabUnder(e) ?? (panelTabs.length ? { id: panelTabs[panelTabs.length - 1], side: 'right' as const } : null)
-      moveTab(drag, group)
-      if (at) setTabOrder(placeTab([...leftTabs, ...rightTabs], drag.id, at.id, at.side))
-      endTabDrag()
-    },
-  })
-
-  const renderTab = (id: string, group: TabGroup) => {
-    const tt = terminalTabs.find((x) => x.id === id)
-    if (tt) return renderTerminalTab(tt, group)
-    if (outputTabOrder.includes(id)) return renderOutputTab(id, group)
-    return renderFileTab(id, group)
-  }
-
-  const moveToOtherGroupItem = (tab: DragTab) => (
-    <ContextMenuItem onClick={() => moveTab(tab, tab.group === 'left' ? 'right' : 'left')}>
-      {outputBelow ? <ArrowUpDown size={14} /> : <ArrowLeftRight size={14} />}
-      {t('files.move_to_other_group')}
-    </ContextMenuItem>
-  )
-
-  const isTabActive = (id: string, group: TabGroup) =>
-    group === 'left' ? id === leftFileId && !editorGroupOutputTab : id === outputGroupEditorTab
-
-  const renderFileTab = (fid: string, group: TabGroup) => {
-    const node = nodes.find((n) => n.id === fid)
-    if (!node) return null
-    const isActive = isTabActive(fid, group)
-    const isVirtual = node.virtual === true
-    const isDirty = !isVirtual && _dirtyVersion >= 0 && isFileDirty(fid)
-    return (
-      <ContextMenu key={fid}>
-        <ContextMenuTrigger asChild>
-          <button
-            {...tabDragProps(fid, 'file', group)}
-            onClick={() => {
-              selectFile(fid)
-              if (group === 'left' && !editorVisible) setEditorVisible(true)
-            }}
-            className={cn(
-              editorTabClass(isActive),
-              dragTab?.id === fid && 'opacity-40',
-            )}
-          >
-            {insertMarker(fid)}
-            {isVirtual && <Lock size={10} className="text-muted-foreground/50" />}
-            <span className="max-w-[140px] truncate" title={node.name}>{node.name}</span>
-            {isDirty && (
-              <span className="ml-0.5 size-1.5 shrink-0 rounded-full bg-orange-400" />
-            )}
-            <span
-              onClick={(e) => {
-                e.stopPropagation()
-                handleCloseFile(fid)
-              }}
-              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-            >
-              <X size={10} />
-            </span>
-          </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {moveToOtherGroupItem({ id: fid, kind: 'file', group })}
-          <ContextMenuItem onClick={() => handleCloseFile(fid)}>
-            <X size={14} />
-            {t('files.close')}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={() => handleCloseOtherFiles(fid)}>
-            <ListX size={14} />
-            {t('files.close_others')}
-          </ContextMenuItem>
-          <ContextMenuItem onClick={handleCloseAllFiles}>
-            <SquareX size={14} />
-            {t('files.close_all')}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    )
-  }
-
-  const renderTerminalTab = (tt: TerminalTab, group: TabGroup) => {
-    const isActive = isTabActive(tt.id, group)
-    return (
-      <ContextMenu key={tt.id}>
-        <ContextMenuTrigger asChild>
-          <button
-            {...tabDragProps(tt.id, 'terminal', group)}
-            onClick={() => {
-              selectTerminalTab(tt.id)
-              if (group === 'left' && !editorVisible) setEditorVisible(true)
-            }}
-            className={cn(
-              editorTabClass(isActive),
-              dragTab?.id === tt.id && 'opacity-40',
-            )}
-          >
-            {insertMarker(tt.id)}
-            <Terminal size={11} className="text-muted-foreground/70" />
-            <span className="max-w-[140px] truncate" title={tt.label}>{tt.label}</span>
-            <span
-              onClick={(e) => { e.stopPropagation(); closeTerminalTab(tt.id) }}
-              className="ml-0.5 rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
-            >
-              <X size={10} />
-            </span>
-          </button>
-        </ContextMenuTrigger>
-        <ContextMenuContent>
-          {moveToOtherGroupItem({ id: tt.id, kind: 'terminal', group })}
-          <ContextMenuItem onClick={() => closeTerminalTab(tt.id)}>
-            <X size={14} />
-            {t('files.close')}
-          </ContextMenuItem>
-        </ContextMenuContent>
-      </ContextMenu>
-    )
-  }
+  // Each panel's notebooks are shown in its slot; see renderNotebook.
+  const [leftNotebookSlot, setLeftNotebookSlot] = useState<HTMLDivElement | null>(null)
+  const [rightNotebookSlot, setRightNotebookSlot] = useState<HTMLDivElement | null>(null)
 
   const isNotebookNode = (node: TreeNode) => node.name.endsWith('.ipynb') || /\.(rmd|qmd)$/i.test(node.name)
 
-  /** A notebook, kept mounted while open (hidden when inactive) so switching tabs keeps its state. */
-  const renderNotebook = (fid: string, isActive: boolean) => {
+  /**
+   * A notebook, kept mounted while open (hidden when inactive) so switching tabs
+   * keeps its state. Every open notebook is rendered from one list and only its
+   * DOM is placed in its panel, so moving it to the other panel keeps its outputs
+   * and its running cells too.
+   */
+  const renderNotebook = (fid: string) => {
     const node = nodes.find((n) => n.id === fid)
     if (!node || !isNotebookNode(node)) return null
+    const group: TabGroup = editorTabsInOutputGroup.includes(fid) ? 'right' : 'left'
+    const isActive = group === 'left' ? fid === leftFileId && !editorGroupOutputTab : fid === outputGroupEditorTab
     const isVirtual = node.virtual === true
     const common = {
       ref: makeNotebookRef(fid),
@@ -1583,21 +1218,25 @@ export function FilesPage() {
       isSelected: isActive,
     }
     return (
-      <div
-        key={fid}
-        className="h-full w-full"
-        style={{ display: isActive ? 'block' : 'none' }}
-      >
-        <Suspense fallback={
-          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-            Loading notebook...
-          </div>
-        }>
-          {node.name.endsWith('.ipynb')
-            ? <LazyIpynbNotebook {...common} fileName={node.name} />
-            : <LazyRmdNotebook {...common} />}
-        </Suspense>
-      </div>
+      <KeepAlivePortal key={fid} target={group === 'left' ? leftNotebookSlot : rightNotebookSlot}>
+        {/* The panel's own handlers do not see events from a portal. */}
+        <div
+          className="h-full w-full"
+          style={{ display: isActive ? 'block' : 'none' }}
+          onPointerDownCapture={() => setFocusedGroup(group)}
+          {...groupDropProps(group)}
+        >
+          <Suspense fallback={
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t('files.loading_notebook')}
+            </div>
+          }>
+            {node.name.endsWith('.ipynb')
+              ? <LazyIpynbNotebook {...common} fileName={node.name} />
+              : <LazyRmdNotebook {...common} />}
+          </Suspense>
+        </div>
+      </KeepAlivePortal>
     )
   }
 
@@ -2270,9 +1909,7 @@ export function FilesPage() {
                           onPointerDownCapture={() => setFocusedGroup('left')}
                           {...groupDropProps('left')}
                         >
-                        {/* Keep-alive notebooks: render ALL open notebook files, hide inactive ones */}
-                        {leftFileTabIds.map((fid) =>
-                          renderNotebook(fid, fid === leftFileId && !editorGroupOutputTab))}
+                        <div ref={setLeftNotebookSlot} className="contents" />
 
                         {/* Non-notebook files: standard CodeEditor (only the selected one) */}
                         {leftNode && !isNotebookNode(leftNode) && !editorGroupOutputTab && renderCodeEditor(leftNode, 'left')}
@@ -2307,7 +1944,7 @@ export function FilesPage() {
                             </div>
                           </div>
                         )}
-                        {dropGroup === 'left' && <DropHighlight />}
+                        {dropHighlight('left')}
                         </div>
                       </Allotment.Pane>
 
@@ -2379,7 +2016,7 @@ export function FilesPage() {
                       )}
                       <div className="min-h-0 flex-1">
                         {/* Files and terminals moved here, kept mounted like on the left. */}
-                        {rightEditorTabIds.map((id) => renderNotebook(id, id === outputGroupEditorTab))}
+                        <div ref={setRightNotebookSlot} className="contents" />
                         {rightNode && !isNotebookNode(rightNode) && renderCodeEditor(rightNode, 'right')}
                         {terminalTabs
                           .filter((tt) => rightEditorTabIds.includes(tt.id))
@@ -2391,7 +2028,7 @@ export function FilesPage() {
                           />
                         </div>
                       </div>
-                      {dropGroup === 'right' && <DropHighlight />}
+                      {dropHighlight('right')}
                     </div>
                   </Allotment.Pane>
                 </Allotment>
@@ -2461,6 +2098,8 @@ export function FilesPage() {
         >
           {null}
         </DialogShell>
+
+        {openFileIds.map(renderNotebook)}
       </div>
     </TooltipProvider>
   )

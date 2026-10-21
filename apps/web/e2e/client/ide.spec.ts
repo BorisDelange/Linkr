@@ -102,3 +102,31 @@ test('tabs reorder by drag within each panel', async ({ page }) => {
     right.getByRole('button', { name: /^Result/ }), 'start')
   await expect.poll(() => names(right)).toEqual(['03_example.sql', '04_example.py', 'Result', '05_example.R', 'Console'])
 })
+
+test('a notebook keeps its outputs when it moves to the other panel', async ({ page }) => {
+  await bootDemo(page)
+  await page.goto(`${MORTALITY}/ide`)
+  await page.getByRole('button', { name: /^01_eda_mortality\.Rmd/ }).first().click()
+  await expect(page.getByRole('button', { name: 'MIMIC-IV Demo' })).toBeVisible()
+
+  const cells = page.locator('[data-cell-id]').filter({ visible: true })
+  await cells.first().hover()
+  await cells.first().locator('button:has(svg.lucide-plus)').click()
+  await page.getByRole('menuitem', { name: 'SQL' }).click()
+
+  const sqlCell = cells.filter({ has: page.getByText('SQL', { exact: true }) })
+  await sqlCell.locator('.monaco-editor .view-lines').click()
+  await page.keyboard.type('SELECT 6 * 7 AS answer')
+  await sqlCell.hover()
+  await sqlCell.getByRole('button', { name: 'Run cell' }).click()
+  await expect(sqlCell.getByRole('cell', { name: '42', exact: true })).toBeVisible({ timeout: 60_000 })
+
+  const left = page.getByRole('group', { name: 'Main panel tabs' })
+  const right = page.getByRole('group', { name: 'Second panel tabs' })
+  await left.getByRole('button', { name: /^01_eda_mortality\.Rmd/ }).click({ button: 'right' })
+  await page.getByRole('menuitem', { name: 'Move to the other panel' }).click()
+  await expect(right.getByRole('button', { name: /^01_eda_mortality\.Rmd/ })).toBeVisible()
+  // Same cell, same output: the notebook was moved, not re-rendered.
+  await expect(sqlCell.getByRole('cell', { name: '42', exact: true })).toBeVisible()
+  await expect(sqlCell.locator('.monaco-editor')).toContainText('SELECT 6 * 7 AS answer')
+})

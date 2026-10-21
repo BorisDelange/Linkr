@@ -99,9 +99,9 @@ export function ConnectionDropdown({ projectUid }: { projectUid?: string }) {
               {t('connections.warehouse_databases')}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span className="inline-flex cursor-help" aria-label={t('connections.dropdown_hint')}>
+                  <button type="button" className="inline-flex cursor-help text-muted-foreground hover:text-foreground" aria-label={t('connections.dropdown_hint')}>
                     <Info size={11} />
-                  </span>
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent side="right" className="max-w-72">{t('connections.dropdown_hint')}</TooltipContent>
               </Tooltip>
