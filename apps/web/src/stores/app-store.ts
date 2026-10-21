@@ -86,6 +86,8 @@ export interface EditorSettings {
    * fresh one on every run — re-running the same script otherwise piles up tabs.
    */
   reuseOutputTabs: boolean
+  /** Where the IDE's output panel sits relative to the editor. */
+  outputLayout: 'side' | 'below'
 }
 
 // --- Preferences persistence (localStorage) ---
@@ -236,6 +238,7 @@ const defaultEditorSettings: EditorSettings = {
   autoSave: false,
   autoSaveDelay: 1000,
   reuseOutputTabs: true,
+  outputLayout: 'side',
 }
 
 const prefs = loadPreferences()

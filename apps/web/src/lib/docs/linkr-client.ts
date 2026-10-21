@@ -156,8 +156,10 @@ the same model, each language's own naming convention.
       signature: 'linkr_databases()',
       summary: 'The databases this project can query.',
       body: `
-Lists what the acting user may read — the same set the Databases page shows,
-resolved server-side, so a script never hardcodes a path.
+Lists the databases linked to the project that the acting user may read,
+resolved server-side, so a script never hardcodes a path. A database of the
+workspace that the project does not link is not listed: a script relying on it
+would break once the project is exported.
 
 The \`dialect\` column, **not** \`engine\`, says which SQL to write: PostgreSQL,
 MySQL and Apache Doris are reached by attaching them into DuckDB exactly as the app's own SQL
@@ -251,8 +253,10 @@ model, each language's own naming convention.
       signature: 'linkr.databases()',
       summary: 'The databases this project can query.',
       body: `
-Lists what the acting user may read — the same set the Databases page shows,
-resolved server-side, so a script never hardcodes a path.
+Lists the databases linked to the project that the acting user may read,
+resolved server-side, so a script never hardcodes a path. A database of the
+workspace that the project does not link is not listed: a script relying on it
+would break once the project is exported.
 
 The \`dialect\` field, **not** \`engine\`, says which SQL to write: PostgreSQL,
 MySQL and Apache Doris are reached by attaching them into DuckDB exactly as the app's own SQL
@@ -338,8 +342,71 @@ enough to see what went wrong.
   ],
 }
 
-/** The packages documented for a language. Today only `linkr`; the installed
- *  packages of a project's environment are a separate, server-only source. */
+function sessionPackage(lang: DocLanguage): DocPackage {
+  const r = lang === 'r'
+  const fence = r ? 'r' : 'python'
+  const connect = r ? 'linkr_connect()' : 'linkr.connect()'
+  const frame = r ? 'a `data.frame`' : 'a pandas `DataFrame`'
+  return {
+    id: 'session',
+    name: 'IDE session',
+    summary: 'Functions every IDE session defines, without loading a package.',
+    overview: `
+Functions the IDE defines in every ${r ? 'R' : 'Python'} session. They are not
+part of the \`linkr\` package: nothing to load, and they exist only while the
+script runs in Linkr.
+
+\`\`\`${fence}
+df ${r ? '<-' : '='} sql_query("SELECT * FROM person LIMIT 10")
+\`\`\`
+`.trim(),
+    symbols: [
+      {
+        id: 'sql_query',
+        name: 'sql_query',
+        signature: 'sql_query(sql)',
+        summary: 'Run SQL on the database selected in the IDE toolbar.',
+        body: `
+Runs \`sql\` on the database picked in the IDE toolbar and returns the rows as
+${frame}. The query runs in the app, exactly as in the database's SQL editor, so
+the same SQL works in both places. The script never holds the connection or its
+credentials.
+
+## Arguments
+
+- **\`sql\`** — one SQL statement, as a string.
+
+## Value
+
+${r ? 'A `data.frame`; SQL `NULL` becomes `NA`.' : 'A pandas `DataFrame`.'} A query that returns no rows gives
+an empty one.
+
+\`\`\`${fence}
+df ${r ? '<-' : '='} sql_query("SELECT gender, COUNT(*) AS n FROM person GROUP BY gender")
+\`\`\`
+${r ? '' : `
+In the browser-only version of Linkr, Python runs in the page and the call is
+asynchronous: write \`df = await sql_query("…")\`.
+`}
+## sql_query() or ${connect}?
+
+\`sql_query()\` follows the toolbar: change the selected database and the same
+script reads another one. It suits quick exploration. A script meant to be
+shared or exported should name its database with \`${connect}\`, which also gives a
+real connection for large results and for joins with local files.
+
+> [!NOTE]
+> With no database selected in the toolbar, \`sql_query()\` fails with a message
+> saying so.
+`.trim(),
+      },
+    ],
+  }
+}
+
+/** The packages documented for a language: `linkr`, then the functions the IDE
+ *  session defines. The installed packages of a project's environment are a
+ *  separate, server-only source. */
 export function docPackages(lang: DocLanguage): DocPackage[] {
-  return [lang === 'r' ? R_PACKAGE : PY_PACKAGE]
+  return [lang === 'r' ? R_PACKAGE : PY_PACKAGE, sessionPackage(lang)]
 }

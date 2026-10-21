@@ -2319,6 +2319,10 @@
     "editor_settings_link": "Editor settings (theme, font, auto-save) are in your profile",
     "reuse_output_tabs": "Reuse output tabs",
     "reuse_output_tabs_hint": "Keep one tab per output kind: running a script again replaces its table, figures and widgets instead of opening new tabs.",
+    "output_layout": "Output position",
+    "output_layout_hint": "Show the output panel to the right of the editor, or below it.",
+    "output_layout_side": "Right",
+    "output_layout_below": "Below",
     "parent_folder": "Parent folder",
     "root": "Root",
     "collapse_explorer": "Collapse explorer",
@@ -3508,6 +3512,7 @@
     "preset_jupyter": "Jupyter"
   },
   "sessions": {
+    "dropdown_hint": "Each session is its own R or Python process, with its own variables. Scripts run in the same session share their objects; a new session starts empty.",
     "title": "Session",
     "default": "Default",
     "new": "New session",
@@ -3515,6 +3520,8 @@
     "delete": "Delete session"
   },
   "connections": {
+    "dropdown_hint": "The database that SQL scripts run against, and that sql_query() uses in R and Python. linkr_connect() does not depend on it: it opens a database by its identifier.",
+    "identifier_hint": "Identifier: pass it to linkr_connect() in R or linkr.connect() in Python",
     "title": "Connections",
     "warehouse_databases": "Warehouse databases",
     "custom_connections": "Custom connections",

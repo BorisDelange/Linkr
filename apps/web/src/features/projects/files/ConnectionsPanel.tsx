@@ -27,6 +27,7 @@ import { DB_ERROR_NO_DATA_ON_IMPORT } from '@/lib/entity-io'
 import { useMyProjectRole } from '@/hooks/use-context-role'
 import { AddConnectionDialog } from './AddConnectionDialog'
 import { cn } from '@/lib/utils'
+import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { ENGINE_LABELS } from '@/lib/database-engines'
 import type { DatabaseEngine } from '@/types'
 
@@ -87,6 +88,18 @@ function ConnectionItem({
         </div>
         <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span className="shrink-0">{ENGINE_LABELS[entry.engine as DatabaseEngine] ?? entry.engine}</span>
+          {entry.alias && (
+            <>
+              <span aria-hidden>·</span>
+              <span className="min-w-0 truncate font-mono" title={t('connections.identifier_hint')}>
+                {entry.alias}
+              </span>
+              <CopyIconButton
+                text={entry.alias}
+                className="hover:bg-muted"
+              />
+            </>
+          )}
           {errorText && (
             <span className="min-w-0 truncate text-destructive" title={errorText}>{errorText}</span>
           )}

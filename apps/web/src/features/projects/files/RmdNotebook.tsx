@@ -25,6 +25,13 @@ import Editor, { type OnMount, type BeforeMount } from '@monaco-editor/react'
 import type * as Monaco from 'monaco-editor'
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import {
+  attachSqlAutoSuggest,
+  attachStringCallSuggest,
+  bindEditorCompletion,
+  type CompletionDatabase,
+  type EditorCompletion,
+} from '@/components/editor/completion-providers'
+import {
   Play,
   Plus,
   Trash2,
@@ -166,6 +173,8 @@ interface RmdNotebookProps {
   /** Called with rendered HTML so the parent can display it (e.g. in an output tab) */
   onRenderOutput?: (html: string, title: string) => void
   activeConnectionId?: string | null
+  /** The identifiers `linkr_connect("…")` completes to in R/Python cells. */
+  completionDatabases?: CompletionDatabase[]
   /** Override cell parser (default: parseRmdFile). Used by ipynb wrapper. */
   parseFn?: (content: string) => RmdCell[]
   /** Override cell serializer (default: serializeRmdFile). Used by ipynb wrapper. */
@@ -228,6 +237,7 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   onSave,
   onRenderOutput,
   activeConnectionId,
+  completionDatabases,
   parseFn = parseRmdFile,
   serializeFn = serializeRmdFile,
   shortcutPrefix = 'rmd',
@@ -497,6 +507,16 @@ export const RmdNotebook = forwardRef<RmdNotebookHandle, RmdNotebookProps>(funct
   // re-render every Monaco editor on any state change (clicking a cell included).
   const moveCellUp = useCallback((cellId: string) => moveCell(cellId, 'up'), [moveCell])
   const moveCellDown = useCallback((cellId: string) => moveCell(cellId, 'down'), [moveCell])
+  const projectUid = useAppStore((s) => s.activeProjectUid)
+  // Stable across renders while its inputs hold: the cells are memoised on it.
+  const completionFor = useCallback((monacoLanguage: string): EditorCompletion | undefined => {
+    if (monacoLanguage === 'sql') return { kind: 'sql', dataSourceId: activeConnectionId }
+    if (monacoLanguage === 'r' || monacoLanguage === 'python') {
+      return { kind: 'kernel', projectUid, dataSourceId: activeConnectionId, databases: completionDatabases }
+    }
+    return undefined
+  }, [activeConnectionId, projectUid, completionDatabases])
+
   const registerEditor = useCallback(
     (cellId: string, editor: Monaco.editor.IStandaloneCodeEditor) => {
       editorMapRef.current.set(cellId, editor)
@@ -1188,6 +1208,7 @@ ${bodyParts.join('\n')}
                 onAddAfter={addCell}
                 hasYamlCell={hasYamlCell}
                 onEditorMount={registerEditor}
+                completionFor={completionFor}
                 onDragStart={handleDragStart}
                 onDragEnd={handleDragEnd}
                 onDragCancel={handleDragCancel}
@@ -1522,6 +1543,8 @@ interface RmdCellBlockProps {
   onLanguageChange: (cellId: string, language: string) => void
   shortcutPrefix: 'rmd' | 'ipynb'
   notebookFormat: 'rmd' | 'ipynb'
+  /** The completion context for a cell of this Monaco language, if any. */
+  completionFor: (monacoLanguage: string) => EditorCompletion | undefined
 }
 
 const RMD_COLLAPSE_LINE_THRESHOLD = 30
@@ -1574,6 +1597,7 @@ const RmdCellBlock = memo(function RmdCellBlock({
   onLanguageChange,
   shortcutPrefix,
   notebookFormat,
+  completionFor,
 }: RmdCellBlockProps) {
   const { t } = useTranslation()
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
@@ -1643,9 +1667,14 @@ const RmdCellBlock = memo(function RmdCellBlock({
   const [editorHeight, setEditorHeight] = useState(Math.max(lineCount * 18 + 8, 36))
 
   // Auto-resize Monaco editor to fit content
-  const handleEditorMount: OnMount = (editor, _monaco) => {
+  const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor
     onEditorMount(cell.id, editor)
+
+    const model = editor.getModel()
+    if (model) editor.onDidDispose(bindEditorCompletion(monaco, model, () => completionRef.current))
+    editor.onDidDispose(attachSqlAutoSuggest(monaco, editor, () => completionRef.current))
+    editor.onDidDispose(attachStringCallSuggest(editor, () => completionRef.current))
 
     const updateHeight = () => {
       const h = Math.max(editor.getContentHeight(), 36)
@@ -1716,6 +1745,13 @@ const RmdCellBlock = memo(function RmdCellBlock({
     : cell.type === 'markdown'
       ? 'markdown'
       : LANG_MONACO_MAP[cell.language ?? ''] ?? 'plaintext'
+
+  // Read by the editor's completion providers when they fire; a cell can change
+  // language after its editor mounted.
+  const completionRef = useRef<EditorCompletion | undefined>(undefined)
+  useEffect(() => {
+    completionRef.current = completionFor(monacoLang)
+  })
 
   // Status indicator
   const statusIcon = state?.status === 'running'

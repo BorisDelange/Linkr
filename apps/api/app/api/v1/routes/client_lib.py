@@ -40,6 +40,9 @@ async def list_databases(
     the only secret handed out is one its user typed. A database they have no
     login for is listed with `needsLogin` and no recipe; one they cannot read is
     not listed at all.
+
+    Only the databases linked to the project: a script must not depend on one the
+    project does not declare, or it breaks once exported or linked elsewhere.
     """
     project = await db.get(Project, project_uid)
     if project is None:
@@ -49,9 +52,12 @@ async def list_databases(
             status.HTTP_403_FORBIDDEN, "Insufficient workspace permissions"
         )
 
+    linked = set(project.linked_data_source_ids or [])
     sources = await data_source_service.list_for_workspace(db, project.workspace_id)
     out: list[ClientDatabase] = []
     for source in sources:
+        if source.id not in linked:
+            continue
         try:
             login = await database_credential_service.resolve_login(db, source, user.id)
         except database_credential_service.CredentialRequired:

@@ -62,3 +62,25 @@ async def test_execute_stamps_the_callers_auth_kind_on_the_kernel_token(client):
             f"{API}/projects/{uid}/client/databases", headers={"Authorization": f"Bearer {kernel}"}
         )).status_code
         assert status == (200 if via == "web" else 401)
+
+
+async def test_only_the_projects_linked_databases_are_listed(client):
+    """linkr_connect() reaches what the project declares, not every database of
+    its workspace: a script relying on an unlinked one would break on export."""
+    headers, uid, _ = await _setup(client)
+    ws = (await client.get(f"{API}/projects/{uid}", headers=headers)).json()["workspaceId"]
+
+    async def database(alias: str) -> str:
+        body = {"alias": alias, "name": alias, "sourceType": "database", "workspaceId": ws,
+                "connectionConfig": {"engine": "duckdb"}}
+        r = await client.post(f"{API}/data-sources", headers=headers, json=body)
+        assert r.status_code == 201, r.text
+        return r.json()["id"]
+
+    linked = await database("linked_db")
+    await database("other_db")
+    r = await client.patch(f"{API}/projects/{uid}", headers=headers, json={"linkedDataSourceIds": [linked]})
+    assert r.status_code == 200, r.text
+
+    rows = (await client.get(f"{API}/projects/{uid}/client/databases", headers=headers)).json()
+    assert [row["alias"] for row in rows] == ["linked_db"]

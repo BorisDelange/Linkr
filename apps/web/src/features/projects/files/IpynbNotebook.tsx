@@ -8,6 +8,7 @@
 
 import { useCallback, useRef, forwardRef, useImperativeHandle } from 'react'
 import { RmdNotebook, type RmdNotebookHandle, type CellState } from './RmdNotebook'
+import type { CompletionDatabase } from '@/components/editor/completion-providers'
 import {
   parseIpynbFile,
   ipynbToRmdCells,
@@ -24,6 +25,7 @@ interface IpynbNotebookProps {
   onSave?: () => void
   onRenderOutput?: (html: string, title: string) => void
   activeConnectionId?: string | null
+  completionDatabases?: CompletionDatabase[]
   fileName?: string
   initialCellStates?: CellState[]
   onCellStatesChange?: (states: CellState[]) => void
@@ -37,7 +39,7 @@ export interface IpynbNotebookHandle extends RmdNotebookHandle {
 }
 
 export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>(
-  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, fileName, initialCellStates, onCellStatesChange, onOutlineChange, onRunningChange, isSelected }, ref) {
+  function IpynbNotebook({ content, onChange, readOnly, onSave, onRenderOutput, activeConnectionId, completionDatabases, fileName, initialCellStates, onCellStatesChange, onOutlineChange, onRunningChange, isSelected }, ref) {
     const rmdRef = useRef<RmdNotebookHandle>(null)
     const metadataRef = useRef<IpynbNotebookType['metadata']>({})
 
@@ -115,6 +117,7 @@ export const IpynbNotebook = forwardRef<IpynbNotebookHandle, IpynbNotebookProps>
         onSave={onSave}
         onRenderOutput={onRenderOutput}
         activeConnectionId={activeConnectionId}
+        completionDatabases={completionDatabases}
         parseFn={parseFn}
         serializeFn={serializeFn}
         shortcutPrefix="ipynb"

@@ -18,6 +18,9 @@ import type {
 export interface ConnectionEntry {
   id: string
   name: string
+  /** What `linkr_connect()` takes. Only workspace databases have one: a custom
+   *  connection lives in the IDE alone, out of the client library's reach. */
+  alias?: string
   source: 'warehouse' | 'custom'
   engine: string
   status: DataSourceStatus
@@ -113,6 +116,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         id: ds.id,
         // Flattened for display: ConnectionEntry is a projection, not an entity.
         name: localized(ds.name, useAppStore.getState().language),
+        alias: ds.alias,
         source: 'warehouse' as const,
         engine: (ds.connectionConfig as DatabaseConnectionConfig).engine,
         status: ds.status,

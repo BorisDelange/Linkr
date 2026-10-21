@@ -29,8 +29,10 @@ def _duckdb():
 def databases() -> list[dict]:
     """The databases this project can query.
 
-    Lists what the acting user may read — the same set the Databases page shows,
-    resolved server-side, so a script never hardcodes a path.
+    Lists the databases linked to the project that the acting user may read,
+    resolved server-side, so a script never hardcodes a path. A database of the
+    workspace that the project does not link is not listed: a script relying on
+    it would break once the project is exported.
 
     The ``dialect`` field, not ``engine``, says which SQL to write: PostgreSQL and
     MySQL are reached by attaching them into DuckDB exactly as the app's own SQL

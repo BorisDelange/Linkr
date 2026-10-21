@@ -2319,6 +2319,10 @@
     "editor_settings_link": "Les paramètres de l'éditeur (thème, police, sauvegarde auto) sont dans votre profil",
     "reuse_output_tabs": "Réutiliser les onglets de sortie",
     "reuse_output_tabs_hint": "Garder un onglet par type de sortie : réexécuter un script remplace son tableau, ses figures et ses widgets au lieu d'ouvrir de nouveaux onglets.",
+    "output_layout": "Position des sorties",
+    "output_layout_hint": "Afficher le panneau des sorties à droite de l'éditeur, ou en dessous.",
+    "output_layout_side": "À droite",
+    "output_layout_below": "En dessous",
     "parent_folder": "Dossier parent",
     "root": "Racine",
     "collapse_explorer": "Réduire l'explorateur",
@@ -3508,6 +3512,7 @@
     "preset_jupyter": "Jupyter"
   },
   "sessions": {
+    "dropdown_hint": "Chaque session est un processus R ou Python distinct, avec ses propres variables. Les scripts exécutés dans la même session partagent leurs objets ; une nouvelle session démarre vide.",
     "title": "Session",
     "default": "Défaut",
     "new": "Nouvelle session",
@@ -3515,6 +3520,8 @@
     "delete": "Supprimer la session"
   },
   "connections": {
+    "dropdown_hint": "La base sur laquelle s'exécutent les scripts SQL, et qu'utilise sql_query() en R et en Python. linkr_connect() n'en dépend pas : il ouvre une base par son identifiant.",
+    "identifier_hint": "Identifiant : à passer à linkr_connect() en R ou à linkr.connect() en Python",
     "title": "Connexions",
     "warehouse_databases": "Bases de données Warehouse",
     "custom_connections": "Connexions personnalisées",

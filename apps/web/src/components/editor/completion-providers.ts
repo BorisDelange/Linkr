@@ -5,12 +5,25 @@ import { completePython } from '@/lib/runtimes/pyodide-engine'
 import { completeR } from '@/lib/runtimes/webr-engine'
 import type { CodeCompletionItem } from '@/lib/runtimes/types'
 import { loadSqlCatalog } from '@/lib/sql-catalog'
-import { sqlCompletions, sqlSlot, type SqlCompletionKind } from '@/lib/sql-completion'
+import { sqlCompletions, sqlSlot, type SqlCompletion, type SqlCompletionKind } from '@/lib/sql-completion'
+import { callOpenAt, stringCallAt, type StringCall } from '@/lib/string-call'
+
+/** A database a script can open by identifier, offered inside `linkr_connect("…")`. */
+export interface CompletionDatabase {
+  alias: string
+  name: string
+}
 
 /** What an editor completes against: a database's schema, or the project's kernel. */
 export type EditorCompletion =
   | { kind: 'sql'; dataSourceId: string | null | undefined }
-  | { kind: 'kernel'; projectUid: string | null | undefined }
+  | {
+      kind: 'kernel'
+      projectUid: string | null | undefined
+      /** The database `sql_query("…")` runs against: the IDE's selected one. */
+      dataSourceId?: string | null
+      databases?: CompletionDatabase[]
+    }
 
 // Monaco providers are global per language, while the context is per editor:
 // each editor binds its model to a getter, and the provider looks it up.
@@ -44,6 +57,19 @@ function registerProviders(monaco: typeof Monaco) {
     function: K.Function,
   }
 
+  const sqlSuggestions = (
+    items: SqlCompletion[],
+    range: Monaco.IRange,
+  ): Monaco.languages.CompletionItem[] => items.map((it) => ({
+    label: { label: it.label, description: it.detail },
+    kind: sqlKind[it.kind],
+    insertText: it.insertText,
+    filterText: it.label,
+    sortText: `${it.rank}_${it.label.toLowerCase()}`,
+    range,
+    command: it.retrigger ? { id: 'editor.action.triggerSuggest', title: '' } : undefined,
+  }))
+
   monaco.languages.registerCompletionItemProvider('sql', {
     // Space opens the list only where a table is expected (`FROM ⎵`): the list is
     // short and wanted there. After `SELECT ⎵` it would pop on every space while the
@@ -63,19 +89,70 @@ function registerProviders(monaco: typeof Monaco) {
       if (context.triggerCharacter === ' ' && slot !== 'table') return { suggestions: [] }
       const start = model.getPositionAt(wordStart)
       const range = new monaco.Range(start.lineNumber, start.column, position.lineNumber, position.column)
-      return {
-        suggestions: items.map((it) => ({
-          label: { label: it.label, description: it.detail },
-          kind: sqlKind[it.kind],
-          insertText: it.insertText,
-          filterText: it.label,
-          sortText: `${it.rank}_${it.label.toLowerCase()}`,
-          range,
-          command: it.retrigger ? { id: 'editor.action.triggerSuggest', title: '' } : undefined,
-        })),
-      }
+      return { suggestions: sqlSuggestions(items, range) }
     },
   })
+
+  // Inside `linkr_connect("…")`: the identifiers a script can open.
+  const databaseSuggestions = (
+    databases: CompletionDatabase[],
+    range: Monaco.IRange,
+  ): Monaco.languages.CompletionItem[] => databases.map((db, i) => ({
+    label: { label: db.alias, description: db.name },
+    kind: K.Constant,
+    insertText: db.alias,
+    filterText: db.alias,
+    sortText: String(i).padStart(4, '0'),
+    range,
+  }))
+
+  // Right after `linkr_connect(`: the same identifiers, quotes included.
+  const quotedDatabaseSuggestions = (
+    databases: CompletionDatabase[],
+    range: Monaco.IRange,
+  ): Monaco.languages.CompletionItem[] => databases.map((db, i) => ({
+    label: { label: `"${db.alias}"`, description: db.name },
+    kind: K.Constant,
+    insertText: `"${db.alias}"`,
+    filterText: db.alias,
+    sortText: String(i).padStart(4, '0'),
+    range,
+  }))
+
+  // Right after `sql_query(`: opens the string on a query and lists the tables.
+  const queryStarter = (range: Monaco.IRange): Monaco.languages.CompletionItem => ({
+    label: '"SELECT * FROM …"',
+    kind: K.Snippet,
+    insertText: '"SELECT * FROM $0"',
+    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+    range,
+    command: { id: 'editor.action.triggerSuggest', title: '' },
+  })
+
+  // Inside `sql_query("…")`: the string's content is completed as SQL against the
+  // selected database, exactly as the SQL editor would complete it.
+  const queryStringSuggestions = async (
+    model: Monaco.editor.ITextModel,
+    position: Monaco.Position,
+    call: StringCall,
+    base: number,
+    window: string,
+    dataSourceId: string | null | undefined,
+    trigger: string | undefined,
+  ) => {
+    if (!dataSourceId || trigger === '"' || trigger === "'") return []
+    let catalog
+    try {
+      catalog = await loadSqlCatalog(dataSourceId)
+    } catch {
+      return []
+    }
+    const sql = window.slice(call.start, call.end)
+    const { items, wordStart, slot } = sqlCompletions(sql, model.getOffsetAt(position) - base - call.start, catalog)
+    if (trigger === ' ' && slot !== 'table') return []
+    const start = model.getPositionAt(base + call.start + wordStart)
+    return sqlSuggestions(items, new monaco.Range(start.lineNumber, start.column, position.lineNumber, position.column))
+  }
 
   // jedi's types and R's suffixes (`fn(`, `arg=`) → Monaco icons.
   const kernelKind = (kind: string): Monaco.languages.CompletionItemKind => {
@@ -98,11 +175,37 @@ function registerProviders(monaco: typeof Monaco) {
   }
 
   for (const language of ['python', 'r'] as const) {
+    const kernelTriggers = language === 'python' ? ['.'] : ['$', '@', ':']
     monaco.languages.registerCompletionItemProvider(language, {
-      triggerCharacters: language === 'python' ? ['.'] : ['$', '@', ':'],
-      async provideCompletionItems(model, position, _context, token) {
+      // Quotes open the identifier list, space and dot the SQL one; neither means
+      // anything to the kernel's own completion outside those strings.
+      triggerCharacters: [...new Set([...kernelTriggers, '.', '"', "'", ' ', '('])],
+      async provideCompletionItems(model, position, context, token) {
         const ctx = contextOf(model)
         if (ctx?.kind !== 'kernel') return { suggestions: [] }
+        const trigger = context.triggerCharacter
+        const at = stringCallAtPosition(model, position, language)
+        if (at?.call.fn === 'connect') {
+          const start = model.getPositionAt(at.base + at.call.start)
+          const range = new monaco.Range(start.lineNumber, start.column, position.lineNumber, position.column)
+          return { suggestions: databaseSuggestions(ctx.databases ?? [], range) }
+        }
+        if (at?.call.fn === 'sql_query') {
+          const suggestions = await queryStringSuggestions(
+            model, position, at.call, at.base, at.window, ctx.dataSourceId, trigger,
+          )
+          return { suggestions: token.isCancellationRequested ? [] : suggestions }
+        }
+        if (!at) {
+          const open = callOpenAt(
+            model.getValueInRange({ startLineNumber: position.lineNumber, startColumn: 1, endLineNumber: position.lineNumber, endColumn: position.column }),
+            language,
+          )
+          const range = new monaco.Range(position.lineNumber, position.column - (open?.word.length ?? 0), position.lineNumber, position.column)
+          if (open?.fn === 'connect') return { suggestions: quotedDatabaseSuggestions(ctx.databases ?? [], range) }
+          if (open?.fn === 'sql_query' && !open.word && ctx.dataSourceId) return { suggestions: [queryStarter(range)] }
+        }
+        if (trigger && !kernelTriggers.includes(trigger)) return { suggestions: [] }
         let items: CodeCompletionItem[]
         try {
           items = await complete(language, ctx.projectUid, model.getValue(), model.getOffsetAt(position))
@@ -127,6 +230,46 @@ function registerProviders(monaco: typeof Monaco) {
       },
     })
   }
+}
+
+// The string scan reads this many lines back, and as far forward to find the
+// closing quote of a long query.
+const STRING_WINDOW_LINES = 200
+
+function stringCallAtPosition(model: Monaco.editor.ITextModel, position: Monaco.Position, language: 'python' | 'r') {
+  const base = model.getOffsetAt({ lineNumber: Math.max(1, position.lineNumber - STRING_WINDOW_LINES), column: 1 })
+  const lastLine = Math.min(model.getLineCount(), position.lineNumber + STRING_WINDOW_LINES)
+  const end = model.getOffsetAt({ lineNumber: lastLine, column: model.getLineMaxColumn(lastLine) })
+  const window = model.getValue().slice(base, end)
+  const call = stringCallAt(window, model.getOffsetAt(position) - base, language)
+  return call && { call, base, window }
+}
+
+/**
+ * Inside `linkr_connect("…")` and `sql_query("…")`, opens the list as a word
+ * starts. Monaco's own typing suggestions are off inside strings, so without this
+ * only the trigger characters (quote, space, dot) or Ctrl+Space would open it.
+ */
+export function attachStringCallSuggest(
+  editor: Monaco.editor.IStandaloneCodeEditor,
+  get: () => EditorCompletion | undefined,
+): () => void {
+  const sub = editor.onDidChangeModelContent((e) => {
+    if (e.isUndoing || e.isRedoing || e.changes.length !== 1) return
+    const change = e.changes[0]
+    if (!/^\w$/.test(change.text)) return
+    const model = editor.getModel()
+    const pos = editor.getPosition()
+    const language = model?.getLanguageId()
+    if (!model || !pos || (language !== 'r' && language !== 'python') || get()?.kind !== 'kernel') return
+    // Only at a word's first letter: once open, the list filters as the word grows.
+    const before = pos.column > 2
+      ? model.getValueInRange({ startLineNumber: pos.lineNumber, startColumn: pos.column - 2, endLineNumber: pos.lineNumber, endColumn: pos.column - 1 })
+      : ''
+    if (/\w/.test(before)) return
+    if (stringCallAtPosition(model, pos, language)) editor.trigger('auto', 'editor.action.triggerSuggest', {})
+  })
+  return () => sub.dispose()
 }
 
 const IDLE_MS = 1000

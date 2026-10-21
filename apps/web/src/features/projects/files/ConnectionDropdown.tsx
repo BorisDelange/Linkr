@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronDown, Database } from 'lucide-react'
+import { ChevronDown, Database, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -91,11 +92,19 @@ export function ConnectionDropdown({ projectUid }: { projectUid?: string }) {
           <ChevronDown size={10} className="shrink-0 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[200px]">
+      <DropdownMenuContent align="start" className="w-[240px]">
         {warehouseConns.length > 0 && (
           <>
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground">
               {t('connections.warehouse_databases')}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex cursor-help" aria-label={t('connections.dropdown_hint')}>
+                    <Info size={11} />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-72">{t('connections.dropdown_hint')}</TooltipContent>
+              </Tooltip>
             </DropdownMenuLabel>
             {warehouseConns.map((c) => (
               <ConnectionMenuItem
@@ -140,7 +149,12 @@ function ConnectionMenuItem({
   return (
     <DropdownMenuItem onClick={onSelect} className="gap-2 py-1 text-xs" title={entry.name}>
       <span className={cn('size-1.5 shrink-0 rounded-full', statusDot[entry.status] ?? 'bg-gray-400')} />
-      <span className="truncate">{entry.name}</span>
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate">{entry.name}</span>
+        {entry.alias && (
+          <span className="truncate font-mono text-[10px] text-muted-foreground">{entry.alias}</span>
+        )}
+      </span>
       {isActive && <span className="ml-auto text-primary">✓</span>}
     </DropdownMenuItem>
   )

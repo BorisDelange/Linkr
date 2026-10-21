@@ -14,6 +14,7 @@ import {
 import { MarkdownRenderer } from '@/components/editor/MarkdownRenderer'
 import { CodeViewer } from '@/components/editor/CodeViewer'
 import { CodeViewerBoundary } from '@/components/editor/CodeViewerBoundary'
+import { CopyIconButton } from '@/components/ui/copy-icon-button'
 import { cn } from '@/lib/utils'
 import { docPackages, type DocLanguage, type DocPackage } from '@/lib/docs/linkr-client'
 import { readFence } from '@/lib/docs/read-fence'
@@ -45,7 +46,12 @@ function DocCodeBlock({ node, children }: any) {
   const fence = readFence(node)
   if (!fence) return <pre>{children}</pre>
   return (
-    <div className="my-3 overflow-hidden rounded-md border border-border">
+    <div className="group/code relative my-3 overflow-hidden rounded-md border border-border">
+      <CopyIconButton
+        text={fence.source}
+        size={13}
+        className="absolute right-1.5 top-1.5 z-10 rounded-md border border-border bg-background p-1 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/code:opacity-100"
+      />
       {/* Opening a symbol whose page carries the dialog's FIRST code sample mounts
           Monaco while the loader is still settling; when that throws, the sample
           degrades to plain text instead of taking the whole app down. */}

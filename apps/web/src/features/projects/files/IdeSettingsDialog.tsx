@@ -4,6 +4,13 @@ import { ExternalLink } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useAppStore } from '@/stores/app-store'
 
 interface IdeSettingsDialogProps {
@@ -19,6 +26,7 @@ interface IdeSettingsDialogProps {
 export function IdeSettingsDialog({ open, onOpenChange }: IdeSettingsDialogProps) {
   const { t } = useTranslation()
   const reuseOutputTabs = useAppStore((s) => s.editorSettings.reuseOutputTabs)
+  const outputLayout = useAppStore((s) => s.editorSettings.outputLayout)
   const updateEditorSettings = useAppStore((s) => s.updateEditorSettings)
 
   return (
@@ -42,6 +50,27 @@ export function IdeSettingsDialog({ open, onOpenChange }: IdeSettingsDialogProps
           onCheckedChange={(checked) => updateEditorSettings({ reuseOutputTabs: checked })}
           className="mt-0.5 shrink-0"
         />
+      </div>
+
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <Label>{t('files.output_layout')}</Label>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {t('files.output_layout_hint')}
+          </p>
+        </div>
+        <Select
+          value={outputLayout}
+          onValueChange={(v) => updateEditorSettings({ outputLayout: v as 'side' | 'below' })}
+        >
+          <SelectTrigger className="w-36 shrink-0">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="side">{t('files.output_layout_side')}</SelectItem>
+            <SelectItem value="below">{t('files.output_layout_below')}</SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       <Link

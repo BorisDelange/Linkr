@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Boxes, ChevronDown, Plus, Trash2, Check, CornerDownLeft } from 'lucide-react'
+import { Boxes, ChevronDown, Plus, Trash2, Check, CornerDownLeft, Info } from 'lucide-react'
 import { isServerMode } from '@/lib/api-client'
 import { useSessionStore } from '@/stores/session-store'
 import type { SessionLanguage } from '@/lib/api/execution-sessions'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -64,15 +65,23 @@ export function SessionDropdown({
   return (
     <DropdownMenu onOpenChange={(o) => { if (!o) { setAdding(false); setNewName('') } }}>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="xs" className="gap-1 max-w-[160px] text-[11px]">
+        <Button variant="outline" size="xs" className="gap-1 max-w-[160px] text-xs">
           <Boxes size={11} className="shrink-0" />
           <span className="truncate">{activeName}</span>
           <ChevronDown size={10} className="shrink-0 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-[220px]">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="flex items-center gap-1.5 text-xs text-muted-foreground">
           {t('sessions.title')}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="inline-flex cursor-help" aria-label={t('sessions.dropdown_hint')}>
+                <Info size={11} />
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="right" className="max-w-72">{t('sessions.dropdown_hint')}</TooltipContent>
+          </Tooltip>
         </DropdownMenuLabel>
         {all.map((s) => (
           <DropdownMenuItem

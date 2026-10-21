@@ -72,6 +72,7 @@ import { useAppStore } from '@/stores/app-store'
 import { useConnectionStore } from '@/stores/connection-store'
 import { useRuntimeStore } from '@/stores/runtime-store'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { localized } from '@/lib/localized'
 import { useCohortStore } from '@/stores/cohort-store'
 import { usePipelineStore } from '@/stores/pipeline-store'
 import { useDatasetStore } from '@/stores/dataset-store'
@@ -178,6 +179,17 @@ export function FilesPage() {
   const datasetFiles = useDatasetStore((s) => s.files)
   const { nodes } = useProjectTree(activeProjectUid)
   const idePath = useAppStore((s) => s._projectsRaw.find((p) => p.uid === activeProjectUid)?.idePath)
+  const dataSources = useDataSourceStore((s) => s.dataSources)
+  const linkedDataSourceIds = useAppStore((s) =>
+    s._projectsRaw.find((p) => p.uid === activeProjectUid)?.linkedDataSourceIds)
+  const appLanguage = useAppStore((s) => s.language)
+  // What `linkr_connect()` accepts: the databases linked to the project.
+  const completionDatabases = useMemo(() => {
+    const linked = new Set(linkedDataSourceIds ?? [])
+    return dataSources
+      .filter((ds) => linked.has(ds.id) && ds.sourceType === 'database' && ds.alias)
+      .map((ds) => ({ alias: ds.alias, name: localized(ds.name, appLanguage) }))
+  }, [dataSources, linkedDataSourceIds, appLanguage])
   const reuseOutputTabs = useAppStore((s) => s.editorSettings.reuseOutputTabs)
   const outputTabsInEditorGroup = useFileStore((s) => s.outputTabsInEditorGroup)
   const editorGroupOutputTab = useFileStore((s) => s.editorGroupOutputTab)
@@ -217,6 +229,10 @@ export function FilesPage() {
   // scrolls its own overflow.
 
   const tabSplit = useTabGroupSplit('ide')
+  const outputBelow = useAppStore((s) => s.editorSettings.outputLayout) === 'below'
+  // Below the editor, the output tabs head their own panel instead of sharing the
+  // editor's tab bar, where they would sit above the wrong pane.
+  const splitTabBar = !outputBelow && leftGroupHasTabs && rightOutputTabIds.length > 0
   const { scrollRef: fileTabScrollRef, arrows: fileTabArrows } = useTabScroll([openFileIds.length, leftOutputTabIds.length])
   const { scrollRef: outputTabScrollRef, arrows: outputTabArrows } = useTabScroll([rightOutputTabIds.length])
 
@@ -1315,6 +1331,27 @@ export function FilesPage() {
     }
   }, [shortcuts, isIpynbFile])
 
+
+  const mainPaneVisible = editorVisible || !!activeTerminalTab || !!editorGroupOutputTab
+
+  const outputTabGroup = (
+    <>
+      {rightOutputTabIds.length > 0 && (
+        <TabScrollArrow dir="left" scroll={outputTabArrows} />
+      )}
+      <div
+        ref={outputTabScrollRef}
+        className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
+        style={{ flex: tabSplit.flexFor('right', splitTabBar) }}
+      >
+        {rightOutputTabIds.map((tabId) => renderOutputTab(tabId, 'right'))}
+      </div>
+      {rightOutputTabIds.length > 0 && (
+        <TabScrollArrow dir="right" scroll={outputTabArrows} />
+      )}
+    </>
+  )
+
   return (
     <TooltipProvider delayDuration={300}>
       <div className="flex h-full overflow-hidden">
@@ -1842,7 +1879,7 @@ export function FilesPage() {
               </div>
 
               {/* Unified tab bar: file tabs (left) | separator | output tabs (right) */}
-              {(openFileIds.length > 0 || terminalTabs.length > 0 || outputTabOrder.length > 0) && (
+              {(outputBelow ? leftGroupHasTabs : leftGroupHasTabs || outputTabOrder.length > 0) && (
                 <div className="flex items-center border-b bg-muted/30">
                   {/* File tabs */}
                   {leftGroupHasTabs && (
@@ -1851,7 +1888,7 @@ export function FilesPage() {
                   <div
                     ref={fileTabScrollRef}
                     className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
-                    style={{ flex: tabSplit.flexFor('left', leftGroupHasTabs && rightOutputTabIds.length > 0) }}
+                    style={{ flex: tabSplit.flexFor('left', splitTabBar) }}
                   >
                     {openFileIds.map((fid) => {
                       const node = nodes.find((n) => n.id === fid)
@@ -1973,41 +2010,27 @@ export function FilesPage() {
                     <TabScrollArrow dir="right" scroll={fileTabArrows} />
                   )}
 
-                  {/* Vertical separator between file tabs and output tabs */}
-                  {leftGroupHasTabs && rightOutputTabIds.length > 0 && (
+                  {splitTabBar && (
                     <TabGroupSplitter
                       onShareChange={tabSplit.setShare}
                       onReset={tabSplit.reset}
                     />
                   )}
 
-                  {/* Output tabs */}
-                  {rightOutputTabIds.length > 0 && (
-                    <TabScrollArrow dir="left" scroll={outputTabArrows} />
-                  )}
-                  <div
-                    ref={outputTabScrollRef}
-                    className="flex min-w-0 items-center overflow-x-auto scrollbar-none"
-                    style={{ flex: tabSplit.flexFor('right', leftGroupHasTabs && rightOutputTabIds.length > 0) }}
-                  >
-                    {rightOutputTabIds.map((tabId) => renderOutputTab(tabId, 'right'))}
-                  </div>
-                  {rightOutputTabIds.length > 0 && (
-                    <TabScrollArrow dir="right" scroll={outputTabArrows} />
-                  )}
+                  {!outputBelow && outputTabGroup}
                 </div>
               )}
 
-              {/* Editor + Output + Terminal */}
+              {/* Editor (+ notebook outline) beside or above the output. Keyed on the
+                  layout: Allotment reads its orientation once, at mount. */}
               <div className="flex-1 overflow-hidden">
-                <Allotment vertical>
-                  {/* Top: editor + output (horizontal split) */}
-                  <Allotment.Pane>
+                <Allotment key={outputBelow ? 'below' : 'side'} vertical={outputBelow}>
+                  <Allotment.Pane minSize={150} visible={mainPaneVisible}>
                     <Allotment>
                       {/* Editor panel — notebooks are kept alive (hidden when inactive).
                           Also visible when a terminal tab is active (terminals live in
                           this pane). */}
-                      <Allotment.Pane minSize={150} visible={editorVisible || !!activeTerminalTab || !!editorGroupOutputTab}>
+                      <Allotment.Pane minSize={150} visible={mainPaneVisible}>
                         {/* Keep-alive notebooks: render ALL open notebook files, hide inactive ones */}
                         {openFileIds.map((fid) => {
                           const node = nodes.find((n) => n.id === fid)
@@ -2047,6 +2070,7 @@ export function FilesPage() {
                                       setOutputVisible(true)
                                     }}
                                     activeConnectionId={activeConnectionId}
+                                    completionDatabases={completionDatabases}
                                     fileName={node.name}
                                     onOutlineChange={(cells, states) =>
                                       handleOutlineChange(fid, cells, states)
@@ -2075,6 +2099,7 @@ export function FilesPage() {
                                       setOutputVisible(true)
                                     }}
                                     activeConnectionId={activeConnectionId}
+                                    completionDatabases={completionDatabases}
                                     onOutlineChange={(cells, states) =>
                                       handleOutlineChange(fid, cells, states)
                                     }
@@ -2097,7 +2122,12 @@ export function FilesPage() {
                             language={selectedNode.language ?? 'plaintext'}
                             completion={selectedNode.language === 'sql'
                               ? { kind: 'sql', dataSourceId: activeConnectionId }
-                              : { kind: 'kernel', projectUid: activeProjectUid }}
+                              : {
+                                  kind: 'kernel',
+                                  projectUid: activeProjectUid,
+                                  dataSourceId: activeConnectionId,
+                                  databases: completionDatabases,
+                                }}
                             onChange={isVirtualFile ? undefined : (v) =>
                               updateFileContent(selectedNode.id, v ?? '')
                             }
@@ -2207,19 +2237,27 @@ export function FilesPage() {
                         </div>
                       </Allotment.Pane>
 
-                      {/* Output panel */}
-                      <Allotment.Pane
-                        minSize={200}
-                        visible={outputVisible && hasOutput}
-                      >
-                        <div className="h-full border-l">
-                          <OutputPanel
-                            onClose={() => setOutputVisible(false)}
-                            hideTabBar
-                          />
-                        </div>
-                      </Allotment.Pane>
                     </Allotment>
+                  </Allotment.Pane>
+
+                  {/* Output panel */}
+                  <Allotment.Pane
+                    minSize={outputBelow ? 120 : 200}
+                    visible={outputVisible && hasOutput}
+                  >
+                    <div className={cn('flex h-full flex-col', outputBelow ? 'border-t' : 'border-l')}>
+                      {outputBelow && rightOutputTabIds.length > 0 && (
+                        <div className="flex shrink-0 items-center border-b bg-muted/30">
+                          {outputTabGroup}
+                        </div>
+                      )}
+                      <div className="min-h-0 flex-1">
+                        <OutputPanel
+                          onClose={() => setOutputVisible(false)}
+                          hideTabBar
+                        />
+                      </div>
+                    </div>
                   </Allotment.Pane>
                 </Allotment>
               </div>
