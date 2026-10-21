@@ -1,15 +1,21 @@
-import { useState, useMemo, type ReactNode } from 'react'
+import { useState, useMemo, useCallback, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Check, ChevronDown, Search } from 'lucide-react'
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover'
 import { cn } from '@/lib/utils'
 import { BADGE_TRIGGER_INSET, SelectionTriggerLabel } from '@/components/ui/selection-trigger-label'
 import { isSearchEnter, selectMatchesOnEnter } from '@/components/ui/search-enter'
+import { labelMatcher } from '@/lib/fuzzy-search'
+import { useDebouncedValue } from '@/hooks/use-debounced-value'
 
 /** Cap the number of option rows rendered at once. With very large option sets
  *  (e.g. ~3700 categories) rendering every row is the dominant cost; users reach
  *  any value via the search box. Small lists (the common case) never hit this. */
 const RENDER_CAP = 200
+
+/** Typing stays fluid on thousands of options: the list refilters once the
+ *  keystrokes pause. */
+const SEARCH_DEBOUNCE_MS = 150
 
 /** Generic option shape. `group` is the heading the row is filed under. */
 export type MultiSelectOption = string | { value: string; label: string; group?: string }
@@ -84,11 +90,16 @@ export function MultiSelectFilter({
     [options],
   )
 
-  const searchFiltered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    if (!q) return normalized
-    return normalized.filter((o) => o.label.toLowerCase().includes(q))
-  }, [normalized, search])
+  // Same rule as a datatable's Name filter (docs/fuzzy-search.md): every word,
+  // any order, accents aside, a typo when nothing contains them. Cleared at once
+  // so a reopened popover never shows the previous search's list.
+  const debouncedSearch = useDebouncedValue(search, SEARCH_DEBOUNCE_MS)
+  const query = search ? debouncedSearch : ''
+  const matchOptions = useCallback(
+    (term: string) => normalized.filter(labelMatcher(normalized, (o) => o.label, term)),
+    [normalized],
+  )
+  const searchFiltered = useMemo(() => matchOptions(query), [matchOptions, query])
 
   const visible = searchFiltered.length > RENDER_CAP ? searchFiltered.slice(0, RENDER_CAP) : searchFiltered
   const hiddenCount = searchFiltered.length - visible.length
@@ -163,8 +174,9 @@ export function MultiSelectFilter({
               e.stopPropagation()
               if (!isSearchEnter(e)) return
               e.preventDefault()
-              // Every filtered option, not just the rendered slice.
-              const next = selectMatchesOnEnter(search, value, searchFiltered.map((o) => o.value))
+              // Every match, not just the rendered slice — on the live search,
+              // which an Enter typed before the debounce settles is ahead of.
+              const next = selectMatchesOnEnter(search, value, matchOptions(search).map((o) => o.value))
               if (!next) return
               if (next !== value) onChange([...next])
               setOpen(false)

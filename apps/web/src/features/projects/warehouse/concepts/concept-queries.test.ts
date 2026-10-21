@@ -8,6 +8,7 @@ import {
   VALIDITY_COLUMNS,
   CONCEPT_SET_COLUMNS,
   DEFAULT_HIDDEN_COLUMNS,
+  pickerColumnOrder,
   type ColumnDescriptor,
 } from './concept-queries'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
@@ -241,5 +242,22 @@ describe('Name filter over several dictionaries', () => {
     const sql = buildConceptsCountQuery(mapping, { _searchText: 'x', _dict_key: ['d_items'] }, computeAvailableColumns(conceptRelations(mapping)))!
     expect(sql).toContain(`NOT EXISTS (SELECT 1 FROM ${b.name} _lf`)
     expect(sql).not.toContain('UNION ALL')
+  })
+})
+
+describe('pickerColumnOrder', () => {
+  const col = (id: string): ColumnDescriptor => ({ id, source: 'core', filterable: false })
+  const ids = (cols: ColumnDescriptor[]) => cols.map((c) => c.id)
+
+  it('moves the domain right after the vocabulary', () => {
+    const cols = ['vocabulary_id', 'concept_id', 'concept_name', 'domain_id', 'record_count'].map(col)
+    expect(ids(pickerColumnOrder(cols))).toEqual(
+      ['vocabulary_id', 'domain_id', 'concept_id', 'concept_name', 'record_count'],
+    )
+  })
+
+  it('keeps the order when either column is missing', () => {
+    const cols = ['concept_id', 'concept_name', 'domain_id'].map(col)
+    expect(pickerColumnOrder(cols)).toBe(cols)
   })
 })

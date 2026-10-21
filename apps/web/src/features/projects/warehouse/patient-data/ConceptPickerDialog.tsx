@@ -27,12 +27,12 @@ import { useConceptListStore } from '@/stores/concept-list-store'
 import { ConceptColorSwatch } from './ConceptColorSwatch'
 import { mergeSelection, appendListConcepts } from './concept-selection'
 import { usePatientChartContext } from './PatientChartContext'
-import { ConceptStatsPopover } from '../concepts/ConceptStatsPopover'
+import { useConceptStatsRowAction } from '../concepts/use-concept-stats-row-action'
 import { useConcepts, type ConceptRow } from '../concepts/use-concepts'
 import { ConceptCountNotice } from '../concepts/ConceptCountNotice'
 import { ConceptTable } from '../concepts/ConceptTable'
 import { ConceptPickerToolbar } from '../concepts/ConceptPickerToolbar'
-import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
+import { PICKER_HIDDEN_COLUMNS } from '../concepts/concept-queries'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import type { PluginConfigField } from '@/types/plugin'
 import type { VisibilityState } from '@tanstack/react-table'
@@ -58,10 +58,6 @@ interface ConceptPickerDialogProps {
   initialTab?: 'settings' | 'concepts'
   onConfirm: (config: Record<string, unknown>) => void
 }
-
-/** The Concepts page's own defaults: picking a concept here and browsing it there
- *  are the same task, so the table starts with the same columns in both. */
-const PICKER_HIDDEN_COLUMNS = DEFAULT_HIDDEN_COLUMNS
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -93,9 +89,6 @@ export function ConceptPickerDialog({
 
   // Reuse the concepts hook for full-featured data table
   const hook = useConcepts(open ? dataSourceId : undefined, open ? schemaMapping : undefined, 'picker')
-
-  // Dict key for the stats popover (multi-dict picks the row's own).
-  const dicts = schemaMapping?.concepts ?? []
 
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     () => Object.fromEntries(PICKER_HIDDEN_COLUMNS.map((id) => [id, false])),
@@ -204,22 +197,7 @@ export function ConceptPickerDialog({
     [],
   )
 
-  // Stable identity: ConceptTable rebuilds its columns whenever `rowAction`
-  // changes, so a fresh object per render would churn every column definition.
-  const defaultDictKey = dicts[0]?.key ?? ''
-  const rowAction = useMemo(
-    () => ({
-      render: (row: ConceptRow) => (
-        <ConceptStatsPopover
-          dataSourceId={dataSourceId}
-          schemaMapping={schemaMapping}
-          conceptId={row.concept_id}
-          dictKey={(row._dict_key as string) ?? defaultDictKey}
-        />
-      ),
-    }),
-    [dataSourceId, schemaMapping, defaultDictKey],
-  )
+  const rowAction = useConceptStatsRowAction(dataSourceId, schemaMapping)
 
   // Both tabs have to be REACHABLE for a switcher to mean anything: a schema to
   // show, and a caller that has not pinned the dialog to one of them.

@@ -62,6 +62,7 @@ import { columnLabel } from '@/lib/format-helpers'
 import { isTypingTarget } from '@/lib/utils'
 import { resolveRowSelection } from './row-selection'
 import type { ConceptRow } from './use-concepts'
+import { pickerColumnOrder } from './concept-queries'
 import type {
   ConceptFilters,
   ConceptFilterValue,
@@ -396,7 +397,8 @@ export function ConceptTable({
 
   // Build TanStack columns dynamically from availableColumns
   const columns = useMemo<ColumnDef<ConceptRow>[]>(() => {
-    const dataColumns = availableColumns.map((col) => {
+    const ordered = pickMode ? pickerColumnOrder(availableColumns) : availableColumns
+    const dataColumns = ordered.map((col) => {
       const base: Partial<ColumnDef<ConceptRow>> = {
         id: col.id,
         header: () => columnLabel(col.id),

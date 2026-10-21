@@ -16,7 +16,8 @@ import { useConcepts, type ConceptRow } from '../../../concepts/use-concepts'
 import { ConceptCountNotice } from '../../../concepts/ConceptCountNotice'
 import { ConceptTable } from '../../../concepts/ConceptTable'
 import { ConceptPickerToolbar } from '../../../concepts/ConceptPickerToolbar'
-import { DEFAULT_HIDDEN_COLUMNS } from '../../../concepts/concept-queries'
+import { PICKER_HIDDEN_COLUMNS } from '../../../concepts/concept-queries'
+import { useConceptStatsRowAction } from '../../../concepts/use-concept-stats-row-action'
 import type { SchemaMapping } from '@/types'
 
 interface CohortConceptPickerDialogProps {
@@ -44,8 +45,10 @@ export function CohortConceptPickerDialog({
   const hook = useConcepts(open ? dataSourceId : undefined, open ? schemaMapping : undefined, 'picker')
 
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    () => Object.fromEntries(DEFAULT_HIDDEN_COLUMNS.map((id) => [id, false])),
+    () => Object.fromEntries(PICKER_HIDDEN_COLUMNS.map((id) => [id, false])),
   )
+
+  const rowAction = useConceptStatsRowAction(dataSourceId, schemaMapping)
 
   // Synced on opening only: the caller passes a fresh array on every render.
   useEffect(() => {
@@ -142,6 +145,7 @@ export function CohortConceptPickerDialog({
                 }}
                 pickMode
                 onToggleConcept={rememberName}
+                rowAction={rowAction}
                 emptyMessage={t('patient_data.no_concepts_found')}
               />
             </div>

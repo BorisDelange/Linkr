@@ -37,6 +37,20 @@ export const CONCEPT_SET_COLUMNS = [
  *  columns are only meaningful once a dictionary has been imported. */
 export const DEFAULT_HIDDEN_COLUMNS = [...VALIDITY_COLUMNS, ...CONCEPT_SET_COLUMNS]
 
+/** A picker is read by name, vocabulary and domain; the id stays one click away. */
+export const PICKER_HIDDEN_COLUMNS = [...DEFAULT_HIDDEN_COLUMNS, 'concept_id']
+
+/** Picker layout: the domain right after the vocabulary, the two columns that
+ *  narrow a pick down before the name is read. */
+export function pickerColumnOrder(cols: ColumnDescriptor[]): ColumnDescriptor[] {
+  const domain = cols.find((c) => c.id === 'domain_id')
+  const vocabularyIndex = cols.findIndex((c) => c.id === 'vocabulary_id')
+  if (!domain || vocabularyIndex < 0) return cols
+  const rest = cols.filter((c) => c !== domain)
+  const at = rest.findIndex((c) => c.id === 'vocabulary_id') + 1
+  return [...rest.slice(0, at), domain, ...rest.slice(at)]
+}
+
 /**
  * Compute the union of all columns across multiple concept dictionaries.
  * Returns stable column descriptors that drive the table, filters, and sort.
