@@ -106,3 +106,40 @@ class ConceptStatsResponse(CamelModel):
     concept_id: int
     stats: dict
     updated_at: datetime
+
+
+class ConceptStatsCoveringUnit(CamelModel):
+    """A `stats` unit whose id range covers the concept, and what it wrote."""
+
+    unit: str
+    dict_key: str | None = None
+    lo: int | None = None
+    hi: int | None = None
+    done: bool
+    rows: int | None = None
+    concepts: int | None = None
+    min_concept_id: int | None = None
+    max_concept_id: int | None = None
+    concept_id_type: str | None = None
+
+
+class ConceptStatsUnitHit(CamelModel):
+    """A unit that holds the concept, or could not be read (`error`)."""
+
+    unit: str
+    as_text: int | None = None
+    as_number: int | None = None
+    dict_keys: str | None = None
+    error: str | None = None
+
+
+class ConceptStatsDiagnosis(CamelModel):
+    concept_id: int
+    dict_key: str | None = None
+    stats_units_planned: int
+    stats_units_done: int
+    covering: list[ConceptStatsCoveringUnit]
+    in_stats_units: list[ConceptStatsUnitHit]
+    in_record_units: list[ConceptStatsUnitHit]
+    stats_rows: int | None = None
+    stats_concepts: int | None = None

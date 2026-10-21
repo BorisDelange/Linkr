@@ -85,3 +85,19 @@ async def test_cancel_interrupts_the_statement_and_frees_the_target(client):
     await _settle(job["id"])
     assert (await _job(client, headers, ws, job["id"]))["status"] == "cancelled"
     assert ds not in _etl_runs
+
+
+async def test_a_script_drops_the_target_concept_caches(client):
+    """The concepts and their stats were computed from the data it rewrites —
+    a failed script too, since every statement before the failure committed."""
+    from app.services.data import concept_cache_fs
+
+    headers = await _admin(client)
+    _, ds = await _target(client, headers)
+    for sql in ("INSERT INTO target.t VALUES (1);", "INSERT INTO target.t VALUES (2); SELECT * FROM missing;"):
+        await client.put(f"{API}/data-sources/{ds}/concept-stats/1", headers=headers, json={"stats": {"rowCount": 1}})
+        concept_cache_fs.write_manifest(ds, "", {"runId": "r1"}, reset=True)
+        job = await _start(client, headers, ds, sql)
+        await _settle(job["id"])
+        assert (await client.get(f"{API}/data-sources/{ds}/concept-stats/1", headers=headers)).status_code == 404
+        assert concept_cache_fs.run_status(ds, "") is None

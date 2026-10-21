@@ -285,9 +285,9 @@ def _running(source_id: str) -> bool:
         return source_id in data_source_service._etl_runs
 
 
-async def test_a_read_during_a_run_says_a_run_holds_the_database(managed_source):
+async def test_a_read_during_a_run_says_a_run_holds_the_database(managed_source, db):
     run = asyncio.create_task(
-        data_source_service.run_etl(None, managed_source, SLOW_SQL, {}, user_id=1)
+        data_source_service.run_etl(db, managed_source, SLOW_SQL, {}, user_id=1)
     )
     await _until(lambda: _running(managed_source.id))
 
@@ -306,20 +306,20 @@ async def test_a_read_during_a_run_says_a_run_holds_the_database(managed_source)
     assert await data_source_service.introspect(None, managed_source, None)
 
 
-async def test_a_second_run_on_the_same_target_is_refused(managed_source):
+async def test_a_second_run_on_the_same_target_is_refused(managed_source, db):
     first = asyncio.create_task(
-        data_source_service.run_etl(None, managed_source, SLOW_SQL, {}, user_id=1)
+        data_source_service.run_etl(db, managed_source, SLOW_SQL, {}, user_id=1)
     )
     await _until(lambda: _running(managed_source.id))
     with pytest.raises(data_source_service.DatabaseBusy):
-        await data_source_service.run_etl(None, managed_source, "SELECT 1;", {}, user_id=1)
+        await data_source_service.run_etl(db, managed_source, "SELECT 1;", {}, user_id=1)
 
     data_source_service.stop_etl_run(managed_source.id)
     with pytest.raises(db_connect.EtlRunCancelled):
         await first
 
 
-async def test_a_run_reading_a_database_holds_it_against_another_runs_target(managed_source, managed_db):
+async def test_a_run_reading_a_database_holds_it_against_another_runs_target(managed_source, managed_db, db):
     """Pipeline A reads `other` as its source while writing elsewhere; pipeline B
     whose target is `other` meets the same 409 as a second run on A's target,
     and the hold ends with A."""
@@ -329,11 +329,11 @@ async def test_a_run_reading_a_database_holds_it_against_another_runs_target(man
         connection_config={"engine": "duckdb", "managed": True, "managedPath": managed_db},
     )
     first = asyncio.create_task(
-        data_source_service.run_etl(None, managed_source, SLOW_SQL, {"source": other}, user_id=1)
+        data_source_service.run_etl(db, managed_source, SLOW_SQL, {"source": other}, user_id=1)
     )
     await _until(lambda: _running(managed_source.id) and _running(other.id))
     with pytest.raises(data_source_service.DatabaseBusy) as busy:
-        await data_source_service.run_etl(None, other, "SELECT 1;", {}, user_id=1)
+        await data_source_service.run_etl(db, other, "SELECT 1;", {}, user_id=1)
     assert busy.value.status_code == 409
     assert busy.value.detail["dataSourceId"] == other.id
 
@@ -341,11 +341,11 @@ async def test_a_run_reading_a_database_holds_it_against_another_runs_target(man
     with pytest.raises(db_connect.EtlRunCancelled):
         await first
     await _until(lambda: not _running(other.id))
-    await data_source_service.run_etl(None, other, "SELECT 1 AS x;", {}, user_id=1)
+    await data_source_service.run_etl(db, other, "SELECT 1 AS x;", {}, user_id=1)
 
 
-async def test_a_finished_run_frees_the_database(managed_source):
-    await data_source_service.run_etl(None, managed_source, "SELECT 1 AS x;", {}, user_id=1)
+async def test_a_finished_run_frees_the_database(managed_source, db):
+    await data_source_service.run_etl(db, managed_source, "SELECT 1 AS x;", {}, user_id=1)
     await _until(lambda: not _running(managed_source.id))
     assert not data_source_service.stop_etl_run(managed_source.id)
     await data_source_service.query(None, managed_source, None, "SELECT 1 AS x")

@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 import logging
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -30,6 +31,7 @@ from app.schemas.concept_cache import (
     ConceptStatsPlanRequest,
     ConceptStatsPlanResult,
     ConceptStatsRange,
+    ConceptStatsDiagnosis,
     ConceptStatsResponse,
     ConceptStatsSave,
 )
@@ -340,7 +342,7 @@ async def query_data_source(
     # Tagged even when the client did not ask: a job cancelled from the panel
     # cancels this coroutine, not the thread running the query, which must be
     # interrupted or it holds the database's pooled connection until it ends.
-    query_id = body.query_id or uuid.uuid4().hex
+    query_id = _query_id(body.query_id) if body.query_id else uuid.uuid4().hex
 
     async def run() -> list[dict]:
         async with deferred.session() as session:
@@ -393,7 +395,17 @@ async def cancel_query(
     """Interrupt a query this user tagged with `queryId` and is still running (or
     about to run). Answers whether a running query was hit."""
     await _load_source(db, source_id, user, "databases:read")
-    return QueryCancelResult(cancelled=query_cancel.cancel(body.query_id, str(user.id)))
+    return QueryCancelResult(cancelled=query_cancel.cancel(_query_id(body.query_id), str(user.id)))
+
+
+# The client tags a query with `crypto.randomUUID()`.
+_QUERY_ID_RE = re.compile(r"^[0-9a-fA-F]{8}(-?[0-9a-fA-F]{4}){3}-?[0-9a-fA-F]{12}$")
+
+
+def _query_id(value: str) -> str:
+    if not _QUERY_ID_RE.match(value):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "queryId must be a UUID")
+    return value
 
 
 @router.post("/{source_id}/query-jobs", response_model=JobResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -654,6 +666,8 @@ async def create_from_ddl(
     source = await data_source_service.update(
         db, source, DataSourceUpdate(connection_config=config), managed_path_set=new_location
     )
+    # A rebuild in place leaves the config as it was: `update` sees no change.
+    await data_source_service.invalidate_concept_caches(db, source.id)
     await _notify(db, request, user, "created" if first_build else "updated", source)
     return source
 
@@ -1070,38 +1084,49 @@ async def get_concept_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Detail-panel stats for one concept, as the caller sees the source: those
-    of the counting run's `stats` step when it computed them — the whole base
-    at once, newer than any computed on a click — else those cached by a click.
-    404 until either exists."""
+    """Detail-panel stats for one concept, as the caller sees the source: the
+    newer of those the counting run's `stats` step computed and those cached by
+    a click. 404 until either exists."""
     source = await _load_source(db, source_id, user, "databases:read")
     principal = _principal(source, user)
     precomputed = await asyncio.to_thread(
         concept_cache_fs.precomputed_stats, source_id, principal, concept_id, dict_key,
     )
+    row = await concept_stats_cache_service.get(db, source_id, concept_id, principal)
     if precomputed is not None:
         stats, computed_at = precomputed
-        return ConceptStatsResponse(
-            data_source_id=source_id, concept_id=concept_id, stats=stats,
-            updated_at=datetime.fromtimestamp(computed_at, tz=UTC),
-        )
-    row = await concept_stats_cache_service.get(db, source_id, concept_id, principal)
+        if row is None or _as_utc(row.updated_at).timestamp() <= computed_at:
+            return ConceptStatsResponse(
+                data_source_id=source_id, concept_id=concept_id, stats=stats,
+                updated_at=datetime.fromtimestamp(computed_at, tz=UTC),
+            )
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stats")
     return row
 
 
-@router.get("/{source_id}/concept-stats/{concept_id}/diagnose")
+def _as_utc(moment: datetime) -> datetime:
+    # SQLite hands timestamps back naive; they are stored in UTC.
+    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+@router.get(
+    "/{source_id}/concept-stats/{concept_id}/diagnose",
+    response_model=ConceptStatsDiagnosis,
+    response_model_exclude_none=True,
+)
 async def diagnose_concept_stats(
     source_id: str,
     concept_id: int,
     dict_key: str | None = Query(default=None, alias="dictKey"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> dict:
+):
     """What the counting run's `stats` step holds for one concept, and the unit
-    that should have described it — for the detail panel, when it has none."""
+    that should have described it — for the detail panel, when it has none.
+    Gated like computing them: it describes the run's own files."""
     source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, _cache_write_permission(source))
     return await asyncio.to_thread(
         concept_cache_fs.diagnose_stats, source_id, _principal(source, user), concept_id, dict_key,
     )

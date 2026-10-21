@@ -329,6 +329,14 @@ async def create(db: AsyncSession, data: DataSourceCreate, owner: User) -> DataS
     return source
 
 
+async def invalidate_concept_caches(db: AsyncSession, source_id: str) -> None:
+    """Drop what the concepts of a database were computed from its data: the
+    concept list and its counting run, and the stats cached per concept. For
+    every write to its data, so the next visitor recomputes against it."""
+    concept_cache_fs.invalidate(source_id)
+    await concept_stats_cache_service.delete_for_source(db, source_id)
+
+
 # The fields a database's data and concept list are read through.
 _CACHE_INPUTS = ("connection_config", "schema_mapping", "schema_overrides", "derived_from")
 
@@ -394,8 +402,7 @@ async def update(
     # The concept caches reflect the old data; drop them so the next visitor
     # recomputes against the new config.
     if data_changed:
-        concept_cache_fs.invalidate(source.id)
-        await concept_stats_cache_service.delete_for_source(db, source.id)
+        await invalidate_concept_caches(db, source.id)
     if login and editor_id is not None and database_credential_service.is_external(source):
         await database_credential_service.save(
             db, source, editor_id, *login, remember=not source.require_session_only
@@ -541,8 +548,7 @@ async def import_file(
     # The source's file set changed — a warm connection holds views over the old
     # files, so drop it and let the next query rebuild from the new set.
     connection_pool.invalidate(req.data_source_id)
-    concept_cache_fs.invalidate(req.data_source_id)
-    await concept_stats_cache_service.delete_for_source(db, req.data_source_id)
+    await invalidate_concept_caches(db, req.data_source_id)
     return row
 
 
@@ -552,8 +558,7 @@ async def delete_file(db: AsyncSession, file: DataSourceFile) -> None:
     await db.delete(file)
     await db.commit()
     connection_pool.invalidate(source_id)
-    concept_cache_fs.invalidate(source_id)
-    await concept_stats_cache_service.delete_for_source(db, source_id)
+    await invalidate_concept_caches(db, source_id)
     if not await _sha_still_referenced(db, sha):
         await blob_store.delete(sha)
 
@@ -1089,6 +1094,10 @@ async def run_etl(
         with contextlib.suppress(BaseException):
             await task
         raise
+    finally:
+        # Each statement commits on its own: a run that failed or was stopped
+        # midway may still have written to the target.
+        await invalidate_concept_caches(db, target.id)
 
 
 async def client_recipe(db: AsyncSession, source: DataSource, login: Login | None) -> dict:

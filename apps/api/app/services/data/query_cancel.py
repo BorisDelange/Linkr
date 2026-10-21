@@ -23,6 +23,7 @@ import contextlib
 import contextvars
 import threading
 import time
+from collections import OrderedDict
 from collections.abc import Callable, Iterator
 
 import duckdb
@@ -34,13 +35,16 @@ current_query: contextvars.ContextVar[tuple[str, str] | None] = contextvars.Cont
 # reaches a connection: its cancel must still be there when it does. An entry
 # is a few bytes and goes as soon as its query starts.
 _EARLY_CANCEL_TTL_S = 24 * 3600.0
+# Past it the oldest are forgotten: any user can post ids that never start.
+_EARLY_CANCEL_MAX = 10_000
 
 # Runs when the query is cancelled, after the interrupt; must not block.
 _cancel_hook: contextvars.ContextVar[Callable[[], None] | None] = contextvars.ContextVar("cancel_hook", default=None)
 
 _lock = threading.Lock()
 _running: dict[str, tuple[str, duckdb.DuckDBPyConnection, Callable[[], None] | None]] = {}
-_cancelled_early: dict[str, tuple[str, float]] = {}
+# Oldest first, so expiry and the cap both drop from the front.
+_cancelled_early: OrderedDict[str, tuple[str, float]] = OrderedDict()
 # Running queries already interrupted. DuckDB's interrupt only stops the
 # statement in flight: one landing between two statements of a script is lost,
 # and the next statement would run to its end.
@@ -101,11 +105,14 @@ def cancel(query_id: str, owner: str) -> bool:
     """Interrupt `owner`'s query `query_id`. True when a running query was hit."""
     now = time.monotonic()
     with _lock:
-        for key in [k for k, (_, at) in _cancelled_early.items() if now - at > _EARLY_CANCEL_TTL_S]:
-            del _cancelled_early[key]
+        while _cancelled_early and now - next(iter(_cancelled_early.values()))[1] > _EARLY_CANCEL_TTL_S:
+            _cancelled_early.popitem(last=False)
         entry = _running.get(query_id)
         if entry is None:
             _cancelled_early[query_id] = (owner, now)
+            _cancelled_early.move_to_end(query_id)
+            while len(_cancelled_early) > _EARLY_CANCEL_MAX:
+                _cancelled_early.popitem(last=False)
             return False
         if entry[0] != owner:
             return False

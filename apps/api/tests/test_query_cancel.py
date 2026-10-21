@@ -229,3 +229,18 @@ def test_a_cancel_between_two_statements_stops_the_next():
         assert "q-between" not in query_cancel._interrupted
     finally:
         query_cancel.current_query.reset(token)
+
+
+def test_cancels_of_queries_that_never_start_are_bounded(monkeypatch):
+    monkeypatch.setattr(query_cancel, "_EARLY_CANCEL_MAX", 3)
+    for i in range(5):
+        query_cancel.cancel(f"early-{i}", "7")
+    assert list(query_cancel._cancelled_early) == ["early-2", "early-3", "early-4"]
+
+
+def test_expired_early_cancels_are_dropped(monkeypatch):
+    query_cancel.cancel("old", "7")
+    later = time.monotonic() + query_cancel._EARLY_CANCEL_TTL_S + 1
+    monkeypatch.setattr(query_cancel.time, "monotonic", lambda: later)
+    query_cancel.cancel("new", "7")
+    assert list(query_cancel._cancelled_early) == ["new"]

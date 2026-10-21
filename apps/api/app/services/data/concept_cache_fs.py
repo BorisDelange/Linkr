@@ -44,6 +44,7 @@ import uuid
 import duckdb
 
 from app.config import settings
+from app.core.redact import redact_secrets
 from app.services.data import db_connect
 
 # Source ids are client UUIDs; validate before putting one in a filesystem path.
@@ -174,6 +175,21 @@ def _complete_record_units(source_id: str, principal: str) -> list:
 # on the text alone missed every concept of such a table. Matched as a number,
 # and as text for the ids that are not one.
 _SAME_ID = "(TRY_CAST(concept_id AS BIGINT) = TRY_CAST(? AS BIGINT) OR CAST(concept_id AS VARCHAR) = ?)"
+_INTEGER_TYPES = {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "HUGEINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT"}
+
+
+def _same_id(con, paths: str, concept_id: int) -> tuple[str, list]:
+    """The filter matching `concept_id` in the units at `paths`. On an integer
+    column, a plain comparison, which the Parquet min/max statistics prune whole
+    row groups with; the casts of `_SAME_ID` read every row."""
+    kind = con.execute(
+        f"DESCRIBE SELECT concept_id FROM read_parquet([{paths}], union_by_name = true)"
+    ).fetchone()[1]
+    if kind in _INTEGER_TYPES:
+        return "concept_id = ?", [concept_id]
+    return _SAME_ID, [str(concept_id)] * 2
+
+
 _ID_IN = (
     "(TRY_CAST(concept_id AS BIGINT) IN (SELECT TRY_CAST(unnest(?::VARCHAR[]) AS BIGINT))"
     " OR CAST(concept_id AS VARCHAR) IN (SELECT unnest(?::VARCHAR[])))"
@@ -396,12 +412,14 @@ def precomputed_stats(source_id: str, principal: str, concept_id: int, dict_key:
     record_files = _complete_record_units(source_id, principal)
     con = db_connect._open()
     try:
+        stats_paths = _paths_sql(stats_files)
+        same_id, id_params = _same_id(con, stats_paths, concept_id)
         rows = con.execute(
             f"""SELECT dict_key, bin, bin_count, value_count, min_val, max_val, mean_val, std_val,
                        p01, q1_val, median_val, q3_val, p99
-                FROM read_parquet([{_paths_sql(stats_files)}], union_by_name = true)
-                WHERE {_SAME_ID}""",
-            [str(concept_id)] * 2,
+                FROM read_parquet([{stats_paths}], union_by_name = true)
+                WHERE {same_id}""",
+            id_params,
         ).fetchall()
         dict_keys = sorted({r[0] for r in rows})
         key = dict_key if dict_key is not None else (dict_keys[0] if dict_keys else None)
@@ -410,12 +428,14 @@ def precomputed_stats(source_id: str, principal: str, concept_id: int, dict_key:
             return None
         row_count = 0
         if record_files:
+            record_paths = _paths_sql(record_files)
+            same_id, id_params = _same_id(con, record_paths, concept_id)
             dict_filter = "" if key is None else "AND dict_key = ?"
             row_count = con.execute(
                 f"""SELECT COALESCE(SUM(record_count), 0)::BIGINT
-                    FROM read_parquet([{_paths_sql(record_files)}], union_by_name = true)
-                    WHERE {_SAME_ID} {dict_filter}""",
-                [str(concept_id)] * 2 + ([] if key is None else [key]),
+                    FROM read_parquet([{record_paths}], union_by_name = true)
+                    WHERE {same_id} {dict_filter}""",
+                id_params + ([] if key is None else [key]),
             ).fetchone()[0]
     finally:
         con.close()
@@ -445,6 +465,12 @@ def precomputed_stats(source_id: str, principal: str, concept_id: int, dict_key:
         for r in bins
     ]
     return stats, computed_at
+
+
+def _shown_error(e: Exception) -> str:
+    """The error text without the server's own folders, which its paths name."""
+    text = redact_secrets(str(e)).replace(_cache_root().as_posix() + "/", "")
+    return text.replace(settings.data_path.as_posix(), "<data>")
 
 
 def diagnose_stats(source_id: str, principal: str, concept_id: int, dict_key: str | None) -> dict:
@@ -501,7 +527,7 @@ def diagnose_stats(source_id: str, principal: str, concept_id: int, dict_key: st
                         [str(concept_id), concept_id, concept_id],
                     ).fetchone()
                 except duckdb.Error as e:
-                    out[label].append({"unit": f.stem, "error": str(e)})
+                    out[label].append({"unit": f.stem, "error": _shown_error(e)})
                     continue
                 if hit[0] or hit[1]:
                     out[label].append({"unit": f.stem, "asText": hit[0], "asNumber": hit[1], "dictKeys": hit[2]})

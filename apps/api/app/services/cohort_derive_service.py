@@ -371,6 +371,8 @@ async def _derive(
         cohort.derivations = [*kept, record]
 
     await db.commit()
+    for written in {target.id, produced_id} - {None}:
+        await data_source_service.invalidate_concept_caches(db, written)
     if registered_new is not None and target_login is not None:
         remembered = (await database_credential_service.status_for(db, target, user_id))["remembered"]
         await database_credential_service.save(

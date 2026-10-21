@@ -832,3 +832,23 @@ async def test_server_path_outside_the_roots_is_a_400_not_a_500(client, monkeypa
     assert r.status_code == 201
     r = await client.patch(f"{API}/data-sources/{r.json()['id']}", headers=headers, json={"connectionConfig": outside})
     assert r.status_code == 400
+
+
+async def test_a_query_id_is_a_uuid(client):
+    """The ids a cancel remembers come from any reader: only the shape the client
+    sends is taken."""
+    import uuid as _uuid
+
+    headers = await _admin_headers(client)
+    ws = await _workspace(client, headers)
+    source_id = (await client.post(f"{API}/data-sources", headers=headers, json={
+        "workspaceId": ws, "alias": "omop", "name": "OMOP", "sourceType": "database",
+        "connectionConfig": {"engine": "duckdb"},
+    })).json()["id"]
+    cancel = f"{API}/data-sources/{source_id}/query/cancel"
+    assert (await client.post(cancel, headers=headers, json={"queryId": "x" * 5000})).status_code == 422
+    assert (await client.post(cancel, headers=headers, json={"queryId": "job:1"})).status_code == 422
+    r = await client.post(cancel, headers=headers, json={"queryId": str(_uuid.uuid4())})
+    assert r.status_code == 200 and r.json() == {"cancelled": False}
+    bad = await client.post(f"{API}/data-sources/{source_id}/query", headers=headers, json={"sql": "SELECT 1", "queryId": "q"})
+    assert bad.status_code == 422

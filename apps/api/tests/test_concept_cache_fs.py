@@ -445,6 +445,27 @@ def test_double_concept_ids_are_matched_as_numbers(duckdb_source, data_dir):
     assert concept_cache_fs.counted_relations("src", "", ["9"])[0]["holds"] is False
 
 
+def test_an_integer_id_column_is_filtered_without_a_cast(tmp_path):
+    """A plain comparison lets the Parquet statistics skip row groups; the casts
+    stay for the ids stored as DOUBLE or text."""
+    con = duckdb.connect()
+    try:
+        for kind, expected in (("BIGINT", "concept_id = ?"), ("DOUBLE", concept_cache_fs._SAME_ID)):
+            path = tmp_path / f"{kind}.parquet"
+            con.execute(f"COPY (SELECT 1::{kind} AS concept_id) TO '{path.as_posix()}' (FORMAT parquet)")
+            assert concept_cache_fs._same_id(con, f"'{path.as_posix()}'", 1)[0] == expected
+    finally:
+        con.close()
+
+
+def test_a_diagnosis_error_names_no_server_folder(data_dir):
+    from app.config import settings
+
+    unit = concept_cache_fs._cache_root() / "src.run" / "units" / "stats-1.parquet"
+    shown = concept_cache_fs._shown_error(duckdb.IOException(f"Cannot open '{unit.as_posix()}' or '{settings.data_path.as_posix()}/x'"))
+    assert shown == "Cannot open 'src.run/units/stats-1.parquet' or '<data>/x'"
+
+
 def test_diagnose_names_the_unit_that_should_describe_a_concept(duckdb_source, data_dir):
     config, files = _stats_run(duckdb_source, ["stats-1-of-2", "stats-2-of-2"])
     run = {"runId": "r1", "units": [{"key": "records-0-std", "step": "records"},
