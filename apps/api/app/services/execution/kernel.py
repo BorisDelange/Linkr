@@ -594,7 +594,9 @@ repeat {
   # interrupt-catching loop, so Stop works even for a run that prints nothing.
   .emit(list("__linkr_ack__" = TRUE))
   .stream <- substr(.line, 1, 1) == "S"
-  .code <- rawToChar(base64decode(substr(.line, 2, nchar(.line))))
+  # parse(text=) rejects a carriage return ("unexpected invalid token"), and an
+  # editor on Windows ends every line with one.
+  .code <- gsub("\r\n?", "\n", rawToChar(base64decode(substr(.line, 2, nchar(.line)))))
   .fig_dir <- file.path(tempdir(), sprintf("linkr_figs_%03d", .run_n))
   dir.create(.fig_dir, showWarnings = FALSE, recursive = TRUE)
   .pat <- file.path(.fig_dir, "p_%03d.svg")

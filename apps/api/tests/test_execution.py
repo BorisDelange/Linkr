@@ -803,6 +803,20 @@ async def test_r_kernel_only_prints_visible_values(tmp_path):
 
 
 @requires_r
+async def test_r_kernel_accepts_windows_line_endings(tmp_path):
+    """Monaco on a Windows workstation ends every line with CRLF, and R's
+    parse(text=) rejects the carriage return with "unexpected invalid token" at
+    the end of line 1 — so a two-line script never ran from the IDE there."""
+    kernel = _make_r_kernel(tmp_path)
+    try:
+        out = await kernel.execute('print("test")\r\nprint("test 2")\r\n')
+    finally:
+        await kernel.shutdown()
+    assert not out.failed, out.stderr
+    assert '[1] "test"' in out.stdout and '[1] "test 2"' in out.stdout
+
+
+@requires_r
 async def test_parallel_r_kernels_do_not_clobber_each_others_figures(tmp_path):
     """Two R kernels sharing the SAME working directory each keep their own figure.
 
