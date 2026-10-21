@@ -29,6 +29,27 @@ Notes / follow-ups:
 
 ---
 
+## 2026-10-21 — Mapping change drops concept caches, "Reset to preset"
+
+- Reviewed by: Claude Opus 5.5 (lead alone, 1 commit)
+- Range: ce0e36c71..58c82368f (1 commit, 6 files, +66 / −44). b9da0a660..ce0e36c71 = the fixes of the previous review, gated on their final tree (see entry below).
+- Last reviewed commit: 58c82368f4a34690b1966057e1f9dea8bda01ce4
+- Verdict: **Ship it** (one doc follow-up). 0 🔴, 1 🟠, 4 🟡.
+- Tests: web concepts/databases/schema-classes **519** (35 files) · typecheck **0** · eslint 0 errors on the 3 files · MCP tsc 0 · e2e **15/15** · i18n: the 7 removed `schema_mapping.update_*` keys have no remaining reader; en/fr identical.
+
+Findings:
+- 🟠 **User docs describe the old behaviour** — linkr-website `docs/warehouse/databases.mdx:171-181` (fr+en), `schemas-mapping.mdx:194` (en, fr twin) and `components/docs/LinkrWarehouseFrames.tsx:892/959/1379` still say "Update from preset… keeps the overrides". The button is now "Reset to preset" and drops them. → `update-website-docs`.
+- 🟡 Reset drops every local override but its confirm is not `destructive` — `DatabaseMappingTab.tsx:~274` → `destructive` on the DialogShell.
+- 🟡 Reset description prints "version X → X" when only overrides differ — show the version line only when `versionChanged`.
+- 🟡 `use-concepts.ts:~329` clears caches on a mapping change but not the in-flight maps: a stats/rows request started under the old mapping is joined by the same flight key after the change and serves old values once. PLAUSIBLE. → drop the database's in-flight entries in `forgetConceptData`.
+- 🟡 MCP `sourcePreset` (same preset again) keeps the overrides while the UI's reset drops them — documented in `workspace.ts:271`, but two meanings for "apply the preset again"; decide whether that is intended.
+
+Notes:
+- Fixed same day (uncommitted, for review): confirm `destructive`; description without the version part unless it changes (`reset_description_version`); `forgetConceptData` also drops the database's in-flight stats loads, and a load's `finally` only removes its own entry; MCP `presetMappingChange` drops the overrides for the same preset too (user: align on the app), tool description/README/test updated; linkr-website `databases.mdx` + `schemas-mapping.mdx` (fr+en) and the `LinkrWarehouseFrames` mockup now describe Reset to preset (build 270 pages OK).
+- Checked good: every `useConcepts` caller gets the store's effective mapping (`data-source-store.ts:65`), so the JSON key never ping-pongs between views; `forgetConceptData`'s `${id}::` prefix matches the stats cache keys; the server already drops its concept caches on `schema_mapping`/`schema_overrides` (`_CACHE_INPUTS`).
+
+---
+
 ## 2026-10-21 — Fixes of the review 6b04774d8..7c8d27a61
 
 - Fixed by: five parallel fixers (Claude Opus 5.5) directly on feature/fastapi-backend, disjoint file ownership, uncommitted for the user's review; the lead re-read the portal and cohort SQL, gated Diagnose on ConceptsPage. Every 🔴/🟠/🟡 fixed. No version number changed (`dictionaryKeys` is optional: old cohorts fall back to every dictionary table, so `MIN_APP_VERSION` stays).
