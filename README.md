@@ -1,6 +1,6 @@
 # Linkr
 
-[![Try Linkr](https://img.shields.io/badge/Try%20Linkr-GitLab%20Pages-2ea44f?style=for-the-badge)](https://linkr-v2-b1800b.frama.io/)
+[![Try Linkr](https://img.shields.io/badge/Try%20Linkr-GitLab%20Pages-2ea44f?style=for-the-badge)](https://demo.linkr.interhop.org)
 [![Documentation](https://img.shields.io/badge/Documentation-linkr.interhop.org-2ea44f?style=for-the-badge)](https://linkr.interhop.org/en/docs/)
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?style=for-the-badge)](LICENSING.md)
 
@@ -96,7 +96,7 @@ existing REDCap or Excel file, and the result becomes a dataset like any other.
 </p>
 
 **See it in action:** the [guided demo](https://linkr.interhop.org/en/demo/) walks through each
-of these with commentary, and the [live instance](https://linkr-v2-b1800b.frama.io/) runs in
+of these with commentary, and the [live instance](https://demo.linkr.interhop.org) runs in
 your browser with demo data — nothing to install.
 
 ---
