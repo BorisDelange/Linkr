@@ -32,6 +32,10 @@ build/
 # Local notes / roadmaps (not shared with the team)
 *.local.md
 
+# Security audit runs and their fix tracking: kept local until the release that
+# ships the fixes (.claude/skills/security, disclosure policy)
+/.security-audits/
+
 # Data files
 *.db
 *.sqlite
@@ -43,8 +47,8 @@ build/
 *.duckdb
 *.arrow
 
-# ...but the dependabot triage log is a tracked decision record, not data
-!.claude/skills/dependabot-triage/TRIAGE-LOG.csv
+# ...but the dependency triage log is a tracked decision record, not data
+!.claude/skills/security/TRIAGE-LOG.csv
 *.feather
 
 # Golden test fixtures are versioned content, not data — the export format

@@ -40,9 +40,15 @@ The new version must be ≥ every entry of `MIN_APP_VERSION` in
 `VERSION` means a format change already promised to "the next release". If the
 chosen bump stays below it, say so and ask again.
 
-## 2. Dependency fixes
+## 2. Security fixes and dependency fixes
 
-Run the `dependabot-triage` skill and apply only its **non-breaking** fixes,
+Pending security fixes first: if `security/*` branches exist (`git branch --list
+'security/*'`) or `.security-audits/AUDIT-LOG.md` lists findings fixed but not
+released, ask which ones this release ships and merge those branches into START
+now, so step 4 tests them (`security` skill, §1). They become public with this
+release's push, not before.
+
+Then run the dependency part of the `security` skill and apply only its **non-breaking** fixes,
 each one targeted (`npm update <pkg>`, `uv lock --upgrade-package <pkg>` in
 `apps/api`), never a blanket update. The images install from the lockfiles, so
 a fix landed after the tag waits for the next release. Commit them on START
@@ -145,6 +151,8 @@ it. Report:
 - the version, the tag and the main commit;
 - the test results per tier, with times;
 - the dependency fixes applied, or "none";
+- the security branches merged, or "none" — and, once the images are on Docker Hub,
+  the release-notes line the `security` skill prescribes;
 - the CI pipeline to watch (the tag job on framagit). Once it is green, the
   images `interhop/linkr:{api,web,mcp}-NEW` are on Docker Hub;
 - any user-visible change that likely needs a page in `linkr-website`

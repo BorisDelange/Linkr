@@ -1,19 +1,29 @@
----
-name: dependabot-triage
-description: List, triage, and act on GitHub Dependabot alerts for Linkr. Fetches open alerts via the GitHub API, classifies each (resolved-once-merged / false-positive / blocked-upstream / actionable), proposes fixes or dismissals, then records every decision in this skill's TRIAGE-LOG.csv so already-triaged alerts are never re-processed. Use when the user asks to check, review, fix, or dismiss Dependabot / dependency security alerts.
-argument-hint: [owner/repo (optional, e.g. BorisDelange/Linkr)]
----
+# Dependency alerts
 
-# Linkr Dependabot Triage
+You are triaging the advisories that affect Linkr's dependencies. The user is **not** a security engineer — your classification is the decision gate. Be concrete and honest; never dismiss an alert you cannot justify.
 
-You are triaging the project's Dependabot security alerts. The user is **not** a security engineer — your classification is the decision gate. Be concrete and honest; never dismiss an alert you cannot justify.
+## Two sources, and which one to trust on a branch
 
-The single most important fact about this workflow (learned the hard way):
+**Dependabot alerts only scan the repository's default branch (`main`).** They ignore every feature branch, so they lag the work by a whole release: a dependency already fixed on `feature/fastapi-backend` keeps showing as open, and a vulnerable one added there does not show at all. GitHub has no setting to point alerts at another branch; the only lever is the mirror's default branch (below).
 
-> **Dependabot *alerts* only ever scan the repository's default branch (usually `main`).**
-> They completely ignore feature branches. So a dependency you have *already fixed* in a feature branch's `package-lock.json` will keep showing as **open** on the Security page until that lockfile reaches `main`. Do **not** re-fix or re-dismiss those — they are already handled, just not yet visible as closed. `TRIAGE-LOG.csv` (next to this file) exists precisely to remember this across sessions.
+So the **primary source is a local scan of the branch you are on**, which reads its lockfiles directly (Step 0). Dependabot is the second net, and the place where alerts are dismissed for the record.
 
-Because of this rule, fixes committed on a feature branch will **not** move the counter on the Security page. To make it drop before the feature merges, open a small dedicated PR (e.g. `security/dependency-updates`) carrying only the `package.json` + `package-lock.json` changes into the default branch; after it merges, Dependabot re-scans and closes every `resolved-in-lockfile` alert at once. A re-scan can also be forced from **Insights → Dependency graph → Dependabot → Check for updates** (it re-scans the latest commit on the default branch).
+If the user wants the GitHub Security page itself to follow the development branch: on the GitHub mirror, *Settings → General → Default branch* → `feature/fastapi-backend` (GitHub is only a clone mirror, nothing else depends on its default branch). Dependabot then re-scans that branch. Switch it back to `main` at the end of the cycle if the user prefers; say so, do not do it yourself.
+
+## Step 0 — Scan the current branch locally
+
+```bash
+npm audit --json > "$TMPDIR/npm-audit.json"           # root workspace: apps/web, packages/*
+(cd apps/api && uv export --frozen --no-hashes --all-extras --no-emit-project) > "$TMPDIR/api-reqs.txt"
+uvx pip-audit -r "$TMPDIR/api-reqs.txt" --no-deps --disable-pip --progress-spinner off -f json > "$TMPDIR/pip-audit.json"
+```
+
+- `npm audit` reads `package-lock.json` against the GitHub Advisory Database: its findings carry GHSA ids (in `via[].url`), the same ids as Dependabot.
+- `pip-audit` reads `apps/api/uv.lock` (through `uv export --frozen`, so exactly what the image installs) against PyPI/OSV. Use a vulnerability's GHSA alias (`aliases`) as its id when it has one, else its PYSEC/CVE id.
+- Both send package names and versions to public advisory services, nothing else. Offline (inside an SPE) they fail: say so and fall back to Dependabot.
+- Not covered by either: the R packages, pinned by the dated p3m snapshot `CRAN_SNAPSHOT` in `docker/Dockerfile.api`, and the base images. Mention it; moving the snapshot is a deliberate decision of the user.
+
+Classify these findings as in Step 3. Then, if GitHub access works, fetch Dependabot (Steps 1–2) to reconcile: an alert open on GitHub but absent from the local scan is fixed on this branch (`resolved-in-lockfile`); a local finding with no GitHub alert is new on this branch.
 
 ## Prerequisites — access
 
@@ -33,7 +43,7 @@ If not logged in, tell the user to run `gh auth login` **in their own terminal**
 
 **Resolve `OWNER/REPO`** in this order: the skill argument if given → an existing GitHub remote (`git remote -v | grep github`) → otherwise ask the user. Never hard-code it and never assume a local filesystem path.
 
-## Step 1 — Fetch open alerts
+## Step 1 — Fetch open Dependabot alerts
 
 ```bash
 gh api --paginate "repos/OWNER/REPO/dependabot/alerts?state=open&per_page=100"
@@ -43,11 +53,11 @@ Also read the default branch (from Step 0). Note that the alert count on the Sec
 
 ## Step 2 — Load prior decisions
 
-Read `TRIAGE-LOG.csv` (in this skill's own directory; create it from the header below if absent). It records, per `package,ghsa_id`, what was decided and why. Any alert already present with a terminal decision (`dismissed`, `pending-merge`) is **not** re-triaged — only reported as "already handled, pending merge to <default branch>".
+Read `TRIAGE-LOG.csv` (in this skill's own directory; create it from the header below if absent). It records, per `package,ghsa_id` (the column holds a PYSEC or CVE id for a Python advisory with no GHSA alias), what was decided and why. Any alert already present with a terminal decision (`dismissed`, `pending-merge`) is **not** re-triaged — only reported as "already handled, pending merge to <default branch>".
 
 ## Step 3 — Classify every open alert
 
-For each alert not already terminal in the CSV, put it in exactly one bucket:
+For each finding (local scan) or alert (Dependabot) not already terminal in the CSV, put it in exactly one bucket:
 
 - **resolved-in-lockfile** — the version now in the repo's `package-lock.json` already satisfies the advisory's `first_patched_version` (compare numerically; a CDN/tarball version like SheetJS `0.20.3` counts if it is ≥ the patched version or above the vulnerable range). These will auto-close when the lockfile reaches the default branch. **No action** — just record.
 - **actionable** — a non-breaking fix exists and is not yet applied. Propose a bump (`npm audit fix`, or a targeted install). Prefer non-breaking; flag breaking ones separately.

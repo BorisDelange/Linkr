@@ -69,6 +69,17 @@ Go file by file through the diff. For **each** finding, record: file:line, sever
 2. Append a new entry to `.claude/skills/code-review/REVIEW-LOG.md` using the template in that file. Set `Last reviewed commit:` to the current `HEAD` SHA (`git rev-parse HEAD`).
 3. Do **not** invent the date — get it from the environment context (the `currentDate` reminder) or `git log -1 --format=%cd`.
 
+## Security beyond the diff
+
+Dependency alerts, whole-codebase audits, fixing audit findings and the disclosure
+policy belong to the `security` skill. Two consequences here:
+
+- At the end of a review, offer a full audit when that skill's §3 says one is due —
+  offer it, never start it.
+- A 🔴 security finding in code that is already released is embargoed: in
+  `REVIEW-LOG.md` write only "security finding handed to the `security` skill", and
+  record the details in `.security-audits/AUDIT-LOG.md` (gitignored).
+
 ## Tone
 
 Be direct. Surface real problems plainly without softening. If something is genuinely good, say so briefly. The user relies on this review catching what they cannot.
