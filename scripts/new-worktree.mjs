@@ -35,6 +35,49 @@ if (existsSync(worktreePath)) {
   process.exit(1)
 }
 
+// Where the worktree's data dir goes: `worktrees.dataRoot` in the gitignored
+// config.local.json, a folder the user picked. Never inside the worktree or
+// anywhere the script would choose: a cloned data dir holds the instance's
+// databases (tens of GB once materialised), and a folder that silently grows to
+// that size inside a checkout gets copied, synced or backed up by mistake.
+function worktreeDataRoot() {
+  const configPath = path.join(repoRoot, 'config.local.json')
+  let root
+  try {
+    root = JSON.parse(readFileSync(configPath, 'utf-8'))?.worktrees?.dataRoot
+  } catch {
+    root = undefined
+  }
+  if (typeof root !== 'string' || !root.trim()) {
+    console.error(`✗ No folder for the worktree's data dir. Choose one and set it in ${configPath}:
+
+    { "worktrees": { "dataRoot": "/absolute/path/of/your/choice" } }
+
+  Each worktree gets <dataRoot>/<worktree name>, cloned from the main data dir.`)
+    process.exit(1)
+  }
+  const expanded = root.trim().replace(/^~(?=$|\/)/, process.env.HOME ?? '~')
+  if (!path.isAbsolute(expanded)) {
+    console.error(`✗ worktrees.dataRoot must be an absolute path (or start with ~), got "${root}"`)
+    process.exit(1)
+  }
+  const checkouts = git('worktree', 'list', '--porcelain').split('\n')
+    .filter((l) => l.startsWith('worktree ')).map((l) => l.slice('worktree '.length))
+  const inside = (dir) => path.resolve(expanded) === dir || path.resolve(expanded).startsWith(dir + path.sep)
+  if (checkouts.some(inside) || inside(worktreePath)) {
+    console.error(`✗ worktrees.dataRoot (${expanded}) is inside a checkout: choose a folder outside the repository and its worktrees`)
+    process.exit(1)
+  }
+  return path.resolve(expanded)
+}
+
+const dataRoot = worktreeDataRoot()
+const worktreeDataDir = path.join(dataRoot, path.basename(worktreePath))
+if (existsSync(worktreeDataDir)) {
+  console.error(`✗ ${worktreeDataDir} already exists (a data dir left by an earlier worktree of that name?)`)
+  process.exit(1)
+}
+
 // Probing the OS alone is not enough: a worktree whose app is not running holds
 // no socket, so its ports would look free and be handed out twice. The existing
 // .env.local files are the reservations; the probe then rules out ports taken by
@@ -117,7 +160,8 @@ let dataWarning = null
 
 const apiEnvSrc = path.join(repoRoot, 'apps/api/.env')
 if (existsSync(apiEnvSrc)) {
-  const dataDir = path.join(worktreePath, '.linkr-data')
+  const dataDir = worktreeDataDir
+  mkdirSync(dataRoot, { recursive: true })
   const mainDataDir = readFileSync(apiEnvSrc, 'utf-8').match(
     /^\s*LINKR_DATA_DIR\s*=\s*(.+)$/m,
   )?.[1]?.trim()

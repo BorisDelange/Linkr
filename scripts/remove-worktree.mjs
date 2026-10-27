@@ -9,7 +9,7 @@
 // outright, then the stale administrative entry is pruned.
 
 import { execFileSync } from 'child_process'
-import { existsSync, rmSync } from 'fs'
+import { existsSync, readFileSync, rmSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
@@ -39,9 +39,24 @@ if (dirty) {
   process.exit(1)
 }
 
+// Its data dir lives outside it (config.local.json `worktrees.dataRoot`): read
+// where its .env points before the directory goes. Only a data dir named after
+// this worktree is removed — never the main one, whatever the .env says.
+const envPath = path.join(worktreePath, 'apps/api/.env')
+const dataDir = existsSync(envPath)
+  ? readFileSync(envPath, 'utf-8').match(/^\s*LINKR_DATA_DIR\s*=\s*(.+)$/m)?.[1]?.trim()
+  : undefined
+
 rmSync(worktreePath, { recursive: true, force: true })
 git('worktree', 'prune')
 console.log(`  ✓ removed ${path.basename(worktreePath)}`)
+
+if (dataDir && !dataDir.startsWith(worktreePath + path.sep) && path.basename(dataDir) === path.basename(worktreePath)) {
+  rmSync(dataDir, { recursive: true, force: true })
+  console.log(`  ✓ removed its data dir ${dataDir}`)
+} else if (dataDir && !dataDir.startsWith(worktreePath + path.sep)) {
+  console.log(`    data dir ${dataDir} kept: not named after this worktree`)
+}
 
 if (argv.includes('--branch')) {
   git('branch', '-D', branch)

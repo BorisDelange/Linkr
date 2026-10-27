@@ -21,9 +21,21 @@ and two generated files —
   script picked by probing the OS for free ports.
 - `apps/api/.env` — copied from the main worktree, with `LINKR_CORS_ORIGINS` set
   to this worktree's frontend port and `LINKR_DATA_DIR` pointed at a private
-  `.linkr-data/` **cloned from the main one**, so the app opens on the real
+  data dir **cloned from the main one**, so the app opens on the real
   projects and databases while its writes stay local. On APFS this is a
   `cp -c` clone: instant, and costing no disk until the two diverge.
+
+The data dir goes to `<dataRoot>/<worktree folder name>`, where `dataRoot` is a
+folder **the user chose**, set in the gitignored `config.local.json`:
+
+```json
+{ "worktrees": { "dataRoot": "/absolute/path/of/your/choice" } }
+```
+
+Without it the script stops before creating anything. It never puts the data
+dir inside a checkout: the clone carries the instance's databases (tens of GB
+once materialised), which a copy or a sync of the worktree folder would then
+drag along. `worktree:remove` deletes that data dir with the worktree.
 
 `npm run dev:all` also starts the MCP server, on a port offset like the API's
 (API 8001 → MCP 3941; `MCP_PORT` in `.env.local` overrides it) and pointed at
