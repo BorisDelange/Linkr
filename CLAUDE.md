@@ -125,6 +125,13 @@ run `data:fetch` once if you want the demo content locally.
 **Export format has a second home** — the shape of an exported entity (`entity.json`, `dashboards/*.json`, `_tree.json`, payload files) is described BOTH in `apps/web/src/lib/entity-io.ts` and in `packages/linkr-format/` (schemas + validator, run on import and by the `linkr-format` CLI). **Change one, update the other in the same change** — otherwise the validator silently stops checking the new field, or flags a legitimate tree. Details → `docs/architecture.md` § Format package.
 If the change would make an **older app misread** that kind (the readers are tolerant, so it imports partly and says nothing), also raise the kind's entry in `MIN_APP_VERSION` — `packages/linkr-format/src/app-version.ts` + `apps/api/app/export_version.py` — to the next release: its exports then stamp `minAppVersion`, and older apps refuse them with the reason. Details → `docs/architecture.md` § Export format.
 
+**Scan a third-party skill or MCP server before installing it** — any agent skill or MCP server written by someone else (a `~/.claude/skills/` skill, an `.mcp.json` entry, a plugin), at install and at every update. Clone it fresh into the scratchpad and run NVIDIA's [skillspector](https://github.com/NVIDIA/skillspector) on that clone, never on a checkout already in use:
+```bash
+uv tool install git+https://github.com/NVIDIA/skillspector.git@<commit or tag>   # once per machine
+skillspector scan <fresh clone> --no-llm --format markdown
+```
+`--no-llm` always: without it the scanned files go to NVIDIA's hosted API (the dependency check still sends package names to OSV.dev). Read the findings, not just the score: `DO_NOT_INSTALL` → do not install, tell the user; `CAUTION` → explain what was found and let the user decide. It checks agent skills (prompt injection, exfiltration, tool poisoning), not Linkr's code — that is the `security` skill's audit.
+
 **Never change a version number unless asked** — not `VERSION`, not `app_version`, not `pyproject.toml`, not a tag. This holds even when a change *would* justify a bump under the rules below: say so in the commit message or your report and leave the number alone. A version is a release decision, and a bump nobody asked for is hard to spot in review and awkward to undo once exports carry it (21 golden fixtures pin the string). If a bump seems warranted, ask.
 
 **Two independent versions** — don't conflate them:

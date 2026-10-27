@@ -1,6 +1,6 @@
 ---
 name: security
-description: Everything about Linkr's own security in one place — triage dependency advisories on the current branch (npm audit, pip-audit) and Dependabot alerts (TRIAGE-LOG.csv), run or follow up a full security audit (Cloudflare security-audit skill, results kept in the gitignored .security-audits/), fix audit findings, scan a third-party agent skill or MCP server before installing it (skillspector), and apply the disclosure policy that keeps vulnerabilities and their fixes local until the release that ships them. Use when the user asks about security, Dependabot or dependency alerts, a security audit, fixing findings, a vulnerability report, or before installing a skill or MCP server.
+description: Everything about Linkr's own security in one place — triage dependency advisories on the current branch (npm audit, pip-audit) and Dependabot alerts (TRIAGE-LOG.csv), run or follow up a full security audit (Cloudflare security-audit skill, results kept in the gitignored .security-audits/), fix audit findings, scan Linkr's own MCP server and skills with skillspector before a release, and apply the disclosure policy that keeps vulnerabilities and their fixes local until the release that ships them. Use when the user asks about security, Dependabot or dependency alerts, a security audit, fixing findings, or a vulnerability report.
 argument-hint: "[dependencies | audit | fix | scan <path> | policy]"
 ---
 
@@ -84,7 +84,7 @@ branch — second. The `release` skill runs it at every release.
 is the job of the user-level `security-audit` skill (Cloudflare,
 <https://github.com/cloudflare/security-audit-skill>, installed in
 `~/.claude/skills/security-audit/`; on a new machine, install it there per its README,
-after scanning it as in §5): multi-agent recon → hunting → adversarial validation →
+after scanning it as CLAUDE.md requires): multi-agent recon → hunting → adversarial validation →
 schema-checked `findings.json`, each run building on the previous ones. It spawns many
 agents and is expensive — offer it, never start it unprompted, never at every review.
 
@@ -137,26 +137,12 @@ the audit: read it, never edit it.
 - Update the finding's status in `AUDIT-LOG.md` (fixed on `security/<topic>`, then
   released in vX.Y.Z).
 
-## 5. Third-party skills and MCP servers
+## 5. Skill and MCP scanning (skillspector)
 
-Before installing or updating a skill or MCP server written by someone else — the
-`security-audit` skill included — scan it with NVIDIA's
-[skillspector](https://github.com/NVIDIA/skillspector) (prompt injection, exfiltration,
-dangerous code, tool poisoning, vulnerable dependencies):
-
-```bash
-uv tool install git+https://github.com/NVIDIA/skillspector.git@<commit or tag>
-skillspector scan <path-or-repo> --no-llm --format markdown
-```
-
-- `--no-llm` always: its LLM stage sends the scanned files to NVIDIA's hosted API by
-  default. The dependency check still sends package names and versions to OSV.dev.
-- It never runs the scanned code, but it does not sandbox the host either: scan a
-  fresh clone, not a checkout the skill already runs from.
-- Read the findings rather than trusting the score: `DO_NOT_INSTALL` → do not install,
-  report to the user; `CAUTION` → explain what was found and let them decide.
-- Before a release, the same scan on `packages/linkr-mcp` (its tool descriptions reach
-  every agent that connects) and on `.claude/skills/` is cheap. Not a CI gate.
-
-It is a scanner for agent skills, not for Linkr's application code: it replaces
+Scanning a third-party skill or MCP server before installing it is a standing rule
+in `CLAUDE.md`, applied by whichever agent installs it — not something this skill
+waits to be run for. What belongs here is the release-time check: before a release,
+run the same scan (`skillspector scan <path> --no-llm`) on `packages/linkr-mcp`, whose
+tool descriptions reach every agent that connects, and on `.claude/skills/`. Cheap,
+not a CI gate. skillspector does not look at Linkr's application code: it replaces
 neither the audit (§3) nor the review checklist.
