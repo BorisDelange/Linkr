@@ -1,6 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from app.schemas.base import CamelModel
+
+WikiPageStatus = Literal["draft", "needs_revision", "approved"]
 
 
 class WikiPageCreate(CamelModel):
@@ -14,8 +17,8 @@ class WikiPageCreate(CamelModel):
     content: dict[str, str] = {}
     template: str | None = None
     owner: str | None = None
-    verified: bool | None = None
-    verified_at: str | None = None
+    status: WikiPageStatus | None = None
+    status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int = 0
     created_by_id: int | None = None
@@ -33,8 +36,8 @@ class WikiPageUpdate(CamelModel):
     content: dict[str, str] | None = None
     template: str | None = None
     owner: str | None = None
-    verified: bool | None = None
-    verified_at: str | None = None
+    status: WikiPageStatus | None = None
+    status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int | None = None
     created_by: str | None = None
@@ -58,8 +61,8 @@ class WikiPageResponse(CamelModel):
     content: dict[str, str]
     template: str | None = None
     owner: str | None = None
-    verified: bool | None = None
-    verified_at: str | None = None
+    status: WikiPageStatus | None = None
+    status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int
     created_by_id: int | None = None

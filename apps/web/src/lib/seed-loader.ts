@@ -49,6 +49,7 @@ import type {
   LocalizedString, TodoItem,
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
+import { readWikiPageMeta } from '@/lib/wiki-page-meta'
 import type { ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 
 /** A seed write that failed: the seed goes on without it, but says which. */
@@ -1001,7 +1002,7 @@ async function loadWorkspaceInternals(
         if (text != null) content[lang] = text
       }
       const title = toLocalized((meta as { title?: string | LocalizedString }).title)
-      await storage.wikiPages.create({ ...meta, title, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(seedWriteFailed('wiki page', meta.id))
+      await storage.wikiPages.create({ ...readWikiPageMeta(meta), title, content, history: [], workspaceId: wsId, updatedAt: now } as WikiPage).catch(seedWriteFailed('wiki page', meta.id))
     }
   }
 

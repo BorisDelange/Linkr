@@ -607,13 +607,16 @@ export interface WikiPage extends Authored {
   content: LocalizedString
   template?: string
   owner?: string
-  verified?: boolean
-  verifiedAt?: string
+  /** Review workflow; absent reads as draft. */
+  status?: WikiPageStatus
+  statusChangedAt?: string
   reviewDueAt?: string
   sortOrder: number
   createdAt: string
   updatedAt: string
 }
+
+export type WikiPageStatus = 'draft' | 'needs_revision' | 'approved'
 
 export interface WikiAttachment {
   id: string

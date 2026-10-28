@@ -70,7 +70,7 @@ function describePage(page: WikiPage, pages: WikiPage[], lang: string, attachmen
     `# ${localized(page.title, lang) || '(untitled)'}`,
     `page_id: ${page.id} · path: ${breadcrumbs(pages, page.id, lang).join(' / ')} · parent_id: ${page.parentId ?? '(top level)'}`,
     `languages with content: ${langs.join(', ') || '(none)'}${page.icon ? ` · icon: ${page.icon}` : ''}`
-      + `${page.verified ? ` · verified${page.verifiedAt ? ` ${page.verifiedAt}` : ''}` : ''}${page.owner ? ` · owner: ${page.owner}` : ''}`
+      + ` · status: ${page.status ?? 'draft'}${page.statusChangedAt ? ` (since ${page.statusChangedAt})` : ''}${page.owner ? ` · owner: ${page.owner}` : ''}`
       + `${page.reviewDueAt ? ` · review due ${page.reviewDueAt}` : ''} · updated ${page.updatedAt}`,
   ]
   if (children.length) lines.push(`sub-pages: ${children.map((c) => `${localized(c.title, lang)} (${c.id})`).join(', ')}`)
@@ -205,11 +205,11 @@ export function registerWikiTools(server: Server): void {
   server.registerTool('update_wiki_page', {
     description:
       'Change a wiki page: title and/or content in one language (other languages are kept; content REPLACES that '
-      + 'language\'s whole Markdown — read it with get_wiki_page first to edit part of it), icon, owner, review date, verified flag.',
+      + 'language\'s whole Markdown — read it with get_wiki_page first to edit part of it), icon, owner, review date, review status.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       page_id: string; title?: string; content?: string; language?: string; icon?: string
-      owner?: string; review_due_at?: string; verified?: boolean
+      owner?: string; review_due_at?: string; status?: 'draft' | 'needs_revision' | 'approved'
     }>({
       type: 'object',
       properties: {
@@ -220,11 +220,15 @@ export function registerWikiTools(server: Server): void {
         icon: { type: 'string', description: 'A lucide-react icon name; "" removes it.' },
         owner: { type: 'string', description: 'Who maintains the page (free text); "" clears it.' },
         review_due_at: { type: 'string', description: 'ISO date the page should be reviewed by; "" clears it.' },
-        verified: { type: 'boolean', description: 'Mark the page as verified (stamps the date) or not.' },
+        status: {
+          type: 'string',
+          enum: ['draft', 'needs_revision', 'approved'],
+          description: 'Review status (stamps the date it changed).',
+        },
       },
       required: ['page_id'],
     }),
-  }, guard(async ({ page_id, title, content, language, icon, owner, review_due_at, verified }) => {
+  }, guard(async ({ page_id, title, content, language, icon, owner, review_due_at, status }) => {
     const lang = language ?? 'en'
     const page = await wiki.get(page_id).catch(() => null)
     if (!page) return failure(`No wiki page ${page_id} (list_wiki_pages lists them).`)
@@ -237,9 +241,9 @@ export function registerWikiTools(server: Server): void {
     if (icon !== undefined) changes.icon = icon.trim() || null
     if (owner !== undefined) changes.owner = owner.trim() || null
     if (review_due_at !== undefined) changes.reviewDueAt = review_due_at.trim() || null
-    if (verified !== undefined) {
-      changes.verified = verified
-      changes.verifiedAt = verified ? new Date().toISOString() : null
+    if (status !== undefined) {
+      changes.status = status
+      changes.statusChangedAt = new Date().toISOString()
     }
     if (Object.keys(changes).length === 0) return failure('Nothing to change.')
     await wiki.update(page_id, changes)

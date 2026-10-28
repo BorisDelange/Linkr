@@ -47,6 +47,7 @@ import type {
 import * as engine from '@/lib/duckdb/engine'
 import { aliasesInScope } from '@/lib/alias'
 import { localized, toLocalized } from '@/lib/localized'
+import { readWikiPageMeta } from '@/lib/wiki-page-meta'
 import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -5060,7 +5061,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
         const matches = folder ? base === folder : base.endsWith(`--${meta.id}`)
         if (matches) content[lang] = await entry.async('string')
       }
-      wikiPages.push({ ...meta, content } as WikiPage)
+      wikiPages.push({ ...readWikiPageMeta(meta), content } as WikiPage)
     }
   }
 

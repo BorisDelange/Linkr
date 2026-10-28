@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import JSONB_or_JSON, Base, TimestampMixin
@@ -23,8 +23,9 @@ class WikiPage(Base, TimestampMixin):
     content: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
     template: Mapped[str | None] = mapped_column(String(255))
     owner: Mapped[str | None] = mapped_column(String(255))
-    verified: Mapped[bool | None] = mapped_column(Boolean)
-    verified_at: Mapped[str | None] = mapped_column(String(40))
+    # Review workflow: "draft" | "needs_revision" | "approved"; null reads as draft.
+    status: Mapped[str | None] = mapped_column(String(20))
+    status_changed_at: Mapped[str | None] = mapped_column(String(40))
     review_due_at: Mapped[str | None] = mapped_column(String(40))
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     # Authored mixin fields (display-name string + structured identity), kept as
