@@ -78,7 +78,7 @@ policy belong to the `security` skill. Two consequences here:
   offer it, never start it.
 - A 🔴 security finding in code that is already released is embargoed: in
   `REVIEW-LOG.md` write only "security finding handed to the `security` skill", and
-  record the details in `.security-audits/AUDIT-LOG.md` (gitignored).
+  record the details in `~/.security-audits/AUDIT-LOG.md` (outside the repo).
 
 ## Tone
 

@@ -32,8 +32,8 @@ build/
 # Local notes / roadmaps (not shared with the team)
 *.local.md
 
-# Security audit runs and their fix tracking: kept local until the release that
-# ships the fixes (.claude/skills/security, disclosure policy)
+# Security audit runs live in ~/.security-audits/, outside the repo
+# (.claude/skills/security). Safety net in case one lands here by mistake.
 /.security-audits/
 
 # Data files
@@ -76,6 +76,9 @@ tests-etl/
 
 # Local skill configuration (machine-specific paths, never commit)
 config.local.json
+
+# Claude Code per-user settings (permissions granted on this machine)
+.claude/settings.local.json
 
 # Local design prototypes (not part of the build)
 .prototypes/
