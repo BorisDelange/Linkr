@@ -194,9 +194,23 @@ and, since 2026-10-05, the dataset import and the IDE upload can take a server f
 
 Pulls exist for projects, databases, ETL pipelines, mapping projects and schema presets.
 
+### Collaborative versioning — [collaborative-versioning-plan.md](collaborative-versioning-plan.md)
+
+Several people on one workspace: today the second pusher is stuck (`pull_required`,
+no workspace pull). Tested on local repositories only (bare repos + a local GitLab).
+
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Pull for the push-only scopes: workspaces, SQL collections, DQ rule sets, data catalogs, plugins, settings | M |
+| 🔜 | 1. `LINKR_GIT_ALLOWED_HOSTS`: internal git hosts (local forge, hospital GitLab) past the SSRF guard (plan §3) | S |
+| 🔜 | 2. Local test tiers: bare-repo scenarios in pytest + `docker/forge-sim/` GitLab CE (plan §4) | M |
+| 🔜 | 3. Workspace pull, wiki first (per-page 3-way, paragraph-based), then the other inline sections (plan §5) | L |
+| 🔜 | 4. *Propose changes* → merge request / pull request for every versioned entity, proposals tracked in Linkr (plan §6) | M |
+| 🔜 | 5. Per-workspace push policy: direct / review only (plan §7) | S |
+| 🔜 | User docs (linkr-website): working together on a workspace | S |
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Pull for the push-only scopes: SQL collections, DQ rule sets, data catalogs, plugins, settings (workspaces: see above) | M |
 | 🔜 | Server guard: the commit-push routes still accept `paths=None`, which runs `git add -A` (`git_service.commit_push`) | S |
 | 🔜 | `attachments/` on pull: the project pull carries them; check the other pulls | S |
 | 💤 | Server-side import (`POST /projects/import`, `/workspaces/import`) — last big client-offload | L |
