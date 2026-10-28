@@ -145,6 +145,28 @@ export function formatDerivePlan(tables: DerivePlanTable[], copyPersonless: bool
   return lines.join('\n')
 }
 
+/** The longest a get_job_status call waits: under the usual 60 s tool-call timeout of MCP clients. */
+export const MAX_JOB_WAIT_SECONDS = 50
+
+const pending = (job: Job) => job.status === 'queued' || job.status === 'running'
+
+/**
+ * The job once it has ended, or as it stands after `waitSeconds`. An agent cannot
+ * wait between two calls: without this it polls, and every poll re-sends its whole
+ * conversation to the model.
+ */
+export async function waitForJob(
+  read: () => Promise<Job>, waitSeconds: number, sleep = (ms: number) => new Promise((r) => setTimeout(r, ms)), stepMs = 2000,
+): Promise<Job> {
+  const deadline = Date.now() + Math.max(0, Math.min(MAX_JOB_WAIT_SECONDS, waitSeconds)) * 1000
+  let job = await read()
+  while (pending(job) && Date.now() + stepMs <= deadline) {
+    await sleep(stepMs)
+    job = await read()
+  }
+  return job
+}
+
 /** A job as the agent reads it: where it is, and on success what it produced. */
 export function formatJob(job: Job): string {
   const lines = [`Job ${job.id} (${job.kind}) "${job.label}": ${job.status}, ${job.progress}%`]
@@ -157,7 +179,8 @@ export function formatJob(job: Job): string {
       'Query it with describe_database / run_sql.',
     )
   } else if (job.status === 'queued' || job.status === 'running') {
-    lines.push('Still in progress: check again in a minute (a copy of a large database takes minutes).')
+    lines.push(`Still in progress${job.kind === 'derive' ? ' (a copy of a large database takes minutes)' : ''}: `
+      + `call get_job_status again with wait_seconds: ${MAX_JOB_WAIT_SECONDS} to wait for it in one call.`)
   } else if (job.status === 'error' && job.kind === 'derive') {
     lines.push('Failed. A database created for this derivation was removed again.')
   }

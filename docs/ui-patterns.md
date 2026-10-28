@@ -679,7 +679,9 @@ alone says how far but not what is happening. First user: the data catalog run
 ### Section headers (uppercase group labels)
 
 Use **`SectionLabel`** (`components/ui/section-label.tsx`), with `as` to keep the
-real tag where the label is a heading (`as="h3"`).
+real tag where the label is a heading (`as="h3"`). What a section is for goes in
+its `info` prop (an ⓘ with a tooltip, `FieldInfo`), not in a paragraph under it:
+an always-visible explanation competes with the controls it explains.
 
 **Do not use it for a form `<label>`.** ~25 sites keep a hand-written class for
 that reason: `SectionLabel` renders a `div`/`span`/heading, and swapping the tag

@@ -19,14 +19,15 @@ import { effectiveMappingStatus, getTotalSourceConcepts } from '@/lib/concept-ma
 import { isOmopConceptTable, resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
 import {
   checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, groupSuggestions,
-  indexKeyToSourceKey, mappingPayload, methodForModel, sourceByCodesSql, sourceKeyOf, sourceKeysInSql, sourceRefCandidates,
+  indexKeyToSourceKey, mappingPayload, methodForModel, signingModel, sourceByCodesSql, sourceKeyOf, sourceKeysInSql, sourceRefCandidates,
   synonymSearchSql,
   type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
 import type { DataSource } from './api.js'
-import { DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, text, type Server } from './shared.js'
+import { DESTRUCTIVE, READ, WRITE, agentModel, api, failure, guard, loc, text, type Server } from './shared.js'
 
 export const MAX_WRITE = 200
+const MAX_READ_BATCH = 20
 
 interface Vocabulary { databaseId: string; mapping: SchemaMapping; table: string }
 
@@ -172,6 +173,10 @@ export function registerMappingTools(server: Server) {
     } else {
       lines.push('Suggestions file: none (no precomputed scores).')
     }
+    const configured = agentModel()
+    if (configured) {
+      lines.push(`Your AI suggestions are signed ${methodForModel(configured)} (set by your client): leave model out of add_ai_suggestions.`)
+    }
     const src = await sourceOf(p)
     const cm = src.columns
     lines.push('', `Source columns available: code, name${cm.vocabulary ? ', vocabulary_id' : ''}${cm.category ? ', category' : ''}`
@@ -258,57 +263,83 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   }))
 
   server.registerTool('get_source_concept', {
-    description: 'One source concept in full: its metadata (units, value distribution, categories, hospital units…), '
-      + 'its existing mappings, and its precomputed / AI suggestions with the target names.',
+    description: 'Source concepts in full: metadata (units, value distribution, categories, hospital units…), '
+      + 'existing mappings, and precomputed / AI suggestions with the target names. Read a whole batch in one call '
+      + 'with concept_codes.',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_code: string; vocabulary_id?: string; full_metadata?: boolean }>({
+    inputSchema: fromJsonSchema<{
+      mapping_project_id: string; concept_code?: string; concept_codes?: string[]; vocabulary_id?: string
+      full_metadata?: boolean; suggestions?: number
+    }>({
       type: 'object',
       properties: {
         mapping_project_id: { type: 'string' },
         concept_code: { type: 'string', description: 'The code, or vocabulary/code as list_source_concepts prints it.' },
+        concept_codes: {
+          type: 'array', items: { type: 'string' },
+          description: `Several codes at once (up to ${MAX_READ_BATCH}), e.g. a batch from list_source_concepts.`,
+        },
         vocabulary_id: { type: 'string', description: 'The source vocabulary, when codes repeat across vocabularies.' },
         full_metadata: { type: 'boolean', description: 'All metadata (per-year distribution, every ward). Default: reduced.' },
+        suggestions: { type: 'number', description: 'Best suggested targets shown per concept. Default 15, or 8 for a batch.' },
       },
-      required: ['mapping_project_id', 'concept_code'],
+      required: ['mapping_project_id'],
     }),
-  }, guard(async ({ mapping_project_id, concept_code, vocabulary_id, full_metadata }) => {
+  }, guard(async ({ mapping_project_id, concept_code, concept_codes, vocabulary_id, full_metadata, suggestions }) => {
+    const codes = [...new Set([...(concept_code ? [concept_code] : []), ...(concept_codes ?? [])].map(String))]
+    if (codes.length === 0) return failure('Give concept_code or concept_codes.')
+    if (codes.length > MAX_READ_BATCH) return failure(`At most ${MAX_READ_BATCH} concepts per call.`)
+    const perConcept = Math.max(1, Math.min(50, suggestions ?? (codes.length > 1 ? 8 : 15)))
     const p = await api.getMappingProject(mapping_project_id)
     const src = await sourceOf(p)
-    const found = (await sourcesByCode(src, [{ code: concept_code, vocabularyId: vocabulary_id }]))(concept_code, vocabulary_id)
-    if (typeof found === 'string') return failure(`Not found: ${found}.`)
-    const vocab = String(found.vocabulary_id ?? '')
-    const lines = [describeSourceRow(found).replace(/^- /, 'Source concept: ')]
-    if (found.info_json != null) lines.push('', 'Metadata (info_json):', describeInfo(found.info_json, 4000, full_metadata))
-    const extra = Object.entries(found).filter(([k, v]) =>
-      v != null && v !== '' && !['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'info_json', 'category',
-        'subcategory', 'record_count', 'patient_count', 'terminology_name'].includes(k))
-    if (extra.length) lines.push('', `Other columns: ${extra.map(([k, v]) => `${k}=${String(v)}`).join(', ')}`)
+    const lookup = await sourcesByCode(src, codes.map((code) => ({ code, vocabularyId: vocabulary_id })))
+    const mappings = await api.listMappings(p.id)
+    let vocabulary: Awaited<ReturnType<typeof vocabularyOf>> | null = null
+    try { vocabulary = await vocabularyOf(p) } catch { /* target names optional */ }
 
-    const existing = (await api.listMappings(p.id))
-      .filter((m) => m.sourceConceptCode === String(found.concept_code) && (m.sourceVocabularyId ?? '') === vocab)
-    lines.push('', existing.length ? 'Existing mappings:' : 'Existing mappings: none.')
-    for (const m of existing) {
-      lines.push(`  ${effectiveMappingStatus(m)} → ${m.targetConceptId} ${m.targetConceptName} [${m.targetVocabularyId}] `
-        + `${m.equivalence}${m.mappedBy ? `, by ${m.mappedBy}` : ''}`)
-    }
+    const describe = async (code: string): Promise<string> => {
+      const found = lookup(code, vocabulary_id)
+      if (typeof found === 'string') return `Source concept ${code}: not found — ${found}.`
+      const vocab = String(found.vocabulary_id ?? '')
+      const lines = [describeSourceRow(found).replace(/^- /, 'Source concept: ')]
+      if (found.info_json != null) lines.push(`Metadata: ${describeInfo(found.info_json, 4000, full_metadata)}`)
+      const extra = Object.entries(found).filter(([k, v]) =>
+        v != null && v !== '' && !['concept_id', 'concept_name', 'concept_code', 'vocabulary_id', 'info_json', 'category',
+          'subcategory', 'record_count', 'patient_count', 'terminology_name'].includes(k))
+      if (extra.length) lines.push(`Other columns: ${extra.map(([k, v]) => `${k}=${String(v)}`).join(', ')}`)
 
-    const scores = await api.queryScores(p.id, vocab, String(found.concept_code)).catch(() => [])
-    if (scores.length === 0) {
-      lines.push('', 'Suggestions: none.')
-    } else {
-      const groups = groupSuggestions(scores).slice(0, 15)
+      const existing = mappings
+        .filter((m) => m.sourceConceptCode === String(found.concept_code) && (m.sourceVocabularyId ?? '') === vocab)
+      lines.push(existing.length ? 'Existing mappings:' : 'Existing mappings: none.')
+      for (const m of existing) {
+        lines.push(`  ${effectiveMappingStatus(m)} → ${m.targetConceptId} ${m.targetConceptName} [${m.targetVocabularyId}] `
+          + `${m.equivalence}${m.mappedBy ? `, by ${m.mappedBy}` : ''}`)
+      }
+
+      const scores = await api.queryScores(p.id, vocab, String(found.concept_code)).catch(() => [])
+      if (scores.length === 0) {
+        lines.push('Suggestions: none.')
+        return lines.join('\n')
+      }
+      const groups = groupSuggestions(scores).slice(0, perConcept)
       let names = new Map<number, VocabConcept>()
-      try { names = await conceptsById(await vocabularyOf(p), groups.map((g) => g.conceptId)) } catch { /* names optional */ }
-      lines.push('', `Suggestions (${groups.length} best targets of ${new Set(scores.map((s) => s.concept_id)).size}):`)
+      if (vocabulary) {
+        try { names = await conceptsById(vocabulary, groups.map((g) => g.conceptId)) } catch { /* names optional */ }
+      }
+      lines.push(`Suggestions (${groups.length} best targets of ${new Set(scores.map((s) => s.concept_id)).size}):`)
       for (const g of groups) {
         const c = names.get(g.conceptId)
-        lines.push(`  ${c ? describeConcept(c) : g.conceptId}`)
-        lines.push(`    ${g.rows.map((r) => `${r.method} ${r.score.toFixed(2)}${r.method.startsWith('ai/') ? ` ${r.equivalence}` : ''}`).join(' · ')}`)
+        const methods = g.rows.map((r) => `${r.method} ${r.score.toFixed(2)}${r.method.startsWith('ai/') ? ` ${r.equivalence}` : ''}`)
+        lines.push(`  ${c ? describeConcept(c) : g.conceptId} — ${methods.join(' · ')}`)
         const comment = g.rows.find((r) => r.comment)?.comment
         if (comment) lines.push(`    “${comment}”`)
       }
+      return lines.join('\n')
     }
-    return text(lines.join('\n'))
+
+    const parts: string[] = []
+    for (const code of codes) parts.push(await describe(code))
+    return text(parts.join('\n\n'))
   }))
 
   server.registerTool('search_vocabulary', {
@@ -413,13 +444,19 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   server.registerTool('add_ai_suggestions', {
     description: 'Leave AI suggestions on source concepts: they appear in the app\'s Suggestions panel (category '
       + '"AI"), where a reviewer accepts or rejects them. Writes nothing else. All-or-nothing: if one item is invalid, '
-      + 'nothing is written. An existing suggestion (same source, target and model) is kept, never overwritten.',
+      + 'nothing is written. An existing suggestion (same source, target and model) is kept, never overwritten. '
+      + 'Write only candidates you would defend to the reviewer: fewer than asked is fine, a candidate you advise '
+      + 'against is noise.',
     annotations: WRITE,
-    inputSchema: fromJsonSchema<{ mapping_project_id: string; model: string; suggestions: SuggestionInput[] }>({
+    inputSchema: fromJsonSchema<{ mapping_project_id: string; model?: string; suggestions: SuggestionInput[] }>({
       type: 'object',
       properties: {
         mapping_project_id: { type: 'string' },
-        model: { type: 'string', description: 'Your model name (e.g. "qwen3-235b"); the method becomes ai/<model>.' },
+        model: {
+          type: 'string',
+          description: 'Your exact model identifier; the method becomes ai/<model>. Leave it out when get_mapping_project '
+            + 'says your client sets it. Never guessed: ask the user if you are not sure.',
+        },
         suggestions: {
           type: 'array',
           description: `Up to ${MAX_WRITE}. Several candidates per source concept are allowed (best first, lower scores for weaker ones).`,
@@ -438,10 +475,11 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
           },
         },
       },
-      required: ['mapping_project_id', 'model', 'suggestions'],
+      required: ['mapping_project_id', 'suggestions'],
     }),
   }, guard(async ({ mapping_project_id, model, suggestions }) => {
-    if (!model?.trim()) return failure('model is required.')
+    const signer = signingModel(agentModel(), model)
+    if (typeof signer !== 'string') return failure(signer.error)
     if (!suggestions?.length) return failure('No suggestion given.')
     if (suggestions.length > MAX_WRITE) return failure(`At most ${MAX_WRITE} suggestions per call.`)
     const p = await api.getMappingProject(mapping_project_id)
@@ -463,7 +501,7 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       }
     }
     const now = new Date().toISOString()
-    const method = methodForModel(model)
+    const method = methodForModel(signer)
     const rows = suggestions.map((s, i) => {
       const source = lookup(String(s.concept_code), s.vocabulary_id)
       if (typeof source === 'string') errors.push(`${label(s, i)}: ${source}.`)
@@ -605,7 +643,11 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       properties: {
         mapping_project_id: { type: 'string' },
         mapped_by: { type: 'string', enum: ['me', 'model'], description: 'Author: the user (default) or the model.' },
-        model: { type: 'string', description: 'Your model name, required when mapped_by is "model".' },
+        model: {
+          type: 'string',
+          description: 'Your exact model identifier, when mapped_by is "model" and your client does not set it '
+            + '(get_mapping_project says). Never guessed: ask the user if you are not sure.',
+        },
         mappings: {
           type: 'array',
           description: `Up to ${MAX_WRITE}.`,
@@ -629,12 +671,13 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   }, guard(async ({ mapping_project_id, mapped_by = 'me', model, mappings }) => {
     if (!mappings?.length) return failure('No mapping given.')
     if (mappings.length > MAX_WRITE) return failure(`At most ${MAX_WRITE} mappings per call.`)
-    if (mapped_by === 'model' && !model?.trim()) return failure('model is required when mapped_by is "model".')
+    const signer = mapped_by === 'model' ? signingModel(agentModel(), model) : null
+    if (signer && typeof signer !== 'string') return failure(signer.error)
     const p = await api.getMappingProject(mapping_project_id)
     const src = await sourceOf(p)
     const v = await vocabularyOf(p)
     const me = await api.me()
-    const author = mapped_by === 'model' ? model!.trim() : (`${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.username)
+    const author = typeof signer === 'string' ? signer : (`${me.firstName ?? ''} ${me.lastName ?? ''}`.trim() || me.username)
     const errors: string[] = []
     const label = (m: { concept_code: string; vocabulary_id?: string }, i: number) =>
       `#${i + 1} (${m.vocabulary_id ? `${m.vocabulary_id}/` : ''}${m.concept_code})`

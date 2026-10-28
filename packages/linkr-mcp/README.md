@@ -241,6 +241,16 @@ exposing it to other hosts (a LibreChat container can also join the compose netw
 and use `http://mcp:3940/mcp`). Release tags publish it as
 `interhop/linkr:mcp-<version>`.
 
+**Which model signs AI suggestions.** A model often misnames itself (an open model
+writing `ai/claude`), and an MCP client never tells the server which model it runs.
+Set it in the client instead: a fixed `X-Linkr-Model: <model id>` header on the MCP
+server entry (LibreChat: `headers` in `librechat.yaml`, one entry per model when a
+`modelSpecs` preset pins the model), or `LINKR_MCP_MODEL` for the stdio entry. AI
+suggestions and model-authored mappings are then signed with it whatever the model
+says, and `get_mapping_project` tells the agent so. LibreChat cannot fill the header
+from the conversation's model (its `{{LIBRECHAT_BODY_*}}` placeholders are only the
+conversation and message ids); without it, the agent gives its own name or asks the user.
+
 Optional single-user mode: set `LINKR_MCP_KEY` (≥ 24 characters) and a request carrying
 it acts with the `.env` credentials. `LINKR_MCP_HOST` / `LINKR_MCP_PORT` override the
 address (`0.0.0.0` when LibreChat runs in Docker, then reached at

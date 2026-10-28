@@ -198,6 +198,10 @@ async def client(engine, seed_roles, monkeypatch):
 
     monkeypatch.setattr(deferred_core, "async_session", maker)
     monkeypatch.setattr(run_jobs_svc, "async_session", maker)
+    # Suggestion-engine jobs read the library inventory and write the scores file.
+    import app.services.suggestions.tasks as suggestion_tasks
+
+    monkeypatch.setattr(suggestion_tasks, "async_session", maker)
     monkeypatch.setattr("app.core.database.async_session", maker)
 
     transport = ASGITransport(app=app)

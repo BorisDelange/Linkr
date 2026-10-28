@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import type { Job } from '@/lib/api/environments'
 import type { Cohort, DataSource } from '@/types'
-import { formatDerivePlan, formatJob, planDerivation } from './derive'
+import { formatDerivePlan, formatJob, planDerivation, waitForJob } from './derive'
 
 const mapping = mappingV1ToV2({
   presetId: 'omop',
@@ -130,8 +130,17 @@ describe('formatJob', () => {
   it('says to wait while running, with the last log lines', () => {
     const out = formatJob(job({ logTail: '5/12 measurement\n6/12 drug_exposure' }))
     expect(out).toMatch(/running, 40%/)
-    expect(out).toMatch(/check again/)
+    expect(out).toMatch(/call get_job_status again/)
     expect(out).toContain('6/12 drug_exposure')
+  })
+
+  it('tells the agent to wait inside one call rather than poll', () => {
+    expect(formatJob(job({ kind: 'suggestion-scores' }))).toMatch(/wait_seconds: 50/)
+  })
+
+  it('speaks of a database copy only for a derivation', () => {
+    expect(formatJob(job({}))).toMatch(/copy of a large database/)
+    expect(formatJob(job({ kind: 'embeddings-index' }))).not.toMatch(/database/)
   })
 
   it('gives the database to query when done', () => {
@@ -143,5 +152,24 @@ describe('formatJob', () => {
       } as unknown as Job['result'],
     }))
     expect(out).toContain('database_id d1 — 12 patient(s), 15 cohort row(s), 1 table(s) copied')
+  })
+})
+
+describe('waitForJob', () => {
+  const at = (status: Job['status']) => ({ id: 'j1', status } as Job)
+  const noSleep = () => Promise.resolve()
+
+  it('returns as soon as the job ends', async () => {
+    const states = [at('running'), at('running'), at('done')]
+    let reads = 0
+    const job = await waitForJob(async () => states[Math.min(reads++, 2)], 50, noSleep, 0)
+    expect(job.status).toBe('done')
+    expect(reads).toBe(3)
+  })
+
+  it('reads once without a wait', async () => {
+    let reads = 0
+    expect((await waitForJob(async () => { reads++; return at('running') }, 0, noSleep)).status).toBe('running')
+    expect(reads).toBe(1)
   })
 })

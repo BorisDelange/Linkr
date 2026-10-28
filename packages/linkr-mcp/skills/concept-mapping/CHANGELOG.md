@@ -8,7 +8,37 @@ Semantic versioning: `MAJOR.MINOR.PATCH`.
 The `metadata.version` field in `SKILL.md` frontmatter must match the top entry here.
 Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**.
 
-## Unreleased
+## 2.2.0 — 2026-10-27
+
+### Added
+- Precomputed suggestions are computed by Linkr itself, on the server, as
+  jobs: `list_suggestion_engines` shows the embeddings runtime, the models
+  and the embedding configurations (each writes `semantic/<slug>`) with the
+  state of their index. `compute_suggestion_scores` scores a project
+  (syntactic methods and/or one configuration, replacing only those methods'
+  rows). `build_embedding_index` encodes a configuration's vocabularies.
+- `semantic_search_vocabulary`: target search by meaning against a
+  configuration's index, batched, used next to `search_vocabulary` in Step 2.
+- `get_source_concept` reads a whole batch in one call (`concept_codes`);
+  Step 2 reads the batch once, after any running scores job has finished.
+  Waiting for a job is one `get_job_status` call with `wait_seconds`, not a
+  loop of quick polls.
+- AI suggestions are signed with the model the client sets (`X-Linkr-Model`
+  header, `LINKR_MCP_MODEL`), announced by `get_mapping_project`; without it
+  the model gives its exact identifier or asks the user, never guesses.
+
+### Changed
+- Write only candidates you would defend to the reviewer: never a target you
+  advise against, not even for contrast.
+- `references/precompute.md`: the target filters narrow the syntactic methods
+  too (lab tests → LOINC).
+
+### Removed
+- The two standalone scripts (`scripts/embed_concepts.py`,
+  `scripts/compute_scores.py`) and the terminal procedure in
+  `references/precompute.md`. Their code lives in Linkr
+  (`apps/api/app/services/suggestions/`); models and indexes are managed in
+  the app (mapping editor › Suggestions panel › Manage suggestions › Compute › Models and configurations).
 
 ### Fixed
 - Step 1 no longer says a database project not extracted yet still works

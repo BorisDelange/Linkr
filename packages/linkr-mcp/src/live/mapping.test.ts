@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
   checkJudgement, checkTarget, describeInfo, describeSourceRow, groupSuggestions, indexKeyToSourceKey, infoSummary, mappingPayload,
-  methodForModel, sourceByCodesSql, sourceKeysInSql, sourceRefCandidates, synonymSearchSql, type VocabConcept,
+  methodForModel, signingModel, sourceByCodesSql, sourceKeysInSql, sourceRefCandidates, synonymSearchSql, type VocabConcept,
 } from './mapping'
 import type { ScoreRow } from './api'
+
+describe('signingModel', () => {
+  it('prefers the model the client set over the name the model gave', () => {
+    expect(signingModel('qwen3.8-27b', 'claude')).toBe('qwen3.8-27b')
+    expect(signingModel(null, ' gpt-oss-120b ')).toBe('gpt-oss-120b')
+    expect(signingModel(null, ' ')).toEqual({ error: expect.stringMatching(/ask the user/) })
+  })
+})
 
 describe('methodForModel', () => {
   it('slugs the model name under ai/', () => {
@@ -121,7 +129,8 @@ describe('mappingPayload', () => {
 
 describe('describeInfo', () => {
   it('drops the histogram and cuts to the budget', () => {
-    expect(describeInfo({ unit: 'bpm', histogram: [{ x: 1, count: 2 }] })).toBe('{\n "unit": "bpm"\n}')
+    expect(describeInfo({ unit: 'bpm', histogram: [{ x: 1, count: 2 }] })).toBe('{"unit":"bpm"}')
+    expect(describeInfo({ unit: 'bpm' }, 4000, true)).toBe('{\n "unit": "bpm"\n}')
     expect(describeInfo({ a: 'x'.repeat(50) }, 10)).toMatch(/more characters cut/)
     expect(describeInfo(null)).toBe('(none)')
   })

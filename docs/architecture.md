@@ -538,6 +538,56 @@ Both are **workspace resources**, managed on the workspace **Vocabularies** page
 - **Mapping projects** pick sets from the workspace (`PickConceptSetsDialog`); removing one detaches it. The export writes them as portable refs `conceptSets: [{uniqueId, sourceRepo} | {name}]` (`concept-set-refs.ts`, Python `_concept_set_refs`, validated by `@linkr/format`), resolved on every import.
 - **Resolution & SQL** — `lib/data-dictionary/resolve.ts` resolves an expression against the library (items ∪ descendants ∪ Maps to/Mapped from, minus the excluded ones — INDICATE `resolve.py`), stored in `resolvedConceptIds` (reset when a sync changes the set). `sql-export.ts` ports INDICATE's `buildOMOPSQL` (one query per domain, measurements converted into a reference unit, flat or per-concept nested CASE); byte-identical to its 12 golden files in `lib/data-dictionary/__fixtures__/sql-export/`. Shown in the concept set sheet's SQL tab.
 
+## Suggestion engines: precomputed scores computed by Linkr (as-built)
+
+A mapping project's precomputed suggestions (`syntactic/*`, `semantic/<slug>`
+rows of its scores file) are computed on the server, as jobs, from the
+mapping editor's *Manage suggestions* dialog (tabs Methods / Compute; Compute opens *Models and configurations*,
+`features/warehouse/concept-mapping/components/suggestion-engines/`) or the MCP
+(`tools-mapping-engines.ts`). Server mode only: the static build keeps the
+scores-file import. Code in `apps/api/app/services/suggestions/`.
+
+- **Worker** (`worker.py`) — a standalone script, no `app` import, run as a
+  child process of the job, never in uvicorn. A semantic index build takes
+  gigabytes and torch can crash on a bad driver, and only the job must die.
+  It reports on stdout (`@@progress`, `@@result`, log lines). Cancelling the
+  job kills it. Syntactic scoring is DuckDB only
+  (`jaro_winkler_similarity`, chunked cross join + `QUALIFY`) and runs with
+  the API's own interpreter. Everything semantic runs with the runtime's.
+- **Runtime** (`runtime.py`) — a venv under `data_dir/runtimes/embeddings/`
+  with sentence-transformers + torch. It is installed on demand by uv from
+  `pip_index_url`, with `--torch-backend $LINKR_EMBEDDINGS_TORCH_BACKEND`
+  (`auto`: CUDA build when an NVIDIA driver is present). It is shared by the
+  instance. Workers run offline (`HF_HUB_OFFLINE`), except the download
+  (`LINKR_HF_ENDPOINT` for a mirror).
+- **Registry** (`registry.py`) — `data_dir/embeddings/<workspace>/`:
+  `registry.json` (models + configurations), downloaded weights under
+  `models/<id>/`, indexes under `indexes/<config>/`. It is machine-local,
+  never exported. It sits outside `vocabularies/<workspace>/` because the
+  library data source reads every Parquet file under that folder. A *model*
+  is weights, either downloaded from the Hub or a server folder read in place
+  (the way into an offline SPE). A *configuration* is a model, a text
+  template (`name_class`: `Heart rate [LOINC / Clinical Observation]`, or
+  `name`), a target scope, a device and a batch size. It writes
+  `semantic/<slug>`. Changing the model, template or scope drops its index.
+- **Index** — per configuration, one pair of files per library vocabulary:
+  `<vocab key>.ids.npy` + `.vec.npy` (float16, L2-normalised). There is no
+  FAISS: a search is a memory-mapped, blocked matrix product with a running
+  top-k (`search_index`), exact like the `IndexFlatIP` it replaces. A
+  vocabulary is `stale` when the library re-imported it after the build
+  (`importedAt` in `manifest.json`). Chunks under `<key>.parts/` let a stopped
+  build resume, for the same import only.
+- **Writing scores** — `tasks.score_project` reads the project's source
+  concepts through `query_file_source` and gets one CSV per method from the
+  worker, then calls `scores_export.replace_methods`. Each computed method's
+  rows are replaced, and every other method (`ai/…`) is kept. With
+  `onlyMissing`, `scores_service.extend_method_csv` first merges the new rows
+  into the method's existing ones.
+- **One job per thing** — `tasks._running` keys (`runtime`,
+  `model:<id>`, `index:<id>`, `scores:<project>`, `setup:<ws>`) refuse a
+  second concurrent run with 409. Index builds and scoring take the
+  `heavy_query` lane, installs and downloads the `build` lane.
+
 ## OMOP CDM Patterns
 
 Clinical tables: `measurement`, `condition_occurrence`, `drug_exposure`, `procedure_occurrence`, `observation`.
