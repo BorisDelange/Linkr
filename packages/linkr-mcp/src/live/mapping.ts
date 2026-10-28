@@ -38,6 +38,14 @@ export function methodForModel(model: string): string {
   return `ai/${slug || 'unknown'}`
 }
 
+/** The model AI rows are signed with: the one the client configured wins over the
+ *  name the model gave (models misname themselves); a string when there is neither. */
+export function signingModel(configured: string | null, given: string | undefined): string | { error: string } {
+  if (configured) return configured
+  if (given?.trim()) return given.trim()
+  return { error: 'model is required: your exact model identifier. If you are not sure of it, ask the user — do not guess.' }
+}
+
 export function parseInfo(raw: unknown): Record<string, unknown> | null {
   if (raw && typeof raw === 'object' && !Array.isArray(raw)) return raw as Record<string, unknown>
   if (typeof raw !== 'string' || !raw.trim()) return null
@@ -82,7 +90,7 @@ export function infoSummary(raw: unknown): string {
 /**
  * The metadata, readable, cut to a budget. By default the bulky blocks that
  * rarely decide a target are reduced: no histogram (the percentiles say it),
- * the date range without the per-year breakdown, the top three wards.
+ * the date range without the per-year breakdown, the top three wards, on one line.
  */
 export function describeInfo(raw: unknown, maxChars = 4000, full = false): string {
   const info = parseInfo(raw)
@@ -100,7 +108,8 @@ export function describeInfo(raw: unknown, maxChars = 4000, full = false): strin
       rest.categorical_data = [...rest.categorical_data.slice(0, 15), `… ${rest.categorical_data.length - 15} more`]
     }
   }
-  const body = JSON.stringify(rest, null, 1)
+  // One line unless asked for everything: an agent re-reads it at every turn.
+  const body = JSON.stringify(rest, null, full ? 1 : undefined)
   return clip(body, maxChars)
 }
 

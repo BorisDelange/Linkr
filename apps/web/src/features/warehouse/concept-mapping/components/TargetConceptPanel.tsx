@@ -22,12 +22,6 @@ import { Switch } from '@/components/ui/switch'
 import { csvPathForMethod, formatMegabytes, GIT_FRIENDLY_CSV_BYTES, versionedMethodsValue, type ScoreMethodStat } from '@/lib/concept-mapping/scores-csv'
 import { Textarea } from '@/components/ui/textarea'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Label } from '@/components/ui/label'
 import {
@@ -68,6 +62,7 @@ import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
+import { ManageSuggestionsDialog } from './suggestion-engines/ManageSuggestionsDialog'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -1819,7 +1814,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   const noVocabAvailable = !vocabTarget
 
   // ─── Suggestions: from imported scores ───────────────────────────────────
-  const { index: scoresIndex, loadProjectMeta, importScores, deleteProjectScores, removeMethods, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
+  const { index: scoresIndex, loadProjectMeta, reindexProject, importScores, deleteProjectScores, removeMethods, queryScoresForSource, hasSuggestionsFor } = useSuggestionScoresStore()
 
   useEffect(() => {
     loadProjectMeta(project.id)
@@ -2355,13 +2350,15 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     <>
     {identityDialog}
     {/* Suggestions settings dialog */}
-    <Dialog open={suggestionsSettingsOpen} onOpenChange={setSuggestionsSettingsOpen}>
-      <DialogContent className="max-w-md gap-0 p-0">
-        <DialogHeader className="border-b p-4">
-          <DialogTitle>{t('concept_mapping.suggestions_manage')}</DialogTitle>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('concept_mapping.suggestions_manage_subtitle')}</p>
-        </DialogHeader>
-        <div className="p-4">
+    <ManageSuggestionsDialog
+      open={suggestionsSettingsOpen}
+      onOpenChange={setSuggestionsSettingsOpen}
+      projectId={project.id}
+      workspaceId={project.workspaceId}
+      onComputed={() => void reindexProject(project.id)}
+      methodsPanel={
+        <div className="flex flex-1 flex-col">
+        <div className="flex-1 p-4">
           <div className="mb-3 flex items-center justify-between">
             <SectionLabel as="p" className="tracking-wide">{t('concept_mapping.suggestions_weights_section')}</SectionLabel>
             {ALL_PROVIDERS.some((p) => weights[p] !== DEFAULT_WEIGHTS[p]) && (
@@ -2402,7 +2399,9 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
           {(scoresIndex?.methods.length ?? 0) > 0 && (
             <div className="mt-5 border-t pt-3">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <SectionLabel as="p" className="tracking-wide">{t('concept_mapping.suggestions_methods_section')}</SectionLabel>
+                <SectionLabel as="p" className="tracking-wide" info={t('concept_mapping.suggestions_versioned_desc')}>
+                  {t('concept_mapping.suggestions_methods_section')}
+                </SectionLabel>
                 <span className="mr-8 text-[10px] text-muted-foreground">{t('concept_mapping.suggestions_versioned_column')}</span>
               </div>
               <ul className="space-y-1">
@@ -2454,7 +2453,6 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                   )
                 })}
               </ul>
-              <p className="mt-2 text-[10px] text-muted-foreground">{t('concept_mapping.suggestions_versioned_desc')}</p>
             </div>
           )}
           <div className="mt-5 border-t pt-3 text-xs text-muted-foreground">
@@ -2471,7 +2469,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             <p className="mt-2 text-[11px] text-destructive">{suggestionsImportError}</p>
           )}
         </div>
-        <div className="flex items-center justify-between gap-2 rounded-b-lg border-t bg-muted/30 px-4 py-3">
+        <div className="flex items-center justify-between gap-2 border-t px-4 py-3">
           <Button
             size="sm-tight"
             variant="outline"
@@ -2494,8 +2492,9 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             </Button>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+        </div>
+      }
+    />
     <AlertDialog open={suggestionsDeleteConfirmOpen} onOpenChange={setSuggestionsDeleteConfirmOpen}>
       <AlertDialogContent>
         <AlertDialogHeader>

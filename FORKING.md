@@ -43,43 +43,34 @@ Re-run `skill:pack` and re-import after changing the skill.
 declares the Linkr MCP server: opening the repository is enough. Set
 `LINKR_API_URL` and `LINKR_TOKEN` (your API key) in `packages/linkr-mcp/.env`.
 
-## 4. Optional: precomputed suggestion scores
+## 4. Optional: precomputed suggestions and semantic search
 
-Syntactic (Jaro-Winkler) and semantic (BioLORD embeddings) scores give every
-source concept a ranked shortlist before an agent looks at it — a large gain
-for drugs. They are computed outside the chat, in a terminal, by the skill's
-two scripts, then loaded into the project in Linkr. The full procedure —
-inputs, memory limits, loading without losing existing AI suggestions — is in
+Syntactic scores (Jaro-Winkler, token sort, n-gram IDF) and semantic scores
+(embeddings, e.g. [BioLORD-2023-M](https://huggingface.co/FremyCompany/BioLORD-2023-M))
+give every source concept a ranked shortlist before an agent looks at it. This
+helps most for drugs. Linkr computes them on the server, as jobs. Set them up
+in the mapping editor: Suggestions panel › **Manage suggestions**.
+
+- **Compute › Models and configurations** (shared by the workspace): one click installs the embeddings
+  runtime (sentence-transformers + torch, about 2 GB, from the configured
+  package index) and downloads BioLORD-2023-M (about 1 GB, not shipped with
+  Linkr). It also creates a configuration over the non-drug standard concepts.
+  Then build its index, about an hour on a CPU. Any other sentence-transformers
+  model can be added, by its Hugging Face id or from a folder on the server; a
+  server folder is the way to bring one into an environment without internet
+  access.
+- **Compute** (per project): pick the methods and the target scope. Each method
+  computed replaces only its own rows, so AI suggestions are kept.
+
+The agent can do the same through the MCP: `list_suggestion_engines`,
+`compute_suggestion_scores`, `build_embedding_index`, and
+`semantic_search_vocabulary` for a search by meaning while mapping. See
 [`references/precompute.md`](packages/linkr-mcp/skills/concept-mapping/references/precompute.md).
 
-1. Download the vocabularies from [Athena](https://athena.ohdsi.org/) and
-   convert them to Parquet:
-
-   ```bash
-   duckdb -c "
-     COPY (SELECT * FROM read_csv_auto('CONCEPT.csv', sep='\t')) TO 'CONCEPT.parquet' (FORMAT PARQUET, COMPRESSION ZSTD);
-   "
-   ```
-
-2. Install the dependencies:
-
-   ```bash
-   pip install pandas pyarrow numpy rapidfuzz duckdb sentence-transformers faiss-cpu
-   ```
-
-3. Embed the vocabulary, once per release (several hours on CPU; resumes after
-   an interruption). The public
-   [BioLORD-2023-M](https://huggingface.co/FremyCompany/BioLORD-2023-M) model
-   (~440 MB) is downloaded on first run:
-
-   ```bash
-   python packages/linkr-mcp/skills/concept-mapping/scripts/embed_concepts.py \
-     --concept <vocab_dir>/CONCEPT.parquet
-   ```
-
-4. Score the project's source concepts (always with target filters), then load
-   `similarity-scores.parquet` in the mapping editor (Suggestions → load
-   scores file).
+Server settings: `LINKR_PIP_INDEX_URL` (package mirror), and
+`LINKR_EMBEDDINGS_TORCH_BACKEND`. With `auto` (the default), uv picks the CUDA
+build of torch when the server has an NVIDIA driver; leave it empty when the
+mirror only proxies PyPI. `LINKR_HF_ENDPOINT` sets a Hugging Face mirror.
 
 ## Contributing back
 

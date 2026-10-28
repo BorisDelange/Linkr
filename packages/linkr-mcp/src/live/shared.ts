@@ -25,6 +25,17 @@ export const currentCaller = (): string => requestApi.getStore()?.caller ?? 'env
 
 const currentApi = (): LinkrApi => requestApi.getStore()?.client ?? envApi
 
+const requestModel = new AsyncLocalStorage<string>()
+
+/** Run `fn` knowing which model drives the client (the HTTP `X-Linkr-Model` header). */
+export const withAgentModel = <T>(model: string | undefined, fn: () => T): T =>
+  model?.trim() ? requestModel.run(model.trim(), fn) : fn()
+
+/** The model the client says drives it — `X-Linkr-Model` over HTTP, `LINKR_MCP_MODEL`
+ *  over stdio — or null. A model often misnames itself, so this wins over its own word. */
+export const agentModel = (): string | null =>
+  requestModel.getStore() ?? (process.env.LINKR_MCP_MODEL?.trim() || null)
+
 /** The Linkr API for the current call: the request's user over HTTP, else the
  *  credentials of the environment (stdio). */
 export const api: LinkrApi = new Proxy({} as LinkrApi, {

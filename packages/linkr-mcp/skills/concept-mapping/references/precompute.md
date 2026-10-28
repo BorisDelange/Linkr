@@ -1,83 +1,89 @@
-# Precomputing suggestion scores
+# Precomputed suggestions and semantic search
 
 Syntactic and semantic scores give every source concept a ranked shortlist of
-OMOP candidates before any agent looks at it. They are computed **outside the
-chat**, by the user in a terminal (or by an agent that has a shell), then loaded
-into the mapping project in Linkr. Read this when the user asks for them.
+OMOP candidates before you look at it. Linkr computes them itself, on the
+server, as background jobs. You can see what is set up, start a computation,
+and search the vocabulary by meaning, all through MCP tools. Read this when the
+user asks for precomputed suggestions, or when the word search keeps missing.
 
-Two scripts, in this skill's `scripts/` folder. Each one's `--help` and module
-docstring hold the full flag list, resume behaviour and FAISS cache details.
+## What exists in the workspace
 
-| Script | How often | Produces |
+`list_suggestion_engines` (`mapping_project_id`) reports three things:
+
+- **The embeddings runtime.** It is needed for anything semantic and not for
+  syntactic scores.
+- **The models.** These are sentence-transformers weights, e.g.
+  BioLORD-2023-M.
+- **The embedding configurations.** Each one is a model, a text template and a
+  target scope (standard / valid, domains, vocabularies). Each writes its scores
+  under the method `semantic/<slug>` and has an index per vocabulary, which is
+  either built, out of date (the vocabulary was re-imported since) or not built.
+
+Installing the runtime, downloading a model and creating configurations are
+the user's decision: gigabytes, and shared by the whole workspace. When one is
+missing, tell the user where it is done in Linkr: mapping editor › Suggestions
+panel › Manage suggestions › Compute › Models and configurations. There, one click installs BioLORD-2023-M
+with a configuration over the non-drug standard concepts.
+
+## Semantic search while mapping
+
+`semantic_search_vocabulary` encodes texts with a configuration's model and
+returns the closest concepts of its index, with their similarity (cosine,
+0–1). It finds what `search_vocabulary` misses: synonyms, paraphrases, a
+French label translated loosely.
+
+- **Batch the texts.** Send up to 50 per call, e.g. one per source concept of
+  the batch: each call loads the model, which takes a few seconds.
+- **Write the texts in English, as a clinician would.** Add the specimen or
+  the unit when it decides between targets (`potassium [moles/volume] in
+  serum`).
+- **Narrow the targets** with `domains` / `vocabularies` when the domain is
+  known. The search only covers what the configuration encoded.
+- **A similarity is not an equivalence.** Inspect the finalists with
+  `get_vocabulary_concept` and judge them with `omop-reference.md` as usual.
+
+## Computing a project's scores
+
+`compute_suggestion_scores` starts a job that scores every source concept of
+the project:
+
+| Method | Needs | Cost |
 |---|---|---|
-| `embed_concepts.py` | once per vocabulary release, shared by all projects | `concept_embeddings.parquet` next to `CONCEPT.parquet` (BioLORD embeddings of OMOP concepts) |
-| `compute_scores.py` | once per project and target scope | `similarity-scores.parquet` (syntactic + semantic scores per source concept) |
+| `syntactic/jaro-winkler` | nothing | minutes |
+| `syntactic/token-sort` | nothing | minutes |
+| `syntactic/ngram-idf` | nothing | about an hour of CPU unfiltered |
+| `semantic/<slug>` (`config`) | runtime + built index | minutes to an hour |
 
-Without `concept_embeddings.parquet`, `compute_scores.py` computes only the
-syntactic methods. Defaults are right for the usual case (`syntactic/jaro-winkler`
-+ `semantic/biolord`); do not add `syntactic/ngram-idf` unless asked — it indexes
-about 4 million concepts (around an hour of CPU).
+- **Ask the user before starting one**, and say how long it may take. Then
+  follow it with `get_job_status` and `wait_seconds: 50`: each call waits for
+  the job to end, up to 50 s. Never call it in a quick loop without
+  `wait_seconds`. The scores reach the Suggestions panel once it is done.
+- **Each method computed replaces that method's rows in the project.** With
+  `only_missing`, it only adds the concepts it has not scored yet. AI
+  suggestions (`ai/…`) are never touched.
+- **Always filter the targets** (`domains`, `vocabularies`) to what is being
+  mapped. The Drug domain alone is about 2 million standard concepts. The
+  filters narrow the syntactic methods too: lab tests → `vocabularies:
+  ["LOINC"]`, or a string match also ranks unrelated vocabularies (cancer
+  registry variables, …) among the candidates.
+- After the job ends, `list_source_concepts` with `with_suggestions` and
+  `get_source_concept` show the new candidates. Do not read the batch while
+  the job runs: you would read it twice.
 
-Dependencies: `pip install rapidfuzz pandas pyarrow numpy duckdb`, plus
-`sentence-transformers faiss-cpu` for the semantic step.
-
-## Inputs
-
-- **OMOP vocabulary** — the ATHENA files (`CONCEPT.parquet` or `.csv`).
-- **Source concepts** — a CSV with three columns: `terminology`,
-  `concept_code`, `concept_name`. Get it from Linkr (export the mapping project,
-  or download its source file), then rename columns if needed:
-
-  | Needed | Usual names |
-  |---|---|
-  | `terminology` | terminology, vocabulary_id, vocab, source_vocab |
-  | `concept_code` | concept_code, code, source_code, local_code |
-  | `concept_name` | concept_name, label, name, description |
-
-  Keep the other columns out of this file: the scripts read only these three.
-
-## Memory — always filter the targets
-
-The semantic step builds an index over the **target** concepts. Unfiltered,
-that is about 4 million vectors and 25 GB at peak: enough to kill a laptop.
-Always pass `--only-standard --only-valid` and a `--domain` (and/or
-`--vocabulary`) matching what is being mapped.
-
-The Drug domain alone (RxNorm, about 2 million standard concepts) is the main
-cost: leave it out unless mapping medications, and then run it as its own pass.
-Non-drug standard valid targets (about 500,000) peak around 3 GB.
-
-## Running
-
-Both scripts run for minutes to hours and resume where they stopped (an
-interruption loses at most one flush). Give the user the exact command to paste
-in their own terminal, where they can watch memory and stop it with `Ctrl-C`.
-Do not run `compute_scores.py` unattended in the background: a first semantic
-build uses several GB and cannot be throttled.
-
-```bash
-python scripts/compute_scores.py \
-  --source source-concepts.csv \
-  --concept /path/to/vocabulary/CONCEPT.parquet \
-  --embeddings /path/to/vocabulary/concept_embeddings.parquet \
-  --only-standard --only-valid --domain Measurement Observation
-```
-
-## Loading into Linkr
-
-In the mapping editor: Suggestions → load scores file. **Loading replaces the
-project's scores file**, including AI suggestions agents left through the MCP.
-To keep them, download the current scores file from Linkr first and pass it as
-`--output`: the script adds its rows to the existing file and keeps the rest.
+`build_embedding_index` (`config`) encodes the vocabularies a configuration's
+index lacks or has out of date. It takes about an hour on a CPU for the
+non-drug standard concepts. Start it only when the user asks for it.
 
 ## Scores file schema
+
+The scores live in one file per project, which Linkr keeps on the server:
 
 | Column | Type | Content |
 |---|---|---|
 | `source_vocabulary_id` | string | source vocabulary |
 | `source_concept_code` | string | source code |
 | `concept_id` | int64 | OMOP target |
-| `method` | string | `syntactic/…`, `semantic/biolord`, `ai/<model>` |
+| `method` | string | `syntactic/…`, `semantic/<slug>`, `ai/<model>` |
 | `score` | float | 0–1 |
 | `equivalence` | string | SKOS; always `skos:exactMatch` for syntactic and semantic rows |
 | `comment` | string, null | justification (AI rows) |
@@ -85,5 +91,4 @@ To keep them, download the current scores file from Linkr first and pass it as
 | `concept_set_uid` | string, null | data-dictionary concept set a row was aligned to |
 | `concept_set_source_repo` | string, null | that dictionary's repository |
 
-Key: `(source_vocabulary_id, source_concept_code, concept_id, method)`. Rows
-are only ever added: an existing key is kept, never overwritten.
+Key: `(source_vocabulary_id, source_concept_code, concept_id, method)`.

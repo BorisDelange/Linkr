@@ -13,8 +13,8 @@ compatibility: >-
   Needs the Linkr MCP server (packages/linkr-mcp) connected with the user's
   Linkr API key. Works with any model and any MCP client that loads Agent Skills.
 metadata:
-  version: "2.1.0"
-  citation: Linkr concept-mapping skill v2.1.0
+  version: "2.2.0"
+  citation: Linkr concept-mapping skill v2.2.0
 ---
 
 # Concept mapping with Linkr
@@ -35,19 +35,23 @@ with `metadata.version` above. Any change to this folder bumps the version
 | `list_mapping_projects` | Find the project (start here). |
 | `get_mapping_project` | Progress, vocabulary database, suggestions file, source categories. |
 | `list_source_concepts` | A page of source concepts: filter by `status` (unmapped by default), `category`, `search`, `with_suggestions`; sorted by frequency. |
-| `get_source_concept` | One source concept in full: metadata, existing mappings, precomputed and AI suggestions. |
+| `get_source_concept` | Source concepts in full — a whole batch at once with `concept_codes`: metadata, existing mappings, precomputed and AI suggestions. |
 | `search_vocabulary` | Target search (English terms, code or id), standard concepts by default; filters by domain, vocabulary, class; `concept_set_id` for a data dictionary. |
+| `semantic_search_vocabulary` | Target search by meaning (embeddings): synonyms and paraphrases a word search misses. Batch up to 50 texts per call. Needs an embedding configuration; see `references/precompute.md`. |
 | `get_vocabulary_concept` | A target's relationships (`Maps to`…), synonyms, ancestors, descendants. |
 | `list_concept_sets` / `get_concept_set` | Data dictionaries of the workspace and their Mapping Notes. |
 | `find_sources_for_targets` | The reverse lookup: source concepts that suggestions link to given targets (ids or a concept set). |
 | `add_ai_suggestions` | **Default output.** Suggestions shown in the app's Suggestions panel (category AI). |
 | `create_mappings` | Mappings (status unchecked). **Only for picks the user confirmed one by one.** |
 | `remove_ai_suggestions` | Withdraw your suggestions (all of a model's, or some concepts'), e.g. after a wrong batch. |
+| `list_suggestion_engines` / `compute_suggestion_scores` / `build_embedding_index` | Precomputed suggestions: what is set up, and having the server compute syntactic and semantic scores (background jobs). See `references/precompute.md`. |
 
 If these tools are not in your tool list, the server exposes them through its
 gateway: call them by name with `run_linkr_read_tool` (the `list_`, `get_`,
-`search_` and `find_` ones), `run_linkr_write_tool` (`add_ai_suggestions`,
-`create_mappings`) or `run_linkr_delete_tool` (`remove_ai_suggestions`), e.g.
+`search_` and `find_` ones, `semantic_search_vocabulary` included),
+`run_linkr_write_tool` (`add_ai_suggestions`, `create_mappings`,
+`compute_suggestion_scores`, `build_embedding_index`) or
+`run_linkr_delete_tool` (`remove_ai_suggestions`), e.g.
 `run_linkr_read_tool({ tool: "list_source_concepts", arguments: { mapping_project_id: "…" } })`.
 `find_linkr_tools({ names: ["list_source_concepts"] })` gives a tool's arguments.
 
@@ -80,16 +84,22 @@ gateway: call them by name with `run_linkr_read_tool` (the `list_`, `get_`,
    - **Data dictionary** — if they mention concept sets or a dictionary, read
      `references/data-dictionary.md` now.
 
-Your **model name** is needed by `add_ai_suggestions` (it becomes the method
-`ai/<model>`). Use your real model identifier; ask the user if you do not know it.
+Your suggestions are signed `ai/<model>`. When `get_mapping_project` says your
+client sets the model, leave `model` out of `add_ai_suggestions`. Otherwise
+give your exact model identifier — and if nothing in this conversation states
+it, ask the user: never guess it from what you believe you are.
 
 ## Step 2 — Map, batch by batch
 
 Batches of about 10 concepts. Concepts are listed as `vocabulary/code`
 (`d_labitems/50812`); tools take that token, or the code alone as
-`concept_code` with `vocabulary_id` beside it. For each concept:
+`concept_code` with `vocabulary_id` beside it. If a scores job is running for
+the project, wait until it is done before reading the batch — with
+`get_job_status` and `wait_seconds: 50`, repeated until it ends: its candidates
+only show afterwards, and every concept you read stays in the conversation.
 
-1. `get_source_concept` (`mapping_project_id`, `concept_code`) — read the name **and the metadata**: unit, value
+1. Read the whole batch with **one** `get_source_concept` call
+   (`concept_codes`), once — read each name **and its metadata**: unit, value
    range and percentiles, categorical values, category path, hospital units.
    The metadata is what separates near-identical targets.
    If the name and the metadata say nothing you can interpret — a single
@@ -99,15 +109,21 @@ Batches of about 10 concepts. Concepts are listed as `vocabulary/code`
 2. Decide the domain, then follow the procedure for it:
    - Measurement, Condition, Procedure, Observation → `references/clinical.md`
    - Drug → `references/drugs.md`
-3. Search with `search_vocabulary` (translate to English first), inspect the
-   finalists with `get_vocabulary_concept`, judge them with
-   `references/omop-reference.md` (equivalence, comment rules, domain hints).
+3. Search with `search_vocabulary` (translate to English first) — and, when
+   the workspace has an embedding configuration, `semantic_search_vocabulary`
+   for the batch at once — inspect the finalists with `get_vocabulary_concept`,
+   judge them with `references/omop-reference.md` (equivalence, comment rules,
+   domain hints).
 
 Then write the batch:
 
 - **Suggestions** — one `add_ai_suggestions` call for the batch: up to the
   agreed number of candidates per concept, best first, each with its score,
-  equivalence and comment. Show the batch as a compact table
+  equivalence and comment. Write only candidates you would defend to the
+  reviewer: one good candidate beats three padded ones, and a target you
+  would advise against (a wrong specimen, the opposite of the source) is never
+  written, not even "for contrast" — say it in the comment of the right one
+  instead. Show the batch as a compact table
   (source → target, equivalence, score, comment).
 - **Mappings** — present each concept (source, metadata highlights, 1–3
   candidates with reasoning) and wait for the user's choice. Write only what
@@ -142,8 +158,9 @@ scope, or switch domain.
 
 ## Precomputed suggestions (optional)
 
-Syntactic and semantic scores (Jaro-Winkler, BioLORD embeddings) are computed
-outside the chat by two Python scripts in `scripts/`, then loaded into the
-project in Linkr (Suggestions tab → load scores file). They make candidate
-search much better, especially for drugs. You do not run them from a chat
-without a shell; if the user wants them, point to `references/precompute.md`.
+Linkr computes syntactic scores (Jaro-Winkler, token sort, n-gram IDF) and
+semantic scores (embeddings, e.g. BioLORD-2023-M) on the server, as jobs. They
+make candidate search much better, especially for drugs: their candidates show
+in `get_source_concept`. Run `list_suggestion_engines` once per session to
+know what is set up. When the user asks for precomputed suggestions, or a
+semantic search would help, read `references/precompute.md`.

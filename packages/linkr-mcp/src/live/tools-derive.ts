@@ -3,7 +3,9 @@ import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { randomUUID } from 'node:crypto'
 import { derivableReason } from '@/lib/cohort-derive'
 import type { Cohort, DataSource as WebDataSource } from '@/types'
-import { NOT_DERIVABLE, formatDerivePlan, formatJob, planDerivation, type DeriveTargetInput } from './derive.js'
+import {
+  MAX_JOB_WAIT_SECONDS, NOT_DERIVABLE, formatDerivePlan, formatJob, planDerivation, waitForJob, type DeriveTargetInput,
+} from './derive.js'
 import {
   DESTRUCTIVE, READ, WRITE, api, failure, guard, loc, projectDatabases, text, type Server,
 } from './shared.js'
@@ -152,13 +154,22 @@ export function registerDeriveTools(server: Server): void {
 
   server.registerTool('get_job_status', {
     description:
-      'Status of a server job the user started (a derivation from derive_database_from_cohort): queued / running / '
-      + 'done / error / cancelled, progress, last log lines, and for a finished derivation the database id and counts.',
+      'Status of a server job (a derivation, a scores computation, an index build…): queued / running / '
+      + 'done / error / cancelled, progress, last log lines, and for a finished derivation the database id and counts. '
+      + `To wait for a job, pass wait_seconds (up to ${MAX_JOB_WAIT_SECONDS}): the call returns as soon as it ends.`,
     annotations: READ,
-    inputSchema: fromJsonSchema<{ job_id: string }>({
-      type: 'object', properties: { job_id: { type: 'string' } }, required: ['job_id'],
+    inputSchema: fromJsonSchema<{ job_id: string; wait_seconds?: number }>({
+      type: 'object',
+      properties: {
+        job_id: { type: 'string' },
+        wait_seconds: {
+          type: 'number',
+          description: `Wait up to this long for the job to end before answering (max ${MAX_JOB_WAIT_SECONDS}). Default 0.`,
+        },
+      },
+      required: ['job_id'],
     }),
-  }, guard(async ({ job_id }) => text(formatJob(await api.getJob(job_id)))))
+  }, guard(async ({ job_id, wait_seconds = 0 }) => text(formatJob(await waitForJob(() => api.getJob(job_id), wait_seconds)))))
 
   server.registerTool('cancel_job', {
     description: 'Cancel a running job the user started. A cancelled first build removes the database made for it.',

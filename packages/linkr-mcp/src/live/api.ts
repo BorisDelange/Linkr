@@ -16,6 +16,9 @@ import type {
 } from '@/types'
 import type { DerivePlanTable, DeriveRequest } from '@/lib/api/data-sources'
 import type { Job } from '@/lib/api/environments'
+import type {
+  ComputeScoresInput, SemanticSearchResult, SuggestionEngines, TargetFilters,
+} from '@/lib/api/suggestion-engines'
 import { injectClassRelations } from '@/lib/schema-classes/inject'
 import { sanitizeSchemaMapping, sanitizeSchemaOverrides } from '@/lib/schema-helpers'
 import { effectiveMapping } from '@/lib/schema-classes/overrides'
@@ -386,6 +389,22 @@ export class LinkrApi {
   appendScores = (id: string, rows: Record<string, unknown>[]) =>
     this.request<ServerScoresIndex & { added: number; skipped: number }>(
       'POST', `/mapping-projects/${encodeURIComponent(id)}/scores/append`, { rows },
+    )
+
+  // Suggestion engines: embedding configurations, computed scores, semantic search
+  suggestionEngines = (workspaceId: string) =>
+    this.request<SuggestionEngines>('GET', `/workspaces/${encodeURIComponent(workspaceId)}/suggestion-engines`)
+  computeScores = (id: string, body: ComputeScoresInput) =>
+    this.request<Job>('POST', `/mapping-projects/${encodeURIComponent(id)}/scores/compute`, body)
+  buildEmbeddingIndex = (workspaceId: string, configId: string, rebuild: boolean) =>
+    this.request<Job>(
+      'POST', `/workspaces/${encodeURIComponent(workspaceId)}/suggestion-engines/configs/${encodeURIComponent(configId)}/build`,
+      { rebuild },
+    )
+  semanticSearch = (workspaceId: string, configId: string, body: { texts: string[]; topK: number; filters?: TargetFilters }) =>
+    this.request<SemanticSearchResult>(
+      'POST', `/workspaces/${encodeURIComponent(workspaceId)}/suggestion-engines/configs/${encodeURIComponent(configId)}/search`,
+      body,
     )
 
   // Cohorts: freeze, ATLAS import

@@ -436,6 +436,43 @@ def write_method_csv(path: str, method: str, out_path: str) -> int:
         con.close()
 
 
+def extend_method_csv(existing_path: str | None, method: str, new_csv: str, out_path: str) -> int:
+    """Write to `out_path` the CSV of `method` once `new_csv` is added to the rows
+    it already has in `existing_path`: a source concept scored again keeps only
+    its new rows, the others keep theirs. Returns the row count. Lets a run
+    limited to the concepts a method has not scored yet go through
+    `merge_method_csvs`, which replaces a method's rows wholesale."""
+    con = _connect()
+    try:
+        new = f"read_csv({_sql_literal(new_csv)}, header=true, all_varchar=true)"
+        cols = "source_vocabulary_id, source_concept_code, concept_id, score, equivalence, comment, created_at"
+        parts = [f"SELECT {cols} FROM {new}"]
+        if existing_path and method in {
+            r[0] for r in con.execute("SELECT DISTINCT method FROM read_parquet(?)", [existing_path]).fetchall()
+        }:
+            present = _parquet_columns(con, existing_path)
+            optional = ", ".join(
+                f"{'CAST(' + c + ' AS VARCHAR)' if c in present else 'NULL'} AS {c}"
+                for c in ("equivalence", "comment", "created_at")
+            )
+            parts.append(
+                f"SELECT source_vocabulary_id, source_concept_code, CAST(concept_id AS VARCHAR) AS concept_id, "
+                f"CAST(score AS VARCHAR) AS score, {optional} "
+                f"FROM read_parquet({_sql_literal(existing_path)}) e WHERE method = {_sql_literal(method)} "
+                f"AND NOT EXISTS (SELECT 1 FROM {new} n WHERE n.source_vocabulary_id = e.source_vocabulary_id "
+                f"AND n.source_concept_code = e.source_concept_code)"
+            )
+        union = " UNION ALL ".join(f"({p})" for p in parts)
+        con.execute(f"CREATE TEMP TABLE extended AS {union}")
+        con.execute(
+            f"COPY extended TO {_sql_literal(out_path)} "
+            "(FORMAT CSV, HEADER true, DELIMITER ',', QUOTE '\"', ESCAPE '\"', NULL '')"
+        )
+        return int(con.execute("SELECT COUNT(*) FROM extended").fetchone()[0])
+    finally:
+        con.close()
+
+
 def merge_method_csvs(
     existing_path: str | None, csvs: list[tuple[str, str]], out_path: str
 ) -> int:

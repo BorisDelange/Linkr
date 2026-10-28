@@ -95,6 +95,14 @@ class Settings(BaseSettings):
     # every project's venv, under data_dir/.cache/uv (uv hardlinks from it).
     uv_bin: str = "uv"
     pip_index_url: str = "https://pypi.org/simple"
+    # Embeddings runtime (services/suggestions/runtime.py), installed on demand.
+    # `auto`: uv picks the torch build for the machine (CUDA with an NVIDIA
+    # driver, CPU otherwise) from download.pytorch.org; empty: torch comes from
+    # pip_index_url like any package (a mirror that only proxies PyPI). Or name
+    # one: `cpu`, `cu126`…
+    embeddings_torch_backend: str = "auto"
+    # Hugging Face Hub mirror models are downloaded from; empty = the Hub itself.
+    hf_endpoint: str = ""
     # R managed environments (renv). Rscript binary + package repo stay configurable
     # (default p3m: public, Docker-independent, ships binaries so Linux servers don't
     # compile from source). renv's cache is pointed at the Linkr-wide store so a

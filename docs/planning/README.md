@@ -71,6 +71,7 @@ Built, never exercised by hand. Everything else below is still to build.
 | 🔜 | Concept value statistics precomputed (Concepts tab, *Statistics* ticked): on the large Doris — the units are computed by Doris (job panel times, no row stream over MySQL), a paused stats step resumes, a finished count adds its statistics without recounting, a concept's stats panel opens at once with "Precomputed" under its distribution; then *Count again* drops them | server | S |
 | 🔜 | Doris syntax probe: `GROUP_CONCAT … SEPARATOR`, `CHAR(n)` without `USING utf8`, `LOWER()` on accented text, `STDDEV_SAMP`, `CAST(FLOOR) AS BIGINT`, `PERCENTILE_APPROX` — `apps/api/.venv/bin/python scripts/doris-syntax-probe.py` against the test Doris (login allowed to create a temp table; usage at the top of the script). Any FAIL → make that rule `NotPortable` in `remote_sql.py` | server | S |
 | 🔜 | Setup wizard on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | server | S |
+| 🔜 | Suggestion engines (mapping editor › Manage suggestions): one-click BioLORD setup on a fresh data dir, build its index (Stop, then resume), Compute syntactic + semantic on a project (AI rows kept, *only missing*), a model from a server folder, re-import a vocabulary → index *out of date*; MCP `semantic_search_vocabulary` + `compute_suggestion_scores`; Docker image on Linux (torch CPU vs CUDA through `--torch-backend auto`) and through the SPE mirror (`LINKR_EMBEDDINGS_TORCH_BACKEND=`) | server | M |
 
 ## Embedded chat over LibreChat — [embedded-chat-plan.md](embedded-chat-plan.md)
 
@@ -130,6 +131,17 @@ Built 2026-09-28 (library, dictionaries, resolution, SQL export). Left:
 | 🔜 | Workspace export: **stop embedding the concept sets** — today every set is written in full to `concept-sets/*.json` (client `lib/entity-io.ts` and server `workspace_export_assemble.py`). Write one pointer per dictionary instead (repo URL, ref/commit, name), and on import re-download it from the repo or list it as missing. Same for the vocabulary inventory (`vocabulary_id` + version, never the data) | M |
 | 🤔 | A dictionary with no repo (local import): not exported at all and reported as missing on import — or kept out of the workspace export by design? | S |
 | 🔜 | Mapping-project pull: take the remote `conceptSets` refs (no pull path reads them yet) | S |
+
+## Suggestion engines — as-built in [../architecture.md](../architecture.md) § Suggestion engines
+
+Built 2026-10-27 on `feature/suggestion-embeddings`. Left:
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | Semantic search keeps no model in memory: each `semantic_search_vocabulary` call loads it (a few seconds). A warm worker per configuration, stopped after idling | M |
+| 🔜 | Bring a model in through the browser (zip upload); today: Hugging Face id, or a folder already on the server | S |
+| 🔜 | Website docs: `concept-mapping/suggestions` still describes the terminal scripts — rewrite for the Manage suggestions tabs | S |
+| 🤔 | Embed synonyms too (`concept_synonym`, one vector per synonym, max over a concept's vectors) | M |
 
 ## Reports — [reports-plan.md](reports-plan.md)
 

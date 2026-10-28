@@ -14,6 +14,10 @@
  *   LINKR_MCP_PORT  default 3940
  *   LINKR_MCP_HOST  default 127.0.0.1 — keep it on loopback unless a proxy with TLS fronts it
  *   LINKR_MCP_LOG_ARGS=1  also log each tool call's arguments (may hold patient data)
+ *
+ * A client may send `X-Linkr-Model: <model id>` (a fixed header of its MCP server
+ * entry): AI suggestions and mappings are then signed with it, whatever the model
+ * calls itself. Over stdio, LINKR_MCP_MODEL does the same.
  */
 import { createServer, type IncomingMessage } from 'node:http'
 import { createMcpHandler } from '@modelcontextprotocol/server'
@@ -21,7 +25,7 @@ import { createIdentify, keyTag, presentedKey, toolCallLogLines } from './auth.j
 import './env.js'
 
 const { buildServer } = await import('./build.js')
-const { withApiToken } = await import('./shared.js')
+const { withAgentModel, withApiToken } = await import('./shared.js')
 
 const apiUrl = process.env.LINKR_API_URL?.replace(/\/+$/, '')
 if (!apiUrl) {
@@ -98,7 +102,8 @@ createServer(async (req, res) => {
       for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) res.write(chunk)
       res.end()
     }
-    await (who === 'env' ? serve() : withApiToken(who.token, serve))
+    const model = headers.get('x-linkr-model') ?? undefined
+    await withAgentModel(model, () => (who === 'env' ? serve() : withApiToken(who.token, serve)))
   } catch (e) {
     console.error(e)
     if (!res.headersSent) res.writeHead(500)

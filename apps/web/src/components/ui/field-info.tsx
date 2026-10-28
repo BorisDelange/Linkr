@@ -4,6 +4,8 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 interface FieldInfoProps {
   /** The explanation, shown on hover. */
   text: string
+  /** Icon size: 13 beside a label, 11 beside a `SectionLabel`. */
+  size?: number
 }
 
 /**
@@ -13,14 +15,14 @@ interface FieldInfoProps {
  * competes with the field itself, and every entity dialog already puts this kind
  * of detail behind the icon (see `EntityIdField`).
  */
-export function FieldInfo({ text }: FieldInfoProps) {
+export function FieldInfo({ text, size = 13 }: FieldInfoProps) {
   return (
     <TooltipProvider>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Info size={13} className="text-muted-foreground" />
+          <Info size={size} className="shrink-0 text-muted-foreground" />
         </TooltipTrigger>
-        <TooltipContent className="max-w-xs">{text}</TooltipContent>
+        <TooltipContent className="max-w-xs whitespace-pre-line">{text}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
   )
