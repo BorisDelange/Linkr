@@ -39,7 +39,21 @@ async function api(page: Page, request: APIRequestContext): Promise<Http> {
   return {
     get: (url) => ok(request.get(`${base}/api/v1${url}`, { headers })),
     send: (method, url, data) => ok(request[method](`${base}/api/v1${url}`, { headers, data })),
-    git: (url, form) => ok(request.post(`${base}/api/v1/git${url}`, { headers, multipart: form as Record<string, string>, timeout: 300_000 })),
+    git: async (url, form) => {
+      // Repeated fields (`paths`) need a FormData: a plain object takes one value per key.
+      const data = new FormData()
+      for (const [k, v] of Object.entries(form)) for (const one of [v].flat()) data.append(k, one)
+      // A git operation past the gateway's patience answers 202 {deferredTaskId}
+      // and goes on in the background: follow it, as the app does.
+      let result = await ok(request.post(`${base}/api/v1/git${url}`, { headers, multipart: data, timeout: 300_000 }))
+      for (let i = 0; result?.deferredTaskId && i < 300; i++) {
+        await new Promise((r) => setTimeout(r, 1000))
+        const poll = await request.get(`${base}/api/v1/deferred/${result.deferredTaskId}`, { headers })
+        expect(poll.status() < 400, `deferred ${url} → ${poll.status()} ${(await poll.text()).slice(0, 300)}`).toBe(true)
+        if (poll.status() !== 202) result = await poll.json()
+      }
+      return result
+    },
   }
 }
 
@@ -51,6 +65,8 @@ interface Target {
   workspaceId: string
   link: (remote: { url: string; branch: string }) => Promise<void>
   readme: (text: string) => Promise<void>
+  /** The file the colleague edits in the repository. */
+  colleagueFile: string
 }
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf-8' })
@@ -86,11 +102,17 @@ async function leftToCommit(http: Http, t: Target, branch: string): Promise<stri
   return (status.files as { path: string; changeType: string }[]).map((f) => `${f.changeType} ${f.path}`)
 }
 
+let batch = 0
+
 async function targets(http: Http, workspaceId: string): Promise<Target[]> {
-  const T = (label: string, scope: string, id: string, linkUrl: string, method: 'patch' | 'put' = 'patch', full?: Record<string, unknown>): Target => ({
-    label, scope, id, workspaceId,
-    link: async (remote) => { await http.send(method, linkUrl, { ...(full ?? {}), gitRemoteConfig: remote }) },
-    readme: async (text) => { await http.send(method, linkUrl, { ...(full ?? {}), readme: { en: text } }) },
+  // Each journey creates its own entities: ids carry the run and the batch.
+  const tag = `${run}-${++batch}`
+  // A PUT replaces the whole row: send it as it stands now, or an earlier read
+  // puts back what changed since (the git link, typically).
+  const T = (label: string, scope: string, id: string, linkUrl: string, method: 'patch' | 'put' = 'patch', current?: () => Promise<Record<string, unknown>>): Target => ({
+    label, scope, id, workspaceId, colleagueFile: 'README.md',
+    link: async (remote) => { await http.send(method, linkUrl, { ...(current ? await current() : {}), gitRemoteConfig: remote }) },
+    readme: async (text) => { await http.send(method, linkUrl, { ...(current ? await current() : {}), readme: { en: text } }) },
   })
   const out: Target[] = []
   // E2E_ONLY=<label> replays one kind (the labels below).
@@ -99,33 +121,34 @@ async function targets(http: Http, workspaceId: string): Promise<Target[]> {
   // The workspace itself, holding one project of its own (inline in its repo).
   // With the identities the app mints on creation: an export names a project by them.
   await http.send('post', '/projects', {
-    workspaceId, uid: `inline-${run}`, entityId: `inline-${run}`, lineageId: crypto.randomUUID(),
-    name: { en: `Inline ${run}` }, readme: { en: 'Inline project.\n' },
+    workspaceId, uid: `inline-${tag}`, entityId: `inline-${tag}`, lineageId: crypto.randomUUID(),
+    name: { en: `Inline ${tag}` }, readme: { en: 'Inline project.\n' },
   })
-  out.push(T('workspace', 'workspaces', workspaceId, `/workspaces/${workspaceId}`))
+  out.push({ ...T('workspace', 'workspaces', workspaceId, `/workspaces/${workspaceId}`), colleagueFile: `projects/inline-${tag}/README.md` })
 
   const projects = await http.get(`/projects?workspaceId=${workspaceId}`)
   const project = projects.find((p: { uid: string }) => p.uid === 'icu-activity-dashboard')
   out.push(T('project', 'projects', project.uid, `/projects/${project.uid}`))
 
-  const sqlId = `sql-${run}`
-  await http.send('post', '/sql-script-collections', { id: sqlId, workspaceId, name: { en: `SQL ${run}` } })
-  await http.send('post', '/sql-script-files', { id: `sqlf-${run}`, collectionId: sqlId, name: 'count.sql', content: 'SELECT 1;\n' })
+  const sqlId = `sql-${tag}`
+  await http.send('post', '/sql-script-collections', { id: sqlId, workspaceId, name: { en: `SQL ${tag}` } })
+  await http.send('post', '/sql-script-files', { id: `sqlf-${tag}`, collectionId: sqlId, name: 'count.sql', content: 'SELECT 1;\n' })
   out.push(T('SQL collection', 'sql-script-collections', sqlId, `/sql-script-collections/${sqlId}`))
 
-  const dqId = `dq-${run}`
-  await http.send('post', '/dq-rule-sets', { id: dqId, workspaceId, name: { en: `DQ ${run}` }, status: 'draft' })
+  const dqId = `dq-${tag}`
+  await http.send('post', '/dq-rule-sets', { id: dqId, workspaceId, name: { en: `DQ ${tag}` }, status: 'draft' })
   out.push(T('DQ rule set', 'dq-rule-sets', dqId, `/dq-rule-sets/${dqId}`))
 
-  const catId = `cat-${run}`
-  await http.send('post', '/data-catalogs', { id: catId, workspaceId, name: { en: `Catalog ${run}` } })
+  const catId = `cat-${tag}`
+  await http.send('post', '/data-catalogs', { id: catId, workspaceId, name: { en: `Catalog ${tag}` } })
   out.push(T('data catalog', 'data-catalogs', catId, `/data-catalogs/${catId}`))
 
   const [etl] = await http.get(`/etl-pipelines?workspaceId=${workspaceId}`)
   out.push(T('ETL pipeline', 'etl-pipelines', etl.id, `/etl-pipelines/${etl.id}`))
 
   const [preset] = await http.get(`/schema-presets?workspaceId=${workspaceId}`)
-  out.push(T('schema preset', 'schema-presets', preset.id, `/schema-presets/${preset.id}`, 'put', preset))
+  out.push(T('schema preset', 'schema-presets', preset.id, `/schema-presets/${preset.id}`, 'put',
+    async () => (await http.get(`/schema-presets?workspaceId=${workspaceId}`)).find((p: { id: string }) => p.id === preset.id)))
 
   const [database] = await http.get(`/data-sources?workspaceId=${workspaceId}`)
   out.push(T('database', 'databases', database.id, `/data-sources/${database.id}`))
@@ -151,12 +174,12 @@ test('every kind of entity: push, a colleague’s change pulled, the same on ano
       const remote = testInfo.outputPath(`${t.scope}-${run}.git`)
       execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote])
       await t.link({ url: `file://${remote}`, branch: 'main' })
-      await http.git(`/${t.scope}/${t.id}/commit-push`, { message: 'First push', branch: 'main' })
+      expect((await http.git(`/${t.scope}/${t.id}/commit-push`, { message: 'First push', branch: 'main' })).pushed, `${t.label}: first push`).toBe(true)
       expect.soft(await leftToCommit(http, t, 'main'), `${t.label}: clean after the push`).toEqual([])
 
       // A colleague's README change comes back and leaves nothing to commit.
       const clone = testInfo.outputPath(`${t.scope}-${run}-colleague`)
-      const readme = t.scope === 'workspaces' ? `projects/inline-${run}/README.md` : 'README.md'
+      const readme = t.colleagueFile
       colleagueEdits(`file://${remote}`, clone, 'main', readme, `Colleague paragraph for ${t.label}.`)
       expect((await http.get(`/git/${t.scope}/${t.id}/sync-state?branch=main`)).behind, `${t.label}: behind`).toBe(true)
       const pulled = await pullEverything(page, t, 'main')
@@ -193,7 +216,7 @@ test('every kind of entity: a change proposed as a merge request, merged on the 
       expect(created.ok(), await created.text()).toBe(true)
       const project = await created.json()
       await t.link({ url: `${FORGE}/sandbox/${name}.git`, branch: 'main' })
-      await http.git(`/${t.scope}/${t.id}/commit-push`, { message: 'First push', branch: 'main' })
+      expect((await http.git(`/${t.scope}/${t.id}/commit-push`, { message: 'First push', branch: 'main' })).pushed, `${t.label}: first push`).toBe(true)
 
       await t.readme(`Proposed in Linkr for ${t.label}.\n`)
       const status = await http.git(`/${t.scope}/${t.id}/status`, { branch: 'main' })

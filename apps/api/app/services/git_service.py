@@ -487,8 +487,14 @@ def _sync_remote_branch(repo: Path, branch: str, remote_url: str | None, token: 
     # succeeds here with no matching ref, which we still treat as "first push".
     out = _run(repo, "ls-remote", "--heads", fetch_url, branch, token=token)
     if f"refs/heads/{branch}" not in out:
-        # Remote branch doesn't exist yet (first push) — start from an empty tree.
-        _run(repo, "checkout", "-B", branch, check=False)
+        # Remote branch doesn't exist yet (first push) — start from an empty tree,
+        # with no history: an orphan branch. `checkout -B` kept the local HEAD as
+        # parent, so an entity relinked to a new, empty repository committed on top
+        # of the OLD repository's history — and when its content had not changed
+        # since that commit, git found nothing to commit and nothing was pushed.
+        _run(repo, "checkout", "-q", "--detach", check=False)
+        _run(repo, "branch", "-D", branch, check=False)
+        _run(repo, "checkout", "-q", "--orphan", branch, check=False)
         _run(repo, "rm", "-r", "-q", "--cached", ".", check=False)
         return False
     # Skip downloading LFS objects here: status/diff only need the tree + pointers

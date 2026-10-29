@@ -265,3 +265,21 @@ async def test_propose_pushes_a_branch_from_the_target_and_records_the_request(c
 
     listed = (await client.get(f"{API}/git/workspaces/{ws}/proposals", headers=headers)).json()
     assert [(p["number"], p["state"]) for p in listed] == [(12, "merged")]
+
+
+async def test_relinking_to_a_new_empty_repository_pushes_everything_with_no_old_history(client, tmp_path):
+    headers = await _admin(client)
+    ws, first = await _linked_workspace(client, headers, tmp_path)
+    files = {"wiki/home.md": "Hello\n", "workspace.json": "{}"}
+    assert (await _push(client, headers, ws, files)).json()["pushed"]
+
+    second = tmp_path / "second.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(second)], check=True, capture_output=True)
+    await client.patch(f"{API}/workspaces/{ws}", headers=headers,
+                       json={"gitRemoteConfig": {"url": f"file://{second}", "branch": "main"}})
+    # Same content as the last commit on the old remote: it must still be pushed.
+    r = await _push(client, headers, ws, files)
+    assert r.json()["pushed"], r.text
+    log = _git(second, "log", "--format=%s", "main").split()
+    assert log == ["m"]  # one root commit, none of the first repository's
+    assert _git(second, "show", "main:wiki/home.md") == "Hello\n"
