@@ -232,14 +232,38 @@ def _clean_url(url: str) -> str:
 
 # Remotes are network repositories only: a local path or file:// would have the
 # server clone its own disk (and hand it back as a ZIP), and ext:: runs a command.
-# Tests flip this to use local bare repos as remotes.
-_LOCAL_REMOTES_ALLOWED = False
+# Tests flip this to use local bare repos as remotes; a dev instance through
+# LINKR_GIT_ALLOW_LOCAL_REMOTES.
+_LOCAL_REMOTES_ALLOWED = settings.git_allow_local_remotes
+
+
+def _allowed_hosts() -> list[tuple[str, int | None]]:
+    out: list[tuple[str, int | None]] = []
+    for entry in settings.git_allowed_hosts.split(","):
+        entry = entry.strip().lower()
+        if not entry:
+            continue
+        host, _, port = entry.rpartition(":") if entry.count(":") == 1 else (entry, "", "")
+        out.append((host, int(port)) if port.isdigit() else (entry, None))
+    return out
+
+
+def _is_allowed_internal_host(url: str) -> bool:
+    """Is this http(s) remote on a host the admin listed in LINKR_GIT_ALLOWED_HOSTS?
+    Matched on the hostname as written, never on what it resolves to: the list is
+    what lets a private address through, so resolution cannot be what decides."""
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        return False
+    host = parts.hostname.lower()
+    port = parts.port or (443 if parts.scheme.lower() == "https" else 80)
+    return any(h == host and (p is None or p == port) for h, p in _allowed_hosts())
 
 _SCP_LIKE = re.compile(r"[\w.+-]+@([\w.-]+):(?!//)\S+")
 
 
 def _require_network_remote(url: str) -> None:
-    if _LOCAL_REMOTES_ALLOWED:
+    if _LOCAL_REMOTES_ALLOWED or _is_allowed_internal_host(url):
         return
     parts = urlsplit(url)
     if parts.scheme.lower() in ("https", "ssh"):
@@ -264,6 +288,8 @@ def _reject_internal_host(url: str) -> None:
     to resolve is left for git to error on (network code), not blocked here.
     """
     _require_network_remote(url)
+    if _is_allowed_internal_host(url):
+        return
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https"):
         return
@@ -407,7 +433,13 @@ def _git_env() -> dict:
         "GIT_CONFIG_VALUE_1": "main",
         "GIT_CONFIG_KEY_2": "http.followRedirects",
         "GIT_CONFIG_VALUE_2": "false",
-        "GIT_ALLOW_PROTOCOL": "https:ssh:file" if _LOCAL_REMOTES_ALLOWED else "https:ssh",
+        # http only reaches git once _require_network_remote let it through, i.e.
+        # for a host listed in LINKR_GIT_ALLOWED_HOSTS.
+        "GIT_ALLOW_PROTOCOL": ":".join(
+            ["https", "ssh"]
+            + (["http"] if settings.git_allowed_hosts.strip() else [])
+            + (["file"] if _LOCAL_REMOTES_ALLOWED else [])
+        ),
     }
 
 
@@ -1352,6 +1384,75 @@ async def pull_preview(
             "base": side(synced_oid),
             "remote": side(remote_head),
             "sourceConceptsDiff": source_concepts_diff,
+        }
+
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
+
+
+_TREE_PREVIEW_TEXT_SUFFIXES = (".md", ".json", ".sql", ".txt", ".yml", ".yaml")
+
+
+async def tree_preview(
+    repo_getter,
+    uid: str,
+    branch: str,
+    remote_url: str | None,
+    synced_oid: str | None,
+    prefix: str,
+    token: str | None = None,
+) -> dict:
+    """BASE (synced_oid) and REMOTE (remote head) of every file under `prefix`:
+    text files as content, anything else as its blob oid (enough to tell whether
+    it moved). The generic sibling of `pull_preview`, for scopes whose pull is a
+    tree of small text files — the workspace wiki first."""
+    _safe_ref(branch)
+    if synced_oid is not None:
+        _safe_oid(synced_oid)
+    if not prefix or prefix.startswith(("/", "-")) or ".." in prefix.split("/"):
+        raise GitError("invalid tree prefix", "unknown")
+    if not prefix.endswith("/"):
+        prefix += "/"
+
+    def work() -> dict:
+        repo = repo_getter(uid)
+        _ensure_repo(repo, remote_url)
+        if not remote_url:
+            raise GitError("entity is not linked to a git remote", "unknown")
+        if not _sync_remote_branch(repo, branch, remote_url, token):
+            raise GitError("remote branch not found", "not_found")
+        remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip() or None
+        if synced_oid:
+            _run(repo, "fetch", "-q", _with_credentials(remote_url, token), synced_oid,
+                 token=token, env_extra={"GIT_LFS_SKIP_SMUDGE": "1"}, check=False)
+
+        def side(commit: str | None) -> tuple[dict[str, str], dict[str, str]]:
+            texts: dict[str, str] = {}
+            oids: dict[str, str] = {}
+            if not commit:
+                return texts, oids
+            out = _run(repo, "ls-tree", "-r", commit, "--", prefix, check=False)
+            for line in out.splitlines():
+                meta, _, path = line.partition("\t")
+                parts = meta.split()
+                if len(parts) != 3 or parts[1] != "blob":
+                    continue
+                if path.lower().endswith(_TREE_PREVIEW_TEXT_SUFFIXES):
+                    texts[path] = _run(repo, "show", f"{commit}:{path}", check=False)
+                else:
+                    oids[path] = parts[2]
+            return texts, oids
+
+        base_texts, base_oids = side(synced_oid)
+        remote_texts, remote_oids = side(remote_head)
+        return {
+            "branch": branch,
+            "remoteHead": remote_head,
+            "syncedOid": synced_oid,
+            "base": base_texts,
+            "remote": remote_texts,
+            "baseOids": base_oids,
+            "remoteOids": remote_oids,
         }
 
     async with _lock_for(repo_getter(uid)):

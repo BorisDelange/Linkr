@@ -50,6 +50,7 @@ from app.schemas.git import (
     GitPullScoresRequest,
     GitSetSyncStateRequest,
     GitStatusResponse,
+    GitTreePreviewResponse,
     GitSyncStateResponse,
     GitVerifyRequest,
     GitVerifyResponse,
@@ -486,6 +487,7 @@ async def workspace_commit_push(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Workspace is not linked to a git remote"
         )
+    row = await git_sync_state_service.get(db, "workspaces", ws.id, _default_branch(ws, branch))
     return await _pushed(
         _member,
         deferred.AsJob("Git push", workspace_id=ws.id),
@@ -498,7 +500,68 @@ async def workspace_commit_push(
             _remote_url(ws),
             await _token(db, _member, ws),
             paths,
+            *_push_anchors(row),
         ),
+        # Anchored like the other pullable scopes: without it the push guard never
+        # fires, and a second editor's push silently overwrote the first one's work.
+        anchor=("workspaces", ws.id, _default_branch(ws, branch)),
+    )
+
+
+@router.get("/workspaces/{workspace_id}/sync-state", response_model=GitSyncStateResponse)
+async def workspace_sync_state(
+    workspace_id: str,
+    branch: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:read")),
+):
+    ws = await _load_workspace(workspace_id, db, _member)
+    return await _sync_state(
+        db,
+        "workspaces",
+        git_service.workspace_repo_getter,
+        ws.id,
+        _default_branch(ws, branch),
+        _remote_url(ws),
+        await _token(db, _member, ws),
+    )
+
+
+@router.post("/workspaces/{workspace_id}/set-sync-state", status_code=status.HTTP_204_NO_CONTENT)
+async def workspace_set_sync_state(
+    workspace_id: str,
+    body: GitSetSyncStateRequest,
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:write")),
+):
+    ws = await _load_workspace(workspace_id, db, _member)
+    await _apply_sync_state(db, "workspaces", ws.id, body)
+
+
+@router.get("/workspaces/{workspace_id}/tree-preview", response_model=GitTreePreviewResponse)
+async def workspace_tree_preview(
+    workspace_id: str,
+    prefix: str,
+    branch: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:read")),
+):
+    """BASE (the sync anchor) and REMOTE text of every file under `prefix` (e.g.
+    `wiki/`), for the client to 3-way merge against its DB. Read access is enough:
+    the pull writes through the entities' own APIs once the user has decided."""
+    ws = await _load_workspace(workspace_id, db, _member)
+    branch = _default_branch(ws, branch)
+    row = await git_sync_state_service.get(db, "workspaces", ws.id, branch)
+    return await _guard(
+        git_service.tree_preview(
+            git_service.workspace_repo_getter,
+            ws.id,
+            branch,
+            _remote_url(ws),
+            (row.synced_oid or None) if row else None,
+            prefix,
+            await _token(db, _member, ws),
+        )
     )
 
 

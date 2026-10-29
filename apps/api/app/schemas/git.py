@@ -138,6 +138,19 @@ class GitPullPreviewResponse(CamelModel):
     source_concepts_diff: SourceConceptsDiff = SourceConceptsDiff()
 
 
+class GitTreePreviewResponse(CamelModel):
+    """Text of every file under a prefix at BASE (the sync anchor) and at the
+    remote head. A binary file comes back as its blob oid only, under `oids`."""
+
+    branch: str
+    remote_head: str | None = None
+    synced_oid: str | None = None
+    base: dict[str, str] = {}
+    remote: dict[str, str] = {}
+    base_oids: dict[str, str] = {}
+    remote_oids: dict[str, str] = {}
+
+
 class GitSetSyncStateRequest(CamelModel):
     """Anchor an entity's sync state to a known remote commit (used right after a
     git import, where the cloned HEAD is the base we imported from)."""
