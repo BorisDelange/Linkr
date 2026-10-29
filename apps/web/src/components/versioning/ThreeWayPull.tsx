@@ -1,20 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import JSZip from 'jszip'
 import { AlertTriangle, ArrowDownToLine, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { gitMergedTree, gitSetSyncState, gitThreeWay, type GitScope } from '@/lib/api/git'
-import { isCompletePull, itemIdFor, planIsEmpty, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
+import { gitThreeWay, type GitScope } from '@/lib/api/git'
+import { itemIdFor, planIsEmpty, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
 import {
   buildThreeWayPlan,
   mergedContent,
-  overridesFor,
   prepareThreeWay,
   type PreparedFile,
   type ThreeWayPreview,
 } from '@/lib/pull/three-way'
 import { elementLabels, wikiTitles } from '@/lib/pull/element-label'
-import { applyEntityPull, applyWorkspacePull, unsupportedWorkspacePaths } from '@/lib/pull/apply'
+import { unsupportedWorkspacePaths } from '@/lib/pull/apply'
+import { finalizePull } from '@/lib/pull/run'
 import { useAppStore } from '@/stores/app-store'
 import type { PullDiffText } from '@/lib/concept-mapping/pull-diff'
 import { PullPanel } from './PullPanel'
@@ -124,16 +123,10 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
     setApplying(true)
     setError(null)
     try {
-      const overrides = overridesFor(supported, draft.decisions)
-      if (Object.keys(overrides).length) {
-        const blob = await gitMergedTree(scope, id, branch, draft.preview.remoteHead, overrides)
-        const zip = await JSZip.loadAsync(await blob.arrayBuffer())
-        if (scope === 'workspaces') await applyWorkspacePull(id, zip, overrides)
-        else await applyEntityPull(scope, id, zip, overrides, workspaceId)
-      }
-      // Changes this version cannot write stay un-taken: only the decision cursor moves.
-      const complete = isCompletePull(plan, draft.decisions) && draft.unsupported.length === 0
-      await gitSetSyncState(scope, id, branch, draft.preview.remoteHead, !complete)
+      await finalizePull({
+        scope, id, workspaceId, branch, preview: draft.preview, prepared: supported, plan,
+        decisions: draft.decisions, unsupported: draft.unsupported,
+      })
       _drafts.delete(key)
       await onPulled()
     } catch (e) {

@@ -19,6 +19,7 @@ import {
   gitBranches,
   gitCommitPush,
   gitDiff,
+  gitPropose,
   gitPullFile,
   gitStatus,
   gitSyncState,
@@ -26,6 +27,7 @@ import {
   type GitCommitResult,
   type GitDiff,
   type GitErrorCode,
+  type GitProposal,
   type GitScope,
   type GitStatus,
   type GitSyncState as GitSyncStateResult,
@@ -172,6 +174,8 @@ interface GitSyncState {
   /** Commit + push an EXPLICIT path list (Quick actions), independent of the
    *  checkbox selection. Same flow as commitPush otherwise. */
   commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
+  /** The selected changes proposed as a merge / pull request into `branch`. */
+  propose: (scope: GitScope, id: string, title: string, branch?: string) => Promise<GitProposal | null>
   /** Shared commit+push implementation behind commitPush / commitPushPaths. */
   _commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
   togglePath: (path: string) => void
@@ -365,6 +369,21 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
       await get().refreshStatus(scope, id, branch)
       if (get().syncState) await get().loadSyncState(scope, id, branch)
       return result
+    } catch (err) {
+      set({ error: toGitError(err) })
+      return null
+    } finally {
+      set({ committing: false })
+    }
+  },
+
+  propose: async (scope, id, title, branch) => {
+    const paths = [...get().selected]
+    if (paths.length === 0) return null
+    set({ committing: true, error: null })
+    try {
+      const zip = await buildZip(scope, id, get().lfsOverrides)
+      return await gitPropose(scope, id, zip, title, branch, paths)
     } catch (err) {
       set({ error: toGitError(err) })
       return null

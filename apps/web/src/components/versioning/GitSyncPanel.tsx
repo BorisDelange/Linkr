@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { AlertTriangle, ArrowDownToLine, GitCommitVertical, Info, KeyRound, Loader2, RefreshCw, Settings, UploadCloud } from 'lucide-react'
+import { AlertTriangle, ArrowDownToLine, GitCommitVertical, GitPullRequest, Info, KeyRound, Loader2, RefreshCw, Settings, UploadCloud } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
@@ -23,10 +23,11 @@ import { gitFileMeta, groupGitFiles } from '@/lib/git-file-meta'
 import { buildQuickActions, type QuickAction } from '@/lib/git-quick-actions'
 import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
 import { changeTypeMeta } from './git-change-meta'
-import type { GitFileChange, GitScope } from '@/lib/api/git'
+import type { GitFileChange, GitProposal, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { PushMappingsDialog } from './PushMappingsDialog'
 import { MappingProjectPull } from './MappingProjectPull'
+import { GitProposals } from './GitProposals'
 import { ThreeWayPull } from './ThreeWayPull'
 import { REINSTALLABLE } from '@/lib/entity-reinstall'
 import { useWorkspaceStore } from '@/stores/workspace-store'
@@ -81,8 +82,10 @@ interface GitSyncPanelProps {
  */
 export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, renderInlinePull, onAfterPull, onOpenConfig }: GitSyncPanelProps) {
   const { t } = useTranslation()
-  const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, statusError, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
+  const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, statusError, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, propose, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
+  const [proposed, setProposed] = useState<GitProposal | null>(null)
+  const [proposalsKey, setProposalsKey] = useState(0)
   const authorName = useAppStore((s) => s.getUserDisplayName())
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
   // Every scope with an entity behind it pulls through the shared 3-way pull
@@ -142,6 +145,21 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   }
 
   const files = status?.files ?? []
+
+  // Same selection and checks as a push, onto a branch of its own: the change
+  // reaches `branch` once the forge merges it (plan §6).
+  const handlePropose = () => {
+    if (!message.trim() || committing || selected.size === 0) return
+    const run = async () => {
+      const result = await propose(scope, id, message.trim(), branch)
+      if (result) {
+        setProposed(result)
+        setMessage('')
+        setProposalsKey((k) => k + 1)
+      }
+    }
+    requestPush(dataFilesToPush(files.filter((f) => selected.has(f.path))), () => void run())
+  }
 
   const handleCommit = () => {
     if (!message.trim() || committing || selected.size === 0) return
@@ -584,6 +602,22 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
         {mustPullFirst && (
           <span className="text-[11px] text-warning-foreground">{t('versioning.sync_pull_first')}</span>
         )}
+        {proposed && (
+          <a href={proposed.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-xs text-primary hover:underline">
+            <GitPullRequest size={13} />
+            {t('versioning.proposal_opened', { number: proposed.forge === 'github' ? `#${proposed.number}` : `!${proposed.number}` })}
+          </a>
+        )}
+        <Button
+          variant="outline"
+          onClick={handlePropose}
+          disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
+          className="gap-1.5"
+          title={t('versioning.propose_hint')}
+        >
+          <GitPullRequest size={14} />
+          {t('versioning.propose')}
+        </Button>
         <Button
           onClick={handleCommit}
           disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
@@ -593,6 +627,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           {t('versioning.sync_commit_push')}
         </Button>
       </div>
+      <GitProposals scope={scope} id={id} refreshKey={proposalsKey} />
       </>}
         </TabsContent>
       </Tabs>

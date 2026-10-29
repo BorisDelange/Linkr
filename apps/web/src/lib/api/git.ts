@@ -153,6 +153,35 @@ export async function gitCommitPush(
   return postForm<GitCommitResult>(`${base(scope, id)}/commit-push`, form)
 }
 
+export interface GitProposal {
+  id: number
+  scope: GitScope
+  entityId: string
+  branch: string
+  targetBranch: string
+  forge: 'gitlab' | 'github'
+  number: number
+  url: string
+  title: string
+  state: 'open' | 'merged' | 'closed'
+  createdAt?: string
+}
+
+/** Push the selected changes on a branch of their own and open a merge request
+ *  (GitLab) / pull request (GitHub) into `branch`. */
+export async function gitPropose(
+  scope: GitScope, id: string, zip: Blob | null, title: string, branch: string | undefined, paths: string[],
+): Promise<GitProposal> {
+  const form = zipForm(zip, { title, ...(branch ? { branch } : {}) })
+  for (const p of paths) form.append('paths', p)
+  return postForm<GitProposal>(`${base(scope, id)}/propose`, form)
+}
+
+/** The entity's proposals, newest first, open ones re-read from the forge. */
+export async function gitProposals(scope: GitScope, id: string): Promise<GitProposal[]> {
+  return apiRequest<GitProposal[]>(`${base(scope, id)}/proposals`)
+}
+
 export async function gitBranches(scope: GitScope, id: string): Promise<GitBranches> {
   return apiRequest<GitBranches>(`${base(scope, id)}/branches`)
 }
