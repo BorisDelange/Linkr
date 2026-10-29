@@ -10,12 +10,12 @@
  */
 import JSZip from 'jszip'
 import type { GitScope } from '@/lib/api/git'
-import { applyClonedEntity, type GitLinkedEntity } from '@/lib/entity-io'
+import { applyClonedEntity, slugify, type GitLinkedEntity } from '@/lib/entity-io'
 import { readEntityDocsFrom } from '@/lib/entity-docs-pull'
 import { getStorage, type Storage } from '@/lib/storage'
-import { toLocalized } from '@/lib/localized'
+import { localized, toLocalized } from '@/lib/localized'
 import { readWikiSnapshot } from '@/lib/wiki/wiki-pull'
-import type { Workspace, WikiPage } from '@/types'
+import type { LocalizedString, Workspace, WikiPage } from '@/types'
 import type { Override } from './three-way'
 
 /** The entity kind `applyClonedEntity` rebuilds, per git scope. */
@@ -45,7 +45,10 @@ const WORKSPACE_SECTIONS: Record<string, GitLinkedEntity['type']> = {
 export class PullApplyError extends Error {}
 
 async function applyEntity(zip: JSZip, type: GitLinkedEntity['type'], id: string, storage: Storage, workspaceId?: string) {
-  const result = await applyClonedEntity(zip, type, id, storage, workspaceId)
+  // A database's data is in the tree only when marked for versioning; without it
+  // the pull must leave the stored files alone.
+  const keepData = type === 'database' && !Object.keys(zip.files).some((p) => p.startsWith('data/') && !zip.files[p].dir)
+  const result = await applyClonedEntity(zip, type, id, storage, workspaceId, undefined, { keepData })
   if (!result.ok) throw new PullApplyError(`${result.reason ?? 'apply failed'}${result.context ? `: ${result.context}` : ''}`)
 }
 
@@ -119,7 +122,24 @@ async function applyWorkspaceInfo(zip: JSZip, workspaceId: string, storage: Stor
   if (Object.keys(changes).length) await storage.workspaces.update(workspaceId, changes)
 }
 
-interface Portable { id?: string; uid?: string; entityId?: string; lineageId?: string }
+interface Portable {
+  id?: string
+  uid?: string
+  entityId?: string
+  lineageId?: string
+  projectId?: string
+  name?: unknown
+  presetId?: string
+  mapping?: { presetLabel?: unknown }
+}
+
+/** Every folder name the workspace export may give this entity (buildWorkspaceZip:
+ *  its entityId, else a project's projectId, else the slug of its English name). */
+function folderNames(c: Portable): string[] {
+  const name = typeof c.name === 'string' ? c.name : localized((c.name ?? c.mapping?.presetLabel ?? {}) as LocalizedString, 'en')
+  return [c.entityId, c.projectId, c.presetId, name ? slugify(name) : undefined, c.id, c.uid]
+    .filter((v): v is string => !!v)
+}
 
 async function inlineEntities(type: GitLinkedEntity['type'], workspaceId: string, storage: Storage): Promise<Portable[]> {
   switch (type) {
@@ -157,14 +177,15 @@ export async function unsupportedWorkspacePaths(
     const type = WORKSPACE_SECTIONS[at.section]
     if (!cache.has(type)) cache.set(type, await inlineEntities(type, workspaceId, storage))
     const manifest = manifests.get(`${at.section}/${at.folder}`)
-    if (!manifest || !matchEntity(cache.get(type)!, manifest)) out.push(path)
+    if (!manifest || !matchEntity(cache.get(type)!, manifest, at.folder)) out.push(path)
   }
   return out
 }
 
-function matchEntity(candidates: Portable[], manifest: Portable): Portable | undefined {
+function matchEntity(candidates: Portable[], manifest: Portable, folder?: string): Portable | undefined {
   return (manifest.lineageId && candidates.find((c) => c.lineageId === manifest.lineageId))
     || (manifest.entityId && candidates.find((c) => c.entityId === manifest.entityId))
+    || (folder && candidates.find((c) => folderNames(c).includes(folder)))
     || undefined
 }
 
@@ -183,8 +204,8 @@ export async function applyWorkspacePull(
     const manifestEntry = zip.files[`${prefix}entity.json`]
     if (!manifestEntry) continue
     const manifest = JSON.parse(await manifestEntry.async('string')) as Portable
-    const local = matchEntity(await inlineEntities(type, workspaceId, storage), manifest)
-    if (!local) continue
+    const local = matchEntity(await inlineEntities(type, workspaceId, storage), manifest, folder)
+    if (!local) throw new PullApplyError(`no local entity for ${prefix}`)
     const sub = new JSZip()
     for (const [path, entry] of Object.entries(zip.files)) {
       if (!entry.dir && path.startsWith(prefix)) sub.file(path.slice(prefix.length), await entry.async('uint8array'))

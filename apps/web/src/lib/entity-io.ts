@@ -3509,7 +3509,12 @@ async function applyClonedDatabase(
   storage: Storage,
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
+  options: ApplyClonedOptions = {},
 ): Promise<ApplyClonedResult> {
+  // A pull of a tree without data/ (not versioned) must not touch the database's
+  // files: the re-clone path replaces them with what the repo carries, which here
+  // is nothing — the database would come out empty.
+  const keepData = !!options.keepData
   const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
   if (!metaEntry) return { ok: false, reason: 'missing-manifest', context: MANIFEST.database }
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
@@ -3554,8 +3559,10 @@ async function applyClonedDatabase(
 
   // Replace any previous files for this source so a re-clone is idempotent
   // rather than accumulating a second copy of every table.
-  const previous = await storage.files.getByDataSource(targetId).catch(() => [])
-  for (const file of previous) await storage.files.delete(file.id).catch(() => {})
+  if (!keepData) {
+    const previous = await storage.files.getByDataSource(targetId).catch(() => [])
+    for (const file of previous) await storage.files.delete(file.id).catch(() => {})
+  }
 
   const connectionConfig: DatabaseConnectionConfig = {
     engine: 'duckdb',
@@ -3581,7 +3588,7 @@ async function applyClonedDatabase(
     name: toLocalized(meta.name ?? targetId),
     description: toLocalized(meta.description ?? ''),
     sourceType: 'database' as const,
-    connectionConfig,
+    connectionConfig: keepData && existing ? existing.connectionConfig : connectionConfig,
     schemaMapping,
     ...(schemaOverrides ? { schemaOverrides } : {}),
     // Which published schema the inline mapping came from: the id recognizes it
@@ -3589,7 +3596,7 @@ async function applyClonedDatabase(
     // installed. Both travel with the repo.
     ...(meta.schemaSource ? { schemaSource: meta.schemaSource } : {}),
     ...(meta.derivedFrom ? { derivedFrom: meta.derivedFrom } : {}),
-    status: 'configuring' as const,
+    status: keepData && existing ? existing.status : ('configuring' as const),
     ...(meta.isVocabularyReference ? { isVocabularyReference: true } : {}),
     ...(meta.version ? { version: meta.version } : {}),
     ...(workspaceId ? { workspaceId } : {}),
@@ -3651,6 +3658,8 @@ async function applyClonedDatabase(
   await replaceDatabaseBoards(storage, targetId, await readCohortBoards(zip, '')).catch((err) => {
     console.error(`[import] patient board failed for "${targetId}":`, err)
   })
+
+  if (keepData && existing) return { ok: true, ...(aliasRenamed ? { aliasRenamed } : {}) }
 
   // The row has to exist BEFORE its files: in server mode `files.create` registers
   // each blob against the data source, and the API refuses an unknown one with a
@@ -3886,6 +3895,11 @@ export interface ApplyClonedResult {
  * reinstall failed" for a missing manifest, an absent DDL and a rejected write
  * alike. `reason` + `context` let the UI say which file the repo is missing.
  */
+export interface ApplyClonedOptions {
+  /** Databases: keep the files already stored (a pull of a tree carrying no data). */
+  keepData?: boolean
+}
+
 export async function applyClonedEntity(
   zip: JSZip,
   type: GitLinkedEntity['type'],
@@ -3893,6 +3907,7 @@ export async function applyClonedEntity(
   storage: Storage,
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
+  options: ApplyClonedOptions = {},
 ): Promise<ApplyClonedResult> {
   await assertAppVersionSupported(zip)
   const readJson = async <T>(name: string): Promise<T | null> => {
@@ -4098,7 +4113,8 @@ export async function applyClonedEntity(
     const withDocs = await withEntityDocs(
       dropForeignAuthorId({
         ...preset,
-        presetId: targetId,
+        // A re-apply (a pull) keeps the row's own key; `targetId` may be its id.
+        presetId: existingPreset?.presetId ?? targetId,
         // A local key is local: the repo's belongs to whichever instance wrote
         // it, so this row keeps its own — the one already stored when this is a
         // re-clone of a preset that is here, a fresh uuid otherwise. Re-minting
@@ -4113,12 +4129,14 @@ export async function applyClonedEntity(
         // and a repo that does carry one keeps the published value.
         lineageId: existingPreset?.lineageId ?? preset.lineageId ?? crypto.randomUUID(),
         workspaceId,
-        ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
+        // save() is a full upsert: a link left out is a link erased. A pull passes
+        // none, so the row's own stays.
+        ...((gitRemoteConfig ?? existingPreset?.gitRemoteConfig) ? { gitRemoteConfig: gitRemoteConfig ?? existingPreset?.gitRemoteConfig } : {}),
         // `mapping.presetId` must follow the entity's id. Leaving the repo's
         // value made the two drift whenever the install minted a fresh id, and
         // a later ZIP import — which reads `mapping.presetId` as the entity id
         // and deletes whatever holds it — then deleted a different preset.
-        mapping: sanitizeSchemaMapping({ ...presetMapping, presetId: targetId, ddl }),
+        mapping: sanitizeSchemaMapping({ ...presetMapping, presetId: existingPreset?.presetId ?? targetId, ddl }),
       }) as CustomSchemaPreset,
       'schema-preset',
     )
@@ -4127,7 +4145,7 @@ export async function applyClonedEntity(
   }
 
   if (type === 'database') {
-    return applyClonedDatabase(zip, targetId, storage, workspaceId, gitRemoteConfig)
+    return applyClonedDatabase(zip, targetId, storage, workspaceId, gitRemoteConfig, options)
   }
 
   // project: parse the cloned repo as a project ZIP and write its sub-entities under targetId.
