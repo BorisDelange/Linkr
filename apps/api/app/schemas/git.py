@@ -151,6 +151,28 @@ class GitTreePreviewResponse(CamelModel):
     remote_oids: dict[str, str] = {}
 
 
+class GitThreeWayFile(CamelModel):
+    """One file the remote changed since BASE. The three texts are present when
+    every side that has the file holds readable text; `binary` otherwise, and
+    only the blob ids say what moved."""
+
+    path: str
+    base_oid: str | None = None
+    local_oid: str | None = None
+    remote_oid: str | None = None
+    binary: bool = False
+    base: str | None = None
+    local: str | None = None
+    remote: str | None = None
+
+
+class GitThreeWayResponse(CamelModel):
+    branch: str
+    remote_head: str | None = None
+    synced_oid: str | None = None
+    files: list[GitThreeWayFile] = []
+
+
 class GitSetSyncStateRequest(CamelModel):
     """Anchor an entity's sync state to a known remote commit (used right after a
     git import, where the cloned HEAD is the base we imported from)."""

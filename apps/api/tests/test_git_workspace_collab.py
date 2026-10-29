@@ -4,6 +4,7 @@ preview hands back BASE and REMOTE of the wiki for the client's 3-way merge.
 Every remote is a bare repository on this machine."""
 
 import io
+import json
 import subprocess
 import zipfile
 
@@ -179,3 +180,45 @@ async def test_a_sql_collection_has_a_sync_state(client, tmp_path):
         json={"branch": "main", "syncedOid": "deadbeef"},
     )
     assert r.status_code == 204
+
+
+async def test_three_way_describes_what_came_in_and_merged_tree_applies_the_choices(client, tmp_path):
+    headers = await _admin(client)
+    ws, remote = await _linked_workspace(client, headers, tmp_path)
+    await _push(client, headers, ws, {"wiki/home.md": "Hello\n", "workspace.json": "{}"})
+    clone = tmp_path / "bob"
+    subprocess.run(["git", "clone", "-q", remote, str(clone)], check=True, capture_output=True)
+    _git(clone, "config", "user.email", "bob@example.org")
+    _git(clone, "config", "user.name", "Bob")
+    (clone / "wiki" / "home.md").write_text("Hello from Bob\n")
+    (clone / "logo.png").write_bytes(b"\x89PNG\x00\x01binary")
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", "bob")
+    _git(clone, "push", "-q", "origin", "main")
+
+    local = _zip({"wiki/home.md": "Hello, mine\n", "workspace.json": "{}"})
+    r = await client.post(
+        f"{API}/git/workspaces/{ws}/three-way", headers=headers,
+        data={"branch": "main"}, files={"file": ("ws.zip", local, "application/zip")},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    by_path = {f["path"]: f for f in body["files"]}
+    assert set(by_path) == {"wiki/home.md", "logo.png"}
+    home = by_path["wiki/home.md"]
+    assert (home["base"], home["local"], home["remote"]) == ("Hello\n", "Hello, mine\n", "Hello from Bob\n")
+    assert by_path["logo.png"]["binary"] and by_path["logo.png"]["baseOid"] is None
+
+    r = await client.post(
+        f"{API}/git/workspaces/{ws}/merged-tree", headers=headers,
+        data={
+            "branch": "main", "remoteHead": body["remoteHead"],
+            "overrides": json.dumps({"wiki/home.md": {"text": "Merged\n"}, "logo.png": {"remote": True}}),
+        },
+        files={"file": ("ws.zip", local, "application/zip")},
+    )
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    with zipfile.ZipFile(io.BytesIO(r.content)) as zf:
+        assert zf.read("wiki/home.md") == b"Merged\n"
+        assert zf.read("logo.png") == b"\x89PNG\x00\x01binary"
+        assert zf.read("workspace.json") == b"{}"

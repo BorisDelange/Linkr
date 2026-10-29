@@ -22,7 +22,7 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit, deferred
@@ -50,6 +50,7 @@ from app.schemas.git import (
     GitPullScoresRequest,
     GitSetSyncStateRequest,
     GitStatusResponse,
+    GitThreeWayResponse,
     GitTreePreviewResponse,
     GitSyncStateResponse,
     GitVerifyRequest,
@@ -228,6 +229,42 @@ async def _sync_state(
     return {"linked": remote_url is not None, "branch": branch, **result}
 
 
+
+# --- 3-way pull (every scope) ------------------------------------------------
+
+
+async def _three_way(db, scope, entity_id, repo_getter, zip_bytes, branch, remote_url, token) -> dict:
+    """What the remote brought since the sync anchor, file by file, with the three
+    versions (plan §9.2). Read access: nothing is written until the client
+    re-imports the merged tree."""
+    row = await git_sync_state_service.get(db, scope, entity_id, branch)
+    return await _guard(
+        git_service.three_way(
+            repo_getter, entity_id, zip_bytes, branch, remote_url,
+            (row.synced_oid or None) if row else None, token,
+        )
+    )
+
+
+async def _merged_tree(repo_getter, entity_id, zip_bytes, branch, remote_url, token, remote_head, overrides):
+    """The local export with the pull's decisions applied, as the ZIP the client
+    re-imports. `overrides` is JSON: {path: {"text"} | {"remote": true} | {"delete": true}}."""
+    import json as _json_mod
+
+    try:
+        parsed = _json_mod.loads(overrides or "{}")
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "overrides is not JSON") from exc
+    if not isinstance(parsed, dict):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "overrides must be an object")
+    try:
+        data = await git_service.merged_tree(
+            repo_getter, entity_id, zip_bytes, branch, remote_url, remote_head, parsed, token,
+        )
+    except git_service.GitError as exc:
+        raise _git_http_error(exc) from exc
+    return Response(content=data, media_type="application/zip")
+
 async def _apply_sync_state(db, scope: str, entity_id: str, body) -> None:
     """Record a `set-sync-state` request, honouring `reviewedOnly`.
 
@@ -326,6 +363,38 @@ async def project_branches(
         project.uid,
         _remote_url(project),
         await _token(db, user, project),
+    )
+
+
+@router.post("/projects/{project_uid}/three-way", response_model=GitThreeWayResponse)
+async def project_three_way(
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    project=Depends(require_project_permission("project-settings:read")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await _three_way(
+        db, "projects", project.uid, git_service.project_repo_getter,
+        await _project_zip_bytes(db, project, file), _default_branch(project, branch),
+        _remote_url(project), await _token(db, user, project),
+    )
+
+
+@router.post("/projects/{project_uid}/merged-tree")
+async def project_merged_tree(
+    remote_head: str = Form(..., alias="remoteHead"),
+    overrides: str = Form("{}"),
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    project=Depends(require_project_permission("project-settings:read")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await _merged_tree(
+        git_service.project_repo_getter, project.uid, await _project_zip_bytes(db, project, file),
+        _default_branch(project, branch), _remote_url(project), await _token(db, user, project),
+        remote_head, overrides,
     )
 
 
@@ -544,6 +613,40 @@ async def workspace_set_sync_state(
     await _apply_sync_state(db, "workspaces", ws.id, body)
 
 
+@router.post("/workspaces/{workspace_id}/three-way", response_model=GitThreeWayResponse)
+async def workspace_three_way(
+    workspace_id: str,
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:read")),
+):
+    ws = await _load_workspace(workspace_id, db, _member)
+    return await _three_way(
+        db, "workspaces", ws.id, git_service.workspace_repo_getter,
+        await _workspace_zip_bytes(db, ws, file), _default_branch(ws, branch),
+        _remote_url(ws), await _token(db, _member, ws),
+    )
+
+
+@router.post("/workspaces/{workspace_id}/merged-tree")
+async def workspace_merged_tree(
+    workspace_id: str,
+    remote_head: str = Form(..., alias="remoteHead"),
+    overrides: str = Form("{}"),
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:read")),
+):
+    ws = await _load_workspace(workspace_id, db, _member)
+    return await _merged_tree(
+        git_service.workspace_repo_getter, ws.id, await _workspace_zip_bytes(db, ws, file),
+        _default_branch(ws, branch), _remote_url(ws), await _token(db, _member, ws),
+        remote_head, overrides,
+    )
+
+
 @router.get("/workspaces/{workspace_id}/tree-preview", response_model=GitTreePreviewResponse)
 async def workspace_tree_preview(
     workspace_id: str,
@@ -742,6 +845,22 @@ async def mapping_project_pull_preview(
             local_source_csv=local_source_csv,
             source_column_mapping=source_column_mapping,
         )
+    )
+
+
+@router.post("/mapping-projects/{mapping_project_id}/three-way", response_model=GitThreeWayResponse)
+async def mapping_project_three_way(
+    mapping_project_id: str,
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    return await _three_way(
+        db, "mapping-projects", mp.id, git_service.mapping_project_repo_getter,
+        await _mapping_project_zip_bytes(db, mp, file), _default_branch(mp, branch),
+        _remote_url(mp), await _token(db, user, mp),
     )
 
 
@@ -1026,6 +1145,39 @@ async def sql_collection_commit_push(
     )
 
 
+@router.post("/sql-script-collections/{collection_id}/three-way", response_model=GitThreeWayResponse)
+async def sql_collection_three_way(
+    collection_id: str,
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    return await _three_way(
+        db, "sql-script-collections", c.id, git_service.sql_collection_repo_getter,
+        await _sql_collection_zip_bytes(db, c, file), _default_branch(c, branch),
+        _remote_url(c), await _token(db, user, c),
+    )
+
+
+@router.post("/sql-script-collections/{collection_id}/merged-tree")
+async def sql_collection_merged_tree(
+    collection_id: str,
+    remote_head: str = Form(..., alias="remoteHead"),
+    overrides: str = Form("{}"),
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    return await _merged_tree(
+        git_service.sql_collection_repo_getter, c.id, await _sql_collection_zip_bytes(db, c, file),
+        _default_branch(c, branch), _remote_url(c), await _token(db, user, c), remote_head, overrides,
+    )
+
+
 @router.get(
     "/sql-script-collections/{collection_id}/sync-state",
     response_model=GitSyncStateResponse,
@@ -1216,6 +1368,40 @@ def _register_entity_git_routes(
                 *_push_anchors(row),
             ),
             (prefix, _entity_id(e), resolved_branch),
+        )
+
+    @router.post(
+        f"/{prefix}/{{entity_id}}/three-way",
+        response_model=GitThreeWayResponse,
+        name=f"{prefix}_three_way",
+    )
+    async def _three_way_route(
+        entity_id: str,
+        file: UploadFile | None = File(None),
+        branch: str | None = Form(None),
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_user),
+    ):
+        e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
+        return await _three_way(
+            db, prefix, _entity_id(e), repo_getter, await _zip_bytes(db, e, file),
+            _default_branch(e, branch), _remote_url(e), await _token(db, user, e),
+        )
+
+    @router.post(f"/{prefix}/{{entity_id}}/merged-tree", name=f"{prefix}_merged_tree")
+    async def _merged_tree_route(
+        entity_id: str,
+        remote_head: str = Form(..., alias="remoteHead"),
+        overrides: str = Form("{}"),
+        file: UploadFile | None = File(None),
+        branch: str | None = Form(None),
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_user),
+    ):
+        e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
+        return await _merged_tree(
+            repo_getter, _entity_id(e), await _zip_bytes(db, e, file), _default_branch(e, branch),
+            _remote_url(e), await _token(db, user, e), remote_head, overrides,
         )
 
     @router.get(

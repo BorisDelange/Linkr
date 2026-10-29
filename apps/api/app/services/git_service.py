@@ -23,6 +23,7 @@ asyncio.to_thread to keep the event loop responsive (mirrors blob_store).
 import asyncio
 import csv
 import difflib
+import hashlib
 import io
 import ipaddress
 import re
@@ -1455,6 +1456,154 @@ async def tree_preview(
             "baseOids": base_oids,
             "remoteOids": remote_oids,
         }
+
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
+
+
+# --- 3-way pull, every scope -------------------------------------------------
+#
+# The pull of any versioned entity is a merge over its export tree
+# (docs/planning/collaborative-versioning-plan.md §9.2): BASE = the sync anchor,
+# REMOTE = the remote head, LOCAL = the export as it stands now. `three_way`
+# describes what came in; `merged_tree` builds the tree the client re-imports.
+
+_THREE_WAY_TEXT_MAX = 2 * 1024 * 1024
+
+
+def _blob_oid(data: bytes) -> str:
+    """git's blob id of `data` (sha1 of "blob <len>\\0" + data), so a local file
+    compares with the trees' entries without writing it into the repository."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def _zip_files(zip_bytes: bytes) -> dict[str, bytes]:
+    with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
+        return {i.filename: zf.read(i) for i in zf.infolist() if not i.is_dir()}
+
+
+def _tree_oids(repo: Path, commit: str | None) -> dict[str, str]:
+    if not commit:
+        return {}
+    out = _run(repo, "ls-tree", "-r", commit, check=False)
+    oids: dict[str, str] = {}
+    for line in out.splitlines():
+        meta, _, path = line.partition("\t")
+        parts = meta.split()
+        if len(parts) == 3 and parts[1] == "blob":
+            oids[path] = parts[2]
+    return oids
+
+
+def _blob_bytes(repo: Path, oid: str) -> bytes | None:
+    """A blob's raw bytes (`_run` decodes as text, which a binary file breaks)."""
+    proc = subprocess.run(
+        ["git", "-C", str(repo), "cat-file", "blob", oid],
+        capture_output=True, timeout=_GIT_TIMEOUT, env=_git_env(),
+    )
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def _as_text(data: bytes | None) -> str | None:
+    if data is None or len(data) > _THREE_WAY_TEXT_MAX or b"\0" in data[:8192]:
+        return None
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
+async def three_way(
+    repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_url: str | None,
+    synced_oid: str | None, token: str | None = None,
+) -> dict:
+    """Every file the remote changed since BASE, with its three versions: text
+    when it is text and not too large, else only the blob ids (the client then
+    offers the file whole). LFS pointers stay pointers here: their oid says
+    whether the content moved, and `merged_tree` materialises what is taken."""
+    _safe_ref(branch)
+    if synced_oid is not None:
+        _safe_oid(synced_oid)
+
+    def work() -> dict:
+        repo = repo_getter(uid)
+        _ensure_repo(repo, remote_url)
+        if not remote_url:
+            raise GitError("entity is not linked to a git remote", "unknown")
+        if not _sync_remote_branch(repo, branch, remote_url, token):
+            raise GitError("remote branch not found", "not_found")
+        remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip() or None
+        if synced_oid:
+            _run(repo, "fetch", "-q", _with_credentials(remote_url, token), synced_oid,
+                 token=token, env_extra={"GIT_LFS_SKIP_SMUDGE": "1"}, check=False)
+        base = _tree_oids(repo, synced_oid)
+        remote = _tree_oids(repo, remote_head)
+        local = _zip_files(zip_bytes)
+        files = []
+        for path in sorted(set(base) | set(remote)):
+            if base.get(path) == remote.get(path):
+                continue
+            local_bytes = local.get(path)
+            local_oid = _blob_oid(local_bytes) if local_bytes is not None else None
+            entry: dict = {
+                "path": path,
+                "baseOid": base.get(path),
+                "localOid": local_oid,
+                "remoteOid": remote.get(path),
+            }
+            texts = {
+                "base": _as_text(_blob_bytes(repo, base[path])) if path in base else None,
+                "remote": _as_text(_blob_bytes(repo, remote[path])) if path in remote else None,
+                "local": _as_text(local_bytes),
+            }
+            binary = any(
+                texts[side] is None and present
+                for side, present in (("base", path in base), ("remote", path in remote), ("local", local_bytes is not None))
+            )
+            entry["binary"] = binary
+            if not binary:
+                entry.update(texts)
+            files.append(entry)
+        return {"branch": branch, "remoteHead": remote_head, "syncedOid": synced_oid, "files": files}
+
+    async with _lock_for(repo_getter(uid)):
+        return await asyncio.to_thread(work)
+
+
+async def merged_tree(
+    repo_getter, uid: str, zip_bytes: bytes, branch: str, remote_url: str | None,
+    remote_head: str, overrides: dict[str, dict], token: str | None = None,
+) -> bytes:
+    """The local export with the pull's decisions applied, as a ZIP: per path,
+    `{"text": …}` writes that content, `{"remote": true}` takes the file as it is
+    at `remote_head` (LFS resolved), `{"delete": true}` removes it."""
+    _safe_ref(branch)
+    _safe_oid(remote_head)
+
+    def work() -> bytes:
+        repo = repo_getter(uid)
+        _ensure_repo(repo, remote_url)
+        if not remote_url:
+            raise GitError("entity is not linked to a git remote", "unknown")
+        _sync_remote_branch(repo, branch, remote_url, token)
+        files = _zip_files(zip_bytes)
+        for path, op in overrides.items():
+            _safe_join(repo, path)
+            if op.get("delete"):
+                files.pop(path, None)
+            elif "text" in op:
+                files[path] = str(op["text"]).encode("utf-8")
+            elif op.get("remote"):
+                data = _materialize_at(repo, remote_head, path, remote_url, token)
+                if data is None:
+                    files.pop(path, None)
+                else:
+                    files[path] = data
+        out = io.BytesIO()
+        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+            for path in sorted(files):
+                zf.writestr(path, files[path])
+        return out.getvalue()
 
     async with _lock_for(repo_getter(uid)):
         return await asyncio.to_thread(work)
