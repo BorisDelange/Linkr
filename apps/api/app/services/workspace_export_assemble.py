@@ -52,6 +52,7 @@ from app.schemas.patient_dashboard import (
 )
 from app.export_version import EXPORT_APP_VERSION as APP_VERSION
 from app.services.entity_docs import license_meta
+from app.services.dq_check_portable import portable_checks
 from app.services.export_layout import (
     CONTENT_PLUGIN_MANIFEST,
     order_provenance,
@@ -992,7 +993,7 @@ async def build_dq_rule_set_tree(db: AsyncSession, rule_set) -> dict[str, bytes]
     tree.update(await _entity_docs(db, "", dumped, "dq-rule-set", rule_set.id))
     checks = [_dump(DqCustomCheckResponse, c) for c in await dq_rule_set_service.list_checks(db, rule_set.id)]
     if checks:
-        tree["checks.json"] = _json(checks)
+        tree["checks.json"] = _json(portable_checks(checks))
     await _attach_org(db, tree, ENTITY_MANIFEST, rule_set)
     return tree
 

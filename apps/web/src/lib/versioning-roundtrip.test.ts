@@ -144,10 +144,8 @@ const KINDS: Kind[] = [
  * `it.fails` turns red the day one is fixed, which is when it leaves this list.
  *  - project: on IndexedDB, dataset, connection and attachment ids are re-minted
  *    on import (server mode keys datasets by path); widgets then point elsewhere.
- *  - dq-rule-set: check ids are re-minted on every import and exported with
- *    the checks, in storage order.
  */
-const KNOWN_CHURN = new Set(['project', 'dq-rule-set'])
+const KNOWN_CHURN = new Set(['project'])
 
 let storage: Storage
 beforeAll(() => {

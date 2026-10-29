@@ -27,6 +27,7 @@ import unicodedata
 from typing import Any
 
 from app.core.json_export import export_json as _json
+from app.services.dq_check_portable import portable_checks
 from app.services.export_layout import (
     ENTITY_MANIFEST,
     git_pointer_manifest,
@@ -457,7 +458,7 @@ def _build_data_quality_section(
         for name, content in (entry.get("docs") or {}).items():
             tree[f"{prefix}{name}"] = content
         if checks:
-            tree[f"{prefix}{CONTENT_DQ_CHECKS}"] = _json(checks)
+            tree[f"{prefix}{CONTENT_DQ_CHECKS}"] = _json(portable_checks(checks))
 
 
 def _build_concept_sets_section(tree: dict[str, bytes], concept_sets: list[dict]) -> None:

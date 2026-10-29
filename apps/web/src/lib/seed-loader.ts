@@ -50,6 +50,7 @@ import type {
 } from '@/types'
 import { localized, toLocalized } from '@/lib/localized'
 import { readWikiPageMeta } from '@/lib/wiki-page-meta'
+import { importedChecks } from '@/lib/dq-check-portable'
 import type { ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 
 /** A seed write that failed: the seed goes on without it, but says which. */
@@ -856,8 +857,8 @@ async function loadStructuralEntity(
       // written against this one.
       ruleSet.id = entityKey(ruleSet, folder ?? entity.id)
       await storage.dqRuleSets.create({ ...ruleSet, workspaceId: wsId, origin: 'seed', updatedAt: now }).catch(seedWriteFailed('DQ rule set', ruleSet.id))
-      for (const check of checks) {
-        await storage.dqCustomChecks.create({ ...check, ruleSetId: ruleSet.id } as import('@/types').DqCustomCheck).catch(seedWriteFailed('DQ check', check.id))
+      for (const check of importedChecks(checks, ruleSet.id)) {
+        await storage.dqCustomChecks.create(check).catch(seedWriteFailed('DQ check', check.id))
       }
       break
     }

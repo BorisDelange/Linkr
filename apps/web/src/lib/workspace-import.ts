@@ -31,6 +31,7 @@ import { aliasesInScope, ensureUniqueAlias } from '@/lib/alias'
 import { restoreImportedScores } from '@/lib/concept-mapping/scores-restore'
 import { resolveConceptSetRefs, type ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 import type { DataSource, DataSourceRef, MappingProject, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
+import { importedChecks } from '@/lib/dq-check-portable'
 
 /** Append " (copy)" to every language of a multilingual name when duplicating. */
 function copyLocalizedName(name: LocalizedString): LocalizedString {
@@ -646,12 +647,7 @@ export async function importWorkspaceTree(
         ? { name: copyLocalizedName(ruleSet.name), createdAt: now, lineageId: crypto.randomUUID(), parentLineageId: ruleSet.lineageId }
         : { lineageId: ruleSet.lineageId ?? crypto.randomUUID() }),
     })
-    const remintChecks = id !== ruleSet.id
-    for (const check of checks) {
-      await storage.dqCustomChecks.create({
-        ...check, id: remintChecks ? crypto.randomUUID() : check.id, ruleSetId: id,
-      })
-    }
+    for (const check of importedChecks(checks, id)) await storage.dqCustomChecks.create(check)
   }
 
   // --- Import concept sets ---

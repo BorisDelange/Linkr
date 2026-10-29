@@ -28,6 +28,7 @@ import { ListPageTemplate } from '../ListPageTemplate'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import { CreateDqRuleSetDialog } from './CreateDqRuleSetDialog'
 import { useDqRuleSetActions } from './use-dq-rule-set-actions'
+import { importedChecks } from '@/lib/dq-check-portable'
 import type { DqRuleSet } from '@/types'
 
 function scoreColor(score?: number) {
@@ -143,11 +144,7 @@ export function DqRuleSetListPage() {
       } catch { /* leave unanchored — lazy adoption may still catch a clean sync */ }
     }
     // One transaction: a refused check leaves none half-written.
-    await getStorage().dqCustomChecks.createMany(id, checks.map((c) => ({
-      ...c,
-      id: duplicate ? crypto.randomUUID() : c.id,
-      ruleSetId: id,
-    })))
+    await getStorage().dqCustomChecks.createMany(id, importedChecks(checks, id))
     await loadDqRuleSets()
   }, [activeWorkspaceId, language, loadDqRuleSets])
 

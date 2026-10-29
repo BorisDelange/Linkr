@@ -48,6 +48,7 @@ import * as engine from '@/lib/duckdb/engine'
 import { aliasesInScope } from '@/lib/alias'
 import { localized, toLocalized } from '@/lib/localized'
 import { readWikiPageMeta } from '@/lib/wiki-page-meta'
+import { importedChecks, portableChecks } from '@/lib/dq-check-portable'
 import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -3165,7 +3166,7 @@ export async function buildDqRuleSetFolder(
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'dq-rule-set')))
   await writeEntityDocs(zip, prefix, ruleSet, storage, 'dq-rule-set', ruleSet.id)
   const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)
-  if (checks.length > 0) zip.file(`${prefix}${CONTENT_FILE.dqChecks}`, json(checks))
+  if (checks.length > 0) zip.file(`${prefix}${CONTENT_FILE.dqChecks}`, json(portableChecks(checks)))
 }
 
 export async function buildDqRuleSetZip(
@@ -4053,14 +4054,10 @@ export async function applyClonedEntity(
       if (database) changes.dataSourceId = database.id
     }
     const checks = (await readJson<DqCustomCheck[]>(CONTENT_FILE.dqChecks)) ?? []
-    // Re-mint the check id: it's a global PK, so the repo's original id collides
-    // when the same rule-set repo is cloned into a second workspace or as a copy.
-    // One atomic replace, first: a check the server refuses (a threshold out of
-    // range) used to land after the old checks were deleted, leaving none.
-    await storage.dqCustomChecks.replaceByRuleSet(targetId, checks.map((c) => {
-      const { id: _cid, ruleSetId: _rs, ...rest } = c
-      return { ...rest, id: crypto.randomUUID(), ruleSetId: targetId } as DqCustomCheck
-    }))
+    // Ids derived from (rule set, check key): stable on every re-apply, distinct
+    // in a second copy. One atomic replace, first: a check the server refuses (a
+    // threshold out of range) used to land after the old checks were deleted.
+    await storage.dqCustomChecks.replaceByRuleSet(targetId, importedChecks(checks, targetId))
     await storage.dqRuleSets.update(targetId, changes)
     return { ok: true }
   }
