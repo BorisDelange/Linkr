@@ -27,6 +27,14 @@ import type { GitFileChange, GitScope } from '@/lib/api/git'
 import { GitDiffDialog } from './GitDiffDialog'
 import { PushMappingsDialog } from './PushMappingsDialog'
 import { MappingProjectPull } from './MappingProjectPull'
+import { ThreeWayPull } from './ThreeWayPull'
+import { REINSTALLABLE } from '@/lib/entity-reinstall'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+
+/** Scopes pulled through the shared 3-way pull (plan §9.2). */
+const THREE_WAY_SCOPES: GitScope[] = [
+  'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'databases',
+]
 import { ChangeBadge } from './ChangeBadge'
 import { GitErrorInline } from './GitErrorInline'
 import { useConfirmDataVersioning } from './ConfirmDataVersioningDialog'
@@ -76,9 +84,13 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const { status, branches, syncState, selected, loadingStatus: loadingStatusRaw, loadingSyncState, committing, error, statusError, refreshStatus, ensureStatus, loadBranches, loadSyncState, commitPush, commitPushPaths, togglePath, setAllSelected, lfsPaths, toggleLfs } =
     useGitSyncStore()
   const authorName = useAppStore((s) => s.getUserDisplayName())
-  // behind/diverged detection: mapping projects (built-in 3-way pull) and any scope
-  // that supplies its own pull dialog (settings uses an upsert dialog).
-  const syncStateSupported = scope === 'mapping-projects' || !!renderPullDialog || !!renderInlinePull
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  // Every scope with an entity behind it pulls through the shared 3-way pull
+  // (ThreeWayPull) unless it brings its own: mapping projects keep the per-mapping
+  // one below, settings an upsert dialog. user-plugins has no importer to apply a
+  // pull with, so it stays push-only.
+  const threeWay = THREE_WAY_SCOPES.includes(scope)
+  const syncStateSupported = scope === 'mapping-projects' || threeWay || !!renderPullDialog || !!renderInlinePull
   // A scope with no pull flow can push but cannot take remote changes back. Say so
   // instead of silently omitting the banner: the gap is invisible otherwise, and it
   // reads as "there is nothing to pull" rather than "this is not built yet".
@@ -93,7 +105,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // A scope pulls INLINE (the panel switches direction) as soon as it supplies a
   // renderer; the rest still open their own dialog from the banner until they move
   // to the same shell. Mapping projects keep their built-in renderer below.
-  const inlinePull = (scope === 'mapping-projects' || !!renderInlinePull) && !renderPullDialog
+  const inlinePull = (scope === 'mapping-projects' || threeWay || !!renderInlinePull) && !renderPullDialog
   // Which quick action is mid-commit (its messageKey), so ONLY that card spins
   // while the others merely disable — a shared `committing` would spin them all.
   const [runningQuickAction, setRunningQuickAction] = useState<string | null>(null)
@@ -338,8 +350,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const pullMode = inlinePull && mustPullFirst
   const afterPull = async () => {
     // The pull wrote straight to the DB, behind whatever in-memory stores the
-    // scope's own views read — only it knows what to reload.
+    // scope's own views read — only it knows what to reload; a reinstall knows too.
     if (onAfterPull) await onAfterPull()
+    else await REINSTALLABLE[scope]?.reload({ id, workspaceId: activeWorkspaceId ?? undefined })
     if (scope === 'mapping-projects') {
       const { useConceptMappingStore } = await import('@/stores/concept-mapping-store')
       const cm = useConceptMappingStore.getState()
@@ -361,6 +374,18 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const pullBody = (mode: 'quick' | 'details') =>
     renderInlinePull
       ? renderInlinePull({ branch, remoteHead: syncState?.remoteHead ?? null, mode, onPulled: afterPull })
+      : threeWay
+      ? (
+        <ThreeWayPull
+          scope={scope}
+          id={id}
+          workspaceId={scope === 'workspaces' ? id : activeWorkspaceId ?? undefined}
+          branch={branch}
+          remoteHead={syncState?.remoteHead ?? null}
+          mode={mode}
+          onPulled={afterPull}
+        />
+      )
       : (
         <MappingProjectPull
           projectId={id}

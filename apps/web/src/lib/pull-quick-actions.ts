@@ -1,52 +1,84 @@
 /**
- * Quick-action cards, shared by push and pull.
+ * Quick-action cards of the pull: one per SUBJECT of the entity — its information,
+ * its dashboards, its wiki pages… — each listing its elements with a take/keep
+ * choice (docs/planning/collaborative-versioning-plan.md §9.3).
  *
- * One definition per card, with a verb per direction: "Sync" going out, "Pull"
- * coming in. Keeping one list is what makes the two directions symmetric — a card
- * that exists on one side and not the other was how "Sync mappings" ended up
- * quietly pushing `project.json` too, and why source concepts had no card at all.
- *
- * The verbs deliberately stay different: unifying on "Sync" would make the
- * direction ambiguous exactly where the user needs it to be obvious.
+ * A file lands on the first card whose patterns match it; what no card claims
+ * falls on "Other", so nothing coming in is ever out of reach.
  */
 import type { GitScope } from '@/lib/api/git'
 
 export interface PullCardDef {
-  /** Stable id, also the i18n suffix (`versioning.card_<id>`). */
+  /** Stable id, also the i18n suffix (`versioning.subject_<id>`). */
   id: string
-  /** Paths this card covers. Absent = everything (the primary "all" card). */
+  /** Paths this card covers. Absent = everything left (the "other" card). */
   patterns?: RegExp[]
-  /** The primary card — carries the shared accent colour. */
+  /** Kept for the push side's accent; no pull card carries it any more. */
   isAll?: boolean
 }
 
-/**
- * Cards per scope, in display order.
- *
- * `general` groups project.json with README/LICENSE on purpose: they are the same
- * entity fields (`readme` and `license` merge field-by-field exactly like `name`),
- * so splitting them would ask the user to arbitrate one identity in two places.
- */
+const INFO = { id: 'info', patterns: [/^(entity|organization)\.json$/, /^README(\.[a-z]{2,3}(-[A-Za-z]{2,4})?)?\.md$/i, /^LICENSE\.md$/i, /^tasks\.json$/, /^attachments\//, /^\.gitignore$/, /^\.gitattributes$/] }
+
 export const PULL_CARDS: Partial<Record<GitScope, PullCardDef[]>> = {
-  // ONE card on the pull side, deliberately.
-  //
-  // Splitting the incoming changes into per-kind cards was a false symmetry with
-  // the push: pulling is already element-by-element (each file's rows are ticked
-  // in its picker), so a second, coarser grouping on top only asks the user to
-  // choose twice. And a partial card would be misleading anyway — `stats` in
-  // project.json is DERIVED from the mappings, so taking mappings without the
-  // metadata leaves counters contradicting the rows beside them.
-  'mapping-projects': [{ id: 'all', isAll: true }],
-  projects: [{ id: 'all', isAll: true }],
+  workspaces: [
+    INFO,
+    { id: 'wiki', patterns: [/^wiki\//] },
+    { id: 'projects', patterns: [/^projects\//] },
+    { id: 'sql_collections', patterns: [/^sql-scripts\//] },
+    { id: 'etl_pipelines', patterns: [/^etl\//] },
+    { id: 'data_quality', patterns: [/^data-quality\//, /^dq\//] },
+    { id: 'mapping_projects', patterns: [/^mapping-projects\//, /^source-concept-ids\//] },
+    { id: 'catalogs', patterns: [/^catalogs\//] },
+    { id: 'schemas', patterns: [/^schemas\//] },
+    { id: 'databases', patterns: [/^databases\//] },
+    { id: 'dictionaries', patterns: [/^concept-sets\//, /^service-mappings\//] },
+    { id: 'plugins', patterns: [/^plugins\//] },
+  ],
+  projects: [
+    INFO,
+    { id: 'dashboards', patterns: [/^dashboards\//] },
+    { id: 'patient_boards', patterns: [/^patient-dashboards\//] },
+    { id: 'scripts', patterns: [/^scripts\//] },
+    { id: 'cohorts', patterns: [/^cohorts\//, /^cohort-boards\//] },
+    { id: 'datasets', patterns: [/^datasets\//] },
+    { id: 'concept_lists', patterns: [/^concept-lists\//] },
+    { id: 'connections', patterns: [/^databases\//] },
+  ],
+  'mapping-projects': [
+    INFO,
+    { id: 'mappings', patterns: [/^mappings\.json$/] },
+    { id: 'source_concepts', patterns: [/^source-concepts\.csv$/, /^source-concept-ids\//] },
+    { id: 'scores', patterns: [/^similarity-scores\//] },
+  ],
+  'sql-script-collections': [INFO, { id: 'scripts', patterns: [/^scripts\//] }],
+  'etl-pipelines': [INFO, { id: 'scripts', patterns: [/^scripts\//] }, { id: 'mapping_files', patterns: [/^mapping\//] }],
+  'dq-rule-sets': [INFO, { id: 'checks', patterns: [/^checks\.json$/] }],
+  'schema-presets': [INFO, { id: 'schema', patterns: [/^schema\.ddl$/, /^mapping\.json$/] }],
+  databases: [INFO, { id: 'schema', patterns: [/^schema\.ddl$/, /^mapping(-overrides)?\.json$/] }, { id: 'cohorts', patterns: [/^cohorts\//, /^cohort-boards\//] }],
+  'data-catalogs': [INFO],
+  'user-plugins': [INFO],
 }
 
-/** The cards a scope defines, or a single "all" card when it defines none. */
+const OTHER: PullCardDef = { id: 'other' }
+
+/** The cards a scope defines, with the catch-all last. */
 export function cardsForScope(scope: GitScope): PullCardDef[] {
-  return PULL_CARDS[scope] ?? [{ id: 'all', isAll: true }]
+  return [...(PULL_CARDS[scope] ?? []), OTHER]
 }
 
-/** Does this card cover that path? The "all" card covers everything. */
+/** Does this card cover that path? The catch-all covers everything. */
 export function cardMatches(card: PullCardDef, path: string): boolean {
   if (!card.patterns) return true
   return card.patterns.some((re) => re.test(path))
+}
+
+/** Each path on exactly one card: the first that claims it. */
+export function assignToCards<T>(scope: GitScope, items: T[], pathOf: (item: T) => string): { card: PullCardDef; items: T[] }[] {
+  const cards = cardsForScope(scope)
+  const buckets = new Map(cards.map((c) => [c.id, [] as T[]]))
+  for (const item of items) {
+    const card = cards.find((c) => cardMatches(c, pathOf(item)))!
+    buckets.get(card.id)!.push(item)
+  }
+  return cards.map((card) => ({ card, items: buckets.get(card.id)! })).filter((g) => g.items.length > 0)
 }

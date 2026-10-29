@@ -8,7 +8,7 @@ import { cn } from '@/lib/utils'
 import { SYNC_ALL_ACCENT } from '@/lib/versioning-accent'
 import { SectionLabel } from '@/components/ui/section-label'
 import { groupGitFiles } from '@/lib/git-file-meta'
-import { cardsForScope, cardMatches, type PullCardDef } from '@/lib/pull-quick-actions'
+import { assignToCards, type PullCardDef } from '@/lib/pull-quick-actions'
 import {
   conflictCount,
   isCompletePull,
@@ -114,12 +114,10 @@ export function PullPanel({
   )
 
   if (mode === 'quick') {
-    const cards = cardsForScope(plan.scope)
-      .map((card) => ({ card, files: plan.files.filter((f) => cardMatches(card, f.path)) }))
-      // Empty cards are HIDDEN in pull (unlike push, where a greyed card usefully
-      // says "nothing to send"): a pull is an event to process, and three empty
-      // cards around one active one drown the signal.
-      .filter(({ files }) => files.length > 0)
+    // Empty cards are HIDDEN in pull (unlike push, where a greyed card usefully
+    // says "nothing to send"): a pull is an event to process, and three empty
+    // cards around one active one drown the signal.
+    const cards = assignToCards(plan.scope, plan.files, (f) => f.path).map(({ card, items }) => ({ card, files: items }))
 
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -238,7 +236,7 @@ function PullCard({
       <div className={cn('flex items-center gap-2 px-3 py-2', accent ? SYNC_ALL_ACCENT.headerBg : 'bg-muted/40')}>
         <ArrowDownToLine size={14} className={cn('shrink-0', accent ? SYNC_ALL_ACCENT.icon : 'text-muted-foreground')} />
         <span className={cn('text-xs font-semibold', accent && SYNC_ALL_ACCENT.icon)}>
-          {t(`versioning.pull_card_${card.id}`)}
+          {t(`versioning.subject_${card.id}`)}
         </span>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
@@ -265,14 +263,14 @@ function PullCard({
                 <button
                   type="button"
                   onClick={() => onOpenDiff(f.path)}
-                  className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground hover:text-foreground hover:underline"
+                  className={cn('block min-w-0 flex-1 truncate text-left text-muted-foreground hover:text-foreground hover:underline', !f.label && 'font-mono')}
                   title={f.path}
                 >
-                  {f.path}
+                  {f.label ?? f.path}
                 </button>
               ) : (
-                <span className="block min-w-0 flex-1 truncate text-left font-mono text-muted-foreground" title={f.path}>
-                  {f.path}
+                <span className={cn('block min-w-0 flex-1 truncate text-left text-muted-foreground', !f.label && 'font-mono')} title={f.path}>
+                  {f.label ?? f.path}
                 </span>
               )}
               {onOpenTable && f.pickable && f.items.length > 0 && (

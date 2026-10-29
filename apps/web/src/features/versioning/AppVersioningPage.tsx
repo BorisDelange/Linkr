@@ -5,7 +5,6 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
-import { WorkspacePull } from '@/components/versioning/WorkspacePull'
 import { useWikiStore } from '@/stores/wiki-store'
 import { WsExportTab } from './WsExportTab'
 
@@ -55,9 +54,6 @@ export function AppVersioningPage() {
           onTabChange={(v) => { setTab(v); onTabChange(v) }}
           syncScope="workspaces"
           syncId={wsUid ?? undefined}
-          renderInlinePull={wsUid ? ({ branch, remoteHead, mode, onPulled }) => (
-            <WorkspacePull workspaceId={wsUid} branch={branch} remoteHead={remoteHead} mode={mode} onPulled={onPulled} />
-          ) : undefined}
           onAfterPull={async () => {
             if (wsUid && useWikiStore.getState().currentWorkspaceId === wsUid) await useWikiStore.getState().loadPages(wsUid)
           }}

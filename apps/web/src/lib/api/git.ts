@@ -5,6 +5,7 @@
  * export ZIP the frontend already knows how to build (buildProjectZip /
  * buildWorkspaceZip). The backend unpacks it, then diffs / commits / pushes.
  */
+import type { Override, ThreeWayPreview } from '@/lib/pull/three-way'
 import { apiFetch, apiFetchFollowing, apiRequest } from '@/lib/api-client'
 import type { FileChangeType } from '@/types'
 
@@ -326,6 +327,23 @@ export interface GitPullPreview {
 export async function gitPullPreview(scope: GitScope, id: string, branch?: string): Promise<GitPullPreview> {
   const qs = branch ? `?branch=${encodeURIComponent(branch)}` : ''
   return apiRequest<GitPullPreview>(`${base(scope, id)}/pull-preview${qs}`)
+}
+
+/** Every file the remote changed since the sync anchor, with its base / local /
+ *  remote versions (text) or blob ids (binary). The server builds LOCAL — the
+ *  export as it stands — itself. */
+export async function gitThreeWay(scope: GitScope, id: string, branch?: string): Promise<ThreeWayPreview> {
+  return postForm<ThreeWayPreview>(`${base(scope, id)}/three-way`, zipForm(null, branch ? { branch } : {}))
+}
+
+/** The local export with the pull's choices applied, as the ZIP to re-import. */
+export async function gitMergedTree(
+  scope: GitScope, id: string, branch: string, remoteHead: string, overrides: Record<string, Override>,
+): Promise<Blob> {
+  const form = zipForm(null, { branch, remoteHead, overrides: JSON.stringify(overrides) })
+  const res = await apiFetchFollowing(`/api/v1${base(scope, id)}/merged-tree`, { method: 'POST', body: form })
+  if (!res.ok) throw await gitError(res)
+  return res.blob()
 }
 
 export interface GitTreePreview {

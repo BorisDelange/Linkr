@@ -43,7 +43,6 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
-import { SchemaPresetPull } from '@/components/versioning/SchemaPresetPull'
 import { ImportConflictDialog } from '@/components/ui/import-conflict-dialog'
 import { ImportSourceDialog, type ImportGitRemote } from '@/components/ui/import-source-dialog'
 import { IncompatibleAppVersionError, WrongEntityTypeError } from '@/lib/app-version-compat'
@@ -679,15 +678,6 @@ function SchemaDetailView({
                 onSave={(cfg) => setGitRemote(preset.id, cfg)}
                 syncScope="schema-presets"
                 syncId={preset.id}
-                renderInlinePull={({ branch, remoteHead, mode, onPulled }) => (
-                  <SchemaPresetPull
-                    presetId={preset.id}
-                    branch={branch}
-                    remoteHead={remoteHead}
-                    mode={mode}
-                    onPulled={onPulled}
-                  />
-                )}
                 // The pull writes to storage; this page reads the preset from the
                 // store, in the SAME workspace scope the list uses.
                 onAfterPull={() => loadPresets(preset.workspaceId)}

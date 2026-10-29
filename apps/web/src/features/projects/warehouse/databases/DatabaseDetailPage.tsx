@@ -52,7 +52,6 @@ import { makeReinstall } from '@/lib/entity-reinstall'
 import {
 } from '@/components/ui/dropdown-menu'
 import { GitRepositoryTab } from '@/components/versioning/GitRepositoryTab'
-import { DatabasePull } from '@/components/versioning/DatabasePull'
 import { DatabaseCohortHost } from '@/features/projects/warehouse/cohorts/cohort-host'
 import { CohortList } from '@/features/projects/warehouse/cohorts/CohortListPage'
 import { CohortBuilder } from '@/features/projects/warehouse/cohorts/CohortBuilderPage'
@@ -463,14 +462,6 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               onSave={(cfg) => updateDataSource(source.id, { gitRemoteConfig: cfg ?? undefined })}
               syncScope="databases"
               syncId={source.id}
-              renderInlinePull={({ branch, remoteHead, onPulled }) => (
-                <DatabasePull
-                  sourceId={source.id}
-                  branch={branch}
-                  remoteHead={remoteHead}
-                  onPulled={onPulled}
-                />
-              )}
               // A pull replaces the row and its files wholesale, behind the store
               // the page reads — without this the tabs keep describing the
               // database that was there before it.

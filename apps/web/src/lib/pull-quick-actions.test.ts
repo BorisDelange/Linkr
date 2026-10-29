@@ -1,38 +1,35 @@
 import { describe, it, expect } from 'vitest'
-import { cardMatches, cardsForScope } from './pull-quick-actions'
+import { assignToCards, cardMatches, cardsForScope } from './pull-quick-actions'
 import { buildQuickActions } from './git-quick-actions'
 import type { GitFileChange } from './api/git'
 
 const change = (path: string): GitFileChange => ({ path, changeType: 'modified', size: 10 })
 
 describe('pull cards', () => {
-  it('offers a single "pull all" card', () => {
-    // Pulling is already element-by-element (each file's rows are ticked in its
-    // picker), so a second, coarser grouping on top only asks the user to choose
-    // twice — and a partial card would be misleading anyway, since `stats` in
-    // project.json is derived from mappings.json.
-    expect(cardsForScope('mapping-projects').map((c) => c.id)).toEqual(['all'])
-    expect(cardsForScope('projects').map((c) => c.id)).toEqual(['all'])
+  it('splits an entity into its subjects, the catch-all last', () => {
+    expect(cardsForScope('projects').map((c) => c.id)).toEqual([
+      'info', 'dashboards', 'patient_boards', 'scripts', 'cohorts', 'datasets', 'concept_lists', 'connections', 'other',
+    ])
+    expect(cardsForScope('user-plugins').map((c) => c.id)).toEqual(['info', 'other'])
   })
 
-  it('falls back to a single "all" card for a scope with no definition', () => {
-    expect(cardsForScope('dq-rule-sets').map((c) => c.id)).toEqual(['all'])
+  it('puts each file on exactly one card, the first that claims it', () => {
+    const groups = assignToCards('workspaces', ['entity.json', 'wiki/_tree.json', 'wiki/setup.md', 'projects/p/entity.json', 'odd.txt'], (p) => p)
+    expect(groups.map((g) => [g.card.id, g.items])).toEqual([
+      ['info', ['entity.json']],
+      ['wiki', ['wiki/_tree.json', 'wiki/setup.md']],
+      ['projects', ['projects/p/entity.json']],
+      ['other', ['odd.txt']],
+    ])
   })
 
-  it('the "all" card covers everything, including unknown paths', () => {
-    const all = cardsForScope('mapping-projects').find((c) => c.isAll)!
-    expect(cardMatches(all, 'anything/at/all.txt')).toBe(true)
-    expect(cardMatches(all, 'mappings.json')).toBe(true)
+  it('the catch-all covers everything', () => {
+    const other = cardsForScope('dq-rule-sets').at(-1)!
+    expect(cardMatches(other, 'anything/at/all.txt')).toBe(true)
   })
 })
 
 describe('push cards mirror the pull cards', () => {
-  it('mapping projects expose Sync all alone, matching the single pull card', () => {
-    const labels = buildQuickActions('mapping-projects', []).map((a) => a.labelKey)
-    expect(labels).toEqual(['versioning.quick_sync_all'])
-    expect(cardsForScope('mapping-projects')).toHaveLength(1)
-  })
-
   it('Sync all still carries every owned path', () => {
     const actions = buildQuickActions('mapping-projects', [
       change('project.json'), change('README.fr.md'), change('mappings.json'), change('source-concepts.csv'),
