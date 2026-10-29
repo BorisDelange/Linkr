@@ -4704,7 +4704,6 @@
     "unknown_source": "Unknown database",
     "mapped_count": "{{count}} mapped",
     "card_progress_label": "{{mapped}} of {{total}} mapped",
-    "card_approved_label": "{{approved}} / {{total}} approved",
     "delete_confirm_title": "Delete mappings",
     "delete_failed_title": "Deletion failed",
     "delete_failed_desc": "Some mappings could not be deleted: {{error}}. The list was reloaded to show what remains.",

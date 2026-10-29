@@ -4704,7 +4704,6 @@
     "unknown_source": "Base inconnue",
     "mapped_count": "{{count}} aligné(s)",
     "card_progress_label": "{{mapped}} sur {{total}} alignés",
-    "card_approved_label": "{{approved}} / {{total}} approuvés",
     "delete_confirm_title": "Supprimer des alignements",
     "delete_failed_title": "Échec de la suppression",
     "delete_failed_desc": "Certains alignements n'ont pas pu être supprimés : {{error}}. La liste a été rechargée pour montrer ce qui reste.",
