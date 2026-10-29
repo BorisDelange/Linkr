@@ -222,3 +222,46 @@ async def test_three_way_describes_what_came_in_and_merged_tree_applies_the_choi
         assert zf.read("wiki/home.md") == b"Merged\n"
         assert zf.read("logo.png") == b"\x89PNG\x00\x01binary"
         assert zf.read("workspace.json") == b"{}"
+
+
+async def test_propose_pushes_a_branch_from_the_target_and_records_the_request(client, tmp_path, monkeypatch):
+    from app.services import forge_service
+
+    opened: list[dict] = []
+
+    async def fake_detect(url, token):
+        return forge_service.Forge("gitlab", "http://forge/api/v4", "sandbox/ws")
+
+    async def fake_open(url, token, **kw):
+        opened.append(kw)
+        return forge_service.Proposal(12, "http://forge/sandbox/ws/-/merge_requests/12", "open")
+
+    async def fake_read(url, token, number):
+        return forge_service.Proposal(number, "http://forge/sandbox/ws/-/merge_requests/12", "merged")
+
+    monkeypatch.setattr(forge_service, "detect", fake_detect)
+    monkeypatch.setattr(forge_service, "open_proposal", fake_open)
+    monkeypatch.setattr(forge_service, "read_proposal", fake_read)
+
+    headers = await _admin(client)
+    ws, remote = await _linked_workspace(client, headers, tmp_path)
+    await _push(client, headers, ws, {"wiki/home.md": "Hello\n"})
+
+    r = await client.post(
+        f"{API}/git/workspaces/{ws}/propose", headers=headers,
+        data={"title": "Wiki: home", "description": "From Linkr", "branch": "main", "paths": ["wiki/home.md"]},
+        files={"file": ("ws.zip", _zip({"wiki/home.md": "Hello, proposed\n"}), "application/zip")},
+    )
+    assert r.status_code == 200, r.text
+    proposal = r.json()
+    assert proposal["number"] == 12 and proposal["state"] == "open" and proposal["targetBranch"] == "main"
+    assert opened[0]["source"] == proposal["branch"] and proposal["branch"].startswith("linkr/admin/")
+
+    # The branch is on the remote, main untouched, and the anchor did not move.
+    heads = _git(tmp_path / "remote.git", "for-each-ref", "--format=%(refname:short)", "refs/heads")
+    assert proposal["branch"] in heads.split()
+    assert _git(tmp_path / "remote.git", "show", "main:wiki/home.md") == "Hello\n"
+    assert _git(tmp_path / "remote.git", "show", f"{proposal['branch']}:wiki/home.md") == "Hello, proposed\n"
+
+    listed = (await client.get(f"{API}/git/workspaces/{ws}/proposals", headers=headers)).json()
+    assert [(p["number"], p["state"]) for p in listed] == [(12, "merged")]

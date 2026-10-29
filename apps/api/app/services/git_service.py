@@ -1877,9 +1877,15 @@ async def commit_push(
     paths: list[str] | None = None,
     synced_oid: str | None = None,
     reviewed_oid: str | None = None,
+    push_branch: str | None = None,
 ) -> dict:
     """Unpack the export and commit the selected files (all if paths is None) on
     top of the fetched remote branch, then push. Push-only flow.
+
+    With `push_branch` the commit goes to that new branch instead, started from
+    the remote `branch` — what a merge request proposes into `branch`. The same
+    pull-first guard applies: a proposal built on an out-of-date base would ask
+    the forge to revert what others pushed meanwhile.
 
     Guard against clobbering un-pulled remote work: the commit is built on top of
     the fetched remote head from the LOCAL export, which does NOT contain whatever
@@ -1896,6 +1902,8 @@ async def commit_push(
     is unseen, and the items they kept are exactly what they mean to push.
     """
     _safe_ref(branch)
+    if push_branch is not None:
+        _safe_ref(push_branch)
     if synced_oid is not None:
         _safe_oid(synced_oid)
     if reviewed_oid is not None:
@@ -1928,18 +1936,26 @@ async def commit_push(
         staged = _run(repo, "diff", "--cached", "--name-only").strip()
         if not staged:
             return {"committed": False, "pushed": False, "nothingToCommit": True}
+        if push_branch:
+            # Same index, on the proposal branch: the local base branch stays at
+            # the remote head for the next status.
+            _run(repo, "checkout", "-q", "-B", push_branch)
         _run(repo, "commit", "-q", "-m", message)
         head = _run(repo, "rev-parse", "HEAD").strip()
         pushed = False
+        target = push_branch or branch
         if remote_url:
             _reject_internal_host(remote_url)
             push_url = _with_credentials(remote_url, token)
-            _run(repo, "push", push_url, f"{branch}:{branch}", token=token)
+            _run(repo, "push", push_url, f"{target}:{target}", token=token)
             pushed = True
+        if push_branch:
+            _run(repo, "checkout", "-q", "-B", branch, check=False)
         return {
             "committed": True,
             "pushed": pushed,
             "nothingToCommit": False,
+            "branch": target,
             "commit": {"oid": head, "message": message},
         }
 

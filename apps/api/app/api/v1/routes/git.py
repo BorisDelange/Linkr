@@ -55,6 +55,7 @@ from app.schemas.git import (
     GitDiffResponse,
     GitHostTokenRequest,
     GitHostTokenStatus,
+    GitProposalResponse,
     GitPullPreviewResponse,
     GitPullScoresRequest,
     GitSetSyncStateRequest,
@@ -274,6 +275,59 @@ async def _merged_tree(repo_getter, entity_id, zip_bytes, branch, remote_url, to
         raise _git_http_error(exc) from exc
     return Response(content=data, media_type="application/zip")
 
+
+# --- Merge requests (every scope) --------------------------------------------
+
+
+async def _propose(
+    db, user, scope, entity_id, repo_getter, zip_bytes, target_branch, remote_url, token,
+    title, description, paths,
+) -> dict:
+    """Push the local changes on a branch of their own, started from the remote
+    `target_branch`, and open a merge request (GitLab) / pull request (GitHub)
+    into it with the user's token. The sync anchor does not move: nothing is on
+    the target branch until the forge merges it, and the pull then brings it back."""
+    from app.services import forge_service, git_proposal_service
+
+    if remote_url is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not linked to a git remote")
+    row = await git_sync_state_service.get(db, scope, entity_id, target_branch)
+    branch = git_proposal_service.proposal_branch(user.username)
+    result = await _guard(
+        git_service.commit_push(
+            repo_getter, entity_id, zip_bytes, target_branch, title, remote_url, token, paths,
+            *_push_anchors(row), push_branch=branch,
+        )
+    )
+    if result.get("nothingToCommit"):
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": "nothing_to_commit", "message": "Nothing to propose: no change from the target branch."},
+        )
+    try:
+        forge = await forge_service.detect(remote_url, token)
+        proposal = await forge_service.open_proposal(
+            remote_url, token, source=branch, target=target_branch, title=title, description=description,
+        )
+    except forge_service.ForgeError as exc:
+        # The branch is pushed either way: say so, so the request can be opened by hand.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail={"code": f"forge_{exc.code}", "message": str(exc), "branch": branch},
+        ) from exc
+    saved = await git_proposal_service.record(
+        db, scope=scope, entity_id=entity_id, branch=branch, target_branch=target_branch,
+        forge=forge.kind, proposal=proposal, title=title, author_id=user.id,
+    )
+    return GitProposalResponse.model_validate(saved).model_dump(by_alias=True, mode="json")
+
+
+async def _proposals(db, scope, entity_id, remote_url, token) -> list[dict]:
+    from app.services import git_proposal_service
+
+    rows = await git_proposal_service.list_refreshed(db, scope, entity_id, remote_url, token)
+    return [GitProposalResponse.model_validate(r).model_dump(by_alias=True, mode="json") for r in rows]
+
 async def _apply_sync_state(db, scope: str, entity_id: str, body) -> None:
     """Record a `set-sync-state` request, honouring `reviewedOnly`.
 
@@ -373,6 +427,33 @@ async def project_branches(
         _remote_url(project),
         await _token(db, user, project),
     )
+
+
+@router.post("/projects/{project_uid}/propose", response_model=GitProposalResponse)
+async def project_propose(
+    title: str = Form(...),
+    description: str = Form(""),
+    branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
+    file: UploadFile | None = File(None),
+    project=Depends(require_project_permission("project-settings:write")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await _propose(
+        db, user, "projects", project.uid, git_service.project_repo_getter,
+        await _project_zip_bytes(db, project, file), _default_branch(project, branch),
+        _remote_url(project), await _token(db, user, project), title, description, paths,
+    )
+
+
+@router.get("/projects/{project_uid}/proposals", response_model=list[GitProposalResponse])
+async def project_proposals(
+    project=Depends(require_project_permission("project-settings:read")),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return await _proposals(db, "projects", project.uid, _remote_url(project), await _token(db, user, project))
 
 
 @router.post("/projects/{project_uid}/three-way", response_model=GitThreeWayResponse)
@@ -622,6 +703,35 @@ async def workspace_set_sync_state(
     await _apply_sync_state(db, "workspaces", ws.id, body)
 
 
+@router.post("/workspaces/{workspace_id}/propose", response_model=GitProposalResponse)
+async def workspace_propose(
+    workspace_id: str,
+    title: str = Form(...),
+    description: str = Form(""),
+    branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
+    file: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:write")),
+):
+    ws = await _load_workspace(workspace_id, db, _member)
+    return await _propose(
+        db, _member, "workspaces", ws.id, git_service.workspace_repo_getter,
+        await _workspace_zip_bytes(db, ws, file), _default_branch(ws, branch), _remote_url(ws),
+        await _token(db, _member, ws), title, description, paths,
+    )
+
+
+@router.get("/workspaces/{workspace_id}/proposals", response_model=list[GitProposalResponse])
+async def workspace_proposals(
+    workspace_id: str,
+    db: AsyncSession = Depends(get_db),
+    _member=Depends(require_permission("workspace-settings:read")),
+):
+    ws = await _load_workspace(workspace_id, db, _member)
+    return await _proposals(db, "workspaces", ws.id, _remote_url(ws), await _token(db, _member, ws))
+
+
 @router.post("/workspaces/{workspace_id}/three-way", response_model=GitThreeWayResponse)
 async def workspace_three_way(
     workspace_id: str,
@@ -855,6 +965,35 @@ async def mapping_project_pull_preview(
             source_column_mapping=source_column_mapping,
         )
     )
+
+
+@router.post("/mapping-projects/{mapping_project_id}/propose", response_model=GitProposalResponse)
+async def mapping_project_propose(
+    mapping_project_id: str,
+    title: str = Form(...),
+    description: str = Form(""),
+    branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
+    file: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:write")
+    return await _propose(
+        db, user, "mapping-projects", mp.id, git_service.mapping_project_repo_getter,
+        await _mapping_project_zip_bytes(db, mp, file), _default_branch(mp, branch),
+        _remote_url(mp), await _token(db, user, mp), title, description, paths,
+    )
+
+
+@router.get("/mapping-projects/{mapping_project_id}/proposals", response_model=list[GitProposalResponse])
+async def mapping_project_proposals(
+    mapping_project_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    return await _proposals(db, "mapping-projects", mp.id, _remote_url(mp), await _token(db, user, mp))
 
 
 @router.post("/mapping-projects/{mapping_project_id}/three-way", response_model=GitThreeWayResponse)
@@ -1154,6 +1293,35 @@ async def sql_collection_commit_push(
     )
 
 
+@router.post("/sql-script-collections/{collection_id}/propose", response_model=GitProposalResponse)
+async def sql_collection_propose(
+    collection_id: str,
+    title: str = Form(...),
+    description: str = Form(""),
+    branch: str | None = Form(None),
+    paths: list[str] | None = Form(None),
+    file: UploadFile | None = File(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:write")
+    return await _propose(
+        db, user, "sql-script-collections", c.id, git_service.sql_collection_repo_getter,
+        await _sql_collection_zip_bytes(db, c, file), _default_branch(c, branch),
+        _remote_url(c), await _token(db, user, c), title, description, paths,
+    )
+
+
+@router.get("/sql-script-collections/{collection_id}/proposals", response_model=list[GitProposalResponse])
+async def sql_collection_proposals(
+    collection_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    return await _proposals(db, "sql-script-collections", c.id, _remote_url(c), await _token(db, user, c))
+
+
 @router.post("/sql-script-collections/{collection_id}/three-way", response_model=GitThreeWayResponse)
 async def sql_collection_three_way(
     collection_id: str,
@@ -1378,6 +1546,32 @@ def _register_entity_git_routes(
             ),
             (prefix, _entity_id(e), resolved_branch),
         )
+
+    @router.post(f"/{prefix}/{{entity_id}}/propose", response_model=GitProposalResponse, name=f"{prefix}_propose")
+    async def _propose_route(
+        entity_id: str,
+        title: str = Form(...),
+        description: str = Form(""),
+        branch: str | None = Form(None),
+        paths: list[str] | None = Form(None),
+        file: UploadFile | None = File(None),
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_user),
+    ):
+        e = await _load_workspace_entity(get_fn, entity_id, db, user, write_perm, not_found)
+        return await _propose(
+            db, user, prefix, _entity_id(e), repo_getter, await _zip_bytes(db, e, file),
+            _default_branch(e, branch), _remote_url(e), await _token(db, user, e), title, description, paths,
+        )
+
+    @router.get(f"/{prefix}/{{entity_id}}/proposals", response_model=list[GitProposalResponse], name=f"{prefix}_proposals")
+    async def _proposals_route(
+        entity_id: str,
+        db: AsyncSession = Depends(get_db),
+        user: User = Depends(get_current_user),
+    ):
+        e = await _load_workspace_entity(get_fn, entity_id, db, user, read_perm, not_found)
+        return await _proposals(db, prefix, _entity_id(e), _remote_url(e), await _token(db, user, e))
 
     @router.post(
         f"/{prefix}/{{entity_id}}/three-way",

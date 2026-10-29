@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from pydantic import field_validator
 
@@ -63,7 +64,25 @@ class GitCommitResponse(CamelModel):
     committed: bool
     pushed: bool
     nothing_to_commit: bool
+    # The branch the commit went to (a proposal's own branch).
+    branch: str | None = None
     commit: GitCommitInfo | None = None
+
+
+class GitProposalResponse(CamelModel):
+    """A merge request / pull request opened from Linkr, state as last read."""
+
+    id: int
+    scope: str
+    entity_id: str
+    branch: str
+    target_branch: str
+    forge: str
+    number: int
+    url: str
+    title: str
+    state: str
+    created_at: datetime | None = None
 
 
 class GitSyncStateResponse(CamelModel):
