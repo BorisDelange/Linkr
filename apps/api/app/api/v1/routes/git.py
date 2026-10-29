@@ -343,6 +343,8 @@ async def project_commit_push(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Project is not linked to a git remote"
         )
+    resolved_branch = _default_branch(project, branch)
+    row = await git_sync_state_service.get(db, "projects", project.uid, resolved_branch)
     return await _pushed(
         user,
         deferred.AsJob("Git push", project_uid=project.uid),
@@ -350,12 +352,16 @@ async def project_commit_push(
             git_service.project_repo_getter,
             project.uid,
             await _project_zip_bytes(db, project, file),
-            _default_branch(project, branch),
+            resolved_branch,
             message,
             _remote_url(project),
             await _token(db, user, project),
             paths,
+            *_push_anchors(row),
         ),
+        # Anchored: without it the push guard never fires, and a second editor's
+        # push silently overwrote the first one's work.
+        ("projects", project.uid, resolved_branch),
     )
 
 
@@ -1000,6 +1006,8 @@ async def sql_collection_commit_push(
             status.HTTP_400_BAD_REQUEST,
             "SQL script collection is not linked to a git remote",
         )
+    resolved_branch = _default_branch(c, branch)
+    row = await git_sync_state_service.get(db, "sql-script-collections", c.id, resolved_branch)
     return await _pushed(
         user,
         deferred.AsJob("Git push", workspace_id=c.workspace_id),
@@ -1007,13 +1015,46 @@ async def sql_collection_commit_push(
             git_service.sql_collection_repo_getter,
             c.id,
             await _sql_collection_zip_bytes(db, c, file),
-            _default_branch(c, branch),
+            resolved_branch,
             message,
             _remote_url(c),
             await _token(db, user, c),
             paths,
+            *_push_anchors(row),
         ),
+        ("sql-script-collections", c.id, resolved_branch),
     )
+
+
+@router.get(
+    "/sql-script-collections/{collection_id}/sync-state",
+    response_model=GitSyncStateResponse,
+)
+async def sql_collection_sync_state(
+    collection_id: str,
+    branch: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:read")
+    return await _sync_state(
+        db, "sql-script-collections", git_service.sql_collection_repo_getter, c.id,
+        _default_branch(c, branch), _remote_url(c), await _token(db, user, c),
+    )
+
+
+@router.post(
+    "/sql-script-collections/{collection_id}/set-sync-state",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def sql_collection_set_sync_state(
+    collection_id: str,
+    body: GitSetSyncStateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    c = await _load_sql_collection(collection_id, db, user, "sql-scripts:write")
+    await _apply_sync_state(db, "sql-script-collections", c.id, body)
 
 
 # --- Workspace-scoped entities (ETL / catalog / DQ / plugins / schema presets) ---

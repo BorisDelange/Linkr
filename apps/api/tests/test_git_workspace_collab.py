@@ -146,3 +146,36 @@ def test_http_reaches_git_only_when_hosts_are_listed(monkeypatch):
     assert g._git_env()["GIT_ALLOW_PROTOCOL"] == "https:ssh"
     monkeypatch.setattr(g.settings, "git_allowed_hosts", "localhost:8929")
     assert g._git_env()["GIT_ALLOW_PROTOCOL"] == "https:ssh:http"
+
+
+async def test_a_project_push_is_anchored_and_waits_for_a_pull(client, tmp_path):
+    headers = await _admin(client)
+    remote = tmp_path / "project.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(remote)], check=True, capture_output=True)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    await client.post(f"{API}/projects", headers=headers, json={
+        "workspaceId": ws, "uid": "p-anchor", "name": {"en": "P"},
+        "gitRemoteConfig": {"url": f"file://{remote}", "branch": "main"},
+    })
+    push = lambda files: client.post(  # noqa: E731
+        f"{API}/git/projects/p-anchor/commit-push", headers=headers,
+        data={"message": "m", "branch": "main", "paths": list(files)},
+        files={"file": ("p.zip", _zip(files), "application/zip")},
+    )
+    assert (await push({"README.md": "one\n"})).json()["pushed"]
+    _other_editor_pushes(tmp_path, f"file://{remote}", "README.md", "theirs\n")
+    r = await push({"README.md": "mine\n"})
+    assert r.status_code == 400 and "pull_required" in r.text
+
+
+async def test_a_sql_collection_has_a_sync_state(client, tmp_path):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    c = (await client.post(f"{API}/sql-script-collections", headers=headers, json={"id": "sql-c1", "workspaceId": ws, "name": {"en": "C"}})).json()
+    r = await client.get(f"{API}/git/sql-script-collections/{c['id']}/sync-state", headers=headers)
+    assert r.status_code == 200 and r.json()["linked"] is False
+    r = await client.post(
+        f"{API}/git/sql-script-collections/{c['id']}/set-sync-state", headers=headers,
+        json={"branch": "main", "syncedOid": "deadbeef"},
+    )
+    assert r.status_code == 204
