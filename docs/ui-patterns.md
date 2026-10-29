@@ -614,9 +614,11 @@ a "Choose on the server" zone sit side by side, and the picker opens on click.
 `scope` (an `FsScope`) decides which permission the browse answers to. A form that
 keeps the chosen path on screen (add database) controls `origin`; a dialog that
 acts on the pick at once (dataset import, IDE upload) passes `serverPath=""` and
-handles `onServerPathChange` itself. Client-only, it renders the upload side alone.
-Used by the two add-database dialogs, the mapping-project source, the dataset
-import and the IDE upload — don't hand-roll a second "from the server" button.
+handles `onServerPathChange` itself. `expect="files"` ticks several files of one
+folder and hands them to `onServerPathsChange`. Client-only, it renders the upload
+side alone. Used by the two add-database dialogs, the mapping-project source, the
+dataset import, the IDE upload and the ATHENA import — don't hand-roll a second
+"from the server" button.
 
 That is the whole point: these zones sit side by side across the add-database
 dialogs (upload a file · upload a folder · pick a server path) and used to be
@@ -775,6 +777,11 @@ recharts `content`, and `FloatingChartTooltip` for a chart not drawn by recharts
 
 Style it as little as possible — `side`/`align` and, at most, a width. The dark
 panel, the padding and the text size come from the primitive.
+
+The one exception is **`variant="card"`**: a light popover surface (border,
+shadow, no arrow) for content that carries its own colours — badge chips in
+`BadgeStrip`'s "+N" and truncated-badge tooltips. On the dark panel those
+colours turn muddy in light mode. Text-only tooltips stay on the default.
 
 For **text that may be cut off**, don't build the tooltip by hand: use
 `TruncatedText` / `TruncatedHeader`, or a table's `cellTooltips` (§2). They

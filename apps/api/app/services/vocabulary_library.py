@@ -21,11 +21,13 @@ reaches the same views without rewriting rows).
 """
 
 import asyncio
+import hashlib
 import re
 import shutil
 import tempfile
 import time
 import uuid
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -168,6 +170,64 @@ def group_export_files(files: ExportFiles) -> dict[str, ExportFiles]:
         if table:
             groups.setdefault(table, []).append((name, path))
     return groups
+
+
+# --- Zipped exports -----------------------------------------------------------
+
+
+def _zip_root() -> Path:
+    return settings.data_path / "vocabularies" / ".zips"
+
+
+def _is_zip(name: str) -> bool:
+    return name.lower().endswith(".zip")
+
+
+def _zip_dir(path: str) -> Path:
+    return _zip_root() / hashlib.sha256(path.encode()).hexdigest()[:24]
+
+
+def expand_zips(files: ExportFiles) -> ExportFiles:
+    """`files` with every .zip replaced by the vocabulary files inside it.
+
+    ATHENA delivers its export as one zip of CSVs. Each zip is extracted once
+    beside the libraries — inspecting then importing it reads the same copy —
+    and only its vocabulary tables; `discard_zip_expansions` removes the copy.
+    """
+    out: ExportFiles = []
+    for name, path in files:
+        if not _is_zip(name):
+            out.append((name, path))
+            continue
+        dest = _zip_dir(path)
+        done = dest / ".complete"
+        if not done.exists():
+            shutil.rmtree(dest, ignore_errors=True)
+            dest.mkdir(parents=True)
+            with zipfile.ZipFile(path) as zf:
+                for info in zf.infolist():
+                    if info.is_dir() or not table_of(info.filename):
+                        continue
+                    target = (dest / info.filename).resolve()
+                    # A crafted entry name (`../../x`) must not write outside dest.
+                    if not target.is_relative_to(dest.resolve()):
+                        continue
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(info) as src, open(target, "wb") as dst:
+                        shutil.copyfileobj(src, dst, 1024 * 1024)
+            done.touch()
+        out.extend(
+            (str(p.relative_to(dest)), str(p))
+            for p in sorted(dest.rglob("*"))
+            if p.is_file() and p != done
+        )
+    return out
+
+
+def discard_zip_expansions(files: ExportFiles) -> None:
+    for name, path in files:
+        if _is_zip(name):
+            shutil.rmtree(_zip_dir(path), ignore_errors=True)
 
 
 def _lit(value: str) -> str:

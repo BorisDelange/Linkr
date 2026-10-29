@@ -72,14 +72,14 @@ export function CategoryBadge({
   const pad = size === 'md' ? 'px-2.5' : 'px-2'
   const outline = !custom && getBadgeOutlineClasses(color)
 
-  const categoryHalf = cn(pad, 'py-0.5', !custom && getBadgeClasses(color))
+  const categoryHalf = cn(pad, 'shrink-0 py-0.5', !custom && getBadgeClasses(color))
   const categoryStyle = custom ? getBadgeStyle(color) : undefined
 
   // Left half: the ordinary filled badge. Right half: the page ground, so the
   // colour reads as border and text. A user-picked hex may be far too pale to
   // be legible there; presets never are, their outline token being the shade
   // meant for a light ground.
-  const valueHalf = cn('border-l bg-background', outline)
+  const valueHalf = cn('min-w-0 border-l bg-background', outline)
   const valueStyle = custom
     ? { borderColor: `${color}80`, color: darkenForWhiteBackground(color) }
     : undefined
@@ -133,7 +133,7 @@ export function CategoryBadge({
           </>
         ) : (
           <>
-            {value}
+            <span data-badge-value className="truncate">{value}</span>
             {onRename && (
               <button
                 type="button"

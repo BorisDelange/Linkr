@@ -24,12 +24,15 @@ interface Props {
    *  (a dataset import, an IDE upload): the origin then follows `serverPath`. */
   origin?: FileOrigin
   onOriginChange?: (origin: FileOrigin) => void
-  /** A Parquet source is a folder; DuckDB/SQLite is a single file. */
-  expect: 'file' | 'dir'
+  /** A Parquet source is a folder; DuckDB/SQLite is a single file; `files` picks
+   *  several files of one folder, handed over through `onServerPathsChange`. */
+  expect: 'file' | 'files' | 'dir'
   /** Display filter for the picker, e.g. ['.duckdb']. */
   extensions?: string[]
   serverPath: string
   onServerPathChange: (path: string) => void
+  /** `files` only: the caller acts on the pick at once, so nothing is kept. */
+  onServerPathsChange?: (paths: string[]) => void
   /** True once files have been picked from the machine, so the upload side takes
    *  the row and the server zone steps aside. */
   hasUpload?: boolean
@@ -56,6 +59,7 @@ export function FileSource({
   extensions,
   serverPath,
   onServerPathChange,
+  onServerPathsChange,
   hasUpload,
   children,
 }: Props) {
@@ -145,7 +149,7 @@ export function FileSource({
           has no starting state to animate from and appears in two paints. */}
       <ServerPathPickerDialog
         open={pickerOpen}
-        mode={expect === 'dir' ? 'folder' : 'file'}
+        mode={expect === 'dir' ? 'folder' : expect}
         scope={scope}
         extensions={extensions}
         // The chosen path when there is one; otherwise the picker reopens where
@@ -165,6 +169,10 @@ export function FileSource({
         onPick={(path) => {
           pickedRef.current = true
           onServerPathChange(path)
+        }}
+        onPickFiles={(paths) => {
+          pickedRef.current = true
+          onServerPathsChange?.(paths)
         }}
       />
     </>

@@ -5,6 +5,7 @@ import asyncio
 import errno
 import os
 import tempfile
+import zipfile
 from pathlib import Path
 
 import duckdb
@@ -69,6 +70,26 @@ def test_inspect_reads_versions_and_counts():
         ("LOINC", "LOINC 2.77", 1),
         ("SNOMED", "2025-02-01 SNOMED CT International Edition", 2),
     ]
+
+
+def test_a_zipped_export_reads_like_its_folder():
+    # ATHENA delivers one zip of CSVs, beside files that are not vocabulary tables.
+    zipped = Path(tempfile.mkdtemp()) / "vocabulary_download_v5.zip"
+    with zipfile.ZipFile(zipped, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, path in _export():
+            zf.write(path, Path(name).name)
+        zf.writestr("readme.txt", "not a table")
+        zf.writestr("cpt4.jar", b"PK")
+        zf.writestr("../CONCEPT_SYNONYM.csv", "outside")
+    files = [("vocabulary_download_v5.zip", str(zipped))]
+    expanded = lib.expand_zips(files)
+    assert sorted(n for n, _ in expanded) == [
+        "CONCEPT.csv", "CONCEPT_ANCESTOR.csv", "CONCEPT_RELATIONSHIP.csv", "DOMAIN.csv", "VOCABULARY.csv",
+    ]
+    assert lib.inspect_export(expanded) == lib.inspect_export(_export())
+    assert lib.expand_zips(files) == expanded
+    lib.discard_zip_expansions(files)
+    assert not any(Path(p).exists() for _, p in expanded)
 
 
 def test_partitions_follow_the_owning_concept():

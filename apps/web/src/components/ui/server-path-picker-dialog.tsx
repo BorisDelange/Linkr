@@ -17,6 +17,7 @@ import {
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { fsBrowse, fsImportRefusalKey, fsScopeKey, type FsEntry, type FsListing, type FsScope } from '@/lib/api/fs-browser'
 import { formatApiError } from '@/lib/api-client'
@@ -78,10 +79,11 @@ function writeLastDir(path: string) {
 
 interface Props {
   open: boolean
-  /** `folder` returns the folder being browsed; `file` returns the selected file.
-   *  Files are listed in both modes — in `folder` they are shown disabled, so a
+  /** `folder` returns the folder being browsed; `file` returns the selected file;
+   *  `files` returns every file ticked in one folder, through `onPickFiles`.
+   *  Files are listed in every mode — in `folder` they are shown disabled, so a
    *  folder can be recognised by what it holds. */
-  mode: 'folder' | 'file'
+  mode: 'folder' | 'file' | 'files'
   scope: FsScope
   /** Display filter for files, e.g. ['.parquet']. Never a security boundary. */
   extensions?: string[]
@@ -91,7 +93,10 @@ interface Props {
   defaultPath?: string
   title?: string
   onClose: () => void
-  onPick: (path: string) => void
+  /** `folder` and `file` modes. */
+  onPick?: (path: string) => void
+  /** `files` mode. */
+  onPickFiles?: (paths: string[]) => void
 }
 
 /** Browses the server filesystem and returns an absolute path. Server mode only:
@@ -106,13 +111,14 @@ export function ServerPathPickerDialog({
   title,
   onClose,
   onPick,
+  onPickFiles,
 }: Props) {
   const { t } = useTranslation()
   const [listing, setListing] = useState<FsListing | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [selectedFile, setSelectedFile] = useState<FsEntry | null>(null)
+  const [selectedFiles, setSelectedFiles] = useState<FsEntry[]>([])
   /** The path bar is editable: `pathDraft` is what the user is typing, `current`
    *  is the folder actually listed. They differ only mid-edit. */
   const [pathDraft, setPathDraft] = useState('')
@@ -128,7 +134,7 @@ export function ServerPathPickerDialog({
       setLoading(true)
       setError(null)
       setSearch('')  // a fresh folder starts unfiltered
-      setSelectedFile(null)  // ...and the previous folder's pick is void
+      setSelectedFiles([])  // ...and the previous folder's pick is void
       try {
         // Every file is listed, `extensions` only decides which are selectable.
         // Filtering server-side made a folder holding no match look empty — the
@@ -209,7 +215,7 @@ export function ServerPathPickerDialog({
       setListing(next)
       setPathDraft(next.path)
       setSearch('')
-      setSelectedFile(null)
+      setSelectedFiles([])
       setError(null)
     } catch (e) {
       const refusal = fsImportRefusalKey(e)
@@ -239,14 +245,19 @@ export function ServerPathPickerDialog({
     })
   }
 
-  const pickingFile = mode === 'file'
-  const chosen = pickingFile ? selectedFile?.path : current
+  const pickingFile = mode !== 'folder'
+  const multiple = mode === 'files'
+  const chosen = pickingFile ? selectedFiles[0]?.path : current
   const confirm = () => {
-    if (chosen) {
-      onPick(chosen)
-      onClose()
-    }
+    if (!chosen) return
+    if (multiple) onPickFiles?.(selectedFiles.map((f) => f.path))
+    else onPick?.(chosen)
+    onClose()
   }
+  const select = (entry: FsEntry) => setSelectedFiles((prev) => {
+    if (!multiple) return [entry]
+    return prev.some((f) => f.path === entry.path) ? prev.filter((f) => f.path !== entry.path) : [...prev, entry]
+  })
 
   return (
     <DialogShell
@@ -256,9 +267,11 @@ export function ServerPathPickerDialog({
       // Narrower than a workbench's 5xl: this is one column of file names, and at
       // full width the rows were mostly empty space between a name and its size.
       className="sm:max-w-2xl"
-      title={title ?? t(pickingFile ? 'server_picker.pick_file' : 'project_folders.pick_folder')}
+      title={title ?? t(multiple ? 'server_picker.pick_files' : pickingFile ? 'server_picker.pick_file' : 'project_folders.pick_folder')}
       onConfirm={confirm}
-      confirmLabel={t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_this_folder')}
+      confirmLabel={multiple
+        ? t('server_picker.select_files', { count: selectedFiles.length })
+        : t(pickingFile ? 'server_picker.select_file' : 'project_folders.select_this_folder')}
       confirmDisabled={!chosen}
       // The workbench body scrolls as one block by default; here the path bar and
       // the search stay put and only the listing scrolls, so it becomes a flex
@@ -376,7 +389,7 @@ export function ServerPathPickerDialog({
                 // diagnosable and a folder never looks empty when it is not.
                 const selectable =
                   isDir || (pickingFile && e.readable !== false && matchesExtension(e.name))
-                const isSelected = !isDir && selectedFile?.path === e.path
+                const isSelected = !isDir && selectedFiles.some((f) => f.path === e.path)
                 return (
                   <button
                     key={e.path}
@@ -389,9 +402,12 @@ export function ServerPathPickerDialog({
                     onClick={() => {
                       if (!selectable) return
                       if (isDir) load(e.path)
-                      else setSelectedFile(e)
+                      else select(e)
                     }}
                   >
+                    {multiple && !isDir && (
+                      <Checkbox checked={isSelected} disabled={!selectable} tabIndex={-1} className="pointer-events-none" />
+                    )}
                     {isDir ? (
                       <Folder size={15} className="shrink-0 text-amber-500" />
                     ) : (

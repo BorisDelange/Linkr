@@ -5,11 +5,14 @@ import {
   ArrowLeft,
   ArrowRightLeft,
   BarChart3,
+  Database,
+  FileText,
 } from 'lucide-react'
 import { EntryPointCard } from '@/components/ui/entry-point-card'
 import { ListPageToolbar, type FilterGroup } from '@/components/ui/list-page-toolbar'
 import { useConceptMappingStore } from '@/stores/concept-mapping-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
+import { useDataSourceStore } from '@/stores/data-source-store'
 import { useAppStore } from '@/stores/app-store'
 import { localized, setLocalized } from '@/lib/localized'
 import { applySort, visitSortFields } from '@/lib/list-sort'
@@ -86,6 +89,7 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
   // the widgets stale until a full reload.
   const allMappingProjects = useConceptMappingStore((s) => s.mappingProjects)
   const mappingActions = useMappingProjectActions()
+  const dataSources = useDataSourceStore((s) => s.dataSources)
 
   useEffect(() => {
     if (!mappingProjectsLoaded) loadMappingProjects()
@@ -451,7 +455,12 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
           const progress = getProgress(project)
           const total = getTotalSourceConcepts(project)
           const mapped = project.stats?.mappedCount ?? 0
-          const approved = project.stats?.approvedCount ?? 0
+          const isFileSource = project.sourceType === 'file'
+          const SourceIcon = isFileSource ? FileText : Database
+          // A database not installed here still has the label its export carried.
+          const sourceName = isFileSource
+            ? project.fileSourceData?.fileName
+            : localized(dataSources.find((ds) => ds.id === project.dataSourceId)?.name ?? project.dataSourceRef?.label, language)
           return (
             <div className="min-w-0 flex-1">
                 {/* Row 1: icon + title + status pill + actions */}
@@ -474,15 +483,13 @@ export function MappingProjectListPage(props: MappingProjectListPageProps) {
                     <TruncatedText text={localized(project.description, language)} className="text-xs text-muted-foreground" />
                   )}
                 </div>
-                {/* The source — database or file — is on the project's Overview,
-                    where there is room to name it. On a card competing with the
-                    badges and the progress bar it cost a row and said little. */}
-                {/* Badges + approved count (right) */}
+                {/* Badges + source (right) */}
                 <div className="mt-2 flex h-5 items-center gap-1.5">
                   <BadgeStrip badges={project.badges ?? []} className="min-w-0 flex-1" />
-                  {mapped > 0 && (
-                    <span className="ml-auto shrink-0 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
-                      {t('concept_mapping.card_approved_label', { approved, total: mapped })}
+                  {sourceName && (
+                    <span className="ml-auto flex min-w-0 max-w-[50%] shrink items-center gap-1 text-[10px] text-muted-foreground">
+                      <SourceIcon size={12} className="shrink-0" />
+                      <TruncatedText text={sourceName} readOnly className="min-w-0" />
                     </span>
                   )}
                 </div>
