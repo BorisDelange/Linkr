@@ -114,9 +114,40 @@ function applyWithin(base: string[], start: number, end: number, hunks: Hunk[]):
   return out
 }
 
+/** How a text is cut into the units the merge aligns, and put back together. */
+export interface MergeUnit {
+  split: (text: string) => string[]
+  join: (units: string[], inputs: { local: string; remote: string }) => string
+}
+
+export const PARAGRAPHS: MergeUnit = {
+  split: splitBlocks,
+  join: (blocks, inputs) => {
+    const trailing = inputs.remote.endsWith('\n') || inputs.local.endsWith('\n') ? '\n' : ''
+    return blocks.join('\n\n') + trailing
+  },
+}
+
+/** Line by line, for code and CSV: the diff3 git itself would do. */
+export const LINES: MergeUnit = {
+  split: (text) => {
+    const lines = text.replace(/\r\n/g, '\n').split('\n')
+    if (lines[lines.length - 1] === '') lines.pop()
+    return lines
+  },
+  join: (lines, inputs) => {
+    const trailing = inputs.remote.endsWith('\n') || inputs.local.endsWith('\n') ? '\n' : ''
+    return lines.join('\n') + (lines.length ? trailing : '')
+  },
+}
+
 export function mergeMarkdown(base: string, local: string, remote: string): MarkdownMerge {
-  const B = splitBlocks(base)
-  const hunks = [...hunksOf(B, splitBlocks(local), 'local'), ...hunksOf(B, splitBlocks(remote), 'remote')]
+  return mergeText(base, local, remote, PARAGRAPHS)
+}
+
+export function mergeText(base: string, local: string, remote: string, unit: MergeUnit): MarkdownMerge {
+  const B = unit.split(base)
+  const hunks = [...hunksOf(B, unit.split(local), 'local'), ...hunksOf(B, unit.split(remote), 'remote')]
     .sort((a, b) => a.start - b.start || a.end - b.end)
 
   const segments: MergeSegment[] = []
@@ -164,12 +195,12 @@ export function resolveMerge(
   merge: MarkdownMerge,
   conflictSide: 'local' | 'remote',
   inputs: { local: string; remote: string },
+  unit: MergeUnit = PARAGRAPHS,
 ): string {
   const blocks = merge.segments.flatMap((s) =>
     s.kind === 'stable' ? s.blocks : conflictSide === 'local' ? s.local : s.remote,
   )
-  if (same(blocks, splitBlocks(inputs.remote))) return inputs.remote
-  if (same(blocks, splitBlocks(inputs.local))) return inputs.local
-  const trailing = inputs.remote.endsWith('\n') || inputs.local.endsWith('\n') ? '\n' : ''
-  return blocks.join('\n\n') + trailing
+  if (same(blocks, unit.split(inputs.remote))) return inputs.remote
+  if (same(blocks, unit.split(inputs.local))) return inputs.local
+  return unit.join(blocks, inputs)
 }
