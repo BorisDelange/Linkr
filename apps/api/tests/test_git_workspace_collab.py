@@ -102,13 +102,15 @@ async def test_second_editor_makes_the_workspace_behind_and_the_push_wait(client
 async def test_tree_preview_lists_binaries_by_oid_and_refuses_odd_prefixes(client, tmp_path):
     headers = await _admin(client)
     ws, _ = await _linked_workspace(client, headers, tmp_path)
-    await _push(client, headers, ws, {"wiki/_tree.json": "[]", "wiki/_attachments/a-x.png": "PNG"})
+    await _push(client, headers, ws, {
+        "wiki/_tree.json": "[]", "wiki/_attachments/a-x.png": "PNG", "workspace.json": "{}",
+    })
 
     preview = (await client.get(
         f"{API}/git/workspaces/{ws}/tree-preview", headers=headers, params={"prefix": "wiki"},
     )).json()
     assert preview["remote"] == {"wiki/_tree.json": "[]"}
-    assert list(preview["remoteOids"]) == ["wiki/_attachments/a-x.png"]
+    assert sorted(preview["remoteOids"]) == ["wiki/_attachments/a-x.png", "workspace.json"]
     # No anchor yet would have been an empty base; here the push anchored it.
     assert preview["base"] == {"wiki/_tree.json": "[]"}
 

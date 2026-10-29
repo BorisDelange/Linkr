@@ -139,8 +139,8 @@ class GitPullPreviewResponse(CamelModel):
 
 
 class GitTreePreviewResponse(CamelModel):
-    """Text of every file under a prefix at BASE (the sync anchor) and at the
-    remote head. A binary file comes back as its blob oid only, under `oids`."""
+    """At BASE (the sync anchor) and at the remote head: the text of every file
+    under the requested prefix, and the blob oid of every other file in the tree."""
 
     branch: str
     remote_head: str | None = None

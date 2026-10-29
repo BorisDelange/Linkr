@@ -328,6 +328,25 @@ export async function gitPullPreview(scope: GitScope, id: string, branch?: strin
   return apiRequest<GitPullPreview>(`${base(scope, id)}/pull-preview${qs}`)
 }
 
+export interface GitTreePreview {
+  branch: string
+  remoteHead: string | null
+  syncedOid: string | null
+  /** path → text, for the files under the requested prefix. */
+  base: Record<string, string>
+  remote: Record<string, string>
+  /** path → blob oid, for every other file in the tree. */
+  baseOids: Record<string, string>
+  remoteOids: Record<string, string>
+}
+
+/** BASE (the sync anchor) and REMOTE of a repository tree, for a client-side
+ *  3-way merge. v1: the workspace wiki. */
+export async function gitTreePreview(scope: GitScope, id: string, prefix: string, branch?: string): Promise<GitTreePreview> {
+  const qs = `?prefix=${encodeURIComponent(prefix)}${branch ? `&branch=${encodeURIComponent(branch)}` : ''}`
+  return apiRequest<GitTreePreview>(`${base(scope, id)}/tree-preview${qs}`)
+}
+
 /** Fetch the raw bytes of a heavy managed file (source CSV / scores parquet) at the
  *  remote head — used when the pull takes the remote version of a whole-list family. */
 export async function gitPullFile(scope: GitScope, id: string, path: string, branch?: string): Promise<Uint8Array> {

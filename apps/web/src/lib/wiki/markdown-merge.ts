@@ -6,9 +6,12 @@
  * that touched the same paragraph. Blocks are separated by blank lines; a fenced
  * code block stays one block even across blank lines inside it.
  *
- * The algorithm is diff3 over blocks: align BASE with each side (LCS), walk the
- * blocks both sides kept unchanged, and settle each region between them — taken
- * from the side that changed it, or a conflict when both changed it differently.
+ * Each side is aligned with BASE (LCS over blocks) and reduced to hunks — "these
+ * base blocks became those". Hunks that touch different base blocks apply
+ * independently, even when the blocks are neighbours: that is the point of the
+ * block granularity, where a line-based diff3 would call two edits to adjacent
+ * paragraphs a conflict. Only hunks over the same blocks (or two insertions at the
+ * same place) conflict, and not when both sides made the same change.
  */
 
 export type MergeSegment =
@@ -72,12 +75,49 @@ function lcsMatch(a: string[], b: string[]): number[] {
 
 const same = (x: string[], y: string[]) => x.length === y.length && x.every((v, i) => v === y[i])
 
+/** base[start, end) replaced by `blocks` on one side. start === end: an insertion. */
+interface Hunk { start: number; end: number; blocks: string[]; side: 'local' | 'remote' }
+
+function hunksOf(base: string[], other: string[], side: Hunk['side']): Hunk[] {
+  const match = lcsMatch(base, other)
+  const hunks: Hunk[] = []
+  let b = 0
+  let o = 0
+  const flush = (bEnd: number, oEnd: number) => {
+    if (bEnd > b || oEnd > o) hunks.push({ start: b, end: bEnd, blocks: other.slice(o, oEnd), side })
+  }
+  for (let k = 0; k < base.length; k++) {
+    if (match[k] < 0) continue
+    flush(k, match[k])
+    b = k + 1
+    o = match[k] + 1
+  }
+  flush(base.length, other.length)
+  return hunks
+}
+
+function overlaps(a: Hunk, b: Hunk): boolean {
+  if (a.start === b.start) return true
+  const insideOf = (ins: Hunk, h: Hunk) => ins.start === ins.end && h.start < ins.start && ins.start < h.end
+  return Math.max(a.start, b.start) < Math.min(a.end, b.end) || insideOf(a, b) || insideOf(b, a)
+}
+
+/** base[start, end) with one side's hunks (all inside that range) applied. */
+function applyWithin(base: string[], start: number, end: number, hunks: Hunk[]): string[] {
+  const out: string[] = []
+  let i = start
+  for (const h of hunks) {
+    out.push(...base.slice(i, h.start), ...h.blocks)
+    i = h.end
+  }
+  out.push(...base.slice(i, end))
+  return out
+}
+
 export function mergeMarkdown(base: string, local: string, remote: string): MarkdownMerge {
   const B = splitBlocks(base)
-  const L = splitBlocks(local)
-  const R = splitBlocks(remote)
-  const toL = lcsMatch(B, L)
-  const toR = lcsMatch(B, R)
+  const hunks = [...hunksOf(B, splitBlocks(local), 'local'), ...hunksOf(B, splitBlocks(remote), 'remote')]
+    .sort((a, b) => a.start - b.start || a.end - b.end)
 
   const segments: MergeSegment[] = []
   let conflicts = 0
@@ -87,27 +127,31 @@ export function mergeMarkdown(base: string, local: string, remote: string): Mark
     if (last?.kind === 'stable') last.blocks.push(...blocks)
     else segments.push({ kind: 'stable', blocks: [...blocks] })
   }
-  const settle = (b: string[], l: string[], r: string[]) => {
-    if (same(l, b)) push(r)
-    else if (same(r, b) || same(l, r)) push(l)
+
+  let i = 0
+  let h = 0
+  while (h < hunks.length) {
+    const group = [hunks[h++]]
+    let end = group[0].end
+    while (h < hunks.length && group.some((g) => overlaps(g, hunks[h]))) {
+      end = Math.max(end, hunks[h].end)
+      group.push(hunks[h++])
+    }
+    const start = group[0].start
+    push(B.slice(i, start))
+    const mine = group.filter((g) => g.side === 'local')
+    const theirs = group.filter((g) => g.side === 'remote')
+    const l = applyWithin(B, start, end, mine)
+    const r = applyWithin(B, start, end, theirs)
+    if (!mine.length) push(r)
+    else if (!theirs.length || same(l, r)) push(l)
     else {
-      segments.push({ kind: 'conflict', base: b, local: l, remote: r })
+      segments.push({ kind: 'conflict', base: B.slice(start, end), local: l, remote: r })
       conflicts++
     }
+    i = end
   }
-
-  let bi = 0
-  let li = 0
-  let ri = 0
-  for (let k = 0; k < B.length; k++) {
-    if (toL[k] < 0 || toR[k] < 0) continue
-    settle(B.slice(bi, k), L.slice(li, toL[k]), R.slice(ri, toR[k]))
-    push([B[k]])
-    bi = k + 1
-    li = toL[k] + 1
-    ri = toR[k] + 1
-  }
-  settle(B.slice(bi), L.slice(li), R.slice(ri))
+  push(B.slice(i))
   return { segments, conflicts }
 }
 

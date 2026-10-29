@@ -1402,10 +1402,11 @@ async def tree_preview(
     prefix: str,
     token: str | None = None,
 ) -> dict:
-    """BASE (synced_oid) and REMOTE (remote head) of every file under `prefix`:
-    text files as content, anything else as its blob oid (enough to tell whether
-    it moved). The generic sibling of `pull_preview`, for scopes whose pull is a
-    tree of small text files — the workspace wiki first."""
+    """BASE (synced_oid) and REMOTE (remote head) of the repository tree: the text
+    files under `prefix` as content, every other file as its blob oid (enough to
+    tell whether it moved, so a pull can say what it does not handle). The generic
+    sibling of `pull_preview`, for scopes whose pull is a tree of small text files
+    — the workspace wiki first."""
     _safe_ref(branch)
     if synced_oid is not None:
         _safe_oid(synced_oid)
@@ -1431,13 +1432,13 @@ async def tree_preview(
             oids: dict[str, str] = {}
             if not commit:
                 return texts, oids
-            out = _run(repo, "ls-tree", "-r", commit, "--", prefix, check=False)
+            out = _run(repo, "ls-tree", "-r", commit, check=False)
             for line in out.splitlines():
                 meta, _, path = line.partition("\t")
                 parts = meta.split()
                 if len(parts) != 3 or parts[1] != "blob":
                     continue
-                if path.lower().endswith(_TREE_PREVIEW_TEXT_SUFFIXES):
+                if path.startswith(prefix) and path.lower().endswith(_TREE_PREVIEW_TEXT_SUFFIXES):
                     texts[path] = _run(repo, "show", f"{commit}:{path}", check=False)
                 else:
                     oids[path] = parts[2]

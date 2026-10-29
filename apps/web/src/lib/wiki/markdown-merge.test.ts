@@ -34,6 +34,21 @@ describe('mergeMarkdown', () => {
     )
   })
 
+  it('merges edits to two neighbouring paragraphs, one on each side', () => {
+    const local = doc('# Setup', 'Install it with uv.', 'Run it.', 'Done.')
+    const remote = doc('# Setup', 'Install it.', 'Run it twice.', 'Done.')
+    const merge = mergeMarkdown(base, local, remote)
+    expect(merge.conflicts).toBe(0)
+    expect(resolveMerge(merge, 'remote', { local, remote })).toBe(
+      doc('# Setup', 'Install it with uv.', 'Run it twice.', 'Done.'),
+    )
+  })
+
+  it('conflicts on two insertions at the same place', () => {
+    expect(mergeMarkdown(base, doc('# Setup', 'Mine.', 'Install it.', 'Run it.', 'Done.'),
+      doc('# Setup', 'Theirs.', 'Install it.', 'Run it.', 'Done.')).conflicts).toBe(1)
+  })
+
   it('reports a conflict when both sides change the same paragraph differently', () => {
     const local = doc('# Setup', 'Install it with uv.', 'Run it.', 'Done.')
     const remote = doc('# Setup', 'Install it with pip.', 'Run it.', 'Done.')
