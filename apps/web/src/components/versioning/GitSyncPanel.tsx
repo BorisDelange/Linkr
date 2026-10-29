@@ -209,8 +209,11 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
     // reflect the new remote state (the pushed files drop off) without a manual
     // refresh — during that recompute the tab shows the computing spinner, not
     // stale clickable buttons.
-    const message = t(qa.messageKey, { author: authorName || t('versioning.quick_unknown_author') })
-    setRunningQuickAction(qa.messageKey)
+    const message = t(qa.messageKey, {
+      author: authorName || t('versioning.quick_unknown_author'),
+      subject: qa.subjectKey ? t(qa.subjectKey) : '',
+    })
+    setRunningQuickAction(qa.id)
     try {
       const result = await commitPushPaths(scope, id, qa.files.map((f) => f.path), message, branch)
       if (result?.pushed) {
@@ -461,13 +464,13 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {quickActions.map((qa, i) => (
                   <QuickActionCard
-                    key={qa.messageKey}
+                    key={qa.id}
                     action={qa}
                     primary={i === 0}
-                    running={runningQuickAction === qa.messageKey}
+                    running={runningQuickAction === qa.id}
                     // While one action commits, the others disable (but don't spin);
                     // a pull-first requirement disables all.
-                    disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction !== qa.messageKey)}
+                    disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction !== qa.id)}
                     onRun={() => runQuickAction(qa)}
                     onOpenDiff={setDiffPath}
                     onViewMappings={scope === 'mapping-projects' ? () => setMappingsOpen(true) : undefined}
@@ -691,7 +694,7 @@ function QuickActionCard({
   onOpenDiff: (path: string) => void
   /** Open the mappings review table. Absent for scopes without a mappings.json. */
   onViewMappings?: () => void
-  t: (k: string) => string
+  t: (k: string, params?: Record<string, string>) => string
 }) {
   const nothing = action.files.length === 0
   const accent = action.isSyncAll
@@ -699,7 +702,7 @@ function QuickActionCard({
     <div className={cn('flex flex-col overflow-hidden rounded-lg border bg-card shadow-sm', accent && SYNC_ALL_ACCENT.border)}>
       <div className={cn('flex items-center gap-2 px-3 py-2', accent ? SYNC_ALL_ACCENT.headerBg : 'bg-muted/40')}>
         <UploadCloud size={14} className={cn('shrink-0', accent ? SYNC_ALL_ACCENT.icon : 'text-muted-foreground')} />
-        <span className={cn('text-xs font-semibold', accent && SYNC_ALL_ACCENT.icon)}>{t(action.labelKey)}</span>
+        <span className={cn('text-xs font-semibold', accent && SYNC_ALL_ACCENT.icon)}>{t(action.labelKey, { subject: action.subjectKey ? t(action.subjectKey) : '' })}</span>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
         <p className="text-[11px] leading-relaxed text-muted-foreground">{t(action.descriptionKey)}</p>
@@ -758,7 +761,7 @@ function QuickActionCard({
           disabled={running || disabled || nothing}
         >
           {running ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-          {t(action.labelKey)}
+          {t(action.labelKey, { subject: action.subjectKey ? t(action.subjectKey) : '' })}
         </Button>
       </div>
     </div>

@@ -132,6 +132,11 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   await expect(page.getByText('wiki/note.md')).toHaveCount(0)
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'after-pull.png'), fullPage: true })
 
+  // The push cards mirror the pull's subjects: Sync all, then the wiki on its own.
+  await page.getByRole('tab', { name: 'Quick actions' }).click()
+  await expect(page.getByText('Sync Wiki', { exact: true }).first()).toBeVisible()
+  if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'push-quick.png'), fullPage: true })
+
   const pages: { id: string; status?: string; content: { en: string } }[] = await (await http.get(`/wiki-pages?workspaceId=${wsId}`)).json()
   const byId = new Map(pages.map((p) => [p.id, p]))
   expect(byId.get(page1.id)?.status).toBe('needs_revision')
