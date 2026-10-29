@@ -158,7 +158,7 @@ async def test_a_project_push_is_anchored_and_waits_for_a_pull(client, tmp_path)
         "workspaceId": ws, "uid": "p-anchor", "name": {"en": "P"},
         "gitRemoteConfig": {"url": f"file://{remote}", "branch": "main"},
     })
-    push = lambda files: client.post(  # noqa: E731
+    push = lambda files: client.post(
         f"{API}/git/projects/p-anchor/commit-push", headers=headers,
         data={"message": "m", "branch": "main", "paths": list(files)},
         files={"file": ("p.zip", _zip(files), "application/zip")},

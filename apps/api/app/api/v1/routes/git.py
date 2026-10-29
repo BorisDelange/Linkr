@@ -22,7 +22,16 @@ from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import structlog
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Response,
+    UploadFile,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit, deferred
@@ -50,9 +59,9 @@ from app.schemas.git import (
     GitPullScoresRequest,
     GitSetSyncStateRequest,
     GitStatusResponse,
+    GitSyncStateResponse,
     GitThreeWayResponse,
     GitTreePreviewResponse,
-    GitSyncStateResponse,
     GitVerifyRequest,
     GitVerifyResponse,
     SettingsGitConfig,
@@ -182,7 +191,7 @@ async def _assembled(coro, what: str) -> bytes:
         return await coro
     except HTTPException:
         raise
-    except Exception as exc:  # noqa: BLE001 — the assembler's message is the diagnosis
+    except Exception as exc:
         logger.exception("git_export_assemble_failed", entity=what)
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST,
@@ -942,7 +951,7 @@ async def mapping_project_pull_scores(
                     csvs.append((method, str(target)))
                 try:
                     sha = await scores_export.replace_methods(session, fresh, csvs, body.removed)
-                except Exception as e:  # noqa: BLE001 — surface DuckDB's parse error to the client
+                except Exception as e:
                     raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
         if not sha:
             return None
