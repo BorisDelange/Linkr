@@ -22,7 +22,11 @@ The rule, with k the threshold:
   percentage alone does not say over how many records it was taken — then the
   smallest kept ones while the records dropped total under k;
 - the histogram is first moved onto a round grid not anchored on the minimum,
-  and its first and last bins go: each holds an extreme within one bin width;
+  and its first and last bins go: each holds an extreme within one bin width —
+  once: the profile is stamped `masked_k` (the threshold applied), and a profile
+  already stamped at k or more is neither regridded nor trimmed again, else
+  every export of an imported file (a pull, then a push) would erode or shift
+  its histogram. Every other rule runs again whatever the stamp says;
 - a cell keeps its records `count` but loses its `patients_count`, which only
   decided whether it could stay;
 - a profile nested deeper than MAX_PROFILE_DEPTH is withheld, as Python's
@@ -248,12 +252,17 @@ def mask_profile(
         if not known or min(known) < _NEAR_EXTREMES_MIN_COUNT:
             out["numeric_data"] = {k_: v for k_, v in numeric.items() if k_ not in _NEAR_EXTREMES}
     if isinstance(out.get("histogram"), list):
-        grid = _regrid(out["histogram"])
-        if grid is None:
-            del out["histogram"]
+        if _number(profile.get("masked_k")) >= k:
+            # On its grid already, edges gone: regridding again would infer a wider
+            # step from the gaps the suppression left, and move every bin.
+            out["histogram"] = cells(out["histogram"])
         else:
-            first, last = grid[0], grid[-1]
-            out["histogram"] = cells(grid, lambda b: b is first or b is last or small_cell(b))
+            grid = _regrid(out["histogram"])
+            if grid is None:
+                del out["histogram"]
+            else:
+                first, last = grid[0], grid[-1]
+                out["histogram"] = cells(grid, lambda b: b is first or b is last or small_cell(b))
     for key in ("categorical_data", "hospital_units"):
         if isinstance(out.get(key), list):
             out[key] = cells(out[key])
@@ -264,6 +273,7 @@ def mask_profile(
         if isinstance(rest.get("by_year"), list):
             rest["by_year"] = cells(rest["by_year"])
         out["temporal_distribution"] = rest
+    out["masked_k"] = k
     return out
 
 

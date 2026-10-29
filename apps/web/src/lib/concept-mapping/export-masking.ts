@@ -212,13 +212,19 @@ export function maskProfile(profile: Json, k: number, rowPatients: string | null
     }
   }
   if (Array.isArray(out.histogram)) {
-    const grid = regrid(out.histogram)
-    if (grid === null) delete out.histogram
-    else {
-      const [first, last] = [grid[0], grid[grid.length - 1]]
-      out.histogram = cells(grid, (b) => b === first || b === last || smallCell(b))
+    if (toNumber(profile.masked_k) >= k) {
+      // On its grid already, edges gone (see `masked_k` in the server module doc).
+      out.histogram = cells(out.histogram)
+    } else {
+      const grid = regrid(out.histogram)
+      if (grid === null) delete out.histogram
+      else {
+        const [first, last] = [grid[0], grid[grid.length - 1]]
+        out.histogram = cells(grid, (b) => b === first || b === last || smallCell(b))
+      }
     }
   }
+
   for (const key of ['categorical_data', 'hospital_units']) {
     const list = out[key]
     if (Array.isArray(list)) out[key] = cells(list)
@@ -231,6 +237,7 @@ export function maskProfile(profile: Json, k: number, rowPatients: string | null
       ? { ...rest, by_year: cells(rest.by_year) }
       : rest
   }
+  out.masked_k = k
   return out
 }
 
