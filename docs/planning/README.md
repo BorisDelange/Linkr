@@ -196,24 +196,26 @@ Pulls exist for projects, databases, ETL pipelines, mapping projects and schema 
 
 ### Collaborative versioning — [collaborative-versioning-plan.md](collaborative-versioning-plan.md)
 
-Several people on one workspace: today the second pusher is stuck (`pull_required`,
-no workspace pull). Tested on local repositories only (bare repos + a local GitLab).
+Built 2026-10-28 → 10-30 on `feature/collab-versioning` (as-built: `docs/architecture.md`
+§ Versioning): allowed internal git hosts, a 3-way pull over the export tree for every
+scope (projects re-enabled), cards by subject on both sides, merge requests for every
+scope, per-workspace review mode; round trip, matrix and merge-request journeys
+against local repositories and `docker/forge-sim/`.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | 1. `LINKR_GIT_ALLOWED_HOSTS`: internal git hosts (local forge, hospital GitLab) past the SSRF guard (plan §3) | S |
-| 🔜 | 2. Local test tiers: bare-repo scenarios in pytest + `docker/forge-sim/` GitLab CE (plan §4) | M |
-| 🔜 | 3. Workspace pull, wiki first (per-page 3-way, paragraph-based), then the other inline sections (plan §5) | L |
-| 🔜 | 4. *Propose changes* → merge request / pull request for every versioned entity, proposals tracked in Linkr (plan §6) | M |
-| 🔜 | 5. Per-workspace push policy: direct / review only (plan §7) | S |
-| 🤔 | 6. Every versioned entity (plan §9): round-trip suite → one 3-way pull engine over the export tree → projects re-enabled → cards by subject (push + pull) → MR everywhere → test matrix | L |
-| 🔜 | User docs (linkr-website): working together on a workspace | S |
+| 🔜 | **[TO TEST]** In the app: a pull on each kind (workspace, project, SQL, ETL, DQ, catalog, schema, database), Propose changes, review mode | M |
+| 🔜 | Workspace pull: inline entities added or removed upstream (listed as not taken today), concept sets, service mappings, plugins | M |
+| 🔜 | Pull for user plugins and settings through the same engine (plugins have no importer to re-apply a tree) | M |
+| 🔜 | Conflict editing: an editable merged result for a text conflict (today: theirs or mine) | M |
+| 🔜 | A wiki page's metadata (`_tree.json` element) and its `.md` offered as one element | S |
+| 🔜 | User docs (linkr-website): pull by subject, merge requests, review mode, `LINKR_GIT_ALLOWED_HOSTS` | S |
+| 🔜 | `npm run worktree:new`: `node_modules/.bin` links copied as absolute paths to the main checkout — Playwright loads twice, `test:e2e` fails in a worktree | S |
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | Pull for the push-only scopes: SQL collections, DQ rule sets, data catalogs, plugins, settings (workspaces: see above) | M |
 | 🔜 | Server guard: the commit-push routes still accept `paths=None`, which runs `git add -A` (`git_service.commit_push`) | S |
-| 🔜 | `attachments/` on pull: the project pull carries them; check the other pulls | S |
+| 🔜 | `attachments/` on pull: check workspace wiki attachments and README images through the 3-way pull | S |
 | 💤 | Server-side import (`POST /projects/import`, `/workspaces/import`) — last big client-offload | L |
 
 ## Fullstack backlog

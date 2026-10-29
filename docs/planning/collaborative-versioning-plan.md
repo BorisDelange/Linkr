@@ -4,7 +4,8 @@ Goal: several people edit the same workspace (the wiki first) and meet in one gi
 repository without losing each other's work, and a change can go through review
 (merge request / pull request) instead of landing straight on the main branch.
 
-Started 2026-10-28. As-built of what exists today: `docs/architecture.md` § Versioning.
+Started 2026-10-28, built through 2026-10-30 (all of §2's order, and §9).
+As-built: `docs/architecture.md` § Versioning; what remains: `README.md` here (Versioning).
 
 ## 1. Where we are
 

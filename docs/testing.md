@@ -67,6 +67,17 @@ writes, and lost its tables when a job's cancellation invalidated it.
   in the run (skipped otherwise); `E2E_API_URL` names the API when it is not on
   the page's origin (a dev stack), and `E2E_SHOTS=<dir>` saves screenshots of
   the pull.
+  `versioning-roundtrip.spec.ts` pushes every entity of the demo workspace,
+  reinstalls it from what was pushed and expects nothing left to commit;
+  `versioning-matrix.spec.ts` runs every kind of entity (workspace with an inline
+  project, project, SQL collection, DQ rule set, catalog, ETL, schema preset,
+  database) through push → a colleague's change pulled back → the same on
+  another branch, and — with `E2E_FORGE=1` and the local GitLab of
+  `docker/forge-sim/` (README there; the API started with
+  `LINKR_GIT_ALLOWED_HOSTS=localhost:8929`) — a change proposed as a merge
+  request, merged on the forge by another user, then pulled. Both need an
+  instance holding the demo workspace (`E2E_DEMO=1`) and rewire its git links:
+  run them on a disposable one.
 
 `e2e/fixtures.ts` fails every journey on an uncaught page exception and gives
 `bootDemo(page)` and, for the server, `signIn(page)`. The code editor binds its
