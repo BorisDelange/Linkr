@@ -39,6 +39,8 @@ type Rec = { id: string } & Record<string, unknown>
 
 const P = 'proj-1'
 const did = (id: string) => deterministicId(P, id)
+/** An analysis' id: derived from its key (exported dataset + name), not its old id. */
+const aid = (dataset: string, name = 'analysis') => deterministicId(P, `analysis:${dataset}/${name}`)
 
 /**
  * In-memory Storage stub mirroring the IDB adapter's write semantics — that
@@ -696,7 +698,7 @@ describe('applyProjectPull — additive overlay', () => {
     await applyProjectPull(P, preparedWith(parsed), sel({ datasets: new Set(['a.csv']) }))
 
     expect([...t.datasetFiles.keys()]).toEqual([did('ds-a')])
-    expect([...t.datasetAnalyses.keys()]).toEqual([did('an-a')])
+    expect([...t.datasetAnalyses.keys()]).toEqual([aid('ds-a')])
     expect([...t.datasetData.keys()]).toEqual([did('ds-a')])
   })
 })
@@ -709,7 +711,7 @@ describe('applyProjectPull — dataset overwrite (the half-deleted-dataset regre
     // ANY of the four deletes makes an add-only create reject (the past data-loss
     // bug: analyses not deleted → ConstraintError → half-deleted dataset).
     t.datasetFiles.set(did('ds-1'), { id: did('ds-1'), projectUid: P, name: 'data.csv', type: 'file', parentId: null })
-    t.datasetAnalyses.set(did('an-1'), { id: did('an-1'), datasetFileId: did('ds-1'), config: { col: 'old' } })
+    t.datasetAnalyses.set(aid('ds-1'), { id: aid('ds-1'), datasetFileId: did('ds-1'), config: { col: 'old' } })
     t.datasetData.set(did('ds-1'), { datasetFileId: did('ds-1'), rows: [{ a: 1 }] })
     t.datasetRawFiles.set(did('ds-1'), { datasetFileId: did('ds-1'), fileName: 'old.csv' })
 
@@ -732,7 +734,7 @@ describe('applyProjectPull — dataset overwrite (the half-deleted-dataset regre
     }
 
     expect(t.datasetFiles.size).toBe(1)
-    expect(t.datasetAnalyses.get(did('an-1'))?.config).toEqual({ col: 'new' })
+    expect(t.datasetAnalyses.get(aid('ds-1'))?.config).toEqual({ col: 'new' })
     expect(t.datasetAnalyses.size).toBe(1)
     expect(t.datasetData.get(did('ds-1'))).toMatchObject({ rows: [{ a: 2 }] })
     expect(t.datasetRawFiles.get(did('ds-1'))).toMatchObject({ fileName: 'data.csv' })
@@ -833,7 +835,7 @@ describe('applyProjectPull — failure paths (what is guaranteed today)', () => 
     await applyProjectPull(P, preparedWith(parsed), sel({ datasets: new Set(['data.csv']) }))
 
     expect(t.datasetFiles.get(did('ds-1'))).toBeDefined()
-    expect(t.datasetAnalyses.get(did('an-1'))).toBeDefined()
+    expect(t.datasetAnalyses.get(aid('ds-1'))).toBeDefined()
     expect(gitMocks.gitSetSyncState).toHaveBeenCalledOnce()
   })
 

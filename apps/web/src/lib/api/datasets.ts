@@ -533,6 +533,7 @@ export const apiDatasetAnalysisStorage: DatasetAnalysisStorage = {
         name: analysis.name,
         type: analysis.type,
         config: analysis.config,
+        createdAt: analysis.createdAt,
       }),
     })
   },

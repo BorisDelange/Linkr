@@ -13,15 +13,25 @@ import { test, expect, signIn } from '../fixtures'
 // repositories, so use a disposable instance.
 test.describe.configure({ mode: 'serial' })
 
-interface Target { scope: string; type: string; list: string; key: 'uid' | 'id'; patch: (id: string) => string }
+interface Target {
+  scope: string
+  type: string
+  list: string
+  key: 'uid' | 'id'
+  /** Where the entity's git link is written: PATCH with the link, or a full PUT. */
+  link: { method: 'patch' | 'put'; url: (id: string) => string }
+}
 
 const TARGETS: Target[] = [
-  { scope: 'projects', type: 'project', list: '/projects', key: 'uid', patch: (id) => `/projects/${id}` },
-  { scope: 'mapping-projects', type: 'mapping-project', list: '/mapping-projects', key: 'id', patch: (id) => `/mapping-projects/${id}` },
-  { scope: 'etl-pipelines', type: 'etl-pipeline', list: '/etl-pipelines', key: 'id', patch: (id) => `/etl-pipelines/${id}` },
-  { scope: 'schema-presets', type: 'schema-preset', list: '/schema-presets', key: 'id', patch: (id) => `/schema-presets/${id}` },
-  { scope: 'databases', type: 'database', list: '/data-sources', key: 'id', patch: (id) => `/data-sources/${id}` },
+  { scope: 'projects', type: 'project', list: '/projects', key: 'uid', link: { method: 'patch', url: (id) => `/projects/${id}` } },
+  { scope: 'mapping-projects', type: 'mapping-project', list: '/mapping-projects', key: 'id', link: { method: 'patch', url: (id) => `/mapping-projects/${id}` } },
+  { scope: 'etl-pipelines', type: 'etl-pipeline', list: '/etl-pipelines', key: 'id', link: { method: 'patch', url: (id) => `/etl-pipelines/${id}` } },
+  { scope: 'schema-presets', type: 'schema-preset', list: '/schema-presets', key: 'id', link: { method: 'put', url: (id) => `/schema-presets/${id}` } },
 ]
+// Databases are left out: their data files are not versioned unless marked, so a
+// reinstall from a repo without them empties the database and its table list —
+// what a pull never does (absent from both sides, the data is no change). Their
+// round trip is covered by the pull-engine journeys.
 
 async function api(page: Page, request: APIRequestContext) {
   const base = process.env.E2E_API_URL ?? new URL(page.url()).origin
@@ -35,6 +45,7 @@ async function api(page: Page, request: APIRequestContext) {
   return {
     get: async (url: string) => (await ok(request.get(`${base}/api/v1${url}`, { headers }))).json(),
     patch: (url: string, data: unknown) => ok(request.patch(`${base}/api/v1${url}`, { headers, data })),
+    put: (url: string, data: unknown) => ok(request.put(`${base}/api/v1${url}`, { headers, data })),
     git: (url: string, form: Record<string, string>) =>
       ok(request.post(`${base}/api/v1/git${url}`, { headers, multipart: form, timeout: 300_000 })),
   }
@@ -58,7 +69,9 @@ test('every entity of the demo workspace survives push → reinstall with nothin
       const remote = testInfo.outputPath(`${target.scope}-${id}.git`)
       execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote])
       const url = `file://${remote}`
-      await http.patch(target.patch(id), { gitRemoteConfig: { url, branch: 'main' } })
+      const link = { gitRemoteConfig: { url, branch: 'main' } }
+      if (target.link.method === 'patch') await http.patch(target.link.url(id), link)
+      else await http.put(target.link.url(id), { ...entity, ...link })
       await http.git(`/${target.scope}/${id}/commit-push`, { message: 'Round trip', branch: 'main' })
 
       const result = await page.evaluate(async (args) => {
@@ -68,9 +81,10 @@ test('every entity of the demo workspace survives push → reinstall with nothin
       expect.soft(result, `${label}: reinstall`).toMatchObject({ ok: true })
 
       const status = await (await http.git(`/${target.scope}/${id}/status`, { branch: 'main' })).json()
-      const files: { path: string; status: string }[] = status.files ?? []
-      if (files.length) report.push(`${label}: ${files.map((f) => `${f.status} ${f.path}`).join(', ')}`)
-      expect.soft(files.map((f) => `${f.status} ${f.path}`), `${label}: left to commit after a round trip`).toEqual([])
+      const files: { path: string; changeType: string }[] = status.files ?? []
+      const left = files.map((f) => `${f.changeType} ${f.path}`)
+      if (left.length) report.push(`${label}: ${left.join(', ')}`)
+      expect.soft(left, `${label}: left to commit after a round trip`).toEqual([])
     }
   }
   await testInfo.attach('round-trip report', { body: report.join('\n') || 'clean', contentType: 'text/plain' })

@@ -199,7 +199,8 @@ export function maskProfile(profile: Json, k: number, rowPatients: string | null
   const cells = (entries: unknown[], small: (e: Json) => boolean = smallCell) =>
     suppress(entries, small, records, k).map(({ patients_count: _patients, ...rest }) => rest)
   const numeric = out.numeric_data
-  if (isObject(numeric)) {
+  // Decided on the first pass: the histogram it sums has lost bins since.
+  if (isObject(numeric) && !(toNumber(profile.masked_k) >= k)) {
     const sizes = [toNumber(numeric.numeric_count), toNumber(total)]
     if (Array.isArray(profile.histogram)) {
       let sum = 0

@@ -24,9 +24,10 @@ The rule, with k the threshold:
 - the histogram is first moved onto a round grid not anchored on the minimum,
   and its first and last bins go: each holds an extreme within one bin width —
   once: the profile is stamped `masked_k` (the threshold applied), and a profile
-  already stamped at k or more is neither regridded nor trimmed again, else
-  every export of an imported file (a pull, then a push) would erode or shift
-  its histogram. Every other rule runs again whatever the stamp says;
+  already stamped at k or more is neither regridded nor trimmed again, nor are
+  its near-extreme percentiles re-decided (the histogram they are counted on has
+  lost bins since), else every export of an imported file (a pull, then a push)
+  would erode it. Every other rule runs again whatever the stamp says;
 - a cell keeps its records `count` but loses its `patients_count`, which only
   decided whether it could stay;
 - a profile nested deeper than MAX_PROFILE_DEPTH is withheld, as Python's
@@ -241,7 +242,8 @@ def mask_profile(
         return [{k_: v for k_, v in e.items() if k_ != "patients_count"} for e in kept]
 
     numeric = out.get("numeric_data")
-    if isinstance(numeric, dict):
+    # Decided on the first pass: the histogram it sums has lost bins since.
+    if isinstance(numeric, dict) and not _number(profile.get("masked_k")) >= k:
         sizes = [_number(numeric.get("numeric_count")), _number(total)]
         if isinstance(profile.get("histogram"), list):
             histogram_sum = 0.0

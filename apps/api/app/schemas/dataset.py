@@ -120,6 +120,8 @@ class DatasetAnalysisCreate(CamelModel):
     name: str
     type: str
     config: dict = {}
+    # Restored from the export on import, else a re-import re-dates the analysis.
+    created_at: datetime | None = None
 
 
 class DatasetAnalysisUpdate(CamelModel):

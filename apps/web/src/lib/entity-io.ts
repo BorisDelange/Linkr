@@ -1500,7 +1500,9 @@ export async function buildProjectZip(
 
       const analyses = await storage.datasetAnalyses.getByDataset(df.id)
       for (const a of analyses) {
-        zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(stripInstanceFields(a)))
+        // No id: it is derived on import from the analysis key (dataset + name).
+        const { id: _id, ...portable } = stripInstanceFields(a)
+        zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(portable))
       }
 
       // A data file leaves the machine only when explicitly marked for versioning.
@@ -2032,7 +2034,9 @@ export async function importProjectContent(
     if (isServerMode() && !datasetIdMap.has(a.datasetFileId)) continue
     await storage.datasetAnalyses.create({
       ...a,
-      id: mapId(a.id),
+      // From the analysis' key, never its exported id: an id derived from an id
+      // moves on every re-import, and the export wrote it back.
+      id: keyId(`analysis:${(a as { datasetPath?: string }).datasetPath ?? a.datasetFileId}/${slugify(a.name || 'analysis')}`),
       datasetFileId: resolveDatasetId(a.datasetFileId),
       config: remapColIds(a.config, colIdMap),
     })
