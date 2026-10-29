@@ -769,6 +769,11 @@ recharts `content`, and `FloatingChartTooltip` for a chart not drawn by recharts
 Style it as little as possible — `side`/`align` and, at most, a width. The dark
 panel, the padding and the text size come from the primitive.
 
+The one exception is **`variant="card"`**: a light popover surface (border,
+shadow, no arrow) for content that carries its own colours — badge chips in
+`BadgeStrip`'s "+N" and truncated-badge tooltips. On the dark panel those
+colours turn muddy in light mode. Text-only tooltips stay on the default.
+
 For **text that may be cut off**, don't build the tooltip by hand: use
 `TruncatedText` / `TruncatedHeader`, or a table's `cellTooltips` (§2). They
 measure the overflow, only reveal what is actually truncated, add the copy

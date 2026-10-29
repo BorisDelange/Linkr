@@ -38,6 +38,9 @@ import { Input } from '@/components/ui/input'
 import { MultiSelectFilter as SharedMultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { DebouncedInput } from '@/components/ui/debounced-input'
+import { BadgeStrip } from '@/components/ui/badge-strip'
+import { badgeFilterOptions } from '@/lib/badge-filter-options'
+import { useBadgeCategories } from '@/hooks/use-badge-categories'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import {
@@ -87,7 +90,8 @@ import { buildGlobalTableOnServer, queryGlobalTableOnServer } from '@/lib/api/ma
 import { ApiError } from '@/lib/api-client'
 import { isServerMode } from '@/lib/api-client'
 import { SourceIdTab } from './SourceIdTab'
-import type { ConceptMapping, MappingProject, MappingStatus, SourceConceptIdEntry } from '@/types'
+import type { ConceptMapping, MappingProject, MappingStatus, ProjectBadge, SourceConceptIdEntry } from '@/types'
+import { cn } from '@/lib/utils'
 
 interface GlobalSummaryViewProps {
   onBack: () => void
@@ -338,7 +342,7 @@ interface GlobalTableFilters {
 }
 
 export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects } = useConceptMappingStore()
 
@@ -732,11 +736,39 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const [allSourceVocabs, setAllSourceVocabs] = useState<string[]>([])
   const [allTargetVocabs, setAllTargetVocabs] = useState<string[]>([])
 
-  const allBadgeLabels = useMemo(() => {
-    const labels = new Set<string>()
-    for (const p of projects) for (const b of p.badges ?? []) { const l = localized(b.label, 'en'); if (l) labels.add(l) }
-    return Array.from(labels).sort()
+  // Groups and rows carry a badge by its English label; this finds the badge
+  // behind it, so it can be drawn as a chip (two-tone when categorized).
+  const badgeByLabel = useMemo(() => {
+    const byLabel = new Map<string, ProjectBadge>()
+    for (const p of projects) for (const b of p.badges ?? []) {
+      const l = localized(b.label, 'en')
+      if (l && !byLabel.has(l)) byLabel.set(l, b)
+    }
+    return byLabel
   }, [projects])
+  const badgeCategories = useBadgeCategories()
+  // Same grouping as the list pages' badge filters: one heading per category,
+  // each option shown as its value chip in the category's colour.
+  const badgeOptions = useMemo(() => {
+    let group: string | undefined
+    return badgeFilterOptions(
+      [...badgeByLabel].sort(([a], [b]) => a.localeCompare(b)).map(([label, b]) => ({ label, color: b.color })),
+      badgeCategories,
+      i18n.language,
+      t('badge_categories.no_category'),
+    ).map((o) => {
+      group = o.subheading ?? group
+      return { ...o, group }
+    })
+  }, [badgeByLabel, badgeCategories, i18n.language, t])
+  const renderBadgeOption = (option: { value: string }) => {
+    const o = badgeOptions.find((b) => b.value === option.value)
+    return (
+      <span className={cn('truncate rounded px-1.5 py-0.5 text-[10px] font-medium', o?.badgeClass)} style={o?.badgeStyle}>
+        {o?.label ?? option.value}
+      </span>
+    )
+  }
 
   // Load filter options for the dropdowns. Server mode: the distinct values come
   // from the built cache (serverFilterValues) — the WASM temp table the
@@ -960,7 +992,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const statusFilterSet = colFilters.statusFilter ?? new Set<string>()
   const groupLabelsSet = colFilters.groupLabels ?? new Set<string>()
   const popoverGroupOptions = groupMode === 'badge'
-    ? allBadgeLabels
+    ? badgeOptions
     : projects.map((p) => localized(p.name, 'en'))
   const activeFilterCount =
     (colFilters.sourceVocabularyId?.size ?? 0)
@@ -991,13 +1023,11 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       header: () => t('concept_mapping.global_badge'),
       accessorFn: (r) => r.badgeLabels.join(', '),
       cell: ({ row }) => (
-        <div className="flex flex-wrap gap-0.5">
-          {row.original.badgeLabels.map((l) => (
-            <span key={l} className="rounded-full bg-muted px-1.5 py-0.5 text-[9px]">{l}</span>
-          ))}
-        </div>
+        <BadgeStrip
+          badges={row.original.badgeLabels.map((l) => badgeByLabel.get(l) ?? { id: l, label: l, color: 'slate' })}
+        />
       ),
-      size: 120,
+      size: 160,
     },
     {
       id: 'projectCount',
@@ -1108,7 +1138,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         : <span className="text-xs text-muted-foreground/40">—</span>,
       size: 36,
     },
-  ], [t])
+  ], [t, badgeByLabel])
 
   // ── Project/status mode columns ──
   const flatColumns = useMemo<ColumnDef<GlobalMappingRow>[]>(() => [
@@ -1270,9 +1300,19 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
       ])
     }
     if (columnId === 'groupLabel' || columnId === 'badgeLabels') {
-      const opts = groupMode === 'badge'
-        ? allBadgeLabels.map((l) => ({ value: l, label: l }))
-        : projects.map((p) => ({ value: localized(p.name, 'en'), label: localized(p.name, 'en') }))
+      if (groupMode === 'badge') {
+        return badgeOptions.length > 0 ? (
+          <SharedMultiSelectFilter
+            value={[...groupLabelsSet]}
+            options={badgeOptions}
+            groupOptions
+            renderOption={renderBadgeOption}
+            placeholder={t('concepts.filter_all')}
+            onChange={(v) => updateFilter('groupLabels', new Set(v))}
+          />
+        ) : null
+      }
+      const opts = projects.map((p) => ({ value: localized(p.name, 'en'), label: localized(p.name, 'en') }))
       return opts.length > 0 ? inlineMultiSelect('groupLabels', opts) : null
     }
     if (columnId === 'sourceVocabularyId' && allSourceVocabs.length > 0) {
@@ -1644,6 +1684,8 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                     <SharedMultiSelectFilter
                       value={[...groupLabelsSet]}
                       options={popoverGroupOptions}
+                      groupOptions={groupMode === 'badge'}
+                      renderOption={groupMode === 'badge' ? renderBadgeOption : undefined}
                       placeholder={t('concepts.filter_all')}
                       onChange={(v) => updateFilter('groupLabels', new Set(v))}
                       triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
@@ -1736,7 +1778,11 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                 ) : activeTable.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className="truncate">
+                      <TableCell
+                        key={cell.id}
+                        className="overflow-hidden truncate text-xs px-2 py-1"
+                        style={{ maxWidth: cell.column.getSize() }}
+                      >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}
