@@ -206,6 +206,7 @@ no workspace pull). Tested on local repositories only (bare repos + a local GitL
 | 🔜 | 3. Workspace pull, wiki first (per-page 3-way, paragraph-based), then the other inline sections (plan §5) | L |
 | 🔜 | 4. *Propose changes* → merge request / pull request for every versioned entity, proposals tracked in Linkr (plan §6) | M |
 | 🔜 | 5. Per-workspace push policy: direct / review only (plan §7) | S |
+| 🤔 | 6. Every versioned entity (plan §9): round-trip suite → one 3-way pull engine over the export tree → projects re-enabled → cards by subject (push + pull) → MR everywhere → test matrix | L |
 | 🔜 | User docs (linkr-website): working together on a workspace | S |
 
 | St | Item | Effort |

@@ -35,6 +35,7 @@ from app.models.organization import Organization
 from app.models.pipeline import Pipeline
 from app.models.schema_preset import SchemaPreset
 from app.models.stats_cache import StatsCache
+from app.models.git_proposal import GitProposal
 from app.models.git_sync_state import GitSyncState
 from app.models.git_content_status import GitContentStatus
 from app.models.sql_script import SqlScriptCollection, SqlScriptFile
@@ -96,6 +97,7 @@ __all__ = [
     "Pipeline",
     "SchemaPreset",
     "StatsCache",
+    "GitProposal",
     "GitSyncState",
     "GitContentStatus",
     "SqlScriptCollection",
