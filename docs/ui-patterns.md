@@ -607,9 +607,11 @@ a "Choose on the server" zone sit side by side, and the picker opens on click.
 `scope` (an `FsScope`) decides which permission the browse answers to. A form that
 keeps the chosen path on screen (add database) controls `origin`; a dialog that
 acts on the pick at once (dataset import, IDE upload) passes `serverPath=""` and
-handles `onServerPathChange` itself. Client-only, it renders the upload side alone.
-Used by the two add-database dialogs, the mapping-project source, the dataset
-import and the IDE upload — don't hand-roll a second "from the server" button.
+handles `onServerPathChange` itself. `expect="files"` ticks several files of one
+folder and hands them to `onServerPathsChange`. Client-only, it renders the upload
+side alone. Used by the two add-database dialogs, the mapping-project source, the
+dataset import, the IDE upload and the ATHENA import — don't hand-roll a second
+"from the server" button.
 
 That is the whole point: these zones sit side by side across the add-database
 dialogs (upload a file · upload a folder · pick a server path) and used to be

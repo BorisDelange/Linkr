@@ -20,7 +20,8 @@ import {
   uploadExportFiles,
   type ServerExportSource,
 } from '@/lib/api/vocabulary-library'
-import { tableNameOf } from '@/lib/concept-mapping/vocab-files'
+import { isConceptFile, isVocabFile, tableNameOf } from '@/lib/concept-mapping/vocab-files'
+import { extractZipEntry, isZipName, listZipEntries } from '@/lib/zip-entries'
 import { ATHENA_SCHEMA_MAPPING } from './schema-mapping'
 import { RELEASE_VOCABULARY_ID } from './tables'
 import { findLibrary } from './resolve'
@@ -87,7 +88,7 @@ export async function loadLibraryVocabularies(workspaceId: string): Promise<Libr
 
 export type ExportSource =
   | { kind: 'files'; files: File[] }
-  | { kind: 'serverPath'; path: string }
+  | { kind: 'serverFiles'; paths: string[] }
   | { kind: 'database'; dataSourceId: string }
 
 export interface PreparedImport {
@@ -102,9 +103,29 @@ export interface PreparedImport {
   createdImport?: boolean
 }
 
-function folderOf(files: File[]): string {
-  const roots = new Set(files.map((f) => ((f as File & { webkitRelativePath?: string }).webkitRelativePath || '').split('/')[0]).filter(Boolean))
-  return roots.size === 1 ? [...roots][0] : `${files.length} files`
+function labelOf(files: File[]): string {
+  return files.length === 1 ? files[0].name : `${files.length} files`
+}
+
+/**
+ * `files` with every zip replaced by the vocabulary files inside it — ATHENA
+ * delivers its export as one zip of CSVs. Front-only: the server is sent the zip
+ * itself, smaller than what it holds, and extracts it there.
+ */
+async function expandZips(files: File[], onExtract?: (name: string) => void): Promise<File[]> {
+  const out: File[] = []
+  for (const file of files) {
+    if (!isZipName(file.name)) {
+      out.push(file)
+      continue
+    }
+    for (const entry of await listZipEntries(file)) {
+      if (entry.name.endsWith('/') || !isVocabFile(entry.name)) continue
+      onExtract?.(entry.name)
+      out.push(await extractZipEntry(file, entry))
+    }
+  }
+  return out
 }
 
 /** Read what an export holds, against the library. Front-only this creates the
@@ -113,25 +134,28 @@ export async function prepareImport(
   workspaceId: string,
   source: ExportSource,
   onUpload?: (done: number, total: number) => void,
+  onExtract?: (name: string) => void,
 ): Promise<PreparedImport> {
   const store = useDataSourceStore.getState()
   const sourceLabel = source.kind === 'files'
-    ? folderOf(source.files)
-    : source.kind === 'serverPath'
-      ? source.path
+    ? labelOf(source.files)
+    : source.kind === 'serverFiles'
+      ? (source.paths.length === 1 ? source.paths[0] : `${source.paths.length} files`)
       : store.dataSources.find((d) => d.id === source.dataSourceId)?.alias ?? 'database'
 
   if (isServerMode()) {
     const serverSource: ServerExportSource = source.kind === 'files'
       ? await uploadExportFiles(source.files, onUpload)
-      : source.kind === 'serverPath'
-        ? { serverPath: source.path }
+      : source.kind === 'serverFiles'
+        ? { serverPaths: source.paths }
         : { dataSourceId: source.dataSourceId }
     return { workspaceId, sourceLabel, serverSource, inspected: await inspectExportOnServer(workspaceId, serverSource) }
   }
 
-  if (source.kind === 'serverPath') throw new Error('A server folder needs server mode.')
+  if (source.kind === 'serverFiles') throw new Error('Server files need server mode.')
   const createdImport = source.kind === 'files'
+  const files = source.kind === 'files' ? await expandZips(source.files, onExtract) : []
+  if (createdImport && !files.some((f) => isConceptFile(f.name))) throw new Error('The export has no CONCEPT table.')
   const importDataSourceId = source.kind === 'files'
     ? await store.addDataSource({
         name: toLocalized(`ATHENA — ${sourceLabel}`),
@@ -140,8 +164,8 @@ export async function prepareImport(
         connectionConfig: { engine: 'duckdb' },
         // knownTables says what this import HOLDS: the ETL script generator reads
         // it (through the library) to skip the parts a missing table would break.
-        schemaMapping: { ...ATHENA_SCHEMA_MAPPING, knownTables: [...new Set(source.files.map((f) => tableNameOf(f.name)))] },
-        files: source.files,
+        schemaMapping: { ...ATHENA_SCHEMA_MAPPING, knownTables: [...new Set(files.map((f) => tableNameOf(f.name)))] },
+        files,
         isVocabularyReference: true,
       })
     : source.dataSourceId

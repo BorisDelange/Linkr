@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { FolderOpen, HardDrive, Loader2 } from 'lucide-react'
+import { Loader2, Upload } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { FileSource } from '@/components/ui/file-source'
+import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DataTable, type DataTableColumn } from '@/components/ui/data-table'
 import { Progress } from '@/components/ui/progress'
-import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
-import { isServerMode } from '@/lib/api-client'
 import { isVocabFile } from '@/lib/concept-mapping/vocab-files'
+import { isZipName } from '@/lib/zip-entries'
 import {
   discardPreparedImport,
   prepareImport,
@@ -30,6 +31,9 @@ interface ImportVocabulariesDialogProps {
   onImported: () => void
 }
 
+/** An ATHENA download as delivered (one zip) or unzipped (its tables). */
+const EXPORT_EXTENSIONS = ['.zip', '.csv', '.tsv', '.txt', '.parquet', '.pq']
+
 const STATUS_VARIANT = { new: 'default', other: 'secondary', same: 'outline' } as const
 
 /**
@@ -39,12 +43,12 @@ const STATUS_VARIANT = { new: 'default', other: 'secondary', same: 'outline' } a
  */
 export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, initialSource, onImported }: ImportVocabulariesDialogProps) {
   const { t } = useTranslation()
-  const folderInput = useRef<HTMLInputElement>(null)
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [prepared, setPrepared] = useState<PreparedImport | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [phase, setPhase] = useState<'source' | 'inspecting' | 'preview' | 'importing'>('source')
   const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
+  const [extracting, setExtracting] = useState<string | null>(null)
   const [progress, setProgress] = useState<ImportProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   // Bumped on close: a prepare still running then holds a hidden import database
@@ -58,7 +62,7 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
     setPhase('inspecting')
     setError(null)
     try {
-      const next = await prepareImport(workspaceId, source, (done, total) => setUpload({ done, total }))
+      const next = await prepareImport(workspaceId, source, (done, total) => setUpload({ done, total }), setExtracting)
       if (token !== inspection.current) {
         void discardPreparedImport(next)
         return
@@ -72,6 +76,7 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
       setPhase('source')
     } finally {
       setUpload(null)
+      setExtracting(null)
     }
   }
 
@@ -89,6 +94,12 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
     // Runs once per opening; `inspect` is recreated every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, initialSource])
+
+  const pickFiles = (files: File[]) => {
+    const picked = files.filter((f) => isZipName(f.name) || isVocabFile(f.name))
+    if (picked.length > 0) void inspect({ kind: 'files', files: picked })
+    else setError(t('vocabulary_library.no_vocabulary_files'))
+  }
 
   const close = (next: boolean) => {
     if (next || phase === 'importing') return
@@ -145,114 +156,105 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
   const vocabularies = prepared?.inspected.vocabularies ?? []
 
   return (
-    <>
-      <DialogShell
-        open={open}
-        onOpenChange={close}
-        kind={phase === 'preview' || phase === 'importing' ? 'workbench' : 'form'}
-        title={t('vocabulary_library.import_title')}
-        description={
-          prepared?.inspected.release
-            ? t('vocabulary_library.import_release', { release: prepared.inspected.release, source: prepared.sourceLabel })
-            : t('vocabulary_library.import_description')
-        }
-        onConfirm={phase === 'preview' || phase === 'importing' ? handleImport : undefined}
-        confirmLabel={t('vocabulary_library.import_confirm', { count: selected.size })}
-        confirmDisabled={selected.size === 0}
-        busy={phase === 'importing'}
-        footerExtra={phase === 'preview' ? (
-          <div className="flex gap-3 text-xs text-muted-foreground">
-            <button type="button" className="hover:text-foreground" onClick={() => setSelected(new Set(vocabularies.map((v) => v.vocabularyId)))}>
-              {t('common.select_all')}
-            </button>
-            <button type="button" className="hover:text-foreground" onClick={() => setSelected(new Set())}>
-              {t('common.deselect_all')}
-            </button>
-            <button type="button" className="hover:text-foreground" onClick={() => setSelected(defaultSelection(vocabularies))}>
-              {t('vocabulary_library.select_changed')}
-            </button>
-          </div>
-        ) : undefined}
-      >
-        {phase === 'source' && (
-          <div className="space-y-3">
-            <div className={`grid gap-3 ${isServerMode() ? 'grid-cols-2' : 'grid-cols-1'}`}>
+    <DialogShell
+      open={open}
+      onOpenChange={close}
+      kind={phase === 'preview' || phase === 'importing' ? 'workbench' : 'settings'}
+      title={t('vocabulary_library.import_title')}
+      description={
+        prepared?.inspected.release
+          ? t('vocabulary_library.import_release', { release: prepared.inspected.release, source: prepared.sourceLabel })
+          : t('vocabulary_library.import_description')
+      }
+      onConfirm={phase === 'preview' || phase === 'importing' ? handleImport : undefined}
+      confirmLabel={t('vocabulary_library.import_confirm', { count: selected.size })}
+      confirmDisabled={selected.size === 0}
+      busy={phase === 'importing'}
+      footerExtra={phase === 'preview' ? (
+        <div className="flex gap-3 text-xs text-muted-foreground">
+          <button type="button" className="hover:text-foreground" onClick={() => setSelected(new Set(vocabularies.map((v) => v.vocabularyId)))}>
+            {t('common.select_all')}
+          </button>
+          <button type="button" className="hover:text-foreground" onClick={() => setSelected(new Set())}>
+            {t('common.deselect_all')}
+          </button>
+          <button type="button" className="hover:text-foreground" onClick={() => setSelected(defaultSelection(vocabularies))}>
+            {t('vocabulary_library.select_changed')}
+          </button>
+        </div>
+      ) : undefined}
+    >
+      {phase === 'source' && (
+        <div className="space-y-3">
+          <FileSource
+            scope={{ kind: 'workspace', workspaceId }}
+            expect="files"
+            extensions={EXPORT_EXTENSIONS}
+            serverPath=""
+            onServerPathChange={() => {}}
+            onServerPathsChange={(paths) => void inspect({ kind: 'serverFiles', paths })}
+          >
+            <div className="space-y-2">
+              <Label>{t('files.upload_from_computer')}</Label>
               <FileDropZone
-                icon={<FolderOpen size={20} />}
-                label={t('vocabulary_library.pick_folder')}
-                hint={t('vocabulary_library.pick_folder_hint')}
-                onClick={() => folderInput.current?.click()}
+                icon={<Upload size={20} className="text-muted-foreground" />}
+                label={t('files.upload_drop_hint')}
+                onClick={() => fileInput.current?.click()}
+                onDropFiles={pickFiles}
               />
-              {isServerMode() && (
-                <FileDropZone
-                  icon={<HardDrive size={20} />}
-                  label={t('vocabulary_library.pick_server_folder')}
-                  hint={t('vocabulary_library.pick_server_folder_hint')}
-                  onClick={() => setPickerOpen(true)}
-                />
-              )}
+              <input
+                ref={fileInput}
+                type="file"
+                accept={EXPORT_EXTENSIONS.join(',')}
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = [...(e.target.files ?? [])]
+                  e.target.value = ''
+                  pickFiles(files)
+                }}
+              />
             </div>
-            <input
-              ref={folderInput}
-              type="file"
-              className="hidden"
-              // @ts-expect-error — non-standard attribute, supported by every engine we target
-              webkitdirectory=""
-              multiple
-              onChange={(e) => {
-                const files = [...(e.target.files ?? [])].filter((f) => isVocabFile(f.name))
-                e.target.value = ''
-                if (files.length > 0) void inspect({ kind: 'files', files })
-                else setError(t('vocabulary_library.no_vocabulary_files'))
-              }}
-            />
-          </div>
-        )}
-
-        {phase === 'inspecting' && (
-          <div className="space-y-2 py-6 text-center text-xs text-muted-foreground">
-            <Loader2 size={14} className="mx-auto animate-spin" />
-            <p>{upload ? t('vocabulary_library.uploading', { done: upload.done, total: upload.total }) : t('vocabulary_library.inspecting')}</p>
-            {upload && <Progress value={(upload.done / upload.total) * 100} className="mx-auto h-1.5 max-w-xs" />}
-          </div>
-        )}
-
-        {(phase === 'preview' || phase === 'importing') && (
-          <div className="flex min-h-0 flex-1 flex-col gap-3">
-            {phase === 'importing' && (
-              <div className="space-y-1.5">
-                <p className="text-xs text-muted-foreground">
-                  {progress?.step ? t('vocabulary_library.importing_step', { table: progress.step }) : t('vocabulary_library.importing')}
-                </p>
-                <Progress value={progress && progress.total ? (progress.done / progress.total) * 100 : 5} className="h-1.5" />
-              </div>
-            )}
-            <DataTable
-              data={vocabularies}
-              columns={columns}
-              rowKey={(v) => v.vocabularyId}
-              pageSize={100}
-              initialSorting={{ columnId: 'id', desc: false }}
-              viewKey="vocabulary-import-preview"
-            />
-          </div>
-        )}
-
-        {error && <p className="text-xs text-destructive">{error}</p>}
-      </DialogShell>
-
-      {isServerMode() && (
-        <ServerPathPickerDialog
-          open={pickerOpen}
-          mode="folder"
-          scope={{ kind: 'workspace', workspaceId }}
-          onClose={() => setPickerOpen(false)}
-          onPick={(path) => {
-            setPickerOpen(false)
-            void inspect({ kind: 'serverPath', path })
-          }}
-        />
+          </FileSource>
+        </div>
       )}
-    </>
+
+      {phase === 'inspecting' && (
+        <div className="space-y-2 py-6 text-center text-xs text-muted-foreground">
+          <Loader2 size={14} className="mx-auto animate-spin" />
+          <p>
+            {upload
+              ? t('vocabulary_library.uploading', { done: upload.done, total: upload.total })
+              : extracting
+                ? t('vocabulary_library.extracting', { name: extracting })
+                : t('vocabulary_library.inspecting')}
+          </p>
+          {upload && <Progress value={(upload.done / upload.total) * 100} className="mx-auto h-1.5 max-w-xs" />}
+        </div>
+      )}
+
+      {(phase === 'preview' || phase === 'importing') && (
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          {phase === 'importing' && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-muted-foreground">
+                {progress?.step ? t('vocabulary_library.importing_step', { table: progress.step }) : t('vocabulary_library.importing')}
+              </p>
+              <Progress value={progress && progress.total ? (progress.done / progress.total) * 100 : 5} className="h-1.5" />
+            </div>
+          )}
+          <DataTable
+            data={vocabularies}
+            columns={columns}
+            rowKey={(v) => v.vocabularyId}
+            pageSize={100}
+            initialSorting={{ columnId: 'id', desc: false }}
+            viewKey="vocabulary-import-preview"
+          />
+        </div>
+      )}
+
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </DialogShell>
   )
 }

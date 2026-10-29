@@ -7,6 +7,7 @@ See services/vocabulary_library.py.
 """
 
 import asyncio
+import zipfile
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
@@ -37,11 +38,12 @@ class ExportFile(CamelModel):
 
 
 class ExportSource(CamelModel):
-    """Where an ATHENA export is: uploaded files, a server folder, or an older
-    per-project vocabulary database (to move it into the library)."""
+    """Where an ATHENA export is: uploaded files, files on the server, or an
+    older per-project vocabulary database (to move it into the library). Either
+    kind of file may be the download's zip."""
 
     files: list[ExportFile] | None = None
-    server_path: str | None = None
+    server_paths: list[str] | None = None
     data_source_id: str | None = None
 
 
@@ -74,15 +76,19 @@ async def _export_files(db: AsyncSession, workspace_id: str, user: User, source:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Uploaded file not found: {f.file_name}")
             out.append((f.file_name, str(blob_store.path_for(f.sha))))
         return out
-    if source.server_path:
-        try:
-            fs_browser.validate_source_path(source.server_path, await fs_browser.import_scope(db, None, user))
-        except fs_browser.FsBrowseError as e:
-            raise HTTPException(e.status_code, str(e)) from e
-        root = Path(source.server_path)
-        if not root.is_dir():
-            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Not a folder")
-        return [(str(p.relative_to(root)), str(p)) for p in fs_browser.files_under(root)]
+    if source.server_paths:
+        scope = await fs_browser.import_scope(db, None, user)
+        out = []
+        for server_path in source.server_paths:
+            try:
+                fs_browser.validate_source_path(server_path, scope)
+            except fs_browser.FsBrowseError as e:
+                raise HTTPException(e.status_code, str(e)) from e
+            path = Path(server_path)
+            if not path.is_file():
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Not a file: {server_path}")
+            out.append((path.name, str(path)))
+        return out
     if source.data_source_id:
         ds = await data_source_service.get(db, source.data_source_id)
         if ds is None or ds.workspace_id != workspace_id:
@@ -125,8 +131,8 @@ async def inspect_export(
 
     async def work() -> dict:
         try:
-            found = await asyncio.to_thread(lib.inspect_export, files)
-        except ValueError as e:
+            found = await asyncio.to_thread(lambda: lib.inspect_export(lib.expand_zips(files)))
+        except (ValueError, zipfile.BadZipFile) as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
         for v in found["vocabularies"]:
             v["libraryVersion"] = held.get(v["vocabularyId"], {}).get("vocabularyVersion")
@@ -157,8 +163,8 @@ async def start_import(
 
     async def start() -> dict:
         try:
-            found = await asyncio.to_thread(lib.inspect_export, files)
-        except ValueError as e:
+            found = await asyncio.to_thread(lambda: lib.inspect_export(lib.expand_zips(files)))
+        except (ValueError, zipfile.BadZipFile) as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e))
         by_id = {v["vocabularyId"]: v for v in found["vocabularies"]}
         chosen = [v for v in body.vocabularies if v in by_id]
@@ -177,7 +183,12 @@ async def start_import(
     async def run(found: dict, by_id: dict, chosen: list[str], state: lib.ImportState) -> None:
         # The import rewrites files the pooled connection has open.
         connection_pool.invalidate(library_id)
-        written = await asyncio.to_thread(lib.write_partitions, workspace_id, files, chosen, state)
+        try:
+            written = await asyncio.to_thread(
+                lambda: lib.write_partitions(workspace_id, lib.expand_zips(files), chosen, state)
+            )
+        finally:
+            await asyncio.to_thread(lib.discard_zip_expansions, files)
         connection_pool.invalidate(library_id)
         concept_cache_fs.invalidate(library_id)
         # The request's session is gone by now: a job opens its own.
@@ -213,9 +224,14 @@ async def start_import(
 
 
 def _source_label(source: ExportSource, files: list[tuple[str, str]]) -> str:
-    if source.server_path:
-        return source.server_path
+    if source.server_paths:
+        if len(source.server_paths) == 1:
+            return source.server_paths[0]
+        parents = {str(Path(p).parent) for p in source.server_paths}
+        return next(iter(parents)) if len(parents) == 1 else f"{len(files)} files"
     if source.files:
+        if len(source.files) == 1:
+            return source.files[0].file_name
         roots = {f.file_name.replace("\\", "/").split("/")[0] for f in source.files if "/" in f.file_name}
         return next(iter(roots)) if len(roots) == 1 else f"{len(files)} files"
     return "database"
