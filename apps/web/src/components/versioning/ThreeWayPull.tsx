@@ -99,7 +99,7 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
 
   const plan: PullPlan | null = useMemo(() => {
     if (!draft) return null
-    const labels = elementLabels(draft.preview.files, language)
+    const labels = elementLabels(draft.preview.files, language, t)
     const titles = wikiTitles(draft.preview.files, language)
     const built = buildThreeWayPlan(scope, draft.preview, supported, {
       file: t('versioning.pull_file'),

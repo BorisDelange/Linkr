@@ -37,10 +37,24 @@ export function wikiTitles(files: ThreeWayFile[], language: string): Map<string,
   return titles
 }
 
-export function elementLabels(files: ThreeWayFile[], language: string): Map<string, string> {
+/** Structural files, named for what they hold rather than how they are stored. */
+const STRUCTURAL: Record<string, string> = {
+  'wiki/_tree.json': 'versioning.label_wiki_tree',
+  'scripts/_tree.json': 'versioning.label_scripts_tree',
+  'datasets/_tree.json': 'versioning.label_datasets_tree',
+  'entity.json': 'versioning.label_manifest',
+  'tasks.json': 'versioning.label_tasks',
+}
+
+export function elementLabels(files: ThreeWayFile[], language: string, t?: (key: string) => string): Map<string, string> {
   const wiki = wikiTitles(files, language)
   const labels = new Map<string, string>()
   for (const f of files) {
+    const structural = STRUCTURAL[f.path] ?? STRUCTURAL[f.path.split('/').slice(-2).join('/')] ?? STRUCTURAL[f.path.split('/').pop() ?? '']
+    if (structural && t) {
+      labels.set(f.path, t(structural))
+      continue
+    }
     const wikiPage = /^wiki\/([^/]+?)(?:\.[a-z]{2})?\.md$/.exec(f.path)
     if (wikiPage) {
       const stem = wikiPage[1]

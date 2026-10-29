@@ -86,8 +86,9 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   await http.patch(`/wiki-pages/${page2.id}`, { content: { en: 'Question one, mine.\n\nAnswer one.\n' } })
 
   await page.goto(`${wsUrl}/versioning?tab=git`)
-  // Quick actions: one card, counts, and no bulk take while a conflict is open.
-  await expect(page.getByText('Pull all')).toBeVisible({ timeout: 60_000 })
+  // Quick actions: a card per subject — here the wiki — with its counts, and no
+  // bulk take while a conflict is open.
+  await expect(page.getByText('Wiki', { exact: true })).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText(/1 conflict/)).toBeVisible()
   await expect(page.getByRole('button', { name: 'Take', exact: true })).toBeDisabled()
   // …but each file can be taken or left on its own, except where a conflict needs Details.
@@ -99,7 +100,7 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
 
   // Details: a row per page, an item per field or language.
   await page.getByRole('tab', { name: 'Details' }).click()
-  for (const file of ['wiki/setup.md', 'wiki/faq.md', 'wiki/note.md']) {
+  for (const file of ['wiki/setup.md', 'wiki/faq.md', 'wiki/note.md', 'wiki/_tree.json']) {
     await expect(page.getByRole('button', { name: new RegExp(file.replace('.', '\\.')) })).toBeVisible()
   }
   await expect(page.getByText('merged with your edits')).toBeVisible()
@@ -117,6 +118,8 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   const row = (file: string) => page.getByRole('listitem').filter({ hasText: file })
   await row('wiki/setup.md').getByRole('button', { name: 'Take all' }).first().click()
   await row('wiki/note.md').getByRole('button', { name: 'Take all' }).first().click()
+  // The tree carries Setup's new status and the new page's entry.
+  await row('wiki/_tree.json').getByRole('button', { name: 'Take all' }).first().click()
   await row('wiki/faq.md').getByRole('button', { name: 'Keep mine' }).last().click()
   await page.getByRole('button', { name: 'Apply and finish' }).click()
 
