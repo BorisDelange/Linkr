@@ -67,6 +67,7 @@ from app.services.org_snapshot import org_snapshot
 # apps/web/src/lib/entity-io.ts. ``createdAt`` is NOT here (portable provenance);
 # only ``updatedAt`` moves on every edit, so it is dropped.
 _INSTANCE_FIELDS = (
+    "gitPushPolicy",
     "ownerId",
     "createdById",
     "origin",

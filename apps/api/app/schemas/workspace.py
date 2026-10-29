@@ -1,3 +1,4 @@
+from typing import Literal
 from datetime import datetime
 
 from app.schemas.base import CamelModel
@@ -16,6 +17,7 @@ class WorkspaceCreate(CamelModel):
     # git/import round-trips.
     license: dict | None = None
     git_remote_config: dict | None = None
+    git_push_policy: Literal["direct", "review"] | None = None
     origin: str = "user"
     created_by_id: int | None = None
     created_by: str | None = None
@@ -35,6 +37,7 @@ class WorkspaceUpdate(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     git_remote_config: dict | None = None
+    git_push_policy: Literal["direct", "review"] | None = None
     # {"python": [...], "r": [...]} default packages for new projects' environments.
     default_env_packages: dict | None = None
     # {"python": {"indexUrl","trustedHost"}, "r": {"repos","method"}} default install
@@ -61,6 +64,7 @@ class WorkspaceResponse(CamelModel):
     readme: dict | str | None = None
     license: dict | None = None
     git_remote_config: dict | None = None
+    git_push_policy: Literal["direct", "review"] | None = None
     default_env_packages: dict | None = None
     default_env_options: dict | None = None
     origin: str

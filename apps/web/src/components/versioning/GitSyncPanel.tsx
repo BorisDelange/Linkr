@@ -88,6 +88,12 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const [proposalsKey, setProposalsKey] = useState(0)
   const authorName = useAppStore((s) => s.getUserDisplayName())
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId)
+  // A workspace in review mode takes changes as merge requests only, for itself
+  // and every entity in it: pushing is replaced by proposing (the server refuses
+  // a direct push too).
+  const reviewOnly = useWorkspaceStore((s) =>
+    s._workspacesRaw.find((w) => w.id === (scope === 'workspaces' ? id : s.activeWorkspaceId))?.gitPushPolicy === 'review',
+  ) && scope !== 'settings'
   // Every scope with an entity behind it pulls through the shared 3-way pull
   // (ThreeWayPull) unless it brings its own: mapping projects keep the per-mapping
   // one below, settings an upsert dialog. user-plugins has no importer to apply a
@@ -215,6 +221,14 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
     })
     setRunningQuickAction(qa.id)
     try {
+      if (reviewOnly) {
+        const proposal = await propose(scope, id, message, branch, qa.files.map((f) => f.path))
+        if (proposal) {
+          setProposed(proposal)
+          setProposalsKey((k) => k + 1)
+        }
+        return
+      }
       const result = await commitPushPaths(scope, id, qa.files.map((f) => f.path), message, branch)
       if (result?.pushed) {
         setPushed(true)
@@ -466,6 +480,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
                   <QuickActionCard
                     key={qa.id}
                     action={qa}
+                    runLabel={reviewOnly ? t('versioning.propose') : undefined}
                     primary={i === 0}
                     running={runningQuickAction === qa.id}
                     // While one action commits, the others disable (but don't spin);
@@ -612,7 +627,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           </a>
         )}
         <Button
-          variant="outline"
+          variant={reviewOnly ? 'default' : 'outline'}
           onClick={handlePropose}
           disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
           className="gap-1.5"
@@ -621,14 +636,16 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           <GitPullRequest size={14} />
           {t('versioning.propose')}
         </Button>
-        <Button
-          onClick={handleCommit}
-          disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
-          className="gap-1.5"
-        >
-          {committing ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
-          {t('versioning.sync_commit_push')}
-        </Button>
+        {!reviewOnly && (
+          <Button
+            onClick={handleCommit}
+            disabled={!message.trim() || nothingToCommit || selected.size === 0 || committing || mustPullFirst}
+            className="gap-1.5"
+          >
+            {committing ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+            {t('versioning.sync_commit_push')}
+          </Button>
+        )}
       </div>
       <GitProposals scope={scope} id={id} refreshKey={proposalsKey} />
       </>}
@@ -681,9 +698,11 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
  * or a pull is required.
  */
 function QuickActionCard({
-  action, primary, running, disabled, onRun, onOpenDiff, onViewMappings, t,
+  action, primary, running, disabled, onRun, onOpenDiff, onViewMappings, t, runLabel,
 }: {
   action: QuickAction
+  /** In review mode the card proposes instead of pushing, and says so. */
+  runLabel?: string
   primary: boolean
   /** THIS action is mid-commit → show its spinner. */
   running: boolean
@@ -761,7 +780,7 @@ function QuickActionCard({
           disabled={running || disabled || nothing}
         >
           {running ? <Loader2 size={13} className="animate-spin" /> : <UploadCloud size={13} />}
-          {t(action.labelKey, { subject: action.subjectKey ? t(action.subjectKey) : '' })}
+          {runLabel ?? t(action.labelKey, { subject: action.subjectKey ? t(action.subjectKey) : '' })}
         </Button>
       </div>
     </div>

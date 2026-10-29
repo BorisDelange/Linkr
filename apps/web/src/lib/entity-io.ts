@@ -1043,6 +1043,7 @@ function buildPatientWidgetKeyMap(
 // local user id is meaningless in another instance (the importing backend
 // re-resolves it by ORCID/email, falling back to NULL + the snapshot).
 const INSTANCE_FIELDS = [
+  'gitPushPolicy',
   'ownerId',
   'createdById',
   'origin',

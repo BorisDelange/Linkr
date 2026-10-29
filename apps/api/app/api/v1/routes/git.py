@@ -328,6 +328,19 @@ async def _proposals(db, scope, entity_id, remote_url, token) -> list[dict]:
     rows = await git_proposal_service.list_refreshed(db, scope, entity_id, remote_url, token)
     return [GitProposalResponse.model_validate(r).model_dump(by_alias=True, mode="json") for r in rows]
 
+
+async def _refuse_direct_push(db, workspace_id: str | None) -> None:
+    """A workspace in review mode takes changes as merge requests only — for itself
+    and every entity in it (its git_push_policy)."""
+    if not workspace_id:
+        return
+    ws = await db.get(Workspace, workspace_id)
+    if ws is not None and ws.git_push_policy == "review":
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail={"code": "review_required", "message": "This workspace takes changes as merge requests only."},
+        )
+
 async def _apply_sync_state(db, scope: str, entity_id: str, body) -> None:
     """Record a `set-sync-state` request, honouring `reviewedOnly`.
 
@@ -502,6 +515,7 @@ async def project_commit_push(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Project is not linked to a git remote"
         )
+    await _refuse_direct_push(db, project.workspace_id)
     resolved_branch = _default_branch(project, branch)
     row = await git_sync_state_service.get(db, "projects", project.uid, resolved_branch)
     return await _pushed(
@@ -652,6 +666,7 @@ async def workspace_commit_push(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Workspace is not linked to a git remote"
         )
+    await _refuse_direct_push(db, ws.id)
     row = await git_sync_state_service.get(db, "workspaces", ws.id, _default_branch(ws, branch))
     return await _pushed(
         _member,
@@ -1144,6 +1159,7 @@ async def mapping_project_commit_push(
         raise HTTPException(
             status.HTTP_400_BAD_REQUEST, "Mapping project is not linked to a git remote"
         )
+    await _refuse_direct_push(db, mp.workspace_id)
     resolved_branch = _default_branch(mp, branch)
     row = await git_sync_state_service.get(
         db, "mapping-projects", mp.id, resolved_branch
@@ -1273,6 +1289,7 @@ async def sql_collection_commit_push(
             status.HTTP_400_BAD_REQUEST,
             "SQL script collection is not linked to a git remote",
         )
+    await _refuse_direct_push(db, c.workspace_id)
     resolved_branch = _default_branch(c, branch)
     row = await git_sync_state_service.get(db, "sql-script-collections", c.id, resolved_branch)
     return await _pushed(
@@ -1525,6 +1542,7 @@ def _register_entity_git_routes(
                 status.HTTP_400_BAD_REQUEST,
                 f"{not_found} is not linked to a git remote",
             )
+        await _refuse_direct_push(db, e.workspace_id)
         resolved_branch = _default_branch(e, branch)
         # Pass the anchor so git_service refuses a push over remote work the user
         # hasn't pulled ("pull first"). Without it the guard is inert and a stale

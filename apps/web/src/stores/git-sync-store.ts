@@ -175,7 +175,7 @@ interface GitSyncState {
    *  checkbox selection. Same flow as commitPush otherwise. */
   commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
   /** The selected changes proposed as a merge / pull request into `branch`. */
-  propose: (scope: GitScope, id: string, title: string, branch?: string) => Promise<GitProposal | null>
+  propose: (scope: GitScope, id: string, title: string, branch?: string, paths?: string[]) => Promise<GitProposal | null>
   /** Shared commit+push implementation behind commitPush / commitPushPaths. */
   _commitPushPaths: (scope: GitScope, id: string, paths: string[], message: string, branch?: string) => Promise<GitCommitResult | null>
   togglePath: (path: string) => void
@@ -377,8 +377,8 @@ export const useGitSyncStore = create<GitSyncState>((set, get) => ({
     }
   },
 
-  propose: async (scope, id, title, branch) => {
-    const paths = [...get().selected]
+  propose: async (scope, id, title, branch, only) => {
+    const paths = only ?? [...get().selected]
     if (paths.length === 0) return null
     set({ committing: true, error: null })
     try {

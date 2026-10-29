@@ -2552,6 +2552,8 @@
     "reinstall_confirm_warning": "Tout ce qui n'a pas été poussé est perdu — modifications locales comprises, ainsi que le contenu que ce dépôt ne porte pas. Cette action est irréversible.",
     "pull_action": "Mettre à jour",
     "pull_computing": "Chargement des modifications distantes…",
+    "review_mode": "Les modifications passent par une revue",
+    "review_mode_hint": "Le push direct est désactivé pour ce workspace et tout ce qu'il contient : les modifications sont proposées en merge request et arrivent sur la branche une fois fusionnées sur la forge.",
     "quick_sync_subject": "Synchroniser : {{subject}}",
     "quick_sync_subject_desc": "Commiter et pousser uniquement ces modifications.",
     "quick_sync_subject_message": "{{subject}} : mise à jour par {{author}}",

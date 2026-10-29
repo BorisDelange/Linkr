@@ -191,6 +191,8 @@ export interface Workspace extends Seedable, Authored, Lineaged {
   badgeCategories?: BadgeCategory[]
   readme?: LocalizedString
   license?: EntityLicense
+  /** `review`: changes leave as merge requests only (instance setting, not exported). */
+  gitPushPolicy?: 'direct' | 'review' | null
   gitRemoteConfig?: GitRemoteConfig
   /** Default package lists for new projects' environments, per language:
    *  { python: ["pandas", …], r: ["dplyr", …] }. Undefined = built-in defaults. */

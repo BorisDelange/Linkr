@@ -283,3 +283,12 @@ async def test_relinking_to_a_new_empty_repository_pushes_everything_with_no_old
     log = _git(second, "log", "--format=%s", "main").split()
     assert log == ["m"]  # one root commit, none of the first repository's
     assert _git(second, "show", "main:wiki/home.md") == "Hello\n"
+
+
+async def test_a_workspace_in_review_mode_refuses_direct_pushes(client, tmp_path):
+    headers = await _admin(client)
+    ws, _ = await _linked_workspace(client, headers, tmp_path)
+    r = await client.patch(f"{API}/workspaces/{ws}", headers=headers, json={"gitPushPolicy": "review"})
+    assert r.status_code == 200 and r.json()["gitPushPolicy"] == "review"
+    r = await _push(client, headers, ws, {"wiki/home.md": "Hello\n"})
+    assert r.status_code == 403 and "review_required" in r.text
