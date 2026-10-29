@@ -60,6 +60,13 @@ writes, and lost its tables when a job's cancellation invalidated it.
   the first account, so give it a fresh, disposable instance; the other journeys
   sign in as that account. They create a workspace, upload a SQLite database and
   query it through the server, then link it to a new project.
+  `workspace-pull.spec.ts` plays two editors on one workspace repository — a
+  colleague's wiki edits pulled back page by page and item by item, merged
+  with local ones — against a bare repository on the machine. It needs a server
+  started with `LINKR_GIT_ALLOW_LOCAL_REMOTES=true` and `E2E_GIT_LOCAL_REMOTES=1`
+  in the run (skipped otherwise); `E2E_API_URL` names the API when it is not on
+  the page's origin (a dev stack), and `E2E_SHOTS=<dir>` saves screenshots of
+  the pull.
 
 `e2e/fixtures.ts` fails every journey on an uncaught page exception and gives
 `bootDemo(page)` and, for the server, `signIn(page)`. The code editor binds its

@@ -259,7 +259,9 @@ def _build_wiki_section(
     tree["wiki/_tree.json"] = _json(
         [
             _strip_instance_fields({k: v for k, v in p.items() if k != "content"})
-            for p in wiki_pages
+            # By id: rows come back in insertion order, which differs between two
+            # instances holding the same pages and would churn the file.
+            for p in sorted(wiki_pages, key=lambda p: p["id"])
         ]
     )
     for page in wiki_pages:

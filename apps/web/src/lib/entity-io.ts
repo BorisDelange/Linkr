@@ -4485,7 +4485,11 @@ export async function buildWorkspaceZip(
       // `workspaceId`/`createdById` and an `updatedAt` that churns on every edit.
       // `id`/`parentId` stay — they are the tree's own structure, and the import
       // re-keys them (mapWikiId) rather than adopting them.
-      const treeMeta = wikiPages.map(({ content: _, ...meta }) => stripInstanceFields(meta as WikiPage))
+      // By id: storage order is insertion order, which differs between two
+      // instances holding the same pages and would churn the file.
+      const treeMeta = [...wikiPages]
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map(({ content: _, ...meta }) => stripInstanceFields(meta as WikiPage))
       zip.file('wiki/_tree.json', json(treeMeta))
 
       for (const page of wikiPages) {

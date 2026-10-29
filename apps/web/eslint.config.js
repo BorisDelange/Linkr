@@ -78,7 +78,8 @@ export default defineConfig([
     },
   },
   {
-    files: ['**/*.test.ts'],
+    // Unit tests and the Playwright journeys run in Node.
+    files: ['**/*.test.ts', 'e2e/**/*.ts'],
     languageOptions: {
       globals: globals.node,
     },
