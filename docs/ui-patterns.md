@@ -138,12 +138,15 @@ const columns: DataTableColumn<Row>[] = [
 
 It already gives you: **per-column sort** (tri-state desc → asc → off),
 **column resize** (drag, double-click to reset), **inline filters** under each
-header (text / number / multi-select), **column visibility** menu, **client
-pagination**, and **truncation tooltips**. Pass `reorderable` to let users drag
+header (text / number / range / multi-select — `number` finds an id by its
+digits, `range` compares a quantity: `>= 1`, `< 5`, `2-10`), **column
+visibility** menu, **client pagination**, and **truncation tooltips**. Pass `reorderable` to let users drag
 columns into a different order — off by default, since the drag grip is noise on
 a three-column table. `DataTableColumn` also supports `cell` (custom renderer),
-`sortable`, `hidden`, `center`, `size`/`minSize`, `selectOptionLabel` and
-`tooltip`.
+`sortable`, `hidden`, `center`, `size`/`minSize`, `selectOptionLabel`,
+`selectOptionRender` (an option drawn as the badge its cell shows),
+`selectOptionOrder` (e.g. newest version first) and `tooltip`; the table takes
+`initialFilters` the way it takes `initialSorting`.
 
 **Do not hand-roll a `useReactTable`** to get sorting or resizing. Seven files still
 do; each is listed below with the specific thing holding it back. The pieces they
@@ -228,8 +231,7 @@ it is `ConceptTable` with `pickMode` under `ConceptPickerToolbar`, fed by
 
 **Do not trust the `manual*` flags to tell you which.** `manualSorting` /
 `manualFiltering` / `manualPagination` have been copy-pasted into tables that are
-entirely client-side — `ConceptSetsTab`, `MappingsTab` and `TargetConceptPanel`
-all set them while slicing in JS (`sorted.slice(page * 50, …)`), and
+entirely client-side — `MappingsTab` and `TargetConceptPanel` both set them while slicing in JS (`sorted.slice(page * 50, …)`), and
 `GlobalSummaryView` is the inverse: fully SQL-driven with no flags at all. Read
 where the rows come from, not what the options say.
 

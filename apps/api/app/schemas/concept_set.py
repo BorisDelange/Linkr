@@ -17,6 +17,7 @@ class ConceptSetCreate(CamelModel):
     subcategory: str | None = None
     provenance: str | None = None
     version: str | None = None
+    review_status: str | None = None
     import_batch_id: str | None = None
     translations: dict | None = None
     dictionary_id: str | None = None
@@ -34,6 +35,7 @@ class ConceptSetUpdate(CamelModel):
     subcategory: str | None = None
     provenance: str | None = None
     version: str | None = None
+    review_status: str | None = None
     import_batch_id: str | None = None
     translations: dict | None = None
     dictionary_id: str | None = None
@@ -53,6 +55,7 @@ class ConceptSetResponse(CamelModel):
     subcategory: str | None = None
     provenance: str | None = None
     version: str | None = None
+    review_status: str | None = None
     import_batch_id: str | None = None
     translations: dict | None = None
     dictionary_id: str | None = None

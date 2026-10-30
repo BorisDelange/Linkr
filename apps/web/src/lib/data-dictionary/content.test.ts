@@ -36,6 +36,18 @@ describe('readDictionaryTree', () => {
     expect(order(files)).toEqual(['concept_sets/1.json', 'concept_sets/02.json', 'concept_sets/2.json'])
     expect(order(reversed)).toEqual(order(files))
   })
+
+  it('reads the review status, and drops one outside the workflow', () => {
+    const withStatus = (status: unknown) => {
+      const json = JSON.parse(setJson('a', '1')) as { metadata: Record<string, unknown> }
+      json.metadata.reviewStatus = status
+      return readDictionaryTree({ 'concept_sets/1.json': JSON.stringify(json) }, null).conceptSets[0].reviewStatus
+    }
+    expect(withStatus('pending_review')).toBe('pending_review')
+    expect(withStatus('deprecated')).toBe('deprecated')
+    expect(withStatus('<b>x</b>')).toBeUndefined()
+    expect(withStatus(undefined)).toBeUndefined()
+  })
 })
 
 describe('planDictionarySync', () => {

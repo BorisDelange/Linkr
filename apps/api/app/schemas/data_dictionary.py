@@ -45,6 +45,7 @@ class IncomingConceptSet(CamelModel):
     subcategory: str | None = None
     provenance: str | None = None
     version: str | None = None
+    review_status: str | None = None
     translations: dict | None = None
 
 

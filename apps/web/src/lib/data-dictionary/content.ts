@@ -26,6 +26,7 @@ export interface IncomingConceptSet {
   subcategory?: string
   provenance?: string
   version?: string
+  reviewStatus?: ConceptSet['reviewStatus']
   translations?: ConceptSet['translations']
 }
 
@@ -179,6 +180,7 @@ export function readDictionaryTree(files: Readonly<Record<string, string>>, comm
       subcategory: parsed.subcategory,
       provenance: parsed.provenance,
       version: parsed.version,
+      reviewStatus: parsed.reviewStatus,
       translations: parsed.translations,
     })
   }
@@ -199,7 +201,7 @@ export function readDictionaryTree(files: Readonly<Record<string, string>>, comm
 /** The fields a sync writes; anything else (local id, resolution) stays. */
 export const SYNCED_FIELDS = [
   'name', 'description', 'expression', 'sourceUrl', 'uniqueId', 'sourceRepo',
-  'category', 'subcategory', 'provenance', 'version', 'translations',
+  'category', 'subcategory', 'provenance', 'version', 'reviewStatus', 'translations',
 ] as const
 
 export function setKey(set: { uniqueId?: string | null; sourceUrl?: string | null }): string | null {

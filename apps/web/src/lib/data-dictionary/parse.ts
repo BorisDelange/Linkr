@@ -2,7 +2,9 @@
  * Reading a concept-set JSON (OHDSI/ATLAS `{name, expression: {items}}`, with the
  * INDICATE `metadata` block: translations, uniqueId, version, organization).
  */
-import type { ConceptSetItem, ConceptSetTranslation } from '@/types'
+import type { ConceptSetItem, ConceptSetReviewStatus, ConceptSetTranslation } from '@/types'
+
+const REVIEW_STATUSES: readonly ConceptSetReviewStatus[] = ['draft', 'pending_review', 'approved', 'needs_revision', 'deprecated']
 
 export interface ParsedConceptSet {
   name: string
@@ -12,6 +14,7 @@ export interface ParsedConceptSet {
   subcategory?: string
   provenance?: string
   version?: string
+  reviewStatus?: ConceptSetReviewStatus
   /** Stable cross-install id from `metadata.uniqueId`. */
   uniqueId?: string
   /** Origin dictionary repo from `metadata.sourceRepo`. */
@@ -39,8 +42,8 @@ export function extractTranslations(obj: Record<string, unknown>): Record<string
   return result
 }
 
-/** Extract metadata (category, subcategory, provenance, version, uniqueId, sourceRepo) from INDICATE-style JSON. */
-export function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string; version?: string; uniqueId?: string; sourceRepo?: string } {
+/** Extract metadata (category, subcategory, provenance, version, review status, uniqueId, sourceRepo) from INDICATE-style JSON. */
+export function extractMetadata(obj: Record<string, unknown>, lang: string): { category?: string; subcategory?: string; provenance?: string; version?: string; reviewStatus?: ConceptSetReviewStatus; uniqueId?: string; sourceRepo?: string } {
   const meta = obj.metadata as Record<string, unknown> | undefined
   if (!meta) return {}
 
@@ -61,6 +64,7 @@ export function extractMetadata(obj: Record<string, unknown>, lang: string): { c
     subcategory: tr.subcategory || undefined,
     provenance: orgName ? String(orgName) : undefined,
     version: meta.version ? String(meta.version) : (obj.version ? String(obj.version) : undefined),
+    reviewStatus: REVIEW_STATUSES.find((s) => s === meta.reviewStatus),
     uniqueId: meta.uniqueId ? String(meta.uniqueId) : undefined,
     sourceRepo: meta.sourceRepo ? String(meta.sourceRepo) : undefined,
   }

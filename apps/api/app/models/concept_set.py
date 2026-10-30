@@ -26,6 +26,9 @@ class ConceptSet(Base, TimestampMixin):
     subcategory: Mapped[str | None] = mapped_column(String(255))
     provenance: Mapped[str | None] = mapped_column(String(255))
     version: Mapped[str | None] = mapped_column(String(50))
+    # draft | pending_review | approved | needs_revision | deprecated, from the
+    # source JSON's metadata.reviewStatus.
+    review_status: Mapped[str | None] = mapped_column(String(20))
     import_batch_id: Mapped[str | None] = mapped_column(String(36))
     # The data dictionary the set belongs to (null: not organised yet). A sync
     # updates a set in place, keyed on unique_id, so projects keep pointing at it.

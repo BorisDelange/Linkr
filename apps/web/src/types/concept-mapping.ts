@@ -96,6 +96,10 @@ export interface DataDictionary {
   updatedAt: string
 }
 
+/** The review workflow of a data-dictionary concept set, as its authoring tool
+ *  (the INDICATE data-dictionary app) records it. */
+export type ConceptSetReviewStatus = 'draft' | 'pending_review' | 'approved' | 'needs_revision' | 'deprecated'
+
 export interface ConceptSet {
   id: string
   workspaceId: string
@@ -122,6 +126,8 @@ export interface ConceptSet {
   provenance?: string
   /** Version label (e.g. "1.0.0") from the source concept set JSON. */
   version?: string
+  /** Review status from the source JSON (`metadata.reviewStatus`). */
+  reviewStatus?: ConceptSetReviewStatus
   /** Batch ID grouping concept sets imported together from a catalog. */
   importBatchId?: string
   /** The workspace data dictionary this set belongs to (undefined: not

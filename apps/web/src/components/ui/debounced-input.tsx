@@ -7,6 +7,7 @@ interface DebouncedInputProps {
   delay?: number
   className?: string
   placeholder?: string
+  title?: string
 }
 
 /**
@@ -15,7 +16,7 @@ interface DebouncedInputProps {
  * locally; only the committed value is debounced. Syncs when `value` changes
  * externally (e.g. a filter reset).
  */
-export function DebouncedInput({ value, onChange, delay = 300, className, placeholder }: DebouncedInputProps) {
+export function DebouncedInput({ value, onChange, delay = 300, className, placeholder, title }: DebouncedInputProps) {
   const [local, setLocal] = useState(value)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -26,6 +27,7 @@ export function DebouncedInput({ value, onChange, delay = 300, className, placeh
     <input
       className={className}
       placeholder={placeholder}
+      title={title}
       value={local}
       onChange={(e) => {
         const v = e.target.value

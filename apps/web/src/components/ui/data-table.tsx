@@ -91,8 +91,40 @@ export function nextSelection(
 
 type Sorting = { columnId: string; desc: boolean } | null
 
-/** Kind of inline column filter to render under a column header. */
-export type DataTableColumnFilter = 'text' | 'number' | 'select' | 'none'
+/**
+ * Kind of inline column filter to render under a column header. `number` finds
+ * an id by its digits; `range` compares a quantity (see `numericFilter`).
+ */
+export type DataTableColumnFilter = 'text' | 'number' | 'range' | 'select' | 'none'
+
+const NUM = String.raw`-?\d+(?:[.,]\d+)?`
+const COMPARISON = new RegExp(String.raw`^(>=|<=|≥|≤|>|<|=)?\s*(${NUM})$`)
+const BETWEEN = new RegExp(String.raw`^(${NUM})\s*(?:-|\.\.)\s*(${NUM})$`)
+const toNumber = (s: string) => Number(s.replace(',', '.'))
+
+/**
+ * The test a `range` filter's text stands for: `>= 1`, `<5`, `=0` or a bare
+ * `3`, and `2-10` (or `2..10`) for an inclusive range. Null for text that is
+ * none of these, which then filters nothing — it is most often half-typed.
+ */
+export function numericFilter(text: string): ((n: number) => boolean) | null {
+  const s = text.trim()
+  const between = BETWEEN.exec(s)
+  if (between) {
+    const [lo, hi] = [toNumber(between[1]), toNumber(between[2])].sort((a, b) => a - b)
+    return (n) => n >= lo && n <= hi
+  }
+  const m = COMPARISON.exec(s)
+  if (!m) return null
+  const v = toNumber(m[2])
+  switch (m[1]) {
+    case '>': return (n) => n > v
+    case '>=': case '≥': return (n) => n >= v
+    case '<': return (n) => n < v
+    case '<=': case '≤': return (n) => n <= v
+    default: return (n) => n === v
+  }
+}
 
 export interface DataTableColumn<T> {
   id: string
@@ -135,6 +167,10 @@ export interface DataTableColumn<T> {
   sortable?: boolean
   /** For a 'select' filter: map a raw option value to a display label (e.g. translate/capitalize). */
   selectOptionLabel?: (value: string) => string
+  /** For a 'select' filter: render an option in the dropdown (e.g. as the badge the cell shows). */
+  selectOptionRender?: (option: { value: string; label: string }) => ReactNode
+  /** For a 'select' filter: the order of its options (default: alphabetical). */
+  selectOptionOrder?: (a: string, b: string) => number
   size?: number
   minSize?: number
   /**
@@ -245,6 +281,12 @@ interface DataTableProps<T> {
    * matters when the interesting rows are the big ones.
    */
   initialSorting?: { columnId: string; desc: boolean }
+  /**
+   * Filters set on first render, by column id: the text of a text/number
+   * filter, the picked values of a 'select' one. A view restored from
+   * `viewKey` takes precedence.
+   */
+  initialFilters?: Record<string, string | string[]>
   /**
    * Let the user drag column headers into a different order. Off by default:
    * it adds a grip to every header, which is noise on a table of three columns.
@@ -374,7 +416,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped, server, pinnedRows }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, initialFilters, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped, server, pinnedRows }: DataTableProps<T>) {
   const dense = density === 'compact'
   const serverMode = !!server
   const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
@@ -392,7 +434,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
   const restored = cached?.signature === signature ? cached : undefined
   const [sorting, setSorting] = useState<Sorting>(restored?.sorting ?? initialSorting ?? null)
   const [filters, setFilters] = useState<Record<string, string | Set<string> | undefined>>(
-    () => (restored ? fromStoredFilters(restored.filters) : {}),
+    () => fromStoredFilters(restored?.filters ?? initialFilters ?? {}),
   )
   const [page, setPage] = useState(0)
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>(restored?.columnSizing ?? {})
@@ -446,7 +488,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
     for (const c of cols) {
       if (c.filter !== 'select') continue
       const shownOf = (r: T) => (c.display ? c.display(r) : String(c.accessor(r) ?? ''))
-      out[c.id] = [...new Set(data.map(shownOf).filter(Boolean))].sort()
+      out[c.id] = [...new Set(data.map(shownOf).filter(Boolean))].sort(c.selectOptionOrder)
     }
     return out
   }, [cols, data, serverMode, serverOptions])
@@ -458,7 +500,17 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
       const f = filters[c.id]
       if (f == null) continue
       if (f instanceof Set) {
-        if (f.size) rows = rows.filter((r) => f.has(c.display ? c.display(r) : String(c.accessor(r) ?? '')))
+        // Only the values this data holds count, as the control shows them: a
+        // filter naming none of them (set up front, or restored over other rows)
+        // filters nothing, rather than emptying the table behind a blank control.
+        const live = new Set((selectOptions[c.id] ?? []).filter((v) => f.has(v)))
+        if (live.size) rows = rows.filter((r) => live.has(c.display ? c.display(r) : String(c.accessor(r) ?? '')))
+      } else if (f && c.filter === 'range') {
+        const test = numericFilter(f)
+        if (test) rows = rows.filter((r) => {
+          const v = c.accessor(r)
+          return v != null && v !== '' && test(Number(v))
+        })
       } else if (f) {
         // Every word, in any order, accents and case aside. No typo fallback:
         // a text column may hold codes or ids.
@@ -481,7 +533,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
       }
     }
     return rows
-  }, [data, cols, filters, sorting, colById, serverMode])
+  }, [data, cols, filters, sorting, colById, serverMode, selectOptions])
 
   // Server mode: a new sort or filter starts over from page 1, since the page the
   // user was on belongs to another result set. Kept as "page for this query"
@@ -561,11 +613,14 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
         ? rawOpts.map((v) => ({ value: v, label: col.selectOptionLabel!(v) }))
         : rawOpts
       const current = filters[columnId]
-      const value = current instanceof Set ? [...current] : []
+      // A filter set up front (`initialFilters`) can name values this data does
+      // not hold; they match no row, so the control does not count them.
+      const value = current instanceof Set ? rawOpts.filter((v) => current.has(v)) : []
       return (
         <MultiSelectFilter
           value={value}
           options={opts}
+          renderOption={col.selectOptionRender}
           placeholder={col.header}
           onChange={(v) => setFilters((f) => ({ ...f, [columnId]: v.length ? new Set(v) : undefined }))}
         />
@@ -573,11 +628,12 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
     }
     const current = filters[columnId]
     const value = typeof current === 'string' ? current : ''
-    const isNum = col.filter === 'number'
+    const isNum = col.filter === 'number' || col.filter === 'range'
     return (
       <DebouncedInput
         className={cn(dense ? FILTER_INPUT_CLASS_DENSE : FILTER_INPUT_CLASS, isNum && 'font-mono')}
-        placeholder={isNum ? 'ID...' : '...'}
+        placeholder={col.filter === 'number' ? 'ID...' : col.filter === 'range' ? t('common.range_filter_placeholder') : '...'}
+        title={col.filter === 'range' ? t('common.range_filter_hint') : undefined}
         value={value}
         onChange={(v) => setFilters((f) => ({ ...f, [columnId]: v || undefined }))}
       />

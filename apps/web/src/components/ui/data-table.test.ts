@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { clampPage, fromStoredFilters, nextSelection, pageCountOf, toStoredFilters, type RowKey } from './data-table'
+import { clampPage, fromStoredFilters, nextSelection, numericFilter, pageCountOf, toStoredFilters, type RowKey } from './data-table'
 
 describe('pageCountOf', () => {
   it('is 1 when pagination is off, whatever the size', () => {
@@ -127,5 +127,40 @@ describe('view-cache filter serialisation', () => {
   it('keeps a cleared filter absent rather than turning it into an empty Set', () => {
     // undefined means "no filter"; an empty Set would filter everything out.
     expect(fromStoredFilters(toStoredFilters({ domain: undefined }))).toEqual({ domain: undefined })
+  })
+})
+
+describe('numericFilter', () => {
+  const keep = (text: string, values = [0, 1, 2, 5, 10]) => {
+    const test = numericFilter(text)
+    return test ? values.filter(test) : null
+  }
+
+  it('reads comparisons, with or without a space', () => {
+    expect(keep('>= 1')).toEqual([1, 2, 5, 10])
+    expect(keep('>1')).toEqual([2, 5, 10])
+    expect(keep('≤ 2')).toEqual([0, 1, 2])
+    expect(keep('<2')).toEqual([0, 1])
+    expect(keep('=0')).toEqual([0])
+  })
+
+  it('reads a bare number as equality', () => {
+    expect(keep('5')).toEqual([5])
+  })
+
+  it('reads an inclusive range either way round', () => {
+    expect(keep('2-5')).toEqual([2, 5])
+    expect(keep('5..2')).toEqual([2, 5])
+    expect(numericFilter('-3 - -1')!(-2)).toBe(true)
+  })
+
+  it('reads a decimal comma', () => {
+    expect(numericFilter('>= 1,5')!(1.5)).toBe(true)
+  })
+
+  it('is null for half-typed or other text, which filters nothing', () => {
+    expect(numericFilter('>')).toBeNull()
+    expect(numericFilter('abc')).toBeNull()
+    expect(numericFilter('')).toBeNull()
   })
 })
