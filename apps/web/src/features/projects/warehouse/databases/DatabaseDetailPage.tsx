@@ -42,7 +42,7 @@ import { NoticeBanner } from '@/components/ui/notice-banner'
 import { notifyDatabaseLocationChanged, useDatabaseLocation } from './use-database-location'
 import { EntityLicensePanel, EntityReadmePanel } from '@/components/ui/entity-docs-panels'
 import { DatabaseStatsDashboard } from './DatabaseStatsDashboard'
-import { useDatabaseStats } from './use-database-stats'
+import { useDatabaseStats, useStoredDatabaseStats } from './use-database-stats'
 import { StatsErrorBanner } from './stats-error-banner'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { ReadmeMarkdown } from '@/components/editor/MarkdownRenderer'
@@ -119,6 +119,8 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   const [editOpen, setEditOpen] = useState(false)
   const [flightDismissed, dismissFlight] = useSessionDismissal(`flight:${source?.id}`)
   const [noSchemaDismissed, dismissNoSchema] = useSessionDismissal(`no-schema:${source?.id}`)
+  const [mismatchDismissed, dismissMismatch] = useSessionDismissal(`schema-mismatch:${source?.id}`)
+  const storedStats = useStoredDatabaseStats(source?.id ?? '')
   const updateDataSource = useDataSourceStore((s) => s.updateDataSource)
   const loadDataSources = useDataSourceStore((s) => s.loadDataSources)
   // Reinstalling replaces the whole entity's content, so it takes the same role
@@ -206,6 +208,17 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   }
 
   const hasMappedSchema = !!source.schemaMapping?.patient
+  // On Statistics the banners keep to its centred column (max-w-3xl less its px-6).
+  const bannerClass = shownTab === 'statistics'
+    ? 'mx-auto mb-3 w-[calc(100%-3rem)] max-w-[45rem]'
+    : 'mx-6 mb-3'
+  // A count over a table the schema names but the database lacks fails to zero,
+  // so a wrong schema reads as an empty database — while the table row counts,
+  // taken from the database itself, say otherwise.
+  const showSchemaMismatch = hasMappedSchema && !mismatchDismissed
+    && (shownTab === 'overview' || shownTab === 'statistics')
+    && storedStats?.summary.patientCount === 0
+    && storedStats.tableCounts.some((c) => c.rowCount > 0)
   // Without a data model there are no patient/visit tables to count, but table
   // row counts still make sense — and that is where the refresh button lives.
   const statsMapping = source.schemaMapping ?? EMPTY_MAPPING
@@ -268,13 +281,13 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         <ConnectionStatusBanner
           source={source}
           onEditConnection={canEditLocation ? () => setEditOpen(true) : undefined}
-          className="mx-6 mb-3"
+          className={bannerClass}
         />
         {/* Nothing in this page works until the files are found again. */}
         {location.missing && (
           <NoticeBanner
             tone="danger"
-            className="mx-6 mb-3"
+            className={bannerClass}
             title={t('databases.location_missing_title')}
             description={location.path
               ? t('databases.location_missing_path', { path: location.path })
@@ -290,7 +303,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         {flightStatus && flightStatus.status !== 'ok' && flightStatus.status !== 'not_applicable' && !flightDismissed && (
           <NoticeBanner
             tone="warning"
-            className="mx-6 mb-3"
+            className={bannerClass}
             onDismiss={dismissFlight}
             title={t('databases.flight_slow_title')}
             description={flightStatus.status === 'not_installed'
@@ -304,7 +317,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         {!source.schemaMapping && (shownTab === 'mapping' || !noSchemaDismissed) && (
           <NoticeBanner
             tone="warning"
-            className="mx-6 mb-3"
+            className={bannerClass}
             onDismiss={shownTab === 'mapping' ? undefined : dismissNoSchema}
             title={t('databases.no_schema_title')}
             description={t('databases.no_schema_description')}
@@ -312,6 +325,21 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
               <Button size="sm" onClick={() => setEditOpen(true)}>
                 <Network size={14} />
                 {t('databases.no_schema_assign')}
+              </Button>
+            )}
+          />
+        )}
+        {showSchemaMismatch && (
+          <NoticeBanner
+            tone="warning"
+            className={bannerClass}
+            onDismiss={dismissMismatch}
+            title={t('databases.schema_mismatch_title')}
+            description={t('databases.schema_mismatch_description')}
+            action={canEditLocation && (
+              <Button size="sm" onClick={() => setEditOpen(true)}>
+                <Network size={14} />
+                {t('databases.schema_mismatch_change')}
               </Button>
             )}
           />
@@ -596,6 +624,7 @@ function OverviewTab({
       // then clipped — it rendered behind the cards instead of pushing them down.
       BAND_ROWS[Number(showStatsBanner || showStatsError)],
     )}>
+
       {/* The counts below are COUNT(*) over what may be billions of rows, so
           server mode never runs them unasked — the cards then read "—" with
           nothing saying why, or that one click fixes it. */}
