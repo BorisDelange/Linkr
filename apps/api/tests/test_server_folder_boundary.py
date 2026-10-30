@@ -133,6 +133,6 @@ async def test_a_vocabulary_import_cannot_read_linkrs_data_folder(client, seed_r
     ws = await _workspace(client, h)
     settings.data_path.mkdir(parents=True, exist_ok=True)
     r = await client.post(f"{API}/workspaces/{ws}/vocabulary-library/inspect", headers=h, json={
-        "serverPath": str(settings.data_path),
+        "serverPaths": [str(settings.data_path)],
     })
     assert r.status_code == 403
