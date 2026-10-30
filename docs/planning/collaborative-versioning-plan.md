@@ -178,7 +178,8 @@ changes** action:
 - Review, comments and the merge itself stay on the forge — Linkr does not re-implement
   code review. The wiki status fits naturally: a page in *Needs revision* is what goes
   into a proposal.
-- MCP: `propose_git_changes` + `list_git_proposals`, same permission as commit-push.
+- MCP: read only, like its other git tools (`list_git_proposals`); it never commits, pushes,
+  pulls or opens a proposal.
 
 ## 7. Push policy per workspace
 

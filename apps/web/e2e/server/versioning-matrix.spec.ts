@@ -92,7 +92,9 @@ function colleagueEdits(remote: string, dir: string, branch: string, file: strin
 
 async function pullEverything(page: Page, t: Target, branch: string): Promise<string[]> {
   return page.evaluate(async ({ scope, id, branch, workspaceId }) => {
-    const mod = await import('/src/lib/pull/run.ts')
+    // A module of the app as the dev server serves it, out of the test's own typecheck.
+    const url = '/src/lib/pull/run.ts'
+    const mod = (await import(url)) as { pullEverything: (...a: unknown[]) => Promise<string[]> }
     return mod.pullEverything(scope, id, branch, workspaceId)
   }, { scope: t.scope, id: t.id, branch, workspaceId: t.workspaceId })
 }

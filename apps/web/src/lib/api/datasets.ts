@@ -549,7 +549,11 @@ export const apiDatasetAnalysisStorage: DatasetAnalysisStorage = {
     await apiRequest(`/dataset-files/analyses/${id}`, { method: 'DELETE' })
   },
 
-  deleteByDataset: async () => {
-    // Analyses reconcile against the disk scan on the server.
+  // Analyses are rows, not files on disk: a re-import that wipes the project must
+  // remove them, or recreating them at their key-derived ids conflicts.
+  deleteByDataset: async (datasetFileId) => {
+    for (const a of await apiDatasetAnalysisStorage.getByDataset(datasetFileId)) {
+      await apiDatasetAnalysisStorage.delete(a.id)
+    }
   },
 }

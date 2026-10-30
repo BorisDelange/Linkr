@@ -75,10 +75,15 @@ test('every entity of the demo workspace survives push → reinstall with nothin
       await http.git(`/${target.scope}/${id}/commit-push`, { message: 'Round trip', branch: 'main' })
 
       const result = await page.evaluate(async (args) => {
-        const mod = await import('/src/lib/entity-reinstall.ts')
+        // A module of the app as the dev server serves it, out of the test's own typecheck.
+        const url = '/src/lib/entity-reinstall.ts'
+        const mod = (await import(url)) as {
+          reinstallEntityFromGit: (a: unknown) => Promise<{ ok: boolean; reason?: string; context?: string; error?: string; issues?: unknown[] }>
+        }
         return mod.reinstallEntityFromGit(args)
       }, { scope: target.scope, type: target.type, id, name: label, url, branch: 'main', workspaceId: ws!.id })
-      expect.soft(result, `${label}: reinstall`).toMatchObject({ ok: true })
+      const why = result.ok ? '' : JSON.stringify({ reason: result.reason, context: result.context, error: result.error, issues: result.issues })
+      expect.soft(result, `${label}: reinstall ${why}`).toMatchObject({ ok: true })
 
       const status = await (await http.git(`/${target.scope}/${id}/status`, { branch: 'main' })).json()
       const files: { path: string; changeType: string }[] = status.files ?? []

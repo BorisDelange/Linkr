@@ -78,6 +78,11 @@ writes, and lost its tables when a job's cancellation invalidated it.
   request, merged on the forge by another user, then pulled. Both need an
   instance holding the demo workspace (`E2E_DEMO=1`) and rewire its git links:
   run them on a disposable one.
+  `npm run test:versioning` (`scripts/test-versioning.mjs`) runs these three on
+  a stack of its own (free ports, data in `.cache/versioning-e2e/`): the first
+  run installs the demo from the public catalog once and keeps a snapshot, each
+  journey starts from a fresh copy of it; `--forge` adds the merge requests
+  (starts, seeds and stops forge-sim), `--refresh-demo` reinstalls the snapshot.
 
 `e2e/fixtures.ts` fails every journey on an uncaught page exception and gives
 `bootDemo(page)` and, for the server, `signIn(page)`. The code editor binds its
