@@ -3333,6 +3333,37 @@ export async function buildUserPluginFolder(
   }
 }
 
+/**
+ * A user plugin as `buildUserPluginFolder` wrote it under `prefix`: its manifest,
+ * its source files and its docs. Null when the folder holds no manifest.
+ */
+export async function readUserPluginFolder(zipData: JSZip, prefix: string): Promise<UserPlugin | null> {
+  // `license`/`readmeLang` are part of what the export writes (see
+  // build_user_plugin_tree), and readEntityDocs below reads the licence id from
+  // them — leaving them off the type handed it a manifest with no licence at all.
+  const pluginMeta = await readEntityManifest<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt?: string; license?: { id?: string; name?: string }; readmeLang?: string }>(zipData, prefix, 'user-plugin')
+  if (!pluginMeta) return null
+  const files: Record<string, string> = {}
+  for (const [path, entry] of Object.entries(zipData.files)) {
+    if (!path.startsWith(prefix) || entry.dir) continue
+    const relativePath = path.slice(prefix.length)
+    // Both manifest names: the metadata pointer is not a plugin source file.
+    if (relativePath === ENTITY_MANIFEST || relativePath === MANIFEST['user-plugin']) continue
+    // Nor are the entity's own docs — the export writes them from the row's
+    // readme/license, and reading them back as source would both duplicate them
+    // and decode attachment blobs as text.
+    if (isEntityDocsFile(relativePath)) continue
+    files[relativePath] = await entry.async('string')
+  }
+  const docs = await readEntityDocs(zipData, prefix, pluginMeta)
+  return {
+    ...pluginMeta,
+    files,
+    ...(docs.readme ? { readme: docs.readme } : {}),
+    ...(docs.license ? { license: docs.license } : {}),
+  } as UserPlugin
+}
+
 export async function buildUserPluginZip(
   pluginId: string,
   storage: Storage,
@@ -5290,31 +5321,8 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     if (parts.length >= 2 && parts[1]) pluginFolders.add(parts[1])
   }
   for (const folder of pluginFolders) {
-    const prefix = `plugins/${folder}/`
-    // `license`/`readmeLang` are part of what the export writes (see
-    // build_user_plugin_tree), and readEntityDocs below reads the licence id from
-    // them — leaving them off the type handed it a manifest with no licence at all.
-    const pluginMeta = await readEntityManifest<{ id: string; entityId?: string; workspaceId?: string; createdBy?: string; createdByDetails?: AuthorDetails; createdAt: string; updatedAt?: string; license?: { id?: string; name?: string }; readmeLang?: string }>(zipData, prefix, 'user-plugin')
-    if (!pluginMeta) continue
-    const files: Record<string, string> = {}
-    for (const [path, entry] of Object.entries(zipData.files)) {
-      if (!path.startsWith(prefix) || entry.dir) continue
-      const relativePath = path.slice(prefix.length)
-      // Both manifest names: the metadata pointer is not a plugin source file.
-      if (relativePath === ENTITY_MANIFEST || relativePath === MANIFEST['user-plugin']) continue
-      // Nor are the entity's own docs — the export writes them from the row's
-      // readme/license, and reading them back as source would both duplicate them
-      // and decode attachment blobs as text.
-      if (isEntityDocsFile(relativePath)) continue
-      files[relativePath] = await entry.async('string')
-    }
-    const docs = await readEntityDocs(zipData, prefix, pluginMeta)
-    plugins.push({
-      ...pluginMeta,
-      files,
-      ...(docs.readme ? { readme: docs.readme } : {}),
-      ...(docs.license ? { license: docs.license } : {}),
-    } as UserPlugin)
+    const plugin = await readUserPluginFolder(zipData, `plugins/${folder}/`)
+    if (plugin) plugins.push(plugin)
   }
 
   return {

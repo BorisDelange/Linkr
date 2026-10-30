@@ -210,6 +210,10 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: {
       exclude: ['pyodide'],
     },
+    // A second dev server on the same checkout (scripts/test-versioning.mjs) keeps
+    // its own pre-bundled deps: sharing node_modules/.vite would make the user's
+    // server re-optimize and reload under them.
+    ...(env.VITE_CACHE_DIR ? { cacheDir: env.VITE_CACHE_DIR } : {}),
     server: {
       port: webPort,
       ...(webHost ? { host: webHost } : {}),

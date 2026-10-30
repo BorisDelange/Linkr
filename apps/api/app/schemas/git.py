@@ -271,15 +271,6 @@ class SettingsImportResponse(CamelModel):
     warnings: list[str] = []
 
 
-class SettingsPullPreview(CamelModel):
-    """How many of each family the remote settings tree holds (None = the family's
-    file is absent from the remote), so the pull dialog can offer a per-family choice."""
-
-    organizations: int | None = None
-    users: int | None = None
-    roles: int | None = None
-
-
 class GitContentStatusEntry(CamelModel):
     """A git-linked entity whose content is not reconstituted (pending/failed)."""
 

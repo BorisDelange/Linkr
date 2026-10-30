@@ -20,7 +20,7 @@ import {
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { cn } from '@/lib/utils'
 import { editorTabClass } from '@/components/editor/editor-tab'
-import { usePluginEditorStore } from '@/stores/plugin-editor-store'
+import { reloadPulledPlugin, usePluginEditorStore } from '@/stores/plugin-editor-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
@@ -422,6 +422,7 @@ export function PluginEditor() {
               onSave={(config) => pluginActions.onSaveGitRemote(pluginItem, config)}
               syncScope="user-plugins"
               syncId={editingPluginId ?? undefined}
+              onAfterPull={() => (editingPluginId ? reloadPulledPlugin(editingPluginId) : undefined)}
             />
           </div>
         </div>

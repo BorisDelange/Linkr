@@ -698,3 +698,10 @@ export const usePluginEditorStore = create<PluginEditorState>((set, get) => ({
   setTestVisitDetailId(id) { set({ testVisitDetailId: id }) },
   setTestConfig(config) { set({ testConfig: config }) },
 }))
+
+/** After a pull wrote a plugin's files: the list, and the editor when it shows that plugin. */
+export async function reloadPulledPlugin(id: string): Promise<void> {
+  const store = usePluginEditorStore.getState()
+  await store.refreshPluginList()
+  if (store.editingPluginId === id) await store.openPlugin(id)
+}

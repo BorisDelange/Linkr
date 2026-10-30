@@ -200,15 +200,14 @@ Built 2026-10-28 → 10-30 on `feature/collab-versioning` (as-built: `docs/archi
 § Versioning): allowed internal git hosts, a 3-way pull over the export tree for every
 scope (projects re-enabled), cards by subject on both sides, merge requests for every
 scope, per-workspace review mode; round trip, matrix and merge-request journeys
-against local repositories and `docker/forge-sim/`.
+against local repositories and `docker/forge-sim/` (`npm run test:versioning`).
+Then (2026-10-30, merged): plugins and settings on the same pull, inline entities
+added/removed upstream, dictionaries / service mappings / badge ranges, an
+editable result in the pull diff, a wiki page's settings on its text row.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🔜 | **[TO TEST]** In the app: a pull on each kind (workspace, project, SQL, ETL, DQ, catalog, schema, database), Propose changes, review mode | M |
-| 🔜 | Workspace pull: inline entities added or removed upstream (listed as not taken today), concept sets, service mappings, plugins | M |
-| 🔜 | Pull for user plugins and settings through the same engine (plugins have no importer to re-apply a tree) | M |
-| 🔜 | Conflict editing: an editable merged result for a text conflict (today: theirs or mine) | M |
-| 🔜 | A wiki page's metadata (`_tree.json` element) and its `.md` offered as one element | S |
+| 🔜 | **[TO TEST]** In the app: a pull on each kind (workspace, project, SQL, ETL, DQ, catalog, schema, database, plugin, settings), a conflict settled by editing the result, Propose changes, review mode | M |
 | 🔜 | User docs (linkr-website): pull by subject, merge requests, review mode, `LINKR_GIT_ALLOWED_HOSTS` | S |
 | 🔜 | `npm run worktree:new`: `node_modules/.bin` links copied as absolute paths to the main checkout — Playwright loads twice, `test:e2e` fails in a worktree | S |
 

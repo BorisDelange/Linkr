@@ -44,7 +44,7 @@ export interface ThreeWayPreview {
 const STAMP_FIELDS = new Set(['appVersion', 'minAppVersion'])
 
 /** Keys that identify an element of a JSON array, in order of preference. */
-const ELEMENT_KEYS = ['id', 'path', 'key', 'templateKey', 'entityId', 'name'] as const
+const ELEMENT_KEYS = ['id', 'path', 'key', 'templateKey', 'entityId', 'username', 'name'] as const
 
 type Json = Record<string, unknown>
 
@@ -240,11 +240,15 @@ export function mergedContent(prepared: PreparedFile, decisions: Map<string, Pul
   }
 }
 
-/** Every file a decision changes, as the merged-tree request expects it. */
-export function overridesFor(prepared: PreparedFile[], decisions: Map<string, PullDecision>): Record<string, Override> {
+/** Every file a decision changes, as the merged-tree request expects it. A result
+ *  the user wrote by hand (`edits`, by path) is taken as it stands. */
+export function overridesFor(
+  prepared: PreparedFile[], decisions: Map<string, PullDecision>, edits: ReadonlyMap<string, string> = new Map(),
+): Record<string, Override> {
   const out: Record<string, Override> = {}
   for (const p of prepared) {
-    const o = mergedContent(p, decisions)
+    const edited = edits.get(p.file.path)
+    const o = edited !== undefined ? { text: edited } : mergedContent(p, decisions)
     if (o) out[p.file.path] = o
   }
   return out

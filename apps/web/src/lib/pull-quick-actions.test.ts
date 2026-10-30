@@ -10,7 +10,8 @@ describe('pull cards', () => {
     expect(cardsForScope('projects').map((c) => c.id)).toEqual([
       'info', 'dashboards', 'patient_boards', 'scripts', 'cohorts', 'datasets', 'concept_lists', 'connections', 'other',
     ])
-    expect(cardsForScope('user-plugins').map((c) => c.id)).toEqual(['info', 'other'])
+    expect(cardsForScope('user-plugins').map((c) => c.id)).toEqual(['info', 'plugin_files', 'other'])
+    expect(cardsForScope('settings').map((c) => c.id)).toEqual(['organizations', 'users', 'roles', 'other'])
   })
 
   it('puts each file on exactly one card, the first that claims it', () => {

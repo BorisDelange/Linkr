@@ -130,7 +130,7 @@ async function main() {
 
   // process.env wins over apps/web/.env.local, which names the worktree's own API.
   start(process.execPath, [join(root, 'node_modules/vite/bin/vite.js'), '--port', String(webPort), '--strictPort'], {
-    cwd: web, env: { ...process.env, VITE_API_URL: apiUrl },
+    cwd: web, env: { ...process.env, VITE_API_URL: apiUrl, VITE_CACHE_DIR: join(cache, 'vite') },
   })
   await waitFor(serverUrl, 120)
 

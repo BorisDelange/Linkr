@@ -35,6 +35,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store'
 /** Scopes pulled through the shared 3-way pull (plan §9.2). */
 const THREE_WAY_SCOPES: GitScope[] = [
   'workspaces', 'projects', 'sql-script-collections', 'etl-pipelines', 'data-catalogs', 'dq-rule-sets', 'schema-presets', 'databases',
+  'user-plugins', 'settings',
 ]
 import { ChangeBadge } from './ChangeBadge'
 import { GitErrorInline } from './GitErrorInline'
@@ -94,10 +95,8 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   const reviewOnly = useWorkspaceStore((s) =>
     s._workspacesRaw.find((w) => w.id === (scope === 'workspaces' ? id : s.activeWorkspaceId))?.gitPushPolicy === 'review',
   ) && scope !== 'settings'
-  // Every scope with an entity behind it pulls through the shared 3-way pull
-  // (ThreeWayPull) unless it brings its own: mapping projects keep the per-mapping
-  // one below, settings an upsert dialog. user-plugins has no importer to apply a
-  // pull with, so it stays push-only.
+  // Every scope pulls through the shared 3-way pull (ThreeWayPull) unless it
+  // brings its own: mapping projects keep the per-mapping one below.
   const threeWay = THREE_WAY_SCOPES.includes(scope)
   const syncStateSupported = scope === 'mapping-projects' || threeWay || !!renderPullDialog || !!renderInlinePull
   // A scope with no pull flow can push but cannot take remote changes back. Say so

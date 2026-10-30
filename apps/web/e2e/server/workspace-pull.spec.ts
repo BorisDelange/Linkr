@@ -98,12 +98,17 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   await expect(page.getByRole('button', { name: 'Keep mine wiki/faq.md' })).toBeEnabled()
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'pull-quick.png'), fullPage: true })
 
-  // Details: a row per page, an item per field or language.
+  // Details: a row per page — its text and, on the same row, its settings from
+  // the tree (Setup's status, the new page's entry); no separate tree row left.
   await page.getByRole('tab', { name: 'Details' }).click()
-  for (const file of ['wiki/setup.md', 'wiki/faq.md', 'wiki/note.md', 'wiki/_tree.json']) {
+  for (const file of ['wiki/setup.md', 'wiki/faq.md', 'wiki/note.md']) {
     await expect(page.getByRole('button', { name: new RegExp(file.replace('.', '\\.')) })).toBeVisible()
   }
+  await expect(page.getByRole('button', { name: /wiki\/_tree\.json/ })).toHaveCount(0)
   await expect(page.getByText('merged with your edits')).toBeVisible()
+  const row = (file: string) => page.getByRole('listitem').filter({ hasText: file })
+  await expect(row('wiki/setup.md').getByText('Page settings')).toBeVisible()
+  await expect(row('wiki/setup.md').getByText('status')).toBeVisible()
 
   // The diff of Setup shows the merged content on the right.
   await page.getByRole('button', { name: /wiki\/setup\.md/ }).first().click()
@@ -114,12 +119,9 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
 
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'pull-details.png'), fullPage: true })
 
-  // Decide row by row and item by item: Setup and Note taken, FAQ's conflicting content kept.
-  const row = (file: string) => page.getByRole('listitem').filter({ hasText: file })
+  // Decide row by row: Setup (text and settings) and Note taken, FAQ's conflicting content kept.
   await row('wiki/setup.md').getByRole('button', { name: 'Take all' }).first().click()
   await row('wiki/note.md').getByRole('button', { name: 'Take all' }).first().click()
-  // The tree carries Setup's new status and the new page's entry.
-  await row('wiki/_tree.json').getByRole('button', { name: 'Take all' }).first().click()
   await row('wiki/faq.md').getByRole('button', { name: 'Keep mine' }).last().click()
   await page.getByRole('button', { name: 'Apply and finish' }).click()
 

@@ -56,7 +56,12 @@ export const PULL_CARDS: Partial<Record<GitScope, PullCardDef[]>> = {
   'schema-presets': [INFO, { id: 'schema', patterns: [/^schema\.ddl$/, /^mapping\.json$/] }],
   databases: [INFO, { id: 'schema', patterns: [/^schema\.ddl$/, /^mapping(-overrides)?\.json$/] }, { id: 'cohorts', patterns: [/^cohorts\//, /^cohort-boards\//] }],
   'data-catalogs': [INFO],
-  'user-plugins': [INFO],
+  'user-plugins': [INFO, { id: 'plugin_files', patterns: [/./] }],
+  settings: [
+    { id: 'organizations', patterns: [/^organizations\.json$/] },
+    { id: 'users', patterns: [/^users\.json$/] },
+    { id: 'roles', patterns: [/^roles\.json$/] },
+  ],
 }
 
 const OTHER: PullCardDef = { id: 'other' }

@@ -1,10 +1,11 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { type BeforeMount } from '@monaco-editor/react'
+import { type BeforeMount, type DiffOnMount } from '@monaco-editor/react'
 import { SafeDiffEditor } from '@/components/editor/SafeDiffEditor'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
-import { FileWarning } from 'lucide-react'
+import { Check, FileWarning, Undo2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { useAppStore } from '@/stores/app-store'
@@ -21,6 +22,13 @@ interface PullDiffDialogProps {
   /** Build the two sides for a file — a projection of the plan, not a file diff. */
   buildDiff: (file: PullFile) => PullDiffText
   onClose: () => void
+  /**
+   * Makes the right side — the result the pull writes — editable: the text is
+   * kept as the file's result (null drops the edit). Absent, the diff is read-only.
+   */
+  onEdit?: (path: string, text: string | null) => void
+  /** Paths whose result was written by hand. */
+  edited?: ReadonlySet<string>
 }
 
 /**
@@ -30,13 +38,16 @@ interface PullDiffDialogProps {
  * from the merge plan, so what the user reads is exactly what ticking the row
  * applies (see lib/concept-mapping/pull-diff.ts).
  */
-export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDiffDialogProps) {
+export function PullDiffDialog({ plan, initialPath, buildDiff, onClose, onEdit, edited }: PullDiffDialogProps) {
   const { t } = useTranslation()
   const darkMode = useAppStore((s) => s.darkMode)
   const [path, setPath] = useState(initialPath)
+  const modified = useRef<{ getValue(): string } | null>(null)
 
   const file = plan.files.find((f) => f.path === path) ?? plan.files[0]
   const diff = file ? buildDiff(file) : null
+  const editable = !!onEdit && !!diff && diff.notice !== 'whole_file'
+  const handleMount: DiffOnMount = (editor) => { modified.current = editor.getModifiedEditor() }
 
   const beforeMount: BeforeMount = useCallback((monaco) => {
     defineLinkrThemes(monaco)
@@ -54,6 +65,21 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDi
               {t('versioning.pull_diff_direction')}
             </span>
           </DialogTitle>
+          {editable && (
+            <div className="mr-8 flex items-center gap-2 pt-2">
+              <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('versioning.pull_edit_hint')}</p>
+              {edited?.has(path) && (
+                <Button size="sm" variant="outline" className="gap-1.5" onClick={() => onEdit!(path, null)}>
+                  <Undo2 size={13} />
+                  {t('versioning.pull_edit_discard')}
+                </Button>
+              )}
+              <Button size="sm" className="gap-1.5" onClick={() => modified.current && onEdit!(path, modified.current.getValue())}>
+                <Check size={13} />
+                {t('versioning.pull_edit_use')}
+              </Button>
+            </div>
+          )}
         </DialogHeader>
 
         <div className="min-h-0 flex-1">
@@ -100,14 +126,16 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDi
                 </div>
               ) : (
                 <SafeDiffEditor
-                  key={path}
+                  key={`${path}|${edited?.has(path) ? 'edited' : 'merged'}`}
                   original={diff?.oldContent ?? ''}
                   modified={diff?.newContent ?? ''}
                   language={diff?.language ?? 'json'}
                   theme={darkMode ? 'linkr-dark' : 'linkr-light'}
                   beforeMount={beforeMount}
+                  onMount={handleMount}
                   options={{
-                    readOnly: true,
+                    readOnly: !editable,
+                    originalEditable: false,
                     renderSideBySide: true,
                     wordWrap: 'on',
                     minimap: { enabled: false },

@@ -67,12 +67,15 @@ interface Target {
   readme: (text: string) => Promise<void>
   /** The file the colleague edits in the repository. */
   colleagueFile: string
+  /** How the colleague edits it: a paragraph appended, unless the file is data. */
+  colleagueEdit?: (content: string, note: string) => string
 }
 
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf-8' })
 
-/** A colleague appends a paragraph to `file` on `branch` (created from main when new). */
-function colleagueEdits(remote: string, dir: string, branch: string, file: string, paragraph: string) {
+/** A colleague edits `file` on `branch` (created from main when new): a paragraph
+ *  appended, or `edit` applied to its content. */
+function colleagueEdits(remote: string, dir: string, branch: string, file: string, paragraph: string, edit?: (content: string, note: string) => string) {
   if (!existsSync(dir)) {
     execFileSync('git', ['clone', '-q', remote, dir])
     git(dir, 'config', 'user.name', 'Colleague')
@@ -83,8 +86,11 @@ function colleagueEdits(remote: string, dir: string, branch: string, file: strin
   git(dir, 'checkout', '-q', '-B', branch, exists ? `origin/${branch}` : 'origin/main')
   const target = path.join(dir, file)
   mkdirSync(path.dirname(target), { recursive: true })
-  const before = existsSync(target) ? readFileSync(target, 'utf-8').replace(/\n*$/, '\n\n') : ''
-  writeFileSync(target, `${before}${paragraph}\n`)
+  if (edit) writeFileSync(target, edit(readFileSync(target, 'utf-8'), paragraph))
+  else {
+    const before = existsSync(target) ? readFileSync(target, 'utf-8').replace(/\n*$/, '\n\n') : ''
+    writeFileSync(target, `${before}${paragraph}\n`)
+  }
   git(dir, 'add', '-A')
   git(dir, 'commit', '-q', '-m', `Colleague: ${paragraph}`)
   git(dir, 'push', '-q', 'origin', `HEAD:${branch}`)
@@ -154,6 +160,29 @@ async function targets(http: Http, workspaceId: string): Promise<Target[]> {
 
   const [database] = await http.get(`/data-sources?workspaceId=${workspaceId}`)
   out.push(T('database', 'databases', database.id, `/data-sources/${database.id}`))
+
+  const pluginId = `plugin-${tag}`
+  const manifest = { id: `e2e-plugin-${tag}`, name: { en: `Plugin ${tag}` }, version: '0.1.0', type: 'lab' }
+  await http.send('post', '/user-plugins', { id: pluginId, entityId: `e2e-plugin-${tag}`, workspaceId, files: { 'plugin.json': JSON.stringify(manifest, null, 2) } })
+  out.push(T('plugin', 'user-plugins', pluginId, `/user-plugins/${pluginId}`))
+
+  // Account-level settings: no README — the colleague edits a user's profile in
+  // users.json, and a proposal changes it here. Not the signed-in administrator:
+  // a pull never rewrites one's own account.
+  const member = `member-${tag}`
+  const user = await http.send('post', '/users', { username: member, password: `pw-${tag}-Aa1!`, role: 'user' })
+  out.push({
+    label: 'settings', scope: 'settings', id: 'account', workspaceId, colleagueFile: 'users.json',
+    // As the export writes it (JSON.stringify(…, null, 2), no final newline), so the
+    // re-exported file matches the colleague's byte for byte.
+    colleagueEdit: (content, note) => JSON.stringify(
+      (JSON.parse(content) as { username: string; lastName?: string | null }[])
+        .map((u) => (u.username === member ? { ...u, lastName: note } : u)),
+      null, 2,
+    ),
+    link: async (remote) => { await http.send('put', '/git/settings/account/config', remote) },
+    readme: async (text) => { await http.send('patch', `/users/${user.id}`, { firstName: text.trim() }) },
+  })
   return only ? out.filter((t) => t.label === only) : out
 }
 
@@ -182,7 +211,7 @@ test('every kind of entity: push, a colleague’s change pulled, the same on ano
       // A colleague's README change comes back and leaves nothing to commit.
       const clone = testInfo.outputPath(`${t.scope}-${run}-colleague`)
       const readme = t.colleagueFile
-      colleagueEdits(`file://${remote}`, clone, 'main', readme, `Colleague paragraph for ${t.label}.`)
+      colleagueEdits(`file://${remote}`, clone, 'main', readme, `Colleague paragraph for ${t.label}.`, t.colleagueEdit)
       expect((await http.get(`/git/${t.scope}/${t.id}/sync-state?branch=main`)).behind, `${t.label}: behind`).toBe(true)
       const pulled = await pullEverything(page, t, 'main')
       expect.soft(pulled, `${t.label}: the README came in`).toContain(readme)
@@ -191,7 +220,7 @@ test('every kind of entity: push, a colleague’s change pulled, the same on ano
 
       // Another branch: pushed there, changed there, pulled from there.
       await http.git(`/${t.scope}/${t.id}/commit-push`, { message: 'Branch push', branch: 'e2e-branch' })
-      colleagueEdits(`file://${remote}`, clone, 'e2e-branch', readme, `Branch paragraph for ${t.label}.`)
+      colleagueEdits(`file://${remote}`, clone, 'e2e-branch', readme, `Branch paragraph for ${t.label}.`, t.colleagueEdit)
       await pullEverything(page, t, 'e2e-branch')
       expect.soft(await leftToCommit(http, t, 'e2e-branch'), `${t.label}: clean on the branch after its pull`).toEqual([])
     })
@@ -242,4 +271,40 @@ test('every kind of entity: a change proposed as a merge request, merged on the 
       expect.soft(await leftToCommit(http, t, 'main'), `${t.label}: nothing left once the merge is pulled`).toEqual([])
     })
   }
+})
+
+test('the workspace: an inline project a colleague removes, then brings back, follows through the pull', async ({ page, request }, testInfo) => {
+  test.skip(!process.env.E2E_DEMO || !process.env.E2E_GIT_LOCAL_REMOTES, 'needs the demo workspace and local git remotes')
+  test.setTimeout(600_000)
+  await signIn(page)
+  const http = await api(page, request)
+  const workspaceId = await demoWorkspace(http)
+  const [ws] = (await targets(http, workspaceId)).filter((t) => t.scope === 'workspaces')
+  const folder = ws.colleagueFile.split('/').slice(0, 2).join('/')
+  const entityId = folder.split('/')[1]
+  const inline = async () => (await http.get(`/projects?workspaceId=${workspaceId}`))
+    .filter((p: { entityId?: string }) => p.entityId === entityId)
+
+  const remote = testInfo.outputPath(`workspace-inline-${run}.git`)
+  execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote])
+  await ws.link({ url: `file://${remote}`, branch: 'main' })
+  expect((await http.git(`/workspaces/${workspaceId}/commit-push`, { message: 'First push', branch: 'main' })).pushed).toBe(true)
+
+  const clone = testInfo.outputPath(`workspace-inline-${run}-colleague`)
+  execFileSync('git', ['clone', '-q', `file://${remote}`, clone])
+  git(clone, 'config', 'user.name', 'Colleague')
+  git(clone, 'config', 'user.email', 'colleague@example.org')
+  git(clone, 'rm', '-q', '-r', folder)
+  git(clone, 'commit', '-q', '-m', 'Colleague: remove the inline project')
+  git(clone, 'push', '-q', 'origin', 'HEAD:main')
+
+  await pullEverything(page, ws, 'main')
+  expect.soft(await inline(), 'the project left with its folder').toEqual([])
+  expect.soft(await leftToCommit(http, ws, 'main'), 'clean after the removal').toEqual([])
+
+  git(clone, 'revert', '--no-edit', 'HEAD')
+  git(clone, 'push', '-q', 'origin', 'HEAD:main')
+  await pullEverything(page, ws, 'main')
+  expect.soft(await inline(), 'the project came back with its folder').toHaveLength(1)
+  expect.soft(await leftToCommit(http, ws, 'main'), 'clean after it came back').toEqual([])
 })

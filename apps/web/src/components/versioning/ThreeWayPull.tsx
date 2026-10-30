@@ -12,9 +12,11 @@ import {
   type ThreeWayPreview,
 } from '@/lib/pull/three-way'
 import { elementLabels, wikiTitles } from '@/lib/pull/element-label'
-import { unsupportedWorkspacePaths } from '@/lib/pull/apply'
+import { splitUnwritable } from '@/lib/pull/apply'
 import { finalizePull } from '@/lib/pull/run'
+import { groupWikiPages } from '@/lib/pull/wiki-pages'
 import { useAppStore } from '@/stores/app-store'
+import { useAuthStore } from '@/stores/auth-store'
 import type { PullDiffText } from '@/lib/concept-mapping/pull-diff'
 import { PullPanel } from './PullPanel'
 import { PullDiffDialog } from './PullDiffDialog'
@@ -35,6 +37,8 @@ interface Draft {
   prepared: PreparedFile[]
   unsupported: string[]
   decisions: Map<string, PullDecision>
+  /** Results written by hand in the diff, by path. */
+  edits: Map<string, string>
 }
 const _drafts = new Map<string, Draft>()
 
@@ -65,38 +69,21 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
     setError(null)
     ;(async () => {
       const preview = await gitThreeWay(scope, id, branch)
-      const prepared = prepareThreeWay(preview)
-      let unsupported: string[] = []
-      if (scope === 'workspaces' && workspaceId) {
-        const manifests = new Map<string, { lineageId?: string; entityId?: string } | null>()
-        for (const f of preview.files) {
-          const m = /^([^/]+)\/([^/]+)\/entity\.json$/.exec(f.path)
-          if (m) {
-            try { manifests.set(`${m[1]}/${m[2]}`, JSON.parse(f.remote ?? f.local ?? 'null')) } catch { manifests.set(`${m[1]}/${m[2]}`, null) }
-          }
-        }
-        // A folder whose manifest did not change still names its entity locally.
-        for (const p of prepared) {
-          const m = /^([^/]+)\/([^/]+)\//.exec(p.file.path)
-          if (m && !manifests.has(`${m[1]}/${m[2]}`)) manifests.set(`${m[1]}/${m[2]}`, { entityId: m[2] })
-        }
-        unsupported = await unsupportedWorkspacePaths(prepared.map((p) => p.file.path), manifests, workspaceId)
-      }
-      return { preview, prepared, unsupported, decisions: new Map<string, PullDecision>() }
+      const { prepared, unsupported } = splitUnwritable(scope, prepareThreeWay(preview), useAuthStore.getState().user?.username)
+      return { preview, prepared, unsupported, decisions: new Map<string, PullDecision>(), edits: new Map<string, string>() }
     })()
       .then((d) => { if (!cancelled) { setDraft(d); setLoading(false) } })
       .catch((e) => { if (!cancelled) { setError(e instanceof Error ? e.message : String(e)); setLoading(false) } })
     return () => { cancelled = true }
-  }, [key, scope, id, branch, workspaceId, remoteHead])
+  }, [key, scope, id, branch, remoteHead])
 
   useEffect(() => { if (draft) _drafts.set(key, draft) }, [key, draft])
 
-  const supported = useMemo(
-    () => (draft ? draft.prepared.filter((p) => !draft.unsupported.includes(p.file.path)) : []),
-    [draft],
-  )
+  const supported = useMemo(() => draft?.prepared ?? [], [draft])
 
-  const plan: PullPlan | null = useMemo(() => {
+  // `real` is the plan as the merged tree reads it; the panel shows `plan`, where
+  // a wiki page's settings ride on its text row (groupWikiPages).
+  const views = useMemo(() => {
     if (!draft) return null
     const labels = elementLabels(draft.preview.files, language, t)
     const titles = wikiTitles(draft.preview.files, language)
@@ -106,8 +93,20 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
       element: (k) => titles.get(k) ?? k,
       merged: t('versioning.pull_merged'),
     })
-    return { ...built, files: built.files.map((f) => ({ ...f, label: labels.get(f.path) })) }
+    const real: PullPlan = {
+      ...built,
+      files: built.files.map((f) => ({
+        ...f,
+        label: labels.get(f.path),
+        items: draft.edits.has(f.path) ? f.items.map((i) => ({ ...i, detail: t('versioning.pull_edited') })) : f.items,
+      })),
+    }
+    const grouped = scope === 'workspaces'
+      ? groupWikiPages(real, draft.preview.files, t('versioning.pull_page_settings'), (field) => t(`versioning.page_field_${field}`))
+      : { plan: real, toReal: (d: Map<string, PullDecision>) => d }
+    return { real, ...grouped }
   }, [draft, supported, scope, language, t])
+  const plan = views?.plan ?? null
 
   const decide = (ids: string[], decision: PullDecision) => {
     setDraft((prev) => {
@@ -118,14 +117,29 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
     })
   }
 
+  // A result written by hand is what the pull takes for that file.
+  const edit = (path: string, text: string | null) => {
+    setDraft((prev) => {
+      if (!prev) return prev
+      const edits = new Map(prev.edits)
+      const decisions = new Map(prev.decisions)
+      if (text === null) edits.delete(path)
+      else {
+        edits.set(path, text)
+        for (const item of plan?.files.find((f) => f.path === path)?.items ?? []) decisions.set(itemIdFor(path, item.key), 'accept')
+      }
+      return { ...prev, edits, decisions }
+    })
+  }
+
   const finalize = async () => {
-    if (!draft || !plan || applying || !draft.preview.remoteHead) return
+    if (!draft || !views || applying || !draft.preview.remoteHead) return
     setApplying(true)
     setError(null)
     try {
       await finalizePull({
-        scope, id, workspaceId, branch, preview: draft.preview, prepared: supported, plan,
-        decisions: draft.decisions, unsupported: draft.unsupported,
+        scope, id, workspaceId, branch, preview: draft.preview, prepared: supported, plan: views.real,
+        decisions: views.toReal(draft.decisions), unsupported: draft.unsupported, edits: draft.edits,
       })
       _drafts.delete(key)
       await onPulled()
@@ -144,7 +158,8 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
     const all = new Map(file.items.map((i) => [itemIdFor(file.path, i.key), 'accept' as PullDecision]))
     const after = mergedContent(prepared, all)
     const local = prepared.file.local ?? ''
-    const newContent = !after ? local : 'delete' in after ? '' : 'text' in after ? after.text : prepared.file.remote ?? ''
+    const newContent = draft?.edits.get(file.path)
+      ?? (!after ? local : 'delete' in after ? '' : 'text' in after ? after.text : prepared.file.remote ?? '')
     const language = /\.md$/i.test(file.path) ? 'markdown' : /\.json$/i.test(file.path) ? 'json'
       : /\.sql$/i.test(file.path) ? 'sql' : /\.py$/i.test(file.path) ? 'python' : /\.r$/i.test(file.path) ? 'r' : 'plaintext'
     return { oldContent: local, newContent, language }
@@ -205,7 +220,16 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
           applying={applying}
         />
       )}
-      {diffPath && <PullDiffDialog plan={plan} initialPath={diffPath} buildDiff={buildDiff} onClose={() => setDiffPath(null)} />}
+      {diffPath && (
+        <PullDiffDialog
+          plan={plan}
+          initialPath={diffPath}
+          buildDiff={buildDiff}
+          onClose={() => setDiffPath(null)}
+          onEdit={edit}
+          edited={new Set(draft.edits.keys())}
+        />
+      )}
     </>
   )
 }

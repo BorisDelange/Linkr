@@ -51,6 +51,12 @@ describe('3-way pull: items by file kind', () => {
     expect(overridesFor([p], decide([['README.md', 'file', 'accept']]))).toEqual({ 'README.md': { text: 'T\n\ntheirs\n\nm\n\ny2\n' } })
   })
 
+  it('a conflict settled by hand writes the text as the user left it', () => {
+    const [p] = prep({ path: 'README.md', base: 'x\n', local: 'mine\n', remote: 'theirs\n' })
+    const edits = new Map([['README.md', 'mine and theirs\n']])
+    expect(overridesFor([p], decide([['README.md', 'file', 'accept']]), edits)).toEqual({ 'README.md': { text: 'mine and theirs\n' } })
+  })
+
   it('a binary file is whole: added, taken from the remote, or deleted', () => {
     const files = prep(
       { path: 'logo.png', binary: true, baseOid: null, localOid: null, remoteOid: 'r1' },

@@ -213,7 +213,7 @@ export function isSameEntity(row: ExistingRow, entry: CatalogEntry): boolean {
 }
 
 /** Remove the parent row before an overwrite. Child rows are cleared by applyClonedEntity. */
-async function deleteExisting(
+export async function deleteExisting(
   type: CatalogEntry['type'],
   id: string,
   storage: Storage,
@@ -404,20 +404,21 @@ function localizedName(name: unknown): string | null {
  * Only identity fields are set here (id, workspace, a provisional name from the catalog
  * entry): everything else is overwritten from the repo a moment later. The provisional
  * name matters only if the clone fails midway — the row then reads as the catalog
- * entry rather than as "Untitled".
+ * entry rather than as "Untitled". Also the pull's way in for an inline entity a
+ * colleague added, which has no git link of its own (`git` unset).
  */
-async function createShell(
-  entry: CatalogEntry,
+export async function createShell(
+  entry: Pick<CatalogEntry, 'type' | 'id' | 'name' | 'description'>,
   id: string,
   workspaceId: string,
   storage: Storage,
-  git: GitRemoteConfig,
+  git: GitRemoteConfig | undefined,
   language: string,
 ): Promise<boolean> {
   const now = new Date().toISOString()
   const name = entry.name
   const plainName = localized(entry.name, language) || entry.id
-  const base = { workspaceId, createdAt: now, updatedAt: now, gitRemoteConfig: git, ...stampAuthored() }
+  const base = { workspaceId, createdAt: now, updatedAt: now, ...(git ? { gitRemoteConfig: git } : {}), ...stampAuthored() }
 
   switch (entry.type) {
     case 'sql-collection':

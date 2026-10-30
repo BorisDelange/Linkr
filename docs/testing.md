@@ -71,8 +71,9 @@ writes, and lost its tables when a job's cancellation invalidated it.
   reinstalls it from what was pushed and expects nothing left to commit;
   `versioning-matrix.spec.ts` runs every kind of entity (workspace with an inline
   project, project, SQL collection, DQ rule set, catalog, ETL, schema preset,
-  database) through push → a colleague's change pulled back → the same on
-  another branch, and — with `E2E_FORGE=1` and the local GitLab of
+  database, plugin, settings) through push → a colleague's change pulled back →
+  the same on another branch, follows an inline project a colleague removes then
+  brings back, and — with `E2E_FORGE=1` and the local GitLab of
   `docker/forge-sim/` (README there; the API started with
   `LINKR_GIT_ALLOWED_HOSTS=localhost:8929`) — a change proposed as a merge
   request, merged on the forge by another user, then pulled. Both need an
