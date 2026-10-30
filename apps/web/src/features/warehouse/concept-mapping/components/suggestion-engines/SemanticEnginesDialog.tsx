@@ -1,21 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Cpu, Download, FolderOpen, Hammer, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react'
+import { Cpu, Download, FolderOpen, Hammer, Loader2, Pencil, Plus, RotateCw, Sparkles, Trash2, Upload } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { GatedButton } from '@/components/ui/gated-button'
+import { FileDropZone } from '@/components/ui/file-drop-zone'
+import { FileSource } from '@/components/ui/file-source'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { SectionLabel } from '@/components/ui/section-label'
-import { ServerPathPickerDialog } from '@/components/ui/server-path-picker-dialog'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
   AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
+import type { Job } from '@/lib/api/environments'
+import { cn } from '@/lib/utils'
 import { formatMegabytes } from '@/lib/concept-mapping/scores-csv'
 import {
   addEmbeddingModel, buildEmbeddingIndex, deleteEmbeddingConfig, deleteEmbeddingModel, downloadEmbeddingModel,
-  installEmbeddingsRuntime, setupDefaultEngine,
+  installEmbeddingsRuntime, setupDefaultEngine, uploadEmbeddingModel,
   type EmbeddingConfig, type EmbeddingModel, type SuggestionEngines,
 } from '@/lib/api/suggestion-engines'
 import { EmbeddingConfigDialog } from './EmbeddingConfigDialog'
@@ -31,6 +36,10 @@ interface Props {
   reload: () => void
 }
 
+type Tab = 'models' | 'configs'
+
+const STACKED = 'col-start-1 row-start-1 flex flex-col gap-6 data-[state=inactive]:invisible'
+
 /**
  * What the semantic method needs: embedding models and configurations of the
  * workspace, shared by all its mapping projects, and the runtime they run on,
@@ -38,13 +47,20 @@ interface Props {
  */
 export function SemanticEnginesDialog({ open, onOpenChange, workspaceId, engines, canWrite, reload }: Props) {
   const { t } = useTranslation()
+  const [tab, setTab] = useState<Tab>('models')
   const [error, setError] = useState<string | null>(null)
   const [setupJobId, setSetupJobId] = useState<string | null>(null)
   const [runtimeJobId, setRuntimeJobId] = useState<string | null>(null)
-  const setupJob = useJob(setupJobId ?? engines.setupJobId, (j) => { setError(jobError(j)); reload() })
-  const runtimeJob = useJob(runtimeJobId ?? engines.runtime.jobId, (j) => { setError(jobError(j)); reload() })
+  const setupJob = useJob(setupJobId ?? engines.setupJobId, (j) => { setError(jobError(j)); setSetupJobId(null); reload() })
+  const runtimeJob = useJob(runtimeJobId ?? engines.runtime.jobId, (j) => { setError(jobError(j)); setRuntimeJobId(null); reload() })
   const [editing, setEditing] = useState<EmbeddingConfig | 'new' | null>(null)
   const notAllowed = t('concept_mapping.engines_not_allowed')
+
+  // A job may have started or ended while the dialog was closed: its rows
+  // unmounted with it and stopped following.
+  useEffect(() => {
+    if (open) reload()
+  }, [open, reload])
 
   const act = async (fn: () => Promise<unknown>) => {
     setError(null)
@@ -62,105 +78,107 @@ export function SemanticEnginesDialog({ open, onOpenChange, workspaceId, engines
     <DialogShell
       open={open}
       onOpenChange={onOpenChange}
-      kind="settings"
+      kind="workbench"
+      className="h-auto sm:max-w-3xl"
       title={t('concept_mapping.engines_manage')}
       description={t('concept_mapping.engines_dialog_desc')}
       hideFooter
-      contentClassName="space-y-6"
     >
-      {error && <p className="whitespace-pre-wrap rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">{error}</p>}
+      <Tabs value={tab} onValueChange={(v) => setTab(v as Tab)} className="flex h-full min-h-0 flex-col">
+        <TabsList className="w-full">
+          <TabsTrigger value="models" className="flex-1">{t('concept_mapping.engines_tab_models')}</TabsTrigger>
+          <TabsTrigger value="configs" className="flex-1">{t('concept_mapping.engines_configs')}</TabsTrigger>
+        </TabsList>
+        {error && <p className="mt-3 whitespace-pre-wrap rounded-md border border-destructive/30 bg-destructive/5 p-2 text-xs text-destructive">{error}</p>}
+        {/* Both tabs stay mounted in one grid cell, the hidden one invisible: the
+            dialog keeps its height across a switch, and a row's job its state. */}
+        <div className="grid min-h-0 flex-1 overflow-auto pt-4">
+          <TabsContent value="models" forceMount className={STACKED}>
+            <section className="space-y-2">
+              <SectionLabel as="h3" info={t('concept_mapping.engines_runtime_hint')}>{t('concept_mapping.engines_runtime')}</SectionLabel>
+              <div className="flex items-center gap-3 text-xs">
+                <Cpu size={14} className="shrink-0 text-muted-foreground" />
+                <div className="min-w-0 flex-1">
+                  {engines.runtime.installed && probe ? (
+                    <span>
+                      {t('concept_mapping.engines_runtime_ready', { torch: probe.torch, st: probe.sentenceTransformers })}
+                      {' · '}
+                      {probe.gpu ?? probe.devices.map((d) => d.toUpperCase()).join(', ')}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">{t('concept_mapping.engines_runtime_missing')}</span>
+                  )}
+                </div>
+                {!runtimeJob && (
+                  <GatedButton
+                    allowed={canWrite && !setupJob}
+                    notAllowedReason={canWrite ? t('concept_mapping.engines_setup_running') : notAllowed}
+                    size="xs"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={() => act(async () => setRuntimeJobId((await installEmbeddingsRuntime(workspaceId)).id))}
+                  >
+                    {engines.runtime.installed ? <RotateCw size={12} /> : <Download size={12} />}
+                    {engines.runtime.installed ? t('concept_mapping.engines_runtime_reinstall') : t('concept_mapping.engines_runtime_install')}
+                  </GatedButton>
+                )}
+              </div>
+              {runtimeJob && runtimeJob.status !== 'done' && <JobLine job={runtimeJob} />}
+            </section>
 
-      {engines.models.length === 0 && (
-        <div className="flex items-center gap-3 rounded-md border bg-muted/30 p-3">
-          <Sparkles size={16} className="shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1 space-y-1">
-            <p className="text-sm font-medium">{t('concept_mapping.engines_default_title')}</p>
-            <p className="text-xs text-muted-foreground">{t('concept_mapping.engines_default_desc', { repo: engines.defaultModel.repoId })}</p>
-            {setupJob && setupJob.status !== 'done' && <JobLine job={setupJob} />}
-          </div>
-          {!setupJob && (
-            <GatedButton
-              allowed={canWrite}
-              notAllowedReason={notAllowed}
-              size="sm"
-              className="gap-1.5"
-              onClick={() => act(async () => setSetupJobId((await setupDefaultEngine(workspaceId)).id))}
-            >
-              <Download size={14} />
-              {t('concept_mapping.engines_default_install')}
-            </GatedButton>
-          )}
+            <ModelsSection
+              workspaceId={workspaceId}
+              engines={engines}
+              canWrite={canWrite}
+              setupJob={setupJob}
+              runtimeBusy={!!runtimeJob}
+              onSetup={async () => setSetupJobId((await setupDefaultEngine(workspaceId)).id)}
+              act={act}
+              reload={reload}
+              onError={setError}
+            />
+          </TabsContent>
+
+          <TabsContent value="configs" forceMount className={STACKED}>
+            <section className="space-y-2">
+              <div className="flex items-center justify-between">
+                <SectionLabel as="h3" info={t('concept_mapping.engines_configs_info')}>{t('concept_mapping.engines_configs')}</SectionLabel>
+                <GatedButton
+                  allowed={canWrite && engines.models.length > 0}
+                  notAllowedReason={canWrite ? t('concept_mapping.engines_config_needs_model') : notAllowed}
+                  size="xs"
+                  variant="outline"
+                  className="gap-1"
+                  onClick={() => setEditing('new')}
+                >
+                  <Plus size={12} />
+                  {t('concept_mapping.engines_config_new')}
+                </GatedButton>
+              </div>
+              {engines.configs.length === 0 ? (
+                <p className="text-xs text-muted-foreground">{t('concept_mapping.engines_configs_empty')}</p>
+              ) : (
+                <ul className="divide-y rounded-md border">
+                  {engines.configs.map((c) => (
+                    <ConfigRow
+                      key={c.id}
+                      workspaceId={workspaceId}
+                      config={c}
+                      model={engines.models.find((m) => m.id === c.modelId)}
+                      runtimeReady={engines.runtime.installed}
+                      canWrite={canWrite}
+                      act={act}
+                      reload={reload}
+                      onError={setError}
+                      onEdit={() => setEditing(c)}
+                    />
+                  ))}
+                </ul>
+              )}
+            </section>
+          </TabsContent>
         </div>
-      )}
-
-      <section className="space-y-2">
-        <SectionLabel as="h3" info={t('concept_mapping.engines_runtime_hint')}>{t('concept_mapping.engines_runtime')}</SectionLabel>
-        <div className="flex items-center gap-3 text-xs">
-          <Cpu size={14} className="shrink-0 text-muted-foreground" />
-          <div className="min-w-0 flex-1">
-            {engines.runtime.installed && probe ? (
-              <span>
-                {t('concept_mapping.engines_runtime_ready', { torch: probe.torch, st: probe.sentenceTransformers })}
-                {' · '}
-                {probe.gpu ?? probe.devices.map((d) => d.toUpperCase()).join(', ')}
-              </span>
-            ) : (
-              <span className="text-muted-foreground">{t('concept_mapping.engines_runtime_missing')}</span>
-            )}
-          </div>
-          {!runtimeJob && (
-            <GatedButton
-              allowed={canWrite}
-              notAllowedReason={notAllowed}
-              size="xs"
-              variant="outline"
-              onClick={() => act(async () => setRuntimeJobId((await installEmbeddingsRuntime(workspaceId)).id))}
-            >
-              {engines.runtime.installed ? t('concept_mapping.engines_runtime_reinstall') : t('concept_mapping.engines_runtime_install')}
-            </GatedButton>
-          )}
-        </div>
-        {runtimeJob && runtimeJob.status !== 'done' && <JobLine job={runtimeJob} />}
-      </section>
-
-      <ModelsSection workspaceId={workspaceId} engines={engines} canWrite={canWrite} act={act} reload={reload} onError={setError} />
-
-      <section className="space-y-2">
-        <div className="flex items-center justify-between">
-          <SectionLabel as="h3" info={t('concept_mapping.engines_configs_info')}>{t('concept_mapping.engines_configs')}</SectionLabel>
-          <GatedButton
-            allowed={canWrite && engines.models.length > 0}
-            notAllowedReason={canWrite ? t('concept_mapping.engines_config_needs_model') : notAllowed}
-            size="xs"
-            variant="outline"
-            className="gap-1"
-            onClick={() => setEditing('new')}
-          >
-            <Plus size={12} />
-            {t('concept_mapping.engines_config_new')}
-          </GatedButton>
-        </div>
-        {engines.configs.length === 0 ? (
-          <p className="text-xs text-muted-foreground">{t('concept_mapping.engines_configs_empty')}</p>
-        ) : (
-          <ul className="divide-y rounded-md border">
-            {engines.configs.map((c) => (
-              <ConfigRow
-                key={c.id}
-                workspaceId={workspaceId}
-                config={c}
-                model={engines.models.find((m) => m.id === c.modelId)}
-                runtimeReady={engines.runtime.installed}
-                canWrite={canWrite}
-                act={act}
-                reload={reload}
-                onError={setError}
-                onEdit={() => setEditing(c)}
-              />
-            ))}
-          </ul>
-        )}
-      </section>
+      </Tabs>
 
       {editing && (
         <EmbeddingConfigDialog
@@ -178,32 +196,80 @@ export function SemanticEnginesDialog({ open, onOpenChange, workspaceId, engines
   )
 }
 
+type AddOption = 'default' | 'huggingface' | 'folder'
+
 type Act = (fn: () => Promise<unknown>) => Promise<void>
 
-function ModelsSection({ workspaceId, engines, canWrite, act, reload, onError }: {
+function ModelsSection({ workspaceId, engines, canWrite, setupJob, runtimeBusy, onSetup, act, reload, onError }: {
   workspaceId: string
   engines: SuggestionEngines
   canWrite: boolean
+  /** The one-click BioLORD setup in flight: it shows on the default model's line. */
+  setupJob: Job | null
+  runtimeBusy: boolean
+  onSetup: () => Promise<void>
   act: Act
   reload: () => void
   onError: (e: string | null) => void
 }) {
   const { t } = useTranslation()
+  const [adding, setAdding] = useState<AddOption | null>(null)
   const [repoId, setRepoId] = useState('')
-  const [pickerOpen, setPickerOpen] = useState(false)
+  const [upload, setUpload] = useState<{ done: number; total: number } | null>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   const [toDelete, setToDelete] = useState<EmbeddingModel | null>(null)
-  const notAllowed = t('concept_mapping.engines_not_allowed')
+  const defaultRepo = engines.defaultModel.repoId
+  // The setup adds the model halfway (after the runtime): until then its job
+  // shows on a placeholder line, then on the model's own row.
+  const hasDefault = engines.models.some((m) => m.repoId === defaultRepo)
+
+  const add = (fn: () => Promise<unknown>) => act(async () => {
+    await fn()
+    setAdding(null)
+  })
+  const uploadFolder = (files: File[]) => add(async () => {
+    setUpload({ done: 0, total: 1 })
+    try {
+      await uploadEmbeddingModel(workspaceId, files, (done, total) => setUpload({ done, total }))
+    } finally {
+      setUpload(null)
+    }
+  })
+
+  const options: { id: AddOption; icon: typeof Download; title: string; desc: string; disabled?: boolean }[] = [
+    {
+      id: 'default', icon: Sparkles, title: defaultRepo.split('/').at(-1) ?? defaultRepo,
+      desc: hasDefault
+        ? t('concept_mapping.engines_add_default_installed')
+        : setupJob ? t('concept_mapping.engines_add_default_installing') : t('concept_mapping.engines_default_badge'),
+      disabled: hasDefault || !!setupJob,
+    },
+    { id: 'huggingface', icon: Download, title: t('concept_mapping.engines_model_hf'), desc: t('concept_mapping.engines_add_hf_desc') },
+    { id: 'folder', icon: FolderOpen, title: t('concept_mapping.engines_add_folder'), desc: t('concept_mapping.engines_add_folder_desc') },
+  ]
 
   return (
-    <section className="space-y-2">
+    <section className="space-y-3">
       <SectionLabel as="h3" info={t('concept_mapping.engines_models_hint')}>{t('concept_mapping.engines_models')}</SectionLabel>
-      {engines.models.length > 0 && (
+      {engines.models.length === 0 && !setupJob ? (
+        <p className="text-xs text-muted-foreground">{t('concept_mapping.engines_models_empty')}</p>
+      ) : (
         <ul className="divide-y rounded-md border">
+          {setupJob && !hasDefault && (
+            <li className="space-y-1 px-3 py-2">
+              <div className="flex items-center gap-2 text-xs">
+                <span className="font-medium">{defaultRepo.split('/').at(-1)}</span>
+                <code className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">{defaultRepo}</code>
+              </div>
+              {setupJob.status !== 'done' && <JobLine job={setupJob} />}
+            </li>
+          )}
           {engines.models.map((m) => (
             <ModelRow
               key={m.id}
               workspaceId={workspaceId}
               model={m}
+              setupJob={m.repoId === defaultRepo ? setupJob : null}
               runtimeReady={engines.runtime.installed}
               canWrite={canWrite}
               act={act}
@@ -214,53 +280,112 @@ function ModelsSection({ workspaceId, engines, canWrite, act, reload, onError }:
           ))}
         </ul>
       )}
-      <div className="flex items-center gap-2">
-        <Input
-          className="h-8 flex-1 font-mono text-xs"
-          placeholder={t('concept_mapping.engines_model_hf_placeholder')}
-          value={repoId}
-          disabled={!canWrite}
-          onChange={(e) => setRepoId(e.target.value)}
-        />
-        <GatedButton
-          allowed={canWrite && engines.runtime.installed}
-          notAllowedReason={canWrite ? t('concept_mapping.engines_needs_runtime') : notAllowed}
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          disabled={!/^[\w.-]+\/[\w.-]+$/.test(repoId.trim())}
-          onClick={() => act(async () => {
-            await addEmbeddingModel(workspaceId, { source: 'huggingface', repoId: repoId.trim() })
-            setRepoId('')
-          })}
-        >
-          <Download size={14} />
-          {t('concept_mapping.engines_model_download')}
-        </GatedButton>
-        <GatedButton
-          allowed={canWrite}
-          notAllowedReason={notAllowed}
-          size="sm"
-          variant="outline"
-          className="gap-1.5"
-          onClick={() => setPickerOpen(true)}
-        >
-          <FolderOpen size={14} />
-          {t('concept_mapping.engines_model_server')}
-        </GatedButton>
-      </div>
-      {pickerOpen && (
-        <ServerPathPickerDialog
-          open
-          mode="folder"
-          scope={{ kind: 'workspace', workspaceId }}
-          title={t('concept_mapping.engines_model_server')}
-          onClose={() => setPickerOpen(false)}
-          onPick={(path) => {
-            setPickerOpen(false)
-            void act(() => addEmbeddingModel(workspaceId, { source: 'server', serverPath: path }))
-          }}
-        />
+
+      {canWrite && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            {options.map(({ id, icon: Icon, title, desc, disabled }) => (
+              <button
+                key={id}
+                type="button"
+                disabled={disabled}
+                aria-pressed={adding === id}
+                onClick={() => setAdding((a) => (a === id ? null : id))}
+                className={cn(
+                  'flex items-start gap-2 rounded-lg border p-2.5 text-left transition-colors disabled:cursor-default disabled:opacity-50',
+                  adding === id ? 'border-primary bg-primary/5' : 'enabled:hover:bg-accent',
+                )}
+              >
+                <Icon size={14} className={cn('mt-0.5 shrink-0', adding === id ? 'text-primary' : 'text-muted-foreground')} />
+                <span className="min-w-0 space-y-0.5">
+                  <span className={cn('block truncate text-xs font-medium', adding === id && 'text-primary')}>{title}</span>
+                  <span className="block text-[10px] text-muted-foreground">{desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+
+          {adding === 'default' && (
+            <div className="flex items-center gap-3 rounded-md bg-muted/40 p-3">
+              <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t('concept_mapping.engines_default_desc', { repo: defaultRepo })}</p>
+              <GatedButton
+                allowed={!runtimeBusy}
+                notAllowedReason={t('concept_mapping.engines_runtime_installing')}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => add(onSetup)}
+              >
+                <Download size={14} />
+                {t('concept_mapping.engines_default_install')}
+              </GatedButton>
+            </div>
+          )}
+
+          {adding === 'huggingface' && (
+            <div className="flex items-center gap-2">
+              <Input
+                autoFocus
+                className="h-8 flex-1 font-mono text-xs"
+                placeholder={t('concept_mapping.engines_model_hf_placeholder')}
+                value={repoId}
+                onChange={(e) => setRepoId(e.target.value)}
+              />
+              <GatedButton
+                allowed={engines.runtime.installed}
+                notAllowedReason={t('concept_mapping.engines_needs_runtime')}
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                disabled={!/^[\w.-]+\/[\w.-]+$/.test(repoId.trim())}
+                onClick={() => add(async () => {
+                  await addEmbeddingModel(workspaceId, { source: 'huggingface', repoId: repoId.trim() })
+                  setRepoId('')
+                })}
+              >
+                <Download size={14} />
+                {t('concept_mapping.engines_model_download')}
+              </GatedButton>
+            </div>
+          )}
+
+          {adding === 'folder' && (
+            <FileSource
+              scope={{ kind: 'workspace', workspaceId }}
+              expect="dir"
+              serverPath=""
+              onServerPathChange={(path) => {
+                if (path) void add(() => addEmbeddingModel(workspaceId, { source: 'server', serverPath: path }))
+              }}
+            >
+              <div className="space-y-2">
+                <Label>{t('files.upload_from_computer')}</Label>
+                <FileDropZone
+                  icon={upload
+                    ? <Loader2 size={20} className="animate-spin text-muted-foreground" />
+                    : <Upload size={20} className="text-muted-foreground" />}
+                  label={upload
+                    ? t('concept_mapping.engines_model_uploading', { percent: Math.round((upload.done / upload.total) * 100) })
+                    : t('concept_mapping.engines_model_upload_hint')}
+                  onClick={() => folderInput.current?.click()}
+                  disabled={!!upload}
+                />
+                <input
+                  ref={folderInput}
+                  type="file"
+                  className="hidden"
+                  // @ts-expect-error webkitdirectory is non-standard but widely supported
+                  webkitdirectory=""
+                  onChange={(e) => {
+                    const files = [...(e.target.files ?? [])]
+                    // Cleared so re-picking the same folder fires change again.
+                    e.target.value = ''
+                    if (files.length) void uploadFolder(files)
+                  }}
+                />
+              </div>
+            </FileSource>
+          )}
+        </div>
       )}
       <AlertDialog open={!!toDelete} onOpenChange={(o) => { if (!o) setToDelete(null) }}>
         <AlertDialogContent>
@@ -287,9 +412,11 @@ function ModelsSection({ workspaceId, engines, canWrite, act, reload, onError }:
   )
 }
 
-function ModelRow({ workspaceId, model, runtimeReady, canWrite, act, reload, onError, onDelete }: {
+function ModelRow({ workspaceId, model, setupJob, runtimeReady, canWrite, act, reload, onError, onDelete }: {
   workspaceId: string
   model: EmbeddingModel
+  /** The BioLORD setup downloading this model: followed by the dialog, shown here. */
+  setupJob: Job | null
   runtimeReady: boolean
   canWrite: boolean
   act: Act
@@ -299,7 +426,8 @@ function ModelRow({ workspaceId, model, runtimeReady, canWrite, act, reload, onE
 }) {
   const { t } = useTranslation()
   const [jobId, setJobId] = useState<string | null>(null)
-  const job = useJob(jobId ?? model.jobId, (j) => { onError(jobError(j)); setJobId(null); reload() })
+  const ownJob = useJob(jobId ?? model.jobId, (j) => { onError(jobError(j)); setJobId(null); reload() })
+  const job = ownJob ?? setupJob
   return (
     <li className="space-y-1 px-3 py-2">
       <div className="flex items-center gap-2 text-xs">

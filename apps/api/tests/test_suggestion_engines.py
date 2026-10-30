@@ -353,6 +353,38 @@ async def test_config_edit_drops_the_index_only_when_its_inputs_change(client, m
     assert (await client.delete(f"{API}/workspaces/{ws}/suggestion-engines/models/m1", headers=headers)).status_code == 204
 
 
+async def test_a_model_folder_uploaded_from_the_browser_is_copied_in(client):
+    from app.services import blob_store
+    from tests.test_vocabulary_library import _admin_headers
+
+    headers = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    base = f"{API}/workspaces/{ws}/suggestion-engines/models"
+
+    async def upload(names: list[str]) -> list[dict]:
+        return [{"fileName": n, "sha": (await blob_store.store_bytes(n.encode()))[0]} for n in names]
+
+    r = await client.post(base, headers=headers, json={
+        "source": "upload", "files": await upload(["MyModel/config.json", "MyModel/1_Pooling/config.json"])})
+    assert r.status_code == 200, r.text
+    model = r.json()["model"]
+    assert model["name"] == "MyModel" and model["ready"] and r.json()["job"] is None
+    folder = registry.model_dir(ws, model["id"])
+    # The picked folder's own name is dropped: its content is the model.
+    assert (folder / "config.json").read_text() == "MyModel/config.json"
+    assert (folder / "1_Pooling" / "config.json").is_file()
+
+    bad = await client.post(base, headers=headers, json={"source": "upload", "files": await upload(["m/../../x.json"])})
+    assert bad.status_code == 400
+    not_a_model = await client.post(base, headers=headers, json={"source": "upload", "files": await upload(["m/README.md"])})
+    assert not_a_model.status_code == 400
+    assert len(registry.load(ws)["models"]) == 1
+
+    # Linkr's copy goes with the model.
+    assert (await client.delete(f"{base}/{model['id']}", headers=headers)).status_code == 204
+    assert not folder.exists()
+
+
 async def test_a_paused_computation_keeps_what_it_finished_and_resumes_the_rest(client, tmp_path):
     from app.core.database import async_session
     from app.services import mapping_project_service as svc

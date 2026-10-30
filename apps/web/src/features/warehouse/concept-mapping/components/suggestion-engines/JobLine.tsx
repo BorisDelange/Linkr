@@ -5,6 +5,11 @@ import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
 import { cancelJob, type Job } from '@/lib/api/environments'
 
+// Jobs asked to stop or pause, kept outside the line so it still says so when
+// it mounts again (dialog reopened, tab switched back) before the job ends.
+const stopRequested = new Set<string>()
+const pauseRequested = new Set<string>()
+
 /**
  * A running job as one line: label, bar, last log line, Stop — and Pause when
  * the job can resume where it stopped (`onPause`).
@@ -12,24 +17,28 @@ import { cancelJob, type Job } from '@/lib/api/environments'
 export function JobLine({ job, onPause }: { job: Job; onPause?: () => Promise<void> }) {
   const { t } = useTranslation()
   // A cancel lands once the job's process has stopped: until then the button says so.
-  const [stopping, setStopping] = useState(false)
+  const [stopping, setStopping] = useState(() => stopRequested.has(job.id))
   // A pause also writes what is finished, which can take a moment on a large project.
-  const [pausing, setPausing] = useState(false)
+  const [pausing, setPausing] = useState(() => pauseRequested.has(job.id))
   const pause = async () => {
     if (!onPause) return
     setPausing(true)
+    pauseRequested.add(job.id)
     try {
       await onPause()
     } catch {
+      pauseRequested.delete(job.id)
       setPausing(false)
     }
   }
   const last = job.logTail?.split('\n').filter((l) => l.trim()).at(-1)
   const stop = async () => {
     setStopping(true)
+    stopRequested.add(job.id)
     try {
       await cancelJob(job.id)
     } catch {
+      stopRequested.delete(job.id)
       setStopping(false)
     }
   }

@@ -21,7 +21,7 @@ from app.models.job import Job
 from app.models.user import User
 from app.schemas.base import CamelModel
 from app.schemas.execution import JobResponse
-from app.services import fs_browser
+from app.services import blob_store, fs_browser
 from app.services import mapping_project_service as mapping_svc
 from app.services.execution import jobs
 from app.services.suggestions import registry, runtime, tasks
@@ -134,11 +134,19 @@ async def setup_default(
 # --- Models ------------------------------------------------------------------
 
 
+class UploadedFile(CamelModel):
+    file_name: str
+    sha: str
+
+
 class ModelCreate(CamelModel):
-    source: Literal["huggingface", "server"]
+    source: Literal["huggingface", "server", "upload"]
     name: str | None = None
     repo_id: str | None = None
     server_path: str | None = None
+    # `upload`: the files of a model folder sent from the browser, their names
+    # relative to that folder.
+    files: list[UploadedFile] = Field(default_factory=list)
 
 
 @router.post(_WS + "/models")
@@ -148,8 +156,9 @@ async def create_model(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Add a model: a Hugging Face id (downloaded by a job, whose id comes back)
-    or a folder already on the server, read in place."""
+    """Add a model: a Hugging Face id (downloaded by a job, whose id comes back),
+    a folder already on the server, read in place, or a folder uploaded from the
+    browser, copied into the workspace's models."""
     await check_workspace_permission(db, workspace_id, user, "workspace-settings:write")
     model = {"id": registry.new_id(), "source": body.source, "createdAt": registry.now()}
     if body.source == "huggingface":
@@ -157,6 +166,21 @@ async def create_model(
         if not registry.valid_repo_id(repo):
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "A Hugging Face id is owner/name")
         model.update(repoId=repo, name=(body.name or repo.split("/")[-1]).strip())
+    elif body.source == "upload":
+        if not body.files:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "No file uploaded")
+        for f in body.files:
+            if not blob_store.exists(f.sha):
+                raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Uploaded file not found: {f.file_name}")
+        try:
+            await asyncio.to_thread(
+                registry.install_uploaded_model, workspace_id, model["id"],
+                [(f.file_name, blob_store.path_for(f.sha)) for f in body.files],
+            )
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
+        model.update(name=(body.name or "").strip() or registry.uploaded_model_name(body.files[0].file_name))
+        model["installedAt"] = registry.now()
     else:
         path = (body.server_path or "").strip()
         try:

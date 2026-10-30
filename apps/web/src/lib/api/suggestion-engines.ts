@@ -5,6 +5,7 @@
  * `api/v1/routes/suggestion_engines.py`. Long work comes back as a Job.
  */
 import { apiRequest } from '@/lib/api-client'
+import { uploadFileInChunks } from '@/lib/api/upload'
 import { getJob } from './query-jobs'
 import { notifyJobsChanged, type Job } from './environments'
 
@@ -27,7 +28,7 @@ export interface RuntimeProbe {
 export interface EmbeddingModel {
   id: string
   name: string
-  source: 'huggingface' | 'server'
+  source: 'huggingface' | 'server' | 'upload'
   repoId?: string
   serverPath?: string
   dimension?: number | null
@@ -109,7 +110,10 @@ export async function setupDefaultEngine(workspaceId: string): Promise<Job> {
 
 export async function addEmbeddingModel(
   workspaceId: string,
-  body: { source: 'huggingface'; repoId: string; name?: string } | { source: 'server'; serverPath: string; name?: string },
+  body:
+    | { source: 'huggingface'; repoId: string; name?: string }
+    | { source: 'server'; serverPath: string; name?: string }
+    | { source: 'upload'; files: { fileName: string; sha: string }[]; name?: string },
 ): Promise<{ model: EmbeddingModel; job: Job | null }> {
   const res = await apiRequest<{ model: EmbeddingModel; job: Job | null }>(`${base(workspaceId)}/models`, {
     method: 'POST',
@@ -117,6 +121,25 @@ export async function addEmbeddingModel(
   })
   if (res.job) notifyJobsChanged()
   return res
+}
+
+/** Upload the files of a model folder picked in the browser, then add it: the
+ *  names keep their path relative to the folder, which the server copies in. */
+export async function uploadEmbeddingModel(
+  workspaceId: string,
+  files: File[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<{ model: EmbeddingModel; job: Job | null }> {
+  const total = files.reduce((n, f) => n + f.size, 0)
+  let sent = 0
+  const uploaded: { fileName: string; sha: string }[] = []
+  for (const file of files) {
+    const fileName = (file as File & { webkitRelativePath?: string }).webkitRelativePath || file.name
+    const { sha } = await uploadFileInChunks(file, fileName, (fraction) => onProgress?.(sent + fraction * file.size, total))
+    sent += file.size
+    uploaded.push({ fileName, sha })
+  }
+  return addEmbeddingModel(workspaceId, { source: 'upload', files: uploaded })
 }
 
 export async function downloadEmbeddingModel(workspaceId: string, modelId: string): Promise<Job> {

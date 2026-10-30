@@ -5,12 +5,13 @@ gigabytes and are never exported. Everything sits under
 ``data_dir/embeddings/<workspace>/``:
 
     registry.json                 models + configurations
-    models/<model id>/            weights downloaded from the Hugging Face Hub
+    models/<model id>/            weights downloaded from the Hugging Face Hub, or uploaded
     indexes/<config id>/          manifest.json + <vocab key>.ids.npy / .vec.npy
 
-A *model* is a set of weights: downloaded (``source: huggingface``) or a folder
-already on the server (``source: server``, read in place — the way to bring one
-into an offline SPE). A *configuration* says what to encode with it: the text
+A *model* is a set of weights: downloaded (``source: huggingface``), uploaded
+from the browser (``source: upload``, copied in), or a folder already on the
+server (``source: server``, read in place). The last two are the ways to bring
+one into an offline SPE. A *configuration* says what to encode with it: the text
 template and the target scope. It owns one index per vocabulary of the library,
 and the method ``semantic/<slug>`` its scores are written under. Changing what an
 index depends on (model, template, scope) drops the index.
@@ -117,9 +118,46 @@ def model_ready(workspace_id: str, model: dict) -> bool:
 
 
 def remove_model_files(workspace_id: str, model: dict) -> None:
-    # A server folder belongs to whoever put it there: only downloads are ours.
-    if model["source"] == "huggingface":
+    # A server folder belongs to whoever put it there: only the copies are ours.
+    if model["source"] != "server":
         shutil.rmtree(model_dir(workspace_id, model["id"]), ignore_errors=True)
+
+
+def _upload_parts(name: str) -> list[str]:
+    parts = [p for p in name.replace("\\", "/").split("/") if p not in ("", ".")]
+    if not parts or ".." in parts:
+        raise ValueError(f"Invalid file name: {name}")
+    return parts
+
+
+def uploaded_model_name(file_name: str) -> str:
+    """The picked folder's name, carried by each file's relative path."""
+    parts = _upload_parts(file_name)
+    return parts[0] if len(parts) > 1 else "model"
+
+
+def install_uploaded_model(workspace_id: str, model_id: str, files: list[tuple[str, Path]]) -> None:
+    """Copy the files of an uploaded model folder into the model's directory.
+
+    Names are relative to the picked folder's parent (the browser's
+    `webkitRelativePath`): the folder's own name is dropped when every file
+    shares it. Raises ValueError, leaving nothing behind, when a name escapes the
+    folder or the result is not a model."""
+    split = [(_upload_parts(name), src) for name, src in files]
+    if all(len(parts) > 1 for parts, _ in split) and len({parts[0] for parts, _ in split}) == 1:
+        split = [(parts[1:], src) for parts, src in split]
+    dest = model_dir(workspace_id, model_id)
+    shutil.rmtree(dest, ignore_errors=True)
+    try:
+        for parts, src in split:
+            target = dest.joinpath(*parts)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(src, target)
+        if not model_ready(workspace_id, {"id": model_id, "source": "upload"}):
+            raise ValueError("Not a sentence-transformers model folder (no modules.json or config.json)")
+    except BaseException:
+        shutil.rmtree(dest, ignore_errors=True)
+        raise
 
 
 # --- Configurations and their indexes ----------------------------------------
