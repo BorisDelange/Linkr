@@ -29,6 +29,8 @@ interface CategoryBadgeProps extends Omit<React.HTMLAttributes<HTMLSpanElement>,
    * A scoped badge must not read a size apart from its uncategorized siblings.
    */
   size?: 'sm' | 'md'
+  /** Drawn before the category text, e.g. the `+` of a suggestion chip. */
+  icon?: React.ReactNode
 }
 
 /**
@@ -53,6 +55,7 @@ export function CategoryBadge({
   onRemove,
   onRename,
   size = 'sm',
+  icon,
   ...rest
 }: CategoryBadgeProps) {
   const custom = isCustomColor(color)
@@ -72,7 +75,7 @@ export function CategoryBadge({
   const pad = size === 'md' ? 'px-2.5' : 'px-2'
   const outline = !custom && getBadgeOutlineClasses(color)
 
-  const categoryHalf = cn(pad, 'shrink-0 py-0.5', !custom && getBadgeClasses(color))
+  const categoryHalf = cn(pad, 'shrink-0 py-0.5', icon && 'inline-flex items-center gap-1', !custom && getBadgeClasses(color))
   const categoryStyle = custom ? getBadgeStyle(color) : undefined
 
   // Left half: the ordinary filled badge. Right half: the page ground, so the
@@ -100,7 +103,7 @@ export function CategoryBadge({
       )}
       style={ringStyle}
     >
-      <span className={categoryHalf} style={categoryStyle}>{category}</span>
+      <span className={categoryHalf} style={categoryStyle}>{icon}{category}</span>
       <span
         className={cn(
           valueHalf,
