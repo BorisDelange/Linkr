@@ -1,7 +1,7 @@
 """workspace git push policy: direct, or review (merge requests only)
 
 Revision ID: d1f6b2a4c8e5
-Revises: c9e5a1f3b7d4
+Revises: e3a7c1d9f5b2
 Create Date: 2026-10-29 22:00:00.000000
 
 """
@@ -15,7 +15,7 @@ import app.models.base  # noqa: F401
 
 # revision identifiers, used by Alembic.
 revision: str = 'd1f6b2a4c8e5'
-down_revision: Union[str, None] = 'c9e5a1f3b7d4'
+down_revision: Union[str, None] = 'e3a7c1d9f5b2'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

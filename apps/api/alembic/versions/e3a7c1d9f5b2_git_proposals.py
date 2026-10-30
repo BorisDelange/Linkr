@@ -1,7 +1,7 @@
 """git proposals: merge / pull requests opened from Linkr, per versioned entity
 
-Revision ID: c9e5a1f3b7d4
-Revises: b8d4f0e2a6c3
+Revision ID: e3a7c1d9f5b2
+Revises: c9e5a1f3b7d4
 Create Date: 2026-10-29 20:00:00.000000
 
 """
@@ -14,8 +14,8 @@ import sqlalchemy as sa
 import app.models.base  # noqa: F401
 
 # revision identifiers, used by Alembic.
-revision: str = 'c9e5a1f3b7d4'
-down_revision: Union[str, None] = 'b8d4f0e2a6c3'
+revision: str = 'e3a7c1d9f5b2'
+down_revision: Union[str, None] = 'c9e5a1f3b7d4'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
