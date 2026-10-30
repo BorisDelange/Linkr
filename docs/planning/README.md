@@ -208,7 +208,6 @@ editable result in the pull diff, a wiki page's settings on its text row.
 | St | Item | Effort |
 |----|------|--------|
 | 🔜 | **[TO TEST]** In the app: a pull on each kind (workspace, project, SQL, ETL, DQ, catalog, schema, database, plugin, settings), a conflict settled by editing the result, Propose changes, review mode | M |
-| 🔜 | User docs (linkr-website): pull by subject, merge requests, review mode, `LINKR_GIT_ALLOWED_HOSTS` | S |
 | 🔜 | `npm run worktree:new`: `node_modules/.bin` links copied as absolute paths to the main checkout — Playwright loads twice, `test:e2e` fails in a worktree | S |
 
 | St | Item | Effort |

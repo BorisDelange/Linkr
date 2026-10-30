@@ -4036,9 +4036,12 @@ export async function applyClonedEntity(
     }
     const scores = await readScoresFromZip(zip)
     const { importMappingProjectContent } = await import('@/lib/concept-mapping/import')
+    // A pull re-applies in place without a link of its own: the row's stays, or
+    // the project would come out unlinked from the repository it was pulled from.
+    const link = gitRemoteConfig ?? (await storage.mappingProjects.getById(targetId).catch(() => undefined))?.gitRemoteConfig
     const applied = await importMappingProjectContent(
       { files, scores },
-      { targetId, workspaceId: workspaceId ?? '', replaceExisting: true, gitRemoteConfig },
+      { targetId, workspaceId: workspaceId ?? '', replaceExisting: true, gitRemoteConfig: link },
       storage,
     )
     // It refuses the tree on one condition only: no readable manifest carrying a name.

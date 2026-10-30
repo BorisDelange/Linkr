@@ -119,14 +119,24 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
 
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'pull-details.png'), fullPage: true })
 
-  // Decide row by row: Setup (text and settings) and Note taken, FAQ's conflicting content kept.
+  // Decide row by row: Setup (text and settings) and Note taken; FAQ's conflict
+  // settled by hand, writing both versions into the result the pull will write.
   await row('wiki/setup.md').getByRole('button', { name: 'Take all' }).first().click()
   await row('wiki/note.md').getByRole('button', { name: 'Take all' }).first().click()
-  await row('wiki/faq.md').getByRole('button', { name: 'Keep mine' }).last().click()
+  await page.getByRole('button', { name: /wiki\/faq\.md/ }).first().click()
+  const diff = page.getByRole('dialog')
+  await diff.locator('.editor.modified .view-lines').click()
+  await page.keyboard.press('Control+A')
+  await page.keyboard.insertText('Question one, mine and theirs.\n\nAnswer one.\n')
+  await diff.getByRole('button', { name: 'Use this version' }).click()
+  await expect(diff.getByRole('button', { name: 'Discard my edit' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(row('wiki/faq.md').getByText('edited by you')).toBeVisible()
   await page.getByRole('button', { name: 'Apply and finish' }).click()
 
   // Back to pushing: our own edits are left to send — Setup merged with ours, FAQ
-  // kept — while what came in (the new page, the tree) already matches the remote.
+  // as written by hand — while what came in (the new page, the tree) already
+  // matches the remote.
   await expect(page.getByText('0 added · 2 modified · 0 deleted')).toBeVisible({ timeout: 60_000 })
   await expect(page.getByText('wiki/faq.md')).toBeVisible()
   await expect(page.getByText('wiki/setup.md')).toBeVisible()
@@ -151,6 +161,6 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   const byId = new Map(pages.map((p) => [p.id, p]))
   expect(byId.get(page1.id)?.status).toBe('needs_revision')
   expect(byId.get(page1.id)?.content.en).toBe('Install it with uv.\n\nRun it.\n\nThen check the logs.\n')
-  expect(byId.get(page2.id)?.content.en).toBe('Question one, mine.\n\nAnswer one.\n')
+  expect(byId.get(page2.id)?.content.en).toBe('Question one, mine and theirs.\n\nAnswer one.\n')
   expect(byId.get(`e2e-note-${run}`)?.content.en).toBe('A note from the colleague.\n')
 })

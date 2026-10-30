@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { APIRequestContext, Page } from '@playwright/test'
@@ -105,9 +105,20 @@ async function pullEverything(page: Page, t: Target, branch: string): Promise<st
   }, { scope: t.scope, id: t.id, branch, workspaceId: t.workspaceId })
 }
 
+/** What is left to commit; a modified file comes with the lines that differ, so a
+ *  failure says what churned rather than only where. */
 async function leftToCommit(http: Http, t: Target, branch: string): Promise<string[]> {
   const status = await http.git(`/${t.scope}/${t.id}/status`, { branch })
-  return (status.files as { path: string; changeType: string }[]).map((f) => `${f.changeType} ${f.path}`)
+  const out: string[] = []
+  for (const f of status.files as { path: string; changeType: string }[]) {
+    if (f.changeType !== 'modified') { out.push(`${f.changeType} ${f.path}`); continue }
+    const diff = await http.git(`/${t.scope}/${t.id}/diff`, { path: f.path, branch })
+    const before = new Set((diff.oldContent as string).split('\n'))
+    const after = new Set((diff.newContent as string).split('\n'))
+    const changed = [...[...before].filter((l) => !after.has(l)).map((l) => `- ${l.trim()}`), ...[...after].filter((l) => !before.has(l)).map((l) => `+ ${l.trim()}`)]
+    out.push(`modified ${f.path}: ${changed.slice(0, 8).join(' | ')}`)
+  }
+  return out
 }
 
 let batch = 0
@@ -151,6 +162,13 @@ async function targets(http: Http, workspaceId: string): Promise<Target[]> {
   await http.send('post', '/data-catalogs', { id: catId, workspaceId, name: { en: `Catalog ${tag}` } })
   out.push(T('data catalog', 'data-catalogs', catId, `/data-catalogs/${catId}`))
 
+  const mpId = `mp-${tag}`
+  // As the app creates one: a lineage and its (empty) counters, which an import
+  // recomputes — created bare, its first push would carry nulls the pull then fills.
+  const stats = { totalSourceConcepts: 0, mappedCount: 0, approvedCount: 0, flaggedCount: 0, ignoredCount: 0, unmappedCount: 0 }
+  await http.send('post', '/mapping-projects', { id: mpId, workspaceId, name: { en: `Mapping ${tag}` }, lineageId: crypto.randomUUID(), stats })
+  out.push(T('mapping project', 'mapping-projects', mpId, `/mapping-projects/${mpId}`))
+
   const [etl] = await http.get(`/etl-pipelines?workspaceId=${workspaceId}`)
   out.push(T('ETL pipeline', 'etl-pipelines', etl.id, `/etl-pipelines/${etl.id}`))
 
@@ -162,8 +180,10 @@ async function targets(http: Http, workspaceId: string): Promise<Target[]> {
   out.push(T('database', 'databases', database.id, `/data-sources/${database.id}`))
 
   const pluginId = `plugin-${tag}`
+  // With code of its own: a plugin holding only its manifest reads as a seeded
+  // copy of a built-in, which a workspace export leaves out.
   const manifest = { id: `e2e-plugin-${tag}`, name: { en: `Plugin ${tag}` }, version: '0.1.0', type: 'lab' }
-  await http.send('post', '/user-plugins', { id: pluginId, entityId: `e2e-plugin-${tag}`, workspaceId, files: { 'plugin.json': JSON.stringify(manifest, null, 2) } })
+  await http.send('post', '/user-plugins', { id: pluginId, entityId: `e2e-plugin-${tag}`, workspaceId, files: { 'plugin.json': JSON.stringify(manifest, null, 2), 'main.py': 'print("hello")\n' } })
   out.push(T('plugin', 'user-plugins', pluginId, `/user-plugins/${pluginId}`))
 
   // Account-level settings: no README — the colleague edits a user's profile in
@@ -273,17 +293,28 @@ test('every kind of entity: a change proposed as a merge request, merged on the 
   }
 })
 
-test('the workspace: an inline project a colleague removes, then brings back, follows through the pull', async ({ page, request }, testInfo) => {
+test('the workspace: every kind of inline element a colleague edits, removes, then brings back, follows through the pull', async ({ page, request }, testInfo) => {
   test.skip(!process.env.E2E_DEMO || !process.env.E2E_GIT_LOCAL_REMOTES, 'needs the demo workspace and local git remotes')
-  test.setTimeout(600_000)
+  test.setTimeout(900_000)
   await signIn(page)
   const http = await api(page, request)
   const workspaceId = await demoWorkspace(http)
+  // targets() creates a project, a SQL collection, a DQ rule set, a catalog, a
+  // mapping project and a plugin, none linked yet: all inline in the workspace.
   const [ws] = (await targets(http, workspaceId)).filter((t) => t.scope === 'workspaces')
-  const folder = ws.colleagueFile.split('/').slice(0, 2).join('/')
-  const entityId = folder.split('/')[1]
-  const inline = async () => (await http.get(`/projects?workspaceId=${workspaceId}`))
-    .filter((p: { entityId?: string }) => p.entityId === entityId)
+  const tag = ws.colleagueFile.split('/')[1].replace(/^inline-/, '')
+  await http.send('post', '/etl-pipelines', { id: `etl-${tag}`, workspaceId, name: { en: `ETL ${tag}` } })
+
+  const LISTS = ['/projects', '/sql-script-collections', '/etl-pipelines', '/dq-rule-sets', '/data-catalogs', '/mapping-projects', '/user-plugins']
+  const present = async () => {
+    const out: string[] = []
+    for (const list of LISTS) {
+      const rows: unknown[] = await http.get(`${list}?workspaceId=${workspaceId}`)
+      if (rows.some((r) => JSON.stringify(r).includes(tag))) out.push(list)
+    }
+    return out
+  }
+  expect(await present(), 'every kind created').toEqual(LISTS)
 
   const remote = testInfo.outputPath(`workspace-inline-${run}.git`)
   execFileSync('git', ['init', '-q', '--bare', '-b', 'main', remote])
@@ -294,17 +325,44 @@ test('the workspace: an inline project a colleague removes, then brings back, fo
   execFileSync('git', ['clone', '-q', `file://${remote}`, clone])
   git(clone, 'config', 'user.name', 'Colleague')
   git(clone, 'config', 'user.email', 'colleague@example.org')
-  git(clone, 'rm', '-q', '-r', folder)
-  git(clone, 'commit', '-q', '-m', 'Colleague: remove the inline project')
-  git(clone, 'push', '-q', 'origin', 'HEAD:main')
+  // The inline folders of this run's elements, found by their manifest.
+  const folders = ['projects', 'sql-scripts', 'etl', 'data-quality', 'catalogs', 'mapping-projects', 'plugins'].flatMap((section) => {
+    const dir = path.join(clone, section)
+    if (!existsSync(dir)) return []
+    return readdirSync(dir)
+      .filter((f) => existsSync(path.join(dir, f, 'entity.json')) && readFileSync(path.join(dir, f, 'entity.json'), 'utf-8').includes(tag))
+      .map((f) => `${section}/${f}`)
+  })
+  expect(folders.map((f) => f.split('/')[0]).sort(), 'one inline folder per kind').toEqual(
+    ['catalogs', 'data-quality', 'etl', 'mapping-projects', 'plugins', 'projects', 'sql-scripts'],
+  )
+  const colleague = (message: string) => {
+    git(clone, 'add', '-A')
+    git(clone, 'commit', '-q', '-m', message)
+    git(clone, 'push', '-q', 'origin', 'HEAD:main')
+  }
 
+  // Edited: a paragraph in each element's README.
+  for (const f of folders) {
+    const readme = path.join(clone, f, 'README.md')
+    const before = existsSync(readme) ? readFileSync(readme, 'utf-8').replace(/\n*$/, '\n\n') : ''
+    writeFileSync(readme, `${before}Colleague note on ${f}.\n`)
+  }
+  colleague('Colleague: notes on every inline element')
   await pullEverything(page, ws, 'main')
-  expect.soft(await inline(), 'the project left with its folder').toEqual([])
-  expect.soft(await leftToCommit(http, ws, 'main'), 'clean after the removal').toEqual([])
+  expect.soft(await leftToCommit(http, ws, 'main'), 'clean after the edits').toEqual([])
 
+  // Removed: every folder.
+  for (const f of folders) git(clone, 'rm', '-q', '-r', f)
+  colleague('Colleague: remove the inline elements')
+  await pullEverything(page, ws, 'main')
+  expect.soft(await present(), 'every element left with its folder').toEqual([])
+  expect.soft(await leftToCommit(http, ws, 'main'), 'clean after the removals').toEqual([])
+
+  // Brought back.
   git(clone, 'revert', '--no-edit', 'HEAD')
   git(clone, 'push', '-q', 'origin', 'HEAD:main')
   await pullEverything(page, ws, 'main')
-  expect.soft(await inline(), 'the project came back with its folder').toHaveLength(1)
-  expect.soft(await leftToCommit(http, ws, 'main'), 'clean after it came back').toEqual([])
+  expect.soft(await present(), 'every element came back with its folder').toEqual(LISTS)
+  expect.soft(await leftToCommit(http, ws, 'main'), 'clean after they came back').toEqual([])
 })

@@ -1026,6 +1026,24 @@ async def mapping_project_three_way(
     )
 
 
+@router.post("/mapping-projects/{mapping_project_id}/merged-tree")
+async def mapping_project_merged_tree(
+    mapping_project_id: str,
+    remote_head: str = Form(..., alias="remoteHead"),
+    overrides: str = Form("{}"),
+    file: UploadFile | None = File(None),
+    branch: str | None = Form(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    mp = await _load_mapping_project(mapping_project_id, db, user, "concept-mapping:read")
+    return await _merged_tree(
+        git_service.mapping_project_repo_getter, mp.id, await _mapping_project_zip_bytes(db, mp, file),
+        _default_branch(mp, branch), _remote_url(mp), await _token(db, user, mp),
+        remote_head, overrides,
+    )
+
+
 @router.get("/mapping-projects/{mapping_project_id}/pull-file")
 async def mapping_project_pull_file(
     mapping_project_id: str,

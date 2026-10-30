@@ -126,7 +126,9 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose, onEdit, 
                 </div>
               ) : (
                 <SafeDiffEditor
-                  key={`${path}|${edited?.has(path) ? 'edited' : 'merged'}`}
+                  // Per file only: remounting on an edit disposes the widget mid-diff
+                  // (Monaco then rejects with "Canceled"); the props carry the text.
+                  key={path}
                   original={diff?.oldContent ?? ''}
                   modified={diff?.newContent ?? ''}
                   language={diff?.language ?? 'json'}
