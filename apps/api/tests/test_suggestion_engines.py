@@ -64,6 +64,25 @@ def test_target_where_scopes():
     assert "invalid_reason IS NULL" in where
     assert "domain_id IN ('Measurement')" in where
     assert "O''Brien" in worker.target_where({"vocabularies": ["O'Brien"]})
+    assert "concept_class_id IN ('Clinical Drug', 'Ingredient')" in worker.target_where(
+        {"conceptClasses": ["Clinical Drug", "Ingredient"]}
+    )
+
+
+def test_concept_classes_come_from_the_library_concept_class_table(tmp_path, monkeypatch):
+    import duckdb
+
+    from app.services import vocabulary_library as lib
+    from app.services.suggestions import tasks
+
+    monkeypatch.setattr(lib, "library_dir", lambda ws: tmp_path)
+    assert tasks.concept_classes("ws") == []
+    (tmp_path / "concept_class").mkdir()
+    duckdb.sql(
+        "COPY (SELECT * FROM (VALUES ('Ingredient'), ('Clinical Drug')) t(concept_class_id)) "
+        f"TO '{tmp_path / 'concept_class' / lib.SHARED_FILE}' (FORMAT parquet)"
+    )
+    assert tasks.concept_classes("ws") == ["Clinical Drug", "Ingredient"]
 
 
 def test_encoded_text_templates():
@@ -305,13 +324,23 @@ async def test_config_edit_drops_the_index_only_when_its_inputs_change(client, m
     base = f"{API}/workspaces/{ws}/suggestion-engines/configs"
     created = (await client.post(base, headers=headers, json={"modelId": "m1", "name": "Bio Lord"})).json()
     assert created["slug"] == "bio-lord" and created["method"] == "semantic/bio-lord"
-    assert created["filters"]["domains"] == registry.DEFAULT_DOMAINS
+    # A new configuration covers every standard concept, drugs included.
+    assert created["filters"] == {
+        "onlyStandard": True, "onlyValid": True, "domains": [], "vocabularies": [], "conceptClasses": [],
+    }
     assert (await client.post(base, headers=headers, json={"modelId": "m1", "slug": "bio-lord"})).status_code == 409
     assert (await client.post(base, headers=headers, json={"modelId": "m1", "slug": "Bad/slug"})).status_code == 400
 
     manifest = registry.index_dir(ws, created["id"]) / "manifest.json"
     registry.save_manifest(ws, created["id"], {"vocabularies": {}})
     await client.patch(f"{base}/{created['id']}", headers=headers, json={"device": "cpu", "batchSize": 64})
+    assert manifest.is_file()
+    # A configuration saved before the class filter existed keeps its index when
+    # the same scope comes back with an empty class list.
+    data = registry.load(ws)
+    del data["configs"][0]["filters"]["conceptClasses"]
+    registry.save(ws, data)
+    await client.patch(f"{base}/{created['id']}", headers=headers, json={"filters": {"conceptClasses": []}})
     assert manifest.is_file()
     await client.patch(f"{base}/{created['id']}", headers=headers, json={"template": "name"})
     assert not manifest.exists()

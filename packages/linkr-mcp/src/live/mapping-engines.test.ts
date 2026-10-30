@@ -16,7 +16,8 @@ const engines = (configs: EmbeddingConfig[]): SuggestionEngines => ({
   models: [{ id: 'm1', name: 'BioLORD-2023-M', source: 'huggingface', repoId: 'FremyCompany/BioLORD-2023-M', ready: true, jobId: null }],
   configs,
   vocabularies: ['LOINC'],
-  defaultModel: { repoId: 'FremyCompany/BioLORD-2023-M', domains: [] },
+  conceptClasses: [],
+  defaultModel: { repoId: 'FremyCompany/BioLORD-2023-M' },
   setupJobId: null,
 })
 
@@ -51,6 +52,13 @@ describe('describe', () => {
     const out = describeEngines(engines([stale]))
     expect(out).toContain('biolord → semantic/biolord')
     expect(out).toContain('Index 1/2 vocabularies built, out of date: SNOMED')
+  })
+
+  it('names the concept classes a configuration is limited to', () => {
+    const drugs = config({ filters: {
+      onlyStandard: true, onlyValid: true, domains: ['Drug'], vocabularies: [], conceptClasses: ['Clinical Drug', 'Ingredient'],
+    } })
+    expect(describeEngines(engines([drugs]))).toContain('standard, valid, Drug, Clinical Drug/Ingredient.')
   })
 
   it('formats a semantic match', () => {

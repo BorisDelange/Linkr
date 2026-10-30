@@ -543,9 +543,12 @@ Both are **workspace resources**, managed on the workspace **Vocabularies** page
 A mapping project's precomputed suggestions (`syntactic/*`, `semantic/<slug>`
 rows of its scores file) are computed on the server, as jobs, from the
 mapping editor's *Manage suggestions* dialog (tabs Methods / Compute; Compute opens *Models and configurations*,
-`features/warehouse/concept-mapping/components/suggestion-engines/`) or the MCP
-(`tools-mapping-engines.ts`). Server mode only: the static build keeps the
-scores-file import. Code in `apps/api/app/services/suggestions/`.
+`features/warehouse/concept-mapping/components/suggestion-engines/`). The MCP
+(`tools-mapping-engines.ts`) can start them too, for scripts and tests; the
+concept-mapping skill never does — the user computes, the agent writes `ai/…`
+suggestions from what is there, searching with `semantic_search_vocabulary`.
+Server mode only: the static build keeps the scores-file import. Code in
+`apps/api/app/services/suggestions/`.
 
 - **Worker** (`worker.py`) — a standalone script, no `app` import, run as a
   child process of the job, never in uvicorn. A semantic index build takes
@@ -568,8 +571,14 @@ scores-file import. Code in `apps/api/app/services/suggestions/`.
   is weights, either downloaded from the Hub or a server folder read in place
   (the way into an offline SPE). A *configuration* is a model, a text
   template (`name_class`: `Heart rate [LOINC / Clinical Observation]`, or
-  `name`), a target scope, a device and a batch size. It writes
-  `semantic/<slug>`. Changing the model, template or scope drops its index.
+  `name`), a target scope (standard / valid, domains, vocabularies, concept
+  classes — empty = all; the one-click BioLORD configuration covers every
+  standard concept, ~3.5 M, two thirds drugs), a device and a batch size. It
+  writes `semantic/<slug>`. Changing the model, template or scope drops its
+  index (`registry.index_inputs`, which reads a filter list a configuration
+  predates as empty). The same scope narrows a scores computation and a
+  search, over an index that holds more — drugs at the Clinical Drug level are
+  a class filter, not an index of their own.
 - **Index** — per configuration, one pair of files per library vocabulary:
   `<vocab key>.ids.npy` + `.vec.npy` (float16, L2-normalised). There is no
   FAISS: a search is a memory-mapped, blocked matrix product with a running

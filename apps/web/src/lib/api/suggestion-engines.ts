@@ -13,6 +13,8 @@ export interface TargetFilters {
   onlyValid: boolean
   domains: string[]
   vocabularies: string[]
+  /** Missing on configurations saved before the class filter. */
+  conceptClasses?: string[]
 }
 
 export interface RuntimeProbe {
@@ -58,7 +60,9 @@ export interface SuggestionEngines {
   configs: EmbeddingConfig[]
   /** Vocabularies of the workspace library. */
   vocabularies: string[]
-  defaultModel: { repoId: string; domains: string[] }
+  /** Concept classes of the workspace library, the options of the class filter. */
+  conceptClasses: string[]
+  defaultModel: { repoId: string }
   /** The one-click BioLORD setup in flight, if any. */
   setupJobId: string | null
 }

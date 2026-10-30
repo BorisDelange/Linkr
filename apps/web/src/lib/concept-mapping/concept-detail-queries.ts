@@ -105,3 +105,31 @@ WHERE cs.concept_id = ${conceptId}
 ORDER BY c.concept_name, cs.concept_synonym_name
 `
 }
+
+/**
+ * A drug's ingredients with their strength (OMOP `drug_strength`): an amount
+ * (500 mg per tablet) or a concentration (numerator per denominator; a missing
+ * denominator value means per one unit). Units are their UCUM codes.
+ */
+export function buildDrugStrengthQuery(conceptId: number, conceptTable: string): string {
+  return `
+SELECT
+  ds.ingredient_concept_id,
+  i.concept_name AS ingredient_name,
+  ds.amount_value,
+  au.concept_code AS amount_unit,
+  ds.numerator_value,
+  nu.concept_code AS numerator_unit,
+  ds.denominator_value,
+  du.concept_code AS denominator_unit,
+  ds.box_size
+FROM drug_strength ds
+LEFT JOIN ${conceptTable} i ON i.concept_id = ds.ingredient_concept_id
+LEFT JOIN ${conceptTable} au ON au.concept_id = ds.amount_unit_concept_id
+LEFT JOIN ${conceptTable} nu ON nu.concept_id = ds.numerator_unit_concept_id
+LEFT JOIN ${conceptTable} du ON du.concept_id = ds.denominator_unit_concept_id
+WHERE ds.drug_concept_id = ${conceptId}
+  AND ds.invalid_reason IS NULL
+ORDER BY i.concept_name
+`
+}

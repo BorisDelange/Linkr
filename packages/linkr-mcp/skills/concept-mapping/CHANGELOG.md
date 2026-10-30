@@ -12,17 +12,44 @@ Cite the skill in publications as **"Linkr concept-mapping skill v\<version\>"**
 
 ### Added
 - Precomputed suggestions are computed by Linkr itself, on the server, as
-  jobs: `list_suggestion_engines` shows the embeddings runtime, the models
-  and the embedding configurations (each writes `semantic/<slug>`) with the
-  state of their index. `compute_suggestion_scores` scores a project
-  (syntactic methods and/or one configuration, replacing only those methods'
-  rows). `build_embedding_index` encodes a configuration's vocabularies.
-- `semantic_search_vocabulary`: target search by meaning against a
-  configuration's index, batched, used next to `search_vocabulary` in Step 2.
-- `get_source_concept` reads a whole batch in one call (`concept_codes`);
-  Step 2 reads the batch once, after any running scores job has finished.
-  Waiting for a job is one `get_job_status` call with `wait_seconds`, not a
-  loop of quick polls.
+  jobs the user starts in the app (Manage suggestions › Compute). The skill
+  never starts a computation or an index build: it reads
+  `list_suggestion_engines` once (the embedding configurations, each writing
+  `semantic/<slug>`, with the state of their index), says what is missing and
+  where it is done, and writes the AI suggestions from what is there.
+- `semantic_search_vocabulary`: candidate search by meaning against a
+  configuration's index, the whole batch in one call, narrowed by domain,
+  vocabulary and concept class (`concept_classes`). It is the main candidate
+  search of Step 2, before `search_vocabulary`, in `clinical.md` and
+  `drugs.md` alike.
+- Drugs: `get_vocabulary_concept` gives a drug's components first — each
+  ingredient's strength from OMOP `drug_strength` (an amount, or a
+  concentration reduced to per-unit), the dose form, the brand — and
+  `drugs.md` validates against them rather than the name. Boxes and marketed
+  products are counted, not listed, so they no longer hide the dose form.
+- Step 2 shows the arguments of a batch's calls, lists the next batch with
+  `without_ai_suggestions` (suggesting does not change a concept's status), and
+  checks the finalists in one `get_vocabulary_concept` call (`concept_ids`).
+  Syntactic hits outside the expected domain are noise.
+- `drugs.md`: a label that names only the molecule (an ICU administration
+  item) maps to its Ingredient as `skos:exactMatch`; a brand in parentheses is
+  an alias, not the product; a combination named alone goes to its Clinical
+  Drug Form; semantic search runs once for the bare ingredients and once for
+  the products, and a brand alone is searched among the branded classes.
+- Step 1 skips the questions the request already answers and flags a scope
+  whose concepts have no records; fewer candidates than asked are explained;
+  an unmarked search result is valid; a brand in parentheses after a generic
+  name is an alias even for a single-brand drug.
+- Precomputed suggestions are the first source of candidates, semantic
+  search covers what they leave open; a project without them is told to
+  compute them first. The five SKOS equivalences are spelled out in the
+  rules, and the comment rule says what the comment is for. Mappings written
+  by mistake are deleted with `delete_mappings` (ids from `list_mappings`),
+  on the user's yes.
+- `get_source_concept` reads a whole batch in one call (`concept_codes`).
+  When the user has a scores computation running, the skill asks whether to
+  wait for it (one `get_job_status` call with `wait_seconds`, not a loop of
+  quick polls) or to go on without it.
 - AI suggestions are signed with the model the client sets (`X-Linkr-Model`
   header, `LINKR_MCP_MODEL`), announced by `get_mapping_project`; without it
   the model gives its exact identifier or asks the user, never guesses.

@@ -1,9 +1,10 @@
 /**
  * Suggestion engines: what precomputes a mapping project's suggestions. The
- * agent can see the workspace's embedding configurations, have the server
- * compute syntactic and semantic scores (a job), build an index, and search the
- * OMOP vocabulary by meaning. Installing the runtime and downloading models stay
- * in the app (gigabytes, an administrator's decision).
+ * agent can see the workspace's embedding configurations and search the OMOP
+ * vocabulary by meaning. Computing scores and building an index are the user's
+ * to start from the app; the tools that start them stay for an explicit request
+ * (scripts, tests). Installing the runtime and downloading models stay in the
+ * app (gigabytes, an administrator's decision).
  */
 import { fromJsonSchema } from '@modelcontextprotocol/server'
 import { SYNTACTIC_METHODS, type TargetFilters } from '@/lib/api/suggestion-engines'
@@ -15,11 +16,17 @@ const MANAGE = 'mapping editor › Suggestions panel › Manage suggestions › 
 const scopeSchema = {
   domains: { type: 'array', items: { type: 'string' }, description: 'Target domains, e.g. ["Measurement"]. Default: all.' },
   vocabularies: { type: 'array', items: { type: 'string' }, description: 'Target vocabularies, e.g. ["LOINC"]. Default: all.' },
+  concept_classes: {
+    type: 'array', items: { type: 'string' },
+    description: 'Target concept classes, e.g. ["Clinical Drug", "Quant Clinical Drug"]. Default: all.',
+  },
   standard_only: { type: 'boolean', description: 'Default true.' },
   valid_only: { type: 'boolean', description: 'Default true.' },
 } as const
 
-interface ScopeArgs { domains?: string[]; vocabularies?: string[]; standard_only?: boolean; valid_only?: boolean }
+interface ScopeArgs {
+  domains?: string[]; vocabularies?: string[]; concept_classes?: string[]; standard_only?: boolean; valid_only?: boolean
+}
 
 function filtersOf(a: ScopeArgs): TargetFilters {
   return {
@@ -27,6 +34,7 @@ function filtersOf(a: ScopeArgs): TargetFilters {
     onlyValid: a.valid_only ?? true,
     domains: a.domains ?? [],
     vocabularies: a.vocabularies ?? [],
+    conceptClasses: a.concept_classes ?? [],
   }
 }
 
@@ -38,7 +46,7 @@ export function registerMappingEngineTools(server: Server) {
   server.registerTool('list_suggestion_engines', {
     description: 'What can precompute a mapping project\'s suggestions in this workspace: the embeddings runtime, '
       + 'the embedding models, and the embedding configurations (each writes the method semantic/<slug>) with the '
-      + 'state of their index per vocabulary. Read before compute_suggestion_scores or semantic_search_vocabulary.',
+      + 'state of their index per vocabulary: whether semantic_search_vocabulary can run, and over which concepts.',
     annotations: READ,
     inputSchema: fromJsonSchema<{ mapping_project_id: string }>({
       type: 'object', properties: { mapping_project_id: { type: 'string' } }, required: ['mapping_project_id'],
@@ -48,11 +56,12 @@ export function registerMappingEngineTools(server: Server) {
   }))
 
   server.registerTool('semantic_search_vocabulary', {
-    description: 'Search OMOP target concepts by meaning: each text is encoded by the embedding model of a '
+    description: 'Find candidate OMOP target concepts by meaning: each text is encoded by the embedding model of a '
       + 'configuration and compared with its index (cosine similarity). Finds what a word search misses — '
-      + 'synonyms, paraphrases, other wordings. Write the texts as a clinician would, in English (several at once, '
-      + 'up to 50). Loads the model on each call: batch your texts. Complements search_vocabulary, does not replace '
-      + 'checking the finalists with get_vocabulary_concept.',
+      + 'synonyms, paraphrases, brand names, other wordings. Write the texts as a clinician would, in English '
+      + '(several at once, up to 50). Loads the model on each call: batch your texts. Narrow the scope (domains, '
+      + 'vocabularies, concept_classes) to what the source can be. A similarity is not an equivalence: check the '
+      + 'finalists with get_vocabulary_concept.',
     annotations: READ,
     inputSchema: fromJsonSchema<ScopeArgs & { mapping_project_id: string; texts: string[]; config?: string; limit?: number }>({
       type: 'object',
@@ -74,7 +83,8 @@ export function registerMappingEngineTools(server: Server) {
     if (!engines.runtime.installed) return failure(`The embeddings runtime is not installed. Ask the user to install it in Linkr: ${MANAGE}.`)
     const picked = pickConfig(engines, config)
     if (typeof picked === 'string') return failure(picked)
-    const hasScope = scope.domains?.length || scope.vocabularies?.length || scope.standard_only !== undefined || scope.valid_only !== undefined
+    const hasScope = scope.domains?.length || scope.vocabularies?.length || scope.concept_classes?.length
+      || scope.standard_only !== undefined || scope.valid_only !== undefined
     const found = await api.semanticSearch(workspaceId, picked.id, {
       texts: cleaned,
       topK: Math.min(Math.max(1, Math.floor(limit)), 100),
@@ -91,8 +101,9 @@ export function registerMappingEngineTools(server: Server) {
     description: 'Have the server compute precomputed suggestions for a mapping project\'s source concepts, as a '
       + 'background job: syntactic methods (string similarity) and/or the semantic method of an embedding '
       + 'configuration. Each method computed replaces that method\'s rows in the project (only_missing: only adds '
-      + 'the concepts it has not scored yet); AI suggestions are never touched. Can run for minutes to hours: tell '
-      + 'the user, then follow it with get_job_status. Ask the user before starting one.',
+      + 'the concepts it has not scored yet); AI suggestions are never touched. Can run for minutes to hours. '
+      + 'The user normally starts it from the app (Manage suggestions › Compute): call it only when they explicitly '
+      + 'ask you to, then follow it with get_job_status.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<ScopeArgs & {
       mapping_project_id: string; methods?: string[]; config?: string; top_k?: number; only_missing?: boolean
@@ -130,7 +141,8 @@ export function registerMappingEngineTools(server: Server) {
   server.registerTool('build_embedding_index', {
     description: 'Encode the target concepts of an embedding configuration (the vocabularies its index lacks or '
       + 'has out of date; all with rebuild), as a background job. Needed before its semantic scores or search. '
-      + 'About an hour on a CPU for the non-drug standard concepts: ask the user first, then follow it with get_job_status.',
+      + 'Hours for the whole vocabulary. The user normally starts it from the app: call it only when they explicitly '
+      + 'ask you to, then follow it with get_job_status.',
     annotations: WRITE,
     inputSchema: fromJsonSchema<{ mapping_project_id: string; config: string; rebuild?: boolean }>({
       type: 'object',

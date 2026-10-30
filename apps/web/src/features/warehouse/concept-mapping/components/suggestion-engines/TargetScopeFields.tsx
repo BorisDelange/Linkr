@@ -11,17 +11,19 @@ const OMOP_DOMAINS = [
   'Unit', 'Route', 'Visit', 'Spec Anatomic Site', 'Gender', 'Race', 'Ethnicity',
 ]
 
-/** Which OMOP concepts are candidate targets: standard / valid, domains, vocabularies. */
+/** Which OMOP concepts are candidate targets: standard / valid, domains, vocabularies, concept classes. */
 export function TargetScopeFields({
   value,
   onChange,
   vocabularies,
+  conceptClasses,
   allLabel,
 }: {
   value: TargetFilters
   onChange: (next: TargetFilters) => void
   vocabularies: string[]
-  /** What an empty domain or vocabulary list means here. */
+  conceptClasses: string[]
+  /** What an empty domain, vocabulary or class list means here. */
   allLabel: string
 }) {
   const { t } = useTranslation()
@@ -65,6 +67,19 @@ export function TargetScopeFields({
           )}
         </FormField>
       </div>
+      <FormField label={t('concept_mapping.engines_concept_classes')} hint={t('concept_mapping.engines_concept_classes_hint')} hintInTooltip>
+        {() => (
+          <MultiSelectFilter
+            value={value.conceptClasses ?? []}
+            options={conceptClasses}
+            placeholder={allLabel}
+            onChange={(c) => onChange({ ...value, conceptClasses: c })}
+            triggerClass={MULTI_SELECT_FORM_TRIGGER}
+            showChevron
+            popoverWidthClass="w-72"
+          />
+        )}
+      </FormField>
     </div>
   )
 }

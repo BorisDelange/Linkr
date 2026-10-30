@@ -110,6 +110,8 @@ export interface SourceConceptFilters {
    *  as `suggestionCategoryKeys` (`vocab\0code`), computed from the scores index. */
   hasSuggestionCategoryFilter?: boolean
   suggestionCategoryKeys?: string[]
+  /** Leave out these source concepts (`vocab\0code`), e.g. those an agent already suggested for. */
+  excludedKeys?: string[]
 }
 
 /** The shared `buildFuzzySearchSql` over a source-concepts query: name, code
@@ -241,6 +243,8 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     const clause = tupleInClause(filters.suggestionCategoryKeys ?? [])
     conditions.push(clause ?? '1=0')
   }
+  const excluded = tupleInClause(filters.excludedKeys ?? [])
+  if (excluded) conditions.push(`NOT ${excluded}`)
   if (conditions.length > 0) return ` WHERE ${conditions.join(' AND ')}`
   return ''
 }

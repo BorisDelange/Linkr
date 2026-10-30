@@ -30,6 +30,12 @@ describe('buildWhereClause — suggestion-category filter', () => {
     expect(sql).toContain('WHERE 1=0')
   })
 
+  it('leaves out the excluded keys, and adds nothing when there are none', () => {
+    const sql = buildFileSourceConceptsCountQuery({ excludedKeys: [`d_items${SEP}220045`] })
+    expect(sql).toContain("NOT (vocabulary_id, concept_code) IN (('d_items','220045'))")
+    expect(buildFileSourceConceptsCountQuery({ excludedKeys: [] })).not.toContain('NOT')
+  })
+
   it('adds no predicate when the filter is off', () => {
     const sql = buildFileSourceConceptsCountQuery({})
     expect(sql).not.toContain('vocabulary_id, concept_code')

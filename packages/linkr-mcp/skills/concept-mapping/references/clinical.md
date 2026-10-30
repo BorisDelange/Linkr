@@ -33,13 +33,16 @@ Stop when you have about three strong candidates.
    (`semantic/biolord`, `syntactic/jaro-winkler`) and earlier AI suggestions,
    with target names. A biolord score above 0.85 in the right domain is a strong
    lead: verify it, never accept it on the score alone.
-2. **Name search** — `search_vocabulary` with the English name, filtered by the
-   domain you inferred (`domains: ["Measurement"]`) and, when you know it, the
-   vocabulary (`LOINC` for labs and vital signs, `SNOMED` for findings and
-   procedures). Synonym hits come back too.
-3. **Keyword decomposition** — for compound names, search the clinical
+2. **Semantic search** — `semantic_search_vocabulary` for the whole batch in
+   one call: one English text per concept, written as a clinician would
+   (specimen, unit, site when they decide), scope narrowed to the domain you
+   inferred and, when you know it, the vocabulary (`LOINC` for labs and vital
+   signs, `SNOMED` for findings and procedures). See `precompute.md`.
+3. **Name search** — `search_vocabulary` with the English name or its
+   keywords, same filters, for what the semantic search missed or to check a
+   code. Synonym hits come back too. For compound names, search the clinical
    keywords separately and in combination (`systolic arterial pressure` →
-   `systolic blood pressure`, then `arterial pressure systolic`).
+   `systolic blood pressure`).
 4. **Web search**, if your client has one — for a lab test with a known LOINC,
    a clinical score (SOFA, GCS, APACHE), or an ambiguous abbreviation.
 5. **Hierarchy** — `get_vocabulary_concept` on a candidate: ancestors for a

@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto'
 import type { ConceptMapping, MappingEquivalence, MappingProject, SchemaMapping } from '@/types'
 import {
   buildConceptAncestorsQuery, buildConceptDescendantCountQuery, buildConceptDescendantsQuery,
-  buildConceptRelationsQuery, buildConceptSynonymsQuery,
+  buildConceptRelationsQuery, buildConceptSynonymsQuery, buildDrugStrengthQuery,
 } from '@/lib/concept-mapping/concept-detail-queries'
 import {
   buildFileSourceConceptsCountQuery, buildFileSourceConceptsQuery, buildStandardConceptSearchQuery,
@@ -18,10 +18,10 @@ import {
 import { effectiveMappingStatus, getTotalSourceConcepts } from '@/lib/concept-mapping/mapping-status'
 import { isOmopConceptTable, resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
 import {
-  checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, groupSuggestions,
+  capPerRelation, checkJudgement, checkTarget, conceptsByIdSql, describeConcept, describeInfo, describeSourceRow, formatDrugStrength, groupSuggestions,
   indexKeyToSourceKey, mappingPayload, methodForModel, signingModel, sourceByCodesSql, sourceKeyOf, sourceKeysInSql, sourceRefCandidates,
   synonymSearchSql,
-  type SourceRow, type SuggestionInput, type VocabConcept,
+  type DrugStrengthRow, type SourceRow, type SuggestionInput, type VocabConcept,
 } from './mapping.js'
 import type { DataSource } from './api.js'
 import { DESTRUCTIVE, READ, WRITE, agentModel, api, failure, guard, loc, text, type Server } from './shared.js'
@@ -113,7 +113,14 @@ export async function refreshStats(project: MappingProject) {
 }
 
 /** The relationships that decide a mapping first; panels and the like last. */
-const RELATION_ORDER = ['Maps to', 'Maps to value', 'Mapped from', 'Concept replaced by', 'Is a', 'Subsumes', 'Has component', 'Has scale type']
+const RELATION_ORDER = [
+  'Maps to', 'Maps to value', 'Mapped from', 'Concept replaced by', 'Is a', 'Subsumes', 'Has component', 'Has scale type',
+  'RxNorm has dose form', 'Has brand name', 'RxNorm has ing', 'Consists of', 'RxNorm is a', 'Has quantified form', 'Quantified form of',
+]
+/** A drug's packagings: dozens per product, they would bury the relationships that decide. Counted, not listed. */
+const COUNTED_ONLY = new Set(['Available as box', 'Box of', 'Has marketed form', 'Marketed form of'])
+/** A drug is "Mapped from" thousands of package labels: a few of each relationship, the rest counted. */
+const PER_RELATION = 5
 function sortRelations(rows: Record<string, unknown>[]) {
   const rank = (r: Record<string, unknown>) => {
     const i = RELATION_ORDER.indexOf(String(r.relationship_id))
@@ -124,6 +131,59 @@ function sortRelations(rows: Record<string, unknown>[]) {
 
 const statusLabel = (mappings: ConceptMapping[]) =>
   mappings.map((m) => `${effectiveMappingStatus(m)}${m.targetConceptId ? ` → ${m.targetConceptId}` : ''}`).join(', ')
+
+/** A target concept's card: in full (one concept read), or short (a batch of finalists). */
+async function conceptCard(v: Vocabulary, concept: VocabConcept, full: boolean): Promise<string> {
+  const id = concept.concept_id
+  const lines = [describeConcept(concept)]
+  const section = async (title: string, sql: string, format: (r: Record<string, unknown>) => string, max: number) => {
+    try {
+      const rows = await api.query(v.databaseId, sql)
+      if (rows.length) {
+        lines.push('', `${title}${rows.length > max ? ` (${max} of ${rows.length})` : ''}:`, ...rows.slice(0, max).map(format))
+      }
+    } catch { /* the vocabulary lacks that table */ }
+  }
+  const asConcept = (r: Record<string, unknown>) => `  ${describeConcept({ ...(r as unknown as VocabConcept), concept_id: Number(r.concept_id) })}`
+  let relations: Record<string, unknown>[] = []
+  try {
+    // OMOP has every standard concept "Maps to" and "Mapped from" itself.
+    relations = sortRelations(await api.query(v.databaseId, buildConceptRelationsQuery(id, v.table)))
+      .filter((r) => Number(r.concept_id) !== id)
+  } catch { /* no concept_relationship table */ }
+  if (concept.domain_id === 'Drug') {
+    const drug: string[] = []
+    try {
+      const strengths = (await api.query(v.databaseId, buildDrugStrengthQuery(id, v.table))) as unknown as DrugStrengthRow[]
+      // An ingredient has a drug_strength row with no value: nothing to compare.
+      drug.push(...strengths.filter((r) => r.amount_value != null || r.numerator_value != null).map((r) => `  ${formatDrugStrength(r)}`))
+    } catch { /* no drug_strength table */ }
+    for (const [relation, label] of [['RxNorm has dose form', 'Dose form'], ['Has brand name', 'Brand']]) {
+      const names = relations.filter((r) => r.relationship_id === relation).map((r) => String(r.concept_name))
+      if (names.length) drug.push(`  ${label}: ${names.slice(0, 5).join(', ')}${names.length > 5 ? ` (+${names.length - 5})` : ''}`)
+    }
+    if (drug.length) lines.push('', 'Drug components (compare these, not the names):', ...drug)
+  }
+  if (relations.length) {
+    const counts = new Map<string, number>()
+    for (const r of relations) counts.set(String(r.relationship_id), (counts.get(String(r.relationship_id)) ?? 0) + 1)
+    const listed = relations.filter((r) => !COUNTED_ONLY.has(String(r.relationship_id)))
+    const shown = full ? capPerRelation(listed, PER_RELATION, 30) : capPerRelation(listed, 2, 8)
+    lines.push('', `Relationships (${[...counts].map(([k, n]) => `${k} ${n}`).join(', ')}):`,
+      ...shown.map((r) => `  ${String(r.relationship_id)}: ${asConcept(r).trim()}`))
+    if (listed.length > shown.length) lines.push(`  … ${listed.length - shown.length} more (counts above)`)
+  }
+  if (!full) {
+    await section('Ancestors (nearest first)', buildConceptAncestorsQuery(id, v.table), asConcept, 3)
+    return lines.join('\n')
+  }
+  await section('Synonyms', buildConceptSynonymsQuery(id), (r) =>
+    `  ${String(r.concept_synonym_name)}${r.language_name ? ` (${String(r.language_name)})` : ''}`, 20)
+  await section('Ancestors (nearest first)', buildConceptAncestorsQuery(id, v.table), asConcept, 12)
+  await section('Descendants (nearest first)', buildConceptDescendantsQuery(id, v.table), asConcept, 15)
+  await section('Descendant count', buildConceptDescendantCountQuery(id, v.table), (r) => `  ${String(r.cnt)}`, 1)
+  return lines.join('\n')
+}
 
 export function registerMappingTools(server: Server) {
   server.registerTool('list_mapping_projects', {
@@ -198,11 +258,13 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
 
   server.registerTool('list_source_concepts', {
     description: 'Source concepts of a mapping project, a page at a time, with their counts and a one-line summary of '
-      + 'their metadata. Filter by mapping status, category, name, or whether suggestions exist.',
+      + 'their metadata. Filter by mapping status, category, name, or whether suggestions exist. In suggestions mode, '
+      + 'without_ai_suggestions gives the next batch: suggesting does not change a concept\'s mapping status.',
     annotations: READ,
     inputSchema: fromJsonSchema<{
       mapping_project_id: string; status?: 'unmapped' | 'mapped' | 'all'; category?: string; search?: string
-      with_suggestions?: boolean; sort?: 'records' | 'patients' | 'name'; limit?: number; offset?: number
+      with_suggestions?: boolean; without_ai_suggestions?: boolean; sort?: 'records' | 'patients' | 'name'; limit?: number
+      offset?: number
     }>({
       type: 'object',
       properties: {
@@ -211,13 +273,16 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
         category: { type: 'string', description: 'Exact category, as get_mapping_project lists them.' },
         search: { type: 'string', description: 'Fuzzy match on the concept name.' },
         with_suggestions: { type: 'boolean', description: 'Only concepts that have precomputed or AI suggestions.' },
+        without_ai_suggestions: { type: 'boolean', description: 'Leave out concepts that already have AI suggestions (any model).' },
         sort: { type: 'string', enum: ['records', 'patients', 'name'], description: 'Default records (most frequent first) when counts exist.' },
         limit: { type: 'number', description: 'Default 25, max 100.' },
         offset: { type: 'number' },
       },
       required: ['mapping_project_id'],
     }),
-  }, guard(async ({ mapping_project_id, status = 'unmapped', category, search, with_suggestions, sort, limit = 25, offset = 0 }) => {
+  }, guard(async ({
+    mapping_project_id, status = 'unmapped', category, search, with_suggestions, without_ai_suggestions, sort, limit = 25, offset = 0,
+  }) => {
     const p = await api.getMappingProject(mapping_project_id)
     const src = await sourceOf(p)
     const cm = src.columns
@@ -238,11 +303,12 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       filters.category = [category]
     }
     if (search?.trim()) filters.searchTextFuzzy = search.trim()
+    const index = with_suggestions || without_ai_suggestions ? await api.scoresIndex(p.id) : null
     if (with_suggestions) {
-      const index = await api.scoresIndex(p.id)
       filters.hasSuggestionCategoryFilter = true
       filters.suggestionCategoryKeys = (index?.sourceKeys ?? []).map(indexKeyToSourceKey)
     }
+    if (without_ai_suggestions) filters.excludedKeys = (index?.categorySourceKeys.agentic ?? []).map(indexKeyToSourceKey)
     const column = sort === 'name' ? null : sort === 'patients' ? (cm.patients ? 'patient_count' : null)
       : (cm.records ? 'record_count' : null)
     const sorting = column && !filters.searchTextFuzzy ? { columnId: column, desc: true } : null
@@ -377,7 +443,10 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
       domainIds: domains, vocabularyIds: vocabularies, conceptClassIds: concept_classes,
       standardConcepts: standard === 'any' ? undefined : [standard], conceptIds,
     }, size)
-    const hits = (await api.query(v.databaseId, sql)) as unknown as VocabConcept[]
+    const found = (await api.query(v.databaseId, sql)) as unknown as VocabConcept[]
+    // A code search also ranks codes that merely look alike (8867-4 → 18867-4): keep the exact ones.
+    const exact = found.filter((h) => String(h.concept_code ?? '').toLowerCase() === query.trim().toLowerCase())
+    const hits = exact.length ? exact : found
     const seen = new Set(hits.map((h) => Number(h.concept_id)))
     const lines = hits.map((h) => `- ${describeConcept({ ...h, concept_id: Number(h.concept_id) })}`)
     const synSql = !conceptIds && !domains?.length && !vocabularies?.length && !concept_classes?.length
@@ -399,46 +468,36 @@ FROM source_concepts GROUP BY category ORDER BY open DESC, n DESC LIMIT 40`)
   }))
 
   server.registerTool('get_vocabulary_concept', {
-    description: 'One target concept with its relationships (e.g. "Maps to" from a non-standard concept to its standard '
-      + 'one), synonyms, ancestors and descendants — to pick the right level of specificity.',
+    description: 'Target concepts in detail, to check finalists and pick the right level of specificity: '
+      + 'relationships (e.g. "Maps to" from a non-standard concept to its standard one), synonyms, ancestors and '
+      + 'descendants. For a drug, its components first: each ingredient with its strength (from drug_strength), the '
+      + 'dose form and the brand. Check a whole batch\'s finalists in one call with concept_ids (a shorter card each: '
+      + 'components and main relationships).',
     annotations: READ,
-    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_id: number | string }>({
+    inputSchema: fromJsonSchema<{ mapping_project_id: string; concept_id?: number | string; concept_ids?: (number | string)[] }>({
       type: 'object',
-      properties: { mapping_project_id: { type: 'string' }, concept_id: { type: 'number' } },
-      required: ['mapping_project_id', 'concept_id'],
+      properties: {
+        mapping_project_id: { type: 'string' },
+        concept_id: { type: 'number', description: 'One concept, in full.' },
+        concept_ids: { type: 'array', items: { type: 'number' }, description: `Up to ${MAX_READ_BATCH} concepts, a shorter card each.` },
+      },
+      required: ['mapping_project_id'],
     }),
-  }, guard(async ({ mapping_project_id, concept_id }) => {
-    const id = Number(concept_id)
-    if (!Number.isInteger(id)) return failure('concept_id must be an integer.')
+  }, guard(async ({ mapping_project_id, concept_id, concept_ids }) => {
+    const ids = (concept_ids?.length ? concept_ids : concept_id !== undefined ? [concept_id] : []).map(Number)
+    if (ids.length === 0) return failure('Give concept_id or concept_ids.')
+    if (ids.some((id) => !Number.isInteger(id))) return failure('Concept ids must be integers.')
+    if (ids.length > MAX_READ_BATCH) return failure(`At most ${MAX_READ_BATCH} concept_ids per call.`)
     const v = await vocabularyOf(await api.getMappingProject(mapping_project_id))
-    const concept = (await conceptsById(v, [id])).get(id)
-    if (!concept) return failure(`Concept ${id} is not in the vocabulary database.`)
-    const lines = [describeConcept(concept)]
-    const section = async (title: string, sql: string, format: (r: Record<string, unknown>) => string, max: number) => {
-      try {
-        const rows = await api.query(v.databaseId, sql)
-        if (rows.length) {
-          lines.push('', `${title}${rows.length > max ? ` (${max} of ${rows.length})` : ''}:`, ...rows.slice(0, max).map(format))
-        }
-      } catch { /* the vocabulary lacks that table */ }
+    const concepts = await conceptsById(v, ids)
+    const full = !concept_ids?.length
+    const cards: string[] = []
+    for (const id of ids) {
+      const concept = concepts.get(id)
+      cards.push(concept ? await conceptCard(v, concept, full) : `Concept ${id} is not in the vocabulary database.`)
     }
-    const asConcept = (r: Record<string, unknown>) => `  ${describeConcept({ ...(r as unknown as VocabConcept), concept_id: Number(r.concept_id) })}`
-    try {
-      const rows = sortRelations(await api.query(v.databaseId, buildConceptRelationsQuery(id, v.table)))
-      if (rows.length) {
-        const counts = new Map<string, number>()
-        for (const r of rows) counts.set(String(r.relationship_id), (counts.get(String(r.relationship_id)) ?? 0) + 1)
-        lines.push('', `Relationships (${[...counts].map(([k, n]) => `${k} ${n}`).join(', ')}):`,
-          ...rows.slice(0, 30).map((r) => `  ${String(r.relationship_id)}: ${asConcept(r).trim()}`))
-        if (rows.length > 30) lines.push(`  … ${rows.length - 30} more`)
-      }
-    } catch { /* no concept_relationship table */ }
-    await section('Synonyms', buildConceptSynonymsQuery(id), (r) =>
-      `  ${String(r.concept_synonym_name)}${r.language_name ? ` (${String(r.language_name)})` : ''}`, 20)
-    await section('Ancestors (nearest first)', buildConceptAncestorsQuery(id, v.table), asConcept, 12)
-    await section('Descendants (nearest first)', buildConceptDescendantsQuery(id, v.table), asConcept, 15)
-    await section('Descendant count', buildConceptDescendantCountQuery(id, v.table), (r) => `  ${String(r.cnt)}`, 1)
-    return text(lines.join('\n'))
+    if (full && !concepts.has(ids[0])) return failure(cards[0])
+    return text(cards.join('\n\n---\n\n'))
   }))
 
   server.registerTool('add_ai_suggestions', {

@@ -46,7 +46,7 @@ export function SuggestionComputeTab({ projectId, workspaceId, engines, canWrite
   const [methods, setMethods] = useState<string[]>(['syntactic/jaro-winkler'])
   const usable = engines.configs.filter((c) => c.index.some((s) => s.status !== 'missing' && (s.count ?? 0) > 0))
   const [configId, setConfigId] = useState<string>(usable[0]?.id ?? NONE)
-  const [filters, setFilters] = useState<TargetFilters>({ onlyStandard: true, onlyValid: true, domains: [], vocabularies: [] })
+  const [filters, setFilters] = useState<TargetFilters>({ onlyStandard: true, onlyValid: true, domains: [], vocabularies: [], conceptClasses: [] })
   const [topK, setTopK] = useState(20)
   const [onlyMissing, setOnlyMissing] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
@@ -149,7 +149,7 @@ export function SuggestionComputeTab({ projectId, workspaceId, engines, canWrite
         <SectionLabel as="h3" info={t('concept_mapping.engines_compute_targets_hint')}>
           {t('concept_mapping.engines_compute_targets')}
         </SectionLabel>
-        <TargetScopeFields value={filters} onChange={setFilters} vocabularies={engines.vocabularies} allLabel={t('concept_mapping.engines_all')} />
+        <TargetScopeFields value={filters} onChange={setFilters} vocabularies={engines.vocabularies} conceptClasses={engines.conceptClasses} allLabel={t('concept_mapping.engines_all')} />
       </section>
 
       <section className="grid grid-cols-2 items-end gap-3">

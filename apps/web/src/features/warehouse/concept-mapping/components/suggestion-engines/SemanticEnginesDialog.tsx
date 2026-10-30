@@ -169,7 +169,7 @@ export function SemanticEnginesDialog({ open, onOpenChange, workspaceId, engines
           workspaceId={workspaceId}
           models={engines.models}
           vocabularies={engines.vocabularies}
-          defaultDomains={engines.defaultModel.domains}
+          conceptClasses={engines.conceptClasses}
           config={editing === 'new' ? null : editing}
           onSaved={reload}
         />

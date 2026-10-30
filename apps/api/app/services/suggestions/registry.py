@@ -30,13 +30,12 @@ from pathlib import Path
 from app.config import settings
 
 BIOLORD_REPO = "FremyCompany/BioLORD-2023-M"
-# The non-drug domains: the Drug domain alone (RxNorm, ~2M standard concepts)
-# quadruples the index, so it gets a configuration of its own when needed.
-DEFAULT_DOMAINS = ["Condition", "Device", "Measurement", "Observation", "Procedure", "Specimen"]
 TEMPLATES = ("name_class", "name")
 DEVICES = ("auto", "cpu", "cuda", "mps")
 # What an index is computed from; changing one of them invalidates it.
 INDEX_FIELDS = ("modelId", "template", "filters")
+
+FILTER_LISTS = ("domains", "vocabularies", "conceptClasses")
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
@@ -160,6 +159,17 @@ def drop_index(workspace_id: str, config_id: str) -> None:
 def index_files(workspace_id: str, config_id: str, key: str) -> tuple[Path, Path]:
     d = index_dir(workspace_id, config_id)
     return d / f"{key}.ids.npy", d / f"{key}.vec.npy"
+
+
+def index_inputs(config: dict) -> dict:
+    """What the index of a configuration is computed from, a missing filter list
+    read as empty (configurations saved before it existed)."""
+    inputs = {k: config.get(k) for k in INDEX_FIELDS}
+    filters = dict(inputs.get("filters") or {})
+    for key in FILTER_LISTS:
+        filters[key] = filters.get(key) or []
+    inputs["filters"] = filters
+    return inputs
 
 
 def config_vocabularies(config: dict, inventory: list[dict]) -> list[dict]:

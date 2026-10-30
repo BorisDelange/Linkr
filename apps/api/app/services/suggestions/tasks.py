@@ -82,6 +82,22 @@ def concept_details(paths: list[str], ids: list[int]) -> dict[int, dict]:
     return {int(r[0]): dict(zip(keys, r[1:])) for r in rows}
 
 
+def concept_classes(workspace_id: str) -> list[str]:
+    """Every concept class of the workspace library (ATHENA's `concept_class`
+    table), the options of a target scope's class filter."""
+    path = lib.library_dir(workspace_id) / "concept_class" / lib.SHARED_FILE
+    if not path.is_file():
+        return []
+    import duckdb
+
+    con = duckdb.connect()
+    try:
+        rows = con.execute("SELECT concept_class_id FROM read_parquet(?) ORDER BY 1", [str(path)]).fetchall()
+    finally:
+        con.close()
+    return [r[0] for r in rows if r[0]]
+
+
 # --- Runtime and models ------------------------------------------------------
 
 
@@ -112,8 +128,9 @@ async def download_model(handle, workspace_id: str, model_id: str) -> None:
 
 async def setup_default(handle, workspace_id: str) -> None:
     """The one-click setup: the runtime when absent, BioLORD-2023-M, and a
-    configuration over the non-drug standard concepts writing `semantic/biolord`.
-    The index is left to build: it takes about an hour on a CPU."""
+    configuration over every standard concept writing `semantic/biolord`.
+    The index is left to build: a few hours (about 3.5 million concepts, two
+    thirds of them drugs)."""
     if not runtime.is_installed():
         await handle.log("Installing the embeddings runtime …")
         await runtime.install(handle)
@@ -131,7 +148,7 @@ async def setup_default(handle, workspace_id: str) -> None:
             data["configs"].append({
                 "id": registry.new_id(), "name": "BioLORD", "slug": slug, "modelId": model["id"],
                 "template": "name_class",
-                "filters": {"onlyStandard": True, "onlyValid": True, "domains": registry.DEFAULT_DOMAINS, "vocabularies": []},
+                "filters": {"onlyStandard": True, "onlyValid": True, "domains": [], "vocabularies": [], "conceptClasses": []},
                 "device": "auto", "batchSize": 256, "createdAt": registry.now(),
             })
         registry.save(workspace_id, data)

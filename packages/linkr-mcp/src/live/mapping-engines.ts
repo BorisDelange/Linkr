@@ -51,6 +51,7 @@ export function describeEngines(engines: SuggestionEngines): string {
       c.filters.onlyValid ? 'valid' : null,
       c.filters.domains.length ? c.filters.domains.join('/') : 'all domains',
       c.filters.vocabularies.length ? c.filters.vocabularies.join('/') : null,
+      c.filters.conceptClasses?.length ? c.filters.conceptClasses.join('/') : null,
     ].filter(Boolean).join(', ')
     lines.push(
       `- ${c.slug} → ${c.method}: ${c.name}, model ${model?.name ?? '?'}, ${scope}. `

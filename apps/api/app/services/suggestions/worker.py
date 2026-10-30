@@ -75,7 +75,8 @@ def sql_list(values: list[str]) -> str:
 
 def target_where(filters: dict) -> str:
     """WHERE clause over the OMOP `concept` columns for a target scope:
-    `onlyStandard`, `onlyValid`, `domains`, `vocabularies` (empty = all)."""
+    `onlyStandard`, `onlyValid`, `domains`, `vocabularies`, `conceptClasses`
+    (empty = all)."""
     clauses = ["concept_name IS NOT NULL", "concept_name <> ''"]
     if filters.get("onlyStandard"):
         clauses.append("standard_concept = 'S'")
@@ -85,6 +86,8 @@ def target_where(filters: dict) -> str:
         clauses.append(f"domain_id IN ({sql_list(filters['domains'])})")
     if filters.get("vocabularies"):
         clauses.append(f"vocabulary_id IN ({sql_list(filters['vocabularies'])})")
+    if filters.get("conceptClasses"):
+        clauses.append(f"concept_class_id IN ({sql_list(filters['conceptClasses'])})")
     return " AND ".join(clauses)
 
 

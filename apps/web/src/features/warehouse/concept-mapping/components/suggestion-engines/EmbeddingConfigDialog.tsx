@@ -23,14 +23,14 @@ interface Props {
   workspaceId: string
   models: EmbeddingModel[]
   vocabularies: string[]
-  defaultDomains: string[]
+  conceptClasses: string[]
   /** Edit this one; create when null. */
   config: EmbeddingConfig | null
   onSaved: () => void
 }
 
 /** Create or edit an embedding configuration: model, text template, target scope, device. */
-export function EmbeddingConfigDialog({ open, onOpenChange, workspaceId, models, vocabularies, defaultDomains, config, onSaved }: Props) {
+export function EmbeddingConfigDialog({ open, onOpenChange, workspaceId, models, vocabularies, conceptClasses, config, onSaved }: Props) {
   const { t } = useTranslation()
   const [name, setName] = useState(config?.name ?? '')
   const [slug, setSlug] = useState(config?.slug ?? '')
@@ -38,7 +38,7 @@ export function EmbeddingConfigDialog({ open, onOpenChange, workspaceId, models,
   const [modelId, setModelId] = useState(config?.modelId ?? models[0]?.id ?? '')
   const [template, setTemplate] = useState<EmbeddingConfig['template']>(config?.template ?? 'name_class')
   const [filters, setFilters] = useState<TargetFilters>(
-    config?.filters ?? { onlyStandard: true, onlyValid: true, domains: defaultDomains, vocabularies: [] },
+    config?.filters ?? { onlyStandard: true, onlyValid: true, domains: [], vocabularies: [], conceptClasses: [] },
   )
   const [device, setDevice] = useState<EmbeddingConfig['device']>(config?.device ?? 'auto')
   const [batchSize, setBatchSize] = useState(config?.batchSize ?? 256)
@@ -120,7 +120,7 @@ export function EmbeddingConfigDialog({ open, onOpenChange, workspaceId, models,
           </Select>
         )}
       </FormField>
-      <TargetScopeFields value={filters} onChange={setFilters} vocabularies={vocabularies} allLabel={t('concept_mapping.engines_all')} />
+      <TargetScopeFields value={filters} onChange={setFilters} vocabularies={vocabularies} conceptClasses={conceptClasses} allLabel={t('concept_mapping.engines_all')} />
       <div className="grid grid-cols-2 gap-3">
         <FormField label={t('concept_mapping.engines_config_device')} hint={t('concept_mapping.engines_config_device_hint')} hintInTooltip>
           {({ id }) => (

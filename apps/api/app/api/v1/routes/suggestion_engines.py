@@ -36,10 +36,14 @@ class TargetFilters(CamelModel):
     only_valid: bool = True
     domains: list[str] = Field(default_factory=list)
     vocabularies: list[str] = Field(default_factory=list)
+    concept_classes: list[str] = Field(default_factory=list)
 
 
 def _filters_dict(f: TargetFilters) -> dict:
-    return {"onlyStandard": f.only_standard, "onlyValid": f.only_valid, "domains": f.domains, "vocabularies": f.vocabularies}
+    return {
+        "onlyStandard": f.only_standard, "onlyValid": f.only_valid, "domains": f.domains,
+        "vocabularies": f.vocabularies, "conceptClasses": f.concept_classes,
+    }
 
 
 async def _launch(db: AsyncSession, user: User, workspace_id: str, kind: str, label: str, body, *, key: str, lane: str):
@@ -91,7 +95,8 @@ async def get_engines(
         "models": [_model_view(workspace_id, m) for m in data["models"]],
         "configs": [_config_view(workspace_id, c, inventory) for c in data["configs"]],
         "vocabularies": [v["vocabularyId"] for v in inventory],
-        "defaultModel": {"repoId": registry.BIOLORD_REPO, "domains": registry.DEFAULT_DOMAINS},
+        "conceptClasses": await asyncio.to_thread(tasks.concept_classes, workspace_id),
+        "defaultModel": {"repoId": registry.BIOLORD_REPO},
         "setupJobId": tasks.running_job(f"setup:{workspace_id}"),
     }
 
@@ -265,7 +270,7 @@ async def create_config(
             "slug": slug,
             "modelId": model["id"],
             "template": body.template or "name_class",
-            "filters": _filters_dict(body.filters or TargetFilters(domains=registry.DEFAULT_DOMAINS)),
+            "filters": _filters_dict(body.filters or TargetFilters()),
             "device": body.device or "auto",
             "batchSize": body.batch_size or 256,
             "createdAt": registry.now(),
@@ -293,7 +298,7 @@ async def update_config(
         config = registry.find(data["configs"], config_id)
         if config is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Configuration not found")
-        before = {k: config.get(k) for k in registry.INDEX_FIELDS}
+        before = registry.index_inputs(config)
         if body.model_id is not None:
             if registry.find(data["models"], body.model_id) is None:
                 raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown model")
@@ -312,7 +317,7 @@ async def update_config(
         if body.batch_size is not None:
             config["batchSize"] = body.batch_size
         registry.save(workspace_id, data)
-    if {k: config.get(k) for k in registry.INDEX_FIELDS} != before:
+    if registry.index_inputs(config) != before:
         await asyncio.to_thread(registry.drop_index, workspace_id, config_id)
     return _config_view(workspace_id, config, await tasks.library_inventory(workspace_id))
 
