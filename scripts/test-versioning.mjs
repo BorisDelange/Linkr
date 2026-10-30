@@ -5,7 +5,7 @@
  * dev server (the journeys import app modules from /src), on free ports, never
  * the user's dev server.
  *
- *   npm run test:versioning                     # round trip, matrix, workspace pull
+ *   npm run test:versioning                     # round trip, matrix, workspace and mapping pulls
  *   npm run test:versioning -- --forge          # + merge requests on docker/forge-sim
  *   npm run test:versioning -- --refresh-demo   # reinstall the demo snapshot first
  *   npm run test:versioning -- matrix           # some journeys only
@@ -38,6 +38,7 @@ const JOURNEYS = {
   roundtrip: 'e2e/server/versioning-roundtrip.spec.ts',
   matrix: 'e2e/server/versioning-matrix.spec.ts',
   'workspace-pull': 'e2e/server/workspace-pull.spec.ts',
+  'mapping-pull': 'e2e/server/mapping-project-pull.spec.ts',
 }
 
 function parseArgs(argv) {

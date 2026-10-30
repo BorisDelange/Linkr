@@ -67,6 +67,10 @@ writes, and lost its tables when a job's cancellation invalidated it.
   in the run (skipped otherwise); `E2E_API_URL` names the API when it is not on
   the page's origin (a dev stack), and `E2E_SHOTS=<dir>` saves screenshots of
   the pull.
+  `mapping-project-pull.spec.ts` runs a mapping project's own pull screen on the
+  demo's MIMIC-IV project: two mappings a colleague changed, one taken and one
+  kept through the mappings table, the README taken, only the kept one left to
+  push.
   `versioning-roundtrip.spec.ts` pushes every entity of the demo workspace,
   reinstalls it from what was pushed and expects nothing left to commit;
   `versioning-matrix.spec.ts` runs every kind of entity (workspace with an inline
