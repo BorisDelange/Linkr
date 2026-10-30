@@ -60,6 +60,29 @@ writes, and lost its tables when a job's cancellation invalidated it.
   the first account, so give it a fresh, disposable instance; the other journeys
   sign in as that account. They create a workspace, upload a SQLite database and
   query it through the server, then link it to a new project.
+  `workspace-pull.spec.ts` plays two editors on one workspace repository — a
+  colleague's wiki edits pulled back page by page and item by item, merged
+  with local ones — against a bare repository on the machine. It needs a server
+  started with `LINKR_GIT_ALLOW_LOCAL_REMOTES=true` and `E2E_GIT_LOCAL_REMOTES=1`
+  in the run (skipped otherwise); `E2E_API_URL` names the API when it is not on
+  the page's origin (a dev stack), and `E2E_SHOTS=<dir>` saves screenshots of
+  the pull.
+  `versioning-roundtrip.spec.ts` pushes every entity of the demo workspace,
+  reinstalls it from what was pushed and expects nothing left to commit;
+  `versioning-matrix.spec.ts` runs every kind of entity (workspace with an inline
+  project, project, SQL collection, DQ rule set, catalog, ETL, schema preset,
+  database) through push → a colleague's change pulled back → the same on
+  another branch, and — with `E2E_FORGE=1` and the local GitLab of
+  `docker/forge-sim/` (README there; the API started with
+  `LINKR_GIT_ALLOWED_HOSTS=localhost:8929`) — a change proposed as a merge
+  request, merged on the forge by another user, then pulled. Both need an
+  instance holding the demo workspace (`E2E_DEMO=1`) and rewire its git links:
+  run them on a disposable one.
+  `npm run test:versioning` (`scripts/test-versioning.mjs`) runs these three on
+  a stack of its own (free ports, data in `.cache/versioning-e2e/`): the first
+  run installs the demo from the public catalog once and keeps a snapshot, each
+  journey starts from a fresh copy of it; `--forge` adds the merge requests
+  (starts, seeds and stops forge-sim), `--refresh-demo` reinstalls the snapshot.
 
 `e2e/fixtures.ts` fails every journey on an uncaught page exception and gives
 `bootDemo(page)` and, for the server, `signIn(page)`. The code editor binds its

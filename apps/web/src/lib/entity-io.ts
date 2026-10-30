@@ -48,6 +48,7 @@ import * as engine from '@/lib/duckdb/engine'
 import { aliasesInScope } from '@/lib/alias'
 import { localized, toLocalized } from '@/lib/localized'
 import { readWikiPageMeta } from '@/lib/wiki-page-meta'
+import { importedChecks, portableChecks } from '@/lib/dq-check-portable'
 import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
 import { README_FILE_RE } from '@/lib/entity-tree'
 import { buildMappingProjectFolder, restoreFileSourceDataFromCsv } from '@/lib/concept-mapping/export'
@@ -1042,6 +1043,7 @@ function buildPatientWidgetKeyMap(
 // local user id is meaningless in another instance (the importing backend
 // re-resolves it by ORCID/email, falling back to NULL + the snapshot).
 const INSTANCE_FIELDS = [
+  'gitPushPolicy',
   'ownerId',
   'createdById',
   'origin',
@@ -1499,7 +1501,9 @@ export async function buildProjectZip(
 
       const analyses = await storage.datasetAnalyses.getByDataset(df.id)
       for (const a of analyses) {
-        zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(stripInstanceFields(a)))
+        // No id: it is derived on import from the analysis key (dataset + name).
+        const { id: _id, ...portable } = stripInstanceFields(a)
+        zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(portable))
       }
 
       // A data file leaves the machine only when explicitly marked for versioning.
@@ -2031,7 +2035,9 @@ export async function importProjectContent(
     if (isServerMode() && !datasetIdMap.has(a.datasetFileId)) continue
     await storage.datasetAnalyses.create({
       ...a,
-      id: mapId(a.id),
+      // From the analysis' key, never its exported id: an id derived from an id
+      // moves on every re-import, and the export wrote it back.
+      id: keyId(`analysis:${(a as { datasetPath?: string }).datasetPath ?? a.datasetFileId}/${slugify(a.name || 'analysis')}`),
       datasetFileId: resolveDatasetId(a.datasetFileId),
       config: remapColIds(a.config, colIdMap),
     })
@@ -3165,7 +3171,7 @@ export async function buildDqRuleSetFolder(
   zip.file(`${prefix}${ENTITY_MANIFEST}`, json(withEntityType(stripEntityDocs(portable), 'dq-rule-set')))
   await writeEntityDocs(zip, prefix, ruleSet, storage, 'dq-rule-set', ruleSet.id)
   const checks = await storage.dqCustomChecks.getByRuleSet(ruleSet.id)
-  if (checks.length > 0) zip.file(`${prefix}${CONTENT_FILE.dqChecks}`, json(checks))
+  if (checks.length > 0) zip.file(`${prefix}${CONTENT_FILE.dqChecks}`, json(portableChecks(checks)))
 }
 
 export async function buildDqRuleSetZip(
@@ -3504,7 +3510,12 @@ async function applyClonedDatabase(
   storage: Storage,
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
+  options: ApplyClonedOptions = {},
 ): Promise<ApplyClonedResult> {
+  // A pull of a tree without data/ (not versioned) must not touch the database's
+  // files: the re-clone path replaces them with what the repo carries, which here
+  // is nothing — the database would come out empty.
+  const keepData = !!options.keepData
   const metaEntry = zip.files[ENTITY_MANIFEST] ?? zip.files[MANIFEST.database]
   if (!metaEntry) return { ok: false, reason: 'missing-manifest', context: MANIFEST.database }
   const meta = JSON.parse(await metaEntry.async('string')) as DatabaseRepoMeta
@@ -3549,8 +3560,10 @@ async function applyClonedDatabase(
 
   // Replace any previous files for this source so a re-clone is idempotent
   // rather than accumulating a second copy of every table.
-  const previous = await storage.files.getByDataSource(targetId).catch(() => [])
-  for (const file of previous) await storage.files.delete(file.id).catch(() => {})
+  if (!keepData) {
+    const previous = await storage.files.getByDataSource(targetId).catch(() => [])
+    for (const file of previous) await storage.files.delete(file.id).catch(() => {})
+  }
 
   const connectionConfig: DatabaseConnectionConfig = {
     engine: 'duckdb',
@@ -3576,7 +3589,7 @@ async function applyClonedDatabase(
     name: toLocalized(meta.name ?? targetId),
     description: toLocalized(meta.description ?? ''),
     sourceType: 'database' as const,
-    connectionConfig,
+    connectionConfig: keepData && existing ? existing.connectionConfig : connectionConfig,
     schemaMapping,
     ...(schemaOverrides ? { schemaOverrides } : {}),
     // Which published schema the inline mapping came from: the id recognizes it
@@ -3584,7 +3597,7 @@ async function applyClonedDatabase(
     // installed. Both travel with the repo.
     ...(meta.schemaSource ? { schemaSource: meta.schemaSource } : {}),
     ...(meta.derivedFrom ? { derivedFrom: meta.derivedFrom } : {}),
-    status: 'configuring' as const,
+    status: keepData && existing ? existing.status : ('configuring' as const),
     ...(meta.isVocabularyReference ? { isVocabularyReference: true } : {}),
     ...(meta.version ? { version: meta.version } : {}),
     ...(workspaceId ? { workspaceId } : {}),
@@ -3646,6 +3659,8 @@ async function applyClonedDatabase(
   await replaceDatabaseBoards(storage, targetId, await readCohortBoards(zip, '')).catch((err) => {
     console.error(`[import] patient board failed for "${targetId}":`, err)
   })
+
+  if (keepData && existing) return { ok: true, ...(aliasRenamed ? { aliasRenamed } : {}) }
 
   // The row has to exist BEFORE its files: in server mode `files.create` registers
   // each blob against the data source, and the API refuses an unknown one with a
@@ -3881,6 +3896,11 @@ export interface ApplyClonedResult {
  * reinstall failed" for a missing manifest, an absent DDL and a rejected write
  * alike. `reason` + `context` let the UI say which file the repo is missing.
  */
+export interface ApplyClonedOptions {
+  /** Databases: keep the files already stored (a pull of a tree carrying no data). */
+  keepData?: boolean
+}
+
 export async function applyClonedEntity(
   zip: JSZip,
   type: GitLinkedEntity['type'],
@@ -3888,6 +3908,7 @@ export async function applyClonedEntity(
   storage: Storage,
   workspaceId?: string,
   gitRemoteConfig?: GitRemoteConfig,
+  options: ApplyClonedOptions = {},
 ): Promise<ApplyClonedResult> {
   await assertAppVersionSupported(zip)
   const readJson = async <T>(name: string): Promise<T | null> => {
@@ -4053,14 +4074,10 @@ export async function applyClonedEntity(
       if (database) changes.dataSourceId = database.id
     }
     const checks = (await readJson<DqCustomCheck[]>(CONTENT_FILE.dqChecks)) ?? []
-    // Re-mint the check id: it's a global PK, so the repo's original id collides
-    // when the same rule-set repo is cloned into a second workspace or as a copy.
-    // One atomic replace, first: a check the server refuses (a threshold out of
-    // range) used to land after the old checks were deleted, leaving none.
-    await storage.dqCustomChecks.replaceByRuleSet(targetId, checks.map((c) => {
-      const { id: _cid, ruleSetId: _rs, ...rest } = c
-      return { ...rest, id: crypto.randomUUID(), ruleSetId: targetId } as DqCustomCheck
-    }))
+    // Ids derived from (rule set, check key): stable on every re-apply, distinct
+    // in a second copy. One atomic replace, first: a check the server refuses (a
+    // threshold out of range) used to land after the old checks were deleted.
+    await storage.dqCustomChecks.replaceByRuleSet(targetId, importedChecks(checks, targetId))
     await storage.dqRuleSets.update(targetId, changes)
     return { ok: true }
   }
@@ -4097,7 +4114,8 @@ export async function applyClonedEntity(
     const withDocs = await withEntityDocs(
       dropForeignAuthorId({
         ...preset,
-        presetId: targetId,
+        // A re-apply (a pull) keeps the row's own key; `targetId` may be its id.
+        presetId: existingPreset?.presetId ?? targetId,
         // A local key is local: the repo's belongs to whichever instance wrote
         // it, so this row keeps its own — the one already stored when this is a
         // re-clone of a preset that is here, a fresh uuid otherwise. Re-minting
@@ -4112,12 +4130,14 @@ export async function applyClonedEntity(
         // and a repo that does carry one keeps the published value.
         lineageId: existingPreset?.lineageId ?? preset.lineageId ?? crypto.randomUUID(),
         workspaceId,
-        ...(gitRemoteConfig ? { gitRemoteConfig } : {}),
+        // save() is a full upsert: a link left out is a link erased. A pull passes
+        // none, so the row's own stays.
+        ...((gitRemoteConfig ?? existingPreset?.gitRemoteConfig) ? { gitRemoteConfig: gitRemoteConfig ?? existingPreset?.gitRemoteConfig } : {}),
         // `mapping.presetId` must follow the entity's id. Leaving the repo's
         // value made the two drift whenever the install minted a fresh id, and
         // a later ZIP import — which reads `mapping.presetId` as the entity id
         // and deletes whatever holds it — then deleted a different preset.
-        mapping: sanitizeSchemaMapping({ ...presetMapping, presetId: targetId, ddl }),
+        mapping: sanitizeSchemaMapping({ ...presetMapping, presetId: existingPreset?.presetId ?? targetId, ddl }),
       }) as CustomSchemaPreset,
       'schema-preset',
     )
@@ -4126,7 +4146,7 @@ export async function applyClonedEntity(
   }
 
   if (type === 'database') {
-    return applyClonedDatabase(zip, targetId, storage, workspaceId, gitRemoteConfig)
+    return applyClonedDatabase(zip, targetId, storage, workspaceId, gitRemoteConfig, options)
   }
 
   // project: parse the cloned repo as a project ZIP and write its sub-entities under targetId.
@@ -4485,7 +4505,11 @@ export async function buildWorkspaceZip(
       // `workspaceId`/`createdById` and an `updatedAt` that churns on every edit.
       // `id`/`parentId` stay — they are the tree's own structure, and the import
       // re-keys them (mapWikiId) rather than adopting them.
-      const treeMeta = wikiPages.map(({ content: _, ...meta }) => stripInstanceFields(meta as WikiPage))
+      // By id: storage order is insertion order, which differs between two
+      // instances holding the same pages and would churn the file.
+      const treeMeta = [...wikiPages]
+        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+        .map(({ content: _, ...meta }) => stripInstanceFields(meta as WikiPage))
       zip.file('wiki/_tree.json', json(treeMeta))
 
       for (const page of wikiPages) {

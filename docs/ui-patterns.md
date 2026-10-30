@@ -583,6 +583,13 @@ the call). Notebook cells bind the same contexts per cell.
 Monaco providers are global per language; `components/editor/completion-providers.ts`
 maps each editor's model to its context — never register a provider elsewhere.
 
+### Diff views: `SafeDiffEditor`
+
+A side-by-side diff is `SafeDiffEditor` (`components/editor/SafeDiffEditor.tsx`),
+never `@monaco-editor/react`'s `DiffEditor` directly: the latter throws an
+uncaught "TextModel got disposed before DiffEditorWidget model got reset" each
+time its dialog closes, which fails every journey that opens one.
+
 ### Editor tab bars: `editorTabClass`
 
 Every tab in an editor's tab bar — IDE scripts, terminals and outputs, datasets,

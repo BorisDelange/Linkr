@@ -29,7 +29,11 @@ export const MIN_APP_VERSION: Partial<Record<LayoutKind, string>> = {
   // 2.4.5: dashboards gained `events` and widgets an `eventIds` selection; a 2.4.4
   // drops the events silently and the control charts lose their markers.
   'project': '2.4.5',
-  'workspace': '2.4.5',
+  // 2.4.6: checks.json carries no check id (ids are derived from a check key on
+  // import); a 2.4.5 importing a workspace or a rule-set file writes checks with
+  // no id.
+  'dq-rule-set': '2.4.6',
+  'workspace': '2.4.6',
 }
 
 /**

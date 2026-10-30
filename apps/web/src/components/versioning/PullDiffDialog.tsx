@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { DiffEditor, type BeforeMount } from '@monaco-editor/react'
+import { type BeforeMount } from '@monaco-editor/react'
+import { SafeDiffEditor } from '@/components/editor/SafeDiffEditor'
 import { Allotment } from 'allotment'
 import 'allotment/dist/style.css'
 import { FileWarning } from 'lucide-react'
@@ -98,7 +99,7 @@ export function PullDiffDialog({ plan, initialPath, buildDiff, onClose }: PullDi
                   <p className="max-w-md text-sm">{t('versioning.pull_diff_whole_file')}</p>
                 </div>
               ) : (
-                <DiffEditor
+                <SafeDiffEditor
                   key={path}
                   original={diff?.oldContent ?? ''}
                   modified={diff?.newContent ?? ''}

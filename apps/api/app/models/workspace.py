@@ -22,6 +22,10 @@ class Workspace(Base, UUIDPKMixin, TimestampMixin):
     # so it travels with the export (LICENSE.md) independently of the picker.
     license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
     git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    # "direct" (null too) or "review": in review, changes leave as merge requests
+    # only, for the workspace and every entity in it. An instance setting, never
+    # exported; the forge's branch protection is what actually enforces it.
+    git_push_policy: Mapped[str | None] = mapped_column(String(20))
     # Default package lists for a new project's environments, per language:
     # {"python": ["pandas", "numpy==1.26", …], "r": ["dplyr", …]}. Applied when a
     # project is created in this workspace (see project creation). NULL = built-in

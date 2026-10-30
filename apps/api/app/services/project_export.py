@@ -892,7 +892,7 @@ def build_project_tree(
             for a in dataset_analyses.get(df["id"], []):
                 tree[
                     f"datasets/{folder_name}/{_slugify(a.get('name') or a['id'])}.json"
-                ] = _json(_strip_instance_fields(a))
+                ] = _json({k: v for k, v in _strip_instance_fields(a).items() if k != "id"})
 
             # A data file leaves the machine only when the user marked it for
             # versioning. Marking key is the logical `datasets/<ds_path>`; the tree

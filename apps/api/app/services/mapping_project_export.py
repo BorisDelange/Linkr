@@ -176,6 +176,9 @@ def _build_project_json(
             # for a file git never carried.
             "scoresFileSha",
             "scoresFileName",
+            # Names the source file as stored here (unmasked): it differed from the
+            # masked source-concepts.csv the repo carries, and moved on every pull.
+            "rawFileSha",
             # The vocabulary database is never exported (and its lineage is minted
             # per import), so a pointer to it resolved nowhere and flipped in git
             # between two users who each imported ATHENA.

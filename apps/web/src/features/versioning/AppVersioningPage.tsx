@@ -5,6 +5,10 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useWorkspaceVersioningStore } from '@/stores/workspace-versioning-store'
 import { VersioningTabs } from '@/components/versioning/VersioningTabs'
 import { useRememberedVersioningTab } from '@/components/versioning/use-remembered-versioning-tab'
+import { useWikiStore } from '@/stores/wiki-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
 import { WsExportTab } from './WsExportTab'
 
 export function AppVersioningPage() {
@@ -37,6 +41,9 @@ export function AppVersioningPage() {
     if (wsUid) void loadRemoteConfig(wsUid)
   }, [wsUid, loadRemoteConfig])
 
+  const reviewMode = useWorkspaceStore((s) => s._workspacesRaw.find((w) => w.id === wsUid)?.gitPushPolicy === 'review')
+  const updateWorkspace = useWorkspaceStore((s) => s.updateWorkspace)
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="shrink-0 px-6 pt-5 pb-2 text-center">
@@ -44,6 +51,19 @@ export function AppVersioningPage() {
       </div>
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">
+        {wsRemote && wsUid && (
+          <div className="mb-3 flex items-start gap-2 rounded-md border bg-card px-3 py-2">
+            <Switch
+              id="ws-review-mode"
+              checked={reviewMode}
+              onCheckedChange={(on) => void updateWorkspace(wsUid, { gitPushPolicy: on ? 'review' : 'direct' })}
+            />
+            <div className="min-w-0">
+              <Label htmlFor="ws-review-mode">{t('versioning.review_mode')}</Label>
+              <p className="text-xs text-muted-foreground">{t('versioning.review_mode_hint')}</p>
+            </div>
+          </div>
+        )}
         <VersioningTabs
           fillHeight
           gitRemote={wsRemote}
@@ -53,6 +73,9 @@ export function AppVersioningPage() {
           onTabChange={(v) => { setTab(v); onTabChange(v) }}
           syncScope="workspaces"
           syncId={wsUid ?? undefined}
+          onAfterPull={async () => {
+            if (wsUid && useWikiStore.getState().currentWorkspaceId === wsUid) await useWikiStore.getState().loadPages(wsUid)
+          }}
         />
       </div>
     </div>

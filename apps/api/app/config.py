@@ -159,6 +159,17 @@ class Settings(BaseSettings):
     # SPE deployment should set it to the datamart's hosts.
     db_allowed_hosts: str = ""
 
+    # Git hosts a remote may sit on although they resolve to a private or loopback
+    # address (the remote-URL guard refuses those, against SSRF): comma-separated
+    # `host` or `host:port`, e.g. "gitlab.chu.local,localhost:8929". A listed host
+    # may also be reached over plain http://. Empty = none — a hospital's internal
+    # GitLab must be listed here to be usable.
+    git_allowed_hosts: str = ""
+    # Development only: accept a local path or file:// as a git remote, so the
+    # versioning flows can be tried against a bare repository on this machine.
+    # Never in a deployment — the server would clone (and hand back) its own disk.
+    git_allow_local_remotes: bool = False
+
     # Server-side query engine: how long a warm DuckDB connection to a data
     # source is kept alive between queries before it is closed for inactivity.
     pool_ttl_seconds: int = 300

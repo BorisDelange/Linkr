@@ -3,10 +3,10 @@
  * remote moved, its branches. Committing, pushing and pulling stay in the app.
  */
 import { fromJsonSchema } from '@modelcontextprotocol/server'
-import type { GitBranches, GitDiff, GitStatus, GitSyncState } from '@/lib/api/git'
+import type { GitBranches, GitDiff, GitProposal, GitStatus, GitSyncState } from '@/lib/api/git'
 import { ApiError } from './api.js'
 import {
-  GIT_ENTITIES, GIT_ENTITY_KINDS, explainGitError, formatBranches, formatDiff, formatStatus, formatSyncState, gitPath,
+  GIT_ENTITIES, GIT_ENTITY_KINDS, explainGitError, formatBranches, formatDiff, formatProposals, formatStatus, formatSyncState, gitPath,
   type GitEntity,
 } from './git.js'
 import { READ, api, failure, guard, text, type Server, type ToolResult } from './shared.js'
@@ -119,5 +119,17 @@ export function registerGitTools(server: Server): void {
   }, guard(async ({ entity, id }) => gitCall(async () => {
     if (!GIT_ENTITIES[entity]) return failure(`entity must be one of ${GIT_ENTITY_KINDS.join(', ')}.`)
     return text(formatBranches(await api.request<GitBranches>('GET', gitPath(entity, id, 'branches'))))
+  })))
+
+  server.registerTool('list_git_proposals', {
+    description: 'The merge requests (GitLab) / pull requests (GitHub) the users opened from Linkr for an entity, with their '
+      + 'state as the forge reports it (open, merged, closed) and their link. Proposing is done by the user in Linkr.',
+    annotations: REMOTE_READ,
+    inputSchema: fromJsonSchema<{ entity: GitEntity; id: string }>({
+      type: 'object', properties: entitySchema, required: ['entity', 'id'],
+    }),
+  }, guard(async ({ entity, id }) => gitCall(async () => {
+    if (!GIT_ENTITIES[entity]) return failure(`entity must be one of ${GIT_ENTITY_KINDS.join(', ')}.`)
+    return text(formatProposals(await api.request<GitProposal[]>('GET', gitPath(entity, id, 'proposals'))))
   })))
 }

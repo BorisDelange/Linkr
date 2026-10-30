@@ -27,6 +27,7 @@ import unicodedata
 from typing import Any
 
 from app.core.json_export import export_json as _json
+from app.services.dq_check_portable import portable_checks
 from app.services.export_layout import (
     ENTITY_MANIFEST,
     git_pointer_manifest,
@@ -66,6 +67,7 @@ from app.services.org_snapshot import org_snapshot
 # apps/web/src/lib/entity-io.ts. ``createdAt`` is NOT here (portable provenance);
 # only ``updatedAt`` moves on every edit, so it is dropped.
 _INSTANCE_FIELDS = (
+    "gitPushPolicy",
     "ownerId",
     "createdById",
     "origin",
@@ -259,7 +261,9 @@ def _build_wiki_section(
     tree["wiki/_tree.json"] = _json(
         [
             _strip_instance_fields({k: v for k, v in p.items() if k != "content"})
-            for p in wiki_pages
+            # By id: rows come back in insertion order, which differs between two
+            # instances holding the same pages and would churn the file.
+            for p in sorted(wiki_pages, key=lambda p: p["id"])
         ]
     )
     for page in wiki_pages:
@@ -455,7 +459,7 @@ def _build_data_quality_section(
         for name, content in (entry.get("docs") or {}).items():
             tree[f"{prefix}{name}"] = content
         if checks:
-            tree[f"{prefix}{CONTENT_DQ_CHECKS}"] = _json(checks)
+            tree[f"{prefix}{CONTENT_DQ_CHECKS}"] = _json(portable_checks(checks))
 
 
 def _build_concept_sets_section(tree: dict[str, bytes], concept_sets: list[dict]) -> None:

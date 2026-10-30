@@ -1,5 +1,5 @@
 /** Pure helpers for the read-only git tools: routes per entity kind, and readable reports. */
-import type { GitBranches, GitDiff, GitStatus, GitSyncState } from '@/lib/api/git'
+import type { GitBranches, GitDiff, GitProposal, GitStatus, GitSyncState } from '@/lib/api/git'
 
 export type GitEntity =
   | 'project' | 'workspace' | 'mapping_project' | 'sql_collection' | 'etl_pipeline' | 'data_catalog'
@@ -21,7 +21,7 @@ export const GIT_ENTITIES: Record<GitEntity, { prefix: string; syncState: boolea
 
 export const GIT_ENTITY_KINDS = Object.keys(GIT_ENTITIES) as GitEntity[]
 
-export function gitPath(kind: GitEntity, id: string, op: 'status' | 'diff' | 'branches' | 'sync-state', branch?: string): string {
+export function gitPath(kind: GitEntity, id: string, op: 'status' | 'diff' | 'branches' | 'sync-state' | 'proposals', branch?: string): string {
   const entity = GIT_ENTITIES[kind]
   if (!entity) throw new Error(`Unknown entity kind "${kind}"; one of ${GIT_ENTITY_KINDS.join(', ')}.`)
   const qs = op === 'sync-state' && branch ? `?branch=${encodeURIComponent(branch)}` : ''
@@ -30,6 +30,14 @@ export function gitPath(kind: GitEntity, id: string, op: 'status' | 'diff' | 'br
 
 const size = (bytes: number) =>
   bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} B`
+
+/** The merge / pull requests opened from Linkr for an entity, newest first. */
+export function formatProposals(rows: GitProposal[]): string {
+  if (rows.length === 0) return 'No change proposed from Linkr for this entity.'
+  return rows
+    .map((p) => `- ${p.forge === 'github' ? '#' : '!'}${p.number} ${p.state}: ${p.title} (${p.branch} → ${p.targetBranch}) ${p.url}`)
+    .join('\n')
+}
 
 /** What a commit would change, by file, cut at `maxFiles`. */
 export function formatStatus(s: GitStatus, maxFiles = 80): string {

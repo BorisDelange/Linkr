@@ -1,7 +1,5 @@
 [
   {
-    "id": "chk-1",
-    "ruleSetId": "rs-1",
     "name": "Non-null person id",
     "description": "person_id must be present",
     "category": "completeness",
@@ -15,12 +13,9 @@
     "templateKey": null,
     "tableName": "person",
     "disabled": false,
-    "createdAt": "2026-01-02T03:04:05.000Z",
-    "updatedAt": "2026-01-02T03:04:05.000Z"
+    "createdAt": "2026-01-02T03:04:05.000Z"
   },
   {
-    "id": "chk-2",
-    "ruleSetId": "rs-1",
     "name": "Valid birth year",
     "description": "year_of_birth in range",
     "category": "plausibility",
@@ -34,7 +29,6 @@
     "templateKey": null,
     "tableName": "person",
     "disabled": false,
-    "createdAt": "2026-01-02T03:04:05.000Z",
-    "updatedAt": "2026-01-02T03:04:05.000Z"
+    "createdAt": "2026-01-02T03:04:05.000Z"
   }
 ]

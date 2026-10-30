@@ -80,6 +80,16 @@ Inheriting the SPE's security only holds if Linkr does not undo it from the insi
   loads Pyodide/webR from a CDN on first use. It is for demos, portals, open or synthetic
   data — **never an SPE deployment for real patient data**.
 
+## Git inside an SPE
+
+The forge of an SPE is usually the hospital's own GitLab, on a private address.
+Linkr refuses such remotes by default (the clone and sync flows make the server
+connect to a URL a user typed — SSRF); the instance admin lists the forge in
+`LINKR_GIT_ALLOWED_HOSTS` (`gitlab.chu.local` or `host:port`), which also allows
+plain http to it. Merge requests are opened on that forge with each user's own
+token. A workspace can be set to take changes as merge requests only (Versioning
+→ "Changes go through review"); the forge's branch protection is what enforces it.
+
 ## Testing against an SPE locally
 
 [`docker/spe-sim/`](../docker/spe-sim/README.md) simulates the common shape: a TLS

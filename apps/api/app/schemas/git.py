@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from pydantic import field_validator
 
@@ -63,7 +64,25 @@ class GitCommitResponse(CamelModel):
     committed: bool
     pushed: bool
     nothing_to_commit: bool
+    # The branch the commit went to (a proposal's own branch).
+    branch: str | None = None
     commit: GitCommitInfo | None = None
+
+
+class GitProposalResponse(CamelModel):
+    """A merge request / pull request opened from Linkr, state as last read."""
+
+    id: int
+    scope: str
+    entity_id: str
+    branch: str
+    target_branch: str
+    forge: str
+    number: int
+    url: str
+    title: str
+    state: str
+    created_at: datetime | None = None
 
 
 class GitSyncStateResponse(CamelModel):
@@ -136,6 +155,41 @@ class GitPullPreviewResponse(CamelModel):
     base: GitPullSide
     remote: GitPullSide
     source_concepts_diff: SourceConceptsDiff = SourceConceptsDiff()
+
+
+class GitTreePreviewResponse(CamelModel):
+    """At BASE (the sync anchor) and at the remote head: the text of every file
+    under the requested prefix, and the blob oid of every other file in the tree."""
+
+    branch: str
+    remote_head: str | None = None
+    synced_oid: str | None = None
+    base: dict[str, str] = {}
+    remote: dict[str, str] = {}
+    base_oids: dict[str, str] = {}
+    remote_oids: dict[str, str] = {}
+
+
+class GitThreeWayFile(CamelModel):
+    """One file the remote changed since BASE. The three texts are present when
+    every side that has the file holds readable text; `binary` otherwise, and
+    only the blob ids say what moved."""
+
+    path: str
+    base_oid: str | None = None
+    local_oid: str | None = None
+    remote_oid: str | None = None
+    binary: bool = False
+    base: str | None = None
+    local: str | None = None
+    remote: str | None = None
+
+
+class GitThreeWayResponse(CamelModel):
+    branch: str
+    remote_head: str | None = None
+    synced_oid: str | None = None
+    files: list[GitThreeWayFile] = []
 
 
 class GitSetSyncStateRequest(CamelModel):

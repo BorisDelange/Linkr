@@ -4,7 +4,8 @@ Goal: several people edit the same workspace (the wiki first) and meet in one gi
 repository without losing each other's work, and a change can go through review
 (merge request / pull request) instead of landing straight on the main branch.
 
-Started 2026-10-28. As-built of what exists today: `docs/architecture.md` § Versioning.
+Started 2026-10-28, built through 2026-10-30 (all of §2's order, and §9).
+As-built: `docs/architecture.md` § Versioning; what remains: `README.md` here (Versioning).
 
 ## 1. Where we are
 
@@ -177,13 +178,129 @@ changes** action:
 - Review, comments and the merge itself stay on the forge — Linkr does not re-implement
   code review. The wiki status fits naturally: a page in *Needs revision* is what goes
   into a proposal.
-- MCP: `propose_git_changes` + `list_git_proposals`, same permission as commit-push.
+- MCP: read only, like its other git tools (`list_git_proposals`); it never commits, pushes,
+  pulls or opens a proposal.
 
 ## 7. Push policy per workspace
 
 `workspace.gitPushPolicy`: `direct` (today) or `review` (only *Propose changes*;
 *Commit & push* hidden). Set by a workspace admin. A forge-side protected branch is
 the real enforcement; this only keeps the UI honest about it.
+
+## 9. Every versioned entity — one pull engine, cards by subject, one test matrix
+
+Asked 2026-10-29: every versionable thing is pulled, proposed (MR/PR), pushed
+and tested on branches; the quick actions and the pull granularity are redone
+around what an entity is made of.
+
+### 9.1 Inventory (2026-10-29)
+
+| scope | anchored push | pull today | granularity today |
+|---|---|---|---|
+| workspaces | yes | wiki only (`WorkspacePull`) | page → field / language |
+| projects | **no** | **disabled** (`ProjectPull`, unwired 3b06130ee) | group → entity, no base |
+| mapping-projects | yes | `MappingProjectPull` (3-way) | mapping row, metadata field, whole CSVs |
+| sql-script-collections | **no** (no sync-state route either) | none | — |
+| etl-pipelines | yes | `EtlPipelinePull` (no base) | file + settings block |
+| schema-presets | yes | `SchemaPresetPull` (no base) | 2 blocks: schema / docs |
+| databases | yes | `DatabasePull` | whole repo |
+| data-catalogs, dq-rule-sets, user-plugins | yes | none | — |
+| settings | yes | dialog (upsert) | family |
+
+Inside a workspace repo, the workspace's own metadata (`entity.json`: name,
+description, licence; README; attachments), `wiki/`, `concept-sets/`,
+`service-mappings/`, `source-concept-ids/ranges.json` and user `plugins/` are
+always inline; projects, schemas, databases, SQL collections, ETL, DQ, mapping
+projects and catalogs are inline unless git-linked (then a pointer + their own
+repo and their own pull).
+
+Why the project pull was disabled — and why most pulls are fragile: no merge
+base (every difference reads as "the remote changed it", accepting overwrites
+local work), comparisons by name instead of content (phantom changes after
+every push), no deletions/renames, id churn on re-import (widgets pointing at a
+dataset that no longer exists), deletes before import (not atomic), groups
+offered that are never exported (`pipeline/`).
+
+### 9.2 One engine: a 3-way merge over the export tree
+
+The export tree is already the entity's canonical text form. So every pull is:
+
+1. **Three trees.** BASE (the sync anchor) and REMOTE from git, LOCAL = the
+   export the server builds now (the same one `status` diffs). One generic
+   server route per scope (`tree-preview`, extended to every family) returns the
+   three, text in full, binaries as oids.
+2. **Per file:** unchanged on one side → that side; same change on both → no
+   item; both changed → merged by the file's kind (below), conflict only where
+   the merge cannot decide. Additions and deletions are first-class, so a
+   remote deletion is offered as one.
+3. **Items by file kind** — the granularity the user decides at:
+   - Markdown (README, wiki pages, docs): one item per file, merged by
+     paragraph (`lib/wiki/markdown-merge.ts`), conflicts per paragraph.
+   - Entity manifests (`entity.json`, `dashboards/*.json`, `cohorts/*.json`…):
+     one item per top-level field.
+   - Keyed collections (`mappings.json`, `checks.json`, `_tree.json`, CSV with
+     an identity column): one item per element, by its natural key.
+   - Code (`.sql`, `.py`, `.R`): one item per file, merged by line (diff3).
+   - Anything else (binary, unkeyable CSV): the whole file.
+4. **Apply = re-import the merged tree in place.** The accepted items are
+   written into LOCAL's tree, and the entity is re-imported from it by its own
+   importer, in update mode, with deterministic ids (path/key-derived — already
+   the rule for scripts, SQL files and dataset columns). One write path per
+   scope instead of one bespoke applier per scope; declined items stay as they
+   are locally and show up as changes to push.
+5. **The precondition, tested per scope:** export → import → export gives the
+   same bytes, and import in place keeps every id. Any scope failing it is fixed
+   before its pull is wired. This round-trip suite is the first deliverable: it
+   is what would have caught the project pull's phantom changes and id churn.
+
+The wiki pull (§5) becomes the first client of this engine; mapping projects
+keep their dedicated table (per mapping) on top of it.
+
+### 9.3 Quick actions by subject, push and pull alike
+
+A card is a **subject of the entity**, listing its **elements**, each with
+✓/✗ — never a file path. The card's own button takes or refuses all of it; a
+conflicted element is decided in Details (or its picker). Same cards on both
+sides: "Sync dashboards" going out, "Pull dashboards" coming in.
+
+| scope | cards (elements listed in each) |
+|---|---|
+| workspace | Information (name, description, licence, README) · Wiki (pages) · one card per inline kind present: Projects, SQL collections, ETL pipelines, Data quality, Mapping projects, Catalogs, Schemas, Databases (entities) · Data dictionaries, Plugins |
+| project | Information (name, description, README, licence, tasks) · Dashboards · Patient boards · Scripts (files) · Cohorts · Datasets · Concept lists |
+| mapping project | Information · Mappings (rows, with the existing picker) · Source concepts (concepts) · Similarity scores (methods) |
+| SQL collection / ETL | Information · Scripts (files) · (ETL) Mapping files |
+| DQ rule set | Information · Checks |
+| schema preset | Information · Schema (DDL + mapping) |
+| database | Information · Schema · Cohorts |
+| catalog, plugin | Information · Files |
+| settings | Organizations · Users · Roles |
+
+An inline child in the workspace card expands into its own subjects in
+Details (a project's dashboards are reachable from the workspace pull).
+
+### 9.4 Merge requests for every scope
+
+§6, generalised: `propose` / `proposals` routes registered beside status and
+commit-push for every family (one scope → spec registry), `forge_service`
+(GitLab MR / GitHub PR, built 2026-10-29), `git_proposals` table. The panel
+gains *Propose changes* next to *Commit & push* for every scope.
+
+### 9.5 Test matrix
+
+For every row of §9.1 and every element of §9.3 (workspace name, description,
+README, a wiki page, an inline project's dashboard/script/cohort/dataset, …):
+
+| scenario | tier |
+|---|---|
+| round trip export → import → export identical, ids kept | unit (web) + API |
+| commit & push, then status clean | API (bare repo) |
+| remote-only change → pulled; local-only → stays to push; both → merged or conflict; deletion | unit (plan) + API |
+| another branch: push there, switch, pull | API (bare repo) |
+| propose → MR opened on the forge → merged there → pull leaves nothing to push | e2e against `docker/forge-sim` |
+| the panel: cards, per-element choice, Details items, diff, finalize | e2e (server), one journey per scope family |
+
+Order: round-trip suite (and its fixes) → engine + workspace (meta, wiki, inline
+children) → projects → remaining scopes → cards → MR everywhere → e2e matrix.
 
 ## 8. Open questions
 

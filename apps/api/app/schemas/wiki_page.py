@@ -21,6 +21,9 @@ class WikiPageCreate(CamelModel):
     status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int = 0
+    # Restored from the export on import and pull — without it the server stamps
+    # "now" and the page's _tree.json entry differs from the remote on every push.
+    created_at: datetime | None = None
     created_by_id: int | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
@@ -40,6 +43,7 @@ class WikiPageUpdate(CamelModel):
     status_changed_at: str | None = None
     review_due_at: str | None = None
     sort_order: int | None = None
+    created_at: datetime | None = None
     created_by: str | None = None
     created_by_details: dict | None = None
 

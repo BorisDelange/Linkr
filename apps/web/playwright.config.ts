@@ -48,6 +48,8 @@ export default defineConfig({
       ? [
           { name: 'server-setup', testDir: './e2e/server', testMatch: /first-run\.spec\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: serverUrl } },
           { name: 'server', testDir: './e2e/server', testIgnore: /first-run\.spec\.ts/, dependencies: ['server-setup'], use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: serverUrl } },
+          // The first run with the default data, for the versioning journeys (scripts/test-versioning.mjs).
+          { name: 'server-demo-setup', testDir: './e2e/server', testMatch: /demo-install\.setup\.ts/, use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 900 }, baseURL: serverUrl } },
         ]
       : []),
   ],

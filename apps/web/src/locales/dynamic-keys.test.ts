@@ -45,11 +45,11 @@ describe('dynamically built i18n keys resolve', () => {
       }
     })
 
-    it(`${name}: every pull card id has a pull_card_* title`, () => {
+    it(`${name}: every pull card id has a subject_* title`, () => {
       const keys = versioning(locale)
       const ids = new Set(SCOPES.flatMap((s) => cardsForScope(s).map((c) => c.id)))
       for (const id of ids) {
-        expect(keys[`pull_card_${id}`], `pull_card_${id}`).toBeTruthy()
+        expect(keys[`subject_${id}`], `subject_${id}`).toBeTruthy()
       }
     })
 

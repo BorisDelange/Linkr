@@ -114,3 +114,12 @@ def test_a_file_the_csv_reader_refuses_is_not_exported(monkeypatch):
     monkeypatch.setattr(export_masking.csv, "reader", refuse)
     with pytest.raises(SourceConceptsUnreadable):
         _masked_csv_bytes(_read("input.csv").encode(), None)
+
+
+def test_masking_an_already_masked_file_changes_nothing():
+    # A pulled file is masked already; pushing it back must not erode it further
+    # (the histogram's edge bins used to go again on every export).
+    once = mask_source_concepts_csv(_read("input.csv"), None, 11)
+    assert mask_source_concepts_csv(once, None, 11) == once
+    # A higher threshold masks again, edges included.
+    assert mask_source_concepts_csv(once, None, 20) != once

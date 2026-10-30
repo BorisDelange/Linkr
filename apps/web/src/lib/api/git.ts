@@ -5,6 +5,7 @@
  * export ZIP the frontend already knows how to build (buildProjectZip /
  * buildWorkspaceZip). The backend unpacks it, then diffs / commits / pushes.
  */
+import type { Override, ThreeWayPreview } from '@/lib/pull/three-way'
 import { apiFetch, apiFetchFollowing, apiRequest } from '@/lib/api-client'
 import type { FileChangeType } from '@/types'
 
@@ -150,6 +151,35 @@ export async function gitCommitPush(
   // Omitting `paths` entirely means "commit everything"; a subset stages only those.
   if (paths) for (const p of paths) form.append('paths', p)
   return postForm<GitCommitResult>(`${base(scope, id)}/commit-push`, form)
+}
+
+export interface GitProposal {
+  id: number
+  scope: GitScope
+  entityId: string
+  branch: string
+  targetBranch: string
+  forge: 'gitlab' | 'github'
+  number: number
+  url: string
+  title: string
+  state: 'open' | 'merged' | 'closed'
+  createdAt?: string
+}
+
+/** Push the selected changes on a branch of their own and open a merge request
+ *  (GitLab) / pull request (GitHub) into `branch`. */
+export async function gitPropose(
+  scope: GitScope, id: string, zip: Blob | null, title: string, branch: string | undefined, paths: string[],
+): Promise<GitProposal> {
+  const form = zipForm(zip, { title, ...(branch ? { branch } : {}) })
+  for (const p of paths) form.append('paths', p)
+  return postForm<GitProposal>(`${base(scope, id)}/propose`, form)
+}
+
+/** The entity's proposals, newest first, open ones re-read from the forge. */
+export async function gitProposals(scope: GitScope, id: string): Promise<GitProposal[]> {
+  return apiRequest<GitProposal[]>(`${base(scope, id)}/proposals`)
 }
 
 export async function gitBranches(scope: GitScope, id: string): Promise<GitBranches> {
@@ -326,6 +356,42 @@ export interface GitPullPreview {
 export async function gitPullPreview(scope: GitScope, id: string, branch?: string): Promise<GitPullPreview> {
   const qs = branch ? `?branch=${encodeURIComponent(branch)}` : ''
   return apiRequest<GitPullPreview>(`${base(scope, id)}/pull-preview${qs}`)
+}
+
+/** Every file the remote changed since the sync anchor, with its base / local /
+ *  remote versions (text) or blob ids (binary). The server builds LOCAL — the
+ *  export as it stands — itself. */
+export async function gitThreeWay(scope: GitScope, id: string, branch?: string): Promise<ThreeWayPreview> {
+  return postForm<ThreeWayPreview>(`${base(scope, id)}/three-way`, zipForm(null, branch ? { branch } : {}))
+}
+
+/** The local export with the pull's choices applied, as the ZIP to re-import. */
+export async function gitMergedTree(
+  scope: GitScope, id: string, branch: string, remoteHead: string, overrides: Record<string, Override>,
+): Promise<Blob> {
+  const form = zipForm(null, { branch, remoteHead, overrides: JSON.stringify(overrides) })
+  const res = await apiFetchFollowing(`/api/v1${base(scope, id)}/merged-tree`, { method: 'POST', body: form })
+  if (!res.ok) throw await gitError(res)
+  return res.blob()
+}
+
+export interface GitTreePreview {
+  branch: string
+  remoteHead: string | null
+  syncedOid: string | null
+  /** path → text, for the files under the requested prefix. */
+  base: Record<string, string>
+  remote: Record<string, string>
+  /** path → blob oid, for every other file in the tree. */
+  baseOids: Record<string, string>
+  remoteOids: Record<string, string>
+}
+
+/** BASE (the sync anchor) and REMOTE of a repository tree, for a client-side
+ *  3-way merge. v1: the workspace wiki. */
+export async function gitTreePreview(scope: GitScope, id: string, prefix: string, branch?: string): Promise<GitTreePreview> {
+  const qs = `?prefix=${encodeURIComponent(prefix)}${branch ? `&branch=${encodeURIComponent(branch)}` : ''}`
+  return apiRequest<GitTreePreview>(`${base(scope, id)}/tree-preview${qs}`)
 }
 
 /** Fetch the raw bytes of a heavy managed file (source CSV / scores parquet) at the
