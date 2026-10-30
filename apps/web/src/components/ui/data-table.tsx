@@ -161,6 +161,17 @@ export interface DataTableColumn<T> {
    */
   filterCell?: () => ReactNode
   /**
+   * A text filter applied on Enter rather than as the user types — for a
+   * query too heavy to rerun on every keystroke. The field shows the key.
+   */
+  filterOnEnter?: boolean
+  /**
+   * Asked before a text filter is applied, with the other active filters;
+   * false keeps the previous value. Lets a caller warn before a costly query
+   * (a search with nothing else narrowing it).
+   */
+  confirmFilter?: (value: string, others: Record<string, string | string[]>) => boolean | Promise<boolean>
+  /**
    * Disable sorting on this column (e.g. an actions/links column). Default true,
    * except for a `headerCell` column, whose header is a control and not a label.
    */
@@ -635,7 +646,18 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
         placeholder={col.filter === 'number' ? 'ID...' : col.filter === 'range' ? t('common.range_filter_placeholder') : '...'}
         title={col.filter === 'range' ? t('common.range_filter_hint') : undefined}
         value={value}
-        onChange={(v) => setFilters((f) => ({ ...f, [columnId]: v || undefined }))}
+        commitOnEnter={col.filterOnEnter}
+        onChange={async (v) => {
+          if (v && col.confirmFilter) {
+            const others: Record<string, string | string[]> = {}
+            for (const [id, f] of Object.entries(filters)) {
+              if (id === columnId || f == null) continue
+              if (f instanceof Set) { if (f.size) others[id] = [...f] } else if (f) others[id] = f
+            }
+            if (!(await col.confirmFilter(v, others))) return false
+          }
+          setFilters((f) => ({ ...f, [columnId]: v || undefined }))
+        }}
       />
     )
   }

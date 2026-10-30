@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   FileText,
   Folder,
+  FolderCheck,
   FolderUp,
   Loader2,
   RotateCcw,
@@ -254,6 +255,22 @@ export function ServerPathPickerDialog({
     else onPick?.(chosen)
     onClose()
   }
+  // `files` mode: the files that may be ticked — those shown (the search
+  // narrows them), and every one of the folder, for "select this folder".
+  const isPickable = (e: FsEntry) => e.isDir === false && e.readable !== false && matchesExtension(e.name)
+  const shownPickable = multiple ? filteredEntries.filter(isPickable) : []
+  const folderPickable = multiple ? (listing?.entries ?? []).filter(isPickable) : []
+  const shownSelected = shownPickable.filter((e) => selectedFiles.some((f) => f.path === e.path)).length
+  const toggleAllShown = () => setSelectedFiles((prev) => {
+    const shown = new Set(shownPickable.map((e) => e.path))
+    if (shownSelected === shownPickable.length) return prev.filter((f) => !shown.has(f.path))
+    return [...prev.filter((f) => !shown.has(f.path)), ...shownPickable]
+  })
+  const pickFolder = () => {
+    onPickFiles?.(folderPickable.map((f) => f.path))
+    onClose()
+  }
+
   const select = (entry: FsEntry) => setSelectedFiles((prev) => {
     if (!multiple) return [entry]
     return prev.some((f) => f.path === entry.path) ? prev.filter((f) => f.path !== entry.path) : [...prev, entry]
@@ -279,19 +296,39 @@ export function ServerPathPickerDialog({
       // focus ring is drawn outside their border box, and a clipping body cut it
       // off against the dialog's left and right edges.
       contentClassName="flex flex-col gap-3 overflow-visible"
+      // `files` mode has two ways to confirm, so Cancel moves to the left to
+      // leave them side by side.
+      hideCancel={multiple}
       footerExtra={
-        defaultPath ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="gap-1.5 text-muted-foreground"
-            onClick={() => load(defaultPath)}
-          >
-            <RotateCcw size={13} />
-            {t('project_folders.reset_to_default')}
-          </Button>
+        defaultPath || multiple ? (
+          <div className="flex gap-2">
+            {multiple && (
+              <Button variant="outline" size="sm" onClick={onClose}>
+                {t('common.cancel')}
+              </Button>
+            )}
+            {defaultPath && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="gap-1.5 text-muted-foreground"
+                onClick={() => load(defaultPath)}
+              >
+                <RotateCcw size={13} />
+                {t('project_folders.reset_to_default')}
+              </Button>
+            )}
+          </div>
         ) : undefined
       }
+      extraActions={multiple ? (
+        // An unzipped download is one folder of files: take them all without
+        // ticking each.
+        <Button size="sm" disabled={folderPickable.length === 0} onClick={pickFolder} className="gap-1.5">
+          <FolderCheck size={13} />
+          {t('server_picker.select_folder_files', { count: folderPickable.length })}
+        </Button>
+      ) : undefined}
     >
       <div className="space-y-2">
         {/* Enter here navigates to the typed path; it must NOT reach the shell's
@@ -374,6 +411,20 @@ export function ServerPathPickerDialog({
                 >
                   <FolderUp size={15} className="text-muted-foreground" />
                   <span>..</span>
+                </button>
+              )}
+              {shownPickable.length > 1 && (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent"
+                  onClick={toggleAllShown}
+                >
+                  <Checkbox
+                    checked={shownSelected === shownPickable.length ? true : shownSelected > 0 ? 'indeterminate' : false}
+                    tabIndex={-1}
+                    className="pointer-events-none"
+                  />
+                  {t('server_picker.select_all_shown', { count: shownPickable.length })}
                 </button>
               )}
               {filteredEntries.length === 0 && (

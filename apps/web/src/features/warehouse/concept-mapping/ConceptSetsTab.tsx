@@ -221,10 +221,10 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
   const openVocabularyLibrary = () => navigate(paths.warehouseVocabularies(project.workspaceId, 'ohdsi', 'library'))
 
   return (
-    <div className="h-full overflow-auto px-4 pb-4">
+    <div className="flex h-full flex-col px-4 pb-4">
       {/* The vocabulary reference comes first: importing ATHENA is what makes
           mapping possible at all, and concept sets are a refinement on top. */}
-      <Tabs defaultValue="vocabulary">
+      <Tabs defaultValue="vocabulary" className="flex min-h-0 flex-1 flex-col">
         <div className="flex justify-center">
           <TabsList className="w-fit">
             <TabsTrigger value="vocabulary">{t('concept_mapping.cs_vocabulary_ref')}</TabsTrigger>
@@ -235,7 +235,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         {/* ================================================================
             Tab 1: Concept Sets — DataTable
         ================================================================ */}
-        <TabsContent value="concept-sets">
+        <TabsContent value="concept-sets" className="min-h-0 flex-1 overflow-auto">
           <div className="mx-auto max-w-7xl">
             {/* Toolbar */}
             <div className="mb-3 flex items-center justify-between">
@@ -311,12 +311,14 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
         {/* ================================================================
             Tab 2: Vocabulary Reference (import + browse merged)
         ================================================================ */}
-        <TabsContent value="vocabulary">
-          <div className="mx-auto max-w-4xl space-y-4">
+        {/* The browser takes the height left under the summary card: its table
+            scrolls, never the page. */}
+        <TabsContent value="vocabulary" className="min-h-0 flex-1">
+          <div className="mx-auto flex h-full max-w-4xl flex-col gap-4">
             {vocabDs ? (
               /* Vocabulary already imported — compact status + browse below */
               <>
-                <Card className="p-4">
+                <Card className="shrink-0 p-4">
                   <div className="flex items-center gap-3">
                     <CheckCircle2 size={20} className="shrink-0 text-green-500" />
                     <div className="min-w-0 flex-1">
@@ -338,7 +340,9 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
                   </div>
                 </Card>
 
-                <VocabularyBrowser dataSourceId={vocabDs.id} />
+                <div className="min-h-0 flex-1">
+                  <VocabularyBrowser dataSourceId={vocabDs.id} />
+                </div>
               </>
             ) : (
               /* No vocabulary in the workspace: it is imported on the workspace Vocabularies page */

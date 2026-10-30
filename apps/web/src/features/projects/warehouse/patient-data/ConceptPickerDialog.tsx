@@ -263,10 +263,6 @@ export function ConceptPickerDialog({
             {/* Left: concept table */}
             <div className="flex h-full min-w-0 flex-col overflow-hidden border-r">
               <ConceptPickerToolbar
-                availableColumns={hook.availableColumns}
-                filters={hook.filters}
-                filterOptions={hook.filterOptions}
-                onFilterChange={hook.updateFilter}
               >
                 {/* Import a saved concept list into the current selection. */}
                 <DropdownMenu>

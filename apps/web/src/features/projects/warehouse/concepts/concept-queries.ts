@@ -2,6 +2,7 @@ import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { columnLabel, escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
+import { NULL_FILTER_VALUE } from '@/lib/concept-mapping/mapping-queries'
 
 // ---------------------------------------------------------------------------
 // Column descriptors
@@ -157,9 +158,7 @@ export function computeAvailableColumns(dicts: readonly ClassRelation[]): Column
 export type ConceptFilterValue = string | string[] | null
 export type ConceptFilters = Record<string, ConceptFilterValue>
 
-/** Sentinel option standing for SQL NULL — OMOP leaves standard_concept NULL on
- *  non-standard concepts, so "NS" has to be selectable like any other value. */
-export const NULL_FILTER_VALUE = '__null__'
+export { NULL_FILTER_VALUE }
 
 /** Read a filter that is always single-valued (the `_search*` keys). */
 export function filterText(value: ConceptFilterValue): string | null {

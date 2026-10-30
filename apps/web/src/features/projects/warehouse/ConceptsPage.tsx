@@ -404,12 +404,8 @@ export function ConceptsPage() {
       {/* Slim action bar. No title/description: the sidebar already names the
           page, so they only cost vertical space. */}
       <ConceptPickerToolbar
-        availableColumns={availableColumns}
-        filters={filters}
-        filterOptions={allFilterOptions}
-        onFilterChange={updateFilter}
-        // Which database the page reads, ahead of the filters: it decides what
-        // they even have to filter.
+        // Which database the page reads: it decides what the table's filters
+        // even have to filter.
         leading={
           <DatabaseSelect
             workspaceId={wsUid}

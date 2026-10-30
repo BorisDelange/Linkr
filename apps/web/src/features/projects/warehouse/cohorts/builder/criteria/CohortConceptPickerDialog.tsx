@@ -15,7 +15,6 @@ import type { VisibilityState } from '@tanstack/react-table'
 import { useConcepts, type ConceptRow } from '../../../concepts/use-concepts'
 import { ConceptCountNotice } from '../../../concepts/ConceptCountNotice'
 import { ConceptTable } from '../../../concepts/ConceptTable'
-import { ConceptPickerToolbar } from '../../../concepts/ConceptPickerToolbar'
 import { PICKER_HIDDEN_COLUMNS } from '../../../concepts/concept-queries'
 import { useConceptStatsRowAction } from '../../../concepts/use-concept-stats-row-action'
 import { conceptRelations } from '@/lib/schema-classes/relations'
@@ -130,12 +129,6 @@ export function CohortConceptPickerDialog({
 
         <div className="flex min-h-0 flex-1">
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden border-r">
-            <ConceptPickerToolbar
-              availableColumns={hook.availableColumns}
-              filters={hook.filters}
-              filterOptions={hook.filterOptions}
-              onFilterChange={hook.updateFilter}
-            />
             <div className="min-h-0 flex-1">
               <ConceptTable
                 concepts={hook.concepts}

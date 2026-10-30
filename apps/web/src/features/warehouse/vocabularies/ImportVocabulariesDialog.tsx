@@ -44,6 +44,7 @@ const STATUS_VARIANT = { new: 'default', other: 'secondary', same: 'outline' } a
 export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, initialSource, onImported }: ImportVocabulariesDialogProps) {
   const { t } = useTranslation()
   const fileInput = useRef<HTMLInputElement>(null)
+  const folderInput = useRef<HTMLInputElement>(null)
   const [prepared, setPrepared] = useState<PreparedImport | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [phase, setPhase] = useState<'source' | 'inspecting' | 'preview' | 'importing'>('source')
@@ -208,6 +209,22 @@ export function ImportVocabulariesDialog({ open, onOpenChange, workspaceId, init
                 accept={EXPORT_EXTENSIONS.join(',')}
                 multiple
                 className="hidden"
+                onChange={(e) => {
+                  const files = [...(e.target.files ?? [])]
+                  e.target.value = ''
+                  pickFiles(files)
+                }}
+              />
+              {/* An unzipped download is one folder: take its tables in one go. */}
+              <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline" onClick={() => folderInput.current?.click()}>
+                {t('files.upload_pick_folder')}
+              </button>
+              <input
+                ref={folderInput}
+                type="file"
+                className="hidden"
+                // @ts-expect-error webkitdirectory is non-standard but widely supported
+                webkitdirectory=""
                 onChange={(e) => {
                   const files = [...(e.target.files ?? [])]
                   e.target.value = ''

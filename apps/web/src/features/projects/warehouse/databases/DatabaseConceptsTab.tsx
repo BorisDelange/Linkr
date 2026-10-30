@@ -20,7 +20,6 @@ import {
 import { useConcepts } from '../concepts/use-concepts'
 import { useCanDiagnoseConceptStats } from '../concepts/use-can-diagnose-stats'
 import { ConceptTable } from '../concepts/ConceptTable'
-import { ConceptPickerToolbar } from '../concepts/ConceptPickerToolbar'
 import { ConceptDetail } from '../concepts/ConceptDetail'
 import { useConceptStatsSql } from '../concepts/use-concept-stats-sql'
 import { DEFAULT_HIDDEN_COLUMNS } from '../concepts/concept-queries'
@@ -305,14 +304,6 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
 
       {!notLoaded && (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border bg-card">
-          {/* Over every field — name, code, id — tolerant of typos and accents;
-              the Name column's own filter covers the name alone. */}
-          <ConceptPickerToolbar
-            availableColumns={concepts.availableColumns}
-            filters={concepts.filters}
-            filterOptions={concepts.filterOptions}
-            onFilterChange={concepts.updateFilter}
-          />
           <div className="min-h-0 flex-1">
             <Allotment>
               <Allotment.Pane minSize={400}>

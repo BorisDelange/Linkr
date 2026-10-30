@@ -34,6 +34,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/components/ui/table-primitives'
+import { DebouncedInput } from '@/components/ui/debounced-input'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -62,7 +63,7 @@ import { columnLabel } from '@/lib/format-helpers'
 import { isTypingTarget } from '@/lib/utils'
 import { resolveRowSelection } from './row-selection'
 import type { ConceptRow } from './use-concepts'
-import { conceptColumnLabel } from './concept-queries'
+import { conceptColumnLabel, filterText } from './concept-queries'
 import type {
   ConceptFilters,
   ConceptFilterValue,
@@ -598,31 +599,40 @@ export function ConceptTable({
     // Text search inputs for core searchable columns
     if (columnId === 'concept_id') {
       return (
-        <input
+        <DebouncedInput
           className={`${FILTER_INPUT_CLASS} font-mono`}
           placeholder={t('concepts.search_id_placeholder')}
-          value={typeof filters._searchId === 'string' ? filters._searchId : ''}
-          onChange={(e) => onFilterChange('_searchId', e.target.value || null)}
+          commitOnEnter
+          value={filterText(filters._searchId) ?? ''}
+          onChange={(v) => onFilterChange('_searchId', v || null)}
         />
       )
     }
     if (columnId === 'concept_name') {
+      // The ranked fuzzy search over every concept, run on Enter like the id and
+      // code filters: as the user types it would rescan the whole dictionary
+      // per character.
       return (
-        <input
+        <DebouncedInput
           className={FILTER_INPUT_CLASS}
           placeholder={t('concepts.search_placeholder')}
-          value={typeof filters._searchText === 'string' ? filters._searchText : ''}
-          onChange={(e) => onFilterChange('_searchText', e.target.value || null)}
+          commitOnEnter
+          value={filterText(filters._searchFuzzy) ?? filterText(filters._searchText) ?? ''}
+          onChange={(v) => {
+            if (filters._searchText) onFilterChange('_searchText', null)
+            onFilterChange('_searchFuzzy', v || null)
+          }}
         />
       )
     }
     if (columnId === 'concept_code') {
       return (
-        <input
+        <DebouncedInput
           className={`${FILTER_INPUT_CLASS} font-mono`}
           placeholder={t('concepts.search_code_placeholder')}
-          value={typeof filters._searchCode === 'string' ? filters._searchCode : ''}
-          onChange={(e) => onFilterChange('_searchCode', e.target.value || null)}
+          commitOnEnter
+          value={filterText(filters._searchCode) ?? ''}
+          onChange={(v) => onFilterChange('_searchCode', v || null)}
         />
       )
     }

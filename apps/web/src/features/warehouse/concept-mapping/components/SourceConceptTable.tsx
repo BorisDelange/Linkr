@@ -11,15 +11,10 @@ import {
   Settings2,
   BarChart3,
   Loader2,
-  Search,
-  X,
   ChevronLeft,
   ChevronRight,
   Download,
   Check,
-  SlidersHorizontal,
-  Plus,
-  List,
 } from 'lucide-react'
 import {
   Dialog,
@@ -31,7 +26,6 @@ import {
 } from '@/components/ui/dialog'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Skeleton } from '@/components/ui/skeleton'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -53,6 +47,8 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { ColumnVisibilityMenu } from '@/components/ui/column-visibility-menu'
@@ -101,15 +97,6 @@ interface SourceConceptTableProps {
   hasNativeOmopConceptId?: boolean
   mappingStatusFilter: MappingStatusFilter
   selectedConceptId: number | null
-  /** Multi-selection set (Ctrl/Cmd/Shift click) — feeds the "add to copy list" button. */
-  selectedConceptIds: Set<number>
-  onSelectedConceptIdsChange: (ids: Set<number>) => void
-  /** Add the current multi-selection to the copy list. */
-  onAddSelectionToList: () => void
-  /** Open the copy-list modal. */
-  onOpenList: () => void
-  /** Number of concepts currently in the copy list (shown as a badge). */
-  listCount: number
   /** True when file source has record count column mapped. */
   hasRecordCount?: boolean
   /** True when file source has patient count column mapped. */
@@ -167,11 +154,6 @@ export function SourceConceptTable({
   hasNativeOmopConceptId,
   mappingStatusFilter,
   selectedConceptId,
-  selectedConceptIds,
-  onSelectedConceptIdsChange,
-  onAddSelectionToList,
-  onOpenList,
-  listCount,
   hasRecordCount,
   hasPatientCount,
   hasInfoJson,
@@ -262,43 +244,6 @@ export function SourceConceptTable({
     }
   }
 
-  // Anchor for shift-range selection — the last row clicked without Shift.
-  const selectionAnchorRef = useRef<number | null>(null)
-
-  /** File-explorer-style selection: plain / Ctrl-Cmd (toggle) / Shift (range). */
-  const handleRowClick = (conceptId: number, e: React.MouseEvent) => {
-    const isToggle = e.metaKey || e.ctrlKey
-    const isRange = e.shiftKey
-
-    if (isRange && selectionAnchorRef.current != null) {
-      const order = rows.map((r) => r.concept_id)
-      const from = order.indexOf(selectionAnchorRef.current)
-      const to = order.indexOf(conceptId)
-      if (from !== -1 && to !== -1) {
-        const [lo, hi] = from <= to ? [from, to] : [to, from]
-        const range = order.slice(lo, hi + 1)
-        const next = isToggle ? new Set(selectedConceptIds) : new Set<number>()
-        for (const id of range) next.add(id)
-        onSelectedConceptIdsChange(next)
-        return
-      }
-    }
-
-    if (isToggle) {
-      const next = new Set(selectedConceptIds)
-      if (next.has(conceptId)) next.delete(conceptId)
-      else next.add(conceptId)
-      selectionAnchorRef.current = conceptId
-      onSelectedConceptIdsChange(next)
-      return
-    }
-
-    // Plain click → single selection (drives the right mapping panel).
-    selectionAnchorRef.current = conceptId
-    onSelectedConceptIdsChange(new Set([conceptId]))
-    onSelectConcept(conceptId)
-  }
-
   const MAPPING_STATUS_OPTIONS: MappingStatusFilter[] = ['all', 'unmapped', 'mapped', 'mapped_elsewhere']
 
   // Optional columns are shown when the source table has values for them
@@ -318,7 +263,7 @@ export function SourceConceptTable({
       return (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex h-6 w-full items-center justify-center rounded border border-dashed hover:bg-accent">
+            <button className={`flex h-6 w-full items-center justify-center rounded border border-dashed hover:bg-accent ${suggestionCategories.size > 0 ? 'border-primary' : ''}`}>
               {mappingStatusFilter === 'all' ? (
                 <span className="text-[10px] text-muted-foreground">●</span>
               ) : (
@@ -326,7 +271,7 @@ export function SourceConceptTable({
               )}
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-36">
+          <DropdownMenuContent align="start" className="w-52">
             {MAPPING_STATUS_OPTIONS.map((opt) => (
               <DropdownMenuCheckboxItem
                 key={opt}
@@ -342,18 +287,42 @@ export function SourceConceptTable({
                 </span>
               </DropdownMenuCheckboxItem>
             ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[10px] font-medium text-muted-foreground">
+              {hasScores ? t('concept_mapping.filter_by_suggestion') : t('concept_mapping.source_filters_no_scores')}
+            </DropdownMenuLabel>
+            {SUGGESTION_CATEGORIES.map((c) => (
+              <DropdownMenuCheckboxItem
+                key={c}
+                disabled={!hasScores}
+                checked={suggestionCategories.has(c)}
+                onCheckedChange={() => {
+                  const next = new Set(suggestionCategories)
+                  if (next.has(c)) next.delete(c)
+                  else next.add(c)
+                  onSuggestionCategoriesChange(next)
+                }}
+                onSelect={(e) => e.preventDefault()}
+                className="text-xs"
+              >
+                {t(`concept_mapping.suggestion_category_${c}`)}
+              </DropdownMenuCheckboxItem>
+            ))}
           </DropdownMenuContent>
         </DropdownMenu>
       )
     }
     if (columnId === 'concept_id') {
-      return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." value={filters.searchId ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchId: v || undefined })} />
+      return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="ID..." commitOnEnter value={filters.searchId ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchId: v || undefined })} />
     }
     if (columnId === 'concept_code') {
-      return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." value={filters.searchCode ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchCode: v || undefined })} />
+      return <DebouncedInput className={`${FILTER_INPUT_CLASS} font-mono`} placeholder="Code..." commitOnEnter value={filters.searchCode ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchCode: v || undefined })} />
     }
     if (columnId === 'concept_name') {
-      return <DebouncedInput className={FILTER_INPUT_CLASS} placeholder="..." value={filters.searchText ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchText: v || undefined })} />
+      // Ranked fuzzy search over every source concept (DuckDB jaro_winkler), not
+      // a substring match over the page — on Enter: over millions of concepts it
+      // is too heavy to rerun as the user types.
+      return <DebouncedInput className={FILTER_INPUT_CLASS} placeholder="..." commitOnEnter value={filters.searchTextFuzzy ?? filters.searchText ?? ''} onChange={(v) => onFiltersChange({ ...filters, searchText: undefined, searchTextFuzzy: v || undefined })} />
     }
     if (columnId === 'terminology_name') {
       const termOpts = filterOptions.terminology_name?.length ? filterOptions.terminology_name : filterOptions.vocabulary_id
@@ -783,180 +752,8 @@ export function SourceConceptTable({
     manualSorting: true,
   })
 
-  // Search bar state: typed text is local and only commits to filters on Enter / button click.
-  // Filters.searchTextFuzzy stays the source of truth (drives the SQL query).
-  const [pendingSearch, setPendingSearch] = useState(filters.searchTextFuzzy ?? '')
-  // Re-sync local input when external filter changes (e.g. cleared via reset)
-  useEffect(() => { setPendingSearch(filters.searchTextFuzzy ?? '') }, [filters.searchTextFuzzy])
-
-  const commitSearch = () => {
-    const term = pendingSearch.trim()
-    onFiltersChange({ ...filters, searchTextFuzzy: term || undefined })
-  }
-  const clearSearch = () => {
-    setPendingSearch('')
-    if (filters.searchTextFuzzy) onFiltersChange({ ...filters, searchTextFuzzy: undefined })
-  }
-
-  // Vocabulary filter wiring for the Filters popover — mirrors the inline
-  // terminology_name column filter (prefer terminology names, fall back to vocab ids).
-  const vocabOptions = filterOptions.terminology_name?.length ? filterOptions.terminology_name : filterOptions.vocabulary_id
-  const vocabFilterKey = filterOptions.terminology_name?.length ? 'terminologyName' : 'vocabularyId'
-  const vocabValue = (vocabFilterKey === 'terminologyName' ? filters.terminologyName : filters.vocabularyId) ?? []
-  const categoryOptions = filterOptions.category ?? []
-  const suggestionCategoryOptions = SUGGESTION_CATEGORIES.map((c) => ({ value: c, label: t(`concept_mapping.suggestion_category_${c}`) }))
-  const activeFilterCount = vocabValue.length + (filters.category?.length ?? 0) + suggestionCategories.size
-
   return (
     <div className="flex h-full flex-col border-r overflow-hidden">
-      {/* Search bar — fuzzy ranked search by concept_name (DuckDB jaro_winkler).
-          Mirrors the target-concept panel: filter popover + input + search button. */}
-      <div className="flex items-center gap-1.5 border-b px-3 py-2">
-        {/* Filter popover — column filters (vocabulary, category) + suggestion category */}
-        <Popover>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon-sm" className={`h-8 w-8 shrink-0 ${activeFilterCount > 0 ? 'text-primary' : ''}`}>
-                  <SlidersHorizontal size={14} />
-                </Button>
-              </PopoverTrigger>
-            </TooltipTrigger>
-            <TooltipContent side="bottom" className="text-xs">{t('common.filters')}</TooltipContent>
-          </Tooltip>
-          <PopoverContent align="start" className="w-[260px] p-3 space-y-3" onCloseAutoFocus={(e) => e.preventDefault()}>
-            <div className="flex items-center justify-between">
-              <p className="text-xs font-medium">{t('concept_mapping.source_filters')}</p>
-              {activeFilterCount > 0 && (
-                <button
-                  type="button"
-                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                  onClick={() => {
-                    onFiltersChange({ ...filters, terminologyName: undefined, vocabularyId: undefined, category: undefined })
-                    onSuggestionCategoriesChange(new Set())
-                  }}
-                >
-                  {t('common.clear')}
-                </button>
-              )}
-            </div>
-            {/* Vocabulary */}
-            {vocabOptions?.length ? (
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_vocabulary')}</label>
-                <MultiSelectFilter
-                  value={vocabValue}
-                  options={vocabOptions}
-                  placeholder={t('concept_mapping.col_terminology')}
-                  onChange={(v) => onFiltersChange({ ...filters, [vocabFilterKey]: v.length ? v : undefined })}
-                  triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
-                  popoverWidthClass="w-[300px]"
-                />
-              </div>
-            ) : null}
-            {/* Category */}
-            {categoryOptions.length > 0 && (
-              <div className="space-y-1">
-                <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.col_category')}</label>
-                <MultiSelectFilter
-                  value={filters.category ?? []}
-                  options={categoryOptions}
-                  placeholder={t('concept_mapping.col_category')}
-                  onChange={(v) => onFiltersChange({ ...filters, category: v.length ? v : undefined })}
-                  triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
-                  popoverWidthClass="w-[300px]"
-                />
-              </div>
-            )}
-            {/* Has a suggestion from */}
-            <div className="space-y-1">
-              <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('concept_mapping.filter_by_suggestion')}</label>
-              <MultiSelectFilter
-                value={[...suggestionCategories]}
-                options={suggestionCategoryOptions}
-                placeholder={hasScores ? t('concept_mapping.filter_by_suggestion_any') : t('concept_mapping.source_filters_no_scores')}
-                onChange={(v) => onSuggestionCategoriesChange(new Set(v as SuggestionCategory[]))}
-                triggerClass="h-7 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
-                popoverWidthClass="w-[240px]"
-              />
-              {!hasScores && <p className="text-[10px] text-muted-foreground">{t('concept_mapping.source_filters_no_scores')}</p>}
-            </div>
-          </PopoverContent>
-        </Popover>
-        {/* Search input */}
-        <div className="relative min-w-0 flex-1">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-8 pl-8 pr-7 text-xs"
-            value={pendingSearch}
-            onChange={(e) => setPendingSearch(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') { e.preventDefault(); commitSearch() }
-              else if (e.key === 'Escape') { e.preventDefault(); clearSearch() }
-            }}
-            placeholder={t('concept_mapping.search_concepts')}
-          />
-          {pendingSearch && (
-            <button
-              type="button"
-              onClick={clearSearch}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              aria-label="Clear"
-            >
-              <X size={12} />
-            </button>
-          )}
-        </div>
-        <Button size="sm" variant="outline" className="h-8 text-xs shrink-0" onClick={commitSearch}>
-          {t('common.search')}
-        </Button>
-        {/* Add selection to copy list */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              className="h-8 w-8 shrink-0"
-              disabled={selectedConceptIds.size === 0}
-              onClick={onAddSelectionToList}
-              aria-label={t('concept_mapping.add_to_list')}
-            >
-              <Plus size={14} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">
-            {selectedConceptIds.size > 0
-              ? t('concept_mapping.add_to_list_count', { count: selectedConceptIds.size })
-              : t('concept_mapping.add_to_list')}
-          </TooltipContent>
-        </Tooltip>
-        {/* Open copy list modal */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              size="icon-sm"
-              variant="outline"
-              className="relative h-8 w-8 shrink-0"
-              onClick={onOpenList}
-              aria-label={t('concept_mapping.view_list')}
-            >
-              <List size={14} />
-              {listCount > 0 && (
-                <span className="absolute -right-1.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-medium text-primary-foreground">
-                  {listCount}
-                </span>
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom" className="text-xs">{t('concept_mapping.view_list')}</TooltipContent>
-        </Tooltip>
-        {filters.searchTextFuzzy && !sorting && (
-          <span className="shrink-0 text-[10px] text-muted-foreground italic">
-            {t('concept_mapping.sorted_by_relevance')}
-          </span>
-        )}
-      </div>
-
       {/* Table */}
       <div ref={scrollContainerRef} className="min-h-0 flex-1 overflow-auto" style={{ paddingRight: 'calc(var(--spacing) * 2.5)' }}>
         <Table className="w-full" style={{ tableLayout: 'fixed' }}>
@@ -1026,15 +823,13 @@ export function SourceConceptTable({
             ) : (
               table.getRowModel().rows.map((row) => {
                 const cid = row.original.concept_id
-                const isSelected = selectedConceptIds.size > 0
-                  ? selectedConceptIds.has(cid)
-                  : cid === selectedConceptId
+                const isSelected = cid === selectedConceptId
                 return (
                   <TableRow
                     key={cid}
                     className="cursor-pointer select-none"
                     data-state={isSelected ? 'selected' : undefined}
-                    onClick={(e) => handleRowClick(cid, e)}
+                    onClick={() => onSelectConcept(cid)}
                   >
                     {row.getVisibleCells().map((cell) => {
                       // Read the registry id straight from the map rather than
