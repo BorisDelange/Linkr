@@ -182,7 +182,6 @@ function PluginCard({ plugin, lang, organizationId, onOpen, onEdit, onDuplicate,
           {(plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en) && (
             <TruncatedText
               text={plugin.manifest.description?.[lang] ?? plugin.manifest.description?.en ?? ''}
-              readOnly
               className="text-xs text-muted-foreground"
             />
           )}

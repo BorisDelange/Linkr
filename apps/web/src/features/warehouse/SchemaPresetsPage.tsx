@@ -286,7 +286,6 @@ function SchemaCard({
                 to reveal itself on hover, as it does on every other entity card. */}
             <TruncatedText
               text={localized(mapping.presetLabel, i18n.language)}
-              readOnly
               className="text-sm font-medium"
             />
             <TruncatedText
@@ -296,7 +295,6 @@ function SchemaCard({
                     mappedCount > 0 ? `${mappedCount} ${t('settings.schema_preset_mapped_tables').toLowerCase()}` : null,
                   ].filter(Boolean).join(', ')
                 : t('settings.schema_preset_no_mapping'))}
-              readOnly
               className="mt-0.5 text-xs text-muted-foreground"
             />
           </div>

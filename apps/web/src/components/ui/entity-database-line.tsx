@@ -34,7 +34,6 @@ export function EntityDatabaseLine({ projectUid, dataSourceId }: Props) {
       <Database size={12} className="shrink-0" />
       <TruncatedText
         text={label}
-        readOnly
         className={`min-w-0 flex-1 ${pinned ? '' : 'italic opacity-70'}`}
       />
     </div>

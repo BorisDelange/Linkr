@@ -20,6 +20,7 @@ import { Kbd } from '@/components/ui/kbd'
 import { isTypingTarget } from '@/lib/utils'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import { Badge } from '@/components/ui/badge'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
@@ -1043,6 +1044,7 @@ const ReviewActionsCell = memo(function ReviewActionsCell({
 
 export function MappingsTab({ project }: MappingsTabProps) {
   const { t, i18n } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const role = useMyWorkspaceRole()
   const canWrite = role.can('concept-mapping:write')
   const canDelete = role.can('concept-mapping:delete')
@@ -3018,6 +3020,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
                 })}
               </TableRow>
             </TableHeader>
+            <CellContextMenu menu={cellMenu}>
             <TableBody>
               {bulkFilteredCandidates.length === 0 ? (
                 <TableRow>
@@ -3034,7 +3037,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
                   {row.getVisibleCells().map((cell) => {
                     const size = cell.column.getSize()
                     return (
-                      <TableCell key={cell.id} className="overflow-hidden" style={{ width: size, maxWidth: size }}>
+                      <TableCell key={cell.id} className="overflow-hidden" style={{ width: size, maxWidth: size }} onContextMenu={cellMenu.on(cell.getValue())}>
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     )
@@ -3049,6 +3052,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
                 </TableRow>
               )}
             </TableBody>
+            </CellContextMenu>
           </Table>
         </div>
 
@@ -3252,6 +3256,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               )}
             </TableRow>
           </TableHeader>
+          <CellContextMenu menu={cellMenu}>
           <TableBody>
             {visibleItems.length === 0 ? (
               <TableRow>
@@ -3270,17 +3275,14 @@ export function MappingsTab({ project }: MappingsTabProps) {
                   onClick={() => onOpenDetail(row.original.id)}
                 >
                   {row.getVisibleCells().map((cell) => {
-                    const rendered = flexRender(cell.column.columnDef.cell, cell.getContext())
-                    const raw = cell.getValue()
-                    const title = raw != null ? String(raw) : undefined
                     return (
                       <TableCell
                         key={cell.id}
                         className="overflow-hidden truncate px-2 py-1 text-xs"
                         style={{ maxWidth: cell.column.getSize() }}
-                        title={title}
+                        onContextMenu={cellMenu.on(cell.getValue())}
                       >
-                        {rendered}
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     )
                   })}
@@ -3288,6 +3290,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               ))
             )}
           </TableBody>
+          </CellContextMenu>
         </Table>
       </div>
 

@@ -37,6 +37,7 @@ import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator } from '@/compone
 import { DebouncedInput } from '@/components/ui/debounced-input'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { Skeleton } from '@/components/ui/skeleton'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import {
   Select,
   SelectContent,
@@ -62,6 +63,7 @@ import {
 import { columnLabel } from '@/lib/format-helpers'
 import { isTypingTarget } from '@/lib/utils'
 import { resolveRowSelection } from './row-selection'
+import { unpackSetNames } from './concept-set-names'
 import type { ConceptRow } from './use-concepts'
 import { conceptColumnLabel, filterText } from './concept-queries'
 import type {
@@ -123,6 +125,8 @@ interface ConceptTableProps {
   onEnter?: () => void
   /** Empty-state message. Defaults to the Concepts page's own wording. */
   emptyMessage?: string
+  /** Row entries added under "Copy value" in a cell's right-click menu. */
+  cellMenuItems?: (row: ConceptRow) => ReactNode
 }
 
 // ---------------------------------------------------------------------------
@@ -257,8 +261,10 @@ export function ConceptTable({
   rowAction,
   onEnter,
   emptyMessage,
+  cellMenuItems,
 }: ConceptTableProps) {
   const { t } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const [columnOrder, setColumnOrder] = useState<ColumnOrderState>([])
 
   // Sorting is done by SQL, so the data-dictionary columns (joined in the
@@ -731,6 +737,7 @@ export function ConceptTable({
                 )}
               </TableRow>
             </TableHeader>
+            <CellContextMenu menu={cellMenu}>
             <TableBody>
               {isLoading ? (
                 Array.from({ length: 10 }).map((_, i) => (
@@ -781,6 +788,14 @@ export function ConceptTable({
                           key={cell.id}
                           className="overflow-hidden truncate px-2 py-1 text-xs"
                           style={{ maxWidth: cell.column.getSize() }}
+                          onContextMenu={
+                            AFFORDANCE_COLUMNS.has(cell.column.id)
+                              ? undefined
+                              : cellMenu.on(
+                                  cell.column.id === 'concept_set_name' && typeof raw === 'string' ? unpackSetNames(raw) : raw,
+                                  cellMenuItems && (() => cellMenuItems(row.original)),
+                                )
+                          }
                         >
                           {rendered}
                         </TableCell>
@@ -790,6 +805,7 @@ export function ConceptTable({
                 ))
               )}
             </TableBody>
+            </CellContextMenu>
           </Table>
         </DndContext>
       </div>

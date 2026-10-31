@@ -241,7 +241,7 @@ export function DqRuleSetListPage() {
               <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['dq-rule-set'].bg)}>
                 <ShieldCheck size={20} className={ENTITY_COLORS['dq-rule-set'].icon} />
               </div>
-              <TruncatedText text={localized(rs.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+              <TruncatedText text={localized(rs.name, language)} className="min-w-0 flex-1 text-sm font-medium" />
               {rs.lastScore != null && (
                 <span className={cn('shrink-0 font-mono text-xs font-medium', scoreColor(rs.lastScore))}>
                   {rs.lastScore}%

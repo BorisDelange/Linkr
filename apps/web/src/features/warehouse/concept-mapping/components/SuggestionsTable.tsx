@@ -312,7 +312,6 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
       rowKey={(r) => r.concept_id}
       selectedRowKey={selectedConceptId}
       initialSorting={{ columnId: 'combined_score', desc: true }}
-      cellTooltips="readOnly"
       viewKey={VIEW_KEY}
       rowClassName={(r) =>
         alreadyMappedIds.has(r.concept_id) && selectedConceptId !== r.concept_id

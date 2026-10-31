@@ -446,7 +446,7 @@ export function KeyIndicatorComponent({ config, columns, rows, compact, datasetF
             className={cn('min-w-0', titleColor ? titleColor.text : 'text-muted-foreground')}
             style={{ fontSize: titleSize, ...(titleColor?.isCustom ? { color: titleColor.hex } : {}) }}
           >
-            <TruncatedText text={title} readOnly className="font-medium" />
+            <TruncatedText text={title} className="font-medium" />
           </div>
         )}
       </div>

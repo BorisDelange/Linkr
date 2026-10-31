@@ -235,7 +235,7 @@ export function PublicationTable<T extends PublicationRow>({
                   alignOf(col.align),
                 )}
               >
-                <TruncatedText text={col.header} readOnly />
+                <TruncatedText text={col.header} />
                 <ResizeGrip
                   onStart={onResizeStart(col)}
                   onReset={() => fitColumn(col)}
@@ -281,5 +281,5 @@ export function PublicationTable<T extends PublicationRow>({
  *  (a badge, a p-value marker) is left to its renderer. */
 function cellContent(content: ReactNode, wrap: boolean): ReactNode {
   if (wrap || (typeof content !== 'string' && typeof content !== 'number')) return content
-  return <TruncatedText text={String(content)} readOnly />
+  return <TruncatedText text={String(content)} />
 }

@@ -188,11 +188,14 @@ that can run long: a DOM node per row is what makes sorting and row selection
 lag. The app has no infinite-scroll tables — paging is the one idiom, and the
 footer places it identically everywhere.
 
-**`cellTooltips`** decides what a hover reveals: `truncated` (default) only when
-text is cut, `all` for tables whose values get copied out routinely — concept
-ids, source codes — and `readOnly` to drop the copy button in dense
-pick-a-row tables, where a hoverable panel would sit over the next rows. No mode
-mounts a tooltip per cell; they are built on first hover.
+**Cell tooltips** appear only when a cell's text is cut, carry no button and do
+not take the pointer; none is mounted per cell, they are built on first hover.
+**Copying a value is the right-click menu**, which every `DataTable` has
+(*Copy value*). A hand-rolled table gets the same menu from
+`CellContextMenu` (`components/ui/cell-context-menu.tsx`): wrap its
+`<TableBody>`, pass `cellMenu.on(value)` as each data cell's `onContextMenu`,
+and optionally a thunk of row-level `ContextMenuItem`s (the Concepts page adds
+"add to list" that way). One menu per table, not per cell.
 
 ### Server mode: one page at a time
 
@@ -285,7 +288,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 | `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter adds every match to the selection. |
 | `SelectionTriggerLabel` | **What a closed multi-select shows.** The chosen values as badges while they fit the trigger (measured, so a resized panel re-decides), "N selected" / "All selected" once they overflow. `MultiSelectFilter`, the analysis config multi-selects and the dashboard categorical filter use it — never write a trigger that says "All selected" for a single option or "2 selected" when both names fit. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `DataTable` uses it, so you only reach for it directly in a bespoke table. |
-| `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page; the copy button copies all of it. |
+| `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page. No copy button — in a table, copying is the cell's right-click menu (`CellContextMenu`). |
 | `OverflowBadgeList` | A badge row too narrow for its items. Keeps whole badges, folds the rest into `+N` with the full list as bullets on hover. Never clip a badge row with `overflow-hidden`. |
 | `DebouncedInput` | Any search box over a large set (300 ms). One shared copy at `ui/debounced-input` — do not re-declare it locally. |
 
@@ -787,9 +790,9 @@ shadow, no arrow) for content that carries its own colours — badge chips in
 colours turn muddy in light mode. Text-only tooltips stay on the default.
 
 For **text that may be cut off**, don't build the tooltip by hand: use
-`TruncatedText` / `TruncatedHeader`, or a table's `cellTooltips` (§2). They
-measure the overflow, only reveal what is actually truncated, add the copy
-button, and mount nothing until the pointer arrives.
+`TruncatedText` / `TruncatedHeader`, or a `DataTable` column's `tooltip` (§2). They
+measure the overflow, only reveal what is actually truncated, and mount nothing
+until the pointer arrives.
 
 **The native `title=` attribute is the exception, not the fallback.** It renders
 the OS tooltip — pale, unstyled, ~1s delay, unthemed — so it does not match the
@@ -822,8 +825,8 @@ for the button, `concept_mapping.create_project_title` for the dialog).
 
 When a shared component *almost* fits, add the missing capability to it. Do not
 fork it, and do not drop the feature from the screen you are building.
-`onVisibleRowsChange`, `headerCell`, `viewKey`, `filterCell`, `rowClassName`,
-`resizable` and `cellTooltips` exist on `DataTable` for exactly that
+`onVisibleRowsChange`, `headerCell`, `viewKey`, `filterCell`, `rowClassName`
+and `resizable` exist on `DataTable` for exactly that
 reason: each one is a capability a caller needed and would otherwise have lost.
 
 The judgement call: if the capability is **general** (any table might want it),

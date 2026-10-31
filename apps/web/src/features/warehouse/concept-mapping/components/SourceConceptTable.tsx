@@ -33,6 +33,7 @@ import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
 import { DebouncedInput } from '@/components/ui/debounced-input'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, SortIndicator, columnLabel } from '@/components/ui/table-primitives'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 // Select imports removed — ColumnFilterSelect now uses DropdownMenu
 import {
@@ -62,12 +63,13 @@ import { ExternalMappingsTip } from './ExternalMappingsTip'
 export type MappingStatusFilter = 'all' | 'unmapped' | 'mapped' | 'mapped_elsewhere'
 
 // Columns kept out of the value tooltip: the cell is interactive or graphical
-// with nothing to copy (_status, _info), or its renderer formats the raw value
-// with thousands separators that the tooltip's String(raw) would undo.
-// concept_id is NOT here — it is among the most worth copying, and its accessor
-// returns null when no id is assigned, which the null guard already sends down
-// the normal renderer (the em dash).
+// (_status, _info), or its renderer formats the raw value with thousands
+// separators that the tooltip's String(raw) would undo. concept_id is NOT here:
+// its accessor returns null when no id is assigned, which the null guard
+// already sends down the normal renderer (the em dash).
 const NO_TOOLTIP_COLUMNS = new Set(['_status', '_info', 'patient_count', 'record_count'])
+// Interactive cells with no value to copy.
+const NO_COPY_COLUMNS = new Set(['_status', '_info'])
 // Columns rendered in a monospace font (kept in the tooltip cell).
 const MONO_COLUMNS = new Set(['concept_code', 'concept_id'])
 
@@ -174,6 +176,7 @@ export function SourceConceptTable({
   hasScores,
 }: SourceConceptTableProps) {
   const { t } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({})
   // When the user clicks "View list" on a blue dot, this holds the list of
   // external mappings to display in a dedicated modal (always opens via the modal,
@@ -804,6 +807,7 @@ export function SourceConceptTable({
               )}
             </TableRow>
           </TableHeader>
+          <CellContextMenu menu={cellMenu}>
           <TableBody>
             {loading && rows.length === 0 ? (
               Array.from({ length: 10 }).map((_, i) => (
@@ -841,19 +845,16 @@ export function SourceConceptTable({
                         ? sourceConceptIdMap?.get(`${row.original.vocabulary_id ?? ''}__${row.original.concept_code ?? ''}`)
                           ?? (isFileSourceWithoutConceptId ? null : row.original.concept_id ?? null)
                         : cell.getValue()
-                      // Every value-bearing column gets the tooltip, shown whether
-                      // or not the text is cut: it carries the copy button, and
-                      // lifting a code out of a cell is worth as much when the
-                      // value happens to fit as when it does not.
                       const useTooltip = !NO_TOOLTIP_COLUMNS.has(cell.column.id) && raw != null && String(raw) !== ''
                       const rendered = useTooltip
-                        ? <TruncatedText alwaysShow text={String(raw)} className={MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
+                        ? <TruncatedText text={String(raw)} className={MONO_COLUMNS.has(cell.column.id) ? 'font-mono' : undefined} />
                         : flexRender(cell.column.columnDef.cell, cell.getContext())
                       return (
                         <TableCell
                           key={cell.id}
                           className="overflow-hidden truncate text-xs px-2 py-1"
                           style={{ maxWidth: cell.column.getSize() }}
+                          onContextMenu={NO_COPY_COLUMNS.has(cell.column.id) ? undefined : cellMenu.on(raw)}
                         >
                           {rendered}
                         </TableCell>
@@ -864,6 +865,7 @@ export function SourceConceptTable({
               })
             )}
           </TableBody>
+          </CellContextMenu>
         </Table>
       </div>
 

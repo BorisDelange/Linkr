@@ -240,12 +240,12 @@ export function EtlListPage() {
               <div className={cn('flex size-10 shrink-0 items-center justify-center rounded-lg', ENTITY_COLORS['etl-pipeline'].bg)}>
                 <Workflow size={20} className={ENTITY_COLORS['etl-pipeline'].icon} />
               </div>
-              <TruncatedText text={localized(pipeline.name, language)} readOnly className="min-w-0 flex-1 text-sm font-medium" />
+              <TruncatedText text={localized(pipeline.name, language)} className="min-w-0 flex-1 text-sm font-medium" />
               <div className="ml-auto shrink-0">{actionsMenu}</div>
             </div>
             <div className="mt-2 h-4">
               {localized(pipeline.description, language) && (
-                <TruncatedText text={localized(pipeline.description, language)} readOnly className="text-xs text-muted-foreground" />
+                <TruncatedText text={localized(pipeline.description, language)} className="text-xs text-muted-foreground" />
               )}
             </div>
             <div className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground">

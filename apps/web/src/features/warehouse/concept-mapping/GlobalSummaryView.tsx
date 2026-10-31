@@ -13,6 +13,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
 import { Button } from '@/components/ui/button'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -343,6 +344,7 @@ interface GlobalTableFilters {
 
 export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
   const { t, i18n } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const { activeWorkspaceId } = useWorkspaceStore()
   const { mappingProjects, mappingProjectsLoaded, loadMappingProjects } = useConceptMappingStore()
 
@@ -1629,7 +1631,6 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   columns={groupColumns}
                   rowKey={(r) => r.key}
                   viewKey={GROUP_TABLE_VIEW_KEY}
-                  cellTooltips="all"
                 />
               </Card>
             </div>
@@ -1762,6 +1763,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   )}
                 </TableRow>
               </TableHeader>
+              <CellContextMenu menu={cellMenu}>
               <TableBody>
                 {(loadingMappings || loadingSourceConcepts || tablePopulating || (tableLoading && tableRows.length === 0)) ? (
                   <TableRow>
@@ -1782,6 +1784,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                         key={cell.id}
                         className="overflow-hidden truncate text-xs px-2 py-1"
                         style={{ maxWidth: cell.column.getSize() }}
+                        onContextMenu={cellMenu.on(cell.getValue())}
                       >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
@@ -1796,6 +1799,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
                   </TableRow>
                 )}
               </TableBody>
+              </CellContextMenu>
             </Table>
           </div>
 

@@ -59,6 +59,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { SectionLabel } from '@/components/ui/section-label'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import { EQUIV_BADGE, normalizeEquivalence } from '@/lib/concept-mapping/equivalence-badge'
 import { isMappingLocked } from '@/lib/concept-mapping/mapping-status'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
@@ -272,6 +273,7 @@ function MapWithCommentDialog({
 export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, onGoToConceptSets }: TargetConceptPanelProps) {
   const navigate = useNavigate()
   const { t, i18n } = useTranslation()
+  const cellMenu = useCellContextMenu()
   const lang = i18n.language
   // Per-field selectors, not the whole store: subscribing to the object re-rendered
   // this panel on every unrelated store change (suggestion scores, other projects…).
@@ -1009,19 +1011,44 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
       size: 40, minSize: 30,
     },
     {
-      id: '_check',
+      id: '_actions',
       header: '',
       cell: ({ row }) => {
+        const c = row.original
         const alreadyMapped = sourceConcept
-          ? existingMappings.some((m) => m.targetConceptId === row.original.conceptId)
+          ? existingMappings.some((m) => m.targetConceptId === c.conceptId)
           : false
         return (
-          <span className="flex justify-center">
+          <div className="flex items-center justify-end gap-0.5">
             {alreadyMapped && <Check size={11} className="shrink-0 text-green-600" />}
-          </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setConceptDetailTarget({
+                      concept_id: c.conceptId,
+                      concept_name: c.conceptName,
+                      concept_code: c.conceptCode || undefined,
+                      vocabulary_id: c.vocabularyId || undefined,
+                      domain_id: c.domainId || undefined,
+                      concept_class_id: c.conceptClassId || undefined,
+                      standard_concept: c.standardConcept ?? undefined,
+                    })
+                    setConceptDetailOpen(true)
+                  }}
+                >
+                  <Info size={11} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="left" className="text-xs">{t('concept_mapping.concept_info_btn')}</TooltipContent>
+            </Tooltip>
+          </div>
         )
       },
-      size: 30, minSize: 24, enableResizing: false,
+      size: 48, minSize: 48, enableResizing: false,
     },
   ], [t, sourceConcept, existingMappings])
 
@@ -1040,7 +1067,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   })
 
   const handleResolvedSort = (columnId: string) => {
-    if (columnId === '_check') return
+    if (columnId === '_actions') return
     setResolvedSorting((s) =>
       s?.columnId === columnId ? (s.desc ? { columnId, desc: false } : null) : { columnId, desc: true },
     )
@@ -1119,6 +1146,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
               )}
             </TableRow>
           </TableHeader>
+          <CellContextMenu menu={cellMenu}>
           <TableBody>
             {csFullPageItems.length === 0 ? (
               <TableRow>
@@ -1159,6 +1187,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                         key={cell.id}
                         className="overflow-hidden truncate text-xs px-2 py-1"
                         style={{ maxWidth: cell.column.getSize() }}
+                        onContextMenu={cellMenu.on(raw)}
                       >
                         {rendered}
                       </TableCell>
@@ -1168,6 +1197,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
               ))
             )}
           </TableBody>
+          </CellContextMenu>
         </Table>
       </div>
 
@@ -1269,13 +1299,13 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                 <p className="text-xs text-destructive">{resolvedError}</p>
               </div>
             ) : (
-              <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+              <Table style={{ tableLayout: 'fixed', width: resolvedTable.getTotalSize(), minWidth: '100%' }}>
                 <TableHeader>
                   <TableRow>
                     {resolvedTable.getHeaderGroups().map((hg) =>
                       hg.headers.map((header) => {
                         const colId = header.column.id
-                        const isSortable = colId !== '_check'
+                        const isSortable = colId !== '_actions'
                         return (
                           <TableHead
                             key={header.id}
@@ -1319,6 +1349,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                     )}
                   </TableRow>
                 </TableHeader>
+                <CellContextMenu menu={cellMenu}>
                 <TableBody>
                   {resolvedTable.getRowModel().rows.length === 0 ? (
                     <TableRow>
@@ -1364,6 +1395,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                                 key={cell.id}
                                 className="overflow-hidden truncate px-2 py-1 text-xs"
                                 style={{ maxWidth: cell.column.getSize() }}
+                                onContextMenu={cellMenu.on(raw)}
                               >
                                 {rendered}
                               </TableCell>
@@ -1374,6 +1406,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                     })
                   )}
                 </TableBody>
+                </CellContextMenu>
               </Table>
             )}
       </div>

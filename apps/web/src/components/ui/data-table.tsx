@@ -33,6 +33,7 @@ import { DebouncedInput } from '@/components/ui/debounced-input'
 import { ColumnResizeHandle, FILTER_INPUT_CLASS, FILTER_INPUT_CLASS_DENSE, SortIndicator } from '@/components/ui/table-primitives'
 import { TruncatedHeader, headerLabel } from '@/components/ui/truncated-header'
 import { TruncatedText } from '@/components/ui/truncated-text'
+import { CellContextMenu, useCellContextMenu } from '@/components/ui/cell-context-menu'
 import {
   Table,
   TableBody,
@@ -266,21 +267,6 @@ interface DataTableProps<T> {
    */
   rowClassName?: (row: T) => string | undefined
   /**
-   * How much a cell's hover tooltip offers.
-   *
-   * `truncated` (default) reveals a cell only when its text is actually cut,
-   * and the tooltip is hoverable so the value can be selected or copied out of
-   * a narrow column.
-   * `all` shows it even when the text fits, for tables whose values are
-   * routinely copied elsewhere — concept ids, source codes.
-   * `readOnly` drops the copy button and stops the tooltip swallowing the
-   * pointer, for dense pick-a-row tables where a panel floating over the next
-   * rows gets in the way.
-   *
-   * Neither mode mounts a tooltip per cell: they are built on first hover.
-   */
-  cellTooltips?: 'truncated' | 'all' | 'readOnly'
-  /**
    * Rows per page. Omit to render every row, which is right for the short lists
    * most callers pass; set it when the data can run to thousands, where a row per
    * DOM node makes sorting and resizing visibly slow.
@@ -427,7 +413,7 @@ function SortableHead<T>({
  * filters (text / number / multi-select), column-visibility menu and a results
  * count. Generalized from RelationsTable so concept lists read the same everywhere.
  */
-export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, initialFilters, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, cellTooltips = 'truncated', stickyHeader, density = 'default', striped, server, pinnedRows }: DataTableProps<T>) {
+export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowClick, selectedRowKey, rowClassName, pageSize, initialSorting, initialFilters, reorderable, selectedRowKeys, onSelectedRowKeysChange, onVisibleRowsChange, viewKey, stickyHeader, density = 'default', striped, server, pinnedRows }: DataTableProps<T>) {
   const dense = density === 'compact'
   const serverMode = !!server
   const cellPad = dense ? 'px-2 py-0.5' : 'px-2 py-1'
@@ -664,17 +650,23 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
 
   // One renderer for body and pinned rows, so a pinned row truncates and
   // shows its tooltip like any other.
+  // `display` wins over the raw value everywhere it is shown — and copied.
+  const shownText = (c: DataTableColumn<T>, row: T): string =>
+    c.display ? c.display(row) : String(c.accessor(row) ?? '')
+
   const renderCell = (c: DataTableColumn<T>, row: T): ReactNode => {
     const raw = c.accessor(row)
-    // `display` wins over the raw value everywhere it is shown.
-    const shown = c.display ? c.display(row) : String(raw ?? '')
-    const tooltipProps = { alwaysShow: cellTooltips === 'all', readOnly: cellTooltips === 'readOnly' }
     if (c.tooltip && raw != null && String(raw) !== '') {
-      return <TruncatedText text={shown} className={typeof c.tooltip === 'string' ? c.tooltip : undefined} {...tooltipProps} />
+      return <TruncatedText text={shownText(c, row)} className={typeof c.tooltip === 'string' ? c.tooltip : undefined} />
     }
     if (c.cell) return c.cell(row)
-    return <TruncatedText text={shown} className="text-xs" {...tooltipProps} />
+    return <TruncatedText text={shownText(c, row)} className="text-xs" />
   }
+
+  const cellMenu = useCellContextMenu()
+  // An unlabelled column is a control (actions, row checkbox): nothing to copy.
+  const onCellContextMenu = (c: DataTableColumn<T> | undefined, row: T) =>
+    c && c.header !== '' ? cellMenu.on(shownText(c, row)) : undefined
 
   const columns = useMemo<ColumnDef<T>[]>(() => cols.map((c) => ({
     id: c.id,
@@ -731,7 +723,10 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
   const body = (
     <div className="flex h-full flex-col overflow-hidden">
       <div className="flex-1 overflow-auto">
-        <Table className="w-full" style={{ tableLayout: 'fixed' }}>
+        {/* An explicit width, not just w-full: with a fixed layout Chrome keeps the
+            old column widths when a column is shown, clipping the last one with
+            no scrollbar until the container itself is resized. */}
+        <Table style={{ tableLayout: 'fixed', width: table.getTotalSize(), minWidth: '100%' }}>
           <TableHeader className={cn(stickyHeader && 'sticky top-0 z-20 bg-muted')}>
             <TableRow>
               {table.getHeaderGroups().map((hg) =>
@@ -816,6 +811,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
             </TableRow>
             )}
           </TableHeader>
+          <CellContextMenu menu={cellMenu}>
           <TableBody>
             {pinnedRows?.map((row) => (
               // Opaque on every cell, not just the pinned ones: a translucent
@@ -839,6 +835,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
                         maxWidth: column.getSize(),
                         ...(col?.pinned ? { left: pinnedOffset(column.id) } : {}),
                       }}
+                      onContextMenu={onCellContextMenu(col, row)}
                     >
                       {col && renderCell(col, row)}
                     </TableCell>
@@ -901,6 +898,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
                           maxWidth: cell.column.getSize(),
                           ...(col?.pinned ? { left: pinnedOffset(cell.column.id) } : {}),
                         }}
+                        onContextMenu={onCellContextMenu(col, row.original)}
                       >
                         {col && renderCell(col, row.original)}
                       </TableCell>
@@ -911,6 +909,7 @@ export function DataTable<T>({ data, columns: cols, rowKey, emptyMessage, onRowC
               })
             )}
           </TableBody>
+          </CellContextMenu>
         </Table>
       </div>
 

@@ -3,8 +3,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { TruncatedText } from '@/components/ui/truncated-text'
 import { unpackSetNames } from './concept-set-names'
 
-/** Columns whose own renderer wins over the generic copy tooltip — they are
- *  badges or buttons, not text worth lifting out of a cell. */
+/** Columns whose own renderer wins over the generic truncation tooltip — they
+ *  are badges, buttons or formatted counts, not plain text. */
 export const NO_TOOLTIP_COLUMNS = new Set([
   'standard_concept',
   'record_count',
@@ -68,11 +68,8 @@ export function ConceptSetCell({
  * renderer when it is graphical, otherwise the value wrapped so it reveals
  * itself on hover when the column is too narrow to show it whole.
  *
- * These tables are for picking a row, so the tooltip is deliberately read-only:
- * it appears only when the text is actually cut, carries no copy button, and
- * does not take the pointer — a hoverable panel per cell sat over the rows
- * below and made them awkward to click. The mapping-project tables keep the
- * richer copyable tooltip, where lifting a code out of a cell is the point.
+ * The tooltip appears only when the text is actually cut; copying a value goes
+ * through the table's right-click menu.
  *
  * `rendered` is the column's output; it is used as-is for the columns listed in
  * NO_TOOLTIP_COLUMNS, and replaced by the tooltip otherwise.
@@ -87,7 +84,6 @@ export function conceptCellContent(
   if (!useTooltip) return rendered
   return (
     <TruncatedText
-      readOnly
       text={String(raw)}
       className={MONO_COLUMNS.has(columnId) ? 'font-mono' : undefined}
     />

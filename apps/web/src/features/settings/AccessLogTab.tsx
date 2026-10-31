@@ -166,7 +166,6 @@ export function AccessLogTab() {
             columns={columns}
             rowKey={(r) => r.seq}
             pageSize={PAGE_SIZE}
-            cellTooltips="all"
             emptyMessage={t('access_log.empty')}
             server={{ total, onQueryChange: fetchPage, filterOptions, loading }}
           />

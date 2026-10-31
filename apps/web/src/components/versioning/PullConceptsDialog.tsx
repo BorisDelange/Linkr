@@ -173,7 +173,6 @@ export function PullConceptsDialog({ diff, changes, declined, onClose, onApply }
             data={changes}
             columns={columns}
             rowKey={(r) => r.key}
-            cellTooltips="all"
             onVisibleRowsChange={setVisible}
           />
         </div>

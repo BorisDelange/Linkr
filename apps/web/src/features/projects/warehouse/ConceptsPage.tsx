@@ -35,6 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { ContextMenuItem } from '@/components/ui/context-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { localized, setLocalized } from '@/lib/localized'
 import { useAppStore } from '@/stores/app-store'
@@ -119,6 +120,8 @@ export function ConceptsPage() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [editingList, setEditingList] = useState<ConceptList | null>(null)
   const [editOpen, setEditOpen] = useState(false)
+  // Concepts a right-click "add" seeds a new list with; null = the pending ones.
+  const [dialogSeed, setDialogSeed] = useState<ConceptRow[] | null>(null)
   const [deletingList, setDeletingList] = useState<ConceptList | null>(null)
   const [openSetName, setOpenSetName] = useState<string | null>(null)
   const [selectedConceptIds, setSelectedConceptIds] = useState<Set<number>>(new Set())
@@ -181,11 +184,11 @@ export function ConceptsPage() {
     dictKey: c._dict_key,
   })
 
-  /** Add the pending concepts to a list, de-duplicated by concept id. */
-  const addToList = async (list: ConceptList) => {
-    if (pendingAdditions.length === 0) return
+  /** Add concepts (by default the pending ones) to a list, de-duplicated by concept id. */
+  const addToList = async (list: ConceptList, rows: ConceptRow[] = pendingAdditions) => {
+    if (rows.length === 0) return
     const seen = new Set(list.items.map((i) => i.conceptId))
-    const additions = pendingAdditions.filter((c) => !seen.has(c.concept_id)).map(toItem)
+    const additions = rows.filter((c) => !seen.has(c.concept_id)).map(toItem)
     if (additions.length > 0) {
       await updateConceptList(list.id, { items: [...list.items, ...additions] })
     }
@@ -214,15 +217,39 @@ export function ConceptsPage() {
     await createConceptList(list)
   }
 
-  const addSelectedToList = async () => {
-    if (pendingAdditions.length === 0) return
-    // No list yet → the edit dialog opens and the pending concepts seed it.
+  const addRowsToList = async (rows: ConceptRow[]) => {
+    if (rows.length === 0) return
+    // No list yet → the edit dialog opens and these concepts seed it.
     if (!activeList) {
+      setDialogSeed(rows)
       setEditingList(null)
       setEditOpen(true)
       return
     }
-    await addToList(activeList)
+    await addToList(activeList, rows)
+  }
+
+  const addSelectedToList = () => addRowsToList(pendingAdditions)
+
+  /** Right-click on a row: the multi-selection when the row is part of it, else that row alone. */
+  const rowMenuItems = (row: ConceptRow) => {
+    const rows = selectedConceptIds.has(row.concept_id) ? pendingAdditions : [row]
+    const label = !activeList
+      ? t('concepts.add_concept_to_new_list')
+      : rows.length > 1
+        ? t('concepts.add_to_named_list', {
+            name: localized(activeList.name, i18n.language) || t('concepts.list_untitled'),
+            count: rows.length,
+          })
+        : t('concepts.add_concept_to_named_list', {
+            name: localized(activeList.name, i18n.language) || t('concepts.list_untitled'),
+          })
+    return (
+      <ContextMenuItem onClick={() => { void addRowsToList(rows) }}>
+        <Plus size={14} />
+        {label}
+      </ContextMenuItem>
+    )
   }
 
   // Data dictionaries (concept sets) indexed by (vocabulary_id, concept_code),
@@ -636,7 +663,10 @@ export function ConceptsPage() {
 
       <ConceptListEditDialog
         open={editOpen}
-        onOpenChange={setEditOpen}
+        onOpenChange={(o) => {
+          setEditOpen(o)
+          if (!o) setDialogSeed(null)
+        }}
         list={editingList}
         onSave={(values) => {
           if (editingList) {
@@ -648,7 +678,7 @@ export function ConceptsPage() {
             return
           }
           // Creating from the "+" seeds the new list with what was selected.
-          createListWith(values, pendingAdditions.map(toItem))
+          createListWith(values, (dialogSeed ?? pendingAdditions).map(toItem))
           setSelectedConceptIds(new Set())
         }}
       />
@@ -698,6 +728,7 @@ export function ConceptsPage() {
               selectedConceptIds={selectedConceptIds}
               onSelectedConceptIdsChange={setSelectedConceptIds}
               onEnter={() => { void addSelectedToList() }}
+              cellMenuItems={rowMenuItems}
               onOpenConceptSet={setOpenSetName}
               onPageChange={setPage}
               onPageSizeChange={(size) => {
