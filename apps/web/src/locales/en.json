@@ -256,6 +256,7 @@
     "action_settings_description": "Manage users and platform configuration"
   },
   "workspace_settings": {
+    "versioning": "Versioning",
     "delete_workspace": "Delete workspace"
   },
   "badge_categories": {
@@ -2555,10 +2556,13 @@
     "reinstall_confirm_title": "Reinstall from the repository?",
     "reinstall_confirm_description": "This content is deleted and imported again from the repository below.",
     "reinstall_confirm_warning": "Anything you have not pushed is lost — including local edits, and content this repository does not carry. This cannot be undone.",
+    "reinstall_confirm_description_workspace": "This workspace is rebuilt from the repository below, and each linked entity is cloned again from its own repository.",
+    "reinstall_confirm_warning_workspace": "Projects, databases, mappings and every other entity this repository does not carry are deleted, with their files. Anything you have not pushed — in the workspace or in its linked entities — is lost. This cannot be undone.",
+    "reinstall_children_failed": "The workspace was rebuilt, but these linked entities could not be cloned from their repository and are empty:",
     "pull_action": "Pull",
     "pull_computing": "Loading remote changes…",
     "review_mode": "Changes go through review",
-    "review_mode_hint": "Pushing directly is turned off for this workspace and everything in it: changes are proposed as merge requests and reach the branch once merged on the forge.",
+    "review_mode_hint": "When enabled, pushing directly is turned off for this workspace and everything in it: changes are proposed as merge requests and reach the branch once merged on the forge.",
     "quick_sync_subject": "Sync {{subject}}",
     "quick_sync_subject_desc": "Commit and push only these changes.",
     "quick_sync_subject_message": "{{subject}}: update by {{author}}",

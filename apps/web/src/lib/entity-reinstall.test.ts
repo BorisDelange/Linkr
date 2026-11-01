@@ -21,7 +21,8 @@ describe('REINSTALLABLE', () => {
   })
 
   // These have no applyClonedEntity branch: offering the action would delete the
-  // content and then fail to bring it back.
+  // content and then fail to bring it back. A workspace is rebuilt by its own
+  // path (lib/workspace-reinstall.ts), not through this table.
   it('excludes the scopes that cannot be rebuilt from a clone', () => {
     expect(REINSTALLABLE).not.toHaveProperty('workspaces')
     expect(REINSTALLABLE).not.toHaveProperty('user-plugins')

@@ -256,6 +256,7 @@
     "action_settings_description": "Gérer les utilisateurs et la configuration"
   },
   "workspace_settings": {
+    "versioning": "Versioning",
     "delete_workspace": "Supprimer le workspace"
   },
   "badge_categories": {
@@ -2554,10 +2555,13 @@
     "reinstall_confirm_title": "Réinstaller depuis le dépôt ?",
     "reinstall_confirm_description": "Ce contenu est supprimé puis réimporté depuis le dépôt ci-dessous.",
     "reinstall_confirm_warning": "Tout ce qui n'a pas été poussé est perdu — modifications locales comprises, ainsi que le contenu que ce dépôt ne porte pas. Cette action est irréversible.",
+    "reinstall_confirm_description_workspace": "Ce workspace est reconstruit depuis le dépôt ci-dessous, et chaque entité liée est de nouveau clonée depuis son propre dépôt.",
+    "reinstall_confirm_warning_workspace": "Les projets, bases de données, mappings et toute autre entité que ce dépôt ne contient pas sont supprimés, avec leurs fichiers. Tout ce que vous n'avez pas poussé — dans le workspace ou dans ses entités liées — est perdu. Cette action est irréversible.",
+    "reinstall_children_failed": "Le workspace a été reconstruit, mais ces entités liées n'ont pas pu être clonées depuis leur dépôt et sont vides :",
     "pull_action": "Mettre à jour",
     "pull_computing": "Chargement des modifications distantes…",
     "review_mode": "Les modifications passent par une revue",
-    "review_mode_hint": "Le push direct est désactivé pour ce workspace et tout ce qu'il contient : les modifications sont proposées en merge request et arrivent sur la branche une fois fusionnées sur la forge.",
+    "review_mode_hint": "Une fois activé, le push direct est désactivé pour ce workspace et tout ce qu'il contient : les modifications sont proposées en merge request et arrivent sur la branche une fois fusionnées sur la forge.",
     "quick_sync_subject": "Synchroniser : {{subject}}",
     "quick_sync_subject_desc": "Commiter et pousser uniquement ces modifications.",
     "quick_sync_subject_message": "{{subject}} : mise à jour par {{author}}",

@@ -87,8 +87,9 @@ Linkr refuses such remotes by default (the clone and sync flows make the server
 connect to a URL a user typed — SSRF); the instance admin lists the forge in
 `LINKR_GIT_ALLOWED_HOSTS` (`gitlab.chu.local` or `host:port`), which also allows
 plain http to it. Merge requests are opened on that forge with each user's own
-token. A workspace can be set to take changes as merge requests only (Versioning
-→ "Changes go through review"); the forge's branch protection is what enforces it.
+token. A workspace can be set to take changes as merge requests only (workspace
+Settings → Versioning → "Changes go through review"); the forge's branch
+protection is what enforces it.
 
 ## Testing against an SPE locally
 

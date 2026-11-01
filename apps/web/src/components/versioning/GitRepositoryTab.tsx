@@ -225,6 +225,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
             url={linkedUrl}
             branch={branch}
             busy={reinstalling}
+            workspace={syncScope === 'workspaces'}
             onConfirm={handleReinstall}
             onClose={() => { if (!reinstalling) setConfirmReinstall(false) }}
           />

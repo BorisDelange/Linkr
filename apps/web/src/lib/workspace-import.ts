@@ -109,7 +109,16 @@ export interface WorkspaceImportOptions {
   onPhase?: (phaseKey: string, done?: number, total?: number) => void
   /** Language used to render the skipped-organization name. */
   language: string
+  /** Land on this workspace whatever the tree's lineage says (a reinstall
+   *  rebuilds the workspace it was asked to, never a second one). */
+  targetWorkspaceId?: string
 }
+
+/** The workspace children an import wrote, by kind — what a reinstall keeps. */
+export type LandedChildren = Record<LandedKind, Set<string>>
+export type LandedKind =
+  | 'projects' | 'schemaPresets' | 'dataSources' | 'sqlScriptCollections' | 'etlPipelines'
+  | 'dqRuleSets' | 'conceptSets' | 'mappingProjects' | 'dataCatalogs' | 'serviceMappings' | 'userPlugins'
 
 export interface WorkspaceImportResult {
   targetWsId: string
@@ -118,6 +127,7 @@ export interface WorkspaceImportResult {
   /** Databases created under another alias than their manifest's, because that
    *  one was taken in their scope: what came with them still queries `ds_<from>`. */
   aliasRenames: { from: string; to: string }[]
+  landed: LandedChildren
 }
 
 export async function importWorkspaceTree(
@@ -147,11 +157,18 @@ export async function importWorkspaceTree(
   // mints one), so a re-import is recognised by `lineageId` — the cross-instance
   // identity. Matching on the minted id would never hit, turning every re-import
   // into a duplicate instead of an update.
-  const targetWsId = resolveWorkspaceId(
-    duplicate ? [] : await storage.workspaces.getAll().catch(() => []),
-    wsMeta,
-    duplicate,
-  ).id
+  const targetWsId = !duplicate && options.targetWorkspaceId
+    ? options.targetWorkspaceId
+    : resolveWorkspaceId(
+      duplicate ? [] : await storage.workspaces.getAll().catch(() => []),
+      wsMeta,
+      duplicate,
+    ).id
+  const landed: LandedChildren = {
+    projects: new Set(), schemaPresets: new Set(), dataSources: new Set(), sqlScriptCollections: new Set(),
+    etlPipelines: new Set(), dqRuleSets: new Set(), conceptSets: new Set(), mappingProjects: new Set(),
+    dataCatalogs: new Set(), serviceMappings: new Set(), userPlugins: new Set(),
+  }
   // On a duplicate, every git-linked child is re-minted with a fresh uuid; the
   // post-import auto-clone must target those NEW ids, not the ZIP's original ones.
   // Keyed `${type}:${originalId}` → new id (see GitLinkedEntity.type vocabulary).
@@ -320,6 +337,7 @@ export async function importWorkspaceTree(
     await storage.projects.delete(uid).catch(() => {})
 
     await storage.projects.create(entity)
+    landed.projects.add(uid)
 
     // Write all sub-entities (child ids remapped to fresh UUIDs to avoid collisions).
     await importProjectContent(parsedProject, uid, storage, { workspaceId: targetWsId })
@@ -340,6 +358,7 @@ export async function importWorkspaceTree(
     project.uid = entityKey(project, entry.folder)
     const uid = duplicate ? crypto.randomUUID() : project.uid
     idMap.set(`project:${project.uid}`, uid)
+    landed.projects.add(uid)
     const existing = await storage.projects.getById(uid)
     if (existing && !duplicate) {
       // Update metadata + readme only
@@ -390,6 +409,7 @@ export async function importWorkspaceTree(
       duplicate,
     )
     idMap.set(`schema-preset:${sourceSlug}`, localId)
+    landed.schemaPresets.add(localId)
     // Clear only the row being replaced, addressed by its primary key. Deleting
     // by slug was the worse half of the cross-workspace bug: `schemaPresets.
     // delete` falls back to scanning `presetId`, so it reached rows that did not
@@ -452,6 +472,7 @@ export async function importWorkspaceTree(
     // Databases were the one kind missing from the map, which left the clone
     // falling back to the manifest's own key.
     idMap.set(`database:${ds.entityId ?? ds.id}`, id)
+    landed.dataSources.add(id)
     if (!duplicate) {
       const existing = await storage.dataSources.getById(landing)
       if (existing) {
@@ -571,6 +592,7 @@ export async function importWorkspaceTree(
   for (const { collection, files } of parsed.sqlCollections) {
     const { id, replaces } = await resolveByLineage(() => storage.sqlScriptCollections.getAll(), collection)
     idMap.set(`sql-collection:${collection.entityId ?? collection.id}`, id)
+    landed.sqlScriptCollections.add(id)
     if (replaces) {
       await storage.sqlScriptFiles.deleteByCollection(replaces).catch(() => {})
       await storage.sqlScriptCollections.delete(replaces).catch(() => {})
@@ -602,6 +624,7 @@ export async function importWorkspaceTree(
   for (const { pipeline, files, attachments } of parsed.etlPipelines) {
     const { id, replaces } = await resolveByLineage(() => storage.etlPipelines.getAll(), pipeline)
     idMap.set(`etl-pipeline:${pipeline.entityId ?? pipeline.id}`, id)
+    landed.etlPipelines.add(id)
     if (replaces) {
       await storage.etlFiles.deleteByPipeline(replaces).catch(() => {})
       await storage.etlPipelines.delete(replaces).catch(() => {})
@@ -636,6 +659,7 @@ export async function importWorkspaceTree(
   for (const { ruleSet, checks } of parsed.dqRuleSets) {
     const { id, replaces } = await resolveByLineage(() => storage.dqRuleSets.getAll(), ruleSet)
     idMap.set(`dq-rule-set:${ruleSet.entityId ?? ruleSet.id}`, id)
+    landed.dqRuleSets.add(id)
     if (replaces) {
       await storage.dqCustomChecks.deleteByRuleSet(replaces).catch(() => {})
       await storage.dqRuleSets.delete(replaces).catch(() => {})
@@ -657,6 +681,7 @@ export async function importWorkspaceTree(
   }
   for (const cs of parsed.conceptSets) {
     const id = await resolveChildId((i) => storage.conceptSets.getById(i), cs.id)
+    landed.conceptSets.add(id)
     if (id === cs.id) await storage.conceptSets.delete(cs.id).catch(() => {})
     await storage.conceptSets.create({
       ...cs, id, workspaceId: targetWsId, updatedAt: now,
@@ -684,6 +709,7 @@ export async function importWorkspaceTree(
       // all their clones then retargeted onto the single surviving id — six
       // projects imported empty while one received everyone's content.
       idMap.set(`mapping-project:${mp.entityId ?? mp.id}`, id)
+      landed.mappingProjects.add(id)
       // The mappings' own ids are namespaced by the project id, so they must be
       // re-minted whenever this import did not land on the row it replaces.
       const remintMappings = !replaces
@@ -856,6 +882,7 @@ export async function importWorkspaceTree(
   for (const cat of parsed.catalogs) {
     const { id, replaces } = await resolveByLineage(() => storage.dataCatalogs.getAll(), cat)
     idMap.set(`data-catalog:${cat.entityId ?? cat.id}`, id)
+    landed.dataCatalogs.add(id)
     if (replaces) await storage.dataCatalogs.delete(replaces).catch(() => {})
     // The manifest carries a portable pointer, never the writing instance's
     // data-source UUID (which would address nothing here). No local match leaves
@@ -875,6 +902,7 @@ export async function importWorkspaceTree(
   }
   for (const sm of parsed.serviceMappings) {
     const id = await resolveChildId((i) => storage.serviceMappings.getById(i), sm.id)
+    landed.serviceMappings.add(id)
     if (id === sm.id) await storage.serviceMappings.delete(sm.id).catch(() => {})
     await storage.serviceMappings.create({
       ...sm, id, workspaceId: targetWsId, updatedAt: now,
@@ -903,6 +931,7 @@ export async function importWorkspaceTree(
         .find((p) => p.entityId === plugin.entityId && p.workspaceId === targetWsId) ?? null
     const id = bySlug?.id ?? byLineage.id
     const replaces = bySlug?.id ?? byLineage.replaces
+    landed.userPlugins.add(id)
     if (replaces) await storage.userPlugins.delete(replaces).catch(() => {})
     await storage.userPlugins.create({
       ...plugin, id, workspaceId: targetWsId, updatedAt: now,
@@ -956,5 +985,5 @@ export async function importWorkspaceTree(
   // whole app with a full-screen loader. Reload it now (flips the flag back to true)
   // instead of waiting for some later loadCatalogs() to un-block the shell.
   await useCatalogStore.getState().loadCatalogs()
-  return { targetWsId, idMap, skippedOrgName, aliasRenames }
+  return { targetWsId, idMap, skippedOrgName, aliasRenames, landed }
 }

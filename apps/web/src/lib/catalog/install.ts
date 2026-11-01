@@ -98,7 +98,7 @@ export const META_FILE: Record<CatalogEntry['type'], string[]> = {
  * Still the only description available for a workspace tree, which is read
  * elsewhere.
  */
-function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string {
+export function describeUnreadableTree(zip: JSZip, type: CatalogEntry['type']): string {
   const has = (name: string) => zip.files[name] != null && !zip.files[name].dir
   const names = [ENTITY_MANIFEST, ...(META_FILE[type] ?? [])]
   if (!names.some(has)) {
@@ -572,7 +572,7 @@ export function isCloneableChildUrl(url: unknown): url is string {
 }
 
 /** Pull each git-linked child's content in. Returns the ones that did not make it. */
-async function cloneWorkspaceChildren(
+export async function cloneWorkspaceChildren(
   parsed: ParsedWorkspaceZip,
   targetWsId: string,
   idMap: Map<string, string>,

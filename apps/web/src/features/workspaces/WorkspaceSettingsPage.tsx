@@ -12,6 +12,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { MembersTab } from '@/features/settings/MembersTab'
 import { DefaultEnvironmentsTab } from '@/features/workspaces/DefaultEnvironmentsTab'
 import { BadgeCategoriesTab } from '@/features/workspaces/BadgeCategoriesTab'
+import { VersioningSettingsTab } from '@/features/workspaces/VersioningSettingsTab'
 import { isServerMode } from '@/lib/api-client'
 import { useMyWorkspaceRole } from '@/hooks/use-context-role'
 import {
@@ -42,7 +43,7 @@ export function WorkspaceSettingsPage() {
   // a tab here (moved to the Edit Workspace dialog); gate the owner-only danger
   // tab and the server-only environments and LLM provider tabs.
   const requestedTab = tab ?? searchParams.get('tab') ?? 'members'
-  const availableTabs = ['members', 'badges', ...(isServerMode() ? ['environments'] : []), ...(canDelete ? ['danger'] : [])]
+  const availableTabs = ['members', 'badges', ...(isServerMode() ? ['environments', 'versioning'] : []), ...(canDelete ? ['danger'] : [])]
   // Hold the requested tab until the role is known: 'danger' is gated on canDelete,
   // which is false while /my-role loads, so a deep-link to it would otherwise snap
   // to 'members' permanently even for the owner.
@@ -92,6 +93,7 @@ export function WorkspaceSettingsPage() {
           <TabsTrigger value="members">{t('members.title')}</TabsTrigger>
           <TabsTrigger value="badges">{t('badge_categories.title')}</TabsTrigger>
           {isServerMode() && <TabsTrigger value="environments">{t('workspace_env.title')}</TabsTrigger>}
+          {isServerMode() && <TabsTrigger value="versioning">{t('workspace_settings.versioning')}</TabsTrigger>}
           {canDelete && <TabsTrigger value="danger" className="text-destructive data-[state=active]:text-destructive">{t('workspace_settings.delete_workspace')}</TabsTrigger>}
         </TabsList>
 
@@ -111,6 +113,13 @@ export function WorkspaceSettingsPage() {
         {isServerMode() && (
           <TabsContent value="environments" className="min-h-0 flex-1 overflow-auto pb-6">
             <DefaultEnvironmentsTab workspace={workspace} />
+          </TabsContent>
+        )}
+
+        {/* Versioning (server mode: git only exists there) */}
+        {isServerMode() && (
+          <TabsContent value="versioning" className="min-h-0 flex-1 overflow-auto pb-6">
+            <VersioningSettingsTab workspace={workspace} canWrite={can('workspace-settings:write')} />
           </TabsContent>
         )}
 
