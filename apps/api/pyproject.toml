@@ -27,6 +27,8 @@ dependencies = [
     "python-multipart>=0.0.9",
     "structlog>=24.0",
     "duckdb>=1.0",
+    # Oracle's own driver, thin mode (no Oracle Client): pushed-down Oracle queries.
+    "oracledb>=26.0.1",
     # DuckDB imports it to hand TIMESTAMP WITH TIME ZONE values to Python; it is
     # not one of its own dependencies.
     "pytz",

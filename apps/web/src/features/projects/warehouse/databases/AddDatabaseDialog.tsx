@@ -910,6 +910,8 @@ export function AddDatabaseDialog({
                                   <SelectItem value="postgresql">{ENGINE_LABELS.postgresql}</SelectItem>
                                   <SelectItem value="mysql">{ENGINE_LABELS.mysql}</SelectItem>
                                   <SelectItem value="doris">{ENGINE_LABELS.doris}</SelectItem>
+                                  <SelectItem value="sqlserver">{ENGINE_LABELS.sqlserver}</SelectItem>
+                                  <SelectItem value="oracle">{ENGINE_LABELS.oracle}</SelectItem>
                         </>
                       )}
                       <SelectItem value="duckdb">{ENGINE_LABELS.duckdb}</SelectItem>
@@ -1101,15 +1103,19 @@ export function AddDatabaseDialog({
                     ) : (
                       <>
                         <div className="space-y-2">
-                          <Label>{t('databases.field_database')}</Label>
-                          <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} />
+                          <Label>{t(dbEngine === 'oracle' ? 'databases.field_service_name' : 'databases.field_database')}</Label>
+                          <Input value={dbDatabase} onChange={(e) => setDbDatabase(e.target.value)} placeholder={dbEngine === 'oracle' ? 'FREEPDB1' : undefined} />
                         </div>
                         <div className="space-y-2">
                           <Label className="flex items-center gap-1.5">
-                            {t('databases.field_default_schema')}
-                            <FieldInfo text={t('databases.field_default_schema_hint_postgresql')} />
+                            {t(dbEngine === 'oracle' ? 'databases.field_schema' : 'databases.field_default_schema')}
+                            <FieldInfo text={t(dbEngine === 'oracle' ? 'databases.field_schema_hint_oracle' : 'databases.field_default_schema_hint_postgresql')} />
                           </Label>
-                          <Input value={dbSchema} onChange={(e) => setDbSchema(e.target.value)} placeholder="public" />
+                          <Input
+                            value={dbSchema}
+                            onChange={(e) => setDbSchema(e.target.value)}
+                            placeholder={dbEngine === 'sqlserver' ? 'dbo' : dbEngine === 'oracle' ? undefined : 'public'}
+                          />
                         </div>
                       </>
                     )}
@@ -1124,6 +1130,12 @@ export function AddDatabaseDialog({
                     {dbEngine === 'doris' && (
                       <p className="col-span-full text-xs text-muted-foreground">
                         {t('databases.doris_read_only_hint')} {t('databases.doris_flight_hint')}
+                      </p>
+                    )}
+                    {(dbEngine === 'sqlserver' || dbEngine === 'oracle') && (
+                      <p className="col-span-full text-xs text-muted-foreground">
+                        {t(dbEngine === 'oracle' ? 'databases.oracle_read_only_hint' : 'databases.sqlserver_read_only_hint')}{' '}
+                        {t('databases.community_extension_hint')}
                       </p>
                     )}
                     {isServerMode() && (

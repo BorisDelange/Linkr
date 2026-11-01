@@ -5,10 +5,10 @@ Every engine is read the way the app reads it, through `db_connect`:
 - `duckdb`, `sqlite`: a file on the server;
 - `postgresql`, `mysql`: a server, attached into DuckDB, logged in with a read-only role;
 - `doris`: an existing Doris holding the same tables (MATRIX_DORIS_HOST), read with and
-  without pushdown — the matrix does not load or run one, it is too heavy for a laptop.
-
-Oracle and SQL Server have no server connector in Linkr yet: they are listed so the
-report says so, not silently skipped.
+  without pushdown — the matrix does not load or run one, it is too heavy for a laptop;
+- `sqlserver`, `oracle`: a server, attached through DuckDB community extensions
+  (community_engines), loaded the way OHDSI's DDL lays OMOP out on each, read with a
+  read-only login.
 
 Server addresses come from the environment, defaulting to the SPE simulation's
 datamarts (docker/spe-sim/docker-compose.yml).
@@ -22,11 +22,11 @@ PASSWORD = os.environ.get("DATAMART_PASSWORD", "SpeSim_2026!")
 READER = "linkr_ro"
 SCHEMA = "omop"
 
-ALL = ["parquet", "duckdb", "sqlite", "postgresql", "mysql", "doris", "oracle", "sqlserver"]
-NOT_SUPPORTED = {
-    "oracle": "Linkr has no server connector for Oracle yet",
-    "sqlserver": "Linkr has no server connector for SQL Server yet",
-}
+ALL = ["parquet", "duckdb", "sqlite", "postgresql", "mysql", "doris", "sqlserver", "oracle"]
+# Engines a datamart container serves, loaded by matrix.py.
+LOADED = ("postgresql", "mysql", "sqlserver", "oracle")
+# Oracle's names: the owner of the loaded tables, and the service.
+ORACLE_OWNER, ORACLE_SERVICE = "OMOP", "FREEPDB1"
 
 
 def _env(engine: str, key: str, default: str | None = None) -> str | None:
@@ -44,6 +44,12 @@ def admin_config(engine: str) -> dict:
     if engine == "mysql":
         host, port = _env(engine, "HOST", "datamart-mysql"), _env(engine, "PORT", "3306")
         return {"dsn": f"host={host} port={port} user=root password={PASSWORD}", "load_schema": SCHEMA}
+    if engine == "sqlserver":
+        return {"host": _env(engine, "HOST", "datamart-sqlserver"), "port": int(_env(engine, "PORT", "1433")),
+                "user": "sa", "database": "datamart", "load_schema": SCHEMA}
+    if engine == "oracle":
+        return {"host": _env(engine, "HOST", "datamart-oracle"), "port": int(_env(engine, "PORT", "1521")),
+                "user": "system", "service": ORACLE_SERVICE, "load_schema": ORACLE_OWNER}
     raise ValueError(f"no admin login for {engine}")
 
 
@@ -61,6 +67,12 @@ def read_only_grants(engine: str) -> list[str]:
             f"CREATE USER IF NOT EXISTS '{READER}'@'%' IDENTIFIED BY '{PASSWORD}'",
             f"GRANT SELECT, SHOW VIEW ON {SCHEMA}.* TO '{READER}'@'%'",
         ]
+    if engine == "sqlserver":
+        return [
+            f"IF SUSER_ID('{READER}') IS NULL CREATE LOGIN {READER} WITH PASSWORD = '{PASSWORD}', CHECK_POLICY = OFF",
+            f"IF USER_ID('{READER}') IS NULL CREATE USER {READER} FOR LOGIN {READER}",
+            f"ALTER ROLE db_datareader ADD MEMBER {READER}",
+        ]
     return []
 
 
@@ -77,6 +89,18 @@ def linkr_config(engine: str) -> tuple[dict, str | None] | None:
         return ({
             "engine": "mysql", "host": _env(engine, "HOST", "datamart-mysql"),
             "port": int(_env(engine, "PORT", "3306")), "database": SCHEMA, "username": READER,
+        }, PASSWORD)
+    if engine == "sqlserver":
+        return ({
+            "engine": "sqlserver", "host": _env(engine, "HOST", "datamart-sqlserver"),
+            "port": int(_env(engine, "PORT", "1433")), "database": "datamart", "username": READER,
+            "schema": SCHEMA,
+        }, PASSWORD)
+    if engine == "oracle":
+        return ({
+            "engine": "oracle", "host": _env(engine, "HOST", "datamart-oracle"),
+            "port": int(_env(engine, "PORT", "1521")), "database": ORACLE_SERVICE, "username": READER,
+            "schema": ORACLE_OWNER,
         }, PASSWORD)
     if engine == "doris":
         host = _env(engine, "HOST")

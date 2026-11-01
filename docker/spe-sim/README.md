@@ -10,7 +10,7 @@ models what most SPEs have in common, not one institution's setup:
 | Reached through a gateway under a path prefix | `gateway`: TLS on `https://localhost:8443`, `/docker-8743/` → container `docker-8743` |
 | A port opened between the SPE and one other machine | a small internal network holding just those two (`open-8743-mirror`, `open-8743-datamart`) |
 | Package mirror (Nexus, Artifactory) | `mirror`: Nexus-style URLs, the only container with internet access |
-| The project datamart | `datamart-postgres`, `datamart-mysql`, and `datamart-oracle` / `datamart-sqlserver` for connector work |
+| The project datamart | `datamart-postgres`, `datamart-mysql`, `datamart-sqlserver`, `datamart-oracle` |
 | A small project VM | machine profiles in `machines/`: CPU and memory caps on the SPE and the datamarts |
 | Nothing preinstalled in project environments | Python/R project environments start empty and install through the mirror |
 
@@ -47,7 +47,10 @@ docker compose -f docker/spe-sim/docker-compose.yml --env-file docker/spe-sim/ma
 | Oracle Free | `datamart-oracle` | 1521 | service `FREEPDB1` | `linkr_reader` |
 | SQL Server 2022 | `datamart-sqlserver` | 1433 | `master` | `sa` |
 
-Password: `$DATAMART_PASSWORD`, default `SpeSim_2026!`. They start empty.
+Password: `$DATAMART_PASSWORD`, default `SpeSim_2026!`. They start empty; the
+database matrix loads them (`npm run test:matrix -- --spe --engines …`) and
+creates the read-only login Linkr connects with, `linkr_ro`. SQL Server and
+Oracle need about 2 GB and 3 GB whatever the machine profile.
 
 Datamart files (a Parquet export, a DuckDB file) go in `docker/spe-sim/datamart/`, or the
 folder `SPE_DATAMART_DIR` names. The SPE sees it read-only at `/datamart`: add it in Linkr

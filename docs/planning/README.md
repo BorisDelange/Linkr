@@ -27,6 +27,17 @@ run like the catalog (browser-driven units, pause/resume), order below.
 | 🔜 | **[TO TEST]** Statistics tab warns when Parquet tables are not in patient order (server, Parquet folders) | S |
 | 🔜 | User docs (linkr-website): Database › Concepts tab, the unsorted-Parquet warning and how to sort | S |
 
+### SQL Server, Oracle, DuckDB 2.0 — [duckdb-2-plan.md](duckdb-2-plan.md)
+
+Built on `feature/oracle-mssql-testdata` (2026-10-30): SQL Server and Oracle through
+DuckDB community extensions, test datasets (`npm run test-data`, Synthea 100k).
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **[TO TEST]** In the app: add a SQL Server and an Oracle database against the SPE datamarts | S |
+| 🔜 | Oracle, user SQL (editors, notebooks, ETL): fetch each table it reads through `oracle_client` with its columns and simple filters, rather than whole through the extension | M |
+| 💤 | Move the server to DuckDB 2.0 once a 2.0.x patch is out: Oracle with read-only attach + pushdown (plan) | M |
+
 ### Apache Doris + remote compute — [doris-plan.md](doris-plan.md)
 
 Built on `feature/doris` (2026-10-09): `doris` engine (read-only login enforced),

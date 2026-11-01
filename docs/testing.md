@@ -121,25 +121,32 @@ SQL the app itself sends: `build-corpus.ts` runs the real query builders
 database's mapping, with the class relations injected as `queryDataSource`
 injects them. `test_matrix.py` runs each query through the API's own
 `db_connect` on every engine — Parquet folder (the reference), DuckDB file,
-SQLite file, PostgreSQL, MySQL, and an existing Doris when
+SQLite file, PostgreSQL, MySQL, SQL Server, Oracle, and an existing Doris when
 `MATRIX_DORIS_HOST` names one — and compares the rows with the reference.
-Oracle and SQL Server are listed as unsupported until Linkr has a connector.
+SQL Server and Oracle are loaded the way OHDSI's DDL lays OMOP out on them
+(Oracle: ids `NUMBER(19)`, long text `CLOB`) and read through their DuckDB
+community extensions with a read-only login.
 
-The data is the public MIMIC-IV demo in OMOP (100 patients), cloned into
-`.cache/test-data/` on first use; `--scale N` makes N copies of every patient
-under new ids (vocabulary once) for a bigger base — PostgreSQL and the file
-engines then, not MySQL, whose dialect the ×1 base already checks and which takes
-longer to load than the whole run (`--engines` still names it). With `--spe`, the matrix runs
-inside the SPE simulation, in the API image, capped by a machine profile, against
-the datamart containers.
+The data is a named dataset of `npm run test-data` ([tests/test-data/README.md](../tests/test-data/README.md)),
+built once into the folder `testData.dir` of `config.local.json` names: the
+MIMIC-IV demo in OMOP (100 patients, the default), the demo ×100, or Synthea
+100k with 158,000 notes and edge-case texts (`--dataset synthea-100k`).
+`--scale N` makes N copies of every patient under new ids (vocabulary once) —
+PostgreSQL and the file engines then, not MySQL, whose dialect the ×1 base
+already checks and which takes longer to load than the whole run (`--engines`
+still names it). A server engine keeps its load in its Docker volume and
+reloads only when the dataset changes. With `--spe`, the matrix runs inside the
+SPE simulation, in the API image, capped by a machine profile, against the
+datamart containers.
 
 ```bash
 npm run test:matrix                                   # file engines, this machine
 npm run test:matrix -- --spe                          # + PostgreSQL & MySQL, machine "laptop"
-npm run test:matrix -- --spe --machine tiny --scale 50
+npm run test:matrix -- --spe --engines parquet,sqlserver,oracle
+npm run test:matrix -- --spe --machine tiny --dataset synthea-100k --engines parquet,duckdb,postgresql
 ```
 
-Report: `.cache/db-matrix/<machine>-x<scale>/report.md` — per engine, how many
+Report: `.cache/db-matrix/<machine>-<dataset>-x<scale>/report.md` — per engine, how many
 queries answer the same, differently or not at all, the total time and the
 slowest query.
 
@@ -179,4 +186,8 @@ A fast development Mac hides slow queries. The profiles cap the SPE's API
 container (`SPE_CPUS`, `SPE_MEMORY`) and the datamarts (`DATAMART_CPUS`,
 `DATAMART_MEMORY`); DuckDB reads the memory cap and sizes itself on it. Compare a
 capped run with `unlimited` before calling a query slow, and keep in mind that
-Docker Desktop's own VM limits are the ceiling of every profile.
+Docker Desktop's own VM limits are the ceiling of every profile. SQL Server and
+Oracle Free need about 2 and 3 GB, so they keep that floor
+(`DATAMART_MEMORY_SQLSERVER`, `DATAMART_MEMORY_ORACLE`) on every profile, with
+the profile's CPU cap; SQL Server, amd64 only, runs under Rosetta on Apple
+Silicon and is slower there than on a server.

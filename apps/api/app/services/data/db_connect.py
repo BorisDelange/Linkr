@@ -23,7 +23,12 @@ import duckdb
 
 from app.config import DUCKDB_MEMORY_LIMIT_RE, settings
 from app.core.redact import redact_secrets
-from app.services.data import connection_pool, file_reader, query_cancel
+from app.services.data import (
+    community_engines,
+    connection_pool,
+    file_reader,
+    query_cancel,
+)
 from app.services.data import pushdown as remote
 from app.services.data.db_host_guard import check_db_host
 from app.services.data.db_schemas import (
@@ -63,6 +68,10 @@ _ENGINES = {
     "postgresql": {"extension": "postgres", "type": "postgres", "query_fn": "postgres_query", "clear_cache": "pg_clear_cache", "read_only": True},
     "mysql": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "clear_cache": "mysql_clear_cache", "read_only": True},
     "doris": {"extension": "mysql", "type": "mysql", "query_fn": "mysql_query", "clear_cache": "mysql_clear_cache", "read_only": False},
+    # Community extensions, attached by community_engines; their passthrough
+    # functions are refused to user SQL, so the app has none to call either.
+    "sqlserver": {"extension": "mssql", "type": "mssql", "query_fn": None, "clear_cache": None, "read_only": True},
+    "oracle": {"extension": "oracle_scanner", "type": "oracle_scanner", "query_fn": None, "clear_cache": None, "read_only": True},
 }
 EXTERNAL_ENGINES = tuple(_ENGINES)
 
@@ -196,13 +205,25 @@ def _require_memory(value: str) -> str:
     return value.strip()
 
 
+_COMMUNITY_ENGINE_OF = {ext: engine for engine, ext in community_engines.COMMUNITY_EXTENSIONS.items()}
+
+
+def _install(con: duckdb.DuckDBPyConnection, extension: str) -> None:
+    """INSTALL (a no-op once in the extension directory) and LOAD `extension`. A
+    community extension is only loaded: an administrator installs it on purpose."""
+    if engine := _COMMUNITY_ENGINE_OF.get(extension):
+        community_engines.load(con, engine)
+        return
+    con.execute(f"INSTALL {extension}")
+    con.execute(f"LOAD {extension}")
+
+
 def _connect(extension: str) -> duckdb.DuckDBPyConnection:
     con = _open()
     # Persist installed extensions under data_dir so INSTALL only hits the
     # network once (and can be pre-warmed at build time in an offline image).
     con.execute(f"SET extension_directory = '{_ext_dir()}'")
-    con.execute(f"INSTALL {extension}")
-    con.execute(f"LOAD {extension}")
+    _install(con, extension)
     return con
 
 
@@ -239,7 +260,7 @@ def _dsn_value(value: str) -> str:
 # What the form shows as a blank port's placeholder (DEFAULT_PORTS in the web
 # app's lib/database-engines.ts). Left to the driver, a blank Doris port went to
 # MySQL's 3306, where Doris does not listen: its FE answers on 9030.
-DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "doris": 9030}
+DEFAULT_PORTS = {"postgresql": 5432, "mysql": 3306, "doris": 9030, **community_engines.DEFAULT_PORTS}
 
 
 def port_of(config: dict) -> int | None:
@@ -281,6 +302,8 @@ def attach_recipe(config: dict, password: str | None) -> dict:
     the query. Same DSN and scope `_attach` uses here, so a client-side connection
     behaves exactly like the app's own."""
     spec = _engine_spec(config)
+    if config.get("engine") in community_engines.COMMUNITY_EXTENSIONS:
+        raise ValueError(f"{community_engines.ENGINE_LABELS[config['engine']]} is not available from project code yet")
     return {
         "type": spec["type"],
         "dsn": _dsn(config, password),
@@ -346,6 +369,10 @@ def _attach_external(
 ) -> None:
     """ATTACH an external database under `alias` (already a safe identifier),
     read-only — by the ATTACH where the engine allows it, else by its login."""
+    if config.get("engine") in community_engines.COMMUNITY_EXTENSIONS:
+        check_db_host(config.get("host"))
+        community_engines.attach(con, alias, config, password)
+        return
     spec = _engine_spec(config)
     options = f"TYPE {spec['type']}" + (", READ_ONLY" if spec["read_only"] else "")
     attach_dsn(con, _dsn(config, password), alias, options)
@@ -524,6 +551,49 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 )
 
 
+# Functions that send SQL to an attached database past its READ_ONLY flag
+# (community_engines). Where one of those databases is attached, `query()` too: it
+# would build such a call from a string. Elsewhere a script may use it (the
+# vocabulary prune script runs `query(getvariable(...))`).
+_PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+")
+_DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
+
+
+def _has_community_attach(con: duckdb.DuckDBPyConnection) -> bool:
+    """Whether a SQL Server or Oracle database is reachable from `con`: SQL Server
+    attached, or Oracle's views over oracle_query (community_engines). Read before
+    a script runs, so a statement dropping them cannot lift the guard."""
+    return bool(con.execute(
+        "SELECT (SELECT COUNT(*) FROM duckdb_databases() WHERE type = 'mssql') "
+        "+ (SELECT COUNT(*) FROM duckdb_views() WHERE sql ILIKE '%oracle_query(%')"
+    ).fetchall()[0][0])
+
+
+def _has_sqlserver_attach(con: duckdb.DuckDBPyConnection) -> bool:
+    return bool(con.execute("SELECT COUNT(*) FROM duckdb_databases() WHERE type = 'mssql'").fetchall()[0][0])
+
+
+def _materialization_left_to_duckdb(stmt: str) -> str:
+    """`stmt` without its `NOT MATERIALIZED` hints. The mssql extension's build
+    for DuckDB 1.5 fails a NOT MATERIALIZED CTE read twice ("mssql_catalog_scan
+    does not exist"); without the hint DuckDB chooses, and the answer is the same."""
+    tokens = _tokens(stmt)
+    texts = [t for t, _ in _token_texts(stmt)]
+    cuts = [(tokens[i][0], tokens[i + 2][0]) for i in range(len(tokens) - 2)
+            if texts[i] == "NOT" and texts[i + 1] == "MATERIALIZED"]
+    for start, end in reversed(cuts):
+        stmt = stmt[:start] + stmt[end:]
+    return stmt
+
+
+def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False) -> None:
+    texts = [(t.strip('"'), kind) for t, kind in _token_texts(stmt)]
+    for i, (text, kind) in enumerate(texts[:-1]):
+        if kind in (duckdb.token_type.identifier, duckdb.token_type.keyword) and texts[i + 1][0].startswith("(") \
+                and (_PASSTHROUGH_CALL.fullmatch(text) or (dynamic_sql and _DYNAMIC_SQL_CALL.fullmatch(text))):
+            raise ValueError(f"{text.lower()}() is not allowed: it would run SQL on the database past Linkr's read-only guard")
+
+
 def _reject_forbidden_statements(sql: str) -> None:
     """Raise when a user script contains a statement it must never run.
 
@@ -537,6 +607,7 @@ def _reject_forbidden_statements(sql: str) -> None:
         m = _leading_match(_FORBIDDEN_IN_USER_SQL, stmt)
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
+        _reject_passthrough_calls(stmt)
 
 
 # Where a token's own text stops: DuckDB's tokenizer only gives start offsets, so
@@ -545,9 +616,14 @@ def _reject_forbidden_statements(sql: str) -> None:
 _TOKEN_END = re.compile(r"\s|/\*|--")
 
 
+def _tokens(stmt: str) -> list[tuple[int, "duckdb.token_type"]]:
+    """DuckDB's tokens of `stmt` but its comments, which 2.0 reports as tokens."""
+    return [t for t in duckdb.tokenize(stmt) if t[1] != duckdb.token_type.comment]
+
+
 def _token_texts(stmt: str) -> list[tuple[str, "duckdb.token_type"]]:
     """(text, kind) per token, upper-cased, without the trailing whitespace or comment."""
-    tokens = duckdb.tokenize(stmt)
+    tokens = _tokens(stmt)
     ends = [pos for pos, _ in tokens[1:]] + [len(stmt)]
     out = []
     for i, (pos, kind) in enumerate(tokens):
@@ -584,7 +660,7 @@ def _copies_to_a_file(stmt: str) -> bool:
 def _explained(stmt: str) -> tuple[str, bool] | None:
     """The statement an EXPLAIN wraps and whether EXPLAIN runs it (`ANALYZE`, bare
     or among the parenthesised options), or None when its target cannot be read."""
-    tokens = duckdb.tokenize(stmt)
+    tokens = _tokens(stmt)
     texts = [text.strip('"') for text, _ in _token_texts(stmt)]
     if not texts or texts[0] != "EXPLAIN":
         return None
@@ -646,6 +722,9 @@ def _reject_copy_to_file(sql: str) -> None:
     for stmt in _split_statements(sql):
         if _copies_to_a_file(_strip_leading_noise(stmt)):
             raise ValueError("COPY … TO a file is not allowed in a pipeline script")
+        if [t for t, _ in _token_texts(_strip_leading_noise(stmt))[:3]] == ["COPY", "FROM", "DATABASE"]:
+            # DuckDB 2.0's parser reports it as a PRAGMA, not COPY_DATABASE.
+            raise ValueError("COPY FROM DATABASE is not allowed in a pipeline script")
         for kind, text, explain in _classified(stmt):
             if kind in _FORBIDDEN_TYPES_IN_ETL:
                 raise ValueError(f"{kind.name} is not allowed in a pipeline script")
@@ -688,6 +767,7 @@ def _reject_session_statements(sql: str) -> None:
         m = _leading_match(_FORBIDDEN_IN_SHARED_READ, stmt)
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a query")
+        _reject_passthrough_calls(stmt)
         for kind, _, explain in _classified(stmt):
             if explain is not None and kind != duckdb.StatementType.SELECT:
                 raise ValueError("EXPLAIN is only allowed on a SELECT in a query")
@@ -730,6 +810,11 @@ def _run_statements(
     con.execute(f"SET search_path='{search_path}'")
     result: duckdb.DuckDBPyConnection | None = None
     statements = _split_statements(sql)
+    dynamic_sql = _has_community_attach(con)
+    for stmt in statements:
+        _reject_passthrough_calls(stmt, dynamic_sql)
+    if _has_sqlserver_attach(con):
+        statements = [_materialization_left_to_duckdb(stmt) for stmt in statements]
     for i, stmt in enumerate(statements):
         if on_statement is not None:
             on_statement(i, len(statements), stmt)
@@ -753,7 +838,13 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
     dataset from a query) and must not truncate it."""
     con.execute(f"SET search_path='{search_path}'")
     result: duckdb.DuckDBPyConnection | None = None
-    for stmt in _split_statements(sql):
+    statements = _split_statements(sql)
+    dynamic_sql = _has_community_attach(con)
+    for stmt in statements:
+        _reject_passthrough_calls(stmt, dynamic_sql)
+    if _has_sqlserver_attach(con):
+        statements = [_materialization_left_to_duckdb(stmt) for stmt in statements]
+    for stmt in statements:
         query_cancel.raise_if_interrupted()
         result = con.execute(stmt)
     if result is None or result.description is None:
@@ -786,7 +877,7 @@ def query_external(
     only for an engine the pushdown serves.
     """
     spec = _engine_spec(config)
-    if native and config.get("engine") not in remote.remote_sql.PUSHDOWN_ENGINES:
+    if native and config.get("engine") not in remote.remote_sql.NATIVE_ENGINES:
         raise ValueError(f"native SQL is not available for {config.get('engine')}")
 
     def _setup() -> duckdb.DuckDBPyConnection:
@@ -802,18 +893,19 @@ def query_external(
             # The scanner lists a schema's tables once per ATTACH: on a warm
             # connection, a table created since reads as missing while the
             # introspection (a fresh connection) lists it, so the app keeps it.
-            if "Table with name" not in str(e):
+            if "Table with name" not in str(e) or not spec["clear_cache"]:
                 raise
             con.execute(f"CALL {spec['clear_cache']}()")
             return _read_once(con)
 
     def _read_once(con: duckdb.DuckDBPyConnection):
         search_path = _external_search_path(con, config)
+        bulk = arrow or row_cap.get() > MAX_QUERY_ROWS
         if native:
-            return remote.run_native(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow))
+            return remote.run_native(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow),
+                                     max_rows=None if bulk else row_cap.get())
         if not pushdown:
             return _run_read(con, search_path, sql, arrow)
-        bulk = arrow or row_cap.get() > MAX_QUERY_ROWS
         return remote._with_pushdown(con, config, password, sql, lambda q: _run_read(con, search_path, q, arrow), bulk)
 
     if pool_key is None:
@@ -1417,6 +1509,15 @@ def introspect_external(config: dict, password: str | None) -> list[dict]:
     con = _connect(spec["extension"])
     try:
         _attach(con, config, password)
+        if spec["query_fn"] is None:
+            # The types as Linkr reads them (Oracle's cast back from text).
+            rows = con.execute(
+                "SELECT table_schema, table_name, column_name, data_type, is_nullable, ordinal_position "
+                "FROM information_schema.columns WHERE table_catalog = ? "
+                "ORDER BY table_schema, table_name, ordinal_position",
+                [_ATTACH_ALIAS],
+            ).fetchall()
+            return _introspected(rows, default)
         inner = (
             "SELECT table_schema, table_name, column_name, data_type, is_nullable, ordinal_position "
             "FROM information_schema.columns "
@@ -1428,7 +1529,10 @@ def introspect_external(config: dict, password: str | None) -> list[dict]:
         ).fetchall()
     finally:
         con.close()
+    return _introspected(rows, default)
 
+
+def _introspected(rows: list[tuple], default: str) -> list[dict]:
     tables: dict[str, list[dict]] = {}
     for table_schema, table_name, column_name, data_type, is_nullable, _pos in rows:
         schema = str(table_schema)
@@ -1972,8 +2076,7 @@ def _attach_role(con: duckdb.DuckDBPyConnection, role: str, spec: dict) -> None:
         return
     if kind == "external":
         spec_engine = _engine_spec(spec["config"])
-        con.execute(f"INSTALL {spec_engine['extension']}")
-        con.execute(f"LOAD {spec_engine['extension']}")
+        _install(con, spec_engine["extension"])
         _attach_external(con, role, spec["config"], spec.get("password"))
         return
     raise ValueError(f"cannot attach role {role!r}: unknown kind {kind!r}")

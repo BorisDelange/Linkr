@@ -141,6 +141,10 @@ services:
     # APP_USER is created in it.
     image: gvenzl/oracle-free:23-slim-faststart
     profiles: [oracle]
+    # Oracle Free's own floor, whatever the machine: at 2 GB its instance was
+    # killed for memory midway through the database matrix.
+    mem_limit: ${DATAMART_MEMORY_ORACLE:-3g}
+    cpus: ${DATAMART_CPUS:-0}
     environment:
       ORACLE_PASSWORD: ${DATAMART_PASSWORD:-SpeSim_2026!}
       APP_USER: linkr_reader
@@ -156,6 +160,9 @@ services:
     image: mcr.microsoft.com/mssql/server:2022-latest
     platform: linux/amd64
     profiles: [sqlserver]
+    # SQL Server refuses to start under 2 GB: its own floor, whatever the machine.
+    mem_limit: ${DATAMART_MEMORY_SQLSERVER:-2g}
+    cpus: ${DATAMART_CPUS:-0}
     environment:
       ACCEPT_EULA: "Y"
       MSSQL_PID: Developer

@@ -226,7 +226,7 @@ export function registerDatabaseTools(server: Server): void {
     annotations: WRITE,
     inputSchema: fromJsonSchema<{
       kind: 'empty_from_schema' | 'server_path' | 'external'; workspace_id?: string; name: string; description?: string
-      alias?: string; preset_id?: string; path?: string; engine?: 'duckdb' | 'sqlite' | 'postgresql' | 'mysql' | 'doris'
+      alias?: string; preset_id?: string; path?: string; engine?: 'duckdb' | 'sqlite' | 'postgresql' | 'mysql' | 'doris' | 'sqlserver' | 'oracle'
       host?: string; port?: number; database?: string; schema?: string; allow_writes?: boolean
       require_session_only?: boolean; badges?: BadgeInput[]; version?: string; link_to_project_uid?: string
       language?: Language
@@ -247,11 +247,11 @@ export function registerDatabaseTools(server: Server): void {
           description: 'Absolute server path. server_path: the file or Parquet folder (inside the folders the server allows). '
             + 'empty_from_schema: a NEW .duckdb to create there instead of Linkr\'s data folder.',
         },
-        engine: { type: 'string', enum: ['duckdb', 'sqlite', 'postgresql', 'mysql', 'doris'], description: 'server_path: duckdb (default, also Parquet) or sqlite. external: postgresql (default), mysql or doris (Apache Doris over its MySQL port, 9030; each user\'s login must be read-only).' },
+        engine: { type: 'string', enum: ['duckdb', 'sqlite', 'postgresql', 'mysql', 'doris', 'sqlserver', 'oracle'], description: 'server_path: duckdb (default, also Parquet) or sqlite. external: postgresql (default), mysql, doris (Apache Doris over its MySQL port, 9030), sqlserver or oracle (both through DuckDB community extensions the server administrator installs). Doris, SQL Server and Oracle need each user\'s login to be read-only.' },
         host: { type: 'string', description: 'external.' },
         port: { type: 'number', description: 'external.' },
-        database: { type: 'string', description: 'external: the database name on the server.' },
-        schema: { type: 'string', description: 'external: the SQL schema holding the tables.' },
+        database: { type: 'string', description: 'external: the database name on the server (Oracle: the service name, e.g. FREEPDB1).' },
+        schema: { type: 'string', description: 'external: the SQL schema holding the tables (SQL Server: dbo by default; Oracle: the owner, the login\'s own by default).' },
         allow_writes: { type: 'boolean', description: 'external PostgreSQL: let Linkr create schemas in it (cohort derivations). Default false.' },
         require_session_only: { type: 'boolean', description: 'external: users\' passwords are kept for their session only, never stored.' },
         badges: BADGES_PROP,
@@ -294,7 +294,9 @@ export function registerDatabaseTools(server: Server): void {
       spec = { kind: 'server-path', engine, path: args.path, preset }
     } else {
       const engine = args.engine ?? 'postgresql'
-      if (engine !== 'postgresql' && engine !== 'mysql' && engine !== 'doris') return failure('external takes engine postgresql, mysql or doris.')
+      if (engine !== 'postgresql' && engine !== 'mysql' && engine !== 'doris' && engine !== 'sqlserver' && engine !== 'oracle') {
+        return failure('external takes engine postgresql, mysql, doris, sqlserver or oracle.')
+      }
       if (!args.host || !args.database) return failure('external needs host and database.')
       spec = {
         kind: 'external', engine, host: args.host, port: args.port, database: args.database, schema: args.schema,

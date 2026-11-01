@@ -31,6 +31,7 @@ from pathlib import Path
 
 import duckdb
 
+from app.services.data import community_engines
 from app.services.data.db_connect import (
     _alias_role,
     _attach_role,
@@ -407,6 +408,8 @@ def _attach_target(con: duckdb.DuckDBPyConnection, target: TargetSpec) -> None:
         con.execute(f"ATTACH '{_sql_path(target.path)}' AS target")
         return
     if target.kind == "external":
+        if target.config.get("engine") in community_engines.COMMUNITY_EXTENSIONS:
+            raise ValueError("Linkr only reads SQL Server and Oracle databases: derive into another engine")
         spec = _engine_spec(target.config)
         con.execute(f"INSTALL {spec['extension']}")
         con.execute(f"LOAD {spec['extension']}")

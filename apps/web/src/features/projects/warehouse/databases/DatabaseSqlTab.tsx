@@ -165,7 +165,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
                 </Label>
               </div>
             </TooltipTrigger>
-            <TooltipContent className="max-w-xs">{t('databases.sql_native_hint', { engine: ENGINE_LABELS[engine] })}</TooltipContent>
+            <TooltipContent className="max-w-xs">{t(engine === 'oracle' ? 'databases.sql_native_hint_oracle' : 'databases.sql_native_hint', { engine: ENGINE_LABELS[engine] })}</TooltipContent>
           </Tooltip>
         )}
         {/* Every engine opens the source read-only here (see db_connect / engine.ts):

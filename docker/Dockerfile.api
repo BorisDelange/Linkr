@@ -84,9 +84,11 @@ ENV LINKR_CLIENT_PY_SOURCE=/app/client/linkr-py/src
 # needs to reach the network on first use. They install under
 # <dir>/v<ver>/<platform>/; the entrypoint seeds the runtime data volume's
 # extension dir from here. The list lives in app/duckdb_extensions.py, which a
-# manual offline install runs too (npm run duckdb:extensions).
+# manual offline install runs too (npm run duckdb:extensions). `--community`
+# adds the SQL Server and Oracle connectors (community extensions: mssql,
+# oracle_scanner — neither needs a vendor driver).
 ENV LINKR_DUCKDB_EXT_BUNDLE=/opt/duckdb_ext
-RUN python3 -m app.duckdb_extensions --dir "$LINKR_DUCKDB_EXT_BUNDLE"
+RUN python3 -m app.duckdb_extensions --dir "$LINKR_DUCKDB_EXT_BUNDLE" --community
 
 COPY docker/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh

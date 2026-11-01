@@ -34,8 +34,14 @@ def _scope(config: dict) -> str | None:
     `public`. Every other schema stays readable as `schema.table`
     (_external_search_path). Validated as a plain identifier since it is
     interpolated into SQL below."""
-    is_mysql = config.get("engine") in _MYSQL_PROTOCOL
-    scope = (config.get("schema") or config.get("database")) if is_mysql else (config.get("schema") or "public")
+    engine = config.get("engine")
+    if engine == "oracle":
+        # One Oracle schema per attach (its SCHEMA option), seen as `main`.
+        return "main"
+    if engine in _MYSQL_PROTOCOL:
+        scope = config.get("schema") or config.get("database")
+    else:
+        scope = config.get("schema") or ("dbo" if engine == "sqlserver" else "public")
     if not scope:
         return None
     if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", scope):
@@ -48,6 +54,9 @@ def _scope(config: dict) -> str | None:
 # Mirrored by the R/Python client libraries (linkr-py _databases, linkr-r connect).
 SYSTEM_SCHEMAS = frozenset({
     "information_schema", "pg_catalog", "pg_toast", "mysql", "sys", "performance_schema", "__internal_schema",
+    # SQL Server's schemas of its fixed roles.
+    "guest", "db_accessadmin", "db_backupoperator", "db_datareader", "db_datawriter", "db_ddladmin",
+    "db_denydatareader", "db_denydatawriter", "db_owner", "db_securityadmin",
 })
 
 
