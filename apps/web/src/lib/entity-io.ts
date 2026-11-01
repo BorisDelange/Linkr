@@ -4838,7 +4838,7 @@ export async function buildWorkspaceZip(
       .sort((a, b) =>
         cmp(a.type, b.type) || cmp(a.lineageId ?? '', b.lineageId ?? '') || cmp(a.folder, b.folder))
       .map(({ lineageId: _l, ...entry }) => entry)
-    zip.file(ROOT_FILE.gitLinks, json({ appVersion: APP_VERSION, links }))
+    zip.file(ROOT_FILE.gitLinks, json({ links }))
   }
 
   const blob = await zip.generateAsync({ type: 'blob' })

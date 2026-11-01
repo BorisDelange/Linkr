@@ -680,6 +680,6 @@ def build_workspace_tree(
                 ),
             )
         ]
-        tree["git-links.json"] = _json({"appVersion": APP_VERSION, "links": links})
+        tree["git-links.json"] = _json({"links": links})
 
     return tree
