@@ -1476,10 +1476,10 @@ export function MappingsTab({ project }: MappingsTabProps) {
       return <MultiSelectFilter value={colFilters.targetVocabularyId ?? []} options={filterOptions.targetVocabularyId} placeholder="Vocab" onChange={(v) => updateMultiFilter('targetVocabularyId', v)} />
     }
     if (columnId === 'targetDomainId' && filterOptions.targetDomainId.length > 0) {
-      return <MultiSelectFilter value={colFilters.targetDomainId ?? []} options={filterOptions.targetDomainId} placeholder="Domain" onChange={(v) => updateMultiFilter('targetDomainId', v)} />
+      return <MultiSelectFilter value={colFilters.targetDomainId ?? []} options={filterOptions.targetDomainId} placeholder={t('concept_mapping.col_domain')} onChange={(v) => updateMultiFilter('targetDomainId', v)} />
     }
     if (columnId === 'targetConceptClassId' && filterOptions.targetConceptClassId.length > 0) {
-      return <MultiSelectFilter value={colFilters.targetConceptClassId ?? []} options={filterOptions.targetConceptClassId} placeholder="Class" onChange={(v) => updateMultiFilter('targetConceptClassId', v)} />
+      return <MultiSelectFilter value={colFilters.targetConceptClassId ?? []} options={filterOptions.targetConceptClassId} placeholder={t('concept_mapping.col_class')} onChange={(v) => updateMultiFilter('targetConceptClassId', v)} />
     }
     if (columnId === 'targetStandardConcept' && filterOptions.targetStandardConcept.length > 0) {
       const stdOptions = filterOptions.targetStandardConcept.map((s) => ({

@@ -9,7 +9,7 @@ import { StandardConceptBadge } from '@/lib/concept-mapping/standard-concept-bad
 import { ValidityBadge } from '@/lib/concept-mapping/validity-badge'
 import { Badge } from '@/components/ui/badge'
 import { EQUIV_BADGE } from '@/lib/concept-mapping/equivalence-badge'
-import { type SuggestionCandidate, METHOD_DOT_COLORS, getMethodLabel, computeCombinedScore } from '@/lib/concept-mapping/syntactic-suggestions'
+import { type SuggestionCandidate, METHOD_DOT_COLORS, getMethodLabel, computeCombinedScore, providerLabel } from '@/lib/concept-mapping/syntactic-suggestions'
 
 interface SuggestionsTableProps {
   suggestions: SuggestionCandidate[]
@@ -39,8 +39,10 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
   const [providers, setProviders] = useState<Set<string>>(new Set())
 
   const providerOptions = useMemo(
-    () => [...new Set(suggestions.flatMap((s) => s.scores.map((sc) => sc.provider)))].sort(),
-    [suggestions],
+    () => [...new Set(suggestions.flatMap((s) => s.scores.map((sc) => sc.provider)))]
+      .map((p) => ({ value: p, label: providerLabel(p, t) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+    [suggestions, t],
   )
 
   const reweighted = useMemo(() =>
@@ -98,7 +100,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="max-w-xs space-y-0.5 text-xs">
-                  <p className="font-medium">{provider}</p>
+                  <p className="font-medium">{providerLabel(provider, t)}</p>
                   <p className="text-muted-foreground">{label}</p>
                   <p>{pct}%</p>
                   {comment && <p className="mt-1.5 border-t pt-1.5 italic text-muted-foreground">{comment}</p>}
@@ -113,7 +115,7 @@ export function SuggestionsTable({ suggestions, weights, alreadyMappedIds, selec
           <MultiSelectFilter
             value={[...providers]}
             options={providerOptions}
-            placeholder="Méthode"
+            placeholder={t('concept_mapping.suggestions_col_provider')}
             onChange={(v) => setProviders(new Set(v))}
           />
         )

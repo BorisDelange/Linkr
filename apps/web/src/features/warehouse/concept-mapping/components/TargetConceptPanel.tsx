@@ -50,7 +50,7 @@ import {
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { buildStandardConceptSearchQuery } from '@/lib/concept-mapping/mapping-queries'
 import { ConceptSearchTable, type ConceptSearchRow } from './ConceptSearchTable'
-import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS } from '@/lib/concept-mapping/syntactic-suggestions'
+import { type SuggestionCandidate, getProviderForMethod, computeCombinedScore, pickStrongestEquivalence, pickFirstComment, pickFirstConceptSet, DEFAULT_WEIGHTS, ALL_PROVIDERS, METHOD_DOT_COLORS, providerLabel } from '@/lib/concept-mapping/syntactic-suggestions'
 import { SuggestionsTable } from './SuggestionsTable'
 import { ManageSuggestionsDialog } from './suggestion-engines/ManageSuggestionsDialog'
 import { MultiSelectFilter } from '@/components/ui/multi-select-filter'
@@ -75,6 +75,7 @@ import { useRequireIdentity } from './IdentityRequiredDialog'
 import type { MappingProject, MappingEquivalence, ConceptSet, ResolvedConcept } from '@/types'
 import type { SourceConceptRow } from '../MappingEditorTab'
 import { resolveVocabularyTarget } from '@/lib/concept-mapping/vocabulary-target'
+import { buildNewMapping, targetFromResolvedConcept, type MappingTarget } from '@/lib/concept-mapping/new-mapping'
 
 interface TargetConceptPanelProps {
   project: MappingProject
@@ -373,7 +374,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
   const [conceptDetailTarget, setConceptDetailTarget] = useState<ConceptInfoTarget | null>(null)
 
   // Selected target concept (for resolved concepts or search results)
-  const [selectedTarget, setSelectedTarget] = useState<{ conceptId: number; conceptName: string; vocabularyId: string; domainId: string; conceptCode: string; conceptClassId?: string; standardConcept?: string } | null>(null)
+  const [selectedTarget, setSelectedTarget] = useState<MappingTarget | null>(null)
 
   // Clear selected target when source concept changes, and reset the add-button
   // equivalence to the sticky manual preference — otherwise a value carried over from
@@ -606,42 +607,17 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     // clearing the selection immediately keeps the interaction instant. On persistence
     // failure the store rolls back the optimistic insert, so we only log here.
     setSelectedTarget(null)
-    createMapping({
+    createMapping(buildNewMapping({
       id: crypto.randomUUID(),
       projectId: project.id,
-      sourceConceptId: sourceConcept.concept_id,
-      sourceConceptName: sourceConcept.concept_name,
-      sourceVocabularyId: sourceConcept.vocabulary_id ?? '',
-      sourceDomainId: sourceConcept.domain_id ?? '',
-      sourceConceptCode: sourceConcept.concept_code ?? '',
-      sourceFrequency: sourceConcept.record_count,
-      sourceCategoryId: sourceConcept.category,
-      sourceSubcategoryId: sourceConcept.subcategory,
-      sourceConceptClassId: sourceConcept.concept_class_id,
-      targetConceptId: selectedTarget.conceptId,
-      targetConceptName: selectedTarget.conceptName,
-      targetVocabularyId: selectedTarget.vocabularyId,
-      targetDomainId: selectedTarget.domainId,
-      targetConceptCode: selectedTarget.conceptCode,
-      targetConceptClassId: selectedTarget.conceptClassId,
-      targetStandardConcept: selectedTarget.standardConcept,
-      conceptSetId: selectedCs?.id,
-      mappingType: 'maps_to',
+      source: sourceConcept,
+      target: selectedTarget,
       equivalence: predicate,
-      status: 'unchecked',
-      comments: comment ? [{
-        id: crypto.randomUUID(),
-        authorId: getUserDisplayName(),
-        authorDetails: getAuthorDetails(),
-        text: comment,
-        createdAt: now,
-      }] : undefined,
-      mappedBy: getUserDisplayName(),
-      mappedByDetails: getAuthorDetails(),
-      mappedOn: now,
-      createdAt: now,
-      updatedAt: now,
-    }).catch((err) => console.error('Failed to persist mapping', err))
+      comment,
+      author: getUserDisplayName(),
+      authorDetails: getAuthorDetails(),
+      now,
+    })).catch((err) => console.error('Failed to persist mapping', err))
   }
 
   /** Change the equivalence of the mapping the selected target already has. */
@@ -660,42 +636,23 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     deleteMapping(selectedTargetMapping.id).catch((err) => console.error('Failed to delete mapping', err))
   }
 
-  /** Align the current source concept onto a resolved concept-set concept (from
-   *  the concept-set detail sheet), mirroring handleAddSelectedMapping. */
+  /** Align the current source concept onto a concept of the set open in the
+   *  detail sheet, recording that set like a pick from the resolved list. */
   const alignResolvedConcept = useCallback(async (target: ResolvedConcept, predicate: MappingEquivalence) => {
     if (!sourceConcept) return
     if (existingMappings.some((m) => m.targetConceptId === target.conceptId)) return
     if (!requireIdentity()) return
-    const now = new Date().toISOString()
-    createMapping({
+    createMapping(buildNewMapping({
       id: crypto.randomUUID(),
       projectId: project.id,
-      sourceConceptId: sourceConcept.concept_id,
-      sourceConceptName: sourceConcept.concept_name,
-      sourceVocabularyId: sourceConcept.vocabulary_id ?? '',
-      sourceDomainId: sourceConcept.domain_id ?? '',
-      sourceConceptCode: sourceConcept.concept_code ?? '',
-      sourceFrequency: sourceConcept.record_count,
-      sourceCategoryId: sourceConcept.category,
-      sourceSubcategoryId: sourceConcept.subcategory,
-      sourceConceptClassId: sourceConcept.concept_class_id,
-      targetConceptId: target.conceptId,
-      targetConceptName: target.conceptName,
-      targetVocabularyId: target.vocabularyId,
-      targetDomainId: target.domainId,
-      targetConceptCode: target.conceptCode,
-      targetConceptClassId: target.conceptClassId,
-      targetStandardConcept: target.standardConcept ?? undefined,
-      mappingType: 'maps_to',
+      source: sourceConcept,
+      target: targetFromResolvedConcept(target, detailSheetCs),
       equivalence: predicate,
-      status: 'unchecked',
-      mappedBy: getUserDisplayName(),
-      mappedByDetails: getAuthorDetails(),
-      mappedOn: now,
-      createdAt: now,
-      updatedAt: now,
-    }).catch((err) => console.error('Failed to persist mapping', err))
-  }, [sourceConcept, existingMappings, requireIdentity, createMapping, project.id, getUserDisplayName, getAuthorDetails])
+      author: getUserDisplayName(),
+      authorDetails: getAuthorDetails(),
+      now: new Date().toISOString(),
+    })).catch((err) => console.error('Failed to persist mapping', err))
+  }, [sourceConcept, existingMappings, requireIdentity, createMapping, project.id, detailSheetCs, getUserDisplayName, getAuthorDetails])
 
   /** The pending draft, only if it belongs to the concept currently selected. */
   const draftForConcept =
@@ -1370,15 +1327,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
                           className={`cursor-pointer ${isSelected ? 'bg-accent' : ''} ${alreadyMapped && !isSelected ? 'opacity-50' : ''}`}
                           onClick={() => {
                             if (sourceConcept) {
-                              setSelectedTarget(isSelected ? null : {
-                                conceptId: rc.conceptId,
-                                conceptName: rc.conceptName,
-                                vocabularyId: rc.vocabularyId,
-                                domainId: rc.domainId,
-                                conceptCode: rc.conceptCode,
-                                conceptClassId: rc.conceptClassId,
-                                standardConcept: rc.standardConcept ?? undefined,
-                              })
+                              setSelectedTarget(isSelected ? null : targetFromResolvedConcept(rc, selectedCs))
                               // Non-suggestion target: fall back to the manual preference.
                               if (!isSelected) setSelectedEquivalence(manualEquivalence)
                             }
@@ -1697,6 +1646,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             conceptCode: s.concept_code,
             conceptClassId: s.concept_class_id,
             standardConcept: s.standard_concept,
+            conceptSetId: s.conceptSetUid ? conceptSetsByUid.get(s.conceptSetUid)?.id : undefined,
           })
           // Preload the add button with the equivalence the suggestion proposes; a
           // subsequent manual pick via the dropdown overrides it until the next select.
@@ -1806,7 +1756,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
             {ALL_PROVIDERS.map((provider) => {
               const value = weights[provider] ?? DEFAULT_WEIGHTS[provider] ?? 1
               const dot = METHOD_DOT_COLORS[provider] ?? 'bg-gray-400'
-              const label = provider === 'IA' ? 'IA agentique' : provider
+              const label = providerLabel(provider, t)
               return (
                 <div key={provider} className="grid grid-cols-[auto_1fr_auto] items-center gap-3">
                   <div className="flex w-32 items-center gap-2">

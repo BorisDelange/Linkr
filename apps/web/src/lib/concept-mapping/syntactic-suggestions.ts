@@ -71,19 +71,16 @@ export function pickFirstConceptSet(scores: MethodScore[]): { uid: string | null
   return { uid: null, sourceRepo: null }
 }
 
-export const METHOD_DOT_COLORS: Record<string, string> = {
-  Syntaxique:  'bg-amber-500',
-  Statistique: 'bg-emerald-500',
-  Sémantique:  'bg-violet-500',
-  IA:          'bg-fuchsia-500',
-}
+/** Method families. Stable ids, shown through `concept_mapping.suggestion_category_<id>`
+ *  (see `providerLabel`); they also key the weights and the dot colours. */
+export const ALL_PROVIDERS = ['syntactic', 'semantic', 'statistical', 'agentic'] as const
+export type Provider = typeof ALL_PROVIDERS[number]
 
-/** Map raw method strings (from scores file) to display provider names + colors. */
-export const METHOD_PROVIDER_MAP: Record<string, string> = {
-  'syntactic/jaro-winkler': 'Syntaxique',
-  'syntactic/token-sort':   'Syntaxique',
-  'syntactic/ngram-idf':    'Syntaxique',
-  'semantic/biolord':       'Sémantique',
+export const METHOD_DOT_COLORS: Record<string, string> = {
+  syntactic:   'bg-amber-500',
+  statistical: 'bg-emerald-500',
+  semantic:    'bg-violet-500',
+  agentic:     'bg-fuchsia-500',
 }
 
 /** Human-readable labels for raw method strings. */
@@ -99,29 +96,31 @@ const STATISTICAL_METHOD_PREFIX = 'statistical/'
 
 /** Default per-provider weights for the combined score. */
 export const DEFAULT_WEIGHTS: Record<string, number> = {
-  Syntaxique:  1,
-  Sémantique:  2,
-  Statistique: 1,
-  IA:          3,
+  syntactic:   1,
+  semantic:    2,
+  statistical: 1,
+  agentic:     3,
 }
 
-export const ALL_PROVIDERS = ['Syntaxique', 'Sémantique', 'Statistique', 'IA'] as const
-export type Provider = typeof ALL_PROVIDERS[number]
-
-export function getProviderForMethod(method: string): string {
-  if (method.startsWith(AI_METHOD_PREFIX)) return 'IA'
-  if (method.startsWith(STATISTICAL_METHOD_PREFIX)) return 'Statistique'
-  return METHOD_PROVIDER_MAP[method] ?? method
-}
-
-/** Map a raw `method` string to a filterable suggestion category (excludes
- *  `data_dictionary`, which is orthogonal — keyed on the concept-set link, not the method). */
-export function categoryForMethod(method: string): 'syntactic' | 'semantic' | 'statistical' | 'agentic' | null {
+/** Map a raw `method` string to its family (excludes `data_dictionary`, which is
+ *  orthogonal — keyed on the concept-set link, not the method). */
+export function categoryForMethod(method: string): Provider | null {
   if (method.startsWith(AI_METHOD_PREFIX)) return 'agentic'
   if (method.startsWith(STATISTICAL_METHOD_PREFIX)) return 'statistical'
   if (method.startsWith('semantic/')) return 'semantic'
   if (method.startsWith('syntactic/')) return 'syntactic'
   return null
+}
+
+/** The family of a method, or the method itself when it belongs to none. */
+export function getProviderForMethod(method: string): string {
+  return categoryForMethod(method) ?? method
+}
+
+export function providerLabel(provider: string, t: (key: string) => string): string {
+  return (ALL_PROVIDERS as readonly string[]).includes(provider)
+    ? t(`concept_mapping.suggestion_category_${provider}`)
+    : provider
 }
 
 export function getMethodLabel(method: string): string {

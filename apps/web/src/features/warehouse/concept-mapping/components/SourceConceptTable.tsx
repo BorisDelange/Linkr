@@ -345,7 +345,7 @@ export function SourceConceptTable({
       return <MultiSelectFilter
         value={filters.category ?? []}
         options={filterOptions.category}
-        placeholder="Category"
+        placeholder={t('concept_mapping.col_category')}
         onChange={(v) => onFiltersChange({ ...filters, category: v.length ? v : undefined })}
         popoverWidthClass="w-[360px]"
       />
@@ -354,7 +354,7 @@ export function SourceConceptTable({
       return <MultiSelectFilter
         value={filters.subcategory ?? []}
         options={filterOptions.subcategory}
-        placeholder="Subcategory"
+        placeholder={t('concept_mapping.col_subcategory')}
         onChange={(v) => onFiltersChange({ ...filters, subcategory: v.length ? v : undefined })}
         popoverWidthClass="w-[360px]"
       />
@@ -363,7 +363,7 @@ export function SourceConceptTable({
       return <MultiSelectFilter
         value={filters.domainId ?? []}
         options={filterOptions.domain_id}
-        placeholder="Domain"
+        placeholder={t('concept_mapping.col_domain')}
         onChange={(v) => onFiltersChange({ ...filters, domainId: v.length ? v : undefined })}
       />
     }
@@ -371,7 +371,7 @@ export function SourceConceptTable({
       return <MultiSelectFilter
         value={filters.conceptClassId ?? []}
         options={filterOptions.concept_class_id}
-        placeholder="Class"
+        placeholder={t('concept_mapping.col_class')}
         onChange={(v) => onFiltersChange({ ...filters, conceptClassId: v.length ? v : undefined })}
       />
     }
