@@ -177,12 +177,18 @@ Construit :
   patients, il relit les tables ;
 - cohortes : chaque table n'est cherchée que pour les concepts que le comptage y
   a trouvés (`held` de la route `relations`).
+- moteur des profils en job serveur (mode serveur) : un lot = une requête (bornes
+  calculées dans le SQL), toutes les requêtes du calcul planifiées après le
+  classement et envoyées en un job qui continue onglet fermé ; *Reprendre*
+  récupère ce qu'il a fini, *Pause* l'annule. Le job prend la file des requêtes
+  lourdes requête par requête (`shareLane`).
 
 Reste :
 
 | St | Étape | Effort |
 |---|---|---|
-| 🔜 | **[À TESTER]** dans l'app : carte des profils (serveur et WASM), panneau, extraction relue depuis le magasin | S |
-| 🔜 | Moteur des profils en jobs serveur : aujourd'hui il tourne depuis le navigateur (comme l'extraction), donc fermer l'onglet met le calcul en pause. Arbitré : les requêtes partent au serveur comme un job (modèle du data catalog), le navigateur assemble les profils au retour | M |
+| 🔜 | **[À TESTER]** dans l'app : carte des profils (serveur et WASM), panneau, extraction relue depuis le magasin ; calcul en job : fermer l'onglet en cours de calcul, rouvrir, *Reprendre* ; une cohorte lancée pendant le calcul passe entre deux lots | S |
+| 💤 | Reprendre tout seul à la réouverture de l'onglet un calcul laissé sur le serveur (aujourd'hui : un clic sur *Reprendre*) | S |
+
 | 💤 | Data catalog : totaux lus depuis le magasin | S |
 

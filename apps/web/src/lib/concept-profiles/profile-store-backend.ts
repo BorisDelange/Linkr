@@ -22,7 +22,8 @@ export interface ProfileStoreSummary {
 }
 
 export interface ProfileStoreBackend {
-  read: (sourceId: string, dictKey: string, conceptIds: readonly number[]) => Promise<StoredProfile[]>
+  /** `meta`: without the profiles' JSON. */
+  read: (sourceId: string, dictKey: string, conceptIds: readonly number[], meta?: boolean) => Promise<StoredProfile[]>
   write: (sourceId: string, profiles: StoredProfile[]) => Promise<void>
   summary: (sourceId: string) => Promise<ProfileStoreSummary>
   saveRun: (sourceId: string, run: ProfileRunState | null) => Promise<void>
@@ -35,12 +36,12 @@ const WRITE_CHUNK = 1_000
 const base = (sourceId: string) => `/data-sources/${encodeURIComponent(sourceId)}/concept-profiles`
 
 const serverBackend: ProfileStoreBackend = {
-  async read(sourceId, dictKey, conceptIds) {
+  async read(sourceId, dictKey, conceptIds, meta = false) {
     const out: StoredProfile[] = []
     for (let i = 0; i < conceptIds.length; i += READ_CHUNK) {
       const res = await apiRequest<{ profiles: StoredProfile[] }>(`${base(sourceId)}/read`, {
         method: 'POST',
-        body: JSON.stringify({ dictKey, conceptIds: conceptIds.slice(i, i + READ_CHUNK) }),
+        body: JSON.stringify({ dictKey, conceptIds: conceptIds.slice(i, i + READ_CHUNK), meta }),
       })
       out.push(...res.profiles)
     }
@@ -136,6 +137,13 @@ export function batchProfileStore(sourceId: string, fingerprint: string): BatchP
     read: async (dictKey, ids) => {
       try {
         return new Map((await backend.read(sourceId, dictKey, ids)).map((p) => [p.conceptId, p]))
+      } catch {
+        return new Map()
+      }
+    },
+    readMeta: async (dictKey, ids) => {
+      try {
+        return new Map((await backend.read(sourceId, dictKey, ids, true)).map((p) => [p.conceptId, p]))
       } catch {
         return new Map()
       }

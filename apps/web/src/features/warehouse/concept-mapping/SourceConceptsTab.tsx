@@ -54,6 +54,8 @@ import {
 } from '@/lib/concept-mapping/extraction-runner'
 import type { DataSource, MappingProject, SourceExtraction } from '@/types'
 import { countedRecordsOf } from '@/features/projects/warehouse/concepts/counted-records'
+import { serverProfileJobs } from '@/lib/concept-mapping/server-profile-jobs'
+import { localized } from '@/lib/localized'
 
 interface SourceConceptsTabProps {
   project: MappingProject
@@ -369,6 +371,10 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       // The database's profiles: what its Concepts tab, or another project,
       // already computed is read, not computed again (lib/concept-profiles).
       countedRecords: countedRecordsOf(dataSource.id),
+      jobs: (await import('@/lib/api-client')).isServerMode()
+        ? serverProfileJobs(dataSource.id, t('concept_mapping.extract_job_label', { name: localized(project.name, i18n.language) }))
+        : undefined,
+      previousJobIds: saved?.jobIds,
       store: async () => {
         try {
           const fingerprint = await dataFingerprint(mapping, (sql) => queryDataSource(dataSource.id, sql, { heavy: true }))
@@ -380,7 +386,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
     })
   }, [
     mapping, sources, dataSource, ensureMounted, saved, project, options,
-    persist, updateMappingProject, sort, onlyWithRecords, t,
+    persist, updateMappingProject, sort, onlyWithRecords, t, i18n.language,
   ])
 
   const stop = useCallback(() => pauseRun(project.id), [project.id])
@@ -737,6 +743,10 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
             )}
             {running && !pausing && <Loader2 size={16} className="animate-spin text-muted-foreground" />}
           </div>
+
+          {!running && !done && (saved?.jobIds?.length ?? 0) > 0 && (
+            <p className="text-[10px] text-muted-foreground">{t('concept_mapping.extract_on_server')}</p>
+          )}
 
           {walkChanged && !running && (
             <p className="text-[10px] text-muted-foreground">{t('concept_mapping.extract_settings_changed')}</p>

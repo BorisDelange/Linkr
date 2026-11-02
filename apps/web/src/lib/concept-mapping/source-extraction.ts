@@ -556,6 +556,8 @@ export interface BatchResult {
  */
 export interface BatchProfileStore {
   read: (dictKey: string, conceptIds: readonly number[]) => Promise<Map<number, StoredProfile>>
+  /** `read` without the profiles' JSON: what a run plans its queries from. */
+  readMeta?: (dictKey: string, conceptIds: readonly number[]) => Promise<Map<number, StoredProfile>>
   write: (profiles: StoredProfile[]) => Promise<void>
   fingerprint: string
 }

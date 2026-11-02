@@ -294,6 +294,9 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
         </Tooltip>
       )}
       {stale}
+      {profiles.onServer && !running && (
+        <span className="text-xs text-muted-foreground">{t('concepts.profiles_on_server')}</span>
+      )}
       {!running && (profiles.summary?.count ?? 0) > 0 && (
         <Tooltip>
           <TooltipTrigger asChild>

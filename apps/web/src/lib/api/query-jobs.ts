@@ -38,17 +38,62 @@ const POLL_MS = 1500
  *  minute in all, the time a proxy restart or a dropped connection takes. */
 const RETRY_MS = [1000, 2000, 4000, 8000, 15000, 30000]
 
-/** `keepGoing`: a failing query does not end the job; its error comes with its key. */
+/** `keepGoing`: a failing query does not end the job; its error comes with its key.
+ *  `shareLane`: the job takes the heavy-query lane per query, so a long one
+ *  lets the heavy queries asked meanwhile through between two of its own. */
 export function startQueryJob(
   dataSourceId: string,
   label: string,
   queries: readonly QueryJobItem[],
-  { pushdown = true, keepGoing = false }: { pushdown?: boolean; keepGoing?: boolean } = {},
+  { pushdown = true, keepGoing = false, shareLane = false }: { pushdown?: boolean; keepGoing?: boolean; shareLane?: boolean } = {},
 ): Promise<Job> {
   return apiRequest<Job>(`/data-sources/${dataSourceId}/query-jobs`, {
     method: 'POST',
-    body: JSON.stringify({ label, queries, pushdown, keepGoing }),
+    body: JSON.stringify({ label, queries, pushdown, keepGoing, shareLane }),
   })
+}
+
+/** The keys a job has run, and whether it has ended; null when it is gone. */
+export async function queryJobProgress(jobId: string): Promise<{ done: Set<string>; errors: Record<string, string>; ended: boolean } | null> {
+  try {
+    const job = await getJob(jobId)
+    const progress = job.result as QueryJobProgress | null | undefined
+    return {
+      done: new Set(progress?.done ?? []),
+      errors: progress?.errors ?? {},
+      ended: job.status === 'done' || job.status === 'error' || job.status === 'cancelled',
+    }
+  } catch (err) {
+    if (isJobGone(err)) return null
+    throw err
+  }
+}
+
+/**
+ * One query's rows, out of order: waits for the job to run it. Null when it
+ * never will — the query failed (a keep-going job), the job ended without it,
+ * or is gone.
+ */
+export async function queryJobKeyRows(
+  dataSourceId: string,
+  jobId: string,
+  key: string,
+  signal: AbortSignal,
+): Promise<Record<string, unknown>[] | null> {
+  for (;;) {
+    signal.throwIfAborted()
+    const progress = await retrying(() => queryJobProgress(jobId), signal)
+    if (!progress) return null
+    if (progress.done.has(key)) {
+      if (progress.errors[key] != null) return null
+      return retrying(() => queryJobRows(dataSourceId, jobId, key), signal).catch((err) => {
+        if (isJobGone(err)) return null
+        throw err
+      })
+    }
+    if (progress.ended) return null
+    await sleep(POLL_MS, signal)
+  }
 }
 
 /** `withInput`: also what the job runs (up to 200 KB) — for the panel's Input tab, not a poll. */

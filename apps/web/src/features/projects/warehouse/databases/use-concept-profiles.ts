@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { queryDataSource, queryDataSourceAll } from '@/lib/duckdb/engine'
 import { useDataSourceStore } from '@/stores/data-source-store'
@@ -8,6 +9,9 @@ import { clearRunError, getRunSnapshot, pauseRun, startRun, watchRun, type RunSn
 import { SECTION_KEYS, exactOptions, sectionSet, sectionsOf, type SectionKey } from '@/lib/concept-profiles/profile-store'
 import { batchProfileStore, profileStore, type ProfileStoreSummary } from '@/lib/concept-profiles/profile-store-backend'
 import { dataFingerprint } from '@/lib/concept-profiles/fingerprint'
+import { isServerMode } from '@/lib/api-client'
+import { localized } from '@/lib/localized'
+import { serverProfileJobs } from '@/lib/concept-mapping/server-profile-jobs'
 import { countedRecordsOf } from '@/features/projects/warehouse/concepts/counted-records'
 
 export interface ConceptProfilesView {
@@ -37,6 +41,8 @@ export interface ConceptProfilesView {
   /** `fresh`: drop every stored profile first. */
   start: (opts: { resume: boolean; fresh?: boolean }) => Promise<void>
   pause: () => void
+  /** Paused with its queries left running on the server (`jobIds`). */
+  onServer: boolean
   /** Bumped when a run stops: what it stored can be read. */
   version: number
 }
@@ -51,7 +57,9 @@ const runKey = (dataSourceId: string) => `concept-profiles:${dataSourceId}`
  * Every view describing a concept reads this store (lib/concept-profiles).
  */
 export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMapping): ConceptProfilesView {
+  const { t, i18n } = useTranslation()
   const ensureMounted = useDataSourceStore((s) => s.ensureMounted)
+  const name = useDataSourceStore((s) => s.dataSources.find((d) => d.id === dataSourceId)?.name)
   const key = runKey(dataSourceId)
   const [snapshot, setSnapshot] = useState<RunSnapshot>(() => getRunSnapshot(key))
   const [summary, setSummary] = useState<ProfileStoreSummary | null>(null)
@@ -134,13 +142,17 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
         if (run) await profileStore().saveRun(dataSourceId, { ...run, error: message, updatedAt: new Date().toISOString() })
       },
       countedRecords: countedRecordsOf(dataSourceId),
+      jobs: isServerMode()
+        ? serverProfileJobs(dataSourceId, t('concepts.profiles_job_label', { name: localized(name, i18n.language) }))
+        : undefined,
+      previousJobIds: run?.jobIds,
       store: async () => {
         fingerprint = await dataFingerprint(schemaMapping, query)
         setCurrent({ fingerprint, checking: false })
         return batchProfileStore(dataSourceId, fingerprint)
       },
     })
-  }, [key, ensureMounted, dataSourceId, sections, schemaMapping, sources, run, query])
+  }, [key, ensureMounted, dataSourceId, sections, schemaMapping, sources, run, query, t, i18n.language, name])
 
   return {
     offered,
@@ -160,6 +172,7 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
     check,
     start,
     pause: () => pauseRun(key),
+    onServer: !running && !finished && (run?.jobIds?.length ?? 0) > 0,
     version,
   }
 }
