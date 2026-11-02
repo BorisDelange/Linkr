@@ -2,16 +2,12 @@ import { useState, useMemo } from 'react'
 import { isReservedTreeName, reservedTreeNameReason } from '@/lib/entity-tree'
 import { useTranslation } from 'react-i18next'
 import { useFileStore, buildScriptsFolderTree, getScriptsFolderId } from '@/stores/file-store'
-import {
-  FileText,
-  FileCode,
-  Database,
-  Notebook,
-  FolderOpen,
-} from 'lucide-react'
+import { FolderOpen } from 'lucide-react'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { SearchableSelect, type SearchableSelectOption } from '@/components/ui/searchable-select'
 import {
   Select,
   SelectContent,
@@ -19,6 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { useAppStore } from '@/stores/app-store'
+import { FILE_CATEGORIES, FILE_TYPES, type FileType } from './file-types'
 
 interface CreateFileDialogProps {
   open: boolean
@@ -26,97 +24,47 @@ interface CreateFileDialogProps {
   parentId: string | null
 }
 
-const fileTypes = [
-  {
-    id: 'py',
-    label: 'files.type_python',
-    ext: '.py',
-    lang: 'python',
-    icon: FileCode,
-    // Icon colors mirror the IDE sidebar (FileTreeItem) so the picker reads the
-    // same as the tree: Python yellow, R blue, SQL orange, etc.
-    iconColor: 'text-yellow-500',
-  },
-  {
-    id: 'r',
-    label: 'files.type_r',
-    ext: '.R',
-    lang: 'r',
-    icon: FileCode,
-    iconColor: 'text-blue-500',
-  },
-  {
-    id: 'sql',
-    label: 'files.type_sql',
-    ext: '.sql',
-    lang: 'sql',
-    icon: Database,
-    iconColor: 'text-orange-400',
-  },
-  {
-    id: 'rmd',
-    label: 'files.type_rmd',
-    ext: '.Rmd',
-    lang: 'markdown',
-    icon: Notebook,
-    iconColor: 'text-blue-500',
-  },
-  {
-    id: 'qmd',
-    label: 'files.type_qmd',
-    ext: '.qmd',
-    lang: 'markdown',
-    icon: Notebook,
-    iconColor: 'text-violet-500',
-  },
-  {
-    id: 'ipynb',
-    label: 'files.type_ipynb',
-    ext: '.ipynb',
-    lang: 'json',
-    icon: Notebook,
-    iconColor: 'text-amber-500',
-  },
-  {
-    id: 'md',
-    label: 'files.type_markdown',
-    ext: '.md',
-    lang: 'markdown',
-    icon: FileText,
-    iconColor: 'text-muted-foreground',
-  },
-  {
-    id: 'csv',
-    label: 'files.type_csv',
-    ext: '.csv',
-    lang: 'plaintext',
-    icon: FileText,
-    iconColor: 'text-emerald-500',
-  },
-  {
-    id: 'txt',
-    label: 'files.type_text',
-    ext: '.txt',
-    lang: 'plaintext',
-    icon: FileText,
-    iconColor: 'text-muted-foreground',
-  },
-]
-
 export function CreateFileDialog({
   open,
   onOpenChange,
   parentId,
 }: CreateFileDialogProps) {
   const { t } = useTranslation()
-  const { files, createFile } = useFileStore()
+  const { files, createFile, createFileWithContent, openFile } = useFileStore()
   const [name, setName] = useState('')
   const [fileType, setFileType] = useState('py')
+  const [withExample, setWithExample] = useState(false)
+  const favorites = useAppStore((s) => s.editorSettings.favoriteFileTypes)
+  const updateEditorSettings = useAppStore((s) => s.updateEditorSettings)
   const [selectedParentId, setSelectedParentId] = useState<string>(
     parentId ?? '__root__'
   )
 
-  const selectedType = fileTypes.find((ft) => ft.id === fileType)!
+  const selectedType = FILE_TYPES.find((ft) => ft.id === fileType)!
+  const typeOptions = useMemo(
+    () => FILE_TYPES.map((ft) => ({ value: ft.id, label: `${t(ft.label)} (${ft.ext})`, group: ft.category })),
+    [t],
+  )
+  const typeGroups = useMemo(
+    () => FILE_CATEGORIES.map((c) => ({ value: c, label: t(`files.category_${c}`) })),
+    [t],
+  )
+  const toggleFavorite = (id: string) =>
+    updateEditorSettings({
+      favoriteFileTypes: favorites.includes(id) ? favorites.filter((f) => f !== id) : [...favorites, id],
+    })
+  const renderType = (option: SearchableSelectOption) => {
+    const ft = FILE_TYPES.find((f) => f.id === option.value) as FileType
+    const Icon = ft.icon
+    return (
+      <span className="flex min-w-0 flex-1 items-center gap-2">
+        <Icon size={14} className={ft.iconColor} />
+        <span className="truncate">
+          {t(ft.label)} <span className="text-muted-foreground">({ft.ext})</span>
+        </span>
+      </span>
+    )
+  }
   const folderTree = useMemo(() => buildScriptsFolderTree(files), [files])
   const scriptsFolderId = useMemo(() => getScriptsFolderId(files), [files])
 
@@ -140,57 +88,34 @@ export function CreateFileDialog({
 
   const handleSubmit = () => {
     if (!finalName || isDuplicate || isReserved) return
-    createFile(finalName, actualParentId, selectedType.lang)
-
-    // Inject boilerplate for notebook file types
-    if (fileType === 'rmd' || fileType === 'qmd' || fileType === 'ipynb') {
-      const { files: currentFiles, updateFileContent } = useFileStore.getState()
-      const created = currentFiles.find((f) => f.name === finalName && f.parentId === actualParentId)
-      if (created) {
-        let boilerplate: string
-        if (fileType === 'ipynb') {
-          boilerplate = JSON.stringify({
-            nbformat: 4,
-            nbformat_minor: 5,
-            metadata: {
-              kernelspec: { display_name: 'Python 3', language: 'python', name: 'python3' },
-              language_info: { name: 'python', version: '3.11.0' },
-            },
-            cells: [
-              {
-                cell_type: 'markdown',
-                metadata: {},
-                source: ['# Untitled Notebook\n'],
-              },
-              {
-                cell_type: 'code',
-                metadata: {},
-                source: [''],
-                execution_count: null,
-                outputs: [],
-              },
-            ],
-          }, null, 1)
-        } else if (fileType === 'rmd') {
-          boilerplate = '---\ntitle: "Untitled"\noutput: html_document\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{r setup}\nlibrary(dplyr)\n```\n'
-        } else {
-          boilerplate = '---\ntitle: "Untitled"\nformat: html\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{python}\nimport pandas as pd\n```\n'
-        }
-        updateFileContent(created.id, boilerplate)
-      }
+    const content = (withExample && selectedType.example) || selectedType.skeleton
+    if (content) {
+      // Written with the file, not after it: in server mode createFile re-reads
+      // the folder from disk once created, which replaced any content set
+      // meanwhile with the empty file it had written.
+      createFileWithContent(finalName, actualParentId, content)
+        .then((id) => { if (id) openFile(id) })
+        .catch((err) => console.error('[create-file] Failed to persist file:', finalName, err))
+    } else {
+      createFile(finalName, actualParentId, selectedType.lang)
     }
 
     setName('')
     setFileType('py')
+    setWithExample(false)
     onOpenChange(false)
   }
 
   const handleTypeChange = (val: string) => {
     setFileType(val)
-    const ft = fileTypes.find((f) => f.id === val)
-    if (ft && name) {
+    const ft = FILE_TYPES.find((f) => f.id === val)
+    if (!ft) return
+    if (name) {
       const baseName = name.replace(/\.[^.]+$/, '')
       setName(`${baseName}${ft.ext}`)
+    } else if (ft.defaultName) {
+      // The name the framework looks for (Shiny's app.R).
+      setName(`${ft.defaultName}${ft.ext}`)
     }
   }
 
@@ -207,29 +132,17 @@ export function CreateFileDialog({
     >
             <div className="space-y-2">
               <Label>{t('files.file_type')}</Label>
-              <Select value={fileType} onValueChange={handleTypeChange}>
-                <SelectTrigger className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {fileTypes.map((ft) => {
-                    const Icon = ft.icon
-                    return (
-                      <SelectItem key={ft.id} value={ft.id}>
-                        <div className="flex items-center gap-2">
-                          <Icon size={14} className={ft.iconColor} />
-                          <span>
-                            {t(ft.label)}{' '}
-                            <span className="text-muted-foreground">
-                              ({ft.ext})
-                            </span>
-                          </span>
-                        </div>
-                      </SelectItem>
-                    )
-                  })}
-                </SelectContent>
-              </Select>
+              <SearchableSelect
+                value={fileType}
+                options={typeOptions}
+                groups={typeGroups}
+                favorites={favorites}
+                onToggleFavorite={toggleFavorite}
+                onChange={handleTypeChange}
+                placeholder={t('files.file_type')}
+                renderOption={renderType}
+                renderValue={renderType}
+              />
             </div>
             <div className="space-y-2">
               <Label>{t('files.parent_folder')}</Label>
@@ -279,6 +192,15 @@ export function CreateFileDialog({
                 <p className="text-xs text-destructive">{t(reservedTreeNameReason(finalName))}</p>
               )}
             </div>
+            {selectedType.example && (
+              <div className="flex items-start justify-between gap-4">
+                <div className="space-y-0.5">
+                  <Label htmlFor="create-file-example">{t('files.with_example')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('files.with_example_hint')}</p>
+                </div>
+                <Switch id="create-file-example" checked={withExample} onCheckedChange={setWithExample} />
+              </div>
+            )}
     </DialogShell>
   )
 }

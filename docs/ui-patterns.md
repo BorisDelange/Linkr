@@ -563,7 +563,11 @@ Same scale as dialog bodies: a bare `<Label>` (the primitive already carries
 hint `text-xs text-muted-foreground`, `RequiredMark` for required fields. Use
 `<Input>`/`<Textarea>`, never a raw `<input>` — roughly 35 files outside
 `components/ui/` still do, so copying a neighbour is not a safe guide here.
-Reach for `SearchableSelect` when a `<Select>` gets long.
+Reach for `SearchableSelect` when a `<Select>` gets long. It also takes `groups`
+(headed sections, an option's `group` places it), `favorites` + `onToggleFavorite`
+(a star per row, favourites listed first under their own heading) and
+`renderValue` (an icon in the trigger) — the file-type picker of *Create a file*
+uses all three.
 
 ### Code editors: completion
 

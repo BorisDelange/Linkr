@@ -88,6 +88,8 @@ export interface EditorSettings {
   reuseOutputTabs: boolean
   /** Where the IDE's output panel sits relative to the editor. */
   outputLayout: 'side' | 'below'
+  /** File types listed first in "Create a file" (ids from files/file-types). */
+  favoriteFileTypes: string[]
 }
 
 // --- Preferences persistence (localStorage) ---
@@ -239,6 +241,7 @@ const defaultEditorSettings: EditorSettings = {
   autoSaveDelay: 1000,
   reuseOutputTabs: true,
   outputLayout: 'side',
+  favoriteFileTypes: [],
 }
 
 const prefs = loadPreferences()
