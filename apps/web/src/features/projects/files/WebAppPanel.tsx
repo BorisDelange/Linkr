@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ExternalLink, Loader2, RotateCw, ScrollText, Square, Play, Globe } from 'lucide-react'
+import { ExternalLink, Loader2, RefreshCw, RotateCcw, ScrollText, Square, Play, Globe } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { NoticeBanner } from '@/components/ui/notice-banner'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -122,7 +122,7 @@ export function WebAppPanel({ tabId, appId, active }: { tabId: string; appId: st
         {error && <span role="alert" className="truncate text-destructive">{error}</span>}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           <ToolbarButton label={t('web_apps.reload')} disabled={status !== 'ready'} onClick={() => setFrameKey((k) => k + 1)}>
-            <RotateCw size={13} />
+            <RefreshCw size={13} />
           </ToolbarButton>
           <ToolbarButton label={t('web_apps.open_window')} disabled={status !== 'ready' || !frameUrl} onClick={() => frameUrl && window.open(frameUrl, '_blank', 'noopener')}>
             <ExternalLink size={13} />
@@ -131,7 +131,7 @@ export function WebAppPanel({ tabId, appId, active }: { tabId: string; appId: st
             <ScrollText size={13} />
           </ToolbarButton>
           <ToolbarButton label={t(ended ? 'web_apps.start_again' : 'web_apps.restart')} disabled={!app || busy} onClick={() => void restart()}>
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+            {busy ? <Loader2 size={13} className="animate-spin" /> : ended ? <Play size={13} /> : <RotateCcw size={13} />}
           </ToolbarButton>
           <ToolbarButton label={t('web_apps.stop')} disabled={ended || busy} onClick={() => void stop()}>
             <Square size={13} />

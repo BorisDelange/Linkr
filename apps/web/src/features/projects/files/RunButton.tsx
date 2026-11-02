@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Play, Square, ChevronDown, Loader2, Server, FileCode, TextSelect, CornerDownLeft, Globe, RotateCw } from 'lucide-react'
+import { Play, Square, ChevronDown, Loader2, Server, FileCode, TextSelect, CornerDownLeft, Globe, RotateCcw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -105,7 +105,7 @@ export function RunButton({
                 disabled={!canRun}
                 title={t(webAppRunning ? 'web_apps.reload_app_hint' : 'web_apps.run_app_hint', { framework: webAppFramework })}
               >
-                {webAppRunning ? <RotateCw size={12} /> : <Globe size={12} />}
+                {webAppRunning ? <RotateCcw size={12} /> : <Globe size={12} />}
                 {t(webAppRunning ? 'web_apps.reload_app' : 'web_apps.run_app')}
               </Button>
             ) : (
