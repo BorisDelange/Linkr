@@ -9,6 +9,7 @@ import {
   conceptCountProgress,
   conceptCountSignature,
   countedRelationSignature,
+  emptyCountedRelations,
   planConceptCountUnits,
   stepJobItems,
   type ConceptCountManifest,
@@ -104,6 +105,16 @@ describe('record units name their relation', () => {
     } as unknown as SchemaMappingV1)
     const moved = eventRelations(renamed).find((e) => e.key === 'Measurement')!
     expect(countedRelationSignature(moved, conceptRelations(renamed)[0])).not.toBe(countedRelationSignature(measurement, dict))
+  })
+
+  it('names an empty table counted whole, which no counted row names', () => {
+    const events = eventRelations(mapping).filter((e) => conceptRelations(mapping).some((d) => d.name === e.dictionary))
+    const units = planConceptCountUnits(mapping, [{}]).filter((u) => u.step === 'records').map((u) => u.key)
+    const named = new Set(events.slice(1).map((e) => e.name))
+    expect(emptyCountedRelations(mapping, units, named)).toEqual([events[0].name])
+    // Not counted whole: unknown, not empty.
+    expect(emptyCountedRelations(mapping, units.filter((k) => !k.startsWith('records-0-')), named)).toEqual([])
+    expect(emptyCountedRelations(mapping, units, new Set(events.map((e) => e.name)))).toEqual([])
   })
 
   it('is pinned: a relation\'s SQL laid out differently drops every stored count', () => {

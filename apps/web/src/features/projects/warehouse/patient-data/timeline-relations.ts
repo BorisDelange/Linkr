@@ -1,8 +1,9 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations } from '@/lib/schema-classes/relations'
-import { countedRelationSignature } from '@/features/projects/warehouse/concepts/concept-count-plan'
+import { countedRelationSignature, emptyCountedRelations, resumable } from '@/features/projects/warehouse/concepts/concept-count-plan'
 import { getConceptCacheStatus, getCountedRelations, type ConceptCacheStatus, type CountedRelation } from '@/lib/api/concept-cache'
 import { isServerMode } from '@/lib/api-client'
+import { sourceTables } from '@/lib/duckdb/engine'
 import { LruMap } from '@/lib/lru-map'
 
 /**
@@ -14,9 +15,9 @@ import { LruMap } from '@/lib/lru-map'
  * after the count either: a concept a relation never held before is missed until
  * the next count.
  */
-export function relationsWithout(mapping: SchemaMapping, counted: readonly CountedRelation[]): Set<string> {
+export function relationsWithout(mapping: SchemaMapping, counted: readonly CountedRelation[], empty: Iterable<string> = []): Set<string> {
   const dicts = conceptRelations(mapping)
-  const out = new Set<string>()
+  const out = new Set<string>(empty)
   for (const event of eventRelations(mapping)) {
     const dict = dicts.find((d) => d.name === event.dictionary)
     if (!dict) continue
@@ -32,9 +33,10 @@ export function relationsWithout(mapping: SchemaMapping, counted: readonly Count
  * SQL it still has), the ids among those asked about it holds — empty: none. A
  * relation it cannot speak for is absent, and is read for every id.
  */
-export function relationsHolding(mapping: SchemaMapping, counted: readonly CountedRelation[]): Map<string, Set<number>> {
+/** `empty`: relations the count covered whole and found no row in (`emptyCountedRelations`). */
+export function relationsHolding(mapping: SchemaMapping, counted: readonly CountedRelation[], empty: Iterable<string> = []): Map<string, Set<number>> {
   const dicts = conceptRelations(mapping)
-  const out = new Map<string, Set<number>>()
+  const out = new Map<string, Set<number>>([...empty].map((name) => [name, new Set<number>()]))
   for (const event of eventRelations(mapping)) {
     const dict = dicts.find((d) => d.name === event.dictionary)
     if (!dict) continue
@@ -51,6 +53,7 @@ const MEMO_MS = 60_000
 const MEMO_MAX = 200
 const memo = new LruMap<string, { at: number; relations: Promise<CountedRelation[]> }>(MEMO_MAX)
 const countedAtMemo = new LruMap<string, { at: number; countedAt: Promise<string | null> }>(MEMO_MAX)
+const statusMemo = new LruMap<string, { at: number; status: Promise<ConceptCacheStatus>; tables: Promise<string[] | null> }>(MEMO_MAX)
 
 /** relationsWithout for a server database, asked once a minute per concept set.
  *  Empty — every relation read — when the server cannot tell. */
@@ -59,7 +62,8 @@ export async function relationsWithoutConcepts(
   mapping: SchemaMapping,
   conceptIds: readonly number[],
 ): Promise<Set<string>> {
-  return relationsWithout(mapping, await countedRelations(sourceId, conceptIds))
+  const counted = await countedRelations(sourceId, conceptIds)
+  return relationsWithout(mapping, counted, await emptyRelations(sourceId, mapping, counted))
 }
 
 /** relationsHolding for a server database, asked once a minute per concept set.
@@ -69,7 +73,40 @@ export async function relationsHoldingConcepts(
   mapping: SchemaMapping,
   conceptIds: readonly number[],
 ): Promise<Map<string, Set<number>>> {
-  return relationsHolding(mapping, await countedRelations(sourceId, conceptIds))
+  const counted = await countedRelations(sourceId, conceptIds)
+  return relationsHolding(mapping, counted, await emptyRelations(sourceId, mapping, counted))
+}
+
+/** emptyRelations, asked of the counted relations themselves. */
+export async function emptyCountedRelationsOf(sourceId: string, mapping: SchemaMapping): Promise<string[]> {
+  // Any id: every relation a counted row names comes back, holding it or not.
+  return emptyRelations(sourceId, mapping, await countedRelations(sourceId, [0]))
+}
+
+/**
+ * The relations the last count covered whole and found no row in: an empty
+ * table, which no counted row names. Read from the run's plan, when it was
+ * planned on the current mapping (`resumable`); none otherwise.
+ */
+export async function emptyRelations(
+  sourceId: string,
+  mapping: SchemaMapping,
+  counted: readonly CountedRelation[],
+): Promise<string[]> {
+  if (!isServerMode()) return []
+  let hit = statusMemo.get(sourceId)
+  if (!hit || Date.now() - hit.at > MEMO_MS) {
+    hit = { at: Date.now(), status: getConceptCacheStatus(sourceId), tables: sourceTables(sourceId) }
+    statusMemo.set(sourceId, hit)
+  }
+  try {
+    const [status, tables] = await Promise.all([hit.status, hit.tables])
+    if (!status.run || !resumable(status.run.manifest, mapping, tables)) return []
+    return emptyCountedRelations(mapping, status.run.doneUnits, new Set(counted.map((c) => c.relation)))
+  } catch {
+    statusMemo.delete(sourceId)
+    return []
+  }
 }
 
 async function countedRelations(sourceId: string, conceptIds: readonly number[]): Promise<CountedRelation[]> {

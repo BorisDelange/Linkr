@@ -287,6 +287,33 @@ export function conceptCountSignature(units: readonly ConceptCountUnit[], mappin
   return deterministicId(`concept-counts-v${CONCEPT_COUNT_VERSION}`, body)
 }
 
+/**
+ * The stored run's units if it can be resumed, re-planned over its own slices.
+ * A finished run still can: the patients may be asked for after the rows.
+ * Counting it again is a restart.
+ */
+export function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping, tables: readonly string[] | null): ConceptCountUnit[] | null {
+  if (!manifest || !manifest.runId || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
+  const units = planConceptCountUnits(mapping, manifest.slices)
+  if (conceptCountSignature(units, mapping, tables) !== manifest.signature) return null
+  return units
+}
+
+/**
+ * The event relations a run counted whole and found no row in — an empty
+ * table. Its record units hold no row to name it by, so the counted relations
+ * (`relations` route) never report it; the run's plan says which units read it.
+ * Given a run planned on the current mapping (`resumable`), and the relations
+ * its units do name.
+ */
+export function emptyCountedRelations(mapping: SchemaMapping, doneUnits: readonly string[], named: ReadonlySet<string>): string[] {
+  const done = new Set(doneUnits)
+  return countedEvents(mapping, 'record_count').flatMap(({ event }, i) => {
+    const keys = [`records-${i}-std`, ...(has(event, 'source_concept_id') ? [`records-${i}-src`] : [])]
+    return keys.every((k) => done.has(k)) && !named.has(event.name) ? [event.name] : []
+  })
+}
+
 export interface ConceptCountStepProgress {
   done: number
   total: number

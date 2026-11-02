@@ -29,6 +29,12 @@ describe('relationsHolding', () => {
     ]))
   })
 
+  it('says an empty table the count covered holds none of them', () => {
+    const counted = [{ relation: measurement.name, signature: sig(measurement), holds: true, held: ['1'] }]
+    expect(relationsHolding(mapping, counted, [observation.name]).get(observation.name)).toEqual(new Set())
+    expect([...relationsWithout(mapping, counted, [observation.name])]).toEqual([observation.name])
+  })
+
   it('cannot speak for a relation counted under other SQL, or held ids it was not told', () => {
     expect(relationsHolding(mapping, [
       { relation: measurement.name, signature: 'older', holds: false, held: [] },

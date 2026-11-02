@@ -37,6 +37,7 @@ import {
   conceptCountSignature,
   findConceptIdTypeMismatches,
   planConceptCountUnits,
+  resumable,
   stepJobItems,
   ASSEMBLE_PREFIX,
   type ConceptCountManifest,
@@ -95,18 +96,6 @@ const IDLE: ConceptCountSnapshot = {
   planningStep: null,
   reading: null,
   assembled: 0,
-}
-
-/**
- * The stored run's units if it can be resumed, re-planned over its own slices.
- * A finished run still can: the patients may be asked for after the rows.
- * Counting it again is a restart.
- */
-function resumable(manifest: Partial<ConceptCountManifest> | undefined, mapping: SchemaMapping, tables: readonly string[] | null): ConceptCountUnit[] | null {
-  if (!manifest || !manifest.runId || manifest.version !== CONCEPT_COUNT_VERSION || !Array.isArray(manifest.slices)) return null
-  const units = planConceptCountUnits(mapping, manifest.slices)
-  if (conceptCountSignature(units, mapping, tables) !== manifest.signature) return null
-  return units
 }
 
 async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortSignal): Promise<SerializedRange[]> {

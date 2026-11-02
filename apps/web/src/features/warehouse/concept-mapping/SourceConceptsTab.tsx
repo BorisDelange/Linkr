@@ -370,7 +370,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       },
       // The database's profiles: what its Concepts tab, or another project,
       // already computed is read, not computed again (lib/concept-profiles).
-      countedRecords: countedRecordsOf(dataSource.id),
+      countedRecords: countedRecordsOf(dataSource.id, mapping),
       jobs: (await import('@/lib/api-client')).isServerMode()
         ? serverProfileJobs(dataSource.id, t('concept_mapping.extract_job_label', { name: localized(project.name, i18n.language) }))
         : undefined,

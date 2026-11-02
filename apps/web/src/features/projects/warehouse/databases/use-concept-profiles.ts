@@ -141,7 +141,7 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
       persistError: async (message) => {
         if (run) await profileStore().saveRun(dataSourceId, { ...run, error: message, updatedAt: new Date().toISOString() })
       },
-      countedRecords: countedRecordsOf(dataSourceId),
+      countedRecords: countedRecordsOf(dataSourceId, schemaMapping),
       jobs: isServerMode()
         ? serverProfileJobs(dataSourceId, t('concepts.profiles_job_label', { name: localized(name, i18n.language) }))
         : undefined,
