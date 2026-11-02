@@ -27,6 +27,26 @@ export function relationsWithout(mapping: SchemaMapping, counted: readonly Count
   return out
 }
 
+/**
+ * For each event relation the last concept count speaks for (counted, under the
+ * SQL it still has), the ids among those asked about it holds — empty: none. A
+ * relation it cannot speak for is absent, and is read for every id.
+ */
+export function relationsHolding(mapping: SchemaMapping, counted: readonly CountedRelation[]): Map<string, Set<number>> {
+  const dicts = conceptRelations(mapping)
+  const out = new Map<string, Set<number>>()
+  for (const event of eventRelations(mapping)) {
+    const dict = dicts.find((d) => d.name === event.dictionary)
+    if (!dict) continue
+    const signature = countedRelationSignature(event, dict)
+    const rows = counted.filter((c) => c.relation === event.name && c.signature === signature)
+    // A server that names no ids can only say "none".
+    if (rows.length === 0 || rows.some((r) => r.holds && !r.held)) continue
+    out.set(event.name, new Set(rows.flatMap((r) => r.held ?? []).map(Number)))
+  }
+  return out
+}
+
 const MEMO_MS = 60_000
 const MEMO_MAX = 200
 const memo = new LruMap<string, { at: number; relations: Promise<CountedRelation[]> }>(MEMO_MAX)
@@ -39,7 +59,21 @@ export async function relationsWithoutConcepts(
   mapping: SchemaMapping,
   conceptIds: readonly number[],
 ): Promise<Set<string>> {
-  if (!isServerMode() || conceptIds.length === 0) return new Set()
+  return relationsWithout(mapping, await countedRelations(sourceId, conceptIds))
+}
+
+/** relationsHolding for a server database, asked once a minute per concept set.
+ *  Empty — every relation read for every id — when the server cannot tell. */
+export async function relationsHoldingConcepts(
+  sourceId: string,
+  mapping: SchemaMapping,
+  conceptIds: readonly number[],
+): Promise<Map<string, Set<number>>> {
+  return relationsHolding(mapping, await countedRelations(sourceId, conceptIds))
+}
+
+async function countedRelations(sourceId: string, conceptIds: readonly number[]): Promise<CountedRelation[]> {
+  if (!isServerMode() || conceptIds.length === 0) return []
   const key = `${sourceId}:${[...conceptIds].sort((a, b) => a - b).join(',')}`
   let hit = memo.get(key)
   if (!hit || Date.now() - hit.at > MEMO_MS) {
@@ -47,10 +81,10 @@ export async function relationsWithoutConcepts(
     memo.set(key, hit)
   }
   try {
-    return relationsWithout(mapping, await hit.relations)
+    return await hit.relations
   } catch {
     memo.delete(key)
-    return new Set()
+    return []
   }
 }
 

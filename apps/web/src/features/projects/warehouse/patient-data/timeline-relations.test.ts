@@ -3,7 +3,7 @@ import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { conceptRelations, eventRelations } from '@/lib/schema-classes/relations'
 import { countedRelationSignature } from '@/features/projects/warehouse/concepts/concept-count-plan'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { countedAtOf, relationsWithout } from './timeline-relations'
+import { countedAtOf, relationsHolding, relationsWithout } from './timeline-relations'
 
 const mapping = mappingV1ToV2({
   patientTable: { table: 'person', idColumn: 'person_id' },
@@ -16,6 +16,26 @@ const mapping = mappingV1ToV2({
 const [measurement, observation] = eventRelations(mapping)
 const dict = conceptRelations(mapping)[0]
 const sig = (e: typeof measurement) => countedRelationSignature(e, dict)
+
+describe('relationsHolding', () => {
+  it('says which concepts each relation counted under its current SQL holds', () => {
+    const counted = [
+      { relation: measurement.name, signature: sig(measurement), holds: true, held: ['1', '2'] },
+      { relation: observation.name, signature: sig(observation), holds: true, held: ['2'] },
+    ]
+    expect(relationsHolding(mapping, counted)).toEqual(new Map([
+      [measurement.name, new Set([1, 2])],
+      [observation.name, new Set([2])],
+    ]))
+  })
+
+  it('cannot speak for a relation counted under other SQL, or held ids it was not told', () => {
+    expect(relationsHolding(mapping, [
+      { relation: measurement.name, signature: 'older', holds: false, held: [] },
+      { relation: observation.name, signature: sig(observation), holds: true },
+    ]).size).toBe(0)
+  })
+})
 
 describe('relationsWithout', () => {
   it('leaves out a counted relation holding none of the concepts', () => {

@@ -73,6 +73,8 @@ export interface CountedRelation {
   signature: string | null
   /** Whether it holds any of the concepts asked about. */
   holds: boolean
+  /** Which of them it holds. */
+  held?: string[]
 }
 
 /** The relations the last counting run counted, and which hold any of `conceptIds`. */

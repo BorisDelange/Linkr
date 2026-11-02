@@ -65,8 +65,9 @@ class CountedRelation(CamelModel):
     relation: str
     # Of the relation's SQL when it was counted: a mapping changed since makes it stale.
     signature: str | None = None
-    # Whether it holds any of the requested concepts.
+    # Whether it holds any of the requested concepts, and which.
     holds: bool
+    held: list[str] = []
 
 
 class ConceptRelationsResult(CamelModel):

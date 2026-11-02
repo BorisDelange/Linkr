@@ -169,9 +169,9 @@ _ID_IN = (
 
 def counted_relations(source_id: str, concept_ids: list[str]) -> list[dict]:
     """The event relations the record units of the last run counted — each with
-    the signature of its SQL when counted and whether it holds any of
-    `concept_ids` — so a query for those concepts can leave out the relations
-    that hold none. Only an event table counted on every column it is planned
+    the signature of its SQL when counted, whether it holds any of `concept_ids`
+    and which (`held`) — so a query for those concepts can leave out the
+    relations that hold none, and look in each for its own only. Only an event table counted on every column it is planned
     for is reported; units of an older build name no relation and report none."""
     files = _complete_record_units(source_id)
     if not files:
@@ -181,17 +181,21 @@ def counted_relations(source_id: str, concept_ids: list[str]) -> list[dict]:
     try:
         rows = con.execute(
             f"""SELECT relation, relation_sig,
-                  bool_or({_ID_IN}) AS holds
+                  bool_or({_ID_IN}) AS holds,
+                  list(DISTINCT CAST(concept_id AS VARCHAR)) FILTER (WHERE {_ID_IN}) AS held
                 FROM read_parquet([{paths}], union_by_name = true)
                 WHERE relation IS NOT NULL
                 GROUP BY relation, relation_sig""",
-            [concept_ids, concept_ids],
+            [concept_ids, concept_ids, concept_ids, concept_ids],
         ).fetchall()
     except duckdb.BinderException:
         return []
     finally:
         con.close()
-    return [{"relation": r, "signature": sig, "holds": bool(holds)} for r, sig, holds in rows]
+    return [
+        {"relation": r, "signature": sig, "holds": bool(holds), "held": sorted(h for h in held or [] if h is not None)}
+        for r, sig, holds, held in rows
+    ]
 
 
 def write_manifest(source_id: str, manifest: dict, reset: bool) -> None:

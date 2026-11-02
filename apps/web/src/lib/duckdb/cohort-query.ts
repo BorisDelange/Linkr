@@ -140,11 +140,12 @@ function notSql(sql: string): string {
 // ---------------------------------------------------------------------------
 
 /**
- * The event relations a concept criterion on these concepts can leave out:
- * those the last concept count found none of them in (`cohortRelationNarrowing`).
- * Left out, a relation is named in a comment, never queried.
+ * For each event relation the last concept count speaks for, which of these
+ * concepts it holds (`cohortRelationNarrowing`). A relation holding none is
+ * named in a comment, never queried; one holding some is searched for those
+ * only; one absent from the map is searched for all of them.
  */
-export type RelationNarrowing = (conceptIds: readonly number[]) => ReadonlySet<string>
+export type RelationNarrowing = (conceptIds: readonly number[]) => ReadonlyMap<string, readonly number[]>
 
 /**
  * Reusable query parts (FROM + WHERE) from a Cohort criteria tree.
@@ -1158,21 +1159,32 @@ function buildConceptCriteria(
 
   const searched = conceptCriterionRelations(config, mapping)
   if (searched.length === 0) return '1=1'
-  const without = narrowing?.(config.conceptIds.map(Number)) ?? new Set<string>()
-  const skipped = searched.filter((event) => without.has(event.name))
+  const holding = narrowing?.(config.conceptIds.map(Number)) ?? new Map<string, readonly number[]>()
+  const idsIn = (event: ClassRelation) => holding.get(event.name) ?? config.conceptIds
+  const skipped = searched.filter((event) => idsIn(event).length === 0)
   const scopes = searched
-    .filter((event) => !without.has(event.name))
-    .map((event) => ({ event, from: conceptSource(event, mapping), conditions: conceptConditions(event, config, level, mapping, baseTable) }))
+    .filter((event) => idsIn(event).length > 0)
+    .map((event) => ({
+      event,
+      from: conceptSource(event, mapping),
+      conditions: conceptConditions(event, { ...config, conceptIds: [...idsIn(event)] }, level, mapping, baseTable),
+    }))
   // Said in the SQL rather than silently dropped: a reader sees why a table it
   // expected is not searched, and that nothing reads it.
-  const skippedNote = [
-    sqlComment('Not searched, as the concept count found none of these concepts there:'),
-    ...skipped.map((e) => sqlComment(`  ${e.name}`)),
-  ].join('\n')
+  const narrowed = scopes.some(({ event }) => idsIn(event).length < config.conceptIds.length)
+  const notes = [
+    ...(skipped.length > 0
+      ? [
+        'Not searched, as the concept count found none of these concepts there:',
+        ...skipped.map((e) => `  ${e.name}`),
+      ]
+      : []),
+    ...(narrowed ? ['Each table is searched for the concepts the concept count found there only'] : []),
+  ].map(sqlComment).join('\n')
   // Inside the parentheses an OR of tables already has, rather than in a second pair.
-  const noted = (sql: string) => skipped.length === 0
+  const noted = (sql: string) => !notes
     ? sql
-    : sql.startsWith('(\n') ? `(\n${indent(skippedNote)}\n${sql.slice(2)}` : `(\n${indent(`${skippedNote}\n${sql}`)}\n)`
+    : sql.startsWith('(\n') ? `(\n${indent(notes)}\n${sql.slice(2)}` : `(\n${indent(`${notes}\n${sql}`)}\n)`
   if (scopes.length === 0) return noted('FALSE')
 
   // Occurrence count → IN subquery with GROUP BY + HAVING, over the rows of

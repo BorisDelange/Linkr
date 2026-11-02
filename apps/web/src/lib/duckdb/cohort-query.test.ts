@@ -675,7 +675,11 @@ describe('concept criteria over several tables, any or every concept', () => {
   })
 
   describe('narrowed by the concept count', () => {
-    const narrowing = (ids: readonly number[]) => new Set(ids.includes(2) ? [] : ['linkr_event_chart'])
+    // Concept 1 in lab only, concept 2 in both.
+    const narrowing = (ids: readonly number[]) => new Map([
+      ['linkr_event_lab', ids.filter((id) => id === 1 || id === 2)],
+      ['linkr_event_chart', ids.filter((id) => id === 2)],
+    ])
     const narrowed = (config: object) => buildCohortCountSql(cohortWith(config), twoTables, narrowing)!
 
     it('leaves out a table holding none of the concepts, and says so without querying it', () => {
@@ -685,12 +689,24 @@ describe('concept criteria over several tables, any or every concept', () => {
       expect(sql.match(fromLab)).toHaveLength(1)
     })
 
-    it('reads every table that may hold one of them', () => {
-      expect(narrowed({}).match(fromChart)).toHaveLength(1)
+    it('searches each table for the concepts it holds only', () => {
+      const sql = narrowed({})
+      expect(sql.match(fromChart)).toHaveLength(1)
+      const flat = squash(sql)
+      expect(flat).toContain('FROM linkr_event_lab e WHERE e.concept_id IN ( 1, 2 )')
+      expect(flat).toContain('FROM linkr_event_chart e WHERE e.concept_id IN ( 2 )')
+      expect(sql).toContain('-- Each table is searched for the concepts the concept count found there only')
+    })
+
+    it('searches a table the count cannot speak for, for every concept', () => {
+      const labOnly = (ids: readonly number[]) => new Map([['linkr_event_lab', ids.filter((id) => id === 1)]])
+      const flat = squash(buildCohortCountSql(cohortWith({}), twoTables, labOnly)!)
+      expect(flat).toContain('FROM linkr_event_lab e WHERE e.concept_id IN ( 1 )')
+      expect(flat).toContain('FROM linkr_event_chart e WHERE e.concept_id IN ( 1, 2 )')
     })
 
     it('matches nothing when no table holds them, rather than skipping the criterion', () => {
-      const none = (_: readonly number[]) => new Set(['linkr_event_lab', 'linkr_event_chart'])
+      const none = () => new Map([['linkr_event_lab', []], ['linkr_event_chart', []]])
       const sql = buildCohortCountSql(cohortWith({ conceptIds: [1] }), twoTables, none)!
       expect(withoutComments(sql)).not.toMatch(/EXISTS/)
       expect(squash(withoutComments(sql))).toContain('WHERE ( FALSE )')

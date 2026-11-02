@@ -300,9 +300,11 @@ def test_counted_relations_say_which_relations_hold_the_concepts(duckdb_source, 
 
     got = sorted(concept_cache_fs.counted_relations("src", ["2"]), key=lambda r: r["relation"])
     assert got == [
-        {"relation": "ev_a", "signature": "sig-ev_a", "holds": False},
-        {"relation": "ev_b", "signature": "sig-ev_b", "holds": True},
+        {"relation": "ev_a", "signature": "sig-ev_a", "holds": False, "held": []},
+        {"relation": "ev_b", "signature": "sig-ev_b", "holds": True, "held": ["2"]},
     ]
+    both = sorted(concept_cache_fs.counted_relations("src", ["1", "2", "3"]), key=lambda r: r["relation"])
+    assert [r["held"] for r in both] == [["1"], ["2"]]
 
 
 def test_counted_relations_of_units_that_name_none(duckdb_source, data_dir):
@@ -330,7 +332,7 @@ def test_a_relation_counted_on_one_of_its_columns_is_not_reported(duckdb_source,
     assert concept_cache_fs.counted_relations("src", ["999"]) == []
 
     concept_cache_fs.write_unit(config, None, files, [], _relation_unit("concept_id"), "src", "records-0-src", "r1")
-    assert concept_cache_fs.counted_relations("src", ["999"]) == [{"relation": "ev", "signature": "sig", "holds": False}]
+    assert concept_cache_fs.counted_relations("src", ["999"]) == [{"relation": "ev", "signature": "sig", "holds": False, "held": []}]
 
 
 def test_counted_relations_without_planned_units_report_none(duckdb_source, data_dir):
