@@ -8,7 +8,7 @@ import type { TFunction } from 'i18next'
 import { localized } from '@/lib/localized'
 import { buildAttritionQueries, buildCohortMembershipSql, conceptCriterionRelations, CUSTOM_SQL_STEP_ID, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
 import { indent, subquerySql } from '@/lib/duckdb/sql-layout'
-import type { Cohort, CohortLevel, ConceptCriteriaConfig, CriteriaTreeNode, DatabaseEngine, SchemaMapping } from '@/types'
+import type { Cohort, CohortLevel, ConceptCriteriaConfig, CriteriaTreeNode, SchemaMapping } from '@/types'
 import type { ChartItem } from './charts'
 import { describeCriteria, describeCriterion, type DescribedCriterion } from './describe'
 import {
@@ -101,20 +101,13 @@ function conceptCriteria(node: CriteriaTreeNode): { node: CriteriaTreeNode; conf
     : []
 }
 
-/**
- * Whether a database gets the report as one query. Oracle cannot be sent one of
- * its sections (the months' date format): in one query, the whole report would
- * be computed here on its tables' rows, rather than that section alone.
- */
-export const reportInOneQuery = (engine: DatabaseEngine | undefined): boolean => engine !== 'oracle'
-
 /** The members' CTE the sections read when the report is one query. */
 const MEMBERS = 'cohort_members'
 
 /** The columns the sections return, each with the one type every block gives it. */
 const COLUMNS = {
   patients: 'BIGINT', units: 'BIGINT', visits: 'BIGINT', cnt: 'BIGINT', concept_id: 'BIGINT', rows: 'BIGINT',
-  bin: 'BIGINT', n: 'BIGINT', gender: 'VARCHAR', month: 'VARCHAR', label: 'VARCHAR', unit: 'VARCHAR',
+  bin: 'BIGINT', n: 'BIGINT', month: 'BIGINT', gender: 'VARCHAR', label: 'VARCHAR', unit: 'VARCHAR',
 } as const
 type Column = keyof typeof COLUMNS
 
@@ -136,7 +129,10 @@ export function buildReportSectionsSql(membershipSql: string, sections: readonly
   const all = Object.keys(COLUMNS) as Column[]
   const blocks = sections.filter((s) => s.sql).map((s) => [
     `SELECT '${s.block}' AS block,`,
-    indent(all.map((c) => `CAST(${s.columns.includes(c) ? `b.${c}` : 'NULL'} AS ${COLUMNS[c]}) AS ${c}`).join(',\n')),
+    // A placeholder NULL takes the column's type; a text value goes as it is
+    // (Oracle is sent no cast to text of a value it cannot type).
+    indent(all.map((c) => (s.columns.includes(c) && COLUMNS[c] === 'VARCHAR' ? `b.${c}`
+      : `CAST(${s.columns.includes(c) ? `b.${c}` : 'NULL'} AS ${COLUMNS[c]})`) + ` AS ${c}`).join(',\n')),
     `FROM ${subquerySql(s.sql!)} b`,
   ].join('\n'))
   return [`WITH ${MEMBERS} AS MATERIALIZED ${subquerySql(membershipSql)}`, blocks.join('\nUNION ALL\n')].join('\n')
@@ -157,8 +153,7 @@ export async function buildCohortReportModel(args: {
   /** Each concept searched only in the tables the concept count found it in. */
   narrowing?: RelationNarrowing
   /** Every section in one query over the members computed once; otherwise one
-   *  query per section, each computing them (a database that would compute a
-   *  CTE read several times as often). */
+   *  query per section, each computing them. */
   combine?: boolean
 }): Promise<CohortReportModel> {
   const { cohort, mapping, run, t, locale, threshold, narrowing, combine = false } = args
@@ -259,7 +254,8 @@ export async function buildCohortReportModel(args: {
   const sex = [...rowsOf('sex')].sort((a, b) => num(b.n) - num(a.n))
     .map((r) => ({ label: sexName(String(r.gender ?? '')), count: count(r.n) }))
 
-  const months = fillMonths(rowsOf('months').map((r) => ({ month: String(r.month), n: num(r.n) })))
+  const monthOf = (yyyymm: number) => `${Math.floor(yyyymm / 100)}-${String(yyyymm % 100).padStart(2, '0')}`
+  const months = fillMonths(rowsOf('months').map((r) => ({ month: monthOf(num(r.month)), n: num(r.n) })))
     .map((m) => ({ label: m.month, count: count(m.n) }))
   const eventTables = rowsOf('events')
     .map((r) => ({ label: String(r.label), rows: count(r.rows), patients: count(r.patients), raw: num(r.rows) }))

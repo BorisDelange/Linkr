@@ -683,7 +683,8 @@ def _check_oracle(tree: exp.Expression) -> None:
             raise NotPortable("EXTRACT of a time part")
         if isinstance(node, exp.Cast):
             target, source = node.to.this, _type(node.this)
-            if target in _TEXT and source not in _INTEGER | _TEXT | _NULL:
+            # A NULL literal is left untyped, and a NULL is spelled alike as any type.
+            if target in _TEXT and source not in _INTEGER | _TEXT | _NULL and not isinstance(node.this, exp.Null):
                 raise NotPortable("a cast to text of a non-integer")
     for expression in _select_lists(tree):
         if isinstance(expression.unalias(), exp.Predicate):

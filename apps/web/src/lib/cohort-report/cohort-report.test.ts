@@ -167,7 +167,7 @@ describe('buildCohortReportModel', () => {
     if (sql.includes('AS concept_id')) return [{ concept_id: 3027018, rows: 1069, patients: 568 }]
     if (sql.includes('AS bin')) return [{ bin: 20, n: 4 }, { bin: 60, n: 300 }]
     if (sql.includes('AS gender')) return [{ gender: '8532', n: 400 }, { gender: '8507', n: 470 }]
-    if (sql.includes('AS month')) return [{ month: '2024-01', n: 30 }, { month: '2024-03', n: 2 }]
+    if (sql.includes('AS month')) return [{ month: 202401, n: 30 }, { month: 202403, n: 2 }]
     if (sql.includes('COUNT(*) AS n FROM')) return [{ n: 40000 }]
     if (sql.includes('AS label')) return [
       { label: 'Drug', rows: 7, patients: 5 },

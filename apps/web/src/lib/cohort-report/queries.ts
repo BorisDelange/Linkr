@@ -131,10 +131,11 @@ export function buildSexSql(membershipSql: string, mapping: SchemaMapping): stri
   ].join('\n')
 }
 
-/** Members per month of their index date (`YYYY-MM`). */
+/** Members per month of their index date, `month` = year × 100 + month (202403):
+ *  a number every database computes alike, where a date format is spelled its own way. */
 export function buildMonthSql(indexSql: string): string {
   return [
-    "SELECT strftime(CAST(i.index_date AS TIMESTAMP), '%Y-%m') AS month, COUNT(*) AS n",
+    'SELECT EXTRACT(YEAR FROM CAST(i.index_date AS TIMESTAMP)) * 100 + EXTRACT(MONTH FROM CAST(i.index_date AS TIMESTAMP)) AS month, COUNT(*) AS n',
     `FROM (\n${indexSql}\n) i`,
     'WHERE i.index_date IS NOT NULL',
     'GROUP BY 1',

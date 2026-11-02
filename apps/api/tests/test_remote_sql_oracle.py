@@ -76,6 +76,14 @@ def test_null_safe_comparisons_booleans_and_blank_nullif():
     assert q.types[0] == "BOOLEAN"
 
 
+def test_a_null_cast_to_text_is_sent_a_value_of_unknown_type_is_not():
+    # The NULL a UNION ALL block puts in a column it lacks.
+    q = oracle("SELECT CAST(NULL AS VARCHAR) AS label, COUNT(*) AS n FROM measurement")
+    assert "CAST(NULL AS VARCHAR2" in q.sql
+    with pytest.raises(NotPortable, match="(?i)to text"):
+        oracle("SELECT CAST(value_as_number AS VARCHAR) AS v FROM measurement")
+
+
 def test_a_select_without_table_reads_dual():
     assert oracle("SELECT 1 AS x").sql == 'SELECT 1 AS "X" FROM DUAL'
 

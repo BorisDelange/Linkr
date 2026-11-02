@@ -13,7 +13,7 @@ import * as engine from '@/lib/duckdb/engine'
 import { downloadBlob } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
 import { printHtml, rasterizeSvg, reportFileName } from '@/lib/cohort-report/export'
-import { buildCohortReportModel, CohortReportUnavailable, reportInOneQuery } from '@/lib/cohort-report/model'
+import { buildCohortReportModel, CohortReportUnavailable } from '@/lib/cohort-report/model'
 import { renderReportHtml } from '@/lib/cohort-report/render-html'
 import { DEFAULT_SUPPRESSION_THRESHOLD } from '@/lib/cohort-report/suppress'
 import type { Cohort, DataSource } from '@/types'
@@ -92,7 +92,7 @@ function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: Coh
       locale: i18n.language,
       threshold,
       narrowing: await cohortRelationNarrowing(source.id, mapping, cohort).catch(() => undefined),
-      combine: reportInOneQuery('engine' in source.connectionConfig ? source.connectionConfig.engine : undefined),
+      combine: true,
     }))
   }
 
