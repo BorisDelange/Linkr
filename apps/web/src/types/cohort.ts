@@ -91,6 +91,9 @@ export interface ConceptCriteriaConfig {
   conceptMatch?: 'any' | 'all'
   /** Human-readable names keyed by concept_id */
   conceptNames: Record<number, string>
+  /** Vocabulary of each concept, keyed by concept_id: with the name, the comment
+   *  after each id in the generated SQL. */
+  conceptVocabularies?: Record<number, string>
   /** Optional value filters (measurements) — multiple conditions ANDed together */
   valueFilters?: ValueFilter[]
   /** Minimum occurrence count */

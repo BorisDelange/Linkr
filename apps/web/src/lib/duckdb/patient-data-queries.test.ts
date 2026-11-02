@@ -190,7 +190,7 @@ describe('timeline query', () => {
 
   it('keeps the tables whose concepts are ids', () => {
     expect(sql()).toContain('"chartevents"')
-    expect(sql()).toContain('IN (220045, 220210)')
+    expect(sql()).toContain('IN (\n      220045,\n      220210\n    )')
   })
 
   it('drops a table that names its concept inline, rather than casting text to int', () => {
@@ -307,7 +307,7 @@ describe('timeline query', () => {
     } as never)
     const sql = withClassRelations(buildTimelineQuery(noDict, [3027018], '123', null)!, noDict)
     expect(sql).toContain('"measurement"')
-    expect(sql).toContain('IN (3027018)')
+    expect(sql).toContain('IN (\n      3027018\n    )')
   })
 })
 
@@ -335,7 +335,10 @@ describe('timeline query on a (terminology, code) thesaurus', () => {
     expect(sql).toContain(`INNER JOIN (
   SELECT concept_terminology, concept_code, MIN(concept_id) AS concept_id, MIN(concept_name) AS concept_name
   FROM linkr_concept_thes
-  WHERE concept_id IN (42, 43)
+  WHERE concept_id IN (
+    42,
+    43
+  )
   GROUP BY concept_terminology, concept_code
 ) c ON e.concept_terminology = c.concept_terminology AND e.concept_code = c.concept_code`)
   })

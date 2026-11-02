@@ -102,7 +102,7 @@ describe('queries', () => {
 
   it('matches concepts on either column, as the criterion does', () => {
     const sql = buildConceptSql(m, mapping, { eventTableLabels: ['Measurement'], conceptIds: [1, 2], conceptNames: {} })!
-    expect(sql).toContain('(e.concept_id IN (1, 2) OR e.source_concept_id IN (1, 2))')
+    expect(sql.replace(/\s+/g, ' ')).toContain('( e.concept_id IN ( 1, 2 ) OR e.source_concept_id IN ( 1, 2 ) )')
     expect(buildConceptSql(m, mapping, { eventTableLabels: ['Nope'], conceptIds: [1], conceptNames: {} })).toBeNull()
   })
 

@@ -17,6 +17,7 @@
  * rather than half-translated.
  */
 import { quoteIdent } from '@/lib/format-helpers'
+import { subquerySql } from '@/lib/duckdb/sql-layout'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { RELATION_PREFIX } from './contracts'
 import { blankSqlLiterals, classRelations, codesRelation, inlineRelation, type InlineRelation } from './relations'
@@ -209,10 +210,10 @@ export function toNativeSql(sql: string, mapping: SchemaMapping, tables?: readon
   const edits: { start: number; end: number; text: string }[] = []
   for (const item of items) {
     const inline = inlines.get(item.relation)!
+    const lineStart = sql.lastIndexOf('\n', item.start - 1) + 1
     const source = inline.kind === 'table'
       ? tableRef(inline.table)
-      // As written: indenting it would change a multi-line string literal.
-      : `(\n${inline.sql}\n)`
+      : subquerySql(inline.sql, /^[ \t]*/.exec(sql.slice(lineStart))![0])
     edits.push({ start: item.start, end: item.end, text: `${source} ${newAlias(item)}` })
   }
   for (const { start, end, item, column } of refs) {

@@ -11,12 +11,12 @@ import {
   conceptEventTables,
   getNodeLabel,
   cohortRunError,
-  sqlComment,
   withinStaySql,
   CUSTOM_SQL_STEP_ID,
 } from './cohort-query'
 import type { Cohort, CohortLevel } from '@/types'
 import { withClassRelations } from '@/lib/schema-classes/inject'
+import { sqlComment } from './sql-layout'
 
 // The membership query freezes cohort content into a snapshot (materialization).
 // It must return both the level id and a patient_id, and must NOT cap rows with
@@ -39,6 +39,8 @@ const mapping = mappingV1ToV2(mapping_V1)
 /** The SQL on one line, for assertions that are about content, not layout. */
 const squash = (sql: string) => sql.replace(/\s+/g, ' ')
 const withoutComments = (sql: string) => sql.replace(/--[^\n]*/g, '')
+/** The stay window as a condition after AND: its comment goes above the AND. */
+const windowOf = (...args: Parameters<typeof withinStaySql>) => squash(`AND ${withinStaySql(...args).replace(/^--[^\n]*\n/, '')}`)
 
 function makeCohort(level: CohortLevel): Cohort {
   return {
@@ -343,7 +345,7 @@ describe('buildCohortCountSql free-text criterion', () => {
   })
 
   const heparin = { description: '', searches: [{ field: 'text', terms: ['heparin'] }] }
-  const stayWindow = squash(withinStaySql('n.note_datetime', 'linkr_visit.start_datetime', 'linkr_visit.end_datetime'))
+  const stayWindow = windowOf('n.note_datetime', 'linkr_visit.start_datetime', 'linkr_visit.end_datetime')
 
   it('ties a note to the stay by its visit id when the mapping has one', () => {
     const sql = squash(buildCohortCountSql(textCohort(heparin), withNotes)!)
@@ -601,13 +603,14 @@ describe('concept criteria bound to the stay', () => {
 
   it('compares the event date with the visit bounds at visit level', () => {
     const sql = buildCohortCountSql(cohortOn('visit', 'Lab'), stayMapping)!
-    expect(squash(sql)).toContain(squash(withinStaySql('e.start_datetime', 'linkr_visit.start_datetime', 'linkr_visit.end_datetime')))
+    expect(squash(sql)).toContain(windowOf('e.start_datetime', 'linkr_visit.start_datetime', 'linkr_visit.end_datetime'))
+    expect(sql).toContain('-- Within the stay\n      AND (')
   })
 
   it('uses the unit stay bounds at visit_detail level, occurrence counts included', () => {
     const sql = buildCohortCountSql(
       cohortOn('visit_detail', 'Lab', { occurrenceCount: { operator: '>=', count: 2 } }), stayMapping)!
-    expect(squash(sql)).toContain(squash(withinStaySql('e.start_datetime', 'linkr_visit_detail.start_datetime', 'linkr_visit_detail.end_datetime')))
+    expect(squash(sql)).toContain(windowOf('e.start_datetime', 'linkr_visit_detail.start_datetime', 'linkr_visit_detail.end_datetime'))
     expect(sql).toContain('HAVING COUNT(*) >= 2')
   })
 
@@ -667,8 +670,8 @@ describe('concept criteria over several tables, any or every concept', () => {
   it('counts every concept on its own over every table when every one must be there', () => {
     const sql = squash(sqlOf({ conceptMatch: 'all', occurrenceCount: { operator: '>=', count: 2 } }))
     expect(sql.match(/UNION ALL/g)).toHaveLength(2)
-    expect(sql).toContain('e.concept_id IN (1)')
-    expect(sql).toContain('e.concept_id IN (2)')
+    expect(sql).toContain('e.concept_id IN ( 1 )')
+    expect(sql).toContain('e.concept_id IN ( 2 )')
   })
 
   describe('narrowed by the concept count', () => {
@@ -694,12 +697,21 @@ describe('concept criteria over several tables, any or every concept', () => {
     })
   })
 
+  it('lists the ids one per line, each followed by its vocabulary and name', () => {
+    const sql = sqlOf({
+      eventTableLabels: ['Lab'],
+      conceptNames: { 1: 'Urine output', 2: '#2' },
+      conceptVocabularies: { 1: 'LOINC' },
+    })
+    expect(sql).toMatch(/e\.concept_id IN \(\n +1, -- LOINC - Urine output\n +2\n +\)/)
+  })
+
   it('requires each concept on its own when every one must be there', () => {
-    const sql = sqlOf({ eventTableLabels: ['Lab'], conceptMatch: 'all' })
-    expect(sql).toContain('e.concept_id IN (1)')
-    expect(sql).toContain('e.concept_id IN (2)')
-    expect(sql).not.toContain('IN (1, 2)')
-    expect(sqlOf({ eventTableLabels: ['Lab'] })).toContain('IN (1, 2)')
+    const sql = squash(sqlOf({ eventTableLabels: ['Lab'], conceptMatch: 'all' }))
+    expect(sql).toContain('e.concept_id IN ( 1 )')
+    expect(sql).toContain('e.concept_id IN ( 2 )')
+    expect(sql).not.toContain('IN ( 1, 2 )')
+    expect(squash(sqlOf({ eventTableLabels: ['Lab'] }))).toContain('IN ( 1, 2 )')
   })
 })
 
@@ -979,7 +991,7 @@ describe('a concept criterion on an event keyed by (terminology, code)', () => {
       config: { conceptIds: [42], conceptNames: {} },
     }] as never
     const sql = squash(buildCohortCountSql(c, thesaurus)!)
-    expect(sql).toContain('FROM linkr_event_data__codes e WHERE EXISTS ( SELECT 1 FROM linkr_concept_thes c WHERE c.concept_id IN (42) AND c.concept_terminology = e.concept_terminology AND c.concept_code = e.concept_code )')
+    expect(sql).toContain('FROM linkr_event_data__codes e WHERE EXISTS ( SELECT 1 FROM linkr_concept_thes c WHERE c.concept_id IN ( 42 ) AND c.concept_terminology = e.concept_terminology AND c.concept_code = e.concept_code )')
     expect(sql).not.toContain('e.concept_id')
   })
 })

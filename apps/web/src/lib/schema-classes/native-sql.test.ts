@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import { buildCohortCriteriaSql, buildCohortNativeSql } from '@/lib/duckdb/cohort-query'
+import { subquerySql } from '@/lib/duckdb/sql-layout'
 import { eavMapping } from './__fixtures__/drug-acceptance'
 import { toNativeSql } from './native-sql'
 import type { Cohort, CohortLevel, SchemaMapping } from '@/types'
@@ -109,7 +110,9 @@ describe('a relation that is more than one table', () => {
   it('stands as its own SELECT, of the columns the query reads only', () => {
     const sql = buildCohortNativeSql(cohort('visit', [crit('period', { startDate: '2024-01-01' })]), withJoin)!
     noRelation(sql)
-    expect(sql).toContain('LEFT JOIN "eav"."units" u ON s."unit" = u."code"\n) visit')
+    // Indented under its `(`, the `)` back at the FROM's indentation.
+    expect(sql).toContain('FROM\n  (\n    SELECT\n')
+    expect(sql).toContain('    LEFT JOIN "eav"."units" u ON s."unit" = u."code"\n  ) visit')
     expect(sql).toContain("visit.start_datetime >= '2024-01-01'")
     expect(sql).not.toContain('care_site_name')
   })
@@ -117,7 +120,7 @@ describe('a relation that is more than one table', () => {
   it('inserts hand-written SQL as written when it returns the columns read', () => {
     const sql = buildCohortNativeSql(cohort('patient', [crit('concept', { eventTableLabels: ['Administrations'], conceptIds: [42], conceptNames: {} })]), eavMapping)!
     noRelation(sql)
-    expect(sql).toContain(`(\n${eavMapping.drugs![0].customSql}\n) e`)
+    expect(sql).toContain(`${subquerySql(eavMapping.drugs![0].customSql!, '    ')} e`)
   })
 
   it('projects it when a column needs the relation\'s fallback', () => {
@@ -154,7 +157,7 @@ describe('an event keyed by (terminology, code)', () => {
     ]), thesaurus)!
     noRelation(sql)
     expect(sql).not.toContain('_dict')
-    expect(sql).toMatch(/FROM facts e\s+WHERE EXISTS \(\s*SELECT 1\s+FROM thesaurus c\s+WHERE c\.id IN \(42\)\s+AND c\.terminology = e\.terminology\s+AND c\.code = e\.code/)
+    expect(sql).toMatch(/FROM facts e\s+WHERE EXISTS \(\s*SELECT 1\s+FROM thesaurus c\s+WHERE c\.id IN \(\s*42\s*\)\s+AND c\.terminology = e\.terminology\s+AND c\.code = e\.code/)
   })
 })
 

@@ -5,6 +5,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
 import { cohortRelationNarrowing } from '../relation-narrowing'
+import { labelCohortConcepts } from '../concept-labels'
 import { namesRelation } from '@/lib/schema-classes/native-sql'
 import { localized } from '@/lib/localized'
 import type { Cohort, SchemaMapping } from '@/types'
@@ -32,20 +33,24 @@ const formatOf = (sql: string): SqlFormat => (namesRelation(sql) ? 'linkr' : 'na
 
 export function SqlPreviewPanel({ cohort, mapping, dataSourceId, onCustomSqlChange, onExecute, onDraftChange, runRef }: SqlPreviewPanelProps) {
   const { t, i18n } = useTranslation()
-  const [narrowed, setNarrowed] = useState<{ tree: Cohort['criteriaTree']; narrowing: RelationNarrowing | undefined } | null>(null)
+  // What the database says of the cohort: the tables its concepts are absent
+  // from, and their vocabulary and name, written after each id.
+  const [read, setRead] = useState<{ of: Cohort; narrowing: RelationNarrowing | undefined; labelled: Cohort } | null>(null)
   useEffect(() => {
     if (!dataSourceId || !mapping) return
     let cancelled = false
-    const tree = cohort.criteriaTree
-    cohortRelationNarrowing(dataSourceId, mapping, cohort)
-      .then((narrowing) => { if (!cancelled) setNarrowed({ tree, narrowing }) })
-      .catch(() => {})
+    Promise.all([
+      cohortRelationNarrowing(dataSourceId, mapping, cohort).catch(() => undefined),
+      labelCohortConcepts(dataSourceId, mapping, cohort).catch(() => cohort),
+    ]).then(([narrowing, labelled]) => { if (!cancelled) setRead({ of: cohort, narrowing, labelled }) })
     return () => { cancelled = true }
   }, [dataSourceId, mapping, cohort])
-  // Only for the tree it was asked about: an edited criterion waits for its own.
-  const narrowing = narrowed?.tree === cohort.criteriaTree ? narrowed.narrowing : undefined
-  const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(cohort, mapping, false, narrowing) : null), [cohort, mapping, narrowing])
-  const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(cohort, mapping, narrowing) : null), [cohort, mapping, narrowing])
+  // Only for the cohort it was asked about: an edited criterion waits for its own.
+  const current = read?.of === cohort ? read : null
+  const narrowing = current?.narrowing
+  const shown = current?.labelled ?? cohort
+  const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(shown, mapping, false, narrowing) : null), [shown, mapping, narrowing])
+  const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(shown, mapping, narrowing) : null), [shown, mapping, narrowing])
   const [chosen, setChosen] = useState<SqlFormat>('native')
   const [hasDraft, setHasDraft] = useState(false)
 

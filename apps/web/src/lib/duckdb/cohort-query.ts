@@ -21,6 +21,7 @@ import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { classRelation, codesRelation, conceptRelation, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
+import { hang, idListSql, indent, sqlComment } from './sql-layout'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -55,58 +56,16 @@ function sqlOperator(value: unknown, allowed: Set<string>): string | null {
 // one condition per line, each criterion under a `--` comment naming it,
 // subqueries indented, and parentheses only where precedence needs them.
 
-const INDENT = '  '
-
-/**
- * Every non-empty line pushed right by `by` — except a line that continues a
- * string literal, whose content the padding would change (a hand-written query
- * may hold one).
- */
-function indent(sql: string, by = INDENT, skipFirst = false): string {
-  let out = ''
-  let quote: string | null = null
-  let comment = false
-  let lineStart = !skipFirst
-  for (let i = 0; i < sql.length; i++) {
-    const ch = sql[i]
-    if (lineStart) {
-      if (quote === null && ch !== '\n') out += by
-      lineStart = false
-    }
-    out += ch
-    if (ch === '\n') {
-      comment = false
-      lineStart = true
-    } else if (comment) {
-      continue
-    } else if (quote !== null) {
-      if (ch === quote) quote = null
-    } else if (ch === "'" || ch === '"') {
-      quote = ch
-    } else if (ch === '-' && sql[i + 1] === '-') {
-      comment = true
-    }
-  }
-  return out
-}
-
-/** Every line but the first pushed right: a multi-line operand after a keyword. */
-function hang(sql: string, by = INDENT): string {
-  return indent(sql, by, true)
-}
-
-/**
- * A label as a `--` comment. Line breaks are dropped: the label can be the
- * user's (a concept name, a group label) and a line break would end the comment
- * and let the rest of it run as SQL.
- */
-export function sqlComment(label: string): string {
-  return `-- ${label.replace(/[\r\n\u0085\u2028\u2029\0]+/g, ' ').trim()}`
-}
-
-/** `WHERE a` then `  AND b` per condition. */
+/** `WHERE a` then `  AND b` per condition; a condition's leading comment goes
+ *  on the line above its keyword. */
 function whereLines(conditions: string[]): string {
-  return conditions.map((c, i) => `${i === 0 ? 'WHERE' : '  AND'} ${hang(c)}`).join('\n')
+  return conditions.map((c, i) => {
+    const pad = i === 0 ? '' : '  '
+    const keyword = `${pad}${i === 0 ? 'WHERE' : 'AND'}`
+    const note = /^(--[^\n]*)\n/.exec(c)
+    const body = note ? c.slice(note[0].length) : c
+    return `${note ? `${pad}${note[1]}\n` : ''}${keyword} ${pad ? hang(body, pad) : body}`
+  }).join('\n')
 }
 
 /** `EXISTS (SELECT 1 FROM … WHERE …)`, one condition per line. */
@@ -999,16 +958,15 @@ export function withinStaySql(eventDate: string, start: string, end: string | nu
   const ts = (x: string) => `CAST(${x} AS TIMESTAMP)`
   const day = (x: string) => `CAST(CAST(${x} AS DATE) AS TIMESTAMP)`
   const dayOnly = (x: string) => `${ts(x)} = ${day(x)}`
-  const bound = (b: string, range: string, exact: string) => [
-    `(`,
-    `  ${range}`,
-    `  AND (${b} IS NULL OR ${exact})`,
-    `)`,
+  const bound = (b: string, range: string, exact: string[]) => [
+    '(',
+    indent([range, `AND (`, indent([`${b} IS NULL`, ...exact].join('\nOR ')), ')'].join('\n')),
+    ')',
   ].join('\n')
   const from = bound(start, `${ts(eventDate)} >= COALESCE(${day(start)}, TIMESTAMP '0001-01-01 00:00:00')`,
-    `${ts(eventDate)} >= ${ts(start)} OR ${dayOnly(eventDate)}`)
+    [`${ts(eventDate)} >= ${ts(start)}`, dayOnly(eventDate)])
   const until = end && bound(end, `${ts(eventDate)} < COALESCE(${day(end)}, TIMESTAMP '9999-12-30 00:00:00') + INTERVAL 1 DAY`,
-    `${ts(eventDate)} <= ${ts(end)} OR ${dayOnly(eventDate)} OR ${dayOnly(end)}`)
+    [`${ts(eventDate)} <= ${ts(end)}`, dayOnly(eventDate), dayOnly(end)])
   return [
     sqlComment(end ? 'Within the stay' : 'From the stay start'),
     [from, ...(until ? [until] : [])].join('\nAND '),
@@ -1110,6 +1068,16 @@ function valueConditions(config: ConceptCriteriaConfig): string[] {
   return single ? [single] : []
 }
 
+/** What a criterion's concept is, for the comment after its id: its vocabulary
+ *  and name, as far as the criterion knows them. */
+export function conceptLabel(config: Pick<ConceptCriteriaConfig, 'conceptNames' | 'conceptVocabularies'>): (id: number) => string | undefined {
+  return (id) => {
+    const name = config.conceptNames?.[id]
+    const parts = [config.conceptVocabularies?.[id], name && name !== `#${id}` ? name : undefined].filter(Boolean)
+    return parts.length > 0 ? parts.join(' - ') : undefined
+  }
+}
+
 /** What an event row of `event` must meet for the criterion: one of its
  *  concepts, the entity's patient (and stay), the value filters. */
 function conceptConditions(
@@ -1119,19 +1087,19 @@ function conceptConditions(
   mapping: SchemaMapping,
   baseTable: string,
 ): string[] {
-  const ids = config.conceptIds.join(', ')
+  const ids = idListSql(config.conceptIds, conceptLabel(config))
   const dict = event.compositeConceptKey ? dictionaryOf(mapping, event) : undefined
   // Read through its codes (`conceptSource`): the few (terminology, code) pairs
   // of these ids, rather than every row's id looked up in the whole dictionary.
   let conceptMatch = dict
     ? existsSql(`${dict.name} c`, [
-      `c.concept_id IN (${ids})`,
+      `c.concept_id IN ${ids}`,
       'c.concept_terminology = e.concept_terminology',
       'c.concept_code = e.concept_code',
     ])
-    : `e.concept_id IN (${ids})`
+    : `e.concept_id IN ${ids}`
   if (has(event, 'source_concept_id')) {
-    conceptMatch = `(${conceptMatch} OR e.source_concept_id IN (${ids}))`
+    conceptMatch = `(\n${indent(`${conceptMatch}\nOR e.source_concept_id IN ${ids}`)}\n)`
   }
   const conditions = [conceptMatch, `e.patient_id = ${baseTable}.patient_id`]
   const window = stayWindowClause(level, mapping, baseTable, has(event, 'start_datetime') ? 'e.start_datetime' : undefined)

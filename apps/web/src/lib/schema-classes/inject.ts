@@ -1,5 +1,6 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { isProtected, protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
+import { subquerySql } from '@/lib/duckdb/sql-layout'
 import { RELATION_PREFIX } from './contracts'
 import { classRelations, withCodesRelations, type ClassRelation } from './relations'
 import { relationsPresentIn } from './presence'
@@ -98,7 +99,7 @@ export function withClassRelations(sql: string, mapping: SchemaMapping | undefin
   if (wanted.size === 0) return sql
   const relations = withCodesRelations(tables ? relationsPresentIn(mapping, tables) : classRelations(mapping))
   const ctes = relationsInDependencyOrder(relations, wanted, definedRelations(sql))
-    .map((r) => `${r.name} AS NOT MATERIALIZED (\n${r.sql}\n)`)
+    .map((r) => `${r.name} AS NOT MATERIALIZED ${subquerySql(r.sql)}`)
   if (ctes.length === 0) return sql
 
   const start = firstTokenIndex(sql)

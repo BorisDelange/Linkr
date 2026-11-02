@@ -4,6 +4,7 @@ import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './coho
 import { classRelation, conceptJoinOn, dictionaryOf, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { eventScopeCondition, scopeCondition, type PatientScope } from './patient-scope'
+import { hang, idListSql, indent } from './sql-layout'
 
 // ---------------------------------------------------------------------------
 // Patient filters
@@ -270,7 +271,7 @@ export function buildTimelineQuery(
 ): string | null {
   if (conceptIds.length === 0) return null
   if (!validateIntegerIds(conceptIds)) return null
-  const idList = conceptIds.join(', ')
+  const ids = idListSql(conceptIds)
   const parts: string[] = []
 
   for (const event of eventRelations(mapping)) {
@@ -294,8 +295,8 @@ export function buildTimelineQuery(
     const conceptMatch = byCode
       ? null
       : has(event, 'source_concept_id')
-        ? `e.concept_id IN (${idList}) OR e.source_concept_id IN (${idList})`
-        : `e.concept_id IN (${idList})`
+        ? `e.concept_id IN ${ids}\nOR e.source_concept_id IN ${ids}`
+        : `e.concept_id IN ${ids}`
     const visitFilter = scope ? eventScopeCondition(mapping, event, scope) : ''
 
     // Unit and route, resolved the way the overview does it — a bare figure says
@@ -324,7 +325,7 @@ export function buildTimelineQuery(
       ? `\nINNER JOIN (
   SELECT concept_terminology, concept_code, MIN(concept_id) AS concept_id, MIN(concept_name) AS concept_name
   FROM ${dict.name}
-  WHERE concept_id IN (${idList})
+  WHERE concept_id IN ${hang(ids)}
   GROUP BY concept_terminology, concept_code
 ) c ON ${conceptJoinOn(event, 'e', 'c')}`
       : dict ? `\nINNER JOIN ${dict.name} c ON ${conceptJoinOn(event, 'e', 'c')}` : ''
@@ -341,7 +342,7 @@ export function buildTimelineQuery(
   e.start_datetime AS event_date,
   e.end_datetime AS end_date
 FROM ${event.name} e${join}${unitJoin}${routeJoin}
-WHERE e.patient_id = '${escSql(patientId)}'${conceptMatch ? `\n  AND (${conceptMatch})` : ''}
+WHERE e.patient_id = '${escSql(patientId)}'${conceptMatch ? `\n  AND (\n${indent(conceptMatch, '    ')}\n  )` : ''}
   AND (${presence})${visitFilter}`)
   }
 

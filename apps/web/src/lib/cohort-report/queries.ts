@@ -8,7 +8,8 @@
 import type { CohortLevel, ConceptCriteriaConfig, SchemaMapping } from '@/types'
 import { classRelation, eventRelations, has } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { conceptCriterionRelations } from '@/lib/duckdb/cohort-query'
+import { conceptCriterionRelations, conceptLabel } from '@/lib/duckdb/cohort-query'
+import { hang, idListSql, indent } from '@/lib/duckdb/sql-layout'
 
 /** `SELECT … FROM (membership) m`, the shape every query below starts from. */
 function members(membershipSql: string): string {
@@ -175,15 +176,15 @@ export function buildConceptSql(
   if (ids.length === 0 || !validateIntegerIds(ids)) return null
   const events = conceptCriterionRelations(config, mapping)
   if (events.length === 0) return null
-  const list = ids.join(', ')
+  const list = idListSql(ids, conceptLabel(config))
   const parts = events.map((event) => {
     const withSource = has(event, 'source_concept_id')
     const concept = withSource
-      ? `CASE WHEN e.concept_id IN (${list}) THEN e.concept_id ELSE e.source_concept_id END`
+      ? `CASE WHEN e.concept_id IN ${hang(list)} THEN e.concept_id ELSE e.source_concept_id END`
       : 'e.concept_id'
     const match = withSource
-      ? `(e.concept_id IN (${list}) OR e.source_concept_id IN (${list}))`
-      : `e.concept_id IN (${list})`
+      ? `(\n${indent(`e.concept_id IN ${list}\nOR e.source_concept_id IN ${list}`)}\n)`
+      : `e.concept_id IN ${list}`
     return [
       `SELECT ${concept} AS concept_id, e.patient_id`,
       `FROM ${event.name} e`,

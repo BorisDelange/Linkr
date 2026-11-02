@@ -44,7 +44,7 @@ describe('buildOverviewEventsQuery — a stale value column cannot kill the row'
     // The relation's FROM adds an empty UNION BY NAME branch naming every mapped
     // column: where the table has it, nothing changes; where it does not, NULL.
     const sql = withClassRelations(buildOverviewEventsQuery(mapping, ...args)!, mapping)
-    expect(sql).toMatch(/UNION ALL BY NAME SELECT [^)]*NULL AS "value_as_string"/)
+    expect(sql).toMatch(/UNION ALL BY NAME\s+SELECT [^)]*NULL AS "value_as_string"/)
   })
 })
 
