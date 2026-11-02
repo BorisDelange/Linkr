@@ -1,10 +1,19 @@
 # Web apps in the IDE — plan
 
+> **Built** on `feature/web-apps` (2026-11-01); remaining items in
+> [README.md](README.md#ide--web-apps--web-apps-planmd). Kept for the rationale. What
+> changed against it while building: no `<base>` injection (it cannot fix root-relative
+> URLs, the only ones that miss); the browser sends the gateway prefix at start; the
+> origin check compares host names only (gateways drop the port from `Host`); a body is
+> forwarded only when the request has one (httpuv refuses a chunked GET); `libuv1` added
+> to the API image (Shiny's `fs` dependency); `X-Accel-Buffering: no` instead of an nginx
+> change; an open tab counts as a visit for the idle stop.
+
 Let a project's code start a **long-running web server** — Shiny, Streamlit, Dash, Gradio,
 plumber, FastAPI/Flask, Panel, Marimo — and show it inside Linkr, in an iframe, without the
 user ever seeing a port number. Server mode only (a WASM build has no process to spawn).
 
-Nothing of this exists today. The closest prior art in the repo is `pty_kernel.py`: the only
+The closest prior art in the repo is `pty_kernel.py`: the only
 place that already spawns a detached, long-lived child process with the project's cwd and
 env. Everything else in `services/execution/` is request/response.
 

@@ -45,6 +45,12 @@ function toIdeFile(projectUid: string, n: ServerNode): IdeFile {
   }
 }
 
+/** A file's path relative to scripts/, as of the last scan; undefined for a node
+ *  the server has not listed (a client-only build has no such path). */
+export function ideFilePath(id: string): string | undefined {
+  return _meta.get(id)?.path
+}
+
 /** Relative path of a new child = parent's path + name (parent "" = scripts root). */
 function childPath(parentId: string | null, name: string): string {
   if (!parentId) return name

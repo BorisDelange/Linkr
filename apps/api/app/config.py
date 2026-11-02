@@ -88,6 +88,18 @@ class Settings(BaseSettings):
     widget_pool_size: int = 2
     widget_max_concurrency: int = 8
 
+    # Web apps started from the IDE (Shiny, Streamlit, Dash…; services/execution/
+    # web_apps.py). Each is a long-lived process listening on 127.0.0.1, reached
+    # only through the API's own proxy, so no port is ever opened to the network.
+    # Counted apart from the kernels: an app must not cost the user a console.
+    enable_web_apps: bool = True
+    app_port_range: str = "8700-8799"
+    max_apps_per_user: int = 2
+    # Measured from the last request the proxy forwarded, not from the last run.
+    app_idle_timeout_minutes: int = 60
+    # R + Shiny can take tens of seconds to boot on a small SPE machine.
+    app_start_timeout_seconds: int = 120
+
     # Managed environments (uv for Python; renv for R lands with step 5). The uv
     # binary and PyPI index stay configurable so a future internal mirror is a
     # config change, not a re-architecture (see ide-environments-plan §1). The

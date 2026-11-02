@@ -3901,6 +3901,38 @@
   "run_steps": {
     "reading": "{{pct}}% of the data read"
   },
+  "web_apps": {
+    "run": "Run as web app",
+    "run_hint": "Serve this file as a web app (Shiny, Streamlit, Dash…) in a tab, through Linkr: no port to open",
+    "run_app": "Run app",
+    "run_app_hint": "Start this {{framework}} app in a tab. Run file, in the menu, runs it in the console instead",
+    "reload_app": "Reload app",
+    "reload_app_hint": "Save the file, stop this {{framework}} app and start it again in its tab, to pick up your changes",
+    "status": {
+      "starting": "Starting…",
+      "ready": "Running",
+      "failed": "Failed",
+      "stopped": "Stopped"
+    },
+    "starting": "Starting {{name}}…",
+    "starting_hint": "Your R and Python consoles stay usable meanwhile.",
+    "stopped": "The app is stopped.",
+    "gone": "This app is no longer running: the server restarted.",
+    "reload": "Reload the page",
+    "open_window": "Open in a new window",
+    "logs": "Output",
+    "restart": "Restart",
+    "start_again": "Start again",
+    "stop": "Stop the app",
+    "no_output": "No output yet.",
+    "start_failed": "Could not start the web app: {{error}}",
+    "command_title": "Run as web app",
+    "command_description": "Linkr does not recognise {{name}} as a Shiny, Streamlit, Dash, Gradio, plumber, Panel, FastAPI or Flask app. Give the command that starts it.",
+    "command_label": "Command",
+    "command_hint": "Run in the file's folder with the project's environment. The app must listen on 127.0.0.1, port $PORT.",
+    "ws_blocked": "WebSockets do not get through to Linkr",
+    "ws_blocked_hint": "The proxy in front of Linkr does not forward WebSocket connections, so Shiny, Streamlit and other live apps stay frozen. Ask its administrator to forward the Upgrade and Connection headers, as the IDE terminal also needs."
+  },
   "jobs": {
     "title_one": "{{count}} job",
     "title_other": "{{count}} jobs",

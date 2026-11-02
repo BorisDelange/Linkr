@@ -3901,6 +3901,38 @@
   "run_steps": {
     "reading": "{{pct}} % des données lues"
   },
+  "web_apps": {
+    "run": "Lancer comme appli web",
+    "run_hint": "Servir ce fichier comme appli web (Shiny, Streamlit, Dash…) dans un onglet, à travers Linkr : aucun port à ouvrir",
+    "run_app": "Lancer l'appli",
+    "run_app_hint": "Lancer cette appli {{framework}} dans un onglet. Exécuter le fichier, dans le menu, l'exécute plutôt dans la console",
+    "reload_app": "Relancer l'appli",
+    "reload_app_hint": "Enregistrer le fichier, arrêter cette appli {{framework}} et la relancer dans son onglet, pour prendre en compte vos modifications",
+    "status": {
+      "starting": "Démarrage…",
+      "ready": "En cours",
+      "failed": "Échec",
+      "stopped": "Arrêtée"
+    },
+    "starting": "Démarrage de {{name}}…",
+    "starting_hint": "Vos consoles R et Python restent utilisables pendant ce temps.",
+    "stopped": "L'appli est arrêtée.",
+    "gone": "Cette appli ne tourne plus : le serveur a redémarré.",
+    "reload": "Recharger la page",
+    "open_window": "Ouvrir dans une nouvelle fenêtre",
+    "logs": "Sortie",
+    "restart": "Redémarrer",
+    "start_again": "Relancer",
+    "stop": "Arrêter l'appli",
+    "no_output": "Aucune sortie pour l'instant.",
+    "start_failed": "Impossible de lancer l'appli web : {{error}}",
+    "command_title": "Lancer comme appli web",
+    "command_description": "Linkr ne reconnaît pas {{name}} comme une appli Shiny, Streamlit, Dash, Gradio, plumber, Panel, FastAPI ou Flask. Indiquez la commande qui la lance.",
+    "command_label": "Commande",
+    "command_hint": "Exécutée dans le dossier du fichier, avec l'environnement du projet. L'appli doit écouter sur 127.0.0.1, port $PORT.",
+    "ws_blocked": "Les WebSockets n'atteignent pas Linkr",
+    "ws_blocked_hint": "Le proxy devant Linkr ne relaie pas les connexions WebSocket : Shiny, Streamlit et les autres applis interactives restent figées. Demandez à son administrateur de relayer les en-têtes Upgrade et Connection, dont le terminal de l'IDE a aussi besoin."
+  },
   "jobs": {
     "title_one": "{{count}} tâche",
     "title_other": "{{count}} tâches",

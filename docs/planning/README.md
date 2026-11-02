@@ -114,24 +114,19 @@ rather than copying them.
 
 ## IDE — web apps — [web-apps-plan.md](web-apps-plan.md)
 
-Run a **long-lived web server** from project code (Shiny, Streamlit, Dash, Gradio, plumber,
-FastAPI/Flask, Panel, Marimo) and show it in an iframe inside Linkr. Server mode only.
-Nothing exists yet; the closest prior art is `pty_kernel.py`. Frameworks are **presets**
-(name, detection rule, argv template with `{port}`) over a raw `$PORT` command. An app is
-its own detached process, never a kernel run, so the R/Python session stays usable.
+*Run as web app* is built (branch `feature/web-apps`, 2026-11-01); the as-built is in
+[architecture.md § Fullstack Storage & Compute](../architecture.md). Verified in a real
+browser: Streamlit, Dash, Shiny for Python in dev (front and API on two origins); Shiny (R)
+and Streamlit in the SPE simulation, packages through the mirror, with the gateway stripping
+or keeping its prefix, and the warning band when it drops WebSockets. Journey:
+`e2e/server/web-apps.spec.ts`.
 
 | St | Item | Effort |
 |----|------|--------|
-| 🤔 | Arbitrate the plan (same-origin iframe + no sharing; `/api/v1/apps/…` prefix; registry owns lifecycle, job row only shadows; dev-only COEP `credentialless`) | S |
-| 🔜 | 1. Extract `runtime_spec()` from `kernel._make()` | S |
-| 🔜 | 2. `web_apps.py`: `AppManager` (detached spawn, port probe, readiness, log tail, killpg teardown, quota, idle sweep) — also fixes the killpg leak and the missing idle sweep in `pty_kernel.py` | M |
-| 🔜 | 3. Presets table + detection + custom `$PORT` command | S |
-| 🔜 | 4. `routes/apps.py`: start / stop / list / logs behind `ide:execute` | S |
-| 🔜 | 5. Job-row shadow (`kind="app"`) + cancel hook | S |
-| 🔜 | 6. Proxy: HTTP streaming + WS pump + `<base>` injection + `Location` rewrite | M |
-| 🔜 | 7. Frontend: `AppTab`, toolbar + logs drawer, `RunButton` entry, apps in `JobsIndicator` | M |
-| 🔜 | 8. nginx `proxy_buffering off`, dev COEP, `docs/architecture.md` | S |
-| 🔜 | 9. **[TO TEST]** Matrix across the frameworks | M |
+| 🧪 | **[TO TEST]** By hand: Gradio, plumber, Panel, FastAPI, Flask presets (only Streamlit, Dash, Shiny R/Python were driven) | S |
+| 🧪 | **[TO TEST]** A long session: idle stop after 60 min with the tab closed, kept alive while it is open | S |
+| 💤 | Marimo preset | S |
+| 🤔 | Share an app / embed it in a dashboard: needs an origin of its own per app (wildcard subdomain) — the same origin today lets an app read its viewer's Linkr token | L |
 
 ## Workspace vocabularies & data dictionaries — [workspace-vocabularies-plan.md](workspace-vocabularies-plan.md)
 

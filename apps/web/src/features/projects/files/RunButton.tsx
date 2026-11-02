@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Play, Square, ChevronDown, Loader2, Server, FileCode, TextSelect, CornerDownLeft } from 'lucide-react'
+import { Play, Square, ChevronDown, Loader2, Server, FileCode, TextSelect, CornerDownLeft, Globe, RotateCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -24,6 +24,12 @@ interface RunButtonProps {
   onStop: () => void
   /** Run the whole file as a background job (server mode only). */
   onRunFileAsJob?: () => void
+  /** Serve the file as a web app — Shiny, Streamlit, Dash… (server mode only). */
+  onRunAsWebApp?: () => void
+  /** The framework the file is an entry point of: Run then starts the app. */
+  webAppFramework?: string
+  /** An app runs for the file already: Run restarts it. */
+  webAppRunning?: boolean
   /** Whether the current file is SQL (shows connection selector). */
   isSql?: boolean
   /** Whether code is currently executing. */
@@ -39,6 +45,9 @@ export function RunButton({
   onRunLine,
   onStop,
   onRunFileAsJob,
+  onRunAsWebApp,
+  webAppFramework,
+  webAppRunning,
   isSql,
   isExecuting,
   language,
@@ -88,19 +97,32 @@ export function RunButton({
           </Button>
         ) : (
           <>
-            <Button
-              size="xs"
-              className="gap-1 rounded-r-none"
-              onClick={onRunFile}
-              disabled={isDisabled}
-            >
-              {isLoading ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <Play size={12} />
-              )}
-              {getButtonLabel()}
-            </Button>
+            {webAppFramework && onRunAsWebApp ? (
+              <Button
+                size="xs"
+                className="gap-1 rounded-r-none"
+                onClick={onRunAsWebApp}
+                disabled={!canRun}
+                title={t(webAppRunning ? 'web_apps.reload_app_hint' : 'web_apps.run_app_hint', { framework: webAppFramework })}
+              >
+                {webAppRunning ? <RotateCw size={12} /> : <Globe size={12} />}
+                {t(webAppRunning ? 'web_apps.reload_app' : 'web_apps.run_app')}
+              </Button>
+            ) : (
+              <Button
+                size="xs"
+                className="gap-1 rounded-r-none"
+                onClick={onRunFile}
+                disabled={isDisabled}
+              >
+                {isLoading ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Play size={12} />
+                )}
+                {getButtonLabel()}
+              </Button>
+            )}
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -144,6 +166,17 @@ export function RunButton({
                       {t('files.run_as_job')}
                       {runAsJobKey && <DropdownMenuShortcut>{runAsJobKey}</DropdownMenuShortcut>}
                     </DropdownMenuItem>
+                    {onRunAsWebApp && (
+                      <DropdownMenuItem
+                        onClick={onRunAsWebApp}
+                        disabled={!canRun}
+                        className="gap-2 text-xs"
+                        title={t('web_apps.run_hint')}
+                      >
+                        <Globe size={13} className="text-muted-foreground" />
+                        {t('web_apps.run')}
+                      </DropdownMenuItem>
+                    )}
                   </>
                 )}
               </DropdownMenuContent>

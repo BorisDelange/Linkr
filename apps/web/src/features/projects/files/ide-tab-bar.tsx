@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeftRight, ArrowUpDown, ListX, Lock, SquareX, Terminal, X } from 'lucide-react'
+import { ArrowLeftRight, ArrowUpDown, Globe, ListX, Lock, SquareX, Terminal, X } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -416,7 +416,9 @@ export function useIdeTabBar({
             )}
           >
             {insertMarker(tt.id)}
-            <Terminal size={11} className="text-muted-foreground/70" />
+            {tt.kind === 'app'
+              ? <Globe size={11} className="text-muted-foreground/70" />
+              : <Terminal size={11} className="text-muted-foreground/70" />}
             <span className="max-w-[140px] truncate" title={tt.label}>{tt.label}</span>
             <span
               onClick={(e) => { e.stopPropagation(); closeTerminalTab(tt.id) }}

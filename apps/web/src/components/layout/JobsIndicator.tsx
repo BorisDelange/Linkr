@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, Square, Trash2 } from 'lucide-react'
+import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, Square, Trash2, ExternalLink } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -19,6 +19,7 @@ import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, listWorkspaceJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type Job } from '@/lib/api/environments'
 import { getJob } from '@/lib/api/query-jobs'
+import { webAppFrameUrl } from '@/lib/api/web-apps'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 
@@ -209,25 +210,45 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             {t('jobs.empty')}
           </p>
         )}
-        <ul className="flex flex-col gap-1">
-          {jobs.map((job) => (
-            <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
-              {/* Click the row to open the full log in a modal. */}
-              <button
-                className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                onClick={() => { setLogJobId(job.id); setLogTab('output'); setPopoverOpen(false) }}
-                title={t('jobs.show_log')}
-              >
-                <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">{formatJobTime(job.createdAt)}</span>
-                <JobStatusIcon status={job.status} />
-                <span className="truncate">{job.label}</span>
-                {job.status === 'running' && job.progress > 0 && (
-                  <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
+        {/* A delay, so someone who knows these icons is not shown the tooltip
+            at each pass; moving from one icon to the next shows it at once. */}
+        <TooltipProvider delayDuration={600}>
+          <ul className="flex flex-col gap-1">
+            {jobs.map((job) => (
+              <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
+                {/* Click the row to open the full log in a modal. */}
+                <button
+                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                  onClick={() => { setLogJobId(job.id); setLogTab('output'); setPopoverOpen(false) }}
+                  title={t('jobs.show_log')}
+                >
+                  <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">{formatJobTime(job.createdAt)}</span>
+                  <JobStatusIcon status={job.status} />
+                  <span className="truncate">{job.label}</span>
+                  {job.status === 'running' && job.progress > 0 && (
+                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
+                  )}
+                  <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
+                </button>
+                {job.kind === 'app' && ACTIVE.has(job.status) && webAppUrl(job) && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href={webAppFrameUrl(webAppUrl(job)!)}
+                        target="_blank"
+                        rel="noopener"
+                        className="shrink-0 text-muted-foreground hover:text-foreground"
+                        aria-label={t('web_apps.open_window')}
+                      >
+                        <ExternalLink size={12} />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={4}>
+                      {t('web_apps.open_window')}
+                    </TooltipContent>
+                  </Tooltip>
                 )}
-                <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
-              </button>
-              {ACTIVE.has(job.status) ? (
-                <TooltipProvider>
+                {ACTIVE.has(job.status) ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -243,15 +264,15 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                       {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
                     </TooltipContent>
                   </Tooltip>
-                </TooltipProvider>
-              ) : (
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {t(`jobs.status.${job.status}`)}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+                ) : (
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {t(`jobs.status.${job.status}`)}
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </TooltipProvider>
       </PopoverContent>
     </Popover>
 
@@ -295,7 +316,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
               <CodeViewer value={jobInput} language={logJob.kind === 'run' ? 'plaintext' : 'sql'} height="100%" />
             </div>
           </div>
-        ) : logJob?.result ? (
+        ) : logJob?.result && logJob.kind !== 'app' ? (
           // With artifacts the body scrolls: log at a fixed share, figures below.
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
             {logJob.logTail ? <JobLogView text={logJob.logTail} height={320} /> : <NoLog />}
@@ -325,6 +346,12 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     </AlertDialog>
     </>
   )
+}
+
+/** A web app's public path, which its job carries. */
+function webAppUrl(job: Job): string | null {
+  const url = (job.result as { url?: unknown } | null | undefined)?.url
+  return typeof url === 'string' ? url : null
 }
 
 function NoLog() {

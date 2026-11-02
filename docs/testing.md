@@ -60,6 +60,9 @@ writes, and lost its tables when a job's cancellation invalidated it.
   the first account, so give it a fresh, disposable instance; the other journeys
   sign in as that account. They create a workspace, upload a SQLite database and
   query it through the server, then link it to a new project.
+  `web-apps.spec.ts` serves a script as a web app from the IDE (custom command,
+  standard library only, so it runs offline in the SPE) and loads its page, its
+  script and a relative fetch through the API's proxy, gateway prefix included.
   `workspace-pull.spec.ts` plays two editors on one workspace repository — a
   colleague's wiki edits pulled back page by page and item by item, merged
   with local ones, a conflict settled by editing the result in the diff — against a bare repository on the machine. It needs a server

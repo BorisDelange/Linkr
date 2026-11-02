@@ -15,6 +15,7 @@ from app.core.database import async_session
 from app.core.logging import setup_logging
 from app.core.migrations import run_migrations
 from app.core.permissions import seed_default_roles
+from app.api.v1.routes.apps import router as apps_router
 from app.api.v1.routes.audit_log import router as audit_log_router
 from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cohorts import router as cohorts_router
@@ -127,12 +128,16 @@ async def lifespan(app: FastAPI):
     from app.services.execution.kernel import manager as kernel_manager
     from app.services.execution.kernel import warm_pool
     from app.services.execution.pty_kernel import manager as pty_manager
+    from app.services.execution.web_apps import manager as web_app_manager
+    from app.api.v1.routes.apps import close_client as close_app_proxy
 
     gc_task.cancel()
     audit_task.cancel()
     await kernel_manager.shutdown_all()
     await warm_pool.shutdown_all()
     pty_manager.shutdown_all()
+    await web_app_manager.shutdown_all()
+    await close_app_proxy()
     logger.info("shutting_down_linkr")
 
 
@@ -231,6 +236,7 @@ app.include_router(client_lib_router, prefix="/api/v1")
 app.include_router(pipelines_router, prefix="/api/v1")
 app.include_router(etl_pipelines_router, prefix="/api/v1")
 app.include_router(execution_router, prefix="/api/v1")
+app.include_router(apps_router, prefix="/api/v1")
 app.include_router(environments_router, prefix="/api/v1")
 app.include_router(git_router, prefix="/api/v1")
 app.include_router(ide_files_router, prefix="/api/v1")

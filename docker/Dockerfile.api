@@ -15,12 +15,15 @@ WORKDIR /app
 # git + git-lfs power server-side project/mapping versioning: git for
 # clone/commit/push, git-lfs so large data files (similarity-scores.parquet,
 # big CSVs) are stored as LFS objects rather than bloating the repo.
+# libuv1: the binary `fs` package links it, and Shiny depends on `fs` — without
+# it a project cannot install Shiny (the SPE has no apt to fix it afterwards).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-venv \
     python3-pip \
     git \
     git-lfs \
+    libuv1 \
     && git lfs install --system \
     && rm -rf /var/lib/apt/lists/*
 
