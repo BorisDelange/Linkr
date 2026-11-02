@@ -1360,9 +1360,9 @@ async def parquet_layout(db: AsyncSession, source: DataSource, checks: list[dict
     return out
 
 
-async def query_concept_cache(source_id: str, principal: str, sql: str) -> list[dict]:
+async def query_concept_cache(source_id: str, principal: str, sql: str, all_rows: bool = False) -> list[dict]:
     """Run a page query against the principal's cached concept Parquet."""
-    return await asyncio.to_thread(concept_cache_fs.query_page, source_id, principal, sql)
+    return await asyncio.to_thread(concept_cache_fs.query_page, source_id, principal, sql, all_rows)
 
 
 async def introspect(db: AsyncSession, source: DataSource, login: Login | None) -> list[dict]:

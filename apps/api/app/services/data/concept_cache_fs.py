@@ -541,13 +541,14 @@ def diagnose_stats(source_id: str, principal: str, concept_id: int, dict_key: st
     return out
 
 
-def query_page(source_id: str, principal: str, sql: str) -> list[dict]:
+def query_page(source_id: str, principal: str, sql: str, all_rows: bool = False) -> list[dict]:
     """Run a page/filter/sort query against the cached Parquet (exposed as the view
     `concepts`). Raises FileNotFoundError if no cache has been built yet."""
     p = cache_path(source_id, principal)
     if not p.is_file():
         raise FileNotFoundError("no concept cache for this source")
-    return db_connect.query_cached_parquet(p.as_posix(), sql)
+    max_rows = db_connect.MAX_QUERY_ROWS_ALL if all_rows else db_connect.MAX_QUERY_ROWS
+    return db_connect.query_cached_parquet(p.as_posix(), sql, max_rows)
 
 
 def invalidate(source_id: str, principal: str | None = None) -> None:

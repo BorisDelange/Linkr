@@ -510,7 +510,7 @@ export function useConcepts(
               : buildFilterOptionsQuery(schemaMapping, col.id)
             if (!sql) return
             const rows = server
-              ? await queryConceptCache(dataSourceId, sql)
+              ? await queryConceptCache(dataSourceId, sql, { allRows: true })
               : await queryDataSource(dataSourceId, sql)
             const values = rows.map((r) => String(r.val))
             // OMOP stores NULL for non-standard concepts, and the DISTINCT query

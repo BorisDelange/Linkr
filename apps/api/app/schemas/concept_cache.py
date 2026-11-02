@@ -49,6 +49,9 @@ class ConceptPageRequest(CamelModel):
     """A page/filter/sort query run against the cached Parquet (view `concepts`)."""
 
     sql: str
+    # Every row, up to db_connect.MAX_QUERY_ROWS_ALL, instead of the usual cap —
+    # a filter's option list must hold every distinct value.
+    all_rows: bool = False
 
 
 class ConceptPageResult(CamelModel):

@@ -81,6 +81,14 @@ def test_concept_cache_page_reads_only_its_cache(tmp_path):
     assert not (tmp_path / "out.csv").exists()
 
 
+def test_concept_cache_query_rows_capped_unless_asked(tmp_path):
+    cache = tmp_path / "cache.parquet"
+    duckdb.execute(f"COPY (SELECT range AS concept_id FROM range(12000)) TO '{cache}' (FORMAT PARQUET)")
+    sql = "SELECT concept_id FROM concepts"
+    assert len(query_cached_parquet(str(cache), sql)) == 10_000
+    assert len(query_cached_parquet(str(cache), sql, 2_000_000)) == 12_000
+
+
 def test_concept_cache_refresh_writes_only_its_cache(source, tmp_path):
     config, files = {"engine": "duckdb"}, [("src.duckdb", str(source))]
     dest = tmp_path / "cache" / "c.parquet"
