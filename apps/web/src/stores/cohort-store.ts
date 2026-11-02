@@ -7,7 +7,7 @@ import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
-import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortRunError } from '@/lib/duckdb/cohort-query'
+import { buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
@@ -459,21 +459,24 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
       // A hand-written query stands in for the criteria inside every builder.
       const narrowing = await cohortRelationNarrowing(dataSourceId, schemaMapping, cohort)
-      const countSql = buildCohortCountSql(cohort, schemaMapping, narrowing)
+      // Fetch up to the server's own cap rather than a token 50: the results
+      // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
+      // cohort of 1500. The same query counts the cohort.
+      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, narrowing)
       // No SQL means the criteria tree produced nothing runnable (an empty group,
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
-      if (!countSql) throw new Error('EMPTY_QUERY')
-
-      // Execute count
-      const countResults = await query(countSql)
-      const totalCount = Number(countResults[0]?.cnt ?? 0)
+      if (!resultsSql) throw new Error('EMPTY_QUERY')
+      const rows = await query(resultsSql)
+      const totalCount = Number(rows[0]?.cohort_total ?? 0)
+      for (const row of rows) delete row.cohort_total
 
       const attrition: AttritionStep[] = []
       let prevCount = 0
-      for (const aq of buildAttritionQueries(cohort, schemaMapping, { narrowing })) {
-        const res = await query(aq.sql)
-        const count = Number(res[0]?.cnt ?? 0)
+      const steps = buildAttritionQueries(cohort, schemaMapping, { narrowing })
+      for (const [i, aq] of steps.entries()) {
+        // The last step keeps every criterion: the cohort itself, counted above.
+        const count = i === steps.length - 1 ? totalCount : Number((await query(aq.sql))[0]?.cnt ?? 0)
         attrition.push({
           nodeId: aq.nodeId,
           label: aq.label,
@@ -483,20 +486,12 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         prevCount = count
       }
 
-      // Fetch up to the server's own cap rather than a token 50: the results
-      // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
-      // cohort of 1500. Cost is flat in the row count (measured on a real
-      // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
-      // so the small limit bought nothing.
-      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0, narrowing)
-      const rows = resultsSql ? await query(resultsSql) : []
-
       const durationMs = Date.now() - startTime
       const result: CohortExecutionResult = {
         totalCount,
         attrition,
         rows,
-        sql: countSql,
+        sql: resultsSql,
         executedAt: new Date().toISOString(),
         durationMs,
         ...(draft ? { fromDraft: { customSql: customSqlDraft ?? null } } : {}),

@@ -21,7 +21,7 @@ import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { classRelation, codesRelation, conceptRelation, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
-import { hang, idListSql, indent, sqlComment } from './sql-layout'
+import { hang, idListSql, indent, sqlComment, subquerySql } from './sql-layout'
 
 // ---------------------------------------------------------------------------
 // Untrusted-input guards
@@ -304,41 +304,55 @@ export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping, narr
 }
 
 /**
- * Build a paginated SELECT query returning result rows.
+ * The cohort's first `limit` rows and its size (`cohort_total`, on every row),
+ * in one query: the criteria run once, in `members`, and only the rows kept read
+ * the result columns — the age's first-visit lookup, evaluated for every member
+ * before the LIMIT, cost as much as the criteria on a large cohort. An empty
+ * cohort returns no row: its size is 0.
  */
 export function buildCohortResultsSql(
   cohort: Cohort,
   mapping: SchemaMapping,
   limit: number = 50,
-  offset: number = 0,
   narrowing?: RelationNarrowing,
 ): string | null {
-  // The result columns read gender/age off the patient table through `p`, which
-  // the criteria alone may not have joined (a concept-only cohort at visit level
-  // used to build `p."gender_concept_id"` with no `p` in the FROM — the count
-  // succeeded and only this query failed).
-  const needsPatient =
-    cohort.level !== 'patient' && selectNeedsPatientAlias(mapping)
-  const parts = buildCohortQueryParts(cohort, mapping, needsPatient, narrowing)
+  const parts = buildCohortQueryParts(cohort, mapping, false, narrowing)
   if (!parts) return null
+  const { baseTable, idColumn } = parts
 
-  const selectCols = buildSelectColumns(cohort.level, mapping, parts.baseTable)
-  const lines = [
+  const members = [
     `SELECT DISTINCT`,
-    `  ${selectCols}`,
+    `  ${baseTable}.${idColumn} AS member_id`,
     `FROM`,
     `  ${parts.from}`,
-  ]
-  if (parts.whereClause) {
-    lines.push(`WHERE`, indent(parts.whereClause))
-  }
-  lines.push(
+    ...(parts.whereClause ? [`WHERE`, indent(parts.whereClause)] : []),
+  ].join('\n')
+  // The window counts before the LIMIT keeps the page.
+  const page = [
+    `SELECT`,
+    `  members.member_id,`,
+    `  COUNT(*) OVER () AS cohort_total`,
+    `FROM ${subquerySql(members)} members`,
     `ORDER BY`,
-    `  ${parts.baseTable}.${parts.idColumn}`,
+    `  members.member_id`,
     `LIMIT ${limit}`,
-    `OFFSET ${offset}`,
-  )
-  return lines.join('\n')
+  ].join('\n')
+
+  // The result columns read gender/age off the patient table through `p`, which
+  // the criteria alone may not have joined (a concept-only cohort at visit level
+  // used to build `p."gender_concept_id"` with no `p` in the FROM).
+  const needsPatient = cohort.level !== 'patient' && selectNeedsPatientAlias(mapping)
+  return [
+    `SELECT DISTINCT`,
+    `  ${buildSelectColumns(cohort.level, mapping, baseTable)},`,
+    `  page.cohort_total`,
+    `FROM`,
+    `  ${buildFromClause(cohort.level, mapping, null, baseTable, needsPatient)}`,
+    `  INNER JOIN ${subquerySql(page, '  ')} page`,
+    `    ON page.member_id = ${baseTable}.${idColumn}`,
+    `ORDER BY`,
+    `  ${baseTable}.${idColumn}`,
+  ].join('\n')
 }
 
 /**
