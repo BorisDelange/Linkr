@@ -170,14 +170,19 @@ Construit :
   concept montre son profil quand il existe ;
 - concept mapping : l'extraction lit le magasin (un lecteur sans droit d'écriture
   extrait quand même, sans rien y ranger) ; bandeau « profils plus récents » ;
-- histogramme : la définition de l'extraction partout où un profil existe.
+- histogramme : la définition de l'extraction partout où un profil existe ;
+- le classement des concepts (début d'un calcul et chaque reprise) lit les
+  lignes par table dans le comptage de l'onglet *Concepts* quand il les a
+  (`counted-records.ts`, route `relation-records`) ; sinon, et pour un tri par
+  patients, il relit les tables ;
+- cohortes : chaque table n'est cherchée que pour les concepts que le comptage y
+  a trouvés (`held` de la route `relations`).
 
 Reste :
 
 | St | Étape | Effort |
 |---|---|---|
 | 🔜 | **[À TESTER]** dans l'app : carte des profils (serveur et WASM), panneau, extraction relue depuis le magasin | S |
-| 🤔 | Moteur des profils en jobs serveur : aujourd'hui il tourne depuis le navigateur (comme l'extraction), donc fermer l'onglet met le calcul en pause. L'ancienne étape *Statistiques* en jobs serveur (unités `stats-`) est retirée : les profils sont l'étape *Statistiques* de la même carte | M |
-| 💤 | Le classement des concepts relit leurs lignes (un GROUP BY par table) alors que l'étape *Lignes* du cache les a déjà comptées | S |
+| 🔜 | Moteur des profils en jobs serveur : aujourd'hui il tourne depuis le navigateur (comme l'extraction), donc fermer l'onglet met le calcul en pause. Arbitré : les requêtes partent au serveur comme un job (modèle du data catalog), le navigateur assemble les profils au retour | M |
 | 💤 | Data catalog : totaux lus depuis le magasin | S |
 

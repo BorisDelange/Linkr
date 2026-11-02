@@ -148,6 +148,27 @@ describe('resuming a ranked extraction', () => {
     expect([last.extracted, last.total, last.sizes]).toEqual([3, 3, [3]])
   })
 
+  it('ranks on the counts the database already has, without scanning the table', async () => {
+    const { answer, seen } = fakeSource({ dictionary: { 1: 'a', 2: 'b', 3: 'c' }, records: { 1: 50, 2: 40, 3: 30 } })
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA, sort: BY_RECORDS, onlyWithRecords: true,
+      resumeFrom: null, query: answer, queryAll: answer,
+      countedRecords: async () => [3, 2].map((id) => ({ concept_id: id, record_count: id * 10, patient_count: null })),
+    })
+    expect(seen.some((sql) => sql.includes('AS record_count'))).toBe(false)
+    expect(writtenIds(writes)).toEqual([3, 2])
+  })
+
+  it('scans the table when the database has no count for it', async () => {
+    const { answer, seen } = fakeSource({ dictionary: { 1: 'a', 2: 'b' }, records: { 1: 50, 2: 40 } })
+    const writes = await runToEnd({
+      mapping: OMOP, sources: [source], options: NO_METADATA, sort: BY_RECORDS, onlyWithRecords: true,
+      resumeFrom: null, query: answer, queryAll: answer, countedRecords: async () => null,
+    })
+    expect(seen.some((sql) => sql.includes('AS record_count'))).toBe(true)
+    expect(writtenIds(writes)).toEqual([1, 2])
+  })
+
   it('closes a dictionary that ends short of its size instead of asking for it forever', async () => {
     // Ranked ids no longer in the dictionary: the page comes back short.
     const { answer } = fakeSource({ dictionary: { 1: 'a', 2: 'b' }, records: { 1: 50, 2: 40, 3: 30, 4: 20 } })

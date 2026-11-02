@@ -34,6 +34,8 @@ from app.schemas.concept_cache import (
     ConceptRelationsResult,
     ConceptStatsResponse,
     ConceptStatsSave,
+    RelationRecordsRequest,
+    RelationRecordsResult,
 )
 from app.schemas.data_source import (
     CompactStatus,
@@ -1048,6 +1050,20 @@ async def concept_cache_relations(
     ids = [str(i) for i in body.concept_ids]
     relations = await asyncio.to_thread(concept_cache_fs.counted_relations, source_id, ids)
     return ConceptRelationsResult(relations=relations)
+
+
+@router.post("/{source_id}/concept-cache/relation-records", response_model=RelationRecordsResult)
+async def concept_cache_relation_records(
+    source_id: str,
+    body: RelationRecordsRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The records of each concept in one event relation, from the last counting
+    run — a ranking of the concepts by volume reads them instead of the table."""
+    await _load_source(db, source_id, user, "databases:read")
+    counts = await asyncio.to_thread(concept_cache_fs.counted_records, source_id, body.relation, body.signature)
+    return RelationRecordsResult(counts=counts)
 
 
 @router.get(

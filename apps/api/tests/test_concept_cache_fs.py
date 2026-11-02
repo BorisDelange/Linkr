@@ -307,6 +307,27 @@ def test_counted_relations_say_which_relations_hold_the_concepts(duckdb_source, 
     assert [r["held"] for r in both] == [["1"], ["2"]]
 
 
+def test_counted_records_sum_both_columns_of_one_relation(duckdb_source, data_dir):
+    """A relation's records per concept, its two column units summed; none for a
+    relation counted under another signature, or not counted whole."""
+    config, files = duckdb_source
+    units = [{"key": k, "step": "records"} for k in ("records-0-std", "records-0-src")]
+    concept_cache_fs.write_manifest("src", {"runId": "r1", "units": units}, reset=True)
+    for key in ("records-0-std", "records-0-src"):
+        sql = (
+            "SELECT 'd' AS dict_key, concept_id, COUNT(*)::BIGINT AS record_count, NULL::BIGINT AS patient_count,"
+            " 'ev' AS relation, 'sig' AS relation_sig FROM ext.measurement GROUP BY concept_id"
+        )
+        concept_cache_fs.write_unit(config, None, files, [], sql, "src", key, "r1")
+    once = {r["concept_id"]: r["record_count"] for r in concept_cache_fs.counted_records("src", "ev", "sig")}
+    assert once and all(n % 2 == 0 for n in once.values())
+    assert concept_cache_fs.counted_records("src", "ev", "other") is None
+    concept_cache_fs.write_manifest(
+        "src", {"runId": "r1", "units": [*units, {"key": "records-1-std", "step": "records"}, {"key": "records-1-src", "step": "records"}]}, reset=False,
+    )
+    assert concept_cache_fs.counted_records("src", "ev", "sig") is not None
+
+
 def test_counted_relations_of_units_that_name_none(duckdb_source, data_dir):
     config, files = duckdb_source
     assert concept_cache_fs.counted_relations("src", ["1"]) == []

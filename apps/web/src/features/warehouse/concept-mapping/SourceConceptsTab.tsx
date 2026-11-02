@@ -53,6 +53,7 @@ import {
   type RunSnapshot,
 } from '@/lib/concept-mapping/extraction-runner'
 import type { DataSource, MappingProject, SourceExtraction } from '@/types'
+import { countedRecordsOf } from '@/features/projects/warehouse/concepts/counted-records'
 
 interface SourceConceptsTabProps {
   project: MappingProject
@@ -367,6 +368,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       },
       // The database's profiles: what its Concepts tab, or another project,
       // already computed is read, not computed again (lib/concept-profiles).
+      countedRecords: countedRecordsOf(dataSource.id),
       store: async () => {
         try {
           const fingerprint = await dataFingerprint(mapping, (sql) => queryDataSource(dataSource.id, sql, { heavy: true }))

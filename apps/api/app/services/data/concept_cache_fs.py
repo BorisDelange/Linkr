@@ -198,6 +198,31 @@ def counted_relations(source_id: str, concept_ids: list[str]) -> list[dict]:
     ]
 
 
+def counted_records(source_id: str, relation: str, signature: str) -> list[dict] | None:
+    """The records of each concept in one event relation, as the last run counted
+    them — both concept columns summed — when it counted that relation whole and
+    under this signature of its SQL; None otherwise, and for a relation holding
+    no concept (its units have no row to name it by). Lets a ranking of the
+    concepts by volume read the counts instead of scanning the table again."""
+    files = _complete_record_units(source_id)
+    if not files:
+        return None
+    con = db_connect._open()
+    try:
+        rows = con.execute(
+            f"""SELECT CAST(concept_id AS VARCHAR), SUM(record_count)::BIGINT
+                FROM read_parquet([{_paths_sql(files)}], union_by_name = true)
+                WHERE relation = ? AND relation_sig = ? AND concept_id IS NOT NULL
+                GROUP BY 1""",
+            [relation, signature],
+        ).fetchall()
+    except duckdb.BinderException:
+        return None
+    finally:
+        con.close()
+    return [{"concept_id": c, "record_count": int(n)} for c, n in rows] or None
+
+
 def write_manifest(source_id: str, manifest: dict, reset: bool) -> None:
     """Store the client's run manifest; `reset` also drops every unit done, for a
     fresh run. The manifest is opaque here apart from its size and `runId`.

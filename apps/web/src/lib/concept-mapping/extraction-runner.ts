@@ -17,6 +17,7 @@
  */
 
 import type { SchemaMapping } from '@/types/schema-mapping'
+import type { ClassRelation } from '@/lib/schema-classes/relations'
 import type { SourceExtraction } from '@/types'
 import {
   availableSections,
@@ -281,6 +282,13 @@ export interface StartRunInput {
    * profiled, the others added to it.
    */
   store?: () => Promise<BatchProfileStore | undefined>
+  /**
+   * The records of each concept in one event table, as the database's concept
+   * count already has them (null when it does not): read instead of scanning
+   * the table to rank the concepts. They carry no patients, so a sort by
+   * patients still scans.
+   */
+  countedRecords?: (source: ProfileSource, event: ClassRelation) => Promise<ConceptCounts[] | null>
 }
 
 /**
@@ -390,7 +398,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         const perTable: ConceptCounts[][] = []
         for (const event of source.events) {
           if (controller.signal.aborted) return
-          perTable.push(await queryAggregate(buildConceptCountsQuery(source, event)) as unknown as ConceptCounts[])
+          const counted = sort.key === 'patients' ? null : await input.countedRecords?.(source, event).catch(() => null)
+          perTable.push(counted ?? await queryAggregate(buildConceptCountsQuery(source, event)) as unknown as ConceptCounts[])
         }
         const ids = await queryAll(buildDictionaryIdsQuery(source, sort))
         const merged = mergeTableCounts(perTable)

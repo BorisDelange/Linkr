@@ -67,11 +67,26 @@ class CountedRelation(CamelModel):
     signature: str | None = None
     # Whether it holds any of the requested concepts, and which.
     holds: bool
-    held: list[str] = []
+    held: list[str] = Field(default_factory=list)
 
 
 class ConceptRelationsResult(CamelModel):
     relations: list[CountedRelation]
+
+
+class RelationRecordsRequest(CamelModel):
+    relation: str = Field(min_length=1, max_length=200)
+    signature: str = Field(min_length=1, max_length=100)
+
+
+class RelationRecord(CamelModel):
+    concept_id: str
+    record_count: int
+
+
+class RelationRecordsResult(CamelModel):
+    # None: the last run did not count this relation under this signature.
+    counts: list[RelationRecord] | None
 
 
 class ConceptStatsSave(CamelModel):

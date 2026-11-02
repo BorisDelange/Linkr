@@ -8,6 +8,7 @@ import { clearRunError, getRunSnapshot, pauseRun, startRun, watchRun, type RunSn
 import { SECTION_KEYS, exactOptions, sectionSet, sectionsOf, type SectionKey } from '@/lib/concept-profiles/profile-store'
 import { batchProfileStore, profileStore, type ProfileStoreSummary } from '@/lib/concept-profiles/profile-store-backend'
 import { dataFingerprint } from '@/lib/concept-profiles/fingerprint'
+import { countedRecordsOf } from '@/features/projects/warehouse/concepts/counted-records'
 
 export interface ConceptProfilesView {
   /** The sections the database's schema can produce. */
@@ -132,6 +133,7 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
       persistError: async (message) => {
         if (run) await profileStore().saveRun(dataSourceId, { ...run, error: message, updatedAt: new Date().toISOString() })
       },
+      countedRecords: countedRecordsOf(dataSourceId),
       store: async () => {
         fingerprint = await dataFingerprint(schemaMapping, query)
         setCurrent({ fingerprint, checking: false })

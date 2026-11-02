@@ -86,6 +86,20 @@ export async function getCountedRelations(sourceId: string, conceptIds: readonly
   return res.relations
 }
 
+/** The records of each concept in one event relation, from the last counting
+ *  run; null when it did not count that relation under this signature. */
+export async function getRelationRecords(
+  sourceId: string,
+  relation: string,
+  signature: string,
+): Promise<{ conceptId: string; recordCount: number }[] | null> {
+  const res = await apiRequest<{ counts: { conceptId: string; recordCount: number }[] | null }>(`${base(sourceId)}/relation-records`, {
+    method: 'POST',
+    body: JSON.stringify({ relation, signature }),
+  })
+  return res.counts
+}
+
 /** Detail-panel stats for one concept, shared by a click; undefined until they are. */
 export async function getConceptStats<T>(sourceId: string, conceptId: number): Promise<T | undefined> {
   try {
