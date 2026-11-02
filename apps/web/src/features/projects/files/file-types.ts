@@ -144,6 +144,166 @@ c2.metric("Mean MAP", f"{df['MAP'].mean():.0f} mmHg")
 st.line_chart(df)
 `
 
+// The skeletons need only their framework (and what it installs itself), so a
+// new app runs before any package is added; the examples may need more.
+const SHINY_SKELETON = `library(shiny)
+
+ui <- fluidPage(
+  titlePanel("Sampling a normal distribution"),
+  sidebarLayout(
+    sidebarPanel(
+      sliderInput("n", "Sample size", min = 10, max = 2000, value = 200),
+      sliderInput("sd", "Standard deviation", min = 0.5, max = 3, value = 1, step = 0.5)
+    ),
+    mainPanel(plotOutput("hist"))
+  )
+)
+
+server <- function(input, output, session) {
+  output$hist <- renderPlot({
+    x <- rnorm(input$n, sd = input$sd)
+    hist(x, breaks = 30, col = "#5b9bd5", border = "white", main = NULL, xlim = c(-10, 10))
+  })
+}
+
+shinyApp(ui, server)
+`
+
+const PLUMBER_SKELETON = `#* @apiTitle Plot API
+
+#* A histogram of a normal sample, as an image: open /plot?n=500
+#* @param n Sample size
+#* @serializer png
+#* @get /plot
+function(n = 200) {
+  hist(rnorm(as.integer(n)), breaks = 30, col = "#5b9bd5", border = "white", main = NULL)
+}
+
+#* @get /
+function() {
+  list(try = "/plot?n=500")
+}
+`
+
+const SHINY_PYTHON_SKELETON = `import math
+
+from shiny.express import input, render, ui
+
+ui.h2("Damped oscillation")
+ui.input_slider("frequency", "Frequency", 0.5, 5, 1, step=0.5)
+ui.input_slider("damping", "Damping", 0, 1, 0.2, step=0.1)
+
+
+@render.ui
+def curve():
+    # Drawn as SVG: no plotting package needed.
+    width, height = 600, 240
+    points = []
+    for i in range(400):
+        x = i / 20
+        y = math.exp(-input.damping() * x) * math.sin(2 * math.pi * input.frequency() * x)
+        points.append(f"{i * width / 400:.1f},{height / 2 - y * height / 2.2:.1f}")
+    return ui.HTML(
+        f'<svg width="{width}" height="{height}" style="border:1px solid #ddd">'
+        f'<polyline fill="none" stroke="#5b9bd5" stroke-width="2" points="{" ".join(points)}"/></svg>'
+    )
+`
+
+const STREAMLIT_SKELETON = `import math
+
+import streamlit as st
+
+st.title("Damped oscillation")
+
+frequency = st.slider("Frequency", 0.5, 5.0, 1.0, 0.5)
+damping = st.slider("Damping", 0.0, 1.0, 0.2, 0.1)
+
+t = [i / 20 for i in range(400)]
+y = [math.exp(-damping * x) * math.sin(2 * math.pi * frequency * x) for x in t]
+st.line_chart({"Time (s)": t, "Amplitude": y}, x="Time (s)", y="Amplitude")
+`
+
+const GRADIO_SKELETON = `import math
+
+import gradio as gr
+import pandas as pd
+
+
+def curve(frequency: float, damping: float) -> pd.DataFrame:
+    t = [i / 20 for i in range(400)]
+    y = [math.exp(-damping * x) * math.sin(2 * math.pi * frequency * x) for x in t]
+    return pd.DataFrame({"time": t, "amplitude": y})
+
+
+with gr.Blocks(title="Damped oscillation") as demo:
+    gr.Markdown("## Damped oscillation")
+    frequency = gr.Slider(0.5, 5, value=1, step=0.5, label="Frequency")
+    damping = gr.Slider(0, 1, value=0.2, step=0.1, label="Damping")
+    plot = gr.LinePlot(x="time", y="amplitude")
+    for control in (frequency, damping):
+        control.change(curve, [frequency, damping], plot)
+    demo.load(curve, [frequency, damping], plot)
+
+demo.launch()
+`
+
+const FASTAPI_SKELETON = `import math
+
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse, Response
+
+app = FastAPI(title="Plot API")
+
+
+@app.get("/", response_class=HTMLResponse)
+def root():
+    # Relative links: the app is served under Linkr's path, not at the root.
+    return '<h2>Damped oscillation</h2><p><a href="plot.svg?frequency=2&damping=0.3">plot.svg?frequency=2&damping=0.3</a></p>'
+
+
+@app.get("/plot.svg")
+def plot(frequency: float = 1, damping: float = 0.2):
+    width, height = 600, 240
+    points = " ".join(
+        f"{i * width / 400:.1f},{height / 2 - math.exp(-damping * i / 20) * math.sin(2 * math.pi * frequency * i / 20) * height / 2.2:.1f}"
+        for i in range(400)
+    )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
+        f'<polyline fill="none" stroke="#5b9bd5" stroke-width="2" points="{points}"/></svg>'
+    )
+    return Response(svg, media_type="image/svg+xml")
+`
+
+const DASH_SKELETON = `import math
+
+import plotly.graph_objects as go
+from dash import Dash, Input, Output, dcc, html
+
+app = Dash(__name__)
+app.layout = html.Div([
+    html.H2("Damped oscillation"),
+    html.Label("Frequency"),
+    dcc.Slider(0.5, 5, 0.5, value=1, id="frequency"),
+    html.Label("Damping"),
+    dcc.Slider(0, 1, 0.1, value=0.2, id="damping"),
+    dcc.Graph(id="graph"),
+])
+
+
+@app.callback(Output("graph", "figure"), Input("frequency", "value"), Input("damping", "value"))
+def update(frequency, damping):
+    t = [i / 20 for i in range(400)]
+    y = [math.exp(-damping * x) * math.sin(2 * math.pi * frequency * x) for x in t]
+    fig = go.Figure(go.Scatter(x=t, y=y, mode="lines"))
+    fig.update_layout(xaxis_title="Time (s)", yaxis_title="Amplitude", margin=dict(t=20))
+    return fig
+
+
+if __name__ == "__main__":
+    app.run()
+`
+
 const DASH_EXAMPLE = `import plotly.express as px
 from dash import Dash, Input, Output, dcc, html
 
@@ -213,13 +373,13 @@ export const FILE_TYPES: FileType[] = [
     skeleton: '---\ntitle: "Untitled"\nformat: html\n---\n\n# Introduction\n\nWrite your analysis here.\n\n```{python}\nimport pandas as pd\n```\n',
   },
   { id: 'ipynb', label: 'files.type_ipynb', ext: '.ipynb', lang: 'json', category: 'notebooks', icon: Notebook, iconColor: 'text-amber-500', skeleton: IPYNB_SKELETON },
-  { id: 'shiny', label: 'files.type_shiny', ext: '.R', lang: 'r', category: 'web_apps', icon: Globe, iconColor: 'text-blue-500', defaultName: 'app', skeleton: 'library(shiny)\n\nui <- fluidPage(\n  h2("Hello")\n)\n\nserver <- function(input, output, session) {\n}\n\nshinyApp(ui, server)\n', example: SHINY_EXAMPLE },
-  { id: 'plumber', label: 'files.type_plumber', ext: '.R', lang: 'r', category: 'web_apps', icon: Globe, iconColor: 'text-blue-500', defaultName: 'plumber', skeleton: '#* @get /\nfunction() {\n  list(status = "ok")\n}\n', example: PLUMBER_EXAMPLE },
-  { id: 'shiny-python', label: 'files.type_shiny_python', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: 'from shiny.express import ui\n\nui.h2("Hello")\n', example: SHINY_PYTHON_EXAMPLE },
-  { id: 'streamlit', label: 'files.type_streamlit', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: 'import streamlit as st\n\nst.title("Hello")\n', example: STREAMLIT_EXAMPLE },
-  { id: 'dash', label: 'files.type_dash', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: 'from dash import Dash, html\n\napp = Dash(__name__)\napp.layout = html.Div("Hello")\n\nif __name__ == "__main__":\n    app.run()\n', example: DASH_EXAMPLE },
-  { id: 'gradio', label: 'files.type_gradio', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: 'import gradio as gr\n\ndemo = gr.Interface(fn=lambda name: f"Hello {name}", inputs="text", outputs="text")\n\ndemo.launch()\n', example: GRADIO_EXAMPLE },
-  { id: 'fastapi', label: 'files.type_fastapi', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'api', skeleton: 'from fastapi import FastAPI\n\napp = FastAPI()\n\n\n@app.get("/")\ndef root():\n    return {"message": "Hello"}\n', example: FASTAPI_EXAMPLE },
+  { id: 'shiny', label: 'files.type_shiny', ext: '.R', lang: 'r', category: 'web_apps', icon: Globe, iconColor: 'text-blue-500', defaultName: 'app', skeleton: SHINY_SKELETON, example: SHINY_EXAMPLE },
+  { id: 'plumber', label: 'files.type_plumber', ext: '.R', lang: 'r', category: 'web_apps', icon: Globe, iconColor: 'text-blue-500', defaultName: 'plumber', skeleton: PLUMBER_SKELETON, example: PLUMBER_EXAMPLE },
+  { id: 'shiny-python', label: 'files.type_shiny_python', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: SHINY_PYTHON_SKELETON, example: SHINY_PYTHON_EXAMPLE },
+  { id: 'streamlit', label: 'files.type_streamlit', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: STREAMLIT_SKELETON, example: STREAMLIT_EXAMPLE },
+  { id: 'dash', label: 'files.type_dash', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: DASH_SKELETON, example: DASH_EXAMPLE },
+  { id: 'gradio', label: 'files.type_gradio', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'app', skeleton: GRADIO_SKELETON, example: GRADIO_EXAMPLE },
+  { id: 'fastapi', label: 'files.type_fastapi', ext: '.py', lang: 'python', category: 'web_apps', icon: Globe, iconColor: 'text-yellow-500', defaultName: 'api', skeleton: FASTAPI_SKELETON, example: FASTAPI_EXAMPLE },
   { id: 'md', label: 'files.type_markdown', ext: '.md', lang: 'markdown', category: 'documents', icon: FileText, iconColor: 'text-muted-foreground' },
   { id: 'csv', label: 'files.type_csv', ext: '.csv', lang: 'plaintext', category: 'documents', icon: FileText, iconColor: 'text-emerald-500' },
   { id: 'txt', label: 'files.type_text', ext: '.txt', lang: 'plaintext', category: 'documents', icon: FileText, iconColor: 'text-muted-foreground' },
