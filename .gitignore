@@ -46,6 +46,8 @@ build/
 *.xls
 *.duckdb
 *.arrow
+# Synthetic fixtures the end-to-end journeys import, each folder with the script that writes it.
+!apps/web/e2e/data/**/*.parquet
 
 # ...but the dependency triage log is a tracked decision record, not data
 !.claude/skills/security/TRIAGE-LOG.csv

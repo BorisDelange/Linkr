@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { readFileSync, writeFileSync } from 'node:fs'
 import {
   buildCachePageQuery,
   buildCacheCountQuery,
@@ -298,5 +299,25 @@ describe('column dropdown options, searched past FILTER_OPTIONS_LIMIT', () => {
     const sql = buildCachePageQuery({ domain_id: [matchFilterValue('myco'), 'Drug'] }, COLS, 0, 50, null)
     expect(sql).toContain(`("domain_id" = 'Drug' OR CAST("domain_id" AS VARCHAR) IN (WITH _opts AS (SELECT DISTINCT`)
     expect(sql).toContain("contains(strip_accents(LOWER(val)), strip_accents(LOWER('myco')))")
+  })
+})
+
+// apps/api/tests/test_concept_filter_scale.py runs this SQL on a 10-million-row
+// concept list and times it. Regenerate after a builder change:
+//   GOLDEN_UPDATE=1 npx vitest run src/features/projects/warehouse/concepts/concept-queries.test.ts
+describe('column filter SQL run at scale', () => {
+  const fixture = new URL('./concept-filter-scale.fixture.json', import.meta.url)
+  const sql = {
+    firstPage: buildCacheFilterOptionsQuery('domain_id'),
+    search: buildCacheFilterOptionsQuery('domain_id', 'myco'),
+    typo: buildCacheFilterOptionsQuery('domain_id', 'mycolgie'),
+    noMatch: buildCacheFilterOptionsQuery('domain_id', 'zzqxw'),
+    tablePage: buildCachePageQuery({ domain_id: [matchFilterValue('myco')] }, COLS, 0, 50, null),
+    tableCount: buildCacheCountQuery({ domain_id: [matchFilterValue('myco'), 'Virologie 7'] }, COLS),
+  }
+
+  it('is the SQL the scale test runs', () => {
+    if (process.env.GOLDEN_UPDATE === '1') writeFileSync(fixture, `${JSON.stringify(sql, null, 2)}\n`)
+    expect(JSON.parse(readFileSync(fixture, 'utf8'))).toEqual(sql)
   })
 })
