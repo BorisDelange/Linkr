@@ -516,6 +516,7 @@ export function CohortBuilder() {
                 <SqlPreviewPanel
                   cohort={cohort}
                   mapping={mapping}
+                  dataSourceId={activeSource?.id}
                   onCustomSqlChange={handleCustomSqlChange}
                   onExecute={runCohort}
                   onDraftChange={handleSqlDraftChange}

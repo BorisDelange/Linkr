@@ -43,7 +43,7 @@ import { useConceptListStore } from '@/stores/concept-list-store'
 import { ConceptListModal } from './concepts/ConceptListModal'
 import { ConceptListEditDialog } from './concepts/ConceptListEditDialog'
 import { ConceptsSettingsDialog } from './concepts/ConceptsSettingsDialog'
-import { useCanDiagnoseConceptStats } from './concepts/use-can-diagnose-stats'
+import { useStoredProfile } from './concepts/use-stored-profile'
 import type { ConceptRow } from './concepts/use-concepts'
 import type { ConceptList, ConceptListItem, DataDictionary } from '@/types'
 import { useConcepts } from './concepts/use-concepts'
@@ -77,7 +77,6 @@ export function ConceptsPage() {
   const navigate = useNavigate()
   const [chosenDatabaseId, chooseDatabase] = useConceptsDatabase(uid)
   const mappedSource = useProjectSource(uid, chosenDatabaseId)
-  const canDiagnoseStats = useCanDiagnoseConceptStats(mappedSource?.id)
 
   const {
     hasConceptTable,
@@ -105,8 +104,6 @@ export function ConceptsPage() {
     conceptStatsDeferred,
     loadSelectedStats,
     detailError,
-    computeStatsLive,
-    diagnoseStats,
     refresh,
     count,
     statsEnabled,
@@ -377,8 +374,13 @@ export function ConceptsPage() {
 
   }, [sourceId])
 
+  const profile = useStoredProfile(
+    mappedSource?.id,
+    ((selectedConcept as Record<string, unknown> | null)?._dict_key as string | undefined) ?? mappedSource?.schemaMapping?.concepts?.[0]?.key,
+    selectedConceptId,
+  )
   const { hasValueColumn: hasValueCol, statsSql } = useConceptStatsSql(
-    mappedSource?.schemaMapping, concepts, selectedConceptId, excludeOutliers,
+    mappedSource?.id, mappedSource?.schemaMapping, concepts, selectedConceptId, excludeOutliers,
   )
 
   // No data source
@@ -770,14 +772,13 @@ export function ConceptsPage() {
               statsLoading={conceptStatsLoading}
               statsError={conceptStatsError}
               error={detailError}
-              onComputeStatsLive={computeStatsLive}
               statsDeferred={conceptStatsDeferred}
               onLoadStats={loadSelectedStats}
-              onDiagnoseStats={canDiagnoseStats ? diagnoseStats : undefined}
               hasValueColumn={hasValueCol}
               excludeOutliers={excludeOutliers}
               statsEnabled={statsEnabled}
               statsSql={statsSql}
+              profile={profile}
             />
             )}
           </Allotment.Pane>

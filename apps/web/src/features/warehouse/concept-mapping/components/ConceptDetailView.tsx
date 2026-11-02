@@ -226,9 +226,13 @@ export interface ColumnsTableSection {
 
 export type Section = StatsSection | BarChartSection | PieChartSection | LineChartSection | TableSection | ColumnsTableSection | FieldsSection
 
+/** Horizontal bars shown before "show all": a profile keeps up to 200 wards. */
+const HORIZONTAL_TOP = 10
+
 function BarSection({ section }: { section: BarChartSection }) {
   const { t } = useTranslation()
   const [startAtZero, setStartAtZero] = useStartAtZero()
+  const [expanded, setExpanded] = useState(false)
 
   const longLabels = section.longLabels || section.data.some((d) => d.label.length > 6)
   const bottomMargin = longLabels ? 70 : 25
@@ -236,13 +240,14 @@ function BarSection({ section }: { section: BarChartSection }) {
   if (section.horizontal) {
     // Grow with the number of bars instead of squeezing them into a fixed box:
     // twenty wards in 200px are unreadable stripes.
-    const height = Math.max(120, section.data.length * 26 + 30)
+    const data = expanded ? section.data : section.data.slice(0, HORIZONTAL_TOP)
+    const height = Math.max(120, data.length * 26 + 30)
     const fmt = (v: number) =>
       `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}${section.valueSuffix ?? ''}`
     return (
       <SectionCard title={section.title}>
         <ResponsiveContainer width="100%" height={height}>
-          <BarChart data={section.data} layout="vertical" margin={{ left: 5, right: 12, top: 2, bottom: 2 }}>
+          <BarChart data={data} layout="vertical" margin={{ left: 5, right: 12, top: 2, bottom: 2 }}>
             <XAxis type="number" tick={{ fontSize: 10 }} domain={[0, 'auto']} tickFormatter={fmt} />
             <YAxis
               type="category"
@@ -256,6 +261,18 @@ function BarSection({ section }: { section: BarChartSection }) {
             <Bar dataKey="value" fill="#60a5fa" radius={[0, 3, 3, 0]} />
           </BarChart>
         </ResponsiveContainer>
+        {section.data.length > HORIZONTAL_TOP && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-1 h-6 self-start px-2 text-xs text-muted-foreground"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded
+              ? t('concept_mapping.detail_show_top', { count: HORIZONTAL_TOP })
+              : t('concept_mapping.detail_show_all', { count: section.data.length })}
+          </Button>
+        )}
       </SectionCard>
     )
   }
@@ -369,8 +386,10 @@ function SectionCard({
 export function SectionRenderer({ section }: { section: Section }) {
   if (section.type === 'fields' && section.rows.length > 0) {
     return (
-      <SectionCard title={section.title}>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 sm:grid-cols-2">
+      <SectionCard title={section.title} className="@container">
+        {/* A container query: the panel is resized independently of the viewport,
+            and two columns only fit once each pair has room to sit apart. */}
+        <div className="grid grid-cols-1 gap-x-6 gap-y-0.5 @md:grid-cols-2">
           {section.rows.map((row) => (
             <div key={row.label} className="flex items-baseline justify-between gap-3 text-xs">
               <span className="shrink-0 text-muted-foreground">{row.label}</span>

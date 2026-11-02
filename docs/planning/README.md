@@ -27,6 +27,18 @@ run like the catalog (browser-driven units, pause/resume), order below.
 | 🔜 | **[TO TEST]** Statistics tab warns when Parquet tables are not in patient order (server, Parquet folders) | S |
 | 🔜 | User docs (linkr-website): Database › Concepts tab, the unsorted-Parquet warning and how to sort | S |
 
+### Concept profiles — one computation per database — [concept-profiles-plan.md](concept-profiles-plan.md)
+
+The database *Concepts* tab, the mapping extraction and the catalog each count
+concepts on their own. Arbitrated 2026-11-02: one exact profile store per database,
+shared by the workspace, sections added on demand, each reader filtering what it
+needs (thresholds on read). Branch `feature/concept-profiles`.
+
+| St | Item | Effort |
+|----|------|--------|
+| 🔜 | **[TO TEST]** Steps 0–7 built (plan §7): percentages, SQL dialog, shared cache, profile store (server + IndexedDB), Concepts tab card, concept panel, mapping extraction reading the store | S |
+| 🤔 | Profiles as server jobs — today browser-driven, a closed tab pauses them (plan §7) | M |
+
 ### SQL Server, Oracle, DuckDB 2.0 — [duckdb-2-plan.md](duckdb-2-plan.md)
 
 Built on `feature/oracle-mssql-testdata` (2026-10-30): SQL Server and Oracle through
@@ -79,7 +91,6 @@ Built, never exercised by hand. Everything else below is still to build.
 | 🔜 | Patient data: localStorage migration, server round-trip, export → reimport → export stability | both | S |
 | 🔜 | Private catalog: add one with a token (Manage catalogs › Private repository), browse it, install a private entry from it; a second user without a token sees the "private catalog" error | server | S |
 | 🔜 | SPE simulation (`docker/spe-sim/`): smoke test, then terminal, env installs through the mirror, Postgres datamart, `GATEWAY_WEBSOCKETS=off` (README § Test) | server | S |
-| 🔜 | Concept value statistics precomputed (Concepts tab, *Statistics* ticked): on the large Doris — the units are computed by Doris (job panel times, no row stream over MySQL), a paused stats step resumes, a finished count adds its statistics without recounting, a concept's stats panel opens at once with "Precomputed" under its distribution; then *Count again* drops them | server | S |
 | 🔜 | Doris syntax probe: `GROUP_CONCAT … SEPARATOR`, `CHAR(n)` without `USING utf8`, `LOWER()` on accented text, `STDDEV_SAMP`, `CAST(FLOOR) AS BIGINT`, `PERCENTILE_APPROX` — `apps/api/.venv/bin/python scripts/doris-syntax-probe.py` against the test Doris (login allowed to create a temp table; usage at the top of the script). Any FAIL → make that rule `NotPortable` in `remote_sql.py` | server | S |
 | 🔜 | Setup wizard on a *virgin* instance (`LINKR_DATA_DIR=/tmp/…`): install → children cloned → decision recorded → no browser re-seed on a second machine | server | S |
 | 🔜 | Suggestion engines (mapping editor › Manage suggestions): one-click BioLORD setup on a fresh data dir, build its index (Stop, then resume), Compute syntactic + semantic on a project (AI rows kept, *only missing*), a model from a server folder, re-import a vocabulary → index *out of date*; a configuration limited by concept class (drugs at the Clinical Drug level); MCP `semantic_search_vocabulary` with `concept_classes`, `get_vocabulary_concept` on a drug (components: strengths, dose form, brand); Docker image on Linux (torch CPU vs CUDA through `--torch-backend auto`) and through the SPE mirror (`LINKR_EMBEDDINGS_TORCH_BACKEND=`) | server | M |

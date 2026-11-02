@@ -13,7 +13,7 @@ import {
 } from '@/stores/patient-chart-store'
 import { patientQuery } from '../patient-prefetch'
 import { buildTimelineQuery } from '@/lib/duckdb/patient-data-queries'
-import { relationsCountedAt, timelineRelationsWithout } from '../timeline-relations'
+import { relationsCountedAt, relationsWithoutConcepts } from '../timeline-relations'
 import { eventRelations } from '@/lib/schema-classes/relations'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { isPlottable, useDatasetSeries } from './use-dataset-series'
@@ -288,7 +288,7 @@ export function TimelineWidget({
     // stay changes the scope three times in quick succession; one fetch for the
     // last of them avoids a visible reload / "No data" flash.
     const timer = setTimeout(() => {
-      timelineRelationsWithout(dataSourceId, schemaMapping, conceptIds)
+      relationsWithoutConcepts(dataSourceId, schemaMapping, conceptIds)
         .then((without) => {
           if (cancelled) return null
           const labels = eventRelations(schemaMapping).filter((e) => without.has(e.name)).map((e) => e.key ?? e.name)

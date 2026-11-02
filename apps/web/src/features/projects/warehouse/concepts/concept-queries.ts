@@ -667,9 +667,16 @@ export function buildConceptFullQuery(
 // ---------------------------------------------------------------------------
 
 /** `concept_id = n`, or its source concept, for one event relation. */
+/** On the event relation aliased `e`: every column qualified, which is what
+ *  lets `toNativeSql` rewrite the statement on the database's own tables. */
 function conceptMatch(event: ClassRelation, conceptId: number): string {
   const id = Number(conceptId)
-  return has(event, 'source_concept_id') ? `concept_id = ${id} OR source_concept_id = ${id}` : `concept_id = ${id}`
+  return has(event, 'source_concept_id') ? `e.concept_id = ${id} OR e.source_concept_id = ${id}` : `e.concept_id = ${id}`
+}
+
+/** A statement written as a CTE or subquery body, two spaces in. */
+function indent(sql: string): string {
+  return sql.replace(/^/gm, '  ')
 }
 
 function dictByKey(mapping: SchemaMapping, dictKey: string): ClassRelation | undefined {
@@ -686,9 +693,14 @@ export function buildDomainCountQuery(
   if (events.length === 0) return null
 
   // Sum across all event tables for this dict
-  const parts = events.map((e) => `SELECT COUNT(*)::INTEGER AS cnt FROM ${e.name} WHERE ${conceptMatch(e, conceptId)}`)
+  const parts = events.map((e) => `SELECT COUNT(*)::INTEGER AS cnt
+FROM ${e.name} e
+WHERE ${conceptMatch(e, conceptId)}`)
   if (parts.length === 1) return parts[0]
-  return `SELECT SUM(cnt)::INTEGER AS cnt FROM (${parts.join(' UNION ALL ')}) _counts`
+  return `SELECT SUM(cnt)::INTEGER AS cnt
+FROM (
+${parts.map(indent).join('\n  UNION ALL\n')}
+) _counts`
 }
 
 // ---------------------------------------------------------------------------
@@ -725,9 +737,12 @@ function valueSourceUnion(
   const parts = valuedEvents(mapping, dictKey).map(
     // A double whatever the column: what the stats round and print, and what
     // the pushdown takes a percentile of (not a DECIMAL).
-    (e) => `SELECT CAST(value_number AS DOUBLE) AS v FROM ${e.name} WHERE (${conceptMatch(e, conceptId)}) AND value_number IS NOT NULL`,
+    (e) => `SELECT CAST(e.value_number AS DOUBLE) AS v
+FROM ${e.name} e
+WHERE (${conceptMatch(e, conceptId)})
+  AND e.value_number IS NOT NULL`,
   )
-  return parts.length === 0 ? null : parts.join(' UNION ALL ')
+  return parts.length === 0 ? null : parts.map(indent).join('\n  UNION ALL\n')
 }
 
 export function buildValueDistributionQuery(
@@ -739,7 +754,7 @@ export function buildValueDistributionQuery(
   if (!union) return null
 
   return `WITH vals AS (
-  ${union}
+${union}
 )
 SELECT
   COUNT(*)::INTEGER AS total_count,
@@ -776,7 +791,7 @@ export function buildValueHistogramQuery(
   const rangeFilter = excludeOutliers ? ' AND v BETWEEN stats.mn AND stats.mx' : ''
 
   return `WITH vals AS (
-  ${union}
+${union}
 ), stats AS (
   ${stats}
 ), excluded AS (

@@ -362,14 +362,14 @@ async def test_a_derivation_drops_the_concept_caches_of_what_it_wrote(client):
     dst = await _managed(client, headers, ws, "cohort_five", seed=False)
     for ds in (src, dst):
         await client.put(f"{API}/data-sources/{ds}/concept-stats/1", headers=headers, json={"stats": {"rowCount": 1}})
-        concept_cache_fs.write_manifest(ds, "", {"runId": "r1"}, reset=True)
+        concept_cache_fs.write_manifest(ds, {"runId": "r1"}, reset=True)
 
     job = await _derive(client, headers, ws, src, {
         "membershipSql": MEMBERSHIP, "level": "patient", "target": {"kind": "new-database", "dataSourceId": dst},
     })
     assert job["status"] == "done", job
     assert (await client.get(f"{API}/data-sources/{dst}/concept-stats/1", headers=headers)).status_code == 404
-    assert concept_cache_fs.run_status(dst, "") is None
+    assert concept_cache_fs.run_status(dst) is None
     # The source it was read from is untouched.
     assert (await client.get(f"{API}/data-sources/{src}/concept-stats/1", headers=headers)).status_code == 200
-    assert concept_cache_fs.run_status(src, "") is not None
+    assert concept_cache_fs.run_status(src) is not None

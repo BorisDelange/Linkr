@@ -40,6 +40,7 @@ import {
   planConceptWalk,
   sortNeedsCounts,
   walkKey,
+  type BatchProfileStore,
   type ConceptCounts,
   type ExtractionSort,
 } from './source-extraction'
@@ -274,6 +275,12 @@ export interface StartRunInput {
    * cannot be read. Lets a ranked resume continue over a changed ranking.
    */
   readWritten?: () => Promise<number[] | null>
+  /**
+   * The database's profile store, opened once the run has counted (it measures
+   * the data it reads): concepts it holds are read from it rather than
+   * profiled, the others added to it.
+   */
+  store?: () => Promise<BatchProfileStore | undefined>
 }
 
 /**
@@ -430,6 +437,8 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     }
 
     let runTotal = sum(sizes)
+    const store = await input.store?.()
+    if (signal.aborted) return
 
     // A fresh run writes the header and replaces the file; a resume appends to
     // what is already stored. The rows themselves are never held here — only the
@@ -464,7 +473,7 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         Math.min(SAVE_EVERY, sizes[index] - local),
         runTotal, query, controller.signal,
         (n, _total, concept) => emit(projectId, { extracted: base + n, current: concept }),
-        sort, ranking, homes[index], recordTotals[index], queryAggregate,
+        sort, ranking, homes[index], recordTotals[index], queryAggregate, store,
       )
       if (ranking && batch.gone) {
         const gone = new Set(batch.gone)

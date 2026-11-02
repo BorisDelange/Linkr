@@ -11,6 +11,7 @@ from app.models.patient_dashboard import (
     PatientDashboardWidget,
 )
 from app.models.attachment import ReadmeAttachment, WikiAttachment
+from app.models.concept_profile import ConceptProfile
 from app.models.concept_stats_cache import ConceptStatsCache
 from app.models.data_catalog import DataCatalog
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
@@ -71,6 +72,7 @@ __all__ = [
     "PatientDashboardWidget",
     "ReadmeAttachment",
     "WikiAttachment",
+    "ConceptProfile",
     "ConceptStatsCache",
     "DataCatalog",
     "SourceConceptIdRange",

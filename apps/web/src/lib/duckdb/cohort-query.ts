@@ -19,7 +19,7 @@ import type {
 } from '@/types'
 import type { SchemaMapping } from '@/types'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
-import { classRelation, conceptRelation, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
+import { classRelation, codesRelation, conceptRelation, dictionaryOf, eventRelation, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
 
 // ---------------------------------------------------------------------------
@@ -181,6 +181,13 @@ function notSql(sql: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * The event relations a concept criterion on these concepts can leave out:
+ * those the last concept count found none of them in (`cohortRelationNarrowing`).
+ * Left out, a relation is named in a comment, never queried.
+ */
+export type RelationNarrowing = (conceptIds: readonly number[]) => ReadonlySet<string>
+
+/**
  * Reusable query parts (FROM + WHERE) from a Cohort criteria tree.
  * Used by buildCohortCountSql, buildCohortResultsSql, and patient-data-queries.
  */
@@ -202,6 +209,7 @@ export function buildCohortQueryParts(
    *  regardless of the criteria — otherwise the query is built referencing a
    *  table that isn't in the FROM. */
   forcePatientJoin = false,
+  narrowing?: RelationNarrowing,
 ): CohortQueryParts | null {
   const baseTable = getBaseTable(cohort.level, mapping)
   const idColumn = getIdColumn(cohort.level, mapping)
@@ -217,7 +225,7 @@ export function buildCohortQueryParts(
     }
   }
 
-  const where = buildTreeWhereClause(cohort.criteriaTree, cohort.level, mapping, baseTable)
+  const where = buildTreeWhereClause(cohort.criteriaTree, cohort.level, mapping, baseTable, narrowing)
   const from = buildFromClause(
     cohort.level,
     mapping,
@@ -291,9 +299,9 @@ export const CUSTOM_SQL_STEP_ID = '__custom_sql__'
  * The query generated from the criteria alone — what the SQL tab shows, and
  * what a hand edit starts from: the level's id, under its own name.
  */
-export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping, namedId = false): string | null {
+export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping, namedId = false, narrowing?: RelationNarrowing): string | null {
   if (cohort.level === 'event') return null
-  const parts = buildCohortQueryParts({ ...cohort, customSql: null }, mapping)
+  const parts = buildCohortQueryParts({ ...cohort, customSql: null }, mapping, false, narrowing)
   if (!parts) return null
   const lines = [
     sqlComment(`One row per ${cohort.level}: its ${parts.idColumn}`),
@@ -311,16 +319,16 @@ export function buildCohortCriteriaSql(cohort: Cohort, mapping: SchemaMapping, n
  * The same query written on the database's own tables (`toNativeSql`), or null
  * when it cannot be — the Linkr form then stands alone.
  */
-export function buildCohortNativeSql(cohort: Cohort, mapping: SchemaMapping): string | null {
-  const sql = buildCohortCriteriaSql(cohort, mapping, true)
+export function buildCohortNativeSql(cohort: Cohort, mapping: SchemaMapping, narrowing?: RelationNarrowing): string | null {
+  const sql = buildCohortCriteriaSql(cohort, mapping, true, narrowing)
   return sql ? toNativeSql(sql, mapping) : null
 }
 
 /**
  * Build a COUNT(DISTINCT id) query from a Cohort definition.
  */
-export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping): string | null {
-  const parts = buildCohortQueryParts(cohort, mapping)
+export function buildCohortCountSql(cohort: Cohort, mapping: SchemaMapping, narrowing?: RelationNarrowing): string | null {
+  const parts = buildCohortQueryParts(cohort, mapping, false, narrowing)
   if (!parts) return null
 
   const lines = [
@@ -343,6 +351,7 @@ export function buildCohortResultsSql(
   mapping: SchemaMapping,
   limit: number = 50,
   offset: number = 0,
+  narrowing?: RelationNarrowing,
 ): string | null {
   // The result columns read gender/age off the patient table through `p`, which
   // the criteria alone may not have joined (a concept-only cohort at visit level
@@ -350,7 +359,7 @@ export function buildCohortResultsSql(
   // succeeded and only this query failed).
   const needsPatient =
     cohort.level !== 'patient' && selectNeedsPatientAlias(mapping)
-  const parts = buildCohortQueryParts(cohort, mapping, needsPatient)
+  const parts = buildCohortQueryParts(cohort, mapping, needsPatient, narrowing)
   if (!parts) return null
 
   const selectCols = buildSelectColumns(cohort.level, mapping, parts.baseTable)
@@ -377,9 +386,9 @@ export function buildCohortResultsSql(
  * Returns two columns: `id` (level id) and `patient_id`. At patient level the two
  * are identical. Event level has no single base table, so it returns null.
  */
-export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping): string | null {
+export function buildCohortMembershipSql(cohort: Cohort, mapping: SchemaMapping, narrowing?: RelationNarrowing): string | null {
   if (cohort.level === 'event') return null
-  const parts = buildCohortQueryParts(cohort, mapping)
+  const parts = buildCohortQueryParts(cohort, mapping, false, narrowing)
   if (!parts) return null
 
   const lines = [
@@ -404,7 +413,7 @@ export function buildAttritionQueries(
   mapping: SchemaMapping,
   /** Also count the distinct patients at each step (`patients` column), beside
    *  the level's own ids (`cnt`) — the cohort report's flowchart shows both. */
-  opts: { withPatients?: boolean } = {},
+  opts: { withPatients?: boolean; narrowing?: RelationNarrowing } = {},
 ): { nodeId: string; label: string; sql: string }[] {
   const baseTable = getBaseTable(cohort.level, mapping)
   const idColumn = getIdColumn(cohort.level, mapping)
@@ -447,7 +456,7 @@ export function buildAttritionQueries(
       children: enabledChildren.slice(0, i + 1),
     }
     const from = buildFromClause(cohort.level, mapping, progressiveTree, baseTable)
-    const where = buildTreeWhereClause(progressiveTree, cohort.level, mapping, baseTable)
+    const where = buildTreeWhereClause(progressiveTree, cohort.level, mapping, baseTable, opts.narrowing)
     queries.push({
       nodeId: enabledChildren[i].id,
       label: getNodeLabel(enabledChildren[i], mapping),
@@ -467,11 +476,12 @@ function buildTreeWhereClause(
   level: CohortLevel,
   mapping: SchemaMapping,
   baseTable: string,
+  narrowing?: RelationNarrowing,
 ): string {
   if (!node.enabled) return '1=1'
 
   if (node.kind === 'criterion') {
-    const clause = buildCriterionClause(node, level, mapping, baseTable)
+    const clause = buildCriterionClause(node, level, mapping, baseTable, narrowing)
     // A criterion with nothing to apply is skipped, excluded or not.
     return node.exclude && clause !== '1=1' ? notSql(clause) : clause
   }
@@ -479,7 +489,7 @@ function buildTreeWhereClause(
   // Group node: each child carries its own operator linking it to the previous sibling
   const items: ClauseItem[] = []
   for (const child of node.children.filter((c) => c.enabled)) {
-    const clause = buildTreeWhereClause(child, level, mapping, baseTable)
+    const clause = buildTreeWhereClause(child, level, mapping, baseTable, narrowing)
     if (clause === '1=1') continue
     const comment = child.kind === 'criterion' ? commentLabel(child, mapping) : child.label
     items.push({ clause, operator: child.operator, ...(comment ? { comment } : {}) })
@@ -557,6 +567,7 @@ function buildCriterionClause(
   level: CohortLevel,
   mapping: SchemaMapping,
   baseTable: string,
+  narrowing?: RelationNarrowing,
 ): string {
   switch (criterion.type) {
     case 'age':
@@ -572,7 +583,7 @@ function buildCriterionClause(
     case 'care_site':
       return buildCareSiteCriteria(criterion.config as CareSiteCriteriaConfig, level, mapping, baseTable)
     case 'concept':
-      return buildConceptCriteria(criterion.config as ConceptCriteriaConfig, level, mapping, baseTable)
+      return buildConceptCriteria(criterion.config as ConceptCriteriaConfig, level, mapping, baseTable, narrowing)
     case 'text':
       return buildTextCriteria(criterion.config as TextCriteriaConfig, level, mapping, baseTable)
     case 'id_list':
@@ -1109,7 +1120,16 @@ function conceptConditions(
   baseTable: string,
 ): string[] {
   const ids = config.conceptIds.join(', ')
-  let conceptMatch = `e.concept_id IN (${ids})`
+  const dict = event.compositeConceptKey ? dictionaryOf(mapping, event) : undefined
+  // Read through its codes (`conceptSource`): the few (terminology, code) pairs
+  // of these ids, rather than every row's id looked up in the whole dictionary.
+  let conceptMatch = dict
+    ? existsSql(`${dict.name} c`, [
+      `c.concept_id IN (${ids})`,
+      'c.concept_terminology = e.concept_terminology',
+      'c.concept_code = e.concept_code',
+    ])
+    : `e.concept_id IN (${ids})`
   if (has(event, 'source_concept_id')) {
     conceptMatch = `(${conceptMatch} OR e.source_concept_id IN (${ids}))`
   }
@@ -1120,11 +1140,18 @@ function conceptConditions(
   return conditions
 }
 
+/** What a criterion reads an event relation as: a composite-key event through
+ *  its codes, matched on its dictionary's (terminology, code) pairs. */
+function conceptSource(event: ClassRelation, mapping: SchemaMapping): string {
+  return event.compositeConceptKey && dictionaryOf(mapping, event) ? codesRelation(event.name) : event.name
+}
+
 function buildConceptCriteria(
   config: ConceptCriteriaConfig,
   level: CohortLevel,
   mapping: SchemaMapping,
   baseTable: string,
+  narrowing?: RelationNarrowing,
 ): string {
   if (config.conceptIds.length === 0) return '1=1'
   if (!validateIntegerIds(config.conceptIds)) return '1=1'
@@ -1133,14 +1160,23 @@ function buildConceptCriteria(
   // value filters and occurrence count.
   if (config.conceptMatch === 'all' && config.conceptIds.length > 1) {
     const each = config.conceptIds.map((id) =>
-      buildConceptCriteria({ ...config, conceptMatch: 'any', conceptIds: [id] }, level, mapping, baseTable))
+      buildConceptCriteria({ ...config, conceptMatch: 'any', conceptIds: [id] }, level, mapping, baseTable, narrowing))
     if (each.includes('1=1')) return '1=1'
     return `(\n${indent(each.join('\nAND '))}\n)`
   }
 
-  const scopes = conceptCriterionRelations(config, mapping)
-    .map((event) => ({ event, conditions: conceptConditions(event, config, level, mapping, baseTable) }))
-  if (scopes.length === 0) return '1=1'
+  const searched = conceptCriterionRelations(config, mapping)
+  if (searched.length === 0) return '1=1'
+  const without = narrowing?.(config.conceptIds.map(Number)) ?? new Set<string>()
+  const skipped = searched.filter((event) => without.has(event.name))
+  const scopes = searched
+    .filter((event) => !without.has(event.name))
+    .map((event) => ({ event, from: conceptSource(event, mapping), conditions: conceptConditions(event, config, level, mapping, baseTable) }))
+  // Said in the SQL rather than silently dropped: a reader sees why a table it
+  // expected is not searched, and that nothing reads it.
+  const skippedNote = sqlComment(`Not searched: ${skipped.map((e) => e.name).join(', ')} — the concept count found none of these concepts there`)
+  const noted = (sql: string) => (skipped.length === 0 ? sql : `(\n${indent(`${skippedNote}\n${sql}`)}\n)`)
+  if (scopes.length === 0) return noted('FALSE')
 
   // Occurrence count → IN subquery with GROUP BY + HAVING, over the rows of
   // every table searched: one table or several, an entity with no occurrence
@@ -1153,8 +1189,8 @@ function buildConceptCriteria(
   const ocOperator = sqlOperator(oc?.operator, COUNT_OPERATORS)
   const ocCount = sqlNumber(oc?.count)
   if (oc && ocOperator && ocCount != null) {
-    const rows = scopes.map(({ event, conditions }) =>
-      [`SELECT e.patient_id`, `FROM ${event.name} e`, whereLines(conditions)].join('\n'))
+    const rows = scopes.map(({ from, conditions }) =>
+      [`SELECT e.patient_id`, `FROM ${from} e`, whereLines(conditions)].join('\n'))
     const grouped = rows.length === 1
       ? [rows[0], `GROUP BY e.patient_id`]
       : [
@@ -1164,15 +1200,15 @@ function buildConceptCriteria(
         `) occurrence`,
         `GROUP BY occurrence.patient_id`,
       ]
-    return [
+    return noted([
       `${baseTable}.patient_id IN (`,
       indent([...grouped, `HAVING COUNT(*) ${ocOperator} ${ocCount}`].join('\n')),
       `)`,
-    ].join('\n')
+    ].join('\n'))
   }
 
-  const exists = scopes.map(({ event, conditions }) => existsSql(`${event.name} e`, conditions))
-  return exists.length === 1 ? exists[0] : `(\n${indent(exists.join('\nOR '))}\n)`
+  const exists = scopes.map(({ from, conditions }) => existsSql(`${from} e`, conditions))
+  return noted(exists.length === 1 ? exists[0] : `(\n${indent(exists.join('\nOR '))}\n)`)
 }
 
 // ---------------------------------------------------------------------------

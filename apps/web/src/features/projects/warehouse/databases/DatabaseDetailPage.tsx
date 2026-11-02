@@ -20,7 +20,7 @@ import {
   Users,
   UsersRound,
 } from 'lucide-react'
-import type { CustomSchemaPreset, DataSource, DatabaseConnectionConfig, DatabaseStatsCache, SchemaMapping } from '@/types'
+import type { CustomSchemaPreset, DataSource, DatabaseStatsCache, SchemaMapping } from '@/types'
 import { localized } from '@/lib/localized'
 import { getStorage } from '@/lib/storage'
 import { cn } from '@/lib/utils'
@@ -66,7 +66,6 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useWorkspaceStore } from '@/stores/workspace-store'
 import { useOrganizationStore } from '@/stores/organization-store'
 import { EntityNotFound } from '@/components/layout/EntityNotFound'
-import { isExternalEngine } from '@/lib/database-engines'
 import { useFlightStatus } from './use-flight-status'
 import { ConnectionStatusBanner } from './connection-status-banner'
 import { ConnectionCard } from './DatabaseConnectionCard'
@@ -127,11 +126,10 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
   // the list page requires to delete it — and never from the project's read-only
   // view of a workspace database.
   const canReinstall = useMyWorkspaceRole().atLeast('owner') && !readOnly
-  // The concept counts are a cache: shared for a file database (an edit), the
-  // user's own for an external one — the server's `_cache_write_permission`.
+  // The concept counts are a cache shared by everyone who opens the database:
+  // writing it is an edit.
   const flightStatus = useFlightStatus(source)
   const canCountConcepts = useMyWorkspaceRole().can('databases:write')
-    || isExternalEngine((source?.connectionConfig as DatabaseConnectionConfig | undefined)?.engine)
   const [activeTab, setActiveTab] = useUrlTab<DatabaseTabId>({
     key: `database:${source?.id ?? 'none'}`,
     tabs: readOnly ? PROJECT_TAB_IDS : DATABASE_TAB_IDS,

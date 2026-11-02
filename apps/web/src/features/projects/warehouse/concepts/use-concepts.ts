@@ -4,12 +4,10 @@ import { conceptRelations } from '@/lib/schema-classes/relations'
 import { isServerMode } from '@/lib/api-client'
 import {
   queryConceptCache,
-  diagnoseConceptStats,
   getConceptStats,
   saveConceptStats,
 } from '@/lib/api/concept-cache'
 import { useConceptCount } from './use-concept-count'
-import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
 import { tableListHas } from '@/lib/schema-helpers'
 import type { SchemaMapping } from '@/types'
 import {
@@ -91,7 +89,7 @@ export const HISTOGRAM_VARIANT = 'p1p99-union-q'
  * without a matching tag: nothing was ever computed for it, so nothing is stale.
  */
 export function isFreshCachedStats(stats: ConceptStats): boolean {
-  if (stats.histogramVariant === HISTOGRAM_VARIANT || stats.histogramVariant === PRECOMPUTED_STATS_VARIANT) return true
+  if (stats.histogramVariant === HISTOGRAM_VARIANT) return true
   return !stats.histogram?.length && !stats.distribution
 }
 
@@ -173,7 +171,7 @@ const statsInFlight = new Map<string, Promise<ConceptStats | null>>()
 
 const statsKey = (dictKey: string, conceptId: number) => `${dictKey}::${conceptId}`
 
-/** A load of these stats already running (computed or live), if any. */
+/** A load of these stats already running, if any. */
 function pendingConceptStats(
   dataSourceId: string,
   conceptId: number,
@@ -181,14 +179,13 @@ function pendingConceptStats(
   excludeOutliers: boolean,
 ): Promise<ConceptStats | null> | undefined {
   const flightKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}::${statsKey(dictKey, conceptId)}`
-  return statsInFlight.get(flightKey) ?? statsInFlight.get(`${flightKey}::live`)
+  return statsInFlight.get(flightKey)
 }
 
 /**
  * One concept's stats when they cost no query on the source: this session's
- * copy, or (server mode, clipped form) the server's — precomputed by the
- * counting run or cached by an earlier load. Undefined when they would have to
- * be computed.
+ * copy, or (server mode, clipped form) the server's, cached by an earlier load.
+ * Undefined when they would have to be computed.
  */
 export async function peekConceptStats(
   dataSourceId: string,
@@ -200,7 +197,7 @@ export async function peekConceptStats(
   const cached = statsCache.get(statsKey(dictKey, conceptId))
   if (cached) return cached
   if (!isServerMode() || !excludeOutliers) return undefined
-  const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId, dictKey).catch(() => undefined)
+  const shared = await getConceptStats<ConceptStats>(dataSourceId, conceptId).catch(() => undefined)
   if (!shared || !isFreshCachedStats(shared)) return undefined
   statsCache.set(statsKey(dictKey, conceptId), shared)
   return shared
@@ -209,9 +206,8 @@ export async function peekConceptStats(
 /**
  * One concept's stats as every view shows them — the detail panel and the row
  * popover alike: this session's copy, else (server mode, clipped form) the
- * server's — precomputed by the counting run or cached by an earlier click —
- * else computed on the source and shared. Concurrent asks for the same concept
- * share one load. `live`: straight from the source, past what the server holds.
+ * server's, cached by an earlier click — else computed on the source and
+ * shared. Concurrent asks for the same concept share one load.
  */
 export function fetchConceptStats(
   dataSourceId: string,
@@ -219,23 +215,20 @@ export function fetchConceptStats(
   conceptId: number,
   dictKey: string,
   excludeOutliers: boolean,
-  { live = false }: { live?: boolean } = {},
 ): Promise<ConceptStats | null> {
   const cacheKey = `${dataSourceId}::${excludeOutliers ? 'clip' : 'raw'}`
   const statsCache = cacheFor(statsCaches, cacheKey)
-  const cached = live ? undefined : statsCache.get(statsKey(dictKey, conceptId))
+  const cached = statsCache.get(statsKey(dictKey, conceptId))
   if (cached) return Promise.resolve(cached)
-  const flightKey = `${cacheKey}::${statsKey(dictKey, conceptId)}${live ? '::live' : ''}`
+  const flightKey = `${cacheKey}::${statsKey(dictKey, conceptId)}`
   const pending = statsInFlight.get(flightKey)
   if (pending) return pending
 
   const load = async (): Promise<ConceptStats | null> => {
-    // Server mode: another user, or the counting run, may have computed these
-    // already. On a hit, render without touching the source.
-    if (!live) {
-      const known = await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
-      if (known) return known
-    }
+    // Server mode: another user may have computed these already. On a hit,
+    // render without touching the source.
+    const known = await peekConceptStats(dataSourceId, conceptId, dictKey, excludeOutliers)
+    if (known) return known
 
     const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
     if (!countSql) return null
@@ -775,29 +768,6 @@ export function useConcepts(
     if (selectedConceptId !== null && dictKey) loadConceptStats(selectedConceptId, dictKey, true)
   }
 
-  // When the precomputed statistics hold no value for the selected concept: read
-  // them from the source instead, or ask the server why.
-  const computeStatsLive = async () => {
-    const dictKey = selectedRowDictKey
-    if (!dataSourceId || !schemaMapping || selectedConceptId === null || !dictKey) return
-    const conceptId = selectedConceptId
-    activeStatsConceptId.current = conceptId
-    setConceptStatsLoading(true)
-    setConceptStatsError(null)
-    try {
-      const stats = await fetchConceptStats(dataSourceId, schemaMapping, conceptId, dictKey, excludeOutliers, { live: true })
-      if (activeStatsConceptId.current === conceptId) setConceptStats(stats)
-    } catch (err) {
-      if (activeStatsConceptId.current === conceptId) setConceptStatsError(err instanceof Error ? err.message : String(err))
-    } finally {
-      if (activeStatsConceptId.current === conceptId) setConceptStatsLoading(false)
-    }
-  }
-  const diagnoseStats = () => {
-    if (!dataSourceId || selectedConceptId === null) return Promise.resolve({})
-    return diagnoseConceptStats(dataSourceId, selectedConceptId, selectedRowDictKey)
-  }
-
   const updateFilter = useCallback((key: string, value: ConceptFilterValue) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
     // Text search fields reset page via debounce, others reset immediately
@@ -847,8 +817,6 @@ export function useConcepts(
     conceptStatsError,
     conceptStatsDeferred,
     loadSelectedStats,
-    computeStatsLive: isServerMode() ? computeStatsLive : undefined,
-    diagnoseStats: isServerMode() ? diagnoseStats : undefined,
     refresh,
     count,
     statsEnabled,

@@ -11,9 +11,10 @@
  *
  * Written for the SQL the cohort builder generates, whose every column is
  * qualified by its relation or its alias. A column is resolved the way SQL
- * does: to the nearest enclosing parenthesis group whose FROM names that alias
- * (two EXISTS may both call their event table `e`). Anything left unresolved
- * makes the whole translation null rather than half-translated.
+ * does: to the nearest enclosing parenthesis group, and branch of its UNION,
+ * whose FROM names that alias (two EXISTS, or two branches, may both call their
+ * event table `e`). Anything left unresolved makes the whole translation null
+ * rather than half-translated.
  */
 import { quoteIdent } from '@/lib/format-helpers'
 import type { SchemaMapping } from '@/types/schema-mapping'
@@ -90,6 +91,9 @@ interface FromItem {
   explicitAlias: boolean
   /** The paren group it is declared in, `[open, close]`; the root is `[-1, length]`. */
   scope: [number, number]
+  /** Which branch of that group's UNION / INTERSECT / EXCEPT: each one names
+   *  its own aliases, two branches may both call their table `e`. */
+  branch: number
 }
 
 /** Every paren group of `blanked`, as [open, close] positions. */
@@ -110,6 +114,14 @@ function enclosing(groups: [number, number][], pos: number, length: number): [nu
 
 const sameScope = (a: [number, number], b: [number, number]) => a[0] === b[0] && a[1] === b[1]
 
+const SET_OPERATOR = /\b(?:UNION|INTERSECT|EXCEPT)\b/gi
+
+/** The branch of `scope` that `pos` is in: how many of the group's own set
+ *  operators (not a nested group's) come before it. */
+function branchOf(setOps: { pos: number; scope: [number, number] }[], scope: [number, number], pos: number): number {
+  return setOps.filter((o) => o.pos < pos && sameScope(o.scope, scope)).length
+}
+
 /** Whether `sql` still names a relation, outside literals and comments: a
  *  reference the translation could not follow. */
 export function namesRelation(sql: string): boolean {
@@ -119,18 +131,21 @@ export function namesRelation(sql: string): boolean {
 export function toNativeSql(sql: string, mapping: SchemaMapping, tables?: readonly string[] | null): string | null {
   const blanked = blankSqlLiterals(sql)
   const groups = parenGroups(blanked)
+  const setOps = [...blanked.matchAll(SET_OPERATOR)].map((m) => ({ pos: m.index, scope: enclosing(groups, m.index, sql.length)[0] }))
 
   const items: FromItem[] = []
   for (const m of blanked.matchAll(FROM_ITEM)) {
     const relation = m[1].toLowerCase()
     const relStart = m.index + m[0].indexOf(m[1])
+    const scope = enclosing(groups, relStart, sql.length)[0]
     items.push({
       start: relStart,
       end: m.index + m[0].length,
       relation,
       alias: m[3] ?? m[1],
       explicitAlias: !!m[3],
-      scope: enclosing(groups, relStart, sql.length)[0],
+      scope,
+      branch: branchOf(setOps, scope, relStart),
     })
   }
 
@@ -143,7 +158,8 @@ export function toNativeSql(sql: string, mapping: SchemaMapping, tables?: readon
     if (items.some((i) => pos >= i.start && pos < i.end)) continue
     let item: FromItem | undefined
     for (const scope of enclosing(groups, pos, sql.length)) {
-      item = items.find((i) => sameScope(i.scope, scope) && i.alias.toLowerCase() === qualifier.toLowerCase())
+      const branch = branchOf(setOps, scope, pos)
+      item = items.find((i) => sameScope(i.scope, scope) && i.branch === branch && i.alias.toLowerCase() === qualifier.toLowerCase())
       if (item) break
     }
     if (item) refs.push({ start: pos, end: pos + whole.length, item, column: column.toLowerCase() })

@@ -671,6 +671,29 @@ describe('concept criteria over several tables, any or every concept', () => {
     expect(sql).toContain('e.concept_id IN (2)')
   })
 
+  describe('narrowed by the concept count', () => {
+    const narrowing = (ids: readonly number[]) => new Set(ids.includes(2) ? [] : ['linkr_event_chart'])
+    const narrowed = (config: object) => buildCohortCountSql(cohortWith(config), twoTables, narrowing)!
+
+    it('leaves out a table holding none of the concepts, and says so without querying it', () => {
+      const sql = narrowed({ conceptIds: [1] })
+      expect(withoutComments(sql)).not.toMatch(fromChart)
+      expect(sql).toMatch(/-- Not searched: linkr_event_chart — the concept count found none of these concepts there\n\s+EXISTS \(/)
+      expect(sql.match(fromLab)).toHaveLength(1)
+    })
+
+    it('reads every table that may hold one of them', () => {
+      expect(narrowed({}).match(fromChart)).toHaveLength(1)
+    })
+
+    it('matches nothing when no table holds them, rather than skipping the criterion', () => {
+      const none = (_: readonly number[]) => new Set(['linkr_event_lab', 'linkr_event_chart'])
+      const sql = buildCohortCountSql(cohortWith({ conceptIds: [1] }), twoTables, none)!
+      expect(withoutComments(sql)).not.toMatch(/EXISTS/)
+      expect(squash(withoutComments(sql))).toContain('WHERE ( FALSE )')
+    })
+  })
+
   it('requires each concept on its own when every one must be there', () => {
     const sql = sqlOf({ eventTableLabels: ['Lab'], conceptMatch: 'all' })
     expect(sql).toContain('e.concept_id IN (1)')
@@ -939,5 +962,24 @@ describe('buildCustomSqlOutputSql', () => {
   it('has nothing to run for the criteria', () => {
     expect(buildCustomSqlOutputSql({ customSql: '  ' }, 100)).toBeNull()
     expect(buildCustomSqlOutputSql({}, 100)).toBeNull()
+  })
+})
+
+describe('a concept criterion on an event keyed by (terminology, code)', () => {
+  const thesaurus = mappingV1ToV2({
+    ...mapping_V1,
+    conceptTables: [{ key: 'thes', table: 'thesaurus', idColumn: 'id', nameColumn: 'label', codeColumn: 'code', vocabularyColumn: 'terminology' }],
+    eventTables: { Data: { table: 'facts', conceptIdColumn: 'code', conceptVocabularyColumn: 'terminology', conceptCodeColumn: 'code', patientIdColumn: 'person_id' } },
+  } as never)
+
+  it('reads the rows by their codes, matched on the pairs of the ids, never every row\'s id', () => {
+    const c = makeCohort('patient')
+    c.criteriaTree.children = [{
+      kind: 'criterion', id: 'x', type: 'concept', enabled: true, operator: 'AND', exclude: false,
+      config: { conceptIds: [42], conceptNames: {} },
+    }] as never
+    const sql = squash(buildCohortCountSql(c, thesaurus)!)
+    expect(sql).toContain('FROM linkr_event_data__codes e WHERE EXISTS ( SELECT 1 FROM linkr_concept_thes c WHERE c.concept_id IN (42) AND c.concept_terminology = e.concept_terminology AND c.concept_code = e.concept_code )')
+    expect(sql).not.toContain('e.concept_id')
   })
 })

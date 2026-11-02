@@ -206,22 +206,19 @@ async def resolve_login(db: AsyncSession, source: DataSource, user_id: int) -> L
 # --- Management ------------------------------------------------------------
 
 def _invalidate_derived(source: DataSource, user_id: int) -> None:
-    from app.services.data import concept_cache_fs, connection_pool
+    from app.services.data import connection_pool
 
-    principal = principal_for(source, user_id)
-    connection_pool.invalidate(f"{source.id}:{principal}")
-    concept_cache_fs.invalidate(source.id, principal)
+    connection_pool.invalidate(f"{source.id}:{principal_for(source, user_id)}")
 
 
 async def _drop_user_caches(db: AsyncSession, source: DataSource, user_id: int) -> None:
     """Another login may have other grants: nothing computed through the old one
-    may be served under the new one."""
-    from app.services import concept_stats_cache_service, stats_cache_service
+    may be served under the new one. The concept cache is not the user's own but
+    the database's (`concept_cache_fs`), so it stays."""
+    from app.services import stats_cache_service
 
-    principal = principal_for(source, user_id)
     _invalidate_derived(source, user_id)
-    await concept_stats_cache_service.delete_for_source(db, source.id, principal)
-    await stats_cache_service.delete(db, "database", f"{source.id}:{principal}")
+    await stats_cache_service.delete(db, "database", f"{source.id}:{principal_for(source, user_id)}")
 
 
 async def save(

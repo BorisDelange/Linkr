@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn } from '@/lib/duckdb/cohort-query'
+import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
+import { cohortRelationNarrowing } from '../relation-narrowing'
 import { namesRelation } from '@/lib/schema-classes/native-sql'
 import { localized } from '@/lib/localized'
 import type { Cohort, SchemaMapping } from '@/types'
@@ -11,6 +12,9 @@ import type { Cohort, SchemaMapping } from '@/types'
 interface SqlPreviewPanelProps {
   cohort: Cohort
   mapping: SchemaMapping | undefined
+  /** The database the cohort runs on: its concept count leaves out the tables
+   *  holding none of a criterion's concepts, here as in the run. */
+  dataSourceId: string | undefined
   onCustomSqlChange: (sql: string | null) => void
   /** Runs the editor's text, saved or not (null: the criteria). */
   onExecute: (sql: string | null) => void
@@ -26,10 +30,22 @@ type SqlFormat = 'native' | 'linkr'
 /** The format a saved query is written in: native unless it names a relation. */
 const formatOf = (sql: string): SqlFormat => (namesRelation(sql) ? 'linkr' : 'native')
 
-export function SqlPreviewPanel({ cohort, mapping, onCustomSqlChange, onExecute, onDraftChange, runRef }: SqlPreviewPanelProps) {
+export function SqlPreviewPanel({ cohort, mapping, dataSourceId, onCustomSqlChange, onExecute, onDraftChange, runRef }: SqlPreviewPanelProps) {
   const { t, i18n } = useTranslation()
-  const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(cohort, mapping) : null), [cohort, mapping])
-  const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(cohort, mapping) : null), [cohort, mapping])
+  const [narrowed, setNarrowed] = useState<{ tree: Cohort['criteriaTree']; narrowing: RelationNarrowing | undefined } | null>(null)
+  useEffect(() => {
+    if (!dataSourceId || !mapping) return
+    let cancelled = false
+    const tree = cohort.criteriaTree
+    cohortRelationNarrowing(dataSourceId, mapping, cohort)
+      .then((narrowing) => { if (!cancelled) setNarrowed({ tree, narrowing }) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [dataSourceId, mapping, cohort])
+  // Only for the tree it was asked about: an edited criterion waits for its own.
+  const narrowing = narrowed?.tree === cohort.criteriaTree ? narrowed.narrowing : undefined
+  const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(cohort, mapping, false, narrowing) : null), [cohort, mapping, narrowing])
+  const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(cohort, mapping, narrowing) : null), [cohort, mapping, narrowing])
   const [chosen, setChosen] = useState<SqlFormat>('native')
   const [hasDraft, setHasDraft] = useState(false)
 

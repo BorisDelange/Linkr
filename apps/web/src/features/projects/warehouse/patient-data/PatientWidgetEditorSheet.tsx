@@ -38,7 +38,7 @@ import { copyText } from '@/lib/clipboard'
 import { TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
 import { eventRelations } from '@/lib/schema-classes/relations'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
-import { relationsCountedAt, timelineRelationsWithout } from './timeline-relations'
+import { relationsCountedAt, relationsWithoutConcepts } from './timeline-relations'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 interface PatientWidgetEditorSheetProps {
@@ -513,7 +513,7 @@ function SkippedRelationsNote({ sourceId, mapping, conceptIds }: { sourceId: str
   useEffect(() => {
     let cancelled = false
     void Promise.all([
-      timelineRelationsWithout(sourceId, mapping, conceptIds),
+      relationsWithoutConcepts(sourceId, mapping, conceptIds),
       relationsCountedAt(sourceId),
     ]).then(([without, countedAt]) => {
       if (cancelled) return

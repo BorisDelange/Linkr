@@ -35,12 +35,10 @@ export function ConceptCountNotice({
   const { live, progress } = count
   const records = live.running ? live.records : progress.records
   const patients = live.running ? live.patients : progress.patients
-  const steps = t('concepts.count_steps', {
-    records: records.done,
-    recordsTotal: records.total,
-    patients: patients.done,
-    patientsTotal: patients.total,
-  })
+  const steps = ([['records', records], ['patients', patients]] as const)
+    .filter(([, p]) => p.total > 0)
+    .map(([s, p]) => t(`concepts.count_step_percent_${s}`, { percent: Math.floor((p.done / p.total) * 100) }))
+    .join(' · ')
 
   let title: string
   let description: string | undefined

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
-import { buildValueDistributionQuery, buildValueHistogramQuery } from './concept-queries'
+import { buildDomainCountQuery, buildValueDistributionQuery, buildValueHistogramQuery } from './concept-queries'
 import { isFreshCachedStats, HISTOGRAM_VARIANT, type ConceptStats } from './use-concepts'
-import { PRECOMPUTED_STATS_VARIANT } from './concept-count-plan'
 import { withClassRelations } from '@/lib/schema-classes/inject'
+import { toNativeSql } from '@/lib/schema-classes/native-sql'
 
 // A dictionary spans several event tables, and which one holds a given concept
 // is a property of the DATA, not of the mapping. Reading only the first table
@@ -34,14 +34,14 @@ const MAPPING = mappingV1ToV2(MAPPING_V1 as never)
 describe('buildValueDistributionQuery', () => {
   it('reads every event table of the dictionary, not just the first', () => {
     const sql = buildValueDistributionQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('FROM linkr_event_observation')
-    expect(sql).toContain('FROM linkr_event_measurement')
+    expect(sql).toContain('FROM linkr_event_observation e')
+    expect(sql).toContain('FROM linkr_event_measurement e')
     expect(sql).toContain('UNION ALL')
   })
 
   it('matches the concept on both the concept and source-concept columns', () => {
     const sql = buildValueDistributionQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('concept_id = 3024171 OR source_concept_id = 3024171')
+    expect(sql).toContain('e.concept_id = 3024171 OR e.source_concept_id = 3024171')
     const full = withClassRelations(sql, MAPPING)
     expect(full).toContain('e."measurement_concept_id" AS concept_id')
     expect(full).toContain('e."measurement_source_concept_id" AS source_concept_id')
@@ -69,7 +69,7 @@ describe('buildValueDistributionQuery', () => {
       eventTables: { measurement: MAPPING_V1.eventTables.measurement },
     } as never)
     const sql = buildValueDistributionQuery(one, 'omop', 3024171)!
-    expect(sql).toContain('FROM linkr_event_measurement')
+    expect(sql).toContain('FROM linkr_event_measurement e')
     expect(sql).not.toContain('UNION ALL')
   })
 })
@@ -77,8 +77,8 @@ describe('buildValueDistributionQuery', () => {
 describe('buildValueHistogramQuery', () => {
   it('bins values from every event table of the dictionary', () => {
     const sql = buildValueHistogramQuery(MAPPING, 'omop', 3024171)!
-    expect(sql).toContain('FROM linkr_event_observation')
-    expect(sql).toContain('FROM linkr_event_measurement')
+    expect(sql).toContain('FROM linkr_event_observation e')
+    expect(sql).toContain('FROM linkr_event_measurement e')
     expect(sql).toContain('UNION ALL')
   })
 
@@ -107,15 +107,25 @@ describe('the stats queries an external database computes itself', () => {
   ])('the %s avoids what has no Doris spelling', (_, sql) => {
     expect(sql).not.toMatch(/STDDEV\(|ANY_VALUE|::NUMERIC/)
     expect(sql).not.toMatch(/(?<!CAST\()FLOOR\(/)
-    expect(sql).toContain('CAST(value_number AS DOUBLE) AS v')
+    expect(sql).toContain('CAST(e.value_number AS DOUBLE) AS v')
+  })
+})
+
+describe('the stats queries on the database\'s own tables', () => {
+  // The stats dialog shows them; every column is qualified, each table's under
+  // its own branch of the UNION.
+  it.each([
+    ['count', buildDomainCountQuery(MAPPING, 'omop', 1)!],
+    ['histogram', buildValueHistogramQuery(MAPPING, 'omop', 1)!],
+  ])('the %s reads each table with its own columns', (_, sql) => {
+    const native = toNativeSql(sql, MAPPING)!
+    expect(native).not.toMatch(/linkr_/)
+    expect(native).toMatch(/FROM observation e\s+WHERE \(?e\.observation_concept_id = 1 OR e\.observation_source_concept_id = 1/)
+    expect(native).toMatch(/FROM measurement e\s+WHERE \(?e\.measurement_concept_id = 1 OR e\.measurement_source_concept_id = 1/)
   })
 })
 
 describe('isFreshCachedStats', () => {
-  it('serves the stats the counting run precomputed', () => {
-    expect(isFreshCachedStats({ rowCount: 3, histogram: [{ bin_start: 1, count: 3 }], histogramVariant: PRECOMPUTED_STATS_VARIANT })).toBe(true)
-  })
-
   it('serves a row tagged with the current variant', () => {
     expect(isFreshCachedStats({
       rowCount: 10,

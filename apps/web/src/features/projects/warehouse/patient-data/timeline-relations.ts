@@ -6,7 +6,8 @@ import { isServerMode } from '@/lib/api-client'
 import { LruMap } from '@/lib/lru-map'
 
 /**
- * The event relations a patient's timeline of some concepts can leave out: those
+ * The event relations a read of some concepts — a patient's timeline, a cohort
+ * criterion — can leave out: those
  * the last concept count counted, under the SQL they still have, and found none
  * of these concepts in. One not counted, or counted under another SQL, is read —
  * the counts never hide a relation they did not see. They do not see rows loaded
@@ -33,7 +34,7 @@ const countedAtMemo = new LruMap<string, { at: number; countedAt: Promise<string
 
 /** relationsWithout for a server database, asked once a minute per concept set.
  *  Empty — every relation read — when the server cannot tell. */
-export async function timelineRelationsWithout(
+export async function relationsWithoutConcepts(
   sourceId: string,
   mapping: SchemaMapping,
   conceptIds: readonly number[],

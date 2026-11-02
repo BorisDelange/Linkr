@@ -8,6 +8,7 @@ import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
 import { buildCohortCountSql, buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortRunError } from '@/lib/duckdb/cohort-query'
+import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -457,7 +458,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       }
 
       // A hand-written query stands in for the criteria inside every builder.
-      const countSql = buildCohortCountSql(cohort, schemaMapping)
+      const narrowing = await cohortRelationNarrowing(dataSourceId, schemaMapping, cohort)
+      const countSql = buildCohortCountSql(cohort, schemaMapping, narrowing)
       // No SQL means the criteria tree produced nothing runnable (an empty group,
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
@@ -469,7 +471,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
 
       const attrition: AttritionStep[] = []
       let prevCount = 0
-      for (const aq of buildAttritionQueries(cohort, schemaMapping)) {
+      for (const aq of buildAttritionQueries(cohort, schemaMapping, { narrowing })) {
         const res = await query(aq.sql)
         const count = Number(res[0]?.cnt ?? 0)
         attrition.push({
@@ -486,7 +488,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // cohort of 1500. Cost is flat in the row count (measured on a real
       // MIMIC build: 50 rows and 100k rows both ~200ms — the scan dominates),
       // so the small limit bought nothing.
-      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0)
+      const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, 0, narrowing)
       const rows = resultsSql ? await query(resultsSql) : []
 
       const durationMs = Date.now() - startTime
@@ -578,7 +580,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     }))
 
     try {
-      const sql = buildCohortMembershipSql(cohort, schemaMapping)
+      const sql = buildCohortMembershipSql(cohort, schemaMapping, await cohortRelationNarrowing(dataSourceId, schemaMapping, cohort))
       // Returning here without clearing the spinner left the button turning for
       // ever with nothing to explain it — surface it as the failure it is.
       if (!sql) throw new Error('EMPTY_QUERY')

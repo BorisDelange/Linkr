@@ -33,6 +33,16 @@ import { csvEscape } from './export'
 import { hashedConceptId } from './hashed-concept-id'
 import { escSql } from '@/lib/format-helpers'
 import { has } from '@/lib/schema-classes/relations'
+import {
+  exactOptions,
+  filterProfile,
+  mergeProfile,
+  missingSections,
+  sectionSet,
+  variantOf,
+  type SectionKey,
+  type StoredProfile,
+} from '@/lib/concept-profiles/profile-store'
 
 /** Execute SQL against the source database and return its rows. */
 export type QueryFn = (sql: string) => Promise<Record<string, unknown>[]>
@@ -539,6 +549,18 @@ export interface BatchResult {
 }
 
 /**
+ * The database's profile store, as a batch reads and adds to it
+ * (`lib/concept-profiles`): a concept whose sections it holds for this data is
+ * not profiled again, and what is profiled is kept there, exact, for the next
+ * reader. `fingerprint`: the data the run reads (`dataFingerprint`).
+ */
+export interface BatchProfileStore {
+  read: (dictKey: string, conceptIds: readonly number[]) => Promise<Map<number, StoredProfile>>
+  write: (profiles: StoredProfile[]) => Promise<void>
+  fingerprint: string
+}
+
+/**
  * Reported after each concept so the UI can show progress within a batch.
  *
  * Carries the concept itself, not only the count: at fifty concepts a second the
@@ -589,6 +611,7 @@ export async function extractBatch(
   recordTotals?: Map<number, number>,
   /** Runs the profile queries, whose results can exceed `query`'s row cap. */
   profileQuery: QueryFn = query,
+  store?: BatchProfileStore,
 ): Promise<BatchResult> {
   const sql = buildDictionaryPageQuery(source, batchSize, offset, sort, orderedIds)
   // An empty ranking slice means the ranked list is exhausted — there is no
@@ -617,38 +640,70 @@ export async function extractBatch(
 
   const profiles = new Map<number, ProfileOutcome>()
   if (metadata) {
+    const variant = variantOf(options)
+    const stored = store ? await store.read(source.dictionary.key, concepts.map((c) => c.conceptId)) : new Map<number, StoredProfile>()
+    // What each concept still needs: everything without a store. A concept the
+    // store answers for whole is not profiled; the others are profiled for what
+    // they lack, grouped so that one batch computes one set of sections.
+    const lacking = new Map<number, SectionKey[]>()
+    for (const { conceptId } of concepts) {
+      const missing = store ? missingSections(stored.get(conceptId), options.sections, variant, store.fingerprint) : null
+      if (missing && missing.length === 0) profiles.set(conceptId, filterProfile(stored.get(conceptId)!, options))
+      else if (missing) lacking.set(conceptId, missing)
+    }
     // Each concept in its home table: a batch reads one table.
-    const byTable = new Map<number, ConceptToProfile[]>()
+    const groups = new Map<string, { index: number; missing: SectionKey[] | null; concepts: ConceptToProfile[] }>()
     for (const { concept, conceptId, conceptName } of concepts) {
+      if (profiles.has(conceptId)) continue
       const index = homes?.get(conceptId) ?? 0
-      const group = byTable.get(index) ?? []
-      group.push({ conceptId, conceptName, category: concept.category ?? undefined })
-      byTable.set(index, group)
+      const missing = lacking.get(conceptId) ?? null
+      const key = `${index}|${missing?.join(',') ?? '*'}`
+      const group = groups.get(key) ?? { index, missing, concepts: [] }
+      group.concepts.push({ conceptId, conceptName, category: concept.category ?? undefined })
+      groups.set(key, group)
     }
     const named = new Map(concepts.map((c) => [c.conceptId, c]))
     let profiled = 0
-    for (const [index, group] of byTable) {
+    const progress = (ids: readonly number[]) => {
+      profiled += ids.length
+      const last = named.get(ids[ids.length - 1])
+      if (!last) return
+      onProgress?.(offset + profiled, total, {
+        conceptCode: last.concept.concept_code == null ? '' : String(last.concept.concept_code),
+        conceptName: last.conceptName,
+      })
+    }
+    if (profiles.size > 0) progress([...profiles.keys()])
+    const computedAt = new Date().toISOString()
+    for (const { index, missing, concepts: group } of groups.values()) {
       if (signal?.aborted) break
       const home = source.events[index] ?? source.event
       const done = await buildConceptProfiles(
-        mapping, home === source.event ? source : { ...source, event: home }, group, options, profileQuery,
+        mapping, home === source.event ? source : { ...source, event: home }, group,
+        missing ? exactOptions(options, sectionSet(missing)) : options, profileQuery,
         {
           // The records over every table bound the home table's: enough to size
           // a batch. A concept absent from the totals has none.
           rowsOf: recordTotals ? (id) => recordTotals.get(id) ?? 0 : undefined,
           signal,
-          onBatch: (ids) => {
-            profiled += ids.length
-            const last = named.get(ids[ids.length - 1])
-            if (!last) return
-            onProgress?.(offset + profiled, total, {
-              conceptCode: last.concept.concept_code == null ? '' : String(last.concept.concept_code),
-              conceptName: last.conceptName,
-            })
-          },
+          onBatch: progress,
         },
       )
-      for (const [id, profile] of done) profiles.set(id, profile)
+      const kept: StoredProfile[] = []
+      for (const [id, profile] of done) {
+        if (!missing || !store) {
+          profiles.set(id, profile)
+          continue
+        }
+        const merged = mergeProfile(
+          stored.get(id), profile, missing, { dictKey: source.dictionary.key, conceptId: id }, variant, store.fingerprint, computedAt,
+        )
+        // A concept with no record has nothing worth keeping, and a dictionary
+        // holds far more of those than of the others.
+        if (merged.rowsCount > 0) kept.push(merged)
+        profiles.set(id, filterProfile(merged, options))
+      }
+      if (store && kept.length > 0) await store.write(kept)
     }
   }
 

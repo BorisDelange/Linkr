@@ -23,9 +23,11 @@ import {
   rankConceptIds,
   sortNeedsCounts,
   walkKey,
+  type BatchProfileStore,
   type ExtractedConcept,
 } from './source-extraction'
 import type { SchemaMapping } from '@/types/schema-mapping'
+import { sectionsOf, variantOf, type StoredProfile } from '@/lib/concept-profiles/profile-store'
 
 // Written as a v1 mapping, converted below: the raw literal keeps its own type,
 // so the tests can derive variants of its blocks.
@@ -229,6 +231,47 @@ describe('extractBatch', () => {
       record_count: 500, patient_count: 42,
     })
     expect(JSON.parse(result.rows[0].info_json)).toMatchObject({ numeric_data: { min: 1, max: 60 } })
+  })
+
+  describe('with the database\'s profile store', () => {
+    const variant = variantOf(opts)
+    const kept = (conceptId: number): StoredProfile => ({
+      dictKey: source().dictionary.key, conceptId, rowsCount: 500, patientsCount: 5,
+      json: { numeric_data: { min: 3 } }, sections: sectionsOf(opts.sections), variant, fingerprint: 'f1', computedAt: 'then',
+    })
+    const storeWith = (profiles: StoredProfile[], fingerprint = 'f1') => {
+      const written: StoredProfile[] = []
+      const store: BatchProfileStore = {
+        fingerprint,
+        read: async (_, ids) => new Map(profiles.filter((p) => ids.includes(p.conceptId)).map((p) => [p.conceptId, p])),
+        write: async (ps) => { written.push(...ps) },
+      }
+      return { store, written }
+    }
+    const profileRows = {
+      match: 'COUNT(*) AS rows_count',
+      rows: [2].map((concept_id) => ({ concept_id, rows_count: 500, patients_count: 42, p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 100 })),
+    }
+
+    it('reads the concepts it holds, profiles and keeps the others, exact', async () => {
+      const { query, seen } = engine([{ match: 'LIMIT 10 OFFSET 0', rows: page(2) }, profileRows])
+      const { store, written } = storeWith([kept(1)])
+      const result = await extractBatch(OMOP, source(), { ...opts, minPatients: 11 }, 0, 10, 2, query, undefined, undefined, undefined, undefined, undefined, undefined, query, store)
+
+      // Concept 1 from the store, under this reader's threshold: counts, no profile.
+      expect(result.rows[0]).toMatchObject({ concept_id: 1, record_count: 500, patient_count: 5, info_json: '' })
+      expect(seen.some((sql) => sql.includes('IN (1, 2)'))).toBe(false)
+      expect(seen.some((sql) => sql.includes('IN (2)'))).toBe(true)
+      expect(written.map((p) => p.conceptId)).toEqual([2])
+      expect(written[0]).toMatchObject({ fingerprint: 'f1', patientsCount: 42 })
+    })
+
+    it('profiles again what was computed on other data', async () => {
+      const { query } = engine([{ match: 'LIMIT 10 OFFSET 0', rows: page(2) }, { ...profileRows, rows: [1, 2].map((concept_id) => ({ ...profileRows.rows[0], concept_id })) }])
+      const { store, written } = storeWith([kept(1)], 'f2')
+      await extractBatch(OMOP, source(), opts, 0, 10, 2, query, undefined, undefined, undefined, undefined, undefined, undefined, query, store)
+      expect(written.map((p) => p.conceptId).sort()).toEqual([1, 2])
+    })
   })
 
   it('without metadata, copies the dictionary and never queries the event table', async () => {

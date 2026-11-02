@@ -3,7 +3,6 @@ import contextlib
 import logging
 import re
 import uuid
-from datetime import UTC, datetime
 
 import duckdb
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -21,6 +20,11 @@ from app.models.job import Job
 from app.models.user import User
 from app.schemas.concept_cache import (
     ConceptCacheAssembleRequest,
+    ConceptProfilesRead,
+    ConceptProfilesResult,
+    ConceptProfilesRunSave,
+    ConceptProfilesSummary,
+    ConceptProfilesWrite,
     ConceptCacheStatus,
     ConceptRunStart,
     ConceptUnitsJobRequest,
@@ -28,10 +32,6 @@ from app.schemas.concept_cache import (
     ConceptPageResult,
     ConceptRelationsRequest,
     ConceptRelationsResult,
-    ConceptStatsPlanRequest,
-    ConceptStatsPlanResult,
-    ConceptStatsRange,
-    ConceptStatsDiagnosis,
     ConceptStatsResponse,
     ConceptStatsSave,
 )
@@ -69,6 +69,7 @@ from app.services import (
     blob_store,
     change_tracking,
     cohort_derive_service,
+    concept_profile_service,
     concept_stats_cache_service,
     data_source_service,
     database_credential_service,
@@ -935,15 +936,14 @@ async def concept_cache_status(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Whether the caller's view of the source has a materialized concept-list
-    cache, its "last refreshed" time (the Parquet file's mtime), and where the
-    counting run that writes it stands."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    principal = _principal(source, user)
+    """Whether the source has a materialized concept-list cache, its "last
+    refreshed" time (the Parquet file's mtime), and where the counting run that
+    writes it stands."""
+    await _load_source(db, source_id, user, "databases:read")
     return ConceptCacheStatus(
-        exists=concept_cache_fs.exists(source_id, principal),
-        refreshed_at=concept_cache_fs.refreshed_at(source_id, principal),
-        run=concept_cache_fs.run_status(source_id, principal),
+        exists=concept_cache_fs.exists(source_id),
+        refreshed_at=concept_cache_fs.refreshed_at(source_id),
+        run=concept_cache_fs.run_status(source_id),
     )
 
 
@@ -955,13 +955,12 @@ async def start_concept_run(
     db: AsyncSession = Depends(get_db),
 ):
     """Store the counting run's manifest — `reset` drops the units already done.
-    For a file database the cache is shared, so it takes the editor role; for an
-    external one it is the caller's own."""
+    The cache is shared by everyone who opens the database, so it takes the
+    editor role."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    login = await _login(db, source, user)
+    await _require_source_access(db, source, user, "databases:write")
     try:
-        await data_source_service.start_concept_run(source, login, body.manifest, body.reset)
+        await data_source_service.start_concept_run(source, body.manifest, body.reset)
     except concept_cache_fs.RunConflict as e:
         raise HTTPException(status.HTTP_409_CONFLICT, str(e))
     except ValueError as e:
@@ -979,13 +978,13 @@ async def start_concept_units_job(
     units too long for one request — 409 when that run is no longer the stored
     one. The job lists each unit done once its file is kept."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
+    await _require_source_access(db, source, user, "databases:write")
     if not source.workspace_id:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database belongs to no workspace")
     login = await _login(db, source, user)
     if len({u.key for u in body.units}) != len(body.units):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "unit keys must be unique")
-    run = concept_cache_fs.run_status(source.id, _principal(source, user))
+    run = concept_cache_fs.run_status(source.id)
     if run is None or run["manifest"].get("runId") != body.run_id:
         raise HTTPException(status.HTTP_409_CONFLICT, "this counting run was replaced")
     return await query_jobs.start(
@@ -1004,7 +1003,7 @@ async def assemble_concept_cache(
     """Write the concept list from the units done so far. Atomic: readers keep
     seeing the previous list until the new one is in place."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
+    await _require_source_access(db, source, user, "databases:write")
     login = await _login(db, source, user)
     try:
         mtime = await data_source_service.assemble_concept_cache(db, source, login, body.select_sql)
@@ -1014,10 +1013,7 @@ async def assemble_concept_cache(
         raise
     except Exception as e:  # noqa: BLE001 — surface SQL/connection errors to the client
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
-    principal = _principal(source, user)
-    return ConceptCacheStatus(
-        exists=True, refreshed_at=mtime, run=concept_cache_fs.run_status(source_id, principal),
-    )
+    return ConceptCacheStatus(exists=True, refreshed_at=mtime, run=concept_cache_fs.run_status(source_id))
 
 
 @router.post("/{source_id}/concept-cache/query", response_model=ConceptPageResult)
@@ -1029,9 +1025,9 @@ async def query_concept_cache(
 ):
     """Run a page/filter/sort query against the cached concept Parquet (view
     `concepts`). 404 if the cache has not been built yet."""
-    source = await _load_source(db, source_id, user, "databases:read")
+    await _load_source(db, source_id, user, "databases:read")
     try:
-        rows = await data_source_service.query_concept_cache(source_id, _principal(source, user), body.sql)
+        rows = await data_source_service.query_concept_cache(source_id, body.sql)
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No concept cache")
     except Exception as e:  # noqa: BLE001
@@ -1048,30 +1044,10 @@ async def concept_cache_relations(
 ):
     """The event relations the last counting run counted, and which of them hold
     any of `conceptIds` — a patient's timeline then reads only those."""
-    source = await _load_source(db, source_id, user, "databases:read")
+    await _load_source(db, source_id, user, "databases:read")
     ids = [str(i) for i in body.concept_ids]
-    relations = await asyncio.to_thread(concept_cache_fs.counted_relations, source_id, _principal(source, user), ids)
+    relations = await asyncio.to_thread(concept_cache_fs.counted_relations, source_id, ids)
     return ConceptRelationsResult(relations=relations)
-
-
-@router.post("/{source_id}/concept-cache/stats-plan", response_model=ConceptStatsPlanResult)
-async def plan_concept_stats(
-    source_id: str,
-    body: ConceptStatsPlanRequest,
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """The id ranges of the counting run's `stats` units, about `maxRows` values
-    each, packed from the row counts its record units hold."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    dicts = [{"dictKey": d.dict_key, "relations": d.relations} for d in body.dicts]
-    ranges = await asyncio.to_thread(
-        concept_cache_fs.plan_stats_ranges, source_id, _principal(source, user), dicts, body.max_rows,
-    )
-    return ConceptStatsPlanResult(
-        ranges=[ConceptStatsRange(dict_key=r["dictKey"], lo=r["lo"], hi=r["hi"]) for r in ranges],
-    )
 
 
 @router.get(
@@ -1080,56 +1056,15 @@ async def plan_concept_stats(
 async def get_concept_stats(
     source_id: str,
     concept_id: int,
-    dict_key: str | None = Query(default=None, alias="dictKey"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Detail-panel stats for one concept, as the caller sees the source: the
-    newer of those the counting run's `stats` step computed and those cached by
-    a click. 404 until either exists."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    principal = _principal(source, user)
-    precomputed = await asyncio.to_thread(
-        concept_cache_fs.precomputed_stats, source_id, principal, concept_id, dict_key,
-    )
-    row = await concept_stats_cache_service.get(db, source_id, concept_id, principal)
-    if precomputed is not None:
-        stats, computed_at = precomputed
-        if row is None or _as_utc(row.updated_at).timestamp() <= computed_at:
-            return ConceptStatsResponse(
-                data_source_id=source_id, concept_id=concept_id, stats=stats,
-                updated_at=datetime.fromtimestamp(computed_at, tz=UTC),
-            )
+    """Detail-panel stats for one concept, cached by a click. 404 until they are."""
+    await _load_source(db, source_id, user, "databases:read")
+    row = await concept_stats_cache_service.get(db, source_id, concept_id)
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No stats")
     return row
-
-
-def _as_utc(moment: datetime) -> datetime:
-    # SQLite hands timestamps back naive; they are stored in UTC.
-    return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
-
-
-@router.get(
-    "/{source_id}/concept-stats/{concept_id}/diagnose",
-    response_model=ConceptStatsDiagnosis,
-    response_model_exclude_none=True,
-)
-async def diagnose_concept_stats(
-    source_id: str,
-    concept_id: int,
-    dict_key: str | None = Query(default=None, alias="dictKey"),
-    user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """What the counting run's `stats` step holds for one concept, and the unit
-    that should have described it — for the detail panel, when it has none.
-    Gated like computing them: it describes the run's own files."""
-    source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    return await asyncio.to_thread(
-        concept_cache_fs.diagnose_stats, source_id, _principal(source, user), concept_id, dict_key,
-    )
 
 
 @router.put(
@@ -1142,13 +1077,77 @@ async def save_concept_stats(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Persist the stats a client computed for one concept, for everyone who sees
-    the source through the same principal."""
+    """Persist the stats a client computed for one concept, for everyone who
+    opens the source."""
     source = await _load_source(db, source_id, user, "databases:read")
-    await _require_source_access(db, source, user, _cache_write_permission(source))
-    return await concept_stats_cache_service.save(
-        db, source_id, concept_id, _principal(source, user), body.stats
+    await _require_source_access(db, source, user, "databases:write")
+    return await concept_stats_cache_service.save(db, source_id, concept_id, body.stats)
+
+
+# --- Concept profiles: one exact profile per concept, shared by the database's
+# views (concept_profile_service). Writing them is an edit, like the concept list.
+
+@router.post("/{source_id}/concept-profiles/read", response_model=ConceptProfilesResult)
+async def read_concept_profiles(
+    source_id: str,
+    body: ConceptProfilesRead,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The stored profiles of these concepts of one dictionary (absent ones left out)."""
+    await _load_source(db, source_id, user, "databases:read")
+    return ConceptProfilesResult(
+        profiles=await concept_profile_service.read(db, source_id, body.dict_key, body.concept_ids),
     )
+
+
+@router.put("/{source_id}/concept-profiles", status_code=status.HTTP_204_NO_CONTENT)
+async def write_concept_profiles(
+    source_id: str,
+    body: ConceptProfilesWrite,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Replace the profiles of the concepts sent."""
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, "databases:write")
+    for p in body.profiles:
+        if not isinstance(p.get("dictKey"), str) or not isinstance(p.get("conceptId"), int):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "each profile needs a dictKey and an integer conceptId")
+    await concept_profile_service.write(db, source_id, body.profiles)
+
+
+@router.get("/{source_id}/concept-profiles/summary", response_model=ConceptProfilesSummary)
+async def concept_profiles_summary(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_source(db, source_id, user, "databases:read")
+    return await concept_profile_service.summary(db, source_id)
+
+
+@router.put("/{source_id}/concept-profiles/run", status_code=status.HTTP_204_NO_CONTENT)
+async def save_concept_profiles_run(
+    source_id: str,
+    body: ConceptProfilesRunSave,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, "databases:write")
+    await concept_profile_service.save_run(db, source_id, body.computed_at, body.run)
+
+
+@router.delete("/{source_id}/concept-profiles", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_concept_profiles(
+    source_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    source = await _load_source(db, source_id, user, "databases:read")
+    await _require_source_access(db, source, user, "databases:write")
+    await concept_profile_service.delete_for_source(db, source_id)
 
 
 _STATS_SCOPE = "database"

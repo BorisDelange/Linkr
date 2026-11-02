@@ -17,9 +17,9 @@ async def _source(db) -> str:
 
 async def test_save_inserts_then_overwrites(db):
     sid = await _source(db)
-    await concept_stats_cache_service.save(db, sid, 42, "user:a", {"n": 1})
-    await concept_stats_cache_service.save(db, sid, 42, "user:a", {"n": 2})
-    row = await concept_stats_cache_service.get(db, sid, 42, "user:a")
+    await concept_stats_cache_service.save(db, sid, 42, {"n": 1})
+    await concept_stats_cache_service.save(db, sid, 42, {"n": 2})
+    row = await concept_stats_cache_service.get(db, sid, 42)
     assert row.stats == {"n": 2}
 
 
@@ -27,7 +27,7 @@ async def test_a_concurrent_first_save_overwrites_instead_of_failing(db, monkeyp
     """The other request's insert lands between this one's get (None) and its
     insert, which then hits the primary key."""
     sid = await _source(db)
-    await concept_stats_cache_service.save(db, sid, 42, "user:a", {"n": 1})
+    await concept_stats_cache_service.save(db, sid, 42, {"n": 1})
     real_get = concept_stats_cache_service.get
     lost_race = []
 
@@ -38,8 +38,8 @@ async def test_a_concurrent_first_save_overwrites_instead_of_failing(db, monkeyp
         return await real_get(*args, **kwargs)
 
     monkeypatch.setattr(concept_stats_cache_service, "get", get)
-    await concept_stats_cache_service.save(db, sid, 42, "user:a", {"n": 2})
+    await concept_stats_cache_service.save(db, sid, 42, {"n": 2})
     monkeypatch.undo()
 
-    row = await concept_stats_cache_service.get(db, sid, 42, "user:a")
+    row = await concept_stats_cache_service.get(db, sid, 42)
     assert row.stats == {"n": 2}
