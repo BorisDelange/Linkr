@@ -205,7 +205,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
                   {t('cohorts.tables_stop')}
                 </Button>
               ) : (
-                <Button variant="ghost" size="sm" className="h-6 gap-1 text-xs" onClick={() => void countAll()}>
+                <Button size="sm" className="h-6 gap-1 text-xs" onClick={() => void countAll()}>
                   <Play size={12} />
                   {t('cohorts.tables_count_all')}
                 </Button>

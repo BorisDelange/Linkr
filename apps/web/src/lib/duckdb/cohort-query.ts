@@ -1387,6 +1387,50 @@ function buildSelectColumns(level: CohortLevel, mapping: SchemaMapping, baseTabl
   return cols.join(',\n  ')
 }
 
+/** How long the concept names of a step's label may run before `+N`. */
+const LABEL_NAMES_LENGTH = 60
+/** The most lines a step's detail lists before `+N`. */
+const DETAIL_LINES = 30
+
+/** As many names as fit in `length` characters — always the first — then
+ *  how many were left out. */
+function namesWithin(names: readonly string[], length: number): string {
+  let shown = 1
+  let used = names[0]?.length ?? 0
+  while (shown < names.length && used + 2 + names[shown].length <= length) used += 2 + names[shown++].length
+  const rest = names.length - shown
+  return `${names.slice(0, shown).join(', ')}${rest > 0 ? ` +${rest}` : ''}`
+}
+
+const capped = (lines: string[]) =>
+  lines.length > DETAIL_LINES ? [...lines.slice(0, DETAIL_LINES), `+${lines.length - DETAIL_LINES}`] : lines
+
+/**
+ * What a step's short label leaves out, one item per line, for its tooltip: a
+ * concept criterion's tables and each of its concepts, a group's criteria, an id
+ * list's ids. Empty when the label already says it all.
+ */
+export function getNodeDetail(node: CriteriaTreeNode, mapping?: SchemaMapping): string[] {
+  if (node.kind === 'group') return capped(node.children.filter((c) => c.enabled).map((c) => getNodeLabel(c, mapping)))
+  switch (node.type) {
+    case 'concept': {
+      const c = node.config as ConceptCriteriaConfig
+      const label = conceptLabel(c)
+      const listed = listedEventTables(c)
+      return [
+        !listed ? 'All tables' : listed.length ? `Tables: ${listed.join(', ')}` : 'No table',
+        ...capped((c.conceptIds ?? []).map((id) => [id, label(id)].filter(Boolean).join(' - '))),
+      ]
+    }
+    case 'id_list': {
+      const ids = cleanIdList((node.config as IdListCriteriaConfig).ids)
+      return ids.length > 3 ? capped(ids) : []
+    }
+    default:
+      return []
+  }
+}
+
 /** Human-readable label for a criteria tree node (for attrition chart). */
 export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): string {
   if (node.kind === 'group') {
@@ -1439,7 +1483,7 @@ export function getNodeLabel(node: CriteriaTreeNode, mapping?: SchemaMapping): s
     case 'concept': {
       const c = node.config as ConceptCriteriaConfig
       const names = Object.values(c.conceptNames ?? {})
-      const label = names.length <= 2 ? names.join(', ') : `${names[0]} +${names.length - 1}`
+      const label = namesWithin(names, LABEL_NAMES_LENGTH)
       const listed = listedEventTables(c)
       const tables = !listed ? 'All tables' : listed.length ? listed.join(', ') : 'No table'
       return `${prefix}${tables}: ${c.conceptMatch === 'all' && names.length > 1 ? `all of ${label}` : label}`

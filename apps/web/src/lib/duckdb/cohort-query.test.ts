@@ -9,6 +9,7 @@ import {
   buildCohortResultsSql,
   conceptCriterionBoundToStay,
   conceptEventTables,
+  getNodeDetail,
   getNodeLabel,
   cohortRunError,
   withinStaySql,
@@ -1018,5 +1019,36 @@ describe('a concept criterion on an event keyed by (terminology, code)', () => {
     const sql = squash(buildCohortCountSql(c, thesaurus)!)
     expect(sql).toContain('FROM linkr_event_data__codes e WHERE EXISTS ( SELECT 1 FROM linkr_concept_thes c WHERE c.concept_id IN ( 42 ) AND c.concept_terminology = e.concept_terminology AND c.concept_code = e.concept_code )')
     expect(sql).not.toContain('e.concept_id')
+  })
+})
+
+describe('attrition step labels and details', () => {
+  const concept = (ids: number[], names: string[], eventTableLabels?: string[]) => ({
+    kind: 'criterion', id: 'c', type: 'concept', enabled: true, operator: 'AND', exclude: false,
+    config: {
+      conceptIds: ids,
+      conceptNames: Object.fromEntries(ids.map((id, i) => [id, names[i]])),
+      conceptVocabularies: Object.fromEntries(ids.map((id) => [id, 'LOINC'])),
+      ...(eventTableLabels ? { eventTableLabels } : {}),
+    },
+  }) as unknown as Parameters<typeof getNodeLabel>[0]
+
+  it('names as many concepts as fit before +N', () => {
+    expect(getNodeLabel(concept([1, 2, 3], ['Urine output', 'Diuresis', 'Creatinine']))).toBe('All tables: Urine output, Diuresis, Creatinine')
+    const long = Array.from({ length: 6 }, (_, i) => `A rather long concept name ${i}`)
+    expect(getNodeLabel(concept([1, 2, 3, 4, 5, 6], long))).toBe(`All tables: ${long[0]}, ${long[1]} +4`)
+  })
+
+  it('details a concept criterion: its tables, then each concept', () => {
+    expect(getNodeDetail(concept([1, 2], ['Urine output', 'Diuresis'], ['Lab']))).toEqual([
+      'Tables: Lab', '1 - LOINC - Urine output', '2 - LOINC - Diuresis',
+    ])
+  })
+
+  it('caps a long detail with +N', () => {
+    const ids = Array.from({ length: 35 }, (_, i) => i + 1)
+    const detail = getNodeDetail(concept(ids, ids.map((i) => `c${i}`)))
+    expect(detail).toHaveLength(32)
+    expect(detail.at(-1)).toBe('+5')
   })
 })

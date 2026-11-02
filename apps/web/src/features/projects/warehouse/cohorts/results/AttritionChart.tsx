@@ -2,21 +2,81 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { cn } from '@/lib/utils'
+import { Tooltip as HoverTip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { TruncatedText } from '@/components/ui/truncated-text'
+import { ChartTooltipCard } from '@/features/projects/lab/datasets/analyses/chart-tooltip'
 import type { AttritionStep } from '@/types'
 
 interface AttritionChartProps {
   attrition: AttritionStep[]
+  /** What each step's label leaves out (its tables, its concepts), by node id. */
+  details?: Record<string, string[]>
 }
 
 type AttritionView = 'bars' | 'flowchart'
 
-const BAR_SIZE = 14
-const ROW_HEIGHT = 26
+const BAR_SIZE = 16
+const ROW_HEIGHT = 38
+const AXIS_WIDTH = 220
+/** Characters per line of an axis label: 10px text in AXIS_WIDTH. */
+const TICK_CHARS = 38
+const TICK_LINES = 2
+
+/** A label on at most `maxLines` lines of `maxChars`, broken between words, the
+ *  last line ending in … when the label runs on. */
+function wrapLabel(label: string, maxChars: number, maxLines: number): string[] {
+  const lines: string[] = []
+  let line = ''
+  for (const word of label.split(/\s+/).filter(Boolean)) {
+    const next = line ? `${line} ${word}` : word
+    if (next.length <= maxChars) { line = next; continue }
+    if (line) lines.push(line)
+    line = word
+    if (lines.length === maxLines) break
+  }
+  if (lines.length < maxLines && line) lines.push(line)
+  const shown = lines.slice(0, maxLines)
+  const cut = shown.join(' ').length < label.trim().replace(/\s+/g, ' ').length
+  return shown.map((l, i) => {
+    const last = i === shown.length - 1
+    if (l.length > maxChars || (last && cut)) return `${l.slice(0, maxChars - 1).trimEnd()}…`
+    return l
+  })
+}
+
+function StepTick({ x = 0, y = 0, payload }: { x?: number; y?: number; payload?: { value?: string } }) {
+  const lines = wrapLabel(payload?.value ?? '', TICK_CHARS, TICK_LINES)
+  const lineHeight = 12
+  return (
+    <text x={x - 4} y={y} textAnchor="end" fontSize={10} fill="var(--color-muted-foreground)">
+      {lines.map((line, i) => (
+        <tspan key={i} x={x - 4} dy={i === 0 ? 3 - ((lines.length - 1) * lineHeight) / 2 : lineHeight}>{line}</tspan>
+      ))}
+    </text>
+  )
+}
+
+/** A step's label, its detail in a tooltip when it has one, else the full
+ *  label when cut. */
+function StepLabel({ label, detail, className }: { label: string; detail?: string[]; className?: string }) {
+  if (!detail?.length) return <TruncatedText text={label} className={className} />
+  return (
+    <HoverTip>
+      <TooltipTrigger asChild>
+        <span className={cn('block truncate', className)}>{label}</span>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" className="max-w-sm">
+        <p className="font-medium">{label}</p>
+        {detail.map((line, i) => <p key={i} className="break-words">{line}</p>)}
+      </TooltipContent>
+    </HoverTip>
+  )
+}
 
 /** Later steps fade, so the eye follows the funnel down. */
 const stepOpacity = (idx: number) => Math.max(0.35, 1 - idx * 0.12)
 
-export function AttritionChart({ attrition }: AttritionChartProps) {
+export function AttritionChart({ attrition, details }: AttritionChartProps) {
   const { t } = useTranslation()
   const [view, setView] = useState<AttritionView>('bars')
 
@@ -47,12 +107,14 @@ export function AttritionChart({ attrition }: AttritionChartProps) {
           ))}
         </div>
       </div>
-      {view === 'bars' ? <AttritionBars attrition={attrition} /> : <AttritionFlowchart attrition={attrition} />}
+      {view === 'bars'
+        ? <AttritionBars attrition={attrition} details={details} />
+        : <AttritionFlowchart attrition={attrition} details={details} />}
     </div>
   )
 }
 
-function AttritionBars({ attrition }: AttritionChartProps) {
+function AttritionBars({ attrition, details }: AttritionChartProps) {
   const { t } = useTranslation()
   const total = attrition[0]?.count ?? 0
 
@@ -74,19 +136,25 @@ function AttritionBars({ attrition }: AttritionChartProps) {
             <YAxis
               type="category"
               dataKey="label"
-              width={140}
-              tick={{ fontSize: 10 }}
+              width={AXIS_WIDTH}
+              interval={0}
+              tick={<StepTick />}
             />
             <Tooltip
-              formatter={(value) => [Number(value).toLocaleString(), t('cohorts.attrition_count')]}
-              labelFormatter={(label) => label}
               cursor={{ fill: 'var(--color-accent)' }}
-              // Recharts' unstyled default renders at the browser's base font
-              // size, twice the chrome around it. Same values every other chart
-              // in the app passes.
-              contentStyle={{ fontSize: 11, background: 'var(--color-popover)', border: '1px solid var(--color-border)', color: 'var(--color-popover-foreground)' }}
-              itemStyle={{ fontSize: 11 }}
-              labelStyle={{ fontSize: 11 }}
+              content={({ active, payload }) => {
+                const step = active ? (payload?.[0]?.payload as AttritionStep | undefined) : undefined
+                if (!step) return null
+                return (
+                  <ChartTooltipCard
+                    title={step.label}
+                    rows={[
+                      { label: t('cohorts.attrition_count'), value: step.count.toLocaleString() },
+                      ...(details?.[step.nodeId] ?? []).map((line) => ({ value: line })),
+                    ]}
+                  />
+                )
+              }}
             />
             <Bar dataKey="count" radius={[0, 3, 3, 0]}>
               {attrition.map((step, idx) => (
@@ -104,7 +172,7 @@ function AttritionBars({ attrition }: AttritionChartProps) {
               className="size-2.5 shrink-0 rounded-sm bg-primary"
               style={{ opacity: stepOpacity(idx) }}
             />
-            <span className="flex-1 truncate text-muted-foreground">{step.label}</span>
+            <StepLabel label={step.label} detail={details?.[step.nodeId]} className="min-w-0 flex-1 text-muted-foreground" />
             <span className="font-medium tabular-nums">{step.count.toLocaleString()}</span>
             {step.excluded > 0 && (
               <span className="tabular-nums text-muted-foreground/70">
@@ -119,7 +187,7 @@ function AttritionBars({ attrition }: AttritionChartProps) {
 }
 
 /** The CONSORT layout: steps down the middle, what each criterion excluded to the side. */
-function AttritionFlowchart({ attrition }: AttritionChartProps) {
+function AttritionFlowchart({ attrition, details }: AttritionChartProps) {
   const { t } = useTranslation()
   const total = attrition[0]?.count ?? 0
   const share = (n: number) => (total > 0 ? `${((n / total) * 100).toLocaleString(undefined, { maximumFractionDigits: 1 })} %` : '')
@@ -150,9 +218,11 @@ function AttritionFlowchart({ attrition }: AttritionChartProps) {
                 last ? 'border-primary bg-primary/10' : 'bg-card',
               )}
             >
-              <div className="truncate text-xs text-muted-foreground" title={step.label}>
-                {idx === 0 ? t('cohorts.attrition_all') : step.label}
-              </div>
+              <StepLabel
+                label={idx === 0 ? t('cohorts.attrition_all') : step.label}
+                detail={details?.[step.nodeId]}
+                className="text-xs text-muted-foreground"
+              />
               <div className="text-sm font-semibold tabular-nums">
                 {step.count.toLocaleString()}
                 {idx > 0 && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">{share(step.count)}</span>}

@@ -44,6 +44,7 @@ import {
 import { CriteriaPanel } from './builder/CriteriaPanel'
 import { SqlPreviewPanel } from './sql/SqlPreviewPanel'
 import { ResultsPanel } from './results/ResultsPanel'
+import { getNodeDetail } from '@/lib/duckdb/cohort-query'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { CohortPatientsPanel } from './results/CohortPatientsPanel'
 import { CohortTablesPanel } from './results/CohortTablesPanel'
@@ -153,6 +154,12 @@ export function CohortBuilder() {
     () => (cohort && result?.fromDraft ? { ...cohort, customSql: result.fromDraft.customSql } : cohort),
     [cohort, result],
   )
+
+  const attritionDetails = useMemo(() => {
+    const details: Record<string, string[]> = {}
+    for (const node of cohort?.criteriaTree.children ?? []) details[node.id] = getNodeDetail(node, mapping)
+    return details
+  }, [cohort, mapping])
 
   const eventTableLabels = useMemo(
     () => [...(mapping?.events ?? []), ...(mapping?.drugs ?? [])].map((e) => e.label),
@@ -532,6 +539,7 @@ export function CohortBuilder() {
               onCancel={running ? handleCancel : undefined}
               error={executionError}
               output={customSqlOutput}
+              attritionDetails={attritionDetails}
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
               renderPatients={

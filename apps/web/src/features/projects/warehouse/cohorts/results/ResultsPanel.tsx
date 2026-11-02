@@ -29,6 +29,8 @@ interface ResultsPanelProps {
   renderTables?: () => ReactNode
   /** A tab browsing the database's schema, unfiltered. */
   renderSchema?: () => ReactNode
+  /** What each attrition step's label leaves out, by node id. */
+  attritionDetails?: Record<string, string[]>
 }
 
 type ResultsTab = 'results' | 'attrition' | 'patients' | 'tables' | 'output' | 'schema'
@@ -37,7 +39,7 @@ type ResultsTab = 'results' | 'attrition' | 'patients' | 'tables' | 'output' | '
 const MEMBER_TABS: ResultsTab[] = ['results', 'attrition', 'patients', 'tables']
 
 export function ResultsPanel({
-  result, loading, error, output, onExecute, onCancel, onExportCsv, renderPatients, renderTables, renderSchema,
+  result, loading, error, output, onExecute, onCancel, onExportCsv, renderPatients, renderTables, renderSchema, attritionDetails,
 }: ResultsPanelProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<ResultsTab>('results')
@@ -158,7 +160,7 @@ export function ResultsPanel({
     if (tab === 'attrition') {
       return (
         <div className="h-full overflow-auto">
-          <AttritionChart attrition={result.attrition} />
+          <AttritionChart attrition={result.attrition} details={attritionDetails} />
         </div>
       )
     }
