@@ -7,8 +7,7 @@ import {
   DEFAULT_PROFILE_SECTIONS,
   assembleProfileJson,
   availableSections,
-  buildBatchDetailQuery,
-  buildBatchScalarQuery,
+  buildBatchProfileQuery,
   buildCategoricalQuery,
   buildCombinedScalarQuery,
   buildConceptProfile,
@@ -553,7 +552,7 @@ describe('batched profiles', () => {
   it('matches each concept column in its own IN branch, so a database can filter it', () => {
     // An attached PostgreSQL receives `col IN (…)` but not an OR across two
     // columns: with the OR, the whole table crossed the network for each query.
-    const sql = buildBatchScalarQuery(source(), [1, 2], DEFAULT_PROFILE_SECTIONS)
+    const sql = buildBatchProfileQuery(OMOP, source(), [1, 2], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS)
     expect(sql).toContain('WHERE e.concept_id IN (1, 2)')
     expect(sql).toContain('WHERE e.source_concept_id IN (1, 2) AND e.concept_id IS DISTINCT FROM e.source_concept_id')
     expect(sql).not.toMatch(/concept_id IN \([^)]*\) OR/)
@@ -565,8 +564,8 @@ describe('batched profiles', () => {
 
   it('reads one branch when the event table has no source concept column', () => {
     const conditions = { ...source(), event: source().events.find((e) => e.name.includes('condition'))! }
-    const sql = buildBatchScalarQuery(conditions, [7], DEFAULT_PROFILE_SECTIONS)
-    expect(sql).not.toContain('UNION ALL')
+    const sql = buildBatchProfileQuery(OMOP, conditions, [7], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS)
+    expect(sql.slice(0, sql.indexOf('base AS'))).not.toContain('UNION ALL')
     expect(sql).not.toContain('source_concept_id')
   })
 
@@ -576,23 +575,24 @@ describe('batched profiles', () => {
       conceptTables: [{ key: 'icd', table: 'd_icd', codeColumn: 'icd_code', nameColumn: 'long_title' }],
       eventTables: { Diagnoses: { table: 'diagnoses_icd', conceptIdColumn: 'icd_code', patientIdColumn: 'subject_id' } },
     })
-    expect(buildBatchScalarQuery(source(codeOnly, 'icd'), [610472820], DEFAULT_PROFILE_SECTIONS))
+    expect(buildBatchProfileQuery(codeOnly, source(codeOnly, 'icd'), [610472820], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS))
       .toContain('(hash(e.concept_id) % 2147483647)::INTEGER IN (610472820)')
   })
 
-  it('fences each concept on its own bounds, and none when they are not finite', () => {
-    const sql = buildBatchDetailQuery(OMOP, source(), [
-      { conceptId: 1, bounds: { lower: -5, upper: 12.35 }, bins: 7 },
-      { conceptId: 2, bounds: { lower: Number.NaN, upper: 3 }, bins: 1 },
-      { conceptId: 3, bounds: null, bins: 1 },
-    ], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS)
-    expect(sql).toContain("(1, CAST('-5' AS DOUBLE), CAST('12.35' AS DOUBLE), 7)")
-    expect(sql).toContain('(2, CAST(NULL AS DOUBLE), CAST(NULL AS DOUBLE), 1)')
-    expect(sql).toContain('(f.lo IS NULL OR (e.value_number >= f.lo AND e.value_number <= f.hi))')
+  it('fences each concept in the query, by the method asked, and none when a bound is not finite', () => {
+    const iqr = buildBatchProfileQuery(OMOP, source(), [1, 2], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS)
+    expect(iqr).toContain("p25 - CAST('1.5' AS DOUBLE) * (p75 - p25)")
+    expect(iqr).toContain('isfinite(')
+    expect(iqr).toContain('(f.lo IS NULL OR (e.value_number >= f.lo AND e.value_number <= f.hi))')
+    // Past the k-anonymity threshold only.
+    expect(iqr).toContain(`WHERE NOT (patients_count IS NOT NULL AND patients_count < ${DEFAULT_PROFILE_OPTIONS.minPatients})`)
+    expect(iqr).toContain('LOG2(GREATEST(1, numeric_count))')
     // Top N per concept, not over the batch.
-    expect(sql).toContain('ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, category ASC) AS ord')
-    expect(sql).toContain('QUALIFY ord <= 10')
-    expect(buildBatchDetailQuery(OMOP, source(), [], DEFAULT_PROFILE_SECTIONS, DEFAULT_PROFILE_OPTIONS)).toBe('')
+    expect(iqr).toContain('ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, category ASC) AS ord')
+    expect(iqr).toContain('QUALIFY ord <= 10')
+    const none = buildBatchProfileQuery(OMOP, source(), [1], DEFAULT_PROFILE_SECTIONS, { ...DEFAULT_PROFILE_OPTIONS, outlierMethod: 'none', bins: 12 })
+    expect(none).toContain('CAST(NULL AS DOUBLE) AS lo')
+    expect(none).toContain('12 AS bins')
   })
 
   it('packs concepts by records and by count, a huge one alone', () => {
@@ -603,13 +603,14 @@ describe('batched profiles', () => {
 
   it('gives each concept the outcome its rows say, a concept without rows its zero counts', async () => {
     const query = async (sql: string) => {
-      if (sql.includes('rows_count')) {
-        return [{ concept_id: 1, rows_count: 1000, patients_count: 200, p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 500 }]
-      }
-      if (sql.includes('AS n FROM scope')) return [{ concept_id: 1, n: 1000 }]
-      if (sql.includes("'numeric' AS block")) {
+      if (sql.includes('AS concept_id, COUNT(*) AS n FROM scope')) return [{ concept_id: 1, n: 1000 }]
+      if (sql.includes("'scalar' AS block")) {
         return [
           { block: 'histogram', k: 1, ord: 3, bin_idx: 3, step_m: 2, step_e: 0, count: 5, patients_count: 4 },
+          {
+            block: 'scalar', k: 1, ord: 0, s_rows_count: 1000, s_patients_count: 200,
+            s_p1: 1, s_p25: 10, s_median: 20, s_p75: 30, s_p99: 99, s_numeric_count: 500,
+          },
           { block: 'numeric', k: 1, ord: 0, min: 1, max: 60, mean: 20, median: 20, sd: 5 },
           { block: 'histogram', k: 1, ord: 2, bin_idx: 2, step_m: 2, step_e: 0, count: 100, patients_count: 50 },
         ]
@@ -645,7 +646,7 @@ describe('batched profiles', () => {
         countSql = sql
         throw new Error('count refused')
       }
-      if (sql.includes('scope AS MATERIALIZED') && sql.includes('rows_count')) {
+      if (sql.includes("'scalar' AS block")) {
         scalarBatches.push((sql.match(/IN \(([^)]*)\)/)?.[1] ?? '').split(',').length)
       }
       return []

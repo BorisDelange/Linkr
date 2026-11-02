@@ -62,11 +62,20 @@ function source(mapping: SchemaMapping = OMOP, key = 'concept'): ProfileSource {
 }
 
 /** An engine answering each query by matching a fragment of its SQL. */
+/** A batch's query answers each concept's scalar row as block `scalar`, its
+ *  columns prefixed: the rows below are written as the per-concept query gives them. */
+function batched(sql: string, rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  if (!sql.includes("'scalar' AS block")) return rows
+  return rows.map(({ concept_id, ...row }) => (concept_id == null || 'block' in row
+    ? row
+    : { block: 'scalar', k: concept_id, ord: 0, ...Object.fromEntries(Object.entries(row).map(([c, v]) => [`s_${c}`, v])) }))
+}
+
 function engine(answers: { match: string; rows: Record<string, unknown>[] }[]) {
   const seen: string[] = []
   const query = async (sql: string) => {
     seen.push(sql)
-    return answers.find((a) => sql.includes(a.match))?.rows ?? []
+    return batched(sql, answers.find((a) => sql.includes(a.match))?.rows ?? [])
   }
   return { query, seen }
 }
@@ -209,16 +218,19 @@ describe('extractBatch', () => {
   it('turns a dictionary page into rows carrying their profile', async () => {
     const { query } = engine([
       { match: 'LIMIT 10 OFFSET 0', rows: page(2) },
-      // The page's concepts are profiled together: one row per concept for
-      // the counts and percentiles, then the blocks, each row naming its concept.
+      // The page's concepts are profiled together, in one query: one row per
+      // concept for the counts and percentiles, and the blocks, each row naming
+      // its concept.
       {
         match: 'COUNT(*) AS rows_count',
-        rows: [1, 2].map((concept_id) => ({
-          concept_id, rows_count: 500, patients_count: 42,
-          p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 100,
-        })),
+        rows: [
+          ...[1, 2].map((concept_id) => ({
+            concept_id, rows_count: 500, patients_count: 42,
+            p1: 1, p25: 10, median: 20, p75: 30, p99: 99, numeric_count: 100,
+          })),
+          { block: 'numeric', k: 1, ord: 0, min: 1, max: 60, mean: 20, median: 20, sd: 5 },
+        ],
       },
-      { match: 'STDDEV', rows: [{ block: 'numeric', k: 1, ord: 0, min: 1, max: 60, mean: 20, median: 20, sd: 5 }] },
     ])
     const result = await extractBatch(OMOP, source(), opts, 0, 10, 2, query)
 
@@ -344,7 +356,7 @@ describe('extractBatch', () => {
       if (sql.includes('COUNT(*) AS rows_count')) {
         profiled++
         if (profiled === 2) controller.abort()
-        return [{ concept_id: profiled, rows_count: 1, patients_count: 1 }]
+        return batched(sql, [{ concept_id: profiled, rows_count: 1, patients_count: 1 }])
       }
       return []
     }

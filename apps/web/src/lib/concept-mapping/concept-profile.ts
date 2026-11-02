@@ -1013,7 +1013,7 @@ export async function buildConceptProfile(
 // The event table is not sorted by concept, so every per-concept query reads it
 // whole: about eight reads per concept, whatever its size. A batch reads the
 // rows of all its concepts once into a materialised CTE and groups by concept —
-// two reads per batch (the scalar row, then the blocks the fences decide).
+// one query per batch, the fences computed in it (`buildBatchProfileQuery`).
 // Measured on 250 concepts of a 50M-row table: 714 s per concept, 28-35 s in
 // batches of 100, the same JSON (2026-10-20).
 //
@@ -1060,11 +1060,60 @@ export function buildBatchCountsQuery(source: ProfileSource, conceptIds: readonl
   SELECT e.k AS concept_id, COUNT(*) AS n FROM scope e GROUP BY e.k`
 }
 
-/** `buildCombinedScalarQuery` for a batch: one row per concept with records. */
-export function buildBatchScalarQuery(
+/** The scalar row's columns, as the per-concept query names them. */
+function scalarColumns(event: ClassRelation, sections: ProfileSections): string[] {
+  const columns = scalarAggregates(event, sections).map((part) => /AS (\w+)$/.exec(part)![1])
+  const hasPatient = has(event, 'patient_id')
+  if (sections.perPatient && hasPatient) columns.push('per_patient_mean', 'per_patient_median', 'per_patient_min', 'per_patient_max')
+  if (sections.frequency && has(event, 'start_datetime') && hasPatient) columns.push('median_hours')
+  return columns
+}
+
+/** Scalar columns travel prefixed: a block's columns share some of their names
+ *  (`unit`, `median`, `patients_count`) and the result unites them by name. */
+const SCALAR_PREFIX = 's_'
+
+/** A double literal, the very value JavaScript holds. */
+const doubleLiteral = (x: number) => `CAST('${x}' AS DOUBLE)`
+
+/**
+ * The outlier fences, in SQL: `outlierBounds` over the scalar row, operation for
+ * operation, so the doubles are the ones the per-concept profile computes. NULL
+ * when nothing is excluded, or when a bound is not finite.
+ */
+function fenceSql(options: Pick<ProfileOptions, 'outlierMethod' | 'outlierCoef'>, numeric: boolean): { lo: string; hi: string } {
+  const none = { lo: 'CAST(NULL AS DOUBLE)', hi: 'CAST(NULL AS DOUBLE)' }
+  if (!numeric || options.outlierMethod === 'none') return none
+  const c = doubleLiteral(options.outlierCoef)
+  const k = doubleLiteral(1.4826)
+  const known = 'numeric_count > 0 AND p25 IS NOT NULL AND p75 IS NOT NULL'
+  const [lo, hi, also] = options.outlierMethod === 'percentile'
+    ? ['p1', 'p99', 'p1 IS NOT NULL AND p99 IS NOT NULL']
+    : options.outlierMethod === 'mad'
+      ? [`median - ${c} * ((p75 - p25) / ${k}) * ${k}`, `median + ${c} * ((p75 - p25) / ${k}) * ${k}`, 'median IS NOT NULL']
+      : [`p25 - ${c} * (p75 - p25)`, `p75 + ${c} * (p75 - p25)`, 'TRUE']
+  const when = `${known} AND ${also} AND isfinite(${lo}) AND isfinite(${hi})`
+  return { lo: `CASE WHEN ${when} THEN ${lo} END`, hi: `CASE WHEN ${when} THEN ${hi} END` }
+}
+
+/**
+ * A batch's profile in one query: its scalar rows (block `scalar`, columns
+ * prefixed `s_`), then the blocks of every concept past the k-anonymity
+ * threshold — numeric stats and histogram within its fences, categories,
+ * years, wards — each row saying its `block` and concept `k`, `ord` ordering
+ * the rows of a block (the server may re-sort a result).
+ *
+ * The fences and bin counts are computed in the query from the scalar rows,
+ * as `readScalar` computes them: one query per batch, with no answer to wait
+ * for in between, so a run's queries are all known once its concepts are
+ * ranked, and can run on the server as one job.
+ */
+export function buildBatchProfileQuery(
+  mapping: SchemaMapping,
   source: ProfileSource,
   conceptIds: readonly number[],
   sections: ProfileSections,
+  options: Pick<ProfileOptions, 'minCategoryCount' | 'topN' | 'minPatients' | 'outlierMethod' | 'outlierCoef' | 'bins'>,
 ): string {
   const event = source.event
   const hasPatient = has(event, 'patient_id')
@@ -1087,42 +1136,28 @@ export function buildBatchScalarQuery(
     ) WHERE hours > 0 GROUP BY k)`)
     joined.push('frequency')
   }
-  return `WITH ${ctes.join(',\n  ')}
-  SELECT base.k AS concept_id, base.* EXCLUDE (k)${joined.map((j) => `, ${j}.* EXCLUDE (k)`).join('')}
-  FROM base${joined.map((j) => ` LEFT JOIN ${j} USING (k)`).join('')}`
-}
+  ctes.push(`scalar AS (
+    SELECT base.k, base.* EXCLUDE (k)${joined.map((j) => `, ${j}.* EXCLUDE (k)`).join('')}
+    FROM base${joined.map((j) => ` LEFT JOIN ${j} USING (k)`).join('')})`)
 
-/** A concept of a batch past the k-anonymity threshold, with what its blocks need. */
-export interface BatchFence {
-  conceptId: number
-  bounds: OutlierBounds | null
-  bins: number
-}
+  // readScalar: a concept under the threshold gets nothing past its scalar row.
+  const kept = options.minPatients > 0 && hasPatient
+    ? `NOT (patients_count IS NOT NULL AND patients_count < ${Math.trunc(options.minPatients)})`
+    : 'TRUE'
+  const numericRead = sections.numeric && has(event, 'value_number')
+  const fence = fenceSql(options, numericRead)
+  const count = numericRead ? 'numeric_count' : '0'
+  const bins = options.bins === 'auto'
+    ? `CAST(LEAST(50, GREATEST(1, CEIL(1 + LOG2(GREATEST(1, ${count}))))) AS INTEGER)`
+    : String(histogramBins(0, options.bins))
+  ctes.push(`fences AS (SELECT k, ${fence.lo} AS lo, ${fence.hi} AS hi, ${bins} AS bins FROM scalar WHERE ${kept})`)
+  ctes.push('kept AS (SELECT e.* FROM scope e WHERE e.k IN (SELECT k FROM fences))')
 
-/** A SQL literal for a fence, exactly the double the per-concept query writes. */
-const fenceLiteral = (bounds: OutlierBounds | null, side: 'lower' | 'upper'): string =>
-  bounds && Number.isFinite(bounds.lower) && Number.isFinite(bounds.upper) ? `CAST('${bounds[side]}' AS DOUBLE)` : 'CAST(NULL AS DOUBLE)'
-
-/**
- * The blocks after the scalar row, for a batch, as one result: each row says
- * its `block` and its concept, and `ord` orders the rows of a block (the server
- * may re-sort a result, so the order travels as a column).
- */
-export function buildBatchDetailQuery(
-  mapping: SchemaMapping,
-  source: ProfileSource,
-  fences: readonly BatchFence[],
-  sections: ProfileSections,
-  options: Pick<ProfileOptions, 'minCategoryCount' | 'topN'>,
-): string {
-  const event = source.event
-  const withPatient = has(event, 'patient_id')
-  const values = fences
-    .map((f) => `(${Math.trunc(f.conceptId)}, ${fenceLiteral(f.bounds, 'lower')}, ${fenceLiteral(f.bounds, 'upper')}, ${Math.trunc(f.bins)})`)
-    .join(', ')
-  const ctes = [batchScope(source, fences.map((f) => f.conceptId)), `fences(k, lo, hi, bins) AS (VALUES ${values})`]
   const inFence = '(f.lo IS NULL OR (e.value_number >= f.lo AND e.value_number <= f.hi))'
-  const blocks: string[] = []
+  const columns = scalarColumns(event, sections)
+  const blocks: string[] = [
+    `SELECT 'scalar' AS block, k, 0 AS ord, ${columns.map((c) => `${c} AS ${SCALAR_PREFIX}${c}`).join(', ')} FROM scalar`,
+  ]
 
   if (sections.numeric && has(event, 'value_number')) {
     const v = 'e.value_number'
@@ -1142,7 +1177,7 @@ export function buildBatchDetailQuery(
 
   if (sections.histogram && has(event, 'value_number')) {
     ctes.push(`filtered AS (
-    SELECT e.k, e.value_number AS value${withPatient ? ', e.patient_id AS patient_id' : ''}
+    SELECT e.k, e.value_number AS value${hasPatient ? ', e.patient_id AS patient_id' : ''}
     FROM scope e JOIN fences f ON f.k = e.k WHERE e.value_number IS NOT NULL AND ${inFence}
   )`, `spread AS (
     SELECT x.k, (MAX(x.value) - MIN(x.value)) / ANY_VALUE(f.bins) AS width FROM filtered x JOIN fences f ON f.k = x.k GROUP BY x.k
@@ -1156,7 +1191,7 @@ export function buildBatchDetailQuery(
     SELECT x.k, CAST(FLOOR(CASE WHEN s.step_e < 0 THEN x.value * POW(10, -s.step_e) / s.step_m
                               ELSE x.value / (s.step_m * POW(10, s.step_e)) END) AS INTEGER) AS bin_idx,
            s.step_m, s.step_e, COUNT(*) AS count,
-           ${withPatient ? 'COUNT(DISTINCT x.patient_id)' : 'NULL'} AS patients_count
+           ${hasPatient ? 'COUNT(DISTINCT x.patient_id)' : 'NULL'} AS patients_count
     FROM filtered x JOIN step s ON s.k = x.k GROUP BY ALL
   )`)
     blocks.push(`SELECT 'histogram' AS block, k, bin_idx AS ord, bin_idx, step_m, step_e, count, patients_count FROM bins`)
@@ -1167,7 +1202,7 @@ export function buildBatchDetailQuery(
     blocks.push(`SELECT 'categorical' AS block, k, ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, category ASC) AS ord,
     category, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (PARTITION BY k), 1) AS percentage FROM (
     SELECT e.k, ${v} AS category, COUNT(*) AS count, ${patientsExpr(event)} AS patients_count
-    FROM scope e WHERE ${v} IS NOT NULL AND TRIM(${v}) <> ''
+    FROM kept e WHERE ${v} IS NOT NULL AND TRIM(${v}) <> ''
     GROUP BY e.k, ${v}
     HAVING COUNT(*) >= ${Math.trunc(options.minCategoryCount)}
   ) QUALIFY ord <= ${Math.trunc(options.topN)}`)
@@ -1176,12 +1211,12 @@ export function buildBatchDetailQuery(
   if (sections.temporal && has(event, 'start_datetime')) {
     blocks.push(`SELECT 'temporal' AS block, k, year AS ord, year, count, patients_count, percentage, start_date, end_date FROM (
     SELECT k, EXTRACT(YEAR FROM ts) AS year, COUNT(*) AS count,
-         ${withPatient ? 'COUNT(DISTINCT patient_id)' : 'NULL'} AS patients_count,
+         ${hasPatient ? 'COUNT(DISTINCT patient_id)' : 'NULL'} AS patients_count,
          ROUND(COUNT(*) * 100.0 / SUM(COUNT(*)) OVER (PARTITION BY k), 1) AS percentage,
          MIN(MIN(ts)) OVER (PARTITION BY k)::DATE AS start_date,
          MAX(MAX(ts)) OVER (PARTITION BY k)::DATE AS end_date
-    FROM (SELECT e.k, CAST(e.start_datetime AS TIMESTAMP) AS ts${withPatient ? ', e.patient_id AS patient_id' : ''}
-          FROM scope e WHERE e.start_datetime IS NOT NULL)
+    FROM (SELECT e.k, CAST(e.start_datetime AS TIMESTAMP) AS ts${hasPatient ? ', e.patient_id AS patient_id' : ''}
+          FROM kept e WHERE e.start_datetime IS NOT NULL)
     GROUP BY k, EXTRACT(YEAR FROM ts))`)
   }
 
@@ -1190,16 +1225,33 @@ export function buildBatchDetailQuery(
     blocks.push(`SELECT 'hospitalUnits' AS block, k, ROW_NUMBER() OVER (PARTITION BY k ORDER BY count DESC, unit ASC) AS ord,
     unit, count, patients_count, ROUND(count * 100.0 / SUM(count) OVER (PARTITION BY k), 1) AS percentage FROM (
     SELECT e.k, ${ward.expr} AS unit, COUNT(*) AS count, COUNT(DISTINCT e.patient_id) AS patients_count
-    FROM scope e
+    FROM kept e
     ${ward.joins}
     WHERE ${ward.expr} IS NOT NULL
     GROUP BY e.k, ${ward.expr}
   ) QUALIFY ord <= ${Math.trunc(options.topN)}`)
   }
 
-  if (blocks.length === 0 || fences.length === 0) return ''
   return `WITH ${ctes.join(',\n  ')}
   ${blocks.map((b) => `(${b})`).join('\n  UNION ALL BY NAME\n  ')}`
+}
+
+/**
+ * The queries `buildConceptProfiles` sends for these concepts of one event
+ * table, in order, when their records are known: a run plans them ahead from
+ * its ranking, to hand them to the server as one job.
+ */
+export function plannedProfileQueries(
+  mapping: SchemaMapping,
+  source: ProfileSource,
+  conceptIds: readonly number[],
+  options: ProfileOptions,
+  rowsOf: (conceptId: number) => number | undefined,
+): string[] {
+  const sections = effectiveSections(options.sections, availableSections(mapping, source))
+  const ids = [...new Set(conceptIds.map((id) => Math.trunc(id)))]
+  return packProfileBatches(ids, rowsOf, PROFILE_BATCH_ROWS, PROFILE_BATCH_CONCEPTS)
+    .map((batch) => buildBatchProfileQuery(mapping, source, batch, sections, options))
 }
 
 /**
@@ -1300,7 +1352,7 @@ export async function buildConceptProfiles(
   return out
 }
 
-/** One batch: the scalar rows, then the blocks for the concepts past the threshold. Throws when a query fails. */
+/** One batch, in one query (`buildBatchProfileQuery`). Throws when it fails. */
 async function profileBatch(
   mapping: SchemaMapping,
   source: ProfileSource,
@@ -1310,24 +1362,16 @@ async function profileBatch(
   query: (sql: string) => Promise<Record<string, unknown>[]>,
 ): Promise<Map<number, ProfileOutcome>> {
   const ids = concepts.map((c) => Math.trunc(c.conceptId))
+  const rows = await query(buildBatchProfileQuery(mapping, source, ids, sections, options))
   const scalars = new Map<number, Record<string, unknown>>()
-  for (const row of await query(buildBatchScalarQuery(source, ids, sections))) scalars.set(Number(row.concept_id), row)
-
-  const readings = new Map<number, ScalarReading>()
-  const fences: BatchFence[] = []
-  for (const id of ids) {
-    // No row: the concept has no records here. The per-concept query still
-    // answers one row of counts at zero, its other aggregates NULL.
-    const scalar = scalars.get(id) ?? emptyScalar(source.event, sections)
-    const reading = readScalar(scalar, sections, options)
-    readings.set(id, reading)
-    if (!reading.withheld) fences.push({ conceptId: id, bounds: reading.bounds, bins: histogramBins(reading.numericCount, options.bins) })
-  }
-
-  const detail = fences.length > 0 ? buildBatchDetailQuery(mapping, source, fences, sections, options) : ''
-  const rows = detail ? await query(detail) : []
   const blocks = new Map<string, Record<string, unknown>[]>()
   for (const row of rows) {
+    if (row.block === 'scalar') {
+      scalars.set(Number(row.k), Object.fromEntries(
+        Object.entries(row).filter(([c]) => c.startsWith(SCALAR_PREFIX)).map(([c, v]) => [c.slice(SCALAR_PREFIX.length), v]),
+      ))
+      continue
+    }
     const key = `${Number(row.k)}:${String(row.block)}`
     const list = blocks.get(key)
     if (list) list.push(row)
@@ -1344,7 +1388,9 @@ async function profileBatch(
   const out = new Map<number, ProfileOutcome>()
   for (const concept of concepts) {
     const id = Math.trunc(concept.conceptId)
-    const reading = readings.get(id)!
+    // No row: the concept has no records here. The per-concept query still
+    // answers one row of counts at zero, its other aggregates NULL.
+    const reading = readScalar(scalars.get(id) ?? emptyScalar(source.event, sections), sections, options)
     if (!reading.withheld) {
       const { results } = reading
       const numeric = blockRows(id, 'numeric')[0]
@@ -1367,7 +1413,7 @@ async function profileBatch(
   return out
 }
 
-/** The columns of each block of the detail query, in the per-concept query's order. */
+/** The columns of each block, in the per-concept query's order. */
 const BLOCK_COLUMNS: Record<string, readonly string[]> = {
   numeric: ['min', 'max', 'mean', 'median', 'sd', 'p5', 'p25', 'p75', 'p95', 'numeric_count'],
   histogram: ['bin_idx', 'step_m', 'step_e', 'count', 'patients_count'],
