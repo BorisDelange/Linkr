@@ -325,6 +325,7 @@ export function ConceptPickerDialog({
                   availableColumns={hook.availableColumns}
                   filters={hook.filters}
                   filterOptions={hook.filterOptions}
+                  filterOptionSearch={hook.filterOptionSearch}
                   sorting={hook.sorting}
                   columnVisibility={columnVisibility}
                   onColumnVisibilityChange={setColumnVisibility}

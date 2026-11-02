@@ -71,6 +71,7 @@ import type {
   ConceptFilterValue,
   ConceptSorting,
   ColumnDescriptor,
+  FilterOptionsSearch,
 } from './concept-queries'
 
 /** Picker affordances, not data: no sort, no filter, no drag, no hiding. */
@@ -97,6 +98,8 @@ interface ConceptTableProps {
   availableColumns: ColumnDescriptor[]
   filters: ConceptFilters
   filterOptions: Record<string, string[]>
+  /** Columns whose `filterOptions` are a first page only, searched on Enter. */
+  filterOptionSearch?: Record<string, FilterOptionsSearch>
   sorting: ConceptSorting | null
   columnVisibility: VisibilityState
   onColumnVisibilityChange: (v: VisibilityState) => void
@@ -153,16 +156,22 @@ function ColumnFilterMulti({
   placeholder,
   onChange,
   optionLabel,
+  search,
 }: {
   values: string[]
   options: string[]
   placeholder: string
   onChange: (next: string[]) => void
   optionLabel?: (value: string) => string
+  search?: FilterOptionsSearch
 }) {
   const opts = optionLabel
     ? options.map((v) => ({ value: v, label: optionLabel(v) }))
     : options
+  const onSearch = useMemo(() => search && (async (term: string) => {
+    const { values: found, total } = await search(term)
+    return { options: optionLabel ? found.map((v) => ({ value: v, label: optionLabel(v) })) : found, total }
+  }), [search, optionLabel])
   return (
     <MultiSelectFilter
       value={values}
@@ -171,6 +180,7 @@ function ColumnFilterMulti({
       onChange={onChange}
       triggerClass={FILTER_INPUT_CLASS}
       popoverWidthClass="w-[300px]"
+      onSearch={onSearch}
     />
   )
 }
@@ -245,6 +255,7 @@ export function ConceptTable({
   availableColumns,
   filters,
   filterOptions,
+  filterOptionSearch,
   sorting,
   columnVisibility,
   onColumnVisibilityChange,
@@ -654,6 +665,7 @@ export function ConceptTable({
           options={filterOptions[columnId]}
           placeholder={conceptColumnLabel(col, t)}
           onChange={(next) => onFilterChange(columnId, next.length ? next : null)}
+          search={filterOptionSearch?.[columnId]}
           optionLabel={
             columnId === 'standard_concept'
               ? (v) => standardConceptLabel(v, t)

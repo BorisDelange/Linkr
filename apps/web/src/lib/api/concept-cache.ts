@@ -54,16 +54,14 @@ export function assembleConceptCache(sourceId: string, selectSql: string): Promi
 }
 
 /** Run a page/filter/sort query against the cached Parquet (view `concepts`).
- * Rejects (404) if the cache has not been built yet. The server caps the rows
- * returned unless `allRows` is set. */
+ * Rejects (404) if the cache has not been built yet. */
 export async function queryConceptCache(
   sourceId: string,
   sql: string,
-  { allRows }: { allRows?: boolean } = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await apiRequest<{ rows: Record<string, unknown>[] }>(
     `${base(sourceId)}/query`,
-    { method: 'POST', body: JSON.stringify({ sql, ...(allRows ? { allRows } : {}) }) },
+    { method: 'POST', body: JSON.stringify({ sql }) },
   )
   return res.rows
 }

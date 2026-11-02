@@ -3,6 +3,7 @@ import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib
 import { columnLabel, escSql as esc } from '@/lib/format-helpers'
 import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 import { NULL_FILTER_VALUE } from '@/lib/concept-mapping/mapping-queries'
+import { matchFilterTerm } from '@/lib/match-filter'
 
 // ---------------------------------------------------------------------------
 // Column descriptors
@@ -172,18 +173,56 @@ function filterValues(value: ConceptFilterValue): string[] {
 }
 
 /** SQL predicate for one column against selected values, honouring the NULL
- *  sentinel. Returns null when nothing is selected. */
-function filterCondition(quotedCol: string, values: string[]): string | null {
+ *  sentinel. Returns null when nothing is selected. A match value (a dropdown
+ *  search applied as is) keeps the values `distinctSql` lists that match it —
+ *  the very list the dropdown searched; without `distinctSql` it is ignored. */
+function filterCondition(quotedCol: string, values: string[], distinctSql?: string): string | null {
   if (values.length === 0) return null
-  const nonNull = values.filter((v) => v !== NULL_FILTER_VALUE)
+  const terms = values.map(matchFilterTerm).filter((term): term is string => term !== null)
+  const exact = values.filter((v) => v !== NULL_FILTER_VALUE && matchFilterTerm(v) === null)
   const parts: string[] = []
-  if (nonNull.length === 1) {
-    parts.push(`${quotedCol} = '${esc(nonNull[0])}'`)
-  } else if (nonNull.length > 1) {
-    parts.push(`${quotedCol} IN (${nonNull.map((v) => `'${esc(v)}'`).join(', ')})`)
+  if (exact.length === 1) {
+    parts.push(`${quotedCol} = '${esc(exact[0])}'`)
+  } else if (exact.length > 1) {
+    parts.push(`${quotedCol} IN (${exact.map((v) => `'${esc(v)}'`).join(', ')})`)
   }
-  if (values.length !== nonNull.length) parts.push(`${quotedCol} IS NULL`)
+  if (values.includes(NULL_FILTER_VALUE)) parts.push(`${quotedCol} IS NULL`)
+  if (distinctSql) {
+    for (const term of terms) {
+      const match = matchingOptionsSql(distinctSql, term)
+      if (match) parts.push(`CAST(${quotedCol} AS VARCHAR) IN (${match})`)
+    }
+  }
+  if (parts.length === 0) return null
   return parts.length > 1 ? `(${parts.join(' OR ')})` : parts[0]
+}
+
+/** Searches a column's options on the source: the first FILTER_OPTIONS_LIMIT
+ *  values matching `term`, and how many match. */
+export type FilterOptionsSearch = (term: string) => Promise<{ values: string[]; total: number }>
+
+/** How many options a column dropdown lists. A column with more distinct values
+ *  is searched on the server instead of being loaded whole. */
+export const FILTER_OPTIONS_LIMIT = 1000
+
+/** The distinct non-null values (`val`, as text) of one column of `from`. */
+function distinctValuesSql(quotedCol: string, from: string): string {
+  return `SELECT DISTINCT CAST(${quotedCol} AS VARCHAR) AS val FROM ${from} WHERE ${quotedCol} IS NOT NULL`
+}
+
+/** The values of `distinctSql` matching `term` under the label filter rule
+ *  (docs/fuzzy-search.md). Null for an empty term. */
+function matchingOptionsSql(distinctSql: string, term: string): string | null {
+  const where = buildLabelFilterSql(term, 'val', '_opts')
+  return where ? `WITH _opts AS (${distinctSql}) SELECT val FROM _opts WHERE ${where}` : null
+}
+
+/** A dropdown's page of options: the first FILTER_OPTIONS_LIMIT values matching
+ *  `term` (all of them without one), and `total`, how many match. */
+function filterOptionsPageSql(distinctSql: string, term?: string): string {
+  const where = term ? buildLabelFilterSql(term, 'val', '_opts') : null
+  return `WITH _opts AS (${distinctSql}) SELECT val, COUNT(*) OVER ()::INTEGER AS total FROM _opts`
+    + `${where ? ` WHERE ${where}` : ''} ORDER BY val LIMIT ${FILTER_OPTIONS_LIMIT}`
 }
 
 export const EMPTY_FILTERS: ConceptFilters = {}
@@ -273,7 +312,7 @@ function buildWhereClause(
     const actualCol = resolveActualColumn(dict, col.id)
     if (!actualCol) continue // column doesn't exist in this dict — skip
 
-    const cond = filterCondition(`${p}"${actualCol}"`, values)
+    const cond = filterCondition(`${p}"${actualCol}"`, values, distinctValuesSql(`"${actualCol}"`, dict.name))
     if (cond) conditions.push(cond)
   }
 
@@ -498,22 +537,22 @@ export function buildConceptsCountQuery(
 // Filter options (distinct values for dropdown columns)
 // ---------------------------------------------------------------------------
 
+/** A column dropdown's options across every dictionary holding the column (see
+ *  filterOptionsPageSql). */
 export function buildFilterOptionsQuery(
   mapping: SchemaMapping,
   columnId: string,
+  term?: string,
 ): string | null {
-  // Collect distinct values across all dicts that have this column
   const parts: string[] = []
   for (const dict of conceptRelations(mapping)) {
     const actual = resolveActualColumn(dict, columnId)
-    if (actual) {
-      parts.push(`SELECT DISTINCT "${actual}" AS val FROM ${dict.name} WHERE "${actual}" IS NOT NULL`)
-    }
+    if (actual) parts.push(distinctValuesSql(`"${actual}"`, dict.name))
   }
 
   if (parts.length === 0) return null
-  if (parts.length === 1) return `${parts[0]} ORDER BY val`
-  return `SELECT DISTINCT val FROM (${parts.join(' UNION ALL ')}) _opts ORDER BY val`
+  const distinct = parts.length === 1 ? parts[0] : `SELECT DISTINCT val FROM (${parts.join(' UNION ALL ')}) _u`
+  return filterOptionsPageSql(distinct, term)
 }
 
 // ---------------------------------------------------------------------------
@@ -561,7 +600,7 @@ function buildCacheWhere(filters: ConceptFilters, allColumns: ColumnDescriptor[]
     if (!col.filterable) continue
     if (col.id === '_dict_key') continue
     if (col.source === 'conceptSet') continue
-    const cond = filterCondition(`"${col.id}"`, filterValues(filters[col.id]))
+    const cond = filterCondition(`"${col.id}"`, filterValues(filters[col.id]), distinctValuesSql(`"${col.id}"`, 'concepts'))
     if (cond) conditions.push(cond)
   }
 
@@ -592,8 +631,9 @@ export function buildCacheCountQuery(
   return `SELECT COUNT(*)::INTEGER AS cnt FROM concepts ${buildCacheWhere(filters, allColumns)}`
 }
 
-export function buildCacheFilterOptionsQuery(columnId: string): string {
-  return `SELECT DISTINCT "${columnId}" AS val FROM concepts WHERE "${columnId}" IS NOT NULL ORDER BY val`
+/** buildFilterOptionsQuery over the server's concept cache. */
+export function buildCacheFilterOptionsQuery(columnId: string, term?: string): string {
+  return filterOptionsPageSql(distinctValuesSql(`"${columnId}"`, 'concepts'), term)
 }
 
 export function buildCacheDetailQuery(conceptId: number): string {

@@ -318,6 +318,7 @@ export function DatabaseConceptsTab({ dataSourceId, schemaMapping, readOnly = fa
                   availableColumns={concepts.availableColumns}
                   filters={concepts.filters}
                   filterOptions={concepts.filterOptions}
+                  filterOptionSearch={concepts.filterOptionSearch}
                   sorting={concepts.sorting}
                   columnVisibility={columnVisibility}
                   onColumnVisibilityChange={setColumnVisibility}

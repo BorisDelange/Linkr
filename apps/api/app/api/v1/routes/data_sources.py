@@ -1031,9 +1031,7 @@ async def query_concept_cache(
     `concepts`). 404 if the cache has not been built yet."""
     source = await _load_source(db, source_id, user, "databases:read")
     try:
-        rows = await data_source_service.query_concept_cache(
-            source_id, _principal(source, user), body.sql, all_rows=body.all_rows,
-        )
+        rows = await data_source_service.query_concept_cache(source_id, _principal(source, user), body.sql)
     except FileNotFoundError:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "No concept cache")
     except Exception as e:  # noqa: BLE001

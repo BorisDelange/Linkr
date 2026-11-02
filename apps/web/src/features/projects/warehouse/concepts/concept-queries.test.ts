@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import {
   buildCachePageQuery,
   buildCacheCountQuery,
+  buildCacheFilterOptionsQuery,
   buildConceptsCountQuery,
+  buildFilterOptionsQuery,
+  FILTER_OPTIONS_LIMIT,
   computeAvailableColumns,
   NULL_FILTER_VALUE,
   VALIDITY_COLUMNS,
@@ -12,6 +15,7 @@ import {
 } from './concept-queries'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { conceptRelations } from '@/lib/schema-classes/relations'
+import { matchFilterValue } from '@/lib/match-filter'
 
 type ConceptDictionary = NonNullable<SchemaMappingV1['conceptTables']>[number]
 const rels = (...conceptTables: ConceptDictionary[]) =>
@@ -260,5 +264,39 @@ describe('Name filter over several dictionaries', () => {
     const sql = buildConceptsCountQuery(mapping, { _searchText: 'x', _dict_key: ['d_items'] }, computeAvailableColumns(conceptRelations(mapping)))!
     expect(sql).toContain(`NOT EXISTS (SELECT 1 FROM ${b.name} _lf`)
     expect(sql).not.toContain('UNION ALL')
+  })
+})
+
+describe('column dropdown options, searched past FILTER_OPTIONS_LIMIT', () => {
+  it('reads one page of distinct values with the count of all of them', () => {
+    const sql = buildCacheFilterOptionsQuery('domain_id')
+    expect(sql).toContain('SELECT DISTINCT CAST("domain_id" AS VARCHAR) AS val FROM concepts WHERE "domain_id" IS NOT NULL')
+    expect(sql).toContain('COUNT(*) OVER ()::INTEGER AS total')
+    expect(sql).toMatch(new RegExp(`ORDER BY val LIMIT ${FILTER_OPTIONS_LIMIT}$`))
+    expect(sql).not.toContain('jaro_winkler')
+  })
+
+  it('searches the values under the label filter rule', () => {
+    const sql = buildCacheFilterOptionsQuery('domain_id', "myco l'a")
+    expect(sql).toContain("contains(strip_accents(LOWER(val)), strip_accents(LOWER('myco')))")
+    expect(sql).toContain("strip_accents(LOWER('l''a'))")
+    expect(sql).toContain('FROM _opts _lf')
+  })
+
+  it('reads every dictionary holding the column', () => {
+    const mapping = mappingV1ToV2({ presetId: 't', presetLabel: { en: 't' }, conceptTables: [
+      { key: 'a', table: 'dict_a', idColumn: 'id', nameColumn: 'name', categoryColumn: 'cat' },
+      { key: 'b', table: 'dict_b', idColumn: 'id', nameColumn: 'name', categoryColumn: 'cat' },
+    ] })
+    const [a, b] = conceptRelations(mapping)
+    const sql = buildFilterOptionsQuery(mapping, 'domain_id', 'myco')!
+    expect(sql).toContain(`FROM ${a.name} WHERE "category" IS NOT NULL UNION ALL`)
+    expect(sql).toContain(`FROM ${b.name} WHERE "category" IS NOT NULL`)
+  })
+
+  it('filters the table on a match value as on the values it matches, OR exact ones', () => {
+    const sql = buildCachePageQuery({ domain_id: [matchFilterValue('myco'), 'Drug'] }, COLS, 0, 50, null)
+    expect(sql).toContain(`("domain_id" = 'Drug' OR CAST("domain_id" AS VARCHAR) IN (WITH _opts AS (SELECT DISTINCT`)
+    expect(sql).toContain("contains(strip_accents(LOWER(val)), strip_accents(LOWER('myco')))")
   })
 })

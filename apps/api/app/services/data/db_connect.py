@@ -1448,7 +1448,7 @@ def materialize_parquet(
         tmp.unlink(missing_ok=True)
 
 
-def query_cached_parquet(path: str, sql: str, max_rows: int = MAX_QUERY_ROWS) -> list[dict]:
+def query_cached_parquet(path: str, sql: str) -> list[dict]:
     """Run read-only SQL against a materialized cache Parquet exposed as the view
     `concepts` — the table name the page query references."""
     con = _open()
@@ -1460,7 +1460,7 @@ def query_cached_parquet(path: str, sql: str, max_rows: int = MAX_QUERY_ROWS) ->
         _reject_session_statements(sql)
         _forbid_file_access(con, [path])
         _lock_down_user_sql(con)
-        return _run_statements(con, "memory", sql, max_rows)
+        return _run_statements(con, "memory", sql)
     finally:
         con.close()
 

@@ -27,9 +27,10 @@ import {
   buildCacheFilterOptionsQuery,
   buildCacheDetailQuery,
   EMPTY_FILTERS,
+  FILTER_OPTIONS_LIMIT,
   NULL_FILTER_VALUE,
 } from './concept-queries'
-import type { ConceptFilters, ConceptFilterValue, ConceptSorting } from './concept-queries'
+import type { ConceptFilters, ConceptFilterValue, ConceptSorting, FilterOptionsSearch } from './concept-queries'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,6 +126,7 @@ interface CachedState {
   pageSize: number
   selectedConceptId: number | null
   filterOptions: Record<string, string[]>
+  searchedFilterColumns: string[]
 }
 
 const stateCache = new Map<string, CachedState>()
@@ -313,6 +315,9 @@ export function useConcepts(
   const [isLoading, setIsLoading] = useState(true)
 
   const [filterOptions, setFilterOptions] = useState<Record<string, string[]>>(cached?.filterOptions ?? {})
+  // Columns with more distinct values than a dropdown lists: `filterOptions`
+  // holds their first page only, and their dropdown searches the source.
+  const [searchedFilterColumns, setSearchedFilterColumns] = useState<string[]>(cached?.searchedFilterColumns ?? [])
 
   const [selectedConceptId, setSelectedConceptId] = useState<number | null>(cached?.selectedConceptId ?? null)
   const [selectedConcept, setSelectedConcept] = useState<Record<string, unknown> | null>(null)
@@ -362,8 +367,8 @@ export function useConcepts(
   const activeStatsConceptId = useRef<number | null>(null)
 
   // Refs to track latest values for the unmount cleanup
-  const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions, totalCount })
-  latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions, totalCount }
+  const latestRef = useRef({ filters, sorting, page, pageSize, selectedConceptId, filterOptions, searchedFilterColumns, totalCount })
+  latestRef.current = { filters, sorting, page, pageSize, selectedConceptId, filterOptions, searchedFilterColumns, totalCount }
 
   // Save state to module-level cache on unmount
   useEffect(() => {
@@ -377,6 +382,7 @@ export function useConcepts(
           pageSize: s.pageSize,
           selectedConceptId: s.selectedConceptId,
           filterOptions: s.filterOptions,
+          searchedFilterColumns: s.searchedFilterColumns,
         })
       }
     }
@@ -399,6 +405,7 @@ export function useConcepts(
     setPage(next?.page ?? 0)
     setPageSize(next?.pageSize ?? 50)
     setFilterOptions(next?.filterOptions ?? {})
+    setSearchedFilterColumns(next?.searchedFilterColumns ?? [])
     setSelectedConceptId(next?.selectedConceptId ?? null)
     // Derived from the selection; leaving them would keep the old concept's name
     // and numbers on screen until the new query lands.
@@ -489,6 +496,19 @@ export function useConcepts(
   // Load filter options (distinct values for filterable columns)
   // ---------------------------------------------------------------------------
 
+  // A page of a column's options (see FILTER_OPTIONS_LIMIT): the server mode
+  // reads the concept cache, the front-only mode the source.
+  const loadFilterOptions = useCallback(async (columnId: string, term?: string) => {
+    if (!dataSourceId || !schemaMapping) return null
+    const server = isServerMode()
+    const sql = server
+      ? buildCacheFilterOptionsQuery(columnId, term)
+      : buildFilterOptionsQuery(schemaMapping, columnId, term)
+    if (!sql) return null
+    const rows = server ? await queryConceptCache(dataSourceId, sql) : await queryDataSource(dataSourceId, sql)
+    return { values: rows.map((r) => String(r.val)), total: Number(rows[0]?.total ?? 0) }
+  }, [dataSourceId, schemaMapping])
+
   useEffect(() => {
     if (!dataSourceId || !schemaMapping || hasConceptTable !== true) return
     const server = isServerMode()
@@ -502,17 +522,14 @@ export function useConcepts(
           (c) => c.filterable && c.source !== 'dict' && c.source !== 'conceptSet',
         )
         const results: Record<string, string[]> = {}
+        const searched: string[] = []
 
         await Promise.all(
           filterableCols.map(async (col) => {
-            const sql = server
-              ? buildCacheFilterOptionsQuery(col.id)
-              : buildFilterOptionsQuery(schemaMapping, col.id)
-            if (!sql) return
-            const rows = server
-              ? await queryConceptCache(dataSourceId, sql, { allRows: true })
-              : await queryDataSource(dataSourceId, sql)
-            const values = rows.map((r) => String(r.val))
+            const page = await loadFilterOptions(col.id)
+            if (!page) return
+            const { values, total } = page
+            if (total > FILTER_OPTIONS_LIMIT) searched.push(col.id)
             // OMOP stores NULL for non-standard concepts, and the DISTINCT query
             // drops NULLs — add the sentinel so "NS" stays filterable.
             if (col.id === 'standard_concept') values.push(NULL_FILTER_VALUE)
@@ -526,12 +543,21 @@ export function useConcepts(
         }
 
         setFilterOptions(results)
+        setSearchedFilterColumns(searched)
       } catch (err) {
         console.error('Failed to load filter options:', err)
       }
     }
     loadOptions()
-  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, listVersion, availableColumns, dicts])
+  }, [dataSourceId, schemaMapping, hasConceptTable, cacheReady, listVersion, availableColumns, dicts, loadFilterOptions])
+
+  const filterOptionSearch = useMemo<Record<string, FilterOptionsSearch>>(
+    () => Object.fromEntries(searchedFilterColumns.map((id) => [
+      id,
+      async (term: string) => (await loadFilterOptions(id, term)) ?? { values: [], total: 0 },
+    ])),
+    [searchedFilterColumns, loadFilterOptions],
+  )
 
   // ---------------------------------------------------------------------------
   // Load concepts when filters or page change
@@ -811,6 +837,7 @@ export function useConcepts(
     totalPages,
     isLoading,
     filterOptions,
+    filterOptionSearch,
     selectedConceptId,
     setSelectedConceptId,
     selectedConcept: shownConcept as Record<string, unknown> | null,

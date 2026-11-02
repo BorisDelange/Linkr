@@ -4073,6 +4073,8 @@
     "range_filter_hint": "A number (3), a comparison (>= 1, < 5) or a range (2-10)",
     "range_filter_placeholder": "e.g. >= 1",
     "filter_on_enter_hint": "Press Enter to search",
+    "filter_matches": "Matches “{{term}}”",
+    "search_all_values_on_enter": "First values only — type and press Enter to search them all",
     "label_separator": ": ",
     "collapse_all": "Collapse all",
     "expand_all": "Expand all",

@@ -95,6 +95,7 @@ export function ConceptsPage() {
     totalPages,
     isLoading,
     filterOptions,
+    filterOptionSearch,
     selectedConceptId,
     setSelectedConceptId,
     selectedConcept,
@@ -719,6 +720,7 @@ export function ConceptsPage() {
               availableColumns={availableColumns}
               filters={filters}
               filterOptions={allFilterOptions}
+              filterOptionSearch={filterOptionSearch}
               sorting={sorting}
               columnVisibility={columnVisibility}
               onColumnVisibilityChange={setColumnVisibility}

@@ -285,7 +285,7 @@ Two traps seen in the wild: omitting `px-2 py-1` on the cell silently inherits
 
 | Component | Use for |
 |---|---|
-| `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter adds every match to the selection. |
+| `MultiSelectFilter` | Any multi-value filter. Caps rendering at 200 options; Enter adds every match to the selection. For a column with too many values to load (the concept Category, up to millions), pass `onSearch`: `options` is then a first page, the search runs on the server on Enter (↵ shown in the field), and a second Enter selects the matches — as one match value (`lib/match-filter.ts`) that the query turns into a predicate when they outnumber the page. |
 | `SelectionTriggerLabel` | **What a closed multi-select shows.** The chosen values as badges while they fit the trigger (measured, so a resized panel re-decides), "N selected" / "All selected" once they overflow. `MultiSelectFilter`, the analysis config multi-selects and the dashboard categorical filter use it — never write a trigger that says "All selected" for a single option or "2 selected" when both names fit. |
 | `ColumnVisibilityMenu` | Column toggling with search + select all/none. `DataTable` uses it, so you only reach for it directly in a bespoke table. |
 | `TruncatedText` / `TruncatedHeader` | Text that may overflow. Shows a tooltip *only* when actually truncated. Needs a width-bounded parent. A very long value (a query, a script) is cut in the tooltip (`clipForTooltip`, 500 characters / 12 lines) so it stays on the page. No copy button — in a table, copying is the cell's right-click menu (`CellContextMenu`). |
