@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { cohortIdColumn } from '@/lib/duckdb/cohort-query'
 import { useTranslation } from 'react-i18next'
 import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
@@ -8,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { isServerMode } from '@/lib/api-client'
-import { deterministicId } from '@/lib/deterministic-id'
+import { runMaterialization } from '@/lib/cohort-materialization'
 import { cohortBoardKey, usePatientChartStore } from '@/stores/patient-chart-store'
 import { PatientChartContext } from '@/features/projects/warehouse/patient-data/PatientChartContext'
 import { PatientChartTabBar } from '@/features/projects/warehouse/patient-data/PatientChartTabBar'
@@ -31,6 +30,8 @@ interface CohortPatientsPanelProps {
    *  beside it below patient level); null before any — the board is then shown
    *  with its widgets paused, to rearrange or remove them without running them. */
   rows: Record<string, unknown>[] | null
+  /** The cohort's size in that execution: more than its rows when they were capped. */
+  total?: number
 }
 
 /**
@@ -39,7 +40,7 @@ interface CohortPatientsPanelProps {
  * among the project's Patient data boards. Reviewing a result needs no
  * materialised cohort: the list is the last execution's rows.
  */
-export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows }: CohortPatientsPanelProps) {
+export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows, total }: CohortPatientsPanelProps) {
   const { t } = useTranslation()
   const { level, projectUid } = cohort
   const inProject = !!projectUid
@@ -77,24 +78,12 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows 
 
   // The last execution's patients, handed to the sidebar as a frozen membership:
   // what is listed is what ran, whatever the criteria have become since — and
-  // whatever the cohort is written in (custom SQL, a unit-stay level).
+  // whatever the cohort is written in (custom SQL, a unit-stay level). A run
+  // that kept only its first rows lists from the criteria, every member.
   const listedCohort = useMemo<Cohort>(() => {
-    const idColumn = level === 'event' ? 'patient_id' : cohortIdColumn(level)
-    const ids = (rows ?? []).map((r) => String(r[idColumn]))
-    const patientIds = [...new Set((rows ?? []).map((r) => String(r.patient_id)))]
-    return {
-      ...cohort,
-      materialization: {
-        level,
-        ids,
-        patientIds,
-        count: ids.length,
-        // Stands for this run: the sidebar re-reads its pages when it changes,
-        // so it must change whenever any member does.
-        materializedAt: deterministicId(cohort.id, ids.join('\n')),
-      },
-    }
-  }, [cohort, rows, level])
+    const materialization = runMaterialization(cohort.id, level, rows ?? [], total ?? rows?.length ?? 0)
+    return materialization ? { ...cohort, materialization } : cohort
+  }, [cohort, rows, total, level])
 
   const boardTabs = useMemo(
     () => tabs.filter((tab) => tab.patientDashboardId === board?.id).sort((a, b) => a.displayOrder - b.displayOrder),

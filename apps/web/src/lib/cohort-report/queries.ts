@@ -104,7 +104,8 @@ export function buildAgeSql(indexSql: string, mapping: SchemaMapping): string | 
     ? `COALESCE(EXTRACT(YEAR FROM age(CAST(i.index_date AS TIMESTAMP), CAST(p.birth_date AS TIMESTAMP))), ${fromYear})`
     : fromYear
   return [
-    'SELECT CAST(FLOOR(a.age / 10) * 10 AS INTEGER) AS bin, COUNT(*) AS n',
+    // FLOOR straight under its cast to an integer: the form an external database is sent.
+    'SELECT CAST(FLOOR(a.age / 10) AS INTEGER) * 10 AS bin, COUNT(*) AS n',
     'FROM (',
     `  SELECT ${age} AS age`,
     `  FROM (\n${indexSql}\n) i`,

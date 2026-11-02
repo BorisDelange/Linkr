@@ -5,6 +5,8 @@
  * `cohort_service.build_materialization` mirrors `materializationFromRows`).
  */
 import type { CohortLevel, CohortMaterialization } from '@/types'
+import { cohortIdColumn } from '@/lib/duckdb/cohort-query'
+import { deterministicId } from '@/lib/deterministic-id'
 
 /** The snapshot from the membership query's rows (`id`, `patient_id`). */
 export function materializationFromRows(
@@ -19,4 +21,29 @@ export function materializationFromRows(
     if (row.patient_id != null) patients.add(String(row.patient_id))
   }
   return { level, ids, patientIds: [...patients], count: ids.length, materializedAt }
+}
+
+/**
+ * A run's members as a snapshot, for a patient list to read in place of the
+ * criteria: what is listed is what ran. Null when the run kept only part of
+ * them — its rows stop at a cap — so the list reads the criteria instead.
+ */
+export function runMaterialization(
+  cohortId: string,
+  level: CohortLevel,
+  rows: Record<string, unknown>[],
+  total: number,
+): CohortMaterialization | null {
+  if (rows.length < total) return null
+  const idColumn = level === 'event' ? 'patient_id' : cohortIdColumn(level)
+  const ids = rows.map((r) => String(r[idColumn]))
+  return {
+    level,
+    ids,
+    patientIds: [...new Set(rows.map((r) => String(r.patient_id)))],
+    count: ids.length,
+    // Stands for this run: a list re-reads its pages when it changes, so it
+    // must change whenever any member does.
+    materializedAt: deterministicId(cohortId, ids.join('\n')),
+  }
 }

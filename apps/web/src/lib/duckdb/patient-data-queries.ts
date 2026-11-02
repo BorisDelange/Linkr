@@ -1,6 +1,6 @@
 import type { Cohort } from '@/types'
 import type { SchemaMapping } from '@/types/schema-mapping'
-import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral } from './cohort-query'
+import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral, type RelationNarrowing } from './cohort-query'
 import { classRelation, conceptJoinOn, dictionaryOf, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { eventScopeCondition, scopeCondition, type PatientScope } from './patient-scope'
@@ -34,8 +34,9 @@ export function buildPatientListQuery(
   limit: number,
   offset: number,
   filters?: PatientFilters,
+  narrowing?: RelationNarrowing,
 ): string | null {
-  const inner = buildPatientBaseQuery(mapping, cohort)
+  const inner = buildPatientBaseQuery(mapping, cohort, narrowing)
   if (!inner) return null
 
   const filterWhere = buildPatientFilterWhere(filters)
@@ -52,8 +53,9 @@ export function buildPatientCountQuery(
   mapping: SchemaMapping,
   cohort: Cohort | null,
   filters?: PatientFilters,
+  narrowing?: RelationNarrowing,
 ): string | null {
-  const inner = buildPatientBaseQuery(mapping, cohort)
+  const inner = buildPatientBaseQuery(mapping, cohort, narrowing)
   if (!inner) return null
 
   const filterWhere = buildPatientFilterWhere(filters)
@@ -408,6 +410,7 @@ function ageColumn(patient: ClassRelation, alias: string, refDateExpr: string, l
 function buildPatientBaseQuery(
   mapping: SchemaMapping,
   cohort: Cohort | null,
+  narrowing?: RelationNarrowing,
 ): string | null {
   const patient = classRelation(mapping, 'patient')
   if (!patient) return null
@@ -444,7 +447,7 @@ GROUP BY ${PATIENT_GROUP_BY(alias)}`
   }
 
   if (cohort && (cohort.criteriaTree.children.length > 0 || cohort.customSql?.trim())) {
-    const parts = buildCohortQueryParts(cohort, mapping)
+    const parts = buildCohortQueryParts(cohort, mapping, false, narrowing)
     if (!parts) return null
     const where = parts.whereClause ? `\nWHERE ${parts.whereClause}` : ''
     if (cohort.level === 'patient') {

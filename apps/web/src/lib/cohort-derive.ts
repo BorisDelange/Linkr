@@ -5,7 +5,7 @@
  */
 import { ensureUniqueAlias, generateAlias } from '@/lib/alias'
 import type { DeriveRequest } from '@/lib/api/data-sources'
-import { buildCohortMembershipSql } from '@/lib/duckdb/cohort-query'
+import { buildCohortMembershipSql, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { localized } from '@/lib/localized'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
@@ -79,9 +79,11 @@ export function derivationRequest(input: {
   source: DataSource
   copyPersonless: boolean
   target: DerivedFrom['target']
+  /** Each concept searched only in the tables the concept count found it in. */
+  narrowing?: RelationNarrowing
 }): Omit<DeriveRequest, 'target'> {
   const { cohort, source } = input
-  const built = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping) : null
+  const built = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping, input.narrowing) : null
   if (!built) throw new Error('this cohort has no membership query')
   // The server runs it on the source as sent, outside queryDataSource.
   const membershipSql = withClassRelations(built, source.schemaMapping)

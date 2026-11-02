@@ -186,7 +186,8 @@ describe('buildCohortReportModel', () => {
     expect(model.flow[0].patients).toEqual({ value: null, label: '<11' })
     expect(model.concepts[0]).toMatchObject({ conceptId: 3027018, name: 'Heart rate', coverage: '65.3' })
     expect(model.age[0].count.value).toBeNull()
-    expect(model.sex.map((s) => s.label)).toEqual(['cohort_report.sex_female', 'cohort_report.sex_male'])
+    // Most first, as the query orders them.
+    expect(model.sex.map((s) => s.label)).toEqual(['cohort_report.sex_male', 'cohort_report.sex_female'])
     expect(model.months.map((m) => m.label)).toEqual(['2024-01', '2024-02', '2024-03'])
     expect(model.months[1].count).toEqual({ value: 0, label: '0' })
     expect(model.months[2].count.value).toBeNull()

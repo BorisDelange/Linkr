@@ -547,9 +547,10 @@ export function CohortBuilder() {
                   ? (r) => (
                       <CohortPatientsPanel
                         dataSourceId={activeSource.id}
-                        cohort={cohort}
+                        cohort={shownCohort ?? cohort}
                         schemaMapping={mapping}
                         rows={r?.rows ?? null}
+                        total={r?.totalCount}
                       />
                     )
                   : undefined

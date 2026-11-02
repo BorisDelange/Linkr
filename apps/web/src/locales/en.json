@@ -6682,7 +6682,10 @@
     "source_schema": "Schema",
     "source_patients": "Patients in the database",
     "export": "Export",
-    "recompute": "Recompute"
+    "recompute": "Recompute",
+    "stop": "Stop",
+    "stopped": "Generation stopped. Recompute to start it again.",
+    "generating_hint": "Closing this window does not stop it: open it again to find the report."
   },
   "cohort_derive": {
     "button": "Derive",

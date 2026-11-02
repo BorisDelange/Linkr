@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, RefreshCw } from 'lucide-react'
+import { Loader2, RefreshCw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { DialogShell } from '@/components/ui/dialog-shell'
@@ -13,10 +13,12 @@ import * as engine from '@/lib/duckdb/engine'
 import { downloadBlob } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
 import { printHtml, rasterizeSvg, reportFileName } from '@/lib/cohort-report/export'
-import { buildCohortReportModel, CohortReportUnavailable, type CohortReportModel } from '@/lib/cohort-report/model'
+import { buildCohortReportModel, CohortReportUnavailable, reportInOneQuery } from '@/lib/cohort-report/model'
 import { renderReportHtml } from '@/lib/cohort-report/render-html'
 import { DEFAULT_SUPPRESSION_THRESHOLD } from '@/lib/cohort-report/suppress'
 import type { Cohort, DataSource } from '@/types'
+import { cohortRelationNarrowing } from '../relation-narrowing'
+import { reportRunOf, startReportRun, stopReportRun, useReportRun } from './report-runs'
 
 type ReportFormat = 'html' | 'pdf' | 'docx'
 
@@ -35,35 +37,49 @@ function unavailableReason(cohort: Cohort): string | null {
 }
 
 export function CohortReportDialog(props: CohortReportDialogProps) {
-  // Mounted per opening: each one computes the report fresh.
   return props.open ? <ReportPreview {...props} /> : null
 }
 
-/** A built report, or why it could not be, for the threshold it was built with. */
-type Built = { threshold: number; model: CohortReportModel } | { threshold: number; error: string }
+/** What a report run is for: the database, the cohort as defined, the language,
+ *  and the suppression threshold (applied in the model). */
+const runKey = (sourceId: string | undefined, cohort: Cohort, locale: string, threshold: number) =>
+  JSON.stringify([sourceId, cohort.level, cohort.criteriaTree, cohort.customSql ?? null, cohort.name, cohort.description, cohort.version ?? null, locale, threshold])
 
-function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialogProps) {
+/** The threshold a run of this report was asked with, when `key` is one. */
+function thresholdOf(key: string | undefined, sourceId: string | undefined, cohort: Cohort, locale: string): number | null {
+  if (!key) return null
+  const threshold = (JSON.parse(key) as unknown[]).at(-1)
+  return typeof threshold === 'number' && runKey(sourceId, cohort, locale, threshold) === key ? threshold : null
+}
+
+function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: CohortReportDialogProps) {
   const { t, i18n } = useTranslation()
+  // The cohort as it was when the dialog opened: editing it behind the dialog
+  // must not re-run the report mid-read.
+  const [cohort] = useState(openedCohort)
+  // A report of this cohort already run, or running — the dialog closed while it
+  // was — is taken up as it is, with the threshold it was asked with.
+  const [initialThreshold] = useState(
+    () => thresholdOf(reportRunOf(cohort.id)?.key, source?.id, cohort, i18n.language) ?? DEFAULT_SUPPRESSION_THRESHOLD,
+  )
   const [format, setFormat] = useState<ReportFormat>('html')
-  const [threshold, setThreshold] = useState(String(DEFAULT_SUPPRESSION_THRESHOLD))
-  const [applied, setApplied] = useState(DEFAULT_SUPPRESSION_THRESHOLD)
+  const [threshold, setThreshold] = useState(String(initialThreshold))
+  const [applied, setApplied] = useState(initialThreshold)
   const [includeSql, setIncludeSql] = useState(true)
-  const [built, setBuilt] = useState<Built | null>(null)
   const [exporting, setExporting] = useState(false)
   const [exportError, setExportError] = useState<string | null>(null)
 
   const blocked = unavailableReason(cohort)
   const thresholdValue = Number.parseInt(threshold, 10)
   const thresholdValid = Number.isFinite(thresholdValue) && thresholdValue >= 1 && thresholdValue <= 1000
-  const loading = !blocked && !!source?.schemaMapping && (!built || built.threshold !== applied)
+  const key = runKey(source?.id, cohort, i18n.language, applied)
+  const reportRun = useReportRun(cohort.id)
+  const state = reportRun?.key === key ? reportRun.state : null
 
-  // The suppression is applied in the model, so a new threshold is a new run —
-  // asked for with the Recompute button.
-  useEffect(() => {
-    if (blocked || !source?.schemaMapping) return
-    let cancelled = false
-    const mapping = source.schemaMapping
-    buildCohortReportModel({
+  const start = (threshold: number) => {
+    const mapping = source?.schemaMapping
+    if (blocked || !source || !mapping) return
+    startReportRun(cohort.id, runKey(source.id, cohort, i18n.language, threshold), async (signal) => buildCohortReportModel({
       cohort,
       mapping,
       databaseName: localized(source.name, i18n.language),
@@ -71,30 +87,35 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       schemaLabel: localized(source.schemaSource?.label, i18n.language)
         || localized(mapping.presetLabel, i18n.language)
         || undefined,
-      run: (sql) => engine.queryDataSource(source.id, sql, { heavy: true }),
+      run: (sql) => engine.queryDataSource(source.id, sql, { heavy: true, signal }),
       t,
       locale: i18n.language,
-      threshold: applied,
-    })
-      .then((model) => { if (!cancelled) setBuilt({ threshold: applied, model }) })
-      .catch((err) => {
-        if (cancelled) return
-        setBuilt({
-          threshold: applied,
-          error: err instanceof CohortReportUnavailable
-            ? t(`cohort_report.unavailable_${err.reason}`)
-            : t('cohort_report.error', { message: err instanceof Error ? err.message : String(err) }),
-        })
-      })
-    return () => { cancelled = true }
-    // The cohort as it was when the dialog opened: editing it behind the dialog
-    // must not re-run the report mid-read.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [applied, source?.id])
+      threshold,
+      narrowing: await cohortRelationNarrowing(source.id, mapping, cohort).catch(() => undefined),
+      combine: reportInOneQuery('engine' in source.connectionConfig ? source.connectionConfig.engine : undefined),
+    }))
+  }
 
-  const model = built && 'model' in built && built.threshold === applied ? built.model : null
+  // A run of these settings, running or done, is taken up; anything else starts
+  // one. Stopped or failed, it waits for Recompute.
+  useEffect(() => {
+    if (!reportRunOf(cohort.id) || reportRunOf(cohort.id)!.key !== key) start(applied)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  const loading = !blocked && !!source?.schemaMapping && (!state || state.status === 'running')
+  const model = state?.status === 'done' ? state.model : null
   const html = useMemo(() => (model ? renderReportHtml(model, t, { includeSql }) : null), [model, t, includeSql])
-  const buildError = built && 'error' in built && built.threshold === applied ? built.error : null
+  const err = state?.status === 'error' ? state.error : null
+  const buildError = state?.status === 'stopped' ? t('cohort_report.stopped')
+    : err == null ? null
+      : err instanceof CohortReportUnavailable ? t(`cohort_report.unavailable_${err.reason}`)
+        : t('cohort_report.error', { message: err instanceof Error ? err.message : String(err) })
+
+  const recompute = () => {
+    if (thresholdValue !== applied) setApplied(thresholdValue)
+    else start(applied)
+  }
 
   const exportReport = async () => {
     if (!model || !html) return
@@ -141,17 +162,24 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
       footerExtra={
         <div className="flex items-center gap-2 sm:mr-auto">
           {/* The threshold is applied in the model, so a new one is a new run —
-              asked for here, not on every keystroke (some thirty queries). */}
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1.5"
-            disabled={!thresholdValid || thresholdValue === applied || loading || !!message}
-            onClick={() => setApplied(thresholdValue)}
-          >
-            <RefreshCw size={14} />
-            {t('cohort_report.recompute')}
-          </Button>
+              asked for here, not on every keystroke. */}
+          {loading ? (
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => stopReportRun(cohort.id)}>
+              <Square size={14} />
+              {t('cohort_report.stop')}
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              disabled={!thresholdValid || !!message}
+              onClick={recompute}
+            >
+              <RefreshCw size={14} />
+              {t('cohort_report.recompute')}
+            </Button>
+          )}
           <FieldError message={exportError} />
         </div>
       }
@@ -184,7 +212,7 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
                   max={1000}
                   value={threshold}
                   onChange={(e) => setThreshold(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && thresholdValid) setApplied(thresholdValue) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && thresholdValid && !loading) recompute() }}
                 />
               )}
             </FormField>
@@ -200,9 +228,12 @@ function ReportPreview({ open, onOpenChange, cohort, source }: CohortReportDialo
               <iframe title={t('cohort_report.title')} srcDoc={html} sandbox="" className="h-full w-full border-0" />
             )}
             {loading && (
-              <div className="absolute inset-0 flex items-center justify-center gap-2 bg-background/60 text-xs text-muted-foreground">
-                <Loader2 size={14} className="animate-spin" />
-                {t('cohort_report.generating')}
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-background/60 text-xs text-muted-foreground">
+                <span className="flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin" />
+                  {t('cohort_report.generating')}
+                </span>
+                <span className="text-[10px]">{t('cohort_report.generating_hint')}</span>
               </div>
             )}
             {buildError && (

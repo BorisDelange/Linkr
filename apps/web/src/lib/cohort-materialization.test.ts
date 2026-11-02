@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { materializationFromRows } from './cohort-materialization'
+import { materializationFromRows, runMaterialization } from './cohort-materialization'
 
 describe('materializationFromRows', () => {
   it('keeps every level id and the distinct patients, as strings', () => {
@@ -20,5 +20,19 @@ describe('materializationFromRows', () => {
 
   it('freezes an empty cohort as an empty snapshot', () => {
     expect(materializationFromRows('patient', [], 't')).toMatchObject({ ids: [], patientIds: [], count: 0 })
+  })
+})
+
+describe('runMaterialization', () => {
+  const rows = [{ visit_id: 10, patient_id: 1 }, { visit_id: 11, patient_id: 1 }, { visit_id: 20, patient_id: 2 }]
+
+  it('lists the run’s members, under an id that changes with them', () => {
+    const m = runMaterialization('c', 'visit', rows, 3)!
+    expect(m).toMatchObject({ level: 'visit', ids: ['10', '11', '20'], patientIds: ['1', '2'], count: 3 })
+    expect(runMaterialization('c', 'visit', rows.slice(1), 2)!.materializedAt).not.toBe(m.materializedAt)
+  })
+
+  it('is none for a run that kept only its first rows', () => {
+    expect(runMaterialization('c', 'visit', rows, 500_000)).toBeNull()
   })
 })

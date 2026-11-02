@@ -1,8 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { Cohort } from '@/types'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useCohortStore } from '@/stores/cohort-store'
+import { runMaterialization } from '@/lib/cohort-materialization'
+import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
 import { queryDataSource } from '@/lib/duckdb/engine'
 import { DEFAULT_READ_AHEAD, patientQuery, releasePrefetch, setPrefetchPatients } from './patient-prefetch'
 import {
@@ -87,8 +89,18 @@ export function usePatientData(
   const visitId = paused ? null : (selectedVisitId[projectUid] ?? null)
   const visitDetailId = paused ? null : (selectedVisitDetailId[projectUid] ?? null)
 
-  const selectedCohort: Cohort | null = fixedCohort
+  const pickedCohort: Cohort | null = fixedCohort
     ?? (cohortId ? (cohorts.find((c) => c.id === cohortId) ?? null) : null)
+  // A cohort picked in the selector and not frozen lists the members of its last
+  // run in this session, when that run was of its current definition and kept
+  // them all — rather than evaluating its criteria again for every page.
+  const lastRun = useCohortStore((s) => (!fixedCohort && cohortId ? s.executionResults.get(cohortId) : undefined))
+  const selectedCohort = useMemo(() => {
+    if (!pickedCohort || pickedCohort.materialization || !lastRun || lastRun.fromDraft) return pickedCohort
+    if (Date.parse(lastRun.executedAt) < Date.parse(pickedCohort.updatedAt)) return pickedCohort
+    const materialization = runMaterialization(pickedCohort.id, pickedCohort.level, lastRun.rows, lastRun.totalCount)
+    return materialization ? { ...pickedCohort, materialization } : pickedCohort
+  }, [pickedCohort, lastRun])
   // A fixed cohort's membership changes under the same id (each run of the
   // builder): part of what the cached pages are keyed by.
   const membershipKey = `${cohortId ?? 'all'}@${selectedCohort?.materialization?.materializedAt ?? ''}`
@@ -131,14 +143,20 @@ export function usePatientData(
 
       setPatientsLoading(true)
       try {
+        // Each concept searched only in the tables the concept count found it in.
+        const narrowing = selectedCohort && !selectedCohort.materialization
+          ? await cohortRelationNarrowing(dataSourceId, schemaMapping, selectedCohort).catch(() => undefined)
+          : undefined
+        if (signal?.aborted) return
         const listSql = buildPatientListQuery(
           schemaMapping,
           selectedCohort,
           patientPageSize,
           page * patientPageSize,
           patientFilters,
+          narrowing,
         )
-        const countSql = buildPatientCountQuery(schemaMapping, selectedCohort, patientFilters)
+        const countSql = buildPatientCountQuery(schemaMapping, selectedCohort, patientFilters, narrowing)
         // The count is the cohort's and the filters', the same on every page.
         const knownCount = patientCountCacheRef.current.get(listKey)
 

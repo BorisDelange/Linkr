@@ -34,6 +34,7 @@ import { formatDateTime } from '@/lib/format-helpers'
 import { localized, toLocalized } from '@/lib/localized'
 import { paths } from '@/lib/paths'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { cohortRelationNarrowing } from '../relation-narrowing'
 import type { Cohort, CohortDerivation, DataSource } from '@/types'
 import {
   derivationRequest,
@@ -126,6 +127,11 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
     }
   }
 
+  // Each concept searched only in the tables the concept count found it in.
+  const narrowing = () => (source.schemaMapping
+    ? cohortRelationNarrowing(source.id, source.schemaMapping, cohort).catch(() => undefined)
+    : Promise.resolve(undefined))
+
   const confirm = () => {
     if (!canConfirm) return
     const base = { cohort, cohortKey, source, copyPersonless }
@@ -137,15 +143,15 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
           parentId: source.id,
           name: toLocalized(name.trim()),
           path: databaseLocationPath(location),
-          request: derivationRequest({ ...base, target: 'new-database' }),
+          request: derivationRequest({ ...base, target: 'new-database', narrowing: await narrowing() }),
         })
         const ids = useDataSourceStore.getState().dataSources.map((d) => d.id)
         navigate(paths.warehouseDatabase(source.workspaceId ?? '', dataSourceId, ids))
       })
       return
     }
-    void run(() => runDerivation(source.id, {
-      ...derivationRequest({ ...base, target: 'schema' }),
+    void run(async () => runDerivation(source.id, {
+      ...derivationRequest({ ...base, target: 'schema', narrowing: await narrowing() }),
       target: {
         kind: 'schema',
         dataSourceId: targetId,
@@ -157,8 +163,8 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
 
   const rebuild = (d: CohortDerivation) => {
     setRebuilding(null)
-    void run(() => runDerivation(source.id, {
-      ...derivationRequest({ cohort, cohortKey, source, copyPersonless, target: d.kind }),
+    void run(async () => runDerivation(source.id, {
+      ...derivationRequest({ cohort, cohortKey, source, copyPersonless, target: d.kind, narrowing: await narrowing() }),
       target: d.kind === 'new-database'
         ? { kind: 'new-database', dataSourceId: d.targetId }
         : { kind: 'schema', dataSourceId: d.targetId, schemaName: d.schemaName ?? '', replace: true },

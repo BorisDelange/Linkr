@@ -6682,7 +6682,10 @@
     "source_schema": "Schéma",
     "source_patients": "Patients dans la base",
     "export": "Exporter",
-    "recompute": "Recalculer"
+    "recompute": "Recalculer",
+    "stop": "Arrêter",
+    "stopped": "Génération arrêtée. Recalculez pour la relancer.",
+    "generating_hint": "Fermer cette fenêtre ne l’arrête pas : rouvrez-la pour retrouver le rapport."
   },
   "cohort_derive": {
     "button": "Dériver",
