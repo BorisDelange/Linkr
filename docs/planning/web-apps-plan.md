@@ -7,7 +7,8 @@
 > origin check compares host names only (gateways drop the port from `Host`); a body is
 > forwarded only when the request has one (httpuv refuses a chunked GET); `libuv1` added
 > to the API image (Shiny's `fs` dependency); `X-Accel-Buffering: no` instead of an nginx
-> change; an open tab counts as a visit for the idle stop.
+> change; an open tab counts as a visit for the idle stop; closing the app's tab stops
+> the app (2026-11-02, user's call — the tab is its only handle in the IDE).
 
 Let a project's code start a **long-running web server** — Shiny, Streamlit, Dash, Gradio,
 plumber, FastAPI/Flask, Panel, Marimo — and show it inside Linkr, in an iframe, without the

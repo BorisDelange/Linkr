@@ -14,6 +14,7 @@ import { scriptsNodePath } from '@/lib/versioning-marks'
 import { rekeyVersioningMarks } from '@/stores/rekey-versioning-marks'
 import { useAppStore } from '@/stores/app-store'
 import { disposeLiveTerminal } from '@/lib/terminal-sessions'
+import { stopWebApp } from '@/lib/api/web-apps'
 
 export type FileNode = IdeFile
 
@@ -1614,6 +1615,11 @@ export const useFileStore = create<FileState>((set, get) => ({
 
   closeTerminalTab: (id) => {
     disposeLiveTerminal(id)
+    // An app's tab is its only handle in the IDE: closing it stops the app and its job.
+    const app = get().terminalTabs.find((t) => t.id === id)
+    if (app?.kind === 'app' && app.appId) {
+      stopWebApp(app.appId).catch((err) => console.error('[file-store] Failed to stop web app:', app.appId, err))
+    }
     set((s) => {
       const remaining = s.terminalTabs.filter((t) => t.id !== id)
       // If the closed terminal was active, fall back to the last open file (or
