@@ -8,6 +8,9 @@ import { Badge } from '@/components/ui/badge'
 import { PluginNameBadge } from '@/components/PluginNameBadge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { CodeViewer } from '@/components/editor/CodeViewer'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { toNativeSql } from '@/lib/schema-classes/native-sql'
 import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
 import {
   AlertDialog,
@@ -338,6 +341,7 @@ function EditorContent({
                   onChange={(v) => setDraftSql(v)}
                   onSave={handleSave}
                   lang={lang}
+                  mapping={schemaMapping}
                   note={widget.pluginId === TIMELINE_PLUGIN_ID && draftSql == null && dataSourceId && schemaMapping && (
                     <SkippedRelationsNote sourceId={dataSourceId} mapping={schemaMapping} conceptIds={conceptIds} />
                   )}
@@ -403,7 +407,10 @@ function EditorContent({
   )
 }
 
-/** The Code tab: the generated SQL, editable for the widgets that support it. */
+type SqlForm = 'linkr' | 'native'
+
+/** The Code tab: the generated SQL, editable for the widgets that support it —
+ *  on the Linkr relations as written, or read only on the database's own tables. */
 function SqlTab({
   queries,
   editable,
@@ -411,6 +418,7 @@ function SqlTab({
   onChange,
   onSave,
   lang,
+  mapping,
   note,
 }: {
   queries: ReturnType<typeof buildWidgetQueries>
@@ -421,11 +429,32 @@ function SqlTab({
    *  the editor has focus — it has to be wired through the editor's own command. */
   onSave: () => void
   lang: string
+  mapping?: SchemaMapping
   /** Under the editor: how the query runs differently from what it shows. */
   note?: ReactNode
 }) {
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
+  const [form, setForm] = useState<SqlForm>('linkr')
+  const native = form === 'native' && mapping
+  const shown = (sql: string) =>
+    native ? toNativeSql(sql, mapping) ?? `-- ${t('concepts.stats_sql_no_native')}` : sql
+
+  const formSelect = mapping && (
+    <div className="flex shrink-0 items-center gap-2">
+      <Select value={form} onValueChange={(v) => setForm(v as SqlForm)}>
+        <SelectTrigger size="sm" className="h-6 w-60 shrink-0 text-xs">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {(['linkr', 'native'] as const).map((f) => (
+            <SelectItem key={f} value={f} className="text-xs">{t(`patient_data.sql_form_${f}`)}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <p className="min-w-0 flex-1 text-[10px] text-muted-foreground">{t(`patient_data.sql_form_${form}_hint`)}</p>
+    </div>
+  )
 
   const copy = (sql: string) => {
     void copyText(sql).then((ok) => {
@@ -444,14 +473,19 @@ function SqlTab({
     if (!q.sql && q.missing) return <MissingMapping missing={q.missing} />
     return (
       <div className="flex h-full flex-col gap-2">
+        {formSelect}
         <div className="min-h-0 flex-1">
-          <CodeEditor
-            value={value}
-            onChange={(v) => onChange(v ?? '')}
-            onSave={onSave}
-            language="sql"
-            height="100%"
-          />
+          {native ? (
+            <CodeViewer value={shown(value)} language="sql" height="100%" />
+          ) : (
+            <CodeEditor
+              value={value}
+              onChange={(v) => onChange(v ?? '')}
+              onSave={onSave}
+              language="sql"
+              height="100%"
+            />
+          )}
         </div>
         {note}
       </div>
@@ -461,6 +495,7 @@ function SqlTab({
   // Read-only: one block per query, so a multi-query widget stays legible.
   return (
     <div className="space-y-3">
+      {formSelect}
       {queries.map((q) => (
         <div key={q.id} className="space-y-1">
           <div className="flex items-center gap-1.5">
@@ -469,14 +504,14 @@ function SqlTab({
             </span>
             <div className="flex-1" />
             {q.sql && (
-              <Button variant="ghost" size="icon-xs" onClick={() => copy(q.sql!)}>
+              <Button variant="ghost" size="icon-xs" onClick={() => copy(shown(q.sql!))}>
                 {copied ? <Check size={12} /> : <Copy size={12} />}
               </Button>
             )}
           </div>
           {q.sql ? (
             <pre className="overflow-x-auto rounded-md border bg-muted/40 p-2 text-[10px] leading-relaxed">
-              {q.sql}
+              {shown(q.sql)}
             </pre>
           ) : (
             <MissingMapping missing={q.missing ?? ''} />

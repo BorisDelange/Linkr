@@ -805,6 +805,9 @@ export interface PatientDashboard extends Seedable, Authored {
   /** Let synced timelines share one window across every tab of the board, rather
    *  than one per tab. Only affects timelines that have sync turned on. */
   syncTimelinesAcrossTabs?: boolean
+  /** How many patients after the one on screen have their widgets' data loaded
+   *  in advance; 0 loads none. Absent: DEFAULT_READ_AHEAD. */
+  readAheadPatients?: number
   /** Manual data collection bound to this board: which dataset receives what the
    *  clinician types, and which of its columns identify the patient. */
   collection?: PatientCollectionConfig

@@ -43,6 +43,7 @@ class PatientDashboard(Base, TimestampMixin):
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
     reload_widgets_on_tab_switch: Mapped[bool | None] = mapped_column(Boolean)
     sync_timelines_across_tabs: Mapped[bool | None] = mapped_column(Boolean)
+    read_ahead_patients: Mapped[int | None] = mapped_column(Integer)
     # Manual-collection setup: which dataset receives entries, the columns that
     # identify the patient, and the variables to collect. A board-level setting,
     # so two boards of the same project can collect into different datasets.

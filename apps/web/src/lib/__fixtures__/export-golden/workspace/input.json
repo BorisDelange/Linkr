@@ -412,6 +412,7 @@
     "fitToHeight": null,
     "reloadWidgetsOnTabSwitch": null,
     "syncTimelinesAcrossTabs": null,
+    "readAheadPatients": null,
     "collection": {
      "datasetFileId": "not-in-this-tree",
      "identityColumns": {}

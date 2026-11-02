@@ -4,7 +4,7 @@ import type { Cohort } from '@/types'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { useCohortStore } from '@/stores/cohort-store'
 import { queryDataSource } from '@/lib/duckdb/engine'
-import { patientQuery, releasePrefetch, setPrefetchPatients } from './patient-prefetch'
+import { DEFAULT_READ_AHEAD, patientQuery, releasePrefetch, setPrefetchPatients } from './patient-prefetch'
 import {
   buildPatientListQuery,
   buildPatientCountQuery,
@@ -65,8 +65,9 @@ export function usePatientData(
    */
   fixedCohort?: Cohort,
   /** A paused board (a cohort's, before it has run) loads nothing and acts as
-   *  if no patient were selected, without clearing the stored selection. */
-  { paused = false }: { paused?: boolean } = {},
+   *  if no patient were selected, without clearing the stored selection.
+   *  `readAhead`: how many patients after the one on screen to load ahead. */
+  { paused = false, readAhead = DEFAULT_READ_AHEAD }: { paused?: boolean; readAhead?: number } = {},
 ) {
   const {
     selectedCohortId,
@@ -166,15 +167,13 @@ export function usePatientData(
     [dataSourceId, schemaMapping, selectedCohort, listKey, patientFilters, paused],
   )
 
-  // The patient after this one on the page, read ahead while this one is shown.
-  const nextPatientId = (() => {
-    const at = patients.findIndex((p) => String(p.patient_id) === patientId)
-    return at >= 0 && at < patients.length - 1 ? String(patients[at + 1].patient_id) : null
-  })()
+  // The patients after this one on the page, read ahead while this one is shown.
+  const at = patients.findIndex((p) => String(p.patient_id) === patientId)
+  const aheadKey = at >= 0 ? patients.slice(at + 1, at + 1 + readAhead).map((p) => String(p.patient_id)).join('\n') : ''
   const [prefetchOwner] = useState(() => ({}))
   useEffect(() => {
-    setPrefetchPatients(prefetchOwner, dataSourceId ?? null, patientId, nextPatientId)
-  }, [prefetchOwner, dataSourceId, patientId, nextPatientId])
+    setPrefetchPatients(prefetchOwner, dataSourceId ?? null, patientId, aheadKey ? aheadKey.split('\n') : [])
+  }, [prefetchOwner, dataSourceId, patientId, aheadKey])
   useEffect(() => () => releasePrefetch(prefetchOwner), [prefetchOwner])
 
   // Load patients when page/cohort/filters change. Paging fast through the list

@@ -164,6 +164,7 @@ async def _seed(db) -> Project:
             fit_to_height=d.get("fitToHeight"),
             reload_widgets_on_tab_switch=d.get("reloadWidgetsOnTabSwitch"),
             sync_timelines_across_tabs=d.get("syncTimelinesAcrossTabs"),
+            read_ahead_patients=d.get("readAheadPatients"),
             display_order=d["displayOrder"],
             origin=d["origin"], version=d["version"],
             created_at=_dt(d["createdAt"]), updated_at=_dt(d["updatedAt"]),
