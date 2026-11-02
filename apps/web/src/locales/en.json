@@ -1420,7 +1420,7 @@
     "results_output": "SQL output",
     "results_schema": "Schema",
     "results_see_output": "See the SQL output",
-    "results_output_empty": "The raw rows of a query written in the SQL tab show here — any query, such as SELECT * FROM measurement LIMIT 10, whether or not it lists the cohort’s members.",
+    "results_output_empty": "The rows of the cohort’s SQL show here once it has run — the query generated from the criteria, or one written in the SQL tab, any query, such as SELECT * FROM measurement LIMIT 10, whether or not it lists the cohort’s members.",
     "results_output_rows_one": "1 row returned by the query ({{duration}})",
     "results_output_rows_other": "{{count}} rows returned by the query ({{duration}})",
     "results_output_truncated": "First {{count}} rows returned by the query ({{duration}}) — the rest were not loaded",

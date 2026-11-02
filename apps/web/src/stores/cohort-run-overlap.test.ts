@@ -22,6 +22,7 @@ vi.mock('@/lib/duckdb/cohort-query', () => ({
   buildAttritionQueries: () => [],
   buildCustomSqlOutputSql: () => null,
   buildCohortMembershipSql: () => null,
+  cohortIdColumn: () => 'patient_id',
   cohortRunError: (_c: Cohort, message: string) => message,
 }))
 
@@ -114,6 +115,15 @@ describe('overlapping cohort runs', () => {
     expect(kept?.totalCount).toBe(3)
     expect(kept?.fromDraft).toBeUndefined()
     expect(update).toHaveBeenCalledWith('c1', { resultCount: 3, attrition: [] })
+  })
+
+  it('without a hand-written query, the SQL output is the members just read', async () => {
+    const run = useCohortStore.getState().executeCohort('c1', 'ds', MAPPING)
+    await flush()
+    pending[0].resolve([{ patient_id: 7, gender: 'F', cohort_total: 2 }])
+    await run
+    expect(pending).toHaveLength(1)
+    expect(useCohortStore.getState().customSqlOutputs.get('c1')).toMatchObject({ rows: [{ patient_id: 7 }], truncated: true })
   })
 
   it('a run taking over while the previous one is being saved never leaves storage ahead of the state', async () => {

@@ -1420,7 +1420,7 @@
     "results_output": "Sortie SQL",
     "results_schema": "Schéma",
     "results_see_output": "Voir la sortie SQL",
-    "results_output_empty": "Les lignes brutes d’une requête écrite dans l’onglet SQL s’affichent ici — n’importe quelle requête, par exemple SELECT * FROM measurement LIMIT 10, qu’elle liste ou non les membres de la cohorte.",
+    "results_output_empty": "Les lignes du SQL de la cohorte s’affichent ici une fois exécuté — la requête générée depuis les critères, ou une requête écrite dans l’onglet SQL, n’importe laquelle, par exemple SELECT * FROM measurement LIMIT 10, qu’elle liste ou non les membres de la cohorte.",
     "results_output_rows_one": "1 ligne renvoyée par la requête ({{duration}})",
     "results_output_rows_other": "{{count}} lignes renvoyées par la requête ({{duration}})",
     "results_output_truncated": "{{count}} premières lignes renvoyées par la requête ({{duration}}) — les suivantes n’ont pas été chargées",

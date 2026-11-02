@@ -7,7 +7,7 @@ import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
 import { toLocalized } from '@/lib/localized'
-import { buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortRunError } from '@/lib/duckdb/cohort-query'
+import { buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortIdColumn, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
@@ -467,9 +467,21 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
       if (!resultsSql) throw new Error('EMPTY_QUERY')
+      const resultsStart = Date.now()
       const rows = await query(resultsSql)
       const totalCount = Number(rows[0]?.cohort_total ?? 0)
       for (const row of rows) delete row.cohort_total
+      // The generated query's output is the members' ids, just read: running it
+      // again would evaluate the criteria a second time.
+      if (!outputSql && cohort.level !== 'event') {
+        const column = cohortIdColumn(cohort.level)
+        const output: CustomSqlOutput = {
+          rows: rows.map((row) => ({ [column]: row[column] })),
+          truncated: totalCount > rows.length,
+          durationMs: Date.now() - resultsStart,
+        }
+        setIfCurrent((s) => ({ customSqlOutputs: new Map(s.customSqlOutputs).set(id, output) }))
+      }
 
       const attrition: AttritionStep[] = []
       let prevCount = 0
