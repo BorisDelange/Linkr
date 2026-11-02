@@ -105,6 +105,16 @@ describe('record units name their relation', () => {
     const moved = eventRelations(renamed).find((e) => e.key === 'Measurement')!
     expect(countedRelationSignature(moved, conceptRelations(renamed)[0])).not.toBe(countedRelationSignature(measurement, dict))
   })
+
+  it('is pinned: a relation\'s SQL laid out differently drops every stored count', () => {
+    // The signature hashes the relation's SQL text, as stored with the counts.
+    // A change of layout alone gives every relation a new one, and the counts
+    // stop narrowing cohorts and timelines until the next count — and the data
+    // fingerprint marks every profile stale. Change it on purpose only.
+    const measurement = eventRelations(mapping).find((e) => e.key === 'Measurement')!
+    const dict = conceptRelations(mapping).find((d) => d.name === measurement.dictionary)!
+    expect(countedRelationSignature(measurement, dict)).toBe('c4c586a3-a10f-4e32-8a77-f80ee61b15aa')
+  })
 })
 
 describe('conceptCountProgress', () => {

@@ -1,5 +1,4 @@
 import type { DrugSpec, EventSpec, FieldSpec, PatientSpec, RelationSpec, RelationTable, SchemaMapping } from '@/types/schema-mapping'
-import { hang, subquerySql } from '@/lib/duckdb/sql-layout'
 import { escSql, isSafeIdentifier } from '@/lib/format-helpers'
 import { protectedRegions, splitSqlStatements } from '@/lib/duckdb/sql-tokenizer'
 import { CLASS_CONTRACTS, RELATION_PREFIX, type ClassName } from './contracts'
@@ -226,7 +225,7 @@ class Builder {
     const cols = [...(this.used.get(t.alias.toLowerCase())?.values() ?? [])]
     if (cols.length === 0 || this.readable) return `${base} ${t.alias}`
     const pads = cols.map((col) => `NULL AS "${col.replace(/"/g, '""')}"`).join(', ')
-    return `(\n  SELECT * FROM ${base}\n  UNION ALL BY NAME\n  SELECT ${pads} WHERE false\n) ${t.alias}`
+    return `(SELECT * FROM ${base} UNION ALL BY NAME SELECT ${pads} WHERE false) ${t.alias}`
   }
 
   has(alias: string | undefined): boolean {
@@ -352,8 +351,7 @@ function compileCustom(cls: ClassName, spec: RelationSpec, fixed: Exprs = {}, on
     const col = `_c."${c}"`
     return `  ${fixed[c] ? `COALESCE(${col}, ${fixed[c]})` : col} AS ${EXTRA_KEY.test(c) ? `"${c}"` : c}`
   })
-  const source = subquerySql(`SELECT * FROM ${hang(subquerySql(body))} _src\nUNION ALL BY NAME\nSELECT ${pads} WHERE false`)
-  const sql = `SELECT\n${lines.join(',\n')}\nFROM ${source} _c`
+  const sql = `SELECT\n${lines.join(',\n')}\nFROM (SELECT * FROM (\n${body}\n) _src UNION ALL BY NAME SELECT ${pads} WHERE false) _c`
   const extras = Object.fromEntries(extraKeys.map((k) => [k.slice('extra_'.length), k]))
   return { sql, mapped, custom: true, problems, extras }
 }

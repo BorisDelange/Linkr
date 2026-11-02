@@ -32,12 +32,13 @@ export function hang(sql: string, by = INDENT): string {
 }
 
 /**
- * A label as a `--` comment. Line breaks are dropped: the label can be the
+ * A label as a `--` comment, its leading spaces kept (an indented item of a
+ * list). Line breaks are dropped: the label can be the
  * user's (a concept name, a group label) and a line break would end the comment
  * and let the rest of it run as SQL.
  */
 export function sqlComment(label: string): string {
-  return `-- ${label.replace(/[\r\n\u0085\u2028\u2029\0]+/g, ' ').trim()}`
+  return `-- ${label.replace(/[\r\n\u0085\u2028\u2029\0]+/g, ' ').trimEnd()}`
 }
 
 /**

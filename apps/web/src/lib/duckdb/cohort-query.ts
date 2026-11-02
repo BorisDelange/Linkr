@@ -465,10 +465,32 @@ function buildTreeWhereClause(
  */
 function commentLabel(node: CriterionNode, mapping: SchemaMapping): string | undefined {
   try {
-    return getNodeLabel(node, mapping)
+    return node.type === 'concept' ? conceptComment(node) : getNodeLabel(node, mapping)
   } catch {
     return undefined
   }
+}
+
+/**
+ * A concept criterion said in full, one line per concept: what is matched, where
+ * it is searched, and each concept's id, vocabulary and name — the label shown
+ * in the builder keeps two names at most.
+ */
+function conceptComment(node: CriterionNode): string {
+  const c = node.config as ConceptCriteriaConfig
+  const ids = c.conceptIds ?? []
+  const which = ids.length <= 1
+    ? 'this concept'
+    : c.conceptMatch === 'all' ? `each of these ${ids.length} concepts, every one on its own` : `at least one of these ${ids.length} concepts`
+  const listed = listedEventTables(c)
+  const where = !listed
+    ? `searched in every table that may hold ${ids.length <= 1 ? 'it' : 'them'}`
+    : `searched in ${listed.join(', ') || 'no table'}`
+  const label = conceptLabel(c)
+  return [
+    `${node.exclude ? 'Excluded — ' : ''}Concept criterion: ${which}, ${where}`,
+    ...ids.map((id) => `  ${[id, label(Number(id))].filter(Boolean).join(' - ')}`),
+  ].join('\n')
 }
 
 interface ClauseItem {
@@ -494,9 +516,10 @@ function buildPrecedenceClause(items: ClauseItem[]): string {
 
   const render = (item: ClauseItem, op: string | null, inAnd: boolean) => {
     const clause = inAnd && hasTopLevelOr(item.clause) ? wrapSql(item.clause) : item.clause
-    const head = [op, item.comment ? sqlComment(item.comment) : null].filter(Boolean).join(' ')
-    if (!head) return clause
-    return item.comment ? `${head}\n${clause}` : `${head} ${clause}`
+    // The comment above its operator, so that it reads as the heading of all
+    // that follows: the operator, then the clause.
+    const note = item.comment ? `${item.comment.split('\n').map(sqlComment).join('\n')}\n` : ''
+    return `${note}${op ? `${op} ` : ''}${clause}`
   }
   // A blank line between conditions once they span several lines each.
   const gap = (parts: string[]) => (parts.some((p) => p.includes('\n')) ? '\n\n' : '\n')
@@ -1142,8 +1165,14 @@ function buildConceptCriteria(
     .map((event) => ({ event, from: conceptSource(event, mapping), conditions: conceptConditions(event, config, level, mapping, baseTable) }))
   // Said in the SQL rather than silently dropped: a reader sees why a table it
   // expected is not searched, and that nothing reads it.
-  const skippedNote = sqlComment(`Not searched: ${skipped.map((e) => e.name).join(', ')} — the concept count found none of these concepts there`)
-  const noted = (sql: string) => (skipped.length === 0 ? sql : `(\n${indent(`${skippedNote}\n${sql}`)}\n)`)
+  const skippedNote = [
+    sqlComment('Not searched, as the concept count found none of these concepts there:'),
+    ...skipped.map((e) => sqlComment(`  ${e.name}`)),
+  ].join('\n')
+  // Inside the parentheses an OR of tables already has, rather than in a second pair.
+  const noted = (sql: string) => skipped.length === 0
+    ? sql
+    : sql.startsWith('(\n') ? `(\n${indent(skippedNote)}\n${sql.slice(2)}` : `(\n${indent(`${skippedNote}\n${sql}`)}\n)`
   if (scopes.length === 0) return noted('FALSE')
 
   // Occurrence count → IN subquery with GROUP BY + HAVING, over the rows of

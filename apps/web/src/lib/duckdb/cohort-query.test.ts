@@ -681,7 +681,7 @@ describe('concept criteria over several tables, any or every concept', () => {
     it('leaves out a table holding none of the concepts, and says so without querying it', () => {
       const sql = narrowed({ conceptIds: [1] })
       expect(withoutComments(sql)).not.toMatch(fromChart)
-      expect(sql).toMatch(/-- Not searched: linkr_event_chart — the concept count found none of these concepts there\n\s+EXISTS \(/)
+      expect(sql).toMatch(/-- Not searched, as the concept count found none of these concepts there:\n\s+-- {3}linkr_event_chart\n\s+EXISTS \(/)
       expect(sql.match(fromLab)).toHaveLength(1)
     })
 
@@ -695,6 +695,15 @@ describe('concept criteria over several tables, any or every concept', () => {
       expect(withoutComments(sql)).not.toMatch(/EXISTS/)
       expect(squash(withoutComments(sql))).toContain('WHERE ( FALSE )')
     })
+  })
+
+  it('heads the criterion with every concept it looks for, one per line', () => {
+    const sql = sqlOf({ conceptNames: { 1: 'Urine output', 2: 'Creatinine' }, conceptVocabularies: { 1: 'LOINC' } })
+    expect(sql).toContain([
+      '-- Concept criterion: at least one of these 2 concepts, searched in every table that may hold them',
+      '  --   1 - LOINC - Urine output',
+      '  --   2 - Creatinine',
+    ].join('\n'))
   })
 
   it('lists the ids one per line, each followed by its vocabulary and name', () => {
@@ -942,13 +951,13 @@ describe('layout of the generated SQL', () => {
   it('names each criterion in a comment above it', () => {
     const sql = buildCohortCountSql(tree([sex(['M']), sex(['F'])]), sexMapping)!
     expect(sql).toMatch(/-- Sex: M\n\s*linkr_patient\.gender_source_value IN \('M'\)/)
-    expect(sql).toMatch(/AND -- Sex: F\n/)
+    expect(sql).toMatch(/-- Sex: F\n\s*AND linkr_patient/)
   })
 
   it('wraps an OR group joined by AND, and nothing else', () => {
     const group = { kind: 'group', id: 'g', operator: 'AND', exclude: false, enabled: true, children: [sex(['F']), sex(['X'], 'OR')] }
     const sql = squash(buildCohortCountSql(tree([sex(['M']), group]), sexMapping)!)
-    expect(sql).toMatch(/AND \( -- Sex: F linkr_patient\.gender_source_value IN \('F'\) OR -- Sex: X .* \)/)
+    expect(sql).toMatch(/AND \( -- Sex: F linkr_patient\.gender_source_value IN \('F'\) -- Sex: X OR .* \)/)
     expect(sql).not.toMatch(/\(\s*linkr_patient\.gender_source_value IN \('M'\)/)
   })
 

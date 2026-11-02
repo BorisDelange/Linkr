@@ -64,7 +64,7 @@ describe('classRelations (converted v1 mapping)', () => {
   it('emits every contract column, NULL where unmapped', () => {
     const visit = classRelation(omop, 'visit')!
     expect(visit.sql).toContain('v."visit_start_datetime" AS start_datetime')
-    expect(visit.sql).toContain('LEFT JOIN (\n  SELECT * FROM "care_site"\n  UNION ALL BY NAME\n  SELECT NULL AS "care_site_name", NULL AS "care_site_id" WHERE false\n) cs ON v."care_site_id" = cs."care_site_id"')
+    expect(visit.sql).toContain('LEFT JOIN (SELECT * FROM "care_site" UNION ALL BY NAME SELECT NULL AS "care_site_name", NULL AS "care_site_id" WHERE false) cs ON v."care_site_id" = cs."care_site_id"')
     expect(visit.sql).toContain('cs."care_site_name" AS care_site_name')
     const vd = classRelation(omop, 'visit_detail')!
     expect(vd.sql).toContain('NULL AS end_datetime')
@@ -84,7 +84,7 @@ describe('classRelations (converted v1 mapping)', () => {
   it('derives the MIMIC-IV birth year from the anchor pair and qualifies schemas', () => {
     const p = classRelation(mimic, 'patient')!
     expect(p.sql).toContain('(p."anchor_year" - p."anchor_age") AS birth_year')
-    expect(p.sql).toContain('FROM (\n  SELECT * FROM "hosp"."patients"\n  UNION ALL BY NAME')
+    expect(p.sql).toContain('FROM (SELECT * FROM "hosp"."patients" UNION ALL BY NAME')
     expect(p.sql).toContain('p."dod" AS death_datetime')
   })
 
@@ -92,12 +92,12 @@ describe('classRelations (converted v1 mapping)', () => {
     const rx = eventRelation(mimic, 'Prescriptions')!
     expect(rx.dictionary).toBeNull()
     expect(rx.sql).toContain('CAST(e."drug" AS VARCHAR) AS concept_name')
-    expect(rx.sql).toContain('FROM (\n  SELECT * FROM "hosp"."prescriptions"\n  UNION ALL BY NAME')
+    expect(rx.sql).toContain('FROM (SELECT * FROM "hosp"."prescriptions" UNION ALL BY NAME')
   })
 
   it('pads every named column, so a missing one reads as NULL instead of failing', () => {
     const m = eventRelation(omop, 'Measurement')!
-    expect(m.sql).toMatch(/UNION ALL BY NAME\n {2}SELECT .*NULL AS "visit_occurrence_id".* WHERE false\n\) e/)
+    expect(m.sql).toMatch(/UNION ALL BY NAME SELECT .*NULL AS "visit_occurrence_id".* WHERE false\) e/)
     expect(m.sql).toContain('NULL AS "value_as_number"')
     expect(has(m, 'visit_id')).toBe(true)
     expect(m.dictionary).toBe('linkr_concept_concept')
@@ -273,7 +273,7 @@ describe('classRelations (v2 mapping)', () => {
     const visit = classRelation(v2, 'visit')!
     expect(visit.sql).toContain('(CAST(s.start AS TIMESTAMP)) AS start_datetime')
     expect(visit.sql).toContain(`WHERE (s.kind = 'H')`)
-    expect(visit.sql).toContain('FROM (\n  SELECT * FROM "dw"."stays"\n  UNION ALL BY NAME\n  SELECT NULL AS "id", NULL AS "pid", NULL AS "start", NULL AS "kind" WHERE false\n) s')
+    expect(visit.sql).toContain('FROM (SELECT * FROM "dw"."stays" UNION ALL BY NAME SELECT NULL AS "id", NULL AS "pid", NULL AS "start", NULL AS "kind" WHERE false) s')
     expect(visit.problems).toEqual(['not a visit column: bogus'])
     expect(classRelation(v2, 'patient')!.sql).toContain(`'unknown' AS gender`)
   })
