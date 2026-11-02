@@ -108,6 +108,8 @@ class ConceptStatsResponse(CamelModel):
 class ConceptProfilesRead(CamelModel):
     dict_key: str = Field(max_length=200)
     concept_ids: list[int] = Field(max_length=20_000)
+    # Without the profiles' JSON.
+    meta: bool = False
 
 
 class ConceptProfilesWrite(CamelModel):

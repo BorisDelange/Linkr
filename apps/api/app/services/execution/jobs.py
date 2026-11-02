@@ -12,6 +12,7 @@ reconciled to ``error`` at startup — the row survives, the process does not.
 """
 
 import asyncio
+import contextlib
 from contextlib import asynccontextmanager
 
 from sqlalchemy import func, select, update
@@ -81,10 +82,10 @@ async def create(
     return job
 
 
-def launch(job_id: str, body, *, lane: str = "build") -> None:
+def launch(job_id: str, body, *, lane: str | None = "build") -> None:
     """Schedule a job body (an async callable receiving a JobHandle). Runs behind
-    its lane's semaphore; records status/log/progress transitions in its own DB
-    session."""
+    its lane's semaphore — none: the body takes `lane_slot` itself, for each
+    step; records status/log/progress transitions in its own DB session."""
     _tasks[job_id] = asyncio.create_task(_run(job_id, body, audit.actor(), lane))
 
 
@@ -136,12 +137,12 @@ async def run_now(job_id: str, body) -> None:
     await task
 
 
-async def _run(job_id: str, body, launched_by: dict, lane: str = "build") -> None:
+async def _run(job_id: str, body, launched_by: dict, lane: str | None = "build") -> None:
     """`launched_by` is the launching request's actor: the job's own access-log
     line (core/audit) names them, whatever data the body touches."""
     handle = JobHandle(job_id)
     try:
-        async with _sem(lane):
+        async with _sem(lane) if lane else contextlib.nullcontext():
             await _set(job_id, status="running")
             with audit.job_scope(job_id, "job", launched_by):
                 await body(handle)

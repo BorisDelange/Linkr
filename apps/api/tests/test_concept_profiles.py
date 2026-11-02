@@ -49,6 +49,10 @@ async def test_written_once_read_by_everyone(client, db):
     assert set(profiles) == {1, 2}
     assert profiles[1]["json"] == {"numeric_data": {"min": 1}}
     assert profiles[1]["sections"] == ["counts", "numeric"]
+    meta = await client.post(f"{API}/data-sources/{ds}/concept-profiles/read", headers=bob,
+                             json={"dictKey": "omop", "conceptIds": [1], "meta": True})
+    assert meta.json()["profiles"][0]["json"] is None
+    assert meta.json()["profiles"][0]["sections"] == ["counts", "numeric"]
 
     # A reader reads, never writes.
     assert (await client.put(f"{API}/data-sources/{ds}/concept-profiles", headers=bob, json=body)).status_code == 403

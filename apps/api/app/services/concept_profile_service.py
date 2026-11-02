@@ -8,6 +8,7 @@ The rows are the browser's — it computes them and owns their shape
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 
 from app.models.concept_profile import ConceptProfile
 from app.services import stats_cache_service
@@ -24,13 +25,13 @@ SECTIONS = (
 )
 
 
-def _wire(row: ConceptProfile) -> dict:
+def _wire(row: ConceptProfile, meta: bool = False) -> dict:
     return {
         "dictKey": row.dict_key,
         "conceptId": row.concept_id,
         "rowsCount": row.rows_count,
         "patientsCount": row.patients_count,
-        "json": row.profile,
+        "json": None if meta else row.profile,
         "sections": [s for s in row.sections.split(",") if s],
         "variant": row.variant,
         "fingerprint": row.fingerprint,
@@ -38,17 +39,19 @@ def _wire(row: ConceptProfile) -> dict:
     }
 
 
-async def read(db: AsyncSession, source_id: str, dict_key: str, concept_ids: list[int]) -> list[dict]:
+async def read(db: AsyncSession, source_id: str, dict_key: str, concept_ids: list[int], meta: bool = False) -> list[dict]:
+    """The stored profiles of these concepts; `meta`: without their JSON — what a
+    run plans its queries from (the sections, variant and fingerprint)."""
     out: list[dict] = []
     for i in range(0, len(concept_ids), _CHUNK):
         rows = (await db.execute(
-            select(ConceptProfile).where(
+            select(ConceptProfile).options(*([defer(ConceptProfile.profile)] if meta else [])).where(
                 ConceptProfile.data_source_id == source_id,
                 ConceptProfile.dict_key == dict_key,
                 ConceptProfile.concept_id.in_(concept_ids[i:i + _CHUNK]),
             )
         )).scalars().all()
-        out.extend(_wire(r) for r in rows)
+        out.extend(_wire(r, meta) for r in rows)
     return out
 
 

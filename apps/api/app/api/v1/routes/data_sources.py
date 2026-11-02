@@ -430,7 +430,7 @@ async def start_query_job(
     job = await query_jobs.start(
         db, source.id, source.workspace_id, user.id, body.label,
         [query_jobs.JobQuery(q.key, q.sql, q.pushdown) for q in body.queries],
-        query_jobs.read_rows(login, body.pushdown), keep_going=body.keep_going,
+        query_jobs.read_rows(login, body.pushdown), keep_going=body.keep_going, share_lane=body.share_lane,
     )
     return job
 
@@ -1113,7 +1113,7 @@ async def read_concept_profiles(
     """The stored profiles of these concepts of one dictionary (absent ones left out)."""
     await _load_source(db, source_id, user, "databases:read")
     return ConceptProfilesResult(
-        profiles=await concept_profile_service.read(db, source_id, body.dict_key, body.concept_ids),
+        profiles=await concept_profile_service.read(db, source_id, body.dict_key, body.concept_ids, body.meta),
     )
 
 
