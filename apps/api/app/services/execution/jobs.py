@@ -12,6 +12,7 @@ reconciled to ``error`` at startup — the row survives, the process does not.
 """
 
 import asyncio
+from contextlib import asynccontextmanager
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -190,6 +191,37 @@ class JobHandle:
                 "errors": {k: redact_secrets(v) if isinstance(v, str) else v for k, v in result["errors"].items()},
             }
         await _set(self.job_id, result=result)
+
+
+@asynccontextmanager
+async def live_log(handle: JobHandle, every: float = 2.0):
+    """An `on_log(line)` for a job body whose lines reach the job's log while it
+    runs, every `every` seconds — a build that takes minutes shows where it is,
+    instead of an empty log until it ends. The rest is written on exit, failure
+    and cancellation included."""
+    pending: list[str] = []
+    done = asyncio.Event()
+
+    async def flush() -> None:
+        n = len(pending)
+        if n:
+            await handle.log("\n".join(pending[:n]))
+            del pending[:n]
+
+    async def tick() -> None:
+        while not done.is_set():
+            try:
+                await asyncio.wait_for(done.wait(), every)
+            except TimeoutError:
+                pass
+            await flush()
+
+    task = asyncio.create_task(tick())
+    try:
+        yield pending.append
+    finally:
+        done.set()
+        await task
 
 
 _ENDED = ("done", "error", "cancelled")

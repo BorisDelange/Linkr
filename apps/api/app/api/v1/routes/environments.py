@@ -373,22 +373,14 @@ async def build_environment(
     await _require_ide(db, project_uid, user, "write")
     _valid_language(language)
     label = f"Build {environments.language_label(language)} environment"
-    job = await jobs.create(db, project_uid, user.id, kind="build", label=label)
+    job = await jobs.create(
+        db, project_uid, user.id, kind="build", label=label,
+        input=environments.build_input(project_uid, language),
+    )
 
     async def body(handle: jobs.JobHandle) -> None:
-        buffer: list[str] = []
-
-        def on_log(line: str) -> None:
-            buffer.append(line)
-
-        try:
-            async with async_session() as job_db:
-                await environments.build(job_db, project_uid, language, on_log=on_log)
-        finally:
-            # Flush the build log even on failure (build() raises on a bad build so
-            # the job is marked 'error') — otherwise the failure reason is lost.
-            if buffer:
-                await handle.log("\n".join(buffer[-200:]))
+        async with jobs.live_log(handle) as on_log, async_session() as job_db:
+            await environments.build(job_db, project_uid, language, on_log=on_log)
 
     jobs.launch(job.id, body)
     return JobResponse.model_validate(job, from_attributes=True)

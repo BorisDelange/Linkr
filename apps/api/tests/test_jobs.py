@@ -88,6 +88,30 @@ async def test_log_strips_leading_blank_lines_of_first_entry(db):
     assert settled.log_tail == "first"
 
 
+async def test_live_log_shows_lines_while_the_body_runs(db):
+    job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
+    seen_midway = asyncio.Event()
+
+    async def body(handle):
+        async with jobs.live_log(handle, every=0.05) as on_log:
+            on_log("Resolved 15 packages")
+            for _ in range(50):
+                await asyncio.sleep(0.02)
+                row = await db.get(Job, job.id)
+                await db.refresh(row)
+                if row.log_tail == "Resolved 15 packages":
+                    seen_midway.set()
+                    break
+            on_log("Installed 12 packages")
+            raise RuntimeError("boom")
+
+    jobs.launch(job.id, body)
+    settled = await _wait_settled(db, job.id)
+    assert seen_midway.is_set()
+    # The last lines are written before the failure, then the failure itself.
+    assert settled.log_tail == "Resolved 15 packages\nInstalled 12 packages\nboom"
+
+
 async def test_job_body_failure_becomes_error(db):
     job = await jobs.create(db, "proj-1", 1, kind="build", label="Build")
 
