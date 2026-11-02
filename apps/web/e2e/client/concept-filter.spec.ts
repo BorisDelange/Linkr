@@ -10,7 +10,7 @@ const FOLDER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../da
 test('a column filter with more values than it loads searches them all on Enter', async ({ page }) => {
   // Without the directory picker, the folder zone falls back on an <input
   // webkitdirectory> the test can fill; the picker itself cannot be driven.
-  await page.addInitScript(() => { delete (window as { showDirectoryPicker?: unknown }).showDirectoryPicker })
+  await page.addInitScript(() => { delete (globalThis as { showDirectoryPicker?: unknown }).showDirectoryPicker })
   await bootDemo(page)
 
   const name = `E2E categories ${Date.now()}`
