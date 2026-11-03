@@ -1008,7 +1008,12 @@
     "flight_slow_title": "Les résultats volumineux de cette base seront lents",
     "flight_not_installed": "Le serveur Linkr ne peut pas utiliser Arrow Flight SQL (son extra « doris » n'est pas installé) : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés.",
     "flight_unreachable": "Arrow Flight SQL (port {{port}}) est injoignable : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Vérifiez que le port est ouvert et que chaque BE est joignable depuis le serveur Linkr. Erreur : {{detail}}",
-    "flight_unauthenticated": "Arrow Flight SQL (port {{port}}) a refusé l'identifiant : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Le même utilisateur et mot de passe sont envoyés au port Flight : vérifiez que Doris les accepte sur celui-ci. Erreur : {{detail}}"
+    "flight_unauthenticated": "Arrow Flight SQL (port {{port}}) a refusé l'identifiant : les résultats volumineux passent donc par le protocole MySQL, beaucoup plus lent. Les comptages et statistiques ne sont pas concernés. Le même utilisateur et mot de passe sont envoyés au port Flight : vérifiez que Doris les accepte sur celui-ci. Erreur : {{detail}}",
+    "allow_writes_hint_sqlserver": "Permet de dériver une cohorte vers un nouveau schéma SQL de cette base. Linkr écrit avec un second compte à vous, demandé à la première dérivation (droits CREATE SCHEMA et CREATE TABLE) ; le compte avec lequel il lit reste en lecture seule. Linkr ne modifie jamais les tables existantes.",
+    "allow_writes_hint_doris": "Permet de dériver une cohorte vers une nouvelle base Doris ici. Linkr écrit avec un second compte à vous, demandé à la première dérivation (droits CREATE et LOAD), et envoie les lignes par Stream Load ; le compte avec lequel il lit reste en lecture seule. Linkr ne modifie jamais les tables existantes.",
+    "allow_writes_hint_oracle": "Permet de dériver une cohorte vers un schéma vide qu’un administrateur a créé pour elle (sous Oracle, un schéma est un utilisateur). Linkr écrit avec un second compte à vous, demandé à la première dérivation, qui a le droit de créer des tables et de charger des lignes dans ce schéma ; le compte avec lequel il lit reste en lecture seule.",
+    "field_http_port": "Port Stream Load",
+    "field_http_port_hint": "Le port HTTP du frontend Doris (8030 par défaut) : une dérivation de cohorte y envoie ses lignes, par Stream Load."
   },
   "reports": {
     "title": "Rapports",
@@ -6745,7 +6750,7 @@
     "target_schema": "Un schéma SQL dans une base existante",
     "database_name": "Nom de la base",
     "target_database": "Base",
-    "target_database_hint": "Une base DuckDB créée par Linkr, ou une base Postgres dont les paramètres autorisent Linkr à y écrire.",
+    "target_database_hint": "Une base DuckDB créée par Linkr, ou une base Postgres, SQL Server, Doris ou Oracle dont les paramètres autorisent Linkr à y écrire.",
     "schema_name": "Nom du schéma SQL",
     "schema_name_hint": "L’espace de noms où les tables sont créées, comme dans cohort_1234.measurement.",
     "schema_name_invalid": "Lettres minuscules, chiffres et tirets bas uniquement, sans commencer par un chiffre.",
@@ -6826,7 +6831,8 @@
     "birth_precision_hint": "La précision que gardent les dates de naissance. Le jour est rarement nécessaire (études chez les moins de deux ans).",
     "birth_year": "Année seulement",
     "birth_month": "Année et mois",
-    "birth_day": "Date complète"
+    "birth_day": "Date complète",
+    "schema_name_hint_oracle": "Un schéma existant et vide : sous Oracle, un schéma est un utilisateur, qu’un administrateur crée pour la dérivation. Le compte d’écriture doit pouvoir y créer des tables et y charger des lignes."
   },
   "api_tokens": {
     "title": "Clés API",
@@ -6884,7 +6890,12 @@
     "form_hint": "Votre propre compte sur cette base. Chaque utilisateur saisit le sien : Linkr n'en partage jamais.",
     "require_session_only": "Ne jamais enregistrer de mot de passe pour cette base",
     "require_session_only_hint": "Pour les comptes qui sont un mot de passe d'annuaire (LDAP/AD) : le mot de passe de chacun reste en mémoire le temps de sa session.",
-    "retarget_warning": "Changer l'hôte, le port ou la base redemande son compte à chaque utilisateur."
+    "retarget_warning": "Changer l'hôte, le port ou la base redemande son compte à chaque utilisateur.",
+    "write_dialog_title": "Compte d’écriture pour « {{name}} »",
+    "write_dialog_description": "Le compte avec lequel Linkr écrit vos dérivations de cohorte dans cette base — pas celui avec lequel il la lit, qui reste en lecture seule. Testé avant d’être gardé, jamais réaffiché.",
+    "purpose": "Sert à",
+    "purpose_read": "Lire",
+    "purpose_write": "Écrire les dérivations"
   },
   "access_log": {
     "title": "Journal d'accès",

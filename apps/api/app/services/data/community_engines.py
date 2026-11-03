@@ -91,6 +91,26 @@ def attach(con: duckdb.DuckDBPyConnection, alias: str, config: dict, password: s
     _oracle_views(con, alias, secret, config.get("schema"))
 
 
+def attach_writable(con: duckdb.DuckDBPyConnection, alias: str, config: dict, password: str | None) -> None:
+    """ATTACH a SQL Server database writable under `alias`, with the user's WRITE
+    login — the cohort derivation's alone (derive_writers): every other attach is
+    read-only, its login checked so."""
+    if config.get("engine") != "sqlserver":
+        raise ValueError("only SQL Server is written through its extension; Oracle through its driver")
+    load(con, "sqlserver")
+    from app.services.data.db_host_guard import check_db_host
+
+    check_db_host(config.get("host"))
+    port = int(config.get("port") or DEFAULT_PORTS["sqlserver"])
+    secret = secret_name(alias)
+    fields = [f"HOST {_lit(config.get('host') or '')}", f"PORT {port}",
+              f"DATABASE {_lit(config.get('database') or 'master')}",
+              f"USER {_lit(config.get('username') or '')}", f"PASSWORD {_lit(password or '')}",
+              "USE_ENCRYPT true"]
+    con.execute(f'CREATE OR REPLACE TEMPORARY SECRET "{secret}" (TYPE mssql, {", ".join(fields)})')
+    con.execute(f'ATTACH \'\' AS "{alias}" (TYPE mssql, SECRET "{secret}")')
+
+
 # ── read-only logins ─────────────────────────────────────────────────────────
 
 def _scalar_row(con: duckdb.DuckDBPyConnection, sql: str) -> tuple:

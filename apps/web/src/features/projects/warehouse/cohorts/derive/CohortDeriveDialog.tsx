@@ -131,7 +131,9 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
 
   const blocked = derivableReason(cohort, source)
   const target = targets.find((d) => d.id === targetId)
-  const isPostgresTarget = (target?.connectionConfig as { engine?: string } | undefined)?.engine === 'postgresql'
+  const targetEngine = (target?.connectionConfig as { engine?: string } | undefined)?.engine
+  // A schema of a server database can also be declared as a database of its own.
+  const isExternalTarget = !!targetEngine && targetEngine !== 'duckdb'
   const schemaValid = DERIVE_SCHEMA_NAME.test(schemaName)
 
   useEffect(() => {
@@ -258,7 +260,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
         kind: 'schema',
         dataSourceId: targetId,
         schemaName,
-        ...(isPostgresTarget && register ? { registerName: name.trim() || schemaName, registerAlias: schemaName } : {}),
+        ...(isExternalTarget && register ? { registerName: name.trim() || schemaName, registerAlias: schemaName } : {}),
       },
     }))
   }
@@ -400,7 +402,12 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
                     </Select>
                   )}
                 </FormField>
-                <FormField label={t('cohort_derive.schema_name')} hint={t('cohort_derive.schema_name_hint')} required>
+                <FormField
+                  label={t('cohort_derive.schema_name')}
+                  // Oracle has no schema but a user's, which only an administrator creates.
+                  hint={t(targetEngine === 'oracle' ? 'cohort_derive.schema_name_hint_oracle' : 'cohort_derive.schema_name_hint')}
+                  required
+                >
                   {({ id }) => (
                     <Input
                       id={id}
@@ -411,7 +418,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
                   )}
                 </FormField>
                 <FieldError message={schemaName && !schemaValid ? t('cohort_derive.schema_name_invalid') : null} />
-                {isPostgresTarget && (
+                {isExternalTarget && (
                   <>
                     <div className="flex items-center gap-2">
                       <Checkbox id="derive-register" checked={register} onCheckedChange={(v) => setRegister(v === true)} />

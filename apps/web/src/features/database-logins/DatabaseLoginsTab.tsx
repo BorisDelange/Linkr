@@ -48,11 +48,11 @@ export function DatabaseLoginsTab() {
 
   const handleForget = async () => {
     if (!forgetTarget) return
-    const id = forgetTarget.dataSourceId
+    const { dataSourceId: id, purpose } = forgetTarget
     setForgetTarget(null)
     let failure: string | null = null
     try {
-      await forgetMyDatabaseLogin(id)
+      await forgetMyDatabaseLogin(id, purpose)
     } catch (err) {
       failure = errorText(err)
     }
@@ -63,6 +63,18 @@ export function DatabaseLoginsTab() {
   const columns = useMemo<DataTableColumn<DatabaseLoginEntry>[]>(() => [
     { id: 'name', header: t('database_logins.database'), accessor: (r) => localized(r.name, i18n.language), filter: 'text', size: 220 },
     { id: 'username', header: t('database_logins.username'), accessor: (r) => r.username, filter: 'text', size: 160 },
+    {
+      id: 'purpose',
+      header: t('database_logins.purpose'),
+      accessor: (r) => r.purpose,
+      filter: 'select',
+      selectOptionLabel: (v) => t(`database_logins.purpose_${v}`),
+      size: 120,
+      center: true,
+      cell: (r) => (
+        <Badge variant={r.purpose === 'write' ? 'secondary' : 'outline'}>{t(`database_logins.purpose_${r.purpose}`)}</Badge>
+      ),
+    },
     {
       id: 'remembered',
       header: t('database_logins.kept'),
@@ -128,7 +140,7 @@ export function DatabaseLoginsTab() {
             <DataTable
               data={logins}
               columns={columns}
-              rowKey={(r) => r.dataSourceId}
+              rowKey={(r) => `${r.dataSourceId}:${r.purpose}`}
               pageSize={100}
               emptyMessage={t('database_logins.empty')}
             />
@@ -142,6 +154,7 @@ export function DatabaseLoginsTab() {
           dataSourceId={editing.entry.dataSourceId}
           initialUsername={editing.entry.username}
           sessionOnly={editing.entry.sessionOnly}
+          purpose={editing.entry.purpose}
           open
           onOpenChange={(open) => { if (!open) setEditing(null) }}
           onSaved={() => { setEditing(null); void load() }}

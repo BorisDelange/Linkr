@@ -1008,7 +1008,12 @@
     "flight_slow_title": "Large results from this database will be slow",
     "flight_not_installed": "Linkr's server cannot use Arrow Flight SQL (its \"doris\" extra is not installed), so large results go over the much slower MySQL protocol. Counts and statistics are not affected.",
     "flight_unreachable": "Arrow Flight SQL (port {{port}}) could not be reached, so large results go over the much slower MySQL protocol. Counts and statistics are not affected. Check that the port is open and that every BE is reachable from Linkr's server. Error: {{detail}}",
-    "flight_unauthenticated": "Arrow Flight SQL (port {{port}}) refused the login, so large results go over the much slower MySQL protocol. Counts and statistics are not affected. The same user and password are sent to the Flight port: check that Doris accepts them there. Error: {{detail}}"
+    "flight_unauthenticated": "Arrow Flight SQL (port {{port}}) refused the login, so large results go over the much slower MySQL protocol. Counts and statistics are not affected. The same user and password are sent to the Flight port: check that Doris accepts them there. Error: {{detail}}",
+    "allow_writes_hint_sqlserver": "Lets a cohort be derived into a new SQL schema here. Linkr writes with a second account of yours, asked at the first derivation (CREATE SCHEMA and CREATE TABLE rights); the account it reads with stays read-only. Linkr never changes the existing tables.",
+    "allow_writes_hint_doris": "Lets a cohort be derived into a new Doris database here. Linkr writes with a second account of yours, asked at the first derivation (CREATE and LOAD rights), and sends the rows by Stream Load; the account it reads with stays read-only. Linkr never changes the existing tables.",
+    "allow_writes_hint_oracle": "Lets a cohort be derived into an empty schema an administrator created for it (Oracle has no schema but a user's). Linkr writes with a second account of yours, asked at the first derivation, with the right to create tables and load rows in that schema; the account it reads with stays read-only.",
+    "field_http_port": "Stream Load port",
+    "field_http_port_hint": "The HTTP port of the Doris frontend (8030 by default): a cohort derivation sends its rows there, by Stream Load."
   },
   "reports": {
     "title": "Reports",
@@ -6745,7 +6750,7 @@
     "target_schema": "A SQL schema in an existing database",
     "database_name": "Database name",
     "target_database": "Database",
-    "target_database_hint": "A DuckDB database Linkr created, or a Postgres database whose settings allow Linkr to write into it.",
+    "target_database_hint": "A DuckDB database Linkr created, or a Postgres, SQL Server, Doris or Oracle database whose settings allow Linkr to write into it.",
     "schema_name": "SQL schema name",
     "schema_name_hint": "The namespace the tables are created in, as in cohort_1234.measurement.",
     "schema_name_invalid": "Lowercase letters, digits and underscores only, not starting with a digit.",
@@ -6826,7 +6831,8 @@
     "birth_precision_hint": "The precision the birth dates keep. The day is rarely needed (studies of infants under two).",
     "birth_year": "Year only",
     "birth_month": "Year and month",
-    "birth_day": "Full date"
+    "birth_day": "Full date",
+    "schema_name_hint_oracle": "An existing, empty schema: Oracle has no schema but a user's, which an administrator creates for the derivation. The write account needs the right to create tables and load rows there."
   },
   "api_tokens": {
     "title": "API keys",
@@ -6884,7 +6890,12 @@
     "form_hint": "Your own account on this database. Every user enters theirs: Linkr never shares one.",
     "require_session_only": "Never store passwords for this database",
     "require_session_only_hint": "For logins that are a directory (LDAP/AD) password: each user's password stays in memory for their session only.",
-    "retarget_warning": "Changing the host, port or database asks every user for their account again."
+    "retarget_warning": "Changing the host, port or database asks every user for their account again.",
+    "write_dialog_title": "Write account for “{{name}}”",
+    "write_dialog_description": "The account Linkr writes your cohort derivations into this database with — not the one it reads it with, which stays read-only. Tested before it is kept, never shown again.",
+    "purpose": "Used to",
+    "purpose_read": "Read",
+    "purpose_write": "Write derivations"
   },
   "access_log": {
     "title": "Access log",

@@ -570,6 +570,7 @@ class DatabaseLoginStatus(CamelModel):
     remembered: bool = False
     last_used_at: datetime | None = None
     session_only: bool = False
+    purpose: str = "read"
 
 
 class DatabaseLoginEntry(CamelModel):
@@ -577,6 +578,7 @@ class DatabaseLoginEntry(CamelModel):
     name: dict | str
     workspace_id: str | None = None
     username: str
+    purpose: str = "read"
     remembered: bool
     last_used_at: datetime | None = None
     session_only: bool = False

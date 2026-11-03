@@ -32,6 +32,7 @@ database than the derived one.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import os
 import re
@@ -43,12 +44,10 @@ from pathlib import Path
 
 import duckdb
 
-from app.services.data import community_engines
+from app.services.data import derive_writers
 from app.services.data.db_connect import (
     _alias_role,
     _attach_role,
-    _dsn,
-    _engine_spec,
     _ext_dir,
     _external_search_path,
     _forbid_file_access,
@@ -61,7 +60,6 @@ from app.services.data.db_connect import (
     _split_statements,
     _sql_path,
     _strip_leading_noise,
-    attach_dsn,
     is_system_schema,
 )
 
@@ -469,32 +467,27 @@ class TargetSpec:
     replace_schema: bool = False
 
 
+def _destination(target: TargetSpec) -> derive_writers.Destination:
+    return derive_writers.Destination(target.kind, target.path, target.config, target.password)
+
+
+def _open_writer(con: duckdb.DuckDBPyConnection, target: TargetSpec, alias: str) -> derive_writers.Writer:
+    return derive_writers.writer_for(con, _destination(target), alias)
+
+
 def drop_schema(target: TargetSpec) -> None:
-    """Drop the SQL schema a derivation created (`target.schema`), with its tables."""
+    """Drop the SQL schema a derivation created (`target.schema`), with its
+    tables — an Oracle one is emptied: a schema there is a user, not Linkr's."""
     _require_ident(target.schema, "schema name")
     con = _connect()
+    writer = None
     try:
-        _attach_target(con, target)
-        con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
+        writer = _open_writer(con, target, "target")
+        writer.drop_schema(target.schema)
     finally:
+        if writer is not None:
+            writer.close()
         con.close()
-
-
-def _attach_target(con: duckdb.DuckDBPyConnection, target: TargetSpec, alias: str = "target") -> None:
-    if target.kind == "file":
-        con.execute(f"ATTACH '{_sql_path(target.path)}' AS {alias}")
-        return
-    if target.kind == "external":
-        if target.config.get("engine") in community_engines.COMMUNITY_EXTENSIONS:
-            raise ValueError("Linkr only reads SQL Server and Oracle databases: derive into another engine")
-        spec = _engine_spec(target.config)
-        con.execute(f"INSTALL {spec['extension']}")
-        con.execute(f"LOAD {spec['extension']}")
-        # Writable, deliberately: this is the one place Linkr writes into a
-        # database it did not create, and only statements generated here run.
-        attach_dsn(con, _dsn(target.config, target.password), alias, f"TYPE {spec['type']}")
-        return
-    raise ValueError(f"unknown target kind {target.kind!r}")
 
 
 class DeriveCancelled(Exception):
@@ -716,20 +709,24 @@ def _create_pseudonym_maps(con: duckdb.DuckDBPyConnection, pseudo: Pseudonyms, k
     return counts
 
 
-def _write_correspondence(con: duckdb.DuckDBPyConnection, pseudo: Pseudonyms, levels: list[str]) -> None:
-    target = pseudo.correspondence
-    schema = _require_ident(target.schema, "schema name")
-    table = f'corr."{schema}"."{_require_ident(pseudo.correspondence_table, "table name")}"'
-    con.execute(f'CREATE SCHEMA IF NOT EXISTS corr."{schema}"')
-    con.execute(
-        f"CREATE TABLE IF NOT EXISTS {table} (derivation_id VARCHAR, derivation VARCHAR, kind VARCHAR, "
-        "original_id VARCHAR, pseudonym BIGINT, built_at TIMESTAMP)"
-    )
+_CORRESPONDENCE_COLUMNS = [
+    ("derivation_id", "VARCHAR"), ("derivation", "VARCHAR"), ("kind", "VARCHAR"),
+    ("original_id", "VARCHAR"), ("pseudonym", "BIGINT"), ("built_at", "TIMESTAMP"),
+]
+
+
+def _write_correspondence(writer: derive_writers.Writer, pseudo: Pseudonyms, levels: list[str]) -> None:
+    schema = _require_ident(pseudo.correspondence.schema, "schema name")
+    table = _require_ident(pseudo.correspondence_table, "table name")
+    writer.create_schema(schema, exist_ok=True)
+    writer.ensure_table(schema, table, _CORRESPONDENCE_COLUMNS)
     # A rebuild replaces its own rows, and only those.
-    con.execute(f"DELETE FROM {table} WHERE derivation_id = ?", [pseudo.derivation_id])
+    writer.delete_where(schema, table, "derivation_id", pseudo.derivation_id)
     for lvl in levels:
-        con.execute(
-            f"INSERT INTO {table} SELECT ?, ?, ?, id, pseudo, CAST(now() AS TIMESTAMP) FROM _pseudo_{lvl}",
+        writer.insert_select(
+            schema, table,
+            f"SELECT CAST(? AS VARCHAR) AS derivation_id, CAST(? AS VARCHAR) AS derivation, CAST(? AS VARCHAR) AS kind, "
+            f"id AS original_id, pseudo AS pseudonym, CAST(now() AS TIMESTAMP) AS built_at FROM _pseudo_{lvl}",
             [pseudo.derivation_id, pseudo.derivation, lvl],
         )
 
@@ -837,8 +834,10 @@ def derive(
     con = _connect()
     control._con = con
     schema_created = False
+    writer: derive_writers.Writer | None = None
+    corr_writer = None
     try:
-        _attach_target(con, writing)
+        writer = _open_writer(con, writing, "target")
         if same_file:
             # DuckDB will not open one file twice: read the source through the
             # writable attach, via read-only views named `source` (the ETL's own
@@ -848,7 +847,7 @@ def derive(
             _attach_role(con, "source", source.spec)
         if pseudonyms is not None and pseudonyms.correspondence is not None:
             # Before anything is written: an unreachable one fails the build early.
-            _attach_target(con, pseudonyms.correspondence, alias="corr")
+            corr_writer = _open_writer(con, pseudonyms.correspondence, "corr")
 
         tables = _source_tables(con, source)
         if target.schema is not None:
@@ -876,12 +875,12 @@ def derive(
 
         if target.schema is not None:
             if target.replace_schema:
-                con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
-            con.execute(f'CREATE SCHEMA target."{target.schema}"')
+                writer.drop_schema(target.schema)
+            writer.create_schema(target.schema)
             schema_created = True
         else:
             for s in sorted(schemas):
-                con.execute(f'CREATE SCHEMA IF NOT EXISTS target."{_require_ident(s, "schema name")}"')
+                writer.create_schema(_require_ident(s, "schema name"), exist_ok=True)
 
         unresolved = unresolved_tables(mapping, tables)
         written: list[dict] = []
@@ -903,10 +902,8 @@ def derive(
                 written.append({**skipped, "filter": how[0] if how else None})
                 continue
             dest_schema = target.schema or ("main" if source.is_default(schema) else schema)
-            dest = f'target."{dest_schema}"."{_require_ident(table, "table name")}"'
             select = _copy_select(con, schema, table, columns, how, key, ids, minimization, pseudo_levels)
-            con.execute(f"CREATE TABLE {dest} AS {select}")
-            rows = con.execute(f"SELECT COUNT(*) FROM {dest}").fetchone()[0]
+            rows = writer.create_table_as(dest_schema, _require_ident(table, "table name"), select)
             written.append({
                 "schema": None if dest_schema == "main" else dest_schema,
                 "table": table,
@@ -915,19 +912,20 @@ def derive(
                 "skipped": False,
             })
         control.check()
-        if pseudonyms is not None and pseudonyms.correspondence is not None:
-            _write_correspondence(con, pseudonyms, sorted(keyed))
-        if target.kind == "file":
-            con.execute("CHECKPOINT target")
+        if corr_writer is not None:
+            _write_correspondence(corr_writer, pseudonyms, sorted(keyed))
+            corr_writer.checkpoint()
+        writer.checkpoint()
     except Exception as exc:
         # A half-written copy is worse than none: it would read as a database
         # (or a schema) that exists and holds some of the cohort.
         if schema_created:
             try:
-                con.execute(f'DROP SCHEMA IF EXISTS target."{target.schema}" CASCADE')
+                writer.drop_schema(target.schema)
             except Exception:  # noqa: BLE001 — the original error is the one to report
                 pass
         control._con = None
+        _close(writer, corr_writer)
         con.close()
         if fresh:
             _remove_db_file(Path(writing.path))
@@ -937,7 +935,15 @@ def derive(
         raise
     finally:
         control._con = None
+        _close(writer, corr_writer)
         con.close()
     if fresh:
         _swap_in(Path(writing.path), Path(target.path))
     return written
+
+
+def _close(*writers) -> None:
+    for w in writers:
+        if w is not None:
+            with contextlib.suppress(Exception):
+                w.close()

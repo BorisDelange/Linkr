@@ -77,6 +77,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { foldAccents } from '@/lib/fold-accents'
+import { WRITABLE_ENGINES } from '@/lib/cohort-derive'
 import { DEFAULT_PORTS, ENGINE_LABELS, databaseIsSchema, parsePort } from '@/lib/database-engines'
 
 export type DatabaseDialogTab = 'general' | 'connection' | 'metadata' | 'attribution'
@@ -224,6 +225,7 @@ export function AddDatabaseDialog({
         if (config.host) setDbHost(config.host)
         if (config.port) setDbPort(String(config.port))
         setDbFlightPort(config.flightPort ? String(config.flightPort) : '')
+        setDbHttpPort(config.httpPort ? String(config.httpPort) : '')
         const defaultSchema = databaseIsSchema(config.engine) ? config.schema || config.database : config.database
         if (defaultSchema) setDbDatabase(defaultSchema)
         if (config.schema && !databaseIsSchema(config.engine)) setDbSchema(config.schema)
@@ -281,10 +283,14 @@ export function AddDatabaseDialog({
   const [dbHost, setDbHost] = useState('')
   const [dbPort, setDbPort] = useState('')
   const [dbFlightPort, setDbFlightPort] = useState('')
+  // Doris' Stream Load port (its frontend's HTTP port), where a derivation sends its rows.
+  const [dbHttpPort, setDbHttpPort] = useState('')
   const dbPortValue = parsePort(dbPort)
   const dbFlightPortValue = parsePort(dbFlightPort)
+  const dbHttpPortValue = parsePort(dbHttpPort)
   const dbPortInvalid = !!dbPort.trim() && dbPortValue === null
   const dbFlightPortInvalid = dbEngine === 'doris' && !!dbFlightPort.trim() && dbFlightPortValue === null
+  const dbHttpPortInvalid = dbEngine === 'doris' && !!dbHttpPort.trim() && dbHttpPortValue === null
   const [dbDatabase, setDbDatabase] = useState('')
   const [dbSchema, setDbSchema] = useState('')
   const [dbAllowWrites, setDbAllowWrites] = useState(false)
@@ -322,6 +328,7 @@ export function AddDatabaseDialog({
     setDbHost('')
     setDbPort('')
     setDbFlightPort('')
+    setDbHttpPort('')
     setDbDatabase('')
     setDbSchema('')
     setDbAllowWrites(false)
@@ -420,7 +427,8 @@ export function AddDatabaseDialog({
                     schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
                     username: dbUsername || undefined,
                     password: dbPassword || undefined,
-                    ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+                    ...(WRITABLE_ENGINES.includes(dbEngine) && dbAllowWrites ? { allowWrites: true } : {}),
+                    ...(dbEngine === 'doris' && dbAllowWrites && dbHttpPortValue !== null ? { httpPort: dbHttpPortValue } : {}),
                     ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
                   }
                 : {}),
@@ -500,7 +508,8 @@ export function AddDatabaseDialog({
               // Only send a password when the user typed one — an empty field
               // leaves the stored (encrypted) credential untouched server-side.
               ...(dbPassword ? { password: dbPassword } : {}),
-              ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+              ...(WRITABLE_ENGINES.includes(dbEngine) && dbAllowWrites ? { allowWrites: true } : {}),
+                    ...(dbEngine === 'doris' && dbAllowWrites && dbHttpPortValue !== null ? { httpPort: dbHttpPortValue } : {}),
               ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
             }
             changes.connectionConfig = connectionConfig
@@ -551,7 +560,8 @@ export function AddDatabaseDialog({
                 schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
                 username: dbUsername || undefined,
                 password: dbPassword || undefined,
-                ...(dbEngine === 'postgresql' && dbAllowWrites ? { allowWrites: true } : {}),
+                ...(WRITABLE_ENGINES.includes(dbEngine) && dbAllowWrites ? { allowWrites: true } : {}),
+                    ...(dbEngine === 'doris' && dbAllowWrites && dbHttpPortValue !== null ? { httpPort: dbHttpPortValue } : {}),
                 ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
               }
             : {}),
@@ -673,7 +683,7 @@ export function AddDatabaseDialog({
   const isConnectionValid =
     (!needsFileUpload || uploadedFiles.length > 0 || hasExistingFiles || usesServerPath) &&
     (selectedType !== 'fhir' || !!fhirBaseUrl.trim()) &&
-    !(selectedType === 'database' && !isFileEngine(dbEngine) && (dbPortInvalid || dbFlightPortInvalid)) &&
+    !(selectedType === 'database' && !isFileEngine(dbEngine) && (dbPortInvalid || dbFlightPortInvalid || dbHttpPortInvalid)) &&
     !isSizeBlocked
 
   const canSubmit = isNameValid && isConnectionValid && (!fileLocationChanged || fileLocationValid)
@@ -1156,13 +1166,31 @@ export function AddDatabaseDialog({
                     {/* Every connection is read-only unless its owner says
                         otherwise: this is what lets a cohort be derived into a
                         new SQL schema of this database. */}
-                    {dbEngine === 'postgresql' && isServerMode() && (
+                    {WRITABLE_ENGINES.includes(dbEngine) && isServerMode() && (
                       <div className="col-span-full flex items-start gap-2">
                         <Checkbox id="db-allow-writes" checked={dbAllowWrites} onCheckedChange={(v) => setDbAllowWrites(v === true)} />
                         <div className="space-y-0.5">
                           <Label htmlFor="db-allow-writes">{t('databases.allow_writes')}</Label>
-                          <p className="text-xs text-muted-foreground">{t('databases.allow_writes_hint')}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {t(dbEngine === 'postgresql' ? 'databases.allow_writes_hint' : `databases.allow_writes_hint_${dbEngine}`)}
+                          </p>
                         </div>
+                      </div>
+                    )}
+                    {dbEngine === 'doris' && dbAllowWrites && isServerMode() && (
+                      <div className="space-y-2">
+                        <Label className="flex items-center gap-1.5">
+                          {t('databases.field_http_port')}
+                          <FieldInfo text={t('databases.field_http_port_hint')} />
+                        </Label>
+                        <Input
+                          value={dbHttpPort}
+                          onChange={(e) => setDbHttpPort(e.target.value)}
+                          placeholder="8030"
+                          inputMode="numeric"
+                          aria-invalid={dbHttpPortInvalid}
+                        />
+                        {dbHttpPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
                       </div>
                     )}
                   </div>

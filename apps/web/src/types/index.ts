@@ -298,8 +298,9 @@ export interface DatabaseConnectionConfig {
    *  rather than Linkr's data folder. Set by the server alone, once, at creation
    *  (it refuses to take it from a client); never exported. */
   managedPath?: string
-  /** Postgres, server mode: the owner lets Linkr create schemas in it (a
-   *  cohort's derivation). Off by default — every connection is read-only. */
+  /** Postgres, SQL Server, Doris or Oracle, server mode: the owner lets Linkr
+   *  write a cohort's derivation into it. Off by default — every connection is
+   *  read-only. */
   allowWrites?: boolean
   /** Server mode: an absolute server path this database points at — a DuckDB /
    *  SQLite file, or a folder of Parquet. The data is read where it lies and
@@ -311,6 +312,8 @@ export interface DatabaseConnectionConfig {
   /** Doris: the frontend's Arrow Flight SQL port (default 8070), which carries
    *  large results. Machine-local like the host: stripped from exports. */
   flightPort?: number
+  /** Doris: its frontend's HTTP port, where a cohort derivation sends its rows (Stream Load). Default 8030. */
+  httpPort?: number
   database?: string
   schema?: string
   /** Sent, never stored: in server mode a username + password typed in the

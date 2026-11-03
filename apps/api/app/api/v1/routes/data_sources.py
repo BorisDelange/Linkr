@@ -329,7 +329,10 @@ async def delete_data_source(
     announced = not _awaiting_build(source)
     login = None
     if delete_data and data_source_service.created_data(source) == "schema":
-        login = await _login(db, source, user)
+        try:
+            login = await cohort_derive_service.drop_login(db, source, user.id)
+        except cohort_derive_service.DeriveError as e:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e)) from e
     try:
         await data_source_service.delete(db, source, delete_data=delete_data, login=login)
     except Exception as e:  # noqa: BLE001 — a failed drop keeps the database, and says why
@@ -1275,20 +1278,30 @@ async def list_data_source_files(
 
 # --- The acting user's own login ------------------------------------------------
 
+def _login_purpose(purpose: str) -> str:
+    if purpose not in database_credential_service.PURPOSES:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"a login is for {' or '.join(database_credential_service.PURPOSES)}")
+    return purpose
+
+
 @router.get("/{source_id}/my-login", response_model=DatabaseLoginStatus)
 async def get_my_login(
     source_id: str,
+    purpose: str = Query(default="read"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """`purpose=write`: the account the user's cohort derivations write this
+    database with, apart from the one they read it with."""
     source = await _load_source(db, source_id, user, "databases:read")
-    state = await database_credential_service.status_for(db, source, user.id)
+    state = await database_credential_service.status_for(db, source, user.id, _login_purpose(purpose))
     return DatabaseLoginStatus(
         has_login=state["hasLogin"],
         username=state["username"],
         remembered=state["remembered"],
         last_used_at=state["lastUsedAt"],
         session_only=source.require_session_only,
+        purpose=purpose,
     )
 
 
@@ -1296,35 +1309,48 @@ async def get_my_login(
 async def save_my_login(
     source_id: str,
     body: DatabaseLoginSave,
+    purpose: str = Query(default="read"),
     user: User = Depends(get_session_user),
     db: AsyncSession = Depends(get_db),
 ):
     """Test the login against the database, and keep it only if it connects.
-    Session JWT only: an agent's API key never sets a password."""
-    source = await _load_source(db, source_id, user, "databases:read")
+    Session JWT only: an agent's API key never sets a password. A write login
+    takes `databases:write`, and only on a database whose owner allowed Linkr to
+    write (`allowWrites`); it is tested by connecting writable, where a read
+    login must prove read-only."""
+    purpose = _login_purpose(purpose)
+    source = await _load_source(
+        db, source_id, user, "databases:write" if purpose == database_credential_service.WRITE else "databases:read",
+    )
     audit.bind(action="credential_set", data_source_id=source.id, workspace_id=source.workspace_id,
-               detail=f"username={body.username} remember={body.remember}")
+               detail=f"username={body.username} remember={body.remember} purpose={purpose}")
     if not database_credential_service.is_external(source):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no login")
     config = {**(source.connection_config or {}), "username": body.username, "password": body.password}
-    ok, error, _tables = await data_source_service.test_connection(config)
+    if purpose == database_credential_service.WRITE:
+        if not cohort_derive_service.takes_write_login(source):
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "this database takes no write login")
+        ok, error = await cohort_derive_service.test_write_login(config, body.password)
+    else:
+        ok, error, _tables = await data_source_service.test_connection(config)
     if not ok:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, error or "could not connect")
     await database_credential_service.save(
-        db, source, user.id, body.username, body.password, remember=body.remember
+        db, source, user.id, body.username, body.password, remember=body.remember, purpose=purpose,
     )
-    return await get_my_login(source_id, user, db)
+    return await get_my_login(source_id, purpose, user, db)
 
 
 @router.delete("/{source_id}/my-login", status_code=status.HTTP_204_NO_CONTENT)
 async def forget_my_login(
     source_id: str,
+    purpose: str = Query(default="read"),
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     source = await _load_source(db, source_id, user, "databases:read")
     audit.bind(action="credential_forget", data_source_id=source.id, workspace_id=source.workspace_id)
-    await database_credential_service.forget(db, source, user.id)
+    await database_credential_service.forget(db, source, user.id, _login_purpose(purpose))
 
 
 @router.get("/{source_id}/login-count")

@@ -193,16 +193,25 @@ docker run -d --rm --name linkr-pg-app -p 55433:5432 -e POSTGRES_USER=linkr -e P
 docker stop linkr-pg-app
 ```
 
-**Live Postgres tests** — a few API tests write into a real Postgres and are
-skipped unless `LINKR_TEST_PG_DSN` names one (a JSON connectionConfig): the
-introspection and query of `test_data_sources.py`, and a pseudonymised cohort
-derivation into a schema, with its correspondence table, in
-`test_cohort_derive_minimization.py`. A throwaway container is enough:
+**Live database tests** — a few API tests write into a real database and are
+skipped unless a variable names one (a JSON connectionConfig with the password
+of a login that may write there): `LINKR_TEST_PG_DSN` (the introspection and
+query of `test_data_sources.py`, and a pseudonymised cohort derivation),
+`LINKR_TEST_MSSQL_DSN`, `LINKR_TEST_DORIS_DSN` (plus `httpPort`, its Stream Load
+port) and `LINKR_TEST_ORACLE_DSN` (plus `derivedSchema` and
+`correspondenceSchema`, two empty schemas the login may write in: Oracle's are
+users, which Linkr never creates). Each derives into its database
+(`test_cohort_derive_minimization.py`), and through the API with the login as
+the write login (`test_database_write_logins.py`). The SPE simulation's
+datamart images do for SQL Server and Oracle; Doris' is in
+[doris-plan.md](planning/doris-plan.md) annexe A — on one backend, first
+`ADMIN SET FRONTEND CONFIG ("force_olap_table_replication_num" = "1")`. A
+throwaway Postgres container is enough:
 
 ```bash
 docker run -d --rm --name linkr-pg-test -p 55432:5432 -e POSTGRES_USER=linkr -e POSTGRES_PASSWORD=pw-for-tests-only postgres:16-alpine
 (cd apps/api && LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":55432,"database":"linkr","username":"linkr","password":"pw-for-tests-only"}' \
-  .venv/bin/python -m pytest tests -k "live_postgres or postgres_schema")
+  .venv/bin/python -m pytest tests -k "live_postgres or live_database")
 docker stop linkr-pg-test
 ```
 

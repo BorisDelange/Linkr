@@ -7,9 +7,14 @@ import { create } from 'zustand'
  * and every waiting request retries once the user saved a login (or gives up if
  * they dismissed it).
  */
+/** What a login is for: the user's own account (`read`), or the one a cohort
+ *  derivation writes SQL Server, Doris or Oracle with (`write`). */
+export type LoginPurpose = 'read' | 'write'
+
 interface PendingPrompt {
   dataSourceId: string
   sessionOnly: boolean
+  purpose: LoginPurpose
 }
 
 interface DatabaseLoginPromptState {
@@ -31,17 +36,18 @@ export const useDatabaseLoginPrompt = create<DatabaseLoginPromptState>((set) => 
   },
 }))
 
-export function requestDatabaseLogin(dataSourceId: string, sessionOnly: boolean): Promise<boolean> {
-  const existing = waiters.get(dataSourceId)
+export function requestDatabaseLogin(dataSourceId: string, sessionOnly: boolean, purpose: LoginPurpose = 'read'): Promise<boolean> {
+  const key = `${dataSourceId}:${purpose}`
+  const existing = waiters.get(key)
   if (existing) return existing
   const promise = queue
     .then(() => new Promise<boolean>((resolve) => {
       resolveCurrent = resolve
-      useDatabaseLoginPrompt.setState({ pending: { dataSourceId, sessionOnly } })
+      useDatabaseLoginPrompt.setState({ pending: { dataSourceId, sessionOnly, purpose } })
     }))
-    .finally(() => waiters.delete(dataSourceId))
+    .finally(() => waiters.delete(key))
   queue = promise.catch(() => undefined)
-  waiters.set(dataSourceId, promise)
+  waiters.set(key, promise)
   return promise
 }
 
@@ -49,11 +55,15 @@ export interface CredentialRequiredDetail {
   code: 'database_credential_required'
   dataSourceId: string
   sessionOnly: boolean
+  purpose: LoginPurpose
 }
 
 /** The 428 body's `detail`, when it is the "enter your own login" one. */
 export function credentialRequiredDetail(body: unknown): CredentialRequiredDetail | null {
   const detail = (body as { detail?: unknown } | null)?.detail as Partial<CredentialRequiredDetail> | undefined
   if (!detail || detail.code !== 'database_credential_required' || typeof detail.dataSourceId !== 'string') return null
-  return { code: detail.code, dataSourceId: detail.dataSourceId, sessionOnly: !!detail.sessionOnly }
+  return {
+    code: detail.code, dataSourceId: detail.dataSourceId, sessionOnly: !!detail.sessionOnly,
+    purpose: detail.purpose === 'write' ? 'write' : 'read',
+  }
 }

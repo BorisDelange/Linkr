@@ -2,14 +2,16 @@
 a wider scope, the tables and variables chosen, birth dates to a precision, and
 ids replaced by pseudonyms — consistently across tables, never copied as they are."""
 
+import datetime
 import json
 import os
 from dataclasses import replace
 
 import duckdb
+import pyarrow as pa
 import pytest
 
-from app.services.data import cohort_derive
+from app.services.data import cohort_derive, db_connect
 from app.services.data.cohort_derive import Minimization, Pseudonyms, SourceSpec, TargetSpec
 
 MAPPING = {
@@ -169,7 +171,7 @@ def test_birth_dates_are_kept_to_the_precision_asked(source, tmp_path):
     assert str(row[0]) == "1980-06-01 00:00:00" and row[1] == 6 and row[2] is None and row[3] == "TIMESTAMP"
     dates = {(None, "person"): {"birth_datetime": "year"}}
     out, _ = _derive(source, tmp_path, _unit_stays_1_and_2(source), "visit_detail", name="y.duckdb", minimization=Minimization(dates=dates))
-    assert _query(out, "SELECT CAST(birth_datetime AS DATE), month_of_birth FROM person") == [(__import__("datetime").date(1980, 1, 1), None)]
+    assert _query(out, "SELECT CAST(birth_datetime AS DATE), month_of_birth FROM person") == [(datetime.date(1980, 1, 1), None)]
     with pytest.raises(ValueError):
         cohort_derive.derive(
             source, TargetSpec("file", path=str(tmp_path / "z.duckdb"), fresh_file=True), _unit_stays_1_and_2(source),
@@ -250,61 +252,111 @@ def test_the_correspondence_goes_to_its_own_database_and_a_rebuild_replaces_its_
     assert _query(corr_path, "SELECT COUNT(*) FROM pseudo.linkr_pseudonyms") == [(21,)]
 
 
-# Opt-in live test: set LINKR_TEST_PG_DSN to a JSON connectionConfig of a
-# disposable Postgres the login may create schemas in, e.g.
+# Opt-in live tests: each derives into the database its variable names, as a JSON
+# connectionConfig with the password of a login that may write there, e.g.
 #   LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":5432,
 #                       "database":"linkr","username":"me","password":"pw-for-tests-only"}'
-@pytest.mark.skipif(
-    not os.environ.get("LINKR_TEST_PG_DSN"),
-    reason="set LINKR_TEST_PG_DSN to derive into a live Postgres",
-)
-def test_a_pseudonymised_derivation_into_a_postgres_schema(source, tmp_path):
-    from app.services.data import db_connect
+# SQL Server takes the same keys, Doris also `httpPort` (its Stream Load port).
+# Oracle writes into existing schemas only: name two empty ones the login may
+# write in, `"derivedSchema"` and `"correspondenceSchema"`. docs/testing.md.
+LIVE_DATABASES = {
+    "postgresql": "LINKR_TEST_PG_DSN",
+    "sqlserver": "LINKR_TEST_MSSQL_DSN",
+    "doris": "LINKR_TEST_DORIS_DSN",
+    "oracle": "LINKR_TEST_ORACLE_DSN",
+}
 
-    config = json.loads(os.environ["LINKR_TEST_PG_DSN"])
+
+def _copy_back(config: dict, password: str, schemas: list[str]) -> duckdb.DuckDBPyConnection:
+    """What the live database holds in `schemas`, copied into an in-memory DuckDB
+    under the same names (lower case), to be read in one dialect."""
+    from app.services.data import derive_writers
+
+    out = duckdb.connect()
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{db_connect._sql_path(db_connect._ext_dir())}'")
+    writer = derive_writers.writer_for(con, derive_writers.Destination("external", config=config, password=password), "live")
+    try:
+        for schema in schemas:
+            out.execute(f'CREATE SCHEMA "{schema}"')
+            if isinstance(writer, derive_writers.OracleWriter):
+                for table in writer._tables(schema.upper()):
+                    frame = writer.conn.fetch_df_all(f'SELECT * FROM "{schema.upper()}"."{table}"')
+                    data = pa.table(frame).rename_columns([c.lower() for c in pa.table(frame).column_names])
+                    out.register("_frame", data)
+                    out.execute(f'CREATE TABLE "{schema}"."{table.lower()}" AS SELECT * FROM _frame')
+                    out.unregister("_frame")
+                continue
+            tables = con.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_catalog = 'live' AND table_schema = ?", [schema],
+            ).fetchall()
+            for (table,) in tables:
+                data = con.execute(f'SELECT * FROM live."{schema}"."{table}"').fetch_arrow_table()
+                out.register("_frame", data)
+                out.execute(f'CREATE TABLE "{schema}"."{str(table).lower()}" AS SELECT * FROM _frame')
+                out.unregister("_frame")
+    finally:
+        writer.close()
+        con.close()
+    return out
+
+
+@pytest.mark.parametrize("engine", list(LIVE_DATABASES))
+def test_a_pseudonymised_derivation_into_a_live_database(engine, source):
+    from app.services.data import derive_writers
+
+    env = LIVE_DATABASES[engine]
+    if not os.environ.get(env):
+        pytest.skip(f"set {env} to derive into a live {engine} database")
+    config = json.loads(os.environ[env])
+    assert config.get("engine") == engine
+    if engine == "sqlserver":
+        # A community extension: never downloaded by the server itself.
+        from app.duckdb_extensions import install
+
+        install(db_connect._ext_dir(), community=True)
     password = config.get("password")
-    schema, corr_schema = f"cohort_t{os.getpid()}", f"pseudo_t{os.getpid()}"
+    schema = config.pop("derivedSchema", f"cohort_t{os.getpid()}")
+    corr_schema = config.pop("correspondenceSchema", f"pseudo_t{os.getpid()}")
     target = TargetSpec("external", config=config, password=password, schema=schema)
     pseudo = Pseudonyms(
         "hmac", KEY,
         correspondence=TargetSpec("external", config=config, password=password, schema=corr_schema),
-        derivation_id="pg1", derivation="Sepsis",
+        derivation_id="live1", derivation="Sepsis",
     )
     members = cohort_derive.compute_members(source, "SELECT person_id AS id, person_id AS patient_id FROM person WHERE person_id <= 3")
     minimization = Minimization(
         variables={(None, "measurement"): (["measurement_concept_id"], [100])},
         dates={(None, "person"): {"birth_datetime": "month"}},
     )
-    con = duckdb.connect()
-    con.execute(f"SET extension_directory = '{db_connect._sql_path(db_connect._ext_dir())}'")
-    con.execute("LOAD postgres")
-    db_connect.attach_dsn(con, db_connect._dsn(config, password), "pg", "TYPE postgres")
     try:
         written = {w["table"]: w for w in cohort_derive.derive(
             source, target, members, MAPPING, "patient", True, minimization=minimization, pseudonyms=pseudo)}
         assert written["person"]["rows"] == 3 and written["measurement"]["rows"] == 12
 
-        q = lambda sql: con.execute(sql.replace("S.", f"pg.{schema}.").replace("C.", f"pg.{corr_schema}.")).fetchall()
-        persons = {r[0] for r in q("SELECT person_id FROM S.person")}
+        live = _copy_back(config, password, [schema, corr_schema])
+        q = lambda sql: live.execute(sql.replace("S.", f'"{schema}".').replace("C.", f'"{corr_schema}".')).fetchall()
+        persons = {int(r[0]) for r in q("SELECT person_id FROM S.person")}
         assert len(persons) == 3 and not persons & {1, 2, 3}
-        assert q("SELECT COUNT(*) FROM S.measurement m JOIN S.person p USING (person_id)") == [(12,)]
-        assert q("SELECT DISTINCT measurement_concept_id FROM S.measurement") == [(100,)]
-        assert q("SELECT DISTINCT CAST(birth_datetime AS DATE), day_of_birth FROM S.person") == [(__import__("datetime").date(1980, 6, 1), None)]
+        assert q("SELECT COUNT(*) FROM S.measurement m JOIN S.person p ON CAST(p.person_id AS BIGINT) = CAST(m.person_id AS BIGINT)") == [(12,)]
+        assert [int(r[0]) for r in q("SELECT DISTINCT measurement_concept_id FROM S.measurement")] == [100]
+        assert q("SELECT DISTINCT CAST(birth_datetime AS DATE), day_of_birth FROM S.person") == [(datetime.date(1980, 6, 1), None)]
         corr = q("SELECT original_id, pseudonym FROM C.linkr_pseudonyms WHERE kind = 'patient' ORDER BY original_id")
-        assert [r[0] for r in corr] == ["1", "2", "3"] and {r[1] for r in corr} == persons
+        assert [r[0] for r in corr] == ["1", "2", "3"] and {int(r[1]) for r in corr} == persons
 
         # A rebuild into the same schema: the same key, the same pseudonyms, its rows replaced.
         cohort_derive.derive(source, replace(target, replace_schema=True), members, MAPPING, "patient", True,
                              minimization=minimization, pseudonyms=pseudo)
-        assert {r[0] for r in q("SELECT person_id FROM S.person")} == persons
+        live = _copy_back(config, password, [schema, corr_schema])
+        assert {int(r[0]) for r in q("SELECT person_id FROM S.person")} == persons
         assert q("SELECT COUNT(*) FROM C.linkr_pseudonyms") == [(21,)]
     finally:
-        con.execute("DETACH pg")
-        con.close()
-        cleanup = duckdb.connect()
-        cleanup.execute(f"SET extension_directory = '{db_connect._sql_path(db_connect._ext_dir())}'")
-        cleanup.execute("LOAD postgres")
-        db_connect.attach_dsn(cleanup, db_connect._dsn(config, password), "pg", "TYPE postgres")
         for s in (schema, corr_schema):
-            cleanup.execute(f"CALL postgres_execute('pg', 'DROP SCHEMA IF EXISTS {s} CASCADE')")
-        cleanup.close()
+            con = duckdb.connect()
+            con.execute(f"SET extension_directory = '{db_connect._sql_path(db_connect._ext_dir())}'")
+            writer = derive_writers.writer_for(con, derive_writers.Destination("external", config=config, password=password), "live")
+            try:
+                writer.drop_schema(s)
+            finally:
+                writer.close()
+                con.close()

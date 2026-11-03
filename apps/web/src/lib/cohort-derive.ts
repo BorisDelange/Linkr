@@ -19,17 +19,23 @@ import type {
 /** A SQL schema name the server accepts (`cohort_derive_service._SCHEMA_NAME`). */
 export const DERIVE_SCHEMA_NAME = /^[a-z_][a-z0-9_]{0,62}$/
 
+/** The external engines a derivation may write into, once the database's owner
+ *  allowed it (`allowWrites`). Postgres with the user's own login; SQL Server,
+ *  Doris and Oracle with a write login of its own (`WRITE_LOGIN_ENGINES`), their
+ *  read logins being read-only. Twin of `cohort_derive_service.WRITABLE_ENGINES`. */
+export const WRITABLE_ENGINES: readonly string[] = ['postgresql', 'sqlserver', 'doris', 'oracle']
+export const WRITE_LOGIN_ENGINES: readonly string[] = ['sqlserver', 'doris', 'oracle']
+
 /**
  * Whether Linkr may create a SQL schema in this database: a DuckDB file Linkr
- * created, or a Postgres whose owner allowed Linkr to write. Every other
- * connection stays read-only.
+ * created, or an external database whose owner allowed Linkr to write. Every
+ * other connection stays read-only.
  */
 export function isWritableTarget(ds: DataSource): boolean {
   if (ds.sourceType !== 'database' || ds.isVocabularyReference) return false
   const config = ds.connectionConfig as DatabaseConnectionConfig
   if (config.engine === 'duckdb') return !!config.managed
-  if (config.engine === 'postgresql') return !!config.allowWrites
-  return false
+  return WRITABLE_ENGINES.includes(config.engine) && !!config.allowWrites
 }
 
 /** The schema name offered for a cohort derived into a SQL schema. */

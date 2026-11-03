@@ -17,6 +17,7 @@ import duckdb
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import crypto
+from app.core.redact import redact_secrets
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource
 from app.models.pseudonym_key import PseudonymKey
@@ -51,6 +52,51 @@ async def plan(db: AsyncSession, source: DataSource, level: str, scope: str | No
     return await asyncio.to_thread(cohort_derive.plan, spec, mapping, level, scope)
 
 
+# The engines a derivation writes into with a login of its own (`write`): their
+# read logins are checked read-only at every attach. Postgres writes with the
+# user's own login, on a database whose owner allowed it.
+WRITE_LOGIN_ENGINES = ("sqlserver", "doris", "oracle")
+WRITABLE_ENGINES = ("postgresql", *WRITE_LOGIN_ENGINES)
+
+
+def _engine(source: DataSource) -> str | None:
+    return (source.connection_config or {}).get("engine")
+
+
+def write_purpose(source: DataSource) -> str:
+    """Which of the user's logins a derivation writes `source` with."""
+    if _engine(source) in WRITE_LOGIN_ENGINES:
+        return database_credential_service.WRITE
+    return database_credential_service.READ
+
+
+def takes_write_login(source: DataSource) -> bool:
+    return _engine(source) in WRITE_LOGIN_ENGINES and bool((source.connection_config or {}).get("allowWrites"))
+
+
+async def test_write_login(config: dict, password: str | None) -> tuple[bool, str | None]:
+    """Whether a write login opens the database writable — no read-only check:
+    it is the derivation's, which only ever runs the statements it generates."""
+
+    def probe() -> None:
+        con = cohort_derive._connect()
+        writer = None
+        try:
+            writer = cohort_derive.derive_writers.writer_for(
+                con, cohort_derive.derive_writers.Destination("external", config=config, password=password), "probe",
+            )
+        finally:
+            if writer is not None:
+                writer.close()
+            con.close()
+
+    try:
+        await asyncio.to_thread(probe)
+    except Exception as exc:  # noqa: BLE001 — the driver's message is the diagnosis
+        return False, redact_secrets(str(exc))
+    return True, None
+
+
 def _writable_target(
     target: DataSource, schema_name: str, replace: bool, login: Login | None,
 ) -> cohort_derive.TargetSpec:
@@ -60,11 +106,11 @@ def _writable_target(
         if not path.exists():
             raise DeriveError("the target database file is missing")
         return cohort_derive.TargetSpec("file", path=str(path), schema=schema_name, replace_schema=replace)
-    if config.get("engine") == "postgresql":
+    if config.get("engine") in WRITABLE_ENGINES:
         if not config.get("allowWrites"):
             raise DeriveError("this database does not allow Linkr to write into it")
         if login is None:
-            raise database_credential_service.CredentialRequired(target)
+            raise database_credential_service.CredentialRequired(target, write_purpose(target))
         return cohort_derive.TargetSpec(
             "external",
             config=database_credential_service.with_login(config, login),
@@ -72,16 +118,37 @@ def _writable_target(
             schema=schema_name,
             replace_schema=replace,
         )
-    raise DeriveError("a new schema can only be created in a database Linkr owns, or in Postgres")
+    raise DeriveError(
+        "a new schema can only be created in a database Linkr owns, or in a Postgres, SQL Server, Doris or "
+        "Oracle database that allows Linkr to write"
+    )
+
+
+async def write_login(db: AsyncSession, target: DataSource, user_id: int) -> Login | None:
+    """The launcher's login to write `target` with — asked for only once the
+    target is known to be one Linkr may write a schema into."""
+    config = target.connection_config or {}
+    if config.get("engine") not in WRITABLE_ENGINES or not config.get("allowWrites"):
+        return None
+    return await database_credential_service.resolve_login(db, target, user_id, write_purpose(target))
 
 
 async def _target_login(db: AsyncSession, target: DataSource, body: DeriveRequest, user_id: int) -> Login | None:
-    """The launcher's login to the target — asked for only once the target is
-    known to be one Linkr may write a schema into."""
-    config = target.connection_config or {}
-    if body.target.kind != "schema" or config.get("engine") != "postgresql" or not config.get("allowWrites"):
+    if body.target.kind != "schema":
         return None
-    return await database_credential_service.resolve_login(db, target, user_id)
+    return await write_login(db, target, user_id)
+
+
+async def drop_login(db: AsyncSession, source: DataSource, user_id: int) -> Login | None:
+    """The login that drops the SQL schema a derivation created, with the
+    database declared on it: the write login of the database the schema is in,
+    where reading takes a read-only one."""
+    if _engine(source) not in WRITE_LOGIN_ENGINES:
+        return await database_credential_service.resolve_login(db, source, user_id)
+    target = await db.get(DataSource, (source.linkr_created or {}).get("targetId"))
+    if target is None:
+        raise DeriveError("the database this schema was derived into is gone: drop the schema there")
+    return await database_credential_service.resolve_login(db, target, user_id, database_credential_service.WRITE)
 
 
 def _created(source: DataSource) -> dict:
@@ -210,11 +277,7 @@ async def _correspondence_target(
         raise DeriveError("the correspondence schema and table names must be lowercase letters, digits and underscores")
     if data_source_service.is_managed(corr) and data_source_service.is_managed(source) and _same_database(source, corr):
         raise DeriveError("the correspondence cannot go into the file the cohort is read from")
-    config = corr.connection_config or {}
-    login = None
-    if config.get("engine") == "postgresql" and config.get("allowWrites"):
-        login = await database_credential_service.resolve_login(db, corr, user_id)
-    return _writable_target(corr, c.schema_name, False, login)
+    return _writable_target(corr, c.schema_name, False, await write_login(db, corr, user_id))
 
 
 def _open_key(row: PseudonymKey) -> bytes:
@@ -517,7 +580,9 @@ async def _derive(
     await db.commit()
     for written in {target.id, produced_id} - {None}:
         await data_source_service.invalidate_concept_caches(db, written)
-    if registered_new is not None and target_login is not None:
+    # The launcher's own login comes along — never a write login, which would
+    # read the new database with an account that may write it.
+    if registered_new is not None and target_login is not None and write_purpose(target) == database_credential_service.READ:
         remembered = (await database_credential_service.status_for(db, target, user_id))["remembered"]
         await database_credential_service.save(
             db, registered_new, user_id, target_login.username, target_login.password, remember=remembered,
