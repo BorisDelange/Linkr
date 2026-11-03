@@ -182,3 +182,5 @@ class JobResponse(CamelModel):
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    group_key: str | None = None
+    group_label: str | None = None

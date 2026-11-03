@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Loader2, Ban, CheckCircle2, XCircle, Hourglass, Square, Trash2, ExternalLink } from 'lucide-react'
+import { Loader2, Ban, CheckCircle2, ChevronRight, XCircle, Hourglass, Square, Trash2, ExternalLink } from 'lucide-react'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -24,6 +24,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { clearLoggedQueries, stopLoggedQuery } from '@/lib/duckdb/query-log'
 import { QUERY_KIND, useLocalQueries } from './use-query-log'
+import { groupJobs, type JobGroupRow } from './job-groups'
 
 const ACTIVE = new Set(['queued', 'running'])
 
@@ -56,7 +57,8 @@ function sameJobs(a: Job[], b: Job[]): boolean {
  * of the open project, and the jobs of the open workspace (a database's cohort
  * derivations), and every query sent to a database — with a popover to view
  * status/log and cancel. Polls while a workspace is open. Front-only mode lists
- * the queries this browser tab ran, which it can stop alike.
+ * the queries this browser tab ran, which it can stop alike. The jobs of one
+ * action (a patient opened) fold into one row, stopped together.
  *
  * `atRightEdge`: the trigger is the footer's last item (a workspace view in server
  * mode), so the popover is nudged to sit as far from the page's right edge as
@@ -121,6 +123,13 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   }, [logJobId, server])
 
   const listed = server ? jobs : localQueries
+  const rows = useMemo(() => groupJobs(listed), [listed])
+  const [openGroups, setOpenGroups] = useState<ReadonlySet<string>>(new Set())
+  const toggleGroup = (key: string) => setOpenGroups((prev) => {
+    const next = new Set(prev)
+    if (!next.delete(key)) next.add(key)
+    return next
+  })
   const activeCount = listed.filter((j) => ACTIVE.has(j.status)).length
   // Stops asked for and not yet seen through: a cancel only lands once the
   // unit in flight is interrupted, so the button says it was heard meanwhile.
@@ -149,6 +158,11 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     setReloadTick((n) => n + 1)
   }
 
+  const onStopGroup = (group: JobGroupRow) => {
+    for (const job of group.jobs) if (ACTIVE.has(job.status) && !stopping.has(job.id)) void onCancel(job.id)
+  }
+  const groupStopping = (group: JobGroupRow) => group.jobs.filter((j) => ACTIVE.has(j.status)).every(isStopping)
+
   const onStopAll = () => {
     setConfirmStopAll(false)
     for (const job of listed) if (ACTIVE.has(job.status) && !stopping.has(job.id)) void onCancel(job.id)
@@ -168,6 +182,77 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   const jobInput = !server ? (logJob?.input ?? null) : input && input.jobId === logJobId ? input.text : null
   const showInput = logTab === 'input' && !!jobInput
   const hasFinished = listed.some((j) => !ACTIVE.has(j.status))
+
+  const renderJob = (job: Job) => (
+    <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
+      {/* Click the row to open the full log in a modal. */}
+      <button
+        className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+        onClick={() => { setLogJobId(job.id); setLogTab(job.kind === QUERY_KIND ? 'input' : 'output'); setPopoverOpen(false) }}
+        aria-label={`${job.label} — ${t('jobs.show_log')}`}
+      >
+        <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
+          {formatJobTime(job.createdAt, job.kind === QUERY_KIND)}
+        </span>
+        <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
+        {/* One line, the whole label on hover: a query's says what it read. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="min-w-0 truncate py-px leading-normal">{job.label}</span>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={4} className="max-w-96 break-words">
+            {job.label}
+          </TooltipContent>
+        </Tooltip>
+        {job.kind === QUERY_KIND && job.status === 'done' && (
+          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.logTail.split('\n')[0]}</span>
+        )}
+        {job.status === 'running' && job.progress > 0 && (
+          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
+        )}
+        <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
+      </button>
+      {job.kind === 'app' && ACTIVE.has(job.status) && webAppUrl(job) && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <a
+              href={webAppFrameUrl(webAppUrl(job)!)}
+              target="_blank"
+              rel="noopener"
+              className="shrink-0 text-muted-foreground hover:text-foreground"
+              aria-label={t('web_apps.open_window')}
+            >
+              <ExternalLink size={12} />
+            </a>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={4}>
+            {t('web_apps.open_window')}
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {ACTIVE.has(job.status) ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              className="shrink-0 text-muted-foreground hover:text-destructive disabled:text-destructive"
+              onClick={() => void onCancel(job.id)}
+              disabled={isStopping(job)}
+              aria-label={t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel')}
+            >
+              {isStopping(job) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" sideOffset={4}>
+            {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
+          </TooltipContent>
+        </Tooltip>
+      ) : job.kind === QUERY_KIND && job.status === 'done' ? null : (
+        <span className="shrink-0 text-[10px] text-muted-foreground">
+          {t(`jobs.status.${job.status}`)}
+        </span>
+      )}
+    </li>
+  )
 
   return (
     <>
@@ -225,73 +310,55 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             at each pass; moving from one icon to the next shows it at once. */}
         <TooltipProvider delayDuration={600}>
           <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
-            {listed.map((job) => (
-              <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
-                {/* Click the row to open the full log in a modal. */}
-                <button
-                  className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                  onClick={() => { setLogJobId(job.id); setLogTab(job.kind === QUERY_KIND ? 'input' : 'output'); setPopoverOpen(false) }}
-                  aria-label={`${job.label} — ${t('jobs.show_log')}`}
-                >
-                  <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
-                    {formatJobTime(job.createdAt, job.kind === QUERY_KIND)}
-                  </span>
-                  <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
-                  {/* One line, the whole label on hover: a query's says what it read. */}
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="min-w-0 truncate py-px leading-normal">{job.label}</span>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={4} className="max-w-96 break-words">
-                      {job.label}
-                    </TooltipContent>
-                  </Tooltip>
-                  {job.kind === QUERY_KIND && job.status === 'done' && (
-                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.logTail.split('\n')[0]}</span>
+            {rows.map((row) => 'job' in row ? renderJob(row.job) : (
+              <li key={row.group.key}>
+                <div className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
+                  <button
+                    className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+                    onClick={() => toggleGroup(row.group.key)}
+                    aria-expanded={openGroups.has(row.group.key)}
+                    aria-label={`${row.group.label} · ${t('jobs.group_count', { count: row.group.jobs.length })}`}
+                  >
+                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
+                      {formatJobTime(row.group.createdAt, true)}
+                    </span>
+                    <span className="flex shrink-0"><JobStatusIcon status={row.group.status} /></span>
+                    <ChevronRight
+                      size={12}
+                      className={cn('shrink-0 text-muted-foreground transition-transform', openGroups.has(row.group.key) && 'rotate-90')}
+                    />
+                    <span className="min-w-0 truncate py-px font-medium leading-normal">{row.group.label}</span>
+                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">
+                      {t('jobs.group_count', { count: row.group.jobs.length })}
+                    </span>
+                    <JobDuration job={row.group} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
+                  </button>
+                  {ACTIVE.has(row.group.status) ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          className="shrink-0 text-muted-foreground hover:text-destructive disabled:text-destructive"
+                          onClick={() => onStopGroup(row.group)}
+                          disabled={groupStopping(row.group)}
+                          aria-label={t(groupStopping(row.group) ? 'jobs.stopping' : 'jobs.cancel_group')}
+                        >
+                          {groupStopping(row.group) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" sideOffset={4}>
+                        {t(groupStopping(row.group) ? 'jobs.stopping' : 'jobs.cancel_group')}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : row.group.status !== 'done' && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground">
+                      {t(`jobs.status.${row.group.status}`)}
+                    </span>
                   )}
-                  {job.status === 'running' && job.progress > 0 && (
-                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
-                  )}
-                  <JobDuration job={job} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
-                </button>
-                {job.kind === 'app' && ACTIVE.has(job.status) && webAppUrl(job) && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <a
-                        href={webAppFrameUrl(webAppUrl(job)!)}
-                        target="_blank"
-                        rel="noopener"
-                        className="shrink-0 text-muted-foreground hover:text-foreground"
-                        aria-label={t('web_apps.open_window')}
-                      >
-                        <ExternalLink size={12} />
-                      </a>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={4}>
-                      {t('web_apps.open_window')}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                {ACTIVE.has(job.status) ? (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        className="shrink-0 text-muted-foreground hover:text-destructive disabled:text-destructive"
-                        onClick={() => void onCancel(job.id)}
-                        disabled={isStopping(job)}
-                        aria-label={t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel')}
-                      >
-                        {isStopping(job) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="top" sideOffset={4}>
-                      {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
-                    </TooltipContent>
-                  </Tooltip>
-                ) : job.kind === QUERY_KIND && job.status === 'done' ? null : (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
-                    {t(`jobs.status.${job.status}`)}
-                  </span>
+                </div>
+                {openGroups.has(row.group.key) && (
+                  <ul className="ml-3 flex flex-col gap-1 border-l pl-1">
+                    {row.group.jobs.map(renderJob)}
+                  </ul>
                 )}
               </li>
             ))}
@@ -468,7 +535,7 @@ function formatJobTime(iso: string, seconds = false): string {
 }
 
 /** How long a job ran, or has been running (ticking). Nothing while queued. */
-function JobDuration({ job, className }: { job: Job; className?: string }) {
+function JobDuration({ job, className }: { job: Pick<Job, 'status' | 'startedAt' | 'finishedAt'>; className?: string }) {
   const { t } = useTranslation()
   const live = job.status === 'running' && !!job.startedAt && !job.finishedAt
   const [now, setNow] = useState(() => Date.now())

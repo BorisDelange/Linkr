@@ -41,6 +41,13 @@ export function originOf(section: string, name?: string | null): string {
   return what ? `${section} · ${what}` : section
 }
 
+/** The action a query is one of ("Patient 123", opened): the jobs panel shows
+ *  the queries of a group under one row. */
+export interface JobGroup {
+  key: string
+  label: string
+}
+
 // --- Front-only log ---------------------------------------------------------
 
 export interface LoggedQuery {
@@ -53,6 +60,7 @@ export interface LoggedQuery {
   status: 'running' | 'done' | 'error' | 'cancelled'
   rows: number | null
   error: string | null
+  group: JobGroup | null
 }
 
 /** The SQL of a query is kept whole: past this many queries, in this tab's
@@ -75,7 +83,7 @@ function prune() {
 /** Record a query starting, and how to `stop` it; the returned function records
  *  how it ended. */
 export function logQuery(
-  dataSourceId: string, sql: string, origin: string, stop?: () => void,
+  dataSourceId: string, sql: string, origin: string, stop?: () => void, group?: JobGroup,
 ): (end: { rows?: number; error?: unknown; cancelled?: boolean }) => void {
   const now = Date.now()
   prune()
@@ -89,6 +97,7 @@ export function logQuery(
     status: 'running',
     rows: null,
     error: null,
+    group: group ?? null,
   }
   entries = [...entries, entry]
   if (stop) stops.set(entry.id, stop)

@@ -14,8 +14,10 @@ test('a cohort’s patient board is generated from its criteria', async ({ page 
   await expect(page.getByRole('button', { name: 'Notes', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: /^\d+ [FM] / }).first().click()
-  // Every read of the selected patient shows in the jobs panel, named.
+  // Every read of the selected patient shows in the jobs panel, named, under
+  // one row for the patient opened.
   await page.getByRole('button', { name: /\d+ jobs?$/ }).click()
+  await page.getByRole('button', { name: /^Patient \d+ · \d+ jobs$/ }).first().click()
   await expect(page.getByText(/^Patient summary · /).first()).toBeVisible()
 })
 

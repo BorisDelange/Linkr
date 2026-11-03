@@ -4,6 +4,7 @@ import { notifyJobsChanged, type Job } from '@/lib/api/environments'
 import type { DataSourceStorage, FileStorage } from '@/lib/storage'
 import type { CohortLevel, ConnectionConfig, DataSource, DerivedFrom, StoredFile } from '@/types'
 import type { LayoutCheck, LayoutEntry } from '@/lib/duckdb/parquet-layout'
+import type { JobGroup } from '@/lib/duckdb/query-log'
 
 /** Server-side schema introspection result — mirrors engine.IntrospectedTable[]. */
 export interface IntrospectedColumn {
@@ -62,11 +63,12 @@ export interface QueryExecution {
 export async function queryDataSourceOnServer(
   dataSourceId: string,
   sql: string,
-  { signal, allRows, pushdown, native, heavy, onExecution, origin }: {
+  { signal, allRows, pushdown, native, heavy, onExecution, origin, group }: {
     signal?: AbortSignal; allRows?: boolean; pushdown?: boolean; native?: boolean; heavy?: boolean
     onExecution?: (execution: QueryExecution) => void
-    /** The label of the query's job (query-log.ts). */
+    /** The label of the query's job, and the action it is one of (query-log.ts). */
     origin?: string
+    group?: JobGroup
   } = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await cancellableOnServer(dataSourceId, signal, (queryId) =>
@@ -77,6 +79,7 @@ export async function queryDataSourceOnServer(
         body: JSON.stringify({
           sql, allRows, pushdown, ...(native ? { native } : {}), ...(heavy ? { heavy } : {}), ...(queryId ? { queryId } : {}),
           ...(origin ? { origin } : {}),
+          ...(group ? { groupKey: group.key, groupLabel: group.label } : {}),
         }),
       },
     ),

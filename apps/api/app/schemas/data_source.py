@@ -186,6 +186,10 @@ class QueryRequest(CamelModel):
     # Where the app sent it from ("Cohort · Example cohort"): the label of the
     # query's job.
     origin: str | None = Field(default=None, max_length=255)
+    # The action the query is one of ("patient:<db>:<id>"), and its name
+    # ("Patient 123"): the panel folds a group's jobs into one row.
+    group_key: str | None = Field(default=None, max_length=128)
+    group_label: str | None = Field(default=None, max_length=255)
 
 
 class QueryJobItem(CamelModel):

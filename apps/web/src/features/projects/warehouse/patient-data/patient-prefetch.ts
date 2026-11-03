@@ -1,5 +1,7 @@
 import { queryDataSource, type QueryOptions } from '@/lib/duckdb/engine'
+import type { JobGroup } from '@/lib/duckdb/query-log'
 import { escSql } from '@/lib/format-helpers'
+import { usePatientChartStore } from '@/stores/patient-chart-store'
 
 /**
  * What a patient's widgets read, kept for the session, and the next patients'
@@ -20,6 +22,9 @@ import { escSql } from '@/lib/format-helpers'
  * patient read ahead fell out of the patients ahead (another one opened, further
  * down or elsewhere) — is cancelled on the server and not kept. Moving to the
  * next patient keeps the reads of those still ahead going.
+ *
+ * In the jobs panel, opening a patient is one row: its widgets' reads and those
+ * of the patients read ahead from it, stopped together from there.
  */
 
 const IDLE_MS = 1000
@@ -73,7 +78,22 @@ const state = {
   keptBytes: 0,
 }
 
+/** The patient opened last, and the group its reads show under. */
+let opened: { patientId: string; group: JobGroup } | null = null
+
 const literal = (patientId: string) => `'${escSql(patientId)}'`
+
+/** The group of a widget's statement: that of the patient it names, opened anew
+ *  when it is not the one opened last. A widget's effect runs before the list's,
+ *  so the patient is read from the statement, not from `state`. */
+function groupOf(sql: string): JobGroup | undefined {
+  if (opened && sql.includes(literal(opened.patientId))) return opened.group
+  const shown = Object.values(usePatientChartStore.getState().selectedPatientId)
+  const patientId = shown.find((id): id is string => !!id && sql.includes(literal(id)))
+  if (!patientId) return undefined
+  opened = { patientId, group: { key: `patient:${crypto.randomUUID()}`, label: `Patient ${patientId}` } }
+  return opened.group
+}
 const keyOf = (dataSourceId: string, sql: string) => `${dataSourceId}\n${sql}`
 const entryBytes = (key: string, rows: Rows) => ENTRY_OVERHEAD_BYTES + key.length * 2 + estimateBytes(rows)
 
@@ -152,6 +172,7 @@ async function readAhead() {
   if (!dataSourceId || !patientId || aheadIds.length === 0) return
   const walk = ++state.walk
   state.walkedFor = windowKey()
+  const group = opened?.patientId === patientId ? opened.group : undefined
   const recorded = state.recorded.filter((r) => r.dataSourceId === dataSourceId)
   const ours = recorded.map((r) => r.sql)
   // One patient after the other, one statement at a time: the reads are a bet,
@@ -173,6 +194,7 @@ async function readAhead() {
       else await keep(key, queryDataSource(dataSourceId, sql, {
         signal: controller.signal,
         origin: `Read ahead, patient ${aheadId} · ${purpose.get(sql) ?? 'patient board'}`,
+        group,
       })).catch(() => {})
     }
   }
@@ -261,7 +283,7 @@ export async function patientQuery(dataSourceId: string, sql: string, options: Q
   state.inFlight++
   clearIdle()
   try {
-    return await keep(key, queryDataSource(dataSourceId, sql, { origin: 'Patient board', ...options }))
+    return await keep(key, queryDataSource(dataSourceId, sql, { origin: 'Patient board', group: groupOf(sql), ...options }))
   } finally {
     state.inFlight = Math.max(0, state.inFlight - 1)
     scheduleIfIdle()

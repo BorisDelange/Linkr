@@ -410,6 +410,7 @@ async def query_data_source(
         (body.origin or "").strip()[:255] or "SQL query", workspace_id=source.workspace_id,
         lane="heavy_query" if body.heavy else None, input=body.sql,
         always=not body.plan, kind=jobs.QUERY_KIND,
+        group_key=body.group_key, group_label=body.group_label,
     )
     return await deferred.respond(user.id, work, as_job)
 

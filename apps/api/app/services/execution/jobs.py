@@ -69,10 +69,14 @@ async def create(
     workspace_id: str | None = None,
     input: str | None = None,
     running: bool = False,
+    group_key: str | None = None,
+    group_label: str | None = None,
 ) -> Job:
     """A queued job owned by a project, or — `project_uid` None — by a workspace.
     `input`: what it runs (its SQL, its code), kept for the panel. `running`: it
-    starts at once, so it is created running rather than written twice."""
+    starts at once, so it is created running rather than written twice.
+    `group_key`: the action it is one of, shown with the others under one row
+    named `group_label`."""
     if (project_uid is None) == (workspace_id is None):
         raise ValueError("a job belongs to exactly one project or one workspace")
     job = Job(
@@ -84,6 +88,8 @@ async def create(
         status="running" if running else "queued",
         started_at=datetime.now(UTC) if running else None,
         input=capped_input(input),
+        group_key=group_key or None,
+        group_label=(group_label or None) if group_key else None,
     )
     db.add(job)
     await db.commit()
@@ -310,8 +316,11 @@ async def cancel(db: AsyncSession, job: Job) -> bool:
     return True
 
 
-# What the panel lists: every query being a job, a page's worth of them fits.
-RECENT_JOBS = 200
+# What the panel lists: its last rows, a group counting as one; and the most
+# jobs sent in all, the panel being polled every few seconds (past it, the
+# oldest groups show only their latest jobs).
+RECENT_JOBS = 100
+LISTED_JOBS = 1000
 
 
 def _owned_by(project_uid: str | None, workspace_id: str | None):
@@ -322,13 +331,23 @@ async def list_active(
     db: AsyncSession, project_uid: str | None, user_id: int, *, workspace_id: str | None = None
 ) -> list[Job]:
     """A user's non-terminal jobs for a project — or a workspace — (queued/running)
-    plus recently finished ones, newest first — feeds the StatusBar panel."""
+    plus recently finished ones, newest first — feeds the StatusBar panel: the
+    jobs of its last `RECENT_JOBS` rows, a group counting as one."""
+    entry = func.coalesce(Job.group_key, Job.id)
+    owned = (_owned_by(project_uid, workspace_id), Job.user_id == user_id)
+    recent = (
+        select(entry.label("entry"))
+        .where(*owned)
+        .group_by(entry)
+        .order_by(func.max(Job.created_at).desc())
+        .limit(RECENT_JOBS)
+    ).subquery()
     result = await db.execute(
         select(Job)
-        .where(_owned_by(project_uid, workspace_id))
-        .where(Job.user_id == user_id)
+        .where(*owned)
+        .where(entry.in_(select(recent.c.entry)))
         .order_by(Job.created_at.desc())
-        .limit(RECENT_JOBS)
+        .limit(LISTED_JOBS)
     )
     return list(result.scalars().all())
 

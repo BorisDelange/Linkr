@@ -37,7 +37,7 @@ const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 import { splitSqlStatements } from './sql-tokenizer'
 import { fromArrowBigNum } from './value-coercion'
 import { shouldGuardMount, isAttachedCatalog } from './mount-guard'
-import { logQuery, pageOrigin } from './query-log'
+import { logQuery, pageOrigin, type JobGroup } from './query-log'
 export { splitSqlStatements }
 
 let _db: duckdb.AsyncDuckDB | null = null
@@ -643,6 +643,8 @@ export interface QueryOptions {
   /** What sent it ("Cohort · Sepsis"), the label of its job in the jobs panel;
    *  the page it was sent from when absent (query-log.ts). */
   origin?: string
+  /** The action it is one of, folded with the others into one row of the jobs panel. */
+  group?: JobGroup
 }
 
 /**
@@ -697,7 +699,7 @@ async function runOnSource(
   sql: string,
   options: QueryOptions,
 ): Promise<Record<string, unknown>[]> {
-  const { signal, allRows, pushdown = true, native, heavy, onExecution } = options
+  const { signal, allRows, pushdown = true, native, heavy, onExecution, group } = options
   const origin = options.origin ?? pageOrigin()
   signal?.throwIfAborted()
   // Server mode: the tables live on the server (external DB or server-held
@@ -710,7 +712,7 @@ async function runOnSource(
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
     try {
-      return await queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, native, heavy, onExecution, origin })
+      return await queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, native, heavy, onExecution, origin, group })
     } catch (e) {
       // 422: the query failed on the database; 5xx: it did not reach it.
       const status = (e as { status?: unknown } | null)?.status
@@ -733,7 +735,7 @@ async function runOnSource(
   const local = new AbortController()
   const forward = () => local.abort(signal?.reason)
   signal?.addEventListener('abort', forward, { once: true })
-  const ended = logQuery(dataSourceId, sql, origin, () => local.abort())
+  const ended = logQuery(dataSourceId, sql, origin, () => local.abort(), group)
 
   try {
     // Try schema-based path first, fall back to catalog.main for ATTACHed databases

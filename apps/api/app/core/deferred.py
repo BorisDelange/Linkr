@@ -130,6 +130,9 @@ class AsJob:
     always: bool = False
     # The job's kind when `always` ("sql_query" for a query).
     kind: str = "task"
+    # The action it is one of, folded into one row of the panel (jobs.create).
+    group_key: str | None = None
+    group_label: str | None = None
 
 
 # The job the running work shows as, when it has one from the start: the work
@@ -164,6 +167,7 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
             job = await jobs.create(
                 db, as_job.project_uid, int(user_id), as_job.kind, as_job.label,
                 workspace_id=as_job.workspace_id, input=as_job.input, running=started.now,
+                group_key=as_job.group_key, group_label=as_job.group_label,
             )
         job_id = job.id
     token = current_job.set(job_id)
@@ -233,7 +237,7 @@ async def _as_job(user_id: str, task: asyncio.Task, as_job: AsJob, started: _Sta
     async with session() as db:
         job = await jobs.create(
             db, as_job.project_uid, int(user_id), "task", as_job.label, workspace_id=as_job.workspace_id,
-            input=as_job.input,
+            input=as_job.input, group_key=as_job.group_key, group_label=as_job.group_label,
         )
     async with started.lock:
         started.job_id = job.id

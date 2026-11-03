@@ -26,6 +26,8 @@ function asJob(q: LoggedQuery): Job {
     createdAt: new Date(q.startedAt).toISOString(),
     startedAt: new Date(q.startedAt).toISOString(),
     finishedAt: q.finishedAt == null ? null : new Date(q.finishedAt).toISOString(),
+    groupKey: q.group?.key ?? null,
+    groupLabel: q.group?.label ?? null,
   }
 }
 

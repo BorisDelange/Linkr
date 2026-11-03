@@ -54,6 +54,23 @@ async def test_a_query_is_a_job_with_its_sql_purpose_and_row_count(client):
     assert full["input"].startswith("SELECT a FROM t")
 
 
+async def test_the_queries_of_one_action_count_as_one_row_of_the_panel(client, monkeypatch):
+    headers = await _admin(client)
+    ws, ds = await _database(client, headers)
+    group = {"groupKey": "patient:1", "groupLabel": "Patient 12"}
+    for i in range(3):
+        await client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": "SELECT a FROM t", "origin": f"Widget {i}", **group})
+    await client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": "SELECT 1", "origin": "Alone"})
+
+    grouped = [j for j in await _queries(client, headers, ws) if j["groupKey"] == "patient:1"]
+    assert sorted(j["label"] for j in grouped) == ["Widget 0", "Widget 1", "Widget 2"]
+    assert {j["groupLabel"] for j in grouped} == {"Patient 12"}
+
+    # Three rows — the tables created, the group, the lone query — hold all five jobs.
+    monkeypatch.setattr(jobs, "RECENT_JOBS", 3)
+    assert len(await _queries(client, headers, ws)) == 5
+
+
 async def test_a_failed_query_is_an_error_job(client):
     headers = await _admin(client)
     ws, ds = await _database(client, headers)

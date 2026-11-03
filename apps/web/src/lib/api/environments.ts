@@ -124,6 +124,9 @@ export interface Job {
   startedAt?: string | null
   /** Ended, whatever the outcome; null while live. */
   finishedAt?: string | null
+  /** The action it is one of: the panel shows a group's jobs under one row. */
+  groupKey?: string | null
+  groupLabel?: string | null
 }
 
 /** What a finished derivation reports, on its job. */

@@ -45,3 +45,7 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     # When it left the queue and when it ended: how long it ran, for the panel.
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The action it is one of ("patient 123 opened"): the panel shows a group's
+    # jobs under one row, labelled `group_label`. NULL: a job of its own.
+    group_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    group_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
