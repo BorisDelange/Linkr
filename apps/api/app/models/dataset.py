@@ -3,7 +3,7 @@ import uuid
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class DatasetFile(Base, TimestampMixin):
@@ -26,9 +26,9 @@ class DatasetFile(Base, TimestampMixin):
     parent_id: Mapped[str | None] = mapped_column(
         ForeignKey("dataset_files.id", ondelete="CASCADE")
     )
-    columns: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    columns: Mapped[list | None] = mapped_column(PortableJSON)
     row_count: Mapped[int | None] = mapped_column(Integer)
-    parse_options: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    parse_options: Mapped[dict | None] = mapped_column(PortableJSON)
     # Content-hash pointers into the blob store (nullable for folders / no data).
     data_sha: Mapped[str | None] = mapped_column(String(64))
     raw_sha: Mapped[str | None] = mapped_column(String(64))
@@ -40,7 +40,7 @@ class DatasetFile(Base, TimestampMixin):
     # kept for cross-instance imports where the id has no local meaning.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
 
 
 class DatasetAnalysis(Base, TimestampMixin):
@@ -60,4 +60,4 @@ class DatasetAnalysis(Base, TimestampMixin):
     dataset_path: Mapped[str] = mapped_column(String(1024))
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(50))
-    config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    config: Mapped[dict] = mapped_column(PortableJSON, default=dict)

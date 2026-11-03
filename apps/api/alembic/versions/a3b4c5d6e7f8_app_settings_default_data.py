@@ -20,7 +20,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "a3b4c5d6e7f8"
 down_revision: Union[str, None] = "e2f3a4b5c6d7"
@@ -29,7 +29,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column("app_settings", sa.Column("default_data", JSONB_or_JSON, nullable=True))
+    op.add_column("app_settings", sa.Column("default_data", PortableJSON, nullable=True))
 
 
 def downgrade() -> None:

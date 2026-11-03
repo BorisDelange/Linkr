@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin
+from app.models.base import PortableJSON, Base, LocalizedText, TimestampMixin
 
 
 class Cohort(Base, TimestampMixin):
@@ -31,18 +31,18 @@ class Cohort(Base, TimestampMixin):
     # Portable identity of the database above ({lineageId?, entityId?, label?}).
     # data_source_id is this instance's local UUID and means nothing elsewhere, so
     # this is what the export carries and the import resolves back to a local row.
-    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     level: Mapped[str] = mapped_column(String(20))  # patient | visit | visit_detail | event
-    criteria_tree: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    criteria_tree: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     custom_sql: Mapped[str | None] = mapped_column(Text)
     result_count: Mapped[int | None] = mapped_column(Integer)
-    attrition: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    attrition: Mapped[list | None] = mapped_column(PortableJSON)
     # Frozen membership snapshot (level, ids, patientIds, count, materializedAt).
     # Persisted and shared across users in fullstack mode.
-    materialization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    materialization: Mapped[dict | None] = mapped_column(PortableJSON)
     # What this cohort was derived into — [{kind, targetId, schemaName?, builtAt,
     # patientCount}]. Instance state (local ids), never exported.
-    derivations: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    derivations: Mapped[list | None] = mapped_column(PortableJSON)
     # Matches CURRENT_SCHEMA_VERSION in the frontend's cohort-store: a row the
     # server creates must not read as stale and get re-migrated on the client.
     schema_version: Mapped[int] = mapped_column(Integer, default=5)

@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class EtlPipeline(Base, TimestampMixin):
@@ -17,14 +17,14 @@ class EtlPipeline(Base, TimestampMixin):
     )
     # Human-readable, URL-safe id set once at creation (folder name in exports).
     entity_id: Mapped[str | None] = mapped_column(String(255))
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     # Badges for grouping/tagging (list of {id, label, color}).
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
     source_data_source_id: Mapped[str | None] = mapped_column(String(36))
     target_data_source_id: Mapped[str | None] = mapped_column(String(36))
     mapping_project_id: Mapped[str | None] = mapped_column(String(36))
@@ -32,13 +32,13 @@ class EtlPipeline(Base, TimestampMixin):
     # label?}). The ids are this instance's local UUIDs and mean nothing
     # elsewhere, so these are what the export carries and the import resolves
     # back to local rows.
-    source_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    target_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    mapping_project_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    source_data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
+    target_data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
+    mapping_project_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_run_at: Mapped[str | None] = mapped_column(String(40))
     last_run_duration_ms: Mapped[int | None] = mapped_column(Integer)
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
@@ -46,9 +46,9 @@ class EtlPipeline(Base, TimestampMixin):
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     # Frozen provenance snapshot of the origin organization (not a live link).
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
@@ -58,7 +58,7 @@ class EtlPipeline(Base, TimestampMixin):
     #   excludedFiles      — code files (versioned by default) explicitly EXCLUDED
     # Keyed by the file's path inside the pipeline, which is what the export tree
     # and the .gitignore exceptions use.
-    config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    config: Mapped[dict | None] = mapped_column(PortableJSON)
 
 
 class EtlRunHistory(Base):
@@ -81,7 +81,7 @@ class EtlRunHistory(Base):
     started_at: Mapped[str] = mapped_column(String(40))
     completed_at: Mapped[str | None] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(20))
-    scripts: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    scripts: Mapped[list | None] = mapped_column(PortableJSON)
     # Who launched it: a shared target makes "who ran this" a real question.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 

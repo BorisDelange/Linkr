@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class ConceptSet(Base, TimestampMixin):
@@ -17,8 +17,8 @@ class ConceptSet(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), default="")
     description: Mapped[str] = mapped_column(Text, default="")
-    expression: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # { items: [...] }
-    resolved_concept_ids: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    expression: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # { items: [...] }
+    resolved_concept_ids: Mapped[list | None] = mapped_column(PortableJSON)
     source_url: Mapped[str | None] = mapped_column(Text)
     unique_id: Mapped[str | None] = mapped_column(String(255))
     source_repo: Mapped[str | None] = mapped_column(String(255))
@@ -35,4 +35,4 @@ class ConceptSet(Base, TimestampMixin):
     dictionary_id: Mapped[str | None] = mapped_column(
         ForeignKey("data_dictionaries.id", ondelete="CASCADE")
     )
-    translations: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    translations: Mapped[dict | None] = mapped_column(PortableJSON)

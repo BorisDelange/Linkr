@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, JSONB_or_JSON, TimestampMixin, UUIDPKMixin
+from app.models.base import Base, PortableJSON, TimestampMixin, UUIDPKMixin
 
 
 class Job(Base, UUIDPKMixin, TimestampMixin):
@@ -41,7 +41,7 @@ class Job(Base, UUIDPKMixin, TimestampMixin):
     input: Mapped[str | None] = mapped_column(Text, nullable=True)
     # For a 'run' job: the batch run's artifacts collected at the end —
     # {"figures": [...], "table": {...}|None, "html": ...}. NULL for other kinds.
-    result: Mapped[dict | None] = mapped_column(JSONB_or_JSON, nullable=True)
+    result: Mapped[dict | None] = mapped_column(PortableJSON, nullable=True)
     # When it left the queue and when it ended: how long it ran, for the panel.
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

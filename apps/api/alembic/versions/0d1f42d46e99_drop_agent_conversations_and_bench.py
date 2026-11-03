@@ -16,7 +16,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "0d1f42d46e99"
 down_revision: Union[str, None] = "b6c7d8e9f0a1"
@@ -42,14 +42,14 @@ def downgrade() -> None:
         sa.Column("model", sa.String(200), nullable=False),
         sa.Column("mode", sa.String(20), nullable=False, server_default="quick"),
         sa.Column("lang", sa.String(5), nullable=False, server_default="en"),
-        sa.Column("surfaces", JSONB_or_JSON, nullable=True),
+        sa.Column("surfaces", PortableJSON, nullable=True),
         sa.Column("passed", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("total", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("total_ms", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("prompt_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("completion_tokens", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("tokens_per_second", sa.Float(), nullable=False, server_default="0"),
-        sa.Column("cases", JSONB_or_JSON, nullable=True),
+        sa.Column("cases", PortableJSON, nullable=True),
         sa.Column("ran_by_id", sa.Integer(), sa.ForeignKey("users.id"), nullable=True),
         sa.Column("ran_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )
@@ -75,7 +75,7 @@ def downgrade() -> None:
             nullable=False,
         ),
         sa.Column("title", sa.Text(), nullable=False, server_default=""),
-        sa.Column("messages", JSONB_or_JSON, nullable=True),
+        sa.Column("messages", PortableJSON, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
     )

@@ -1,7 +1,7 @@
 from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class Dashboard(Base, TimestampMixin):
@@ -16,9 +16,9 @@ class Dashboard(Base, TimestampMixin):
     project_uid: Mapped[str] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
-    filter_config: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(PortableJSON)  # LocalizedString
+    filter_config: Mapped[list] = mapped_column(PortableJSON, default=list)
     show_widget_titles: Mapped[bool | None] = mapped_column(Boolean)
     default_dataset_file_id: Mapped[str | None] = mapped_column(String(1024))
     widget_spacing: Mapped[int | None] = mapped_column(Integer)
@@ -26,7 +26,7 @@ class Dashboard(Base, TimestampMixin):
     fit_to_height: Mapped[bool | None] = mapped_column(Boolean)
     grid_v: Mapped[int | None] = mapped_column(Integer)
     # Dated markers shared by the dashboard's time charts: [{id, date, label, color}].
-    events: Mapped[list | None] = mapped_column(JSONB_or_JSON)
+    events: Mapped[list | None] = mapped_column(PortableJSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
@@ -34,7 +34,7 @@ class Dashboard(Base, TimestampMixin):
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
 
 
 class DashboardTab(Base):
@@ -47,8 +47,8 @@ class DashboardTab(Base):
     dashboard_id: Mapped[str] = mapped_column(
         ForeignKey("dashboards.id", ondelete="CASCADE")
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(PortableJSON)  # LocalizedString
     display_order: Mapped[int] = mapped_column(Integer, default=0)
     parent_tab_id: Mapped[str | None] = mapped_column(String(36))
 
@@ -64,8 +64,8 @@ class DashboardWidget(Base):
     tab_id: Mapped[str] = mapped_column(
         ForeignKey("dashboard_tabs.id", ondelete="CASCADE")
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict | None] = mapped_column(JSONB_or_JSON)  # LocalizedString
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict | None] = mapped_column(PortableJSON)  # LocalizedString
     dataset_file_id: Mapped[str | None] = mapped_column(String(1024))
-    layout: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    source: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    layout: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    source: Mapped[dict] = mapped_column(PortableJSON, default=dict)

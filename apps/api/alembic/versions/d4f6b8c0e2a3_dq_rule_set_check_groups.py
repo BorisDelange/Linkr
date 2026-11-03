@@ -13,7 +13,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "d4f6b8c0e2a3"
 down_revision: Union[str, None] = "c3e5a7b9d1f2"
@@ -23,7 +23,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     with op.batch_alter_table("dq_rule_sets", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("check_groups", JSONB_or_JSON, nullable=True))
+        batch_op.add_column(sa.Column("check_groups", PortableJSON, nullable=True))
 
 
 def downgrade() -> None:

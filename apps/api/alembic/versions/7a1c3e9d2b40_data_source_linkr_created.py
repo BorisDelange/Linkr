@@ -19,7 +19,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "7a1c3e9d2b40"
 down_revision: Union[str, None] = "c4d5e6f7a8b9"
@@ -42,10 +42,10 @@ def _server(config: dict) -> list:
 
 def upgrade() -> None:
     with op.batch_alter_table("data_sources", schema=None) as batch_op:
-        batch_op.add_column(sa.Column("linkr_created", JSONB_or_JSON, nullable=True))
+        batch_op.add_column(sa.Column("linkr_created", PortableJSON, nullable=True))
 
     bind = op.get_bind()
-    sources = sa.table("data_sources", sa.column("id", sa.String), sa.column("linkr_created", JSONB_or_JSON))
+    sources = sa.table("data_sources", sa.column("id", sa.String), sa.column("linkr_created", PortableJSON))
     created: dict[str, dict] = {}
     for row_id, config, derived in bind.execute(
         sa.text("SELECT id, connection_config, derived_from FROM data_sources WHERE derived_from IS NOT NULL")

@@ -178,6 +178,21 @@ Report: `.cache/db-matrix/<machine>-<dataset>-x<scale>/report.md` — per engine
 queries answer the same, differently or not at all, the total time and the
 slowest query.
 
+**The API suite on Postgres** — the suite runs on SQLite, Linkr's default; a
+deployment may put Linkr's own database on Postgres instead. With
+`LINKR_TEST_APP_DATABASE_URL` naming a Postgres database (created if missing,
+dropped and re-created per test), every test runs on Postgres, on the schema
+the migrations build — the one a Postgres install runs `alembic upgrade head`
+into, built once into a `<name>_template` database each test copies. Under
+`-n`, each worker gets its own pair (`<name>_gw0`, `<name>_gw0_template`…).
+
+```bash
+docker run -d --rm --name linkr-pg-app -p 55433:5432 -e POSTGRES_USER=linkr -e POSTGRES_PASSWORD=pw-for-tests-only postgres:16-alpine
+(cd apps/api && LINKR_TEST_APP_DATABASE_URL=postgresql+asyncpg://linkr:pw-for-tests-only@127.0.0.1:55433/linkr_test \
+  .venv/bin/python -m pytest -q -n 4 -m "not slow")
+docker stop linkr-pg-app
+```
+
 **Live Postgres tests** — a few API tests write into a real Postgres and are
 skipped unless `LINKR_TEST_PG_DSN` names one (a JSON connectionConfig): the
 introspection and query of `test_data_sources.py`, and a pseudonymised cohort

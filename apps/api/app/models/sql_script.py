@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class SqlScriptCollection(Base, TimestampMixin):
@@ -17,29 +17,29 @@ class SqlScriptCollection(Base, TimestampMixin):
     )
     # Human-readable, URL-safe id set once at creation (folder name in exports).
     entity_id: Mapped[str | None] = mapped_column(String(255))
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     # Badges for grouping/tagging (list of {id, label, color}).
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
     default_data_source_id: Mapped[str | None] = mapped_column(String(36))
     # Portable identity of the database above ({lineageId?, entityId?, label?}).
     # default_data_source_id is this instance's local UUID and means nothing
     # elsewhere, so this is what the export carries and the import resolves back.
-    default_data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    default_data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
     # Stable creator identity (name resolved live from the directory); created_by /
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     # Frozen provenance snapshot of the origin organization (not a live link).
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
@@ -48,7 +48,7 @@ class SqlScriptCollection(Base, TimestampMixin):
     # only .sql, so in practice only `excludedFiles` is used — a script is
     # committed unless the user takes it out. Keyed by the file's path inside the
     # collection, which is what the export tree uses.
-    config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    config: Mapped[dict | None] = mapped_column(PortableJSON)
 
 
 class SqlScriptFile(Base):

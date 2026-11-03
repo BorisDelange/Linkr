@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class DataCatalog(Base, TimestampMixin):
@@ -17,26 +17,26 @@ class DataCatalog(Base, TimestampMixin):
         ForeignKey("workspaces.id", ondelete="CASCADE")
     )
     entity_id: Mapped[str | None] = mapped_column(String(255))
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    description: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    description: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     # Badges for grouping/tagging (list of {id, label, color}).
-    badges: Mapped[list | None] = mapped_column(JSONB_or_JSON)
-    readme: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    badges: Mapped[list | None] = mapped_column(PortableJSON)
+    readme: Mapped[dict | None] = mapped_column(PortableJSON)
     # Entity licence: {id, name?, text} — the text is snapshotted at pick time
     # so it travels with the export (LICENSE.md) independently of the picker.
-    license: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    license: Mapped[dict | None] = mapped_column(PortableJSON)
     data_source_id: Mapped[str] = mapped_column(String(36))
     # Portable identity of the database above ({lineageId?, entityId?, label?}).
     # data_source_id is this instance's local UUID and means nothing elsewhere, so
     # this is what the export carries and the import resolves back to a local row.
-    data_source_ref: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    data_source_ref: Mapped[dict | None] = mapped_column(PortableJSON)
     # What counts are broken down by ({concept, period, service, age, sex}: config)
     # and which of them are counted together (lists of 1 to 3 variable ids).
-    variables: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
-    crossings: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
+    variables: Mapped[dict] = mapped_column(PortableJSON, default=dict)
+    crossings: Mapped[list] = mapped_column(PortableJSON, default=list)
     # What cells count beside patients ({visits, unitStays}); NULL = visits only.
-    counts: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
-    anonymization: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    counts: Mapped[dict | None] = mapped_column(PortableJSON)
+    anonymization: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     status: Mapped[str] = mapped_column(String(20), default="draft")
     last_error: Mapped[str | None] = mapped_column(Text)
     last_computed_at: Mapped[str | None] = mapped_column(String(40))
@@ -44,7 +44,7 @@ class DataCatalog(Base, TimestampMixin):
     # Units of its plan a paused computation has written; a resume picks up there.
     # NULL means no run is in flight (nothing computed, or the last one finished).
     computed_steps: Mapped[int | None] = mapped_column(Integer)
-    dcat_ap_metadata: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    dcat_ap_metadata: Mapped[dict | None] = mapped_column(PortableJSON)
     origin: Mapped[str] = mapped_column(String(10), default="user", server_default="user")
     # User-facing semver, portable across export/import (see Project.version).
     version: Mapped[str] = mapped_column(String(20), default="0.1.0", server_default="0.1.0")
@@ -52,14 +52,14 @@ class DataCatalog(Base, TimestampMixin):
     # created_by_details are the display snapshot kept for cross-instance imports.
     created_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     created_by: Mapped[str | None] = mapped_column(Text)
-    created_by_details: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    created_by_details: Mapped[dict | None] = mapped_column(PortableJSON)
     # Frozen provenance snapshot of the origin organization (not a live link).
-    organization: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    organization: Mapped[dict | None] = mapped_column(PortableJSON)
     # Stable cross-instance identity (separate from the local PK). Preserved across
     # export/import; a fork mints a new lineage_id and points parent_lineage_id at its source.
     lineage_id: Mapped[str | None] = mapped_column(String(36))
     parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
-    git_remote_config: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    git_remote_config: Mapped[dict | None] = mapped_column(PortableJSON)
     # GitLab/GitHub Pages deployment of the published page ({provider, updatedAt?});
     # the rendered site lives in readme_attachments under owner type "data-catalog-site".
-    pages_deployment: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    pages_deployment: Mapped[dict | None] = mapped_column(PortableJSON)

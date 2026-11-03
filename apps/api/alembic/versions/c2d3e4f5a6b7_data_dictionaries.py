@@ -14,7 +14,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "c2d3e4f5a6b7"
 down_revision: Union[str, None] = "b1c2d3e4f5a6"
@@ -32,8 +32,8 @@ def upgrade() -> None:
         sa.Column("branch", sa.String(255), nullable=True),
         sa.Column("commit", sa.String(64), nullable=True),
         sa.Column("synced_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("unit_conversions", JSONB_or_JSON, nullable=True),
-        sa.Column("recommended_units", JSONB_or_JSON, nullable=True),
+        sa.Column("unit_conversions", PortableJSON, nullable=True),
+        sa.Column("recommended_units", PortableJSON, nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
     )

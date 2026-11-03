@@ -1,7 +1,7 @@
 from sqlalchemy import String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, LocalizedText, TimestampMixin, UUIDPKMixin
+from app.models.base import PortableJSON, Base, LocalizedText, TimestampMixin, UUIDPKMixin
 
 
 class Organization(Base, UUIDPKMixin, TimestampMixin):
@@ -16,4 +16,4 @@ class Organization(Base, UUIDPKMixin, TimestampMixin):
     email: Mapped[str | None] = mapped_column(String(255))
     custom_type: Mapped[dict | str | None] = mapped_column(LocalizedText)
     reference_id: Mapped[str | None] = mapped_column(String(255))
-    custom_fields: Mapped[dict | None] = mapped_column(JSONB_or_JSON)
+    custom_fields: Mapped[dict | None] = mapped_column(PortableJSON)

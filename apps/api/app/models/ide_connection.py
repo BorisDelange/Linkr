@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base
+from app.models.base import PortableJSON, Base
 
 
 class IdeConnection(Base):
@@ -19,7 +19,7 @@ class IdeConnection(Base):
     name: Mapped[str] = mapped_column(String(255), default="")
     source: Mapped[str] = mapped_column(String(20))  # IdeConnectionSource
     data_source_id: Mapped[str | None] = mapped_column(String(36))
-    connection_config: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    connection_config: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     # Encrypted password/token (core/crypto.py). Never returned by the API. NULL if none.
     connection_secret: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(String(20))

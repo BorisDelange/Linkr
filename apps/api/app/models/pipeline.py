@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class Pipeline(Base, TimestampMixin):
@@ -15,6 +15,6 @@ class Pipeline(Base, TimestampMixin):
     project_uid: Mapped[str] = mapped_column(
         ForeignKey("projects.uid", ondelete="CASCADE")
     )
-    name: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)  # LocalizedString
-    nodes: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
-    edges: Mapped[list] = mapped_column(JSONB_or_JSON, default=list)
+    name: Mapped[dict] = mapped_column(PortableJSON, default=dict)  # LocalizedString
+    nodes: Mapped[list] = mapped_column(PortableJSON, default=list)
+    edges: Mapped[list] = mapped_column(PortableJSON, default=list)

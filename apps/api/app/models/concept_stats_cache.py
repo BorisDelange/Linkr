@@ -1,7 +1,7 @@
 from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import JSONB_or_JSON, Base, TimestampMixin
+from app.models.base import PortableJSON, Base, TimestampMixin
 
 
 class ConceptStatsCache(Base, TimestampMixin):
@@ -25,4 +25,4 @@ class ConceptStatsCache(Base, TimestampMixin):
     # own; the cache is now the source's (`concept_stats_cache_service`).
     principal: Mapped[str] = mapped_column(String(40), primary_key=True, default="", server_default="")
     # { rowCount, distribution?, histogram? } — the ConceptStats shape.
-    stats: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    stats: Mapped[dict] = mapped_column(PortableJSON, default=dict)

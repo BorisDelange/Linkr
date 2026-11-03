@@ -22,7 +22,7 @@ from typing import Sequence, Union
 import sqlalchemy as sa
 from alembic import op
 
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 revision: str = "e7f8a9b0c1d2"
 down_revision: Union[str, None] = "d6e7f8a9b0c1"
@@ -32,7 +32,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     op.add_column(
-        "data_catalogs", sa.Column("data_source_ref", JSONB_or_JSON, nullable=True)
+        "data_catalogs", sa.Column("data_source_ref", PortableJSON, nullable=True)
     )
     # Period rows a paused computation has written; NULL = no run in flight.
     # Nothing to backfill: before this, a computation could only run to completion.

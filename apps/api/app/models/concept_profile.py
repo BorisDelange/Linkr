@@ -1,7 +1,7 @@
 from sqlalchemy import BigInteger, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.models.base import Base, JSONB_or_JSON
+from app.models.base import Base, PortableJSON
 
 
 class ConceptProfile(Base):
@@ -24,7 +24,7 @@ class ConceptProfile(Base):
     patients_count: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     # ",numeric,histogram," — matched with LIKE by the summary on every engine.
     sections: Mapped[str] = mapped_column(Text, default="")
-    variant: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    variant: Mapped[dict] = mapped_column(PortableJSON, default=dict)
     fingerprint: Mapped[str] = mapped_column(String(64), default="")
     computed_at: Mapped[str] = mapped_column(String(40))
-    profile: Mapped[dict] = mapped_column(JSONB_or_JSON, default=dict)
+    profile: Mapped[dict] = mapped_column(PortableJSON, default=dict)

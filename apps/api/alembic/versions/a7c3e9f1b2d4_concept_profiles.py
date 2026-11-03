@@ -10,7 +10,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 
 from alembic import op
-from app.models.base import JSONB_or_JSON
+from app.models.base import PortableJSON
 
 # revision identifiers, used by Alembic.
 revision: str = 'a7c3e9f1b2d4'
@@ -27,10 +27,10 @@ def upgrade() -> None:
         sa.Column('rows_count', sa.BigInteger(), nullable=False),
         sa.Column('patients_count', sa.BigInteger(), nullable=True),
         sa.Column('sections', sa.Text(), nullable=False),
-        sa.Column('variant', JSONB_or_JSON, nullable=False),
+        sa.Column('variant', PortableJSON, nullable=False),
         sa.Column('fingerprint', sa.String(length=64), nullable=False),
         sa.Column('computed_at', sa.String(length=40), nullable=False),
-        sa.Column('profile', JSONB_or_JSON, nullable=False),
+        sa.Column('profile', PortableJSON, nullable=False),
     )
 
 def downgrade() -> None:
