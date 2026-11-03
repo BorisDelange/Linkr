@@ -1,8 +1,7 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clearLoggedQueries, loggedQueries, logQuery, originOf, pageOrigin } from './query-log'
+import { afterEach, describe, expect, it } from 'vitest'
+import { clearLoggedQueries, loggedQueries, logQuery, originOf, pageOrigin, stopLoggedQuery } from './query-log'
 
 afterEach(() => {
-  vi.useRealTimers()
   clearLoggedQueries()
 })
 
@@ -33,15 +32,14 @@ describe('the front-only query log', () => {
     expect(loggedQueries()[0].status).toBe('cancelled')
   })
 
-  it('forgets a query after a day, and keeps the running ones when cleared', () => {
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-11-03T08:00:00Z'))
-    logQuery('ds', 'SELECT old', 'Cohorts')({ rows: 1 })
-    vi.setSystemTime(new Date('2026-11-04T09:00:00Z'))
-    logQuery('ds', 'SELECT new', 'Cohorts')({ rows: 1 })
-    logQuery('ds', 'SELECT live', 'Cohorts')
-    expect(loggedQueries().map((q) => q.sql)).toEqual(['SELECT live', 'SELECT new'])
+  it('stops a running query, and keeps the running ones when cleared', () => {
+    let stopped = false
+    const end = logQuery('ds', 'SELECT live', 'Cohorts', () => { stopped = true })
+    logQuery('ds', 'SELECT done', 'Cohorts')({ rows: 1 })
+    stopLoggedQuery(loggedQueries()[1].id)
+    expect(stopped).toBe(true)
     clearLoggedQueries()
     expect(loggedQueries().map((q) => q.sql)).toEqual(['SELECT live'])
+    end({ cancelled: true })
   })
 })

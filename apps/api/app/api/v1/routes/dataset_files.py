@@ -56,6 +56,7 @@ from app.services import (
     undo_service,
 )
 from app.services.data import dataset_fs, dataset_parser, dataset_rows, file_reader
+from app.services.execution import jobs
 
 router = APIRouter(prefix="/dataset-files", tags=["dataset-files"])
 
@@ -451,7 +452,10 @@ async def create_dataset_from_query(
 
     # A whole result, uncapped: past `deferred.WAIT_SECONDS` it goes on as a job.
     return await deferred.respond(
-        user.id, work, deferred.AsJob(f"Dataset {path}", project_uid=body.project_uid, lane="heavy_query"),
+        user.id, work, deferred.AsJob(
+            f"Dataset {path} · from a query", project_uid=body.project_uid, lane="heavy_query",
+            input=body.sql, always=True, kind=jobs.QUERY_KIND,
+        ),
     )
 
 

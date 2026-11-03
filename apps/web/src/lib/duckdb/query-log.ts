@@ -1,10 +1,10 @@
 /**
  * Where a query comes from, and — front-only mode — the queries this tab sent.
  *
- * In server mode every query is a job of its database's workspace, kept a day
- * (`query_log_hours`); the server writes it, labelled with the `origin` the app
- * sends. Front-only mode has no server: the queries DuckDB-WASM ran are kept
- * here, in this tab's memory, for the jobs panel to list alike.
+ * In server mode every query is a job of its database's workspace; the server
+ * writes it, labelled with the `origin` the app sends. Front-only mode has no
+ * server: the queries DuckDB-WASM ran are kept here, in this tab's memory, for
+ * the jobs panel to list and stop alike.
  */
 
 /** The app section a path is in, as a query's default origin. */
@@ -55,28 +55,30 @@ export interface LoggedQuery {
   error: string | null
 }
 
-const KEEP_MS = 24 * 60 * 60 * 1000
-/** The SQL of a query is kept whole; past this many queries the oldest go. */
+/** The SQL of a query is kept whole: past this many queries, in this tab's
+ *  memory, the oldest go. */
 const MAX_ENTRIES = 2000
 
 let entries: LoggedQuery[] = []
+/** How to stop each query still running. */
+const stops = new Map<string, () => void>()
 const listeners = new Set<() => void>()
 
 function changed() {
   for (const fn of listeners) fn()
 }
 
-function prune(now: number) {
-  const from = now - KEEP_MS
-  if (entries.length > MAX_ENTRIES || (entries[0] && entries[0].startedAt < from)) {
-    entries = entries.filter((e) => e.startedAt >= from).slice(-MAX_ENTRIES)
-  }
+function prune() {
+  if (entries.length > MAX_ENTRIES) entries = entries.slice(-MAX_ENTRIES)
 }
 
-/** Record a query starting; the returned function records how it ended. */
-export function logQuery(dataSourceId: string, sql: string, origin: string): (end: { rows?: number; error?: unknown; cancelled?: boolean }) => void {
+/** Record a query starting, and how to `stop` it; the returned function records
+ *  how it ended. */
+export function logQuery(
+  dataSourceId: string, sql: string, origin: string, stop?: () => void,
+): (end: { rows?: number; error?: unknown; cancelled?: boolean }) => void {
   const now = Date.now()
-  prune(now)
+  prune()
   const entry: LoggedQuery = {
     id: crypto.randomUUID(),
     dataSourceId,
@@ -89,8 +91,10 @@ export function logQuery(dataSourceId: string, sql: string, origin: string): (en
     error: null,
   }
   entries = [...entries, entry]
+  if (stop) stops.set(entry.id, stop)
   changed()
   return ({ rows, error, cancelled }) => {
+    stops.delete(entry.id)
     const done: LoggedQuery = {
       ...entry,
       finishedAt: Date.now(),
@@ -103,10 +107,14 @@ export function logQuery(dataSourceId: string, sql: string, origin: string): (en
   }
 }
 
-/** This tab's queries over the last day, newest first. */
+/** This tab's queries, newest first. */
 export function loggedQueries(): LoggedQuery[] {
-  prune(Date.now())
   return [...entries].reverse()
+}
+
+/** Stop a query still running, as its own caller could. */
+export function stopLoggedQuery(id: string): void {
+  stops.get(id)?.()
 }
 
 /** Forget the finished queries. */

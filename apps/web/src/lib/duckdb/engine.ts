@@ -729,7 +729,11 @@ async function runOnSource(
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
-  const ended = logQuery(dataSourceId, sql, origin)
+  // Stoppable from the jobs panel as from its caller: one signal for both.
+  const local = new AbortController()
+  const forward = () => local.abort(signal?.reason)
+  signal?.addEventListener('abort', forward, { once: true })
+  const ended = logQuery(dataSourceId, sql, origin, () => local.abort())
 
   try {
     // Try schema-based path first, fall back to catalog.main for ATTACHed databases
@@ -755,7 +759,7 @@ async function runOnSource(
 
     let result: Pick<Awaited<ReturnType<typeof conn.query>>, 'schema' | 'toArray'> | null = null
     for (const stmt of statements) {
-      result = signal ? await cancellableQuery(conn, stmt, signal) : await conn.query(stmt)
+      result = await cancellableQuery(conn, stmt, local.signal)
     }
 
     if (!result) {
@@ -780,9 +784,10 @@ async function runOnSource(
     ended({ rows: rows.length })
     return rows
   } catch (e) {
-    ended(signal?.aborted ? { cancelled: true } : { error: e })
+    ended(local.signal.aborted ? { cancelled: true } : { error: e })
     throw e
   } finally {
+    signal?.removeEventListener('abort', forward)
     await conn.close()
   }
 }

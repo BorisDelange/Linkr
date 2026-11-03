@@ -1,15 +1,15 @@
 /**
  * The tabs a cohort's patient board is generated with, from its criteria: the
- * patient's record at a glance, the notes highlighting what the free-text
- * criteria search for, and each concept criterion's concepts as a timeline over a
- * data table.
+ * patient's summary (light, unlike the data overview), the notes highlighting
+ * what the free-text criteria search for, and each concept criterion's concepts
+ * as a timeline over a data table.
  */
 import { PATIENT_GRID_COLS, PATIENT_GRID_ROWS } from '@/features/projects/warehouse/patient-data/patient-grid'
 import { classRelation, has } from '@/lib/schema-classes/relations'
 import {
   DATATABLE_PLUGIN_ID,
   NOTES_PLUGIN_ID,
-  PATIENT_OVERVIEW_PLUGIN_ID,
+  PATIENT_SUMMARY_PLUGIN_ID,
   TIMELINE_PLUGIN_ID,
 } from '@/lib/plugins/builtin-widget-plugins'
 import type { Cohort, ConceptCriteriaConfig, CriteriaTreeNode, SchemaMapping, TextCriteriaConfig } from '@/types'
@@ -53,7 +53,7 @@ export function planCohortBoard(cohort: Pick<Cohort, 'criteriaTree' | 'customSql
   const criteria = cohort.customSql?.trim() ? [] : included(cohort.criteriaTree)
   const tabs: PlannedTab[] = [{
     name: t('cohorts.board_tab_overview'),
-    widgets: [{ pluginId: PATIENT_OVERVIEW_PLUGIN_ID, name: t('cohorts.board_tab_overview'), config: {}, size: FULL }],
+    widgets: [{ pluginId: PATIENT_SUMMARY_PLUGIN_ID, name: t('cohorts.board_tab_overview'), config: {}, size: FULL }],
   }]
 
   if (has(mapping ? classRelation(mapping, 'note') : undefined, 'text')) {

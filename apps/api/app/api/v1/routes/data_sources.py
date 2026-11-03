@@ -9,7 +9,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
 from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_session_user
@@ -196,6 +195,12 @@ async def create_data_source(
     return source
 
 
+def _named(source: DataSource) -> str:
+    """A database's name for a job's label: English first, then any."""
+    name = source.name if isinstance(source.name, dict) else {}
+    return name.get("en") or next((v for v in name.values() if v), None) or source.alias or "Database"
+
+
 @router.post("/test-connection", response_model=TestConnectionResult)
 async def test_connection(
     body: TestConnectionRequest,
@@ -208,10 +213,18 @@ async def test_connection(
 
     The driver's error is for instance admins only (see _connection_error)."""
     await check_workspace_permission(db, body.workspace_id, user, "databases:write")
-    ok, error, tables = await data_source_service.test_connection(body.connection_config)
-    if not ok:
-        error = _connection_error(user, "connection_test", error, workspace_id=body.workspace_id)
+    async with jobs.tracked(user.id, "New database · test the connection", workspace_id=body.workspace_id) as job_id:
+        ok, error, tables = await data_source_service.test_connection(body.connection_config)
+        if not ok:
+            error = _connection_error(user, "connection_test", error, workspace_id=body.workspace_id)
+        await _outcome(job_id, ok, error, tables)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
+
+
+async def _outcome(job_id: str | None, ok: bool, error: str | None, tables: list | None) -> None:
+    """What a connection test answered, on its job."""
+    if job_id is not None:
+        await jobs.note(job_id, f"{len(tables or [])} tables" if ok else f"Failed: {error}")
 
 
 # --- Files (declared before /{source_id} would shadow, but paths don't overlap) ---
@@ -348,16 +361,6 @@ async def query_data_source(
     # interrupted or it holds the database's pooled connection until it ends.
     query_id = _query_id(body.query_id) if body.query_id else uuid.uuid4().hex
 
-    # Every query is a job of the database's workspace, from the start: what the
-    # database was asked, when, for how long, and how many rows it answered.
-    job_id: str | None = None
-    if not body.plan and source.workspace_id and settings.query_log_hours > 0:
-        job = await jobs.create(
-            db, None, user.id, jobs.QUERY_KIND, (body.origin or "SQL query").strip()[:255] or "SQL query",
-            workspace_id=source.workspace_id, input=body.sql, running=not body.heavy,
-        )
-        job_id = job.id
-
     async def run() -> list[dict]:
         async with deferred.session() as session:
             fresh = await data_source_service.get(session, source_id)
@@ -377,6 +380,7 @@ async def query_data_source(
         recorded = pushdown.execution.set(execution)
         try:
             rows = await deferred.until_stopped(run(), lambda: query_cancel.cancel(query_id, str(user.id)))
+            job_id = deferred.current_job.get()
             if job_id is not None:
                 await jobs.record_query(
                     job_id, rows=len(rows), sent=execution.pop("sent", None),
@@ -399,9 +403,13 @@ async def query_data_source(
         return QueryResult(rows=rows, execution=QueryExecution(**execution) if execution else None)
 
     # Heavy: it waits its turn behind the heavy jobs, from the start, job or not.
+    # Every query is a job of the database's workspace, from the start: what the
+    # database was asked, when, for how long, and how many rows it answered —
+    # stoppable from the panel. A plan runs nothing.
     as_job = deferred.AsJob(
-        "SQL query", workspace_id=source.workspace_id, lane="heavy_query" if body.heavy else None, input=body.sql,
-        job_id=job_id,
+        (body.origin or "").strip()[:255] or "SQL query", workspace_id=source.workspace_id,
+        lane="heavy_query" if body.heavy else None, input=body.sql,
+        always=not body.plan, kind=jobs.QUERY_KIND,
     )
     return await deferred.respond(user.id, work, as_job)
 
@@ -482,7 +490,8 @@ async def derive_plan(
     """What deriving a cohort of this database would do with each of its tables."""
     source = await _load_source(db, source_id, user, "databases:read")
     try:
-        return await cohort_derive_service.plan(db, source, body.level, user.id)
+        async with jobs.tracked(user.id, f"{_named(source)} · plan a cohort derivation", workspace_id=source.workspace_id):
+            return await cohort_derive_service.plan(db, source, body.level, user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
@@ -679,7 +688,8 @@ async def create_from_ddl(
     # (browsing the database leaves one): DuckDB would refuse to open it again.
     connection_pool.invalidate(source.id)
     try:
-        await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
+        async with jobs.tracked(user.id, f"{_named(source)} · create its tables (DDL)", workspace_id=source.workspace_id, input=body.ddl):
+            await asyncio.to_thread(managed_db.create_from_ddl, path, body.ddl)
     except Exception as e:  # noqa: BLE001 — a bad DDL is a client error
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, redact_secrets(str(e)))
     config["managed"] = True
@@ -730,7 +740,10 @@ async def etl_run(
 
     # The MCP's way to run a script: past `deferred.WAIT_SECONDS` it goes on as a
     # job (core/deferred) — the app itself runs scripts as `…/etl-jobs`.
-    as_job = deferred.AsJob("ETL script", workspace_id=target.workspace_id, lane="heavy_query") if target.workspace_id else None
+    as_job = deferred.AsJob(
+        "ETL script", workspace_id=target.workspace_id, lane="heavy_query",
+        input=body.sql, always=True, kind=jobs.QUERY_KIND,
+    ) if target.workspace_id else None
     return await deferred.respond(user.id, work, as_job)
 
 
@@ -788,9 +801,12 @@ async def retest_data_source(
     stale `error` with no way to re-check it.
     """
     source = await _load_source(db, source_id, user, "databases:read")
-    ok, error, tables = await data_source_service.test_connection_stored(source, await _login(db, source, user))
-    if not ok and _reaches_the_network(source):
-        error = _connection_error(user, "retest", error, source)
+    login = await _login(db, source, user)
+    async with jobs.tracked(user.id, f"{_named(source)} · test the connection", workspace_id=source.workspace_id) as job_id:
+        ok, error, tables = await data_source_service.test_connection_stored(source, login)
+        if not ok and _reaches_the_network(source):
+            error = _connection_error(user, "retest", error, source)
+        await _outcome(job_id, ok, error, tables)
     return TestConnectionResult(ok=ok, error=error, tables=tables)
 
 
@@ -833,12 +849,14 @@ async def get_flight_status(
     the database page warns that they go over the slower MySQL protocol."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
-    try:
-        return await data_source_service.flight_status(source, login)
-    except database_credential_service.CredentialRequired:
-        raise
-    except Exception as e:  # noqa: BLE001 — the database itself is unreachable: the page says so elsewhere
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, _connection_error(user, "flight_check", e, source)) from e
+    # Tracked outside the conversion: the job keeps the text the caller may read.
+    async with jobs.tracked(user.id, f"{_named(source)} · check Arrow Flight", workspace_id=source.workspace_id):
+        try:
+            return await data_source_service.flight_status(source, login)
+        except database_credential_service.CredentialRequired:
+            raise
+        except Exception as e:  # noqa: BLE001 — the database itself is unreachable: the page says so elsewhere
+            raise HTTPException(status.HTTP_502_BAD_GATEWAY, _connection_error(user, "flight_check", e, source)) from e
 
 
 @router.get("/{source_id}/schema", response_model=list[IntrospectedTable])
@@ -851,6 +869,14 @@ async def get_data_source_schema(
     mapping / table-discovery UI. Uses the stored (encrypted) credentials."""
     source = await _load_source(db, source_id, user, "databases:read")
     login = await _login(db, source, user)
+    async with jobs.tracked(user.id, f"{_named(source)} · list its tables and columns", workspace_id=source.workspace_id) as job_id:
+        tables = await _introspect(db, source, login, user)
+        if job_id is not None:
+            await jobs.note(job_id, f"{len(tables)} tables")
+        return tables
+
+
+async def _introspect(db: AsyncSession, source: DataSource, login, user: User):
     try:
         return await data_source_service.introspect(db, source, login)
     except HTTPException:  # no login, or an ETL run holding the file

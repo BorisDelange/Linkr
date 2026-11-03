@@ -13,9 +13,8 @@ reconciled to ``error`` at startup — the row survives, the process does not.
 
 import asyncio
 import contextlib
-import time
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,24 +54,9 @@ def capped_input(text: str | None) -> str | None:
     return text if len(text) <= INPUT_MAX else text[:INPUT_MAX] + f"\n\n… ({len(text) - INPUT_MAX:,} more characters)"
 
 
-# A query sent to a database (POST /data-sources/{id}/query): a job of its own,
-# listed apart from the others (`list_queries`) and kept `query_log_hours`.
+# A query sent to a database (POST /data-sources/{id}/query, and every other
+# route that reads or writes one): a job like the others, from the start.
 QUERY_KIND = "sql_query"
-_PURGE_EVERY = 60.0
-_last_purge = 0.0
-
-
-async def _purge_old_queries(db: AsyncSession) -> None:
-    """Drop the query jobs past the retention, at most once a minute."""
-    global _last_purge
-    now = time.monotonic()
-    if now - _last_purge < _PURGE_EVERY:
-        return
-    _last_purge = now
-    from sqlalchemy import delete
-
-    cutoff = datetime.now(UTC) - timedelta(hours=settings.query_log_hours)
-    await db.execute(delete(Job).where(Job.kind == QUERY_KIND).where(Job.created_at < cutoff))
 
 
 async def create(
@@ -91,8 +75,6 @@ async def create(
     starts at once, so it is created running rather than written twice."""
     if (project_uid is None) == (workspace_id is None):
         raise ValueError("a job belongs to exactly one project or one workspace")
-    if kind == QUERY_KIND:
-        await _purge_old_queries(db)
     job = Job(
         project_uid=project_uid,
         workspace_id=workspace_id,
@@ -150,6 +132,35 @@ async def adopt(job_id: str, task: asyncio.Task, *, running: bool = True, writte
         finished(task)
     else:
         task.add_done_callback(finished)
+
+
+@asynccontextmanager
+async def tracked(
+    user_id: int, label: str, *, project_uid: str | None = None, workspace_id: str | None = None,
+    input: str | None = None, kind: str = QUERY_KIND,
+):
+    """A job around a request's own work on a database (an introspection, a
+    connection test), from its start to its end: short, so not stoppable, but
+    seen. Nothing without an owner to show it under."""
+    if project_uid is None and workspace_id is None:
+        yield None
+        return
+    async with async_session() as db:
+        job = await create(db, project_uid, user_id, kind, label, workspace_id=workspace_id, input=input, running=True)
+    try:
+        yield job.id
+    except asyncio.CancelledError:
+        await _set(job.id, status="cancelled")
+        raise
+    except Exception as e:
+        await _set(job.id, status="error", log_tail=redact_secrets(str(e))[-4000:])
+        raise
+    await _set(job.id, status="done", progress=100)
+
+
+async def note(job_id: str, text: str) -> None:
+    """A job's one-line outcome, as its output."""
+    await _set(job_id, log_tail=redact_secrets(text)[-4000:])
 
 
 async def record_query(job_id: str, *, rows: int, sent: str | None, computed_by: str | None, reason: str | None) -> None:
@@ -299,6 +310,10 @@ async def cancel(db: AsyncSession, job: Job) -> bool:
     return True
 
 
+# What the panel lists: every query being a job, a page's worth of them fits.
+RECENT_JOBS = 200
+
+
 def _owned_by(project_uid: str | None, workspace_id: str | None):
     return Job.project_uid == project_uid if project_uid is not None else Job.workspace_id == workspace_id
 
@@ -312,32 +327,18 @@ async def list_active(
         select(Job)
         .where(_owned_by(project_uid, workspace_id))
         .where(Job.user_id == user_id)
-        .where(Job.kind != QUERY_KIND)
         .order_by(Job.created_at.desc())
-        .limit(20)
-    )
-    return list(result.scalars().all())
-
-
-async def list_queries(db: AsyncSession, workspace_id: str, user_id: int, *, limit: int = 200) -> list[Job]:
-    """A user's queries to the workspace's databases, newest first."""
-    result = await db.execute(
-        select(Job)
-        .where(Job.workspace_id == workspace_id)
-        .where(Job.user_id == user_id)
-        .where(Job.kind == QUERY_KIND)
-        .order_by(Job.created_at.desc())
-        .limit(limit)
+        .limit(RECENT_JOBS)
     )
     return list(result.scalars().all())
 
 
 async def clear_finished(
-    db: AsyncSession, project_uid: str | None, user_id: int, *, workspace_id: str | None = None, queries: bool = False
+    db: AsyncSession, project_uid: str | None, user_id: int, *, workspace_id: str | None = None
 ) -> None:
     """Remove the user's terminal jobs (done/error/cancelled) for a project or a
-    workspace — the 'clear all' action; `queries`: its queries instead. Active
-    jobs (queued/running) are kept so a build in flight isn't lost from the panel."""
+    workspace — the 'clear all' action. Active jobs (queued/running) are kept so
+    a build in flight isn't lost from the panel."""
     from sqlalchemy import delete
 
     from app.services.data import query_jobs
@@ -347,7 +348,6 @@ async def clear_finished(
         .where(_owned_by(project_uid, workspace_id))
         .where(Job.user_id == user_id)
         .where(Job.status.in_(("done", "error", "cancelled")))
-        .where(Job.kind == QUERY_KIND if queries else Job.kind != QUERY_KIND)
     )
     ids = list((await db.execute(finished)).scalars().all())
     await db.execute(delete(Job).where(Job.id.in_(ids)))

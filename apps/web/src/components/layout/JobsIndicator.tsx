@@ -22,7 +22,8 @@ import { getJob } from '@/lib/api/query-jobs'
 import { webAppFrameUrl } from '@/lib/api/web-apps'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { QUERY_KIND, useQueryLog } from './use-query-log'
+import { clearLoggedQueries, stopLoggedQuery } from '@/lib/duckdb/query-log'
+import { QUERY_KIND, useLocalQueries } from './use-query-log'
 
 const ACTIVE = new Set(['queued', 'running'])
 
@@ -53,10 +54,9 @@ function sameJobs(a: Job[], b: Job[]): boolean {
 /**
  * Footer jobs indicator: shows active long jobs — environment builds and runs
  * of the open project, and the jobs of the open workspace (a database's cohort
- * derivations) — with a popover to view status/log and cancel. Polls while a
- * workspace is open. Its second tab lists every query sent to a database over
- * the last day (use-query-log); front-only mode has that tab alone, over the
- * queries this browser tab ran.
+ * derivations), and every query sent to a database — with a popover to view
+ * status/log and cancel. Polls while a workspace is open. Front-only mode lists
+ * the queries this browser tab ran, which it can stop alike.
  *
  * `atRightEdge`: the trigger is the footer's last item (a workspace view in server
  * mode), so the popover is nudged to sit as far from the page's right edge as
@@ -74,7 +74,6 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   const [popoverOpen, setPopoverOpen] = useState(false)
   const server = isServerMode()
   const enabled = server ? !!projectUid || !!wsUid : true
-  const [view, setView] = useState<'jobs' | 'queries'>(server ? 'jobs' : 'queries')
   // Last status seen per job: a job moving from active to finished is what
   // tells the app to re-read what it changed.
   const seen = useRef(new Map<string, Job['status']>())
@@ -107,7 +106,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     return () => { cancelled = true; clearInterval(id) }
   }, [enabled, server, projectUid, wsUid, reloadTick])
 
-  const { queries, clear: clearQueries } = useQueryLog(server, wsUid, (popoverOpen && view === 'queries') || !!logJobId)
+  const localQueries = useLocalQueries(!server)
 
   // The input travels only with the single job, fetched once the modal opens.
   const [input, setInput] = useState<{ jobId: string; text: string | null } | null>(null)
@@ -121,7 +120,8 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     return () => { live = false }
   }, [logJobId, server])
 
-  const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length
+  const listed = server ? jobs : localQueries
+  const activeCount = listed.filter((j) => ACTIVE.has(j.status)).length
   // Stops asked for and not yet seen through: a cancel only lands once the
   // unit in flight is interrupted, so the button says it was heard meanwhile.
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set())
@@ -135,7 +135,8 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     setStopping((prev) => new Set(prev).add(id))
     setCancelError(null)
     try {
-      await cancelJob(id)
+      if (server) await cancelJob(id)
+      else stopLoggedQuery(id)
     } catch (err) {
       console.error('Failed to cancel job', err)
       setCancelError(t('jobs.cancel_failed', { error: err instanceof Error ? err.message : String(err) }))
@@ -150,10 +151,11 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
 
   const onStopAll = () => {
     setConfirmStopAll(false)
-    for (const job of jobs) if (ACTIVE.has(job.status) && !stopping.has(job.id)) void onCancel(job.id)
+    for (const job of listed) if (ACTIVE.has(job.status) && !stopping.has(job.id)) void onCancel(job.id)
   }
 
   const onClearAll = async () => {
+    if (!server) return clearLoggedQueries()
     await Promise.all([
       projectUid ? clearJobs(projectUid) : null,
       wsUid ? clearWorkspaceJobs(wsUid) : null,
@@ -161,11 +163,10 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     setReloadTick((n) => n + 1)
   }
 
-  const logJob = jobs.find((j) => j.id === logJobId) ?? queries.find((j) => j.id === logJobId) ?? null
+  const logJob = listed.find((j) => j.id === logJobId) ?? null
   // A front-only query carries its SQL; a server job's is fetched once opened.
   const jobInput = !server ? (logJob?.input ?? null) : input && input.jobId === logJobId ? input.text : null
   const showInput = logTab === 'input' && !!jobInput
-  const listed = view === 'jobs' ? jobs : queries
   const hasFinished = listed.some((j) => !ACTIVE.has(j.status))
 
   return (
@@ -178,7 +179,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           ) : (
             <Hourglass size={11} />
           )}
-          <span>{server ? t('jobs.title', { count: activeCount }) : t('jobs.queries')}</span>
+          <span>{t('jobs.title', { count: activeCount })}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -186,21 +187,12 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         // Footer padding puts the trigger 12px from the edge; -4 brings the popover
         // to 8px. The trigger's top sits ~2px below the footer's, hence 10 for an 8px gap.
         {...(atRightEdge && { alignOffset: -4, sideOffset: 10 })}
-        className={cn('p-2 text-xs', view === 'queries' ? 'w-[34rem]' : 'w-96')}
+        className="w-[34rem] p-2 text-xs"
       >
         <div className="mb-2.5 flex items-center justify-between">
-          {server ? (
-            <Tabs value={view} onValueChange={(v) => setView(v as 'jobs' | 'queries')}>
-              <TabsList variant="line">
-                <TabsTrigger value="jobs" className="text-xs">{t('jobs.recent')}</TabsTrigger>
-                <TabsTrigger value="queries" className="text-xs">{t('jobs.queries')}</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          ) : (
-            <span className="font-medium">{t('jobs.queries')}</span>
-          )}
+          <span className="font-medium">{t('jobs.recent')}</span>
           <div className="flex items-center gap-3">
-            {view === 'jobs' && activeCount > 0 && (
+            {activeCount > 0 && (
               <button
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive"
                 onClick={() => setConfirmStopAll(true)}
@@ -212,7 +204,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             {hasFinished && (
               <button
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                onClick={() => void (view === 'jobs' ? onClearAll() : clearQueries())}
+                onClick={() => void onClearAll()}
               >
                 <Trash2 size={11} />
                 {t('jobs.clear_all')}
@@ -223,15 +215,11 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         {cancelError && (
           <p role="alert" className="mb-2 px-1.5 text-[10px] text-destructive">{cancelError}</p>
         )}
-        {view === 'queries' && (
-          <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">
-            {t(server ? 'jobs.queries_hint' : 'jobs.queries_hint_local')}
-          </p>
+        {!server && (
+          <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">{t('jobs.queries_hint_local')}</p>
         )}
         {listed.length === 0 && (
-          <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">
-            {t(view === 'jobs' ? 'jobs.empty' : 'jobs.queries_empty')}
-          </p>
+          <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">{t('jobs.empty')}</p>
         )}
         {/* A delay, so someone who knows these icons is not shown the tooltip
             at each pass; moving from one icon to the next shows it at once. */}
@@ -284,7 +272,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                     </TooltipContent>
                   </Tooltip>
                 )}
-                {ACTIVE.has(job.status) && server ? (
+                {ACTIVE.has(job.status) ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -328,7 +316,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         </DialogHeader>
         {logJob && (
           <div className="flex items-center gap-3">
-            {ACTIVE.has(logJob.status) && server && (
+            {ACTIVE.has(logJob.status) && (
               <Button size="xs" variant="destructive" className="gap-1" onClick={() => void onCancel(logJob.id)} disabled={isStopping(logJob)}>
                 {isStopping(logJob) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
                 {t(isStopping(logJob) ? 'jobs.stopping' : 'jobs.stop')}

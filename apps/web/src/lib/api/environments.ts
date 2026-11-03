@@ -223,16 +223,6 @@ export function listWorkspaceJobs(workspaceId: string): Promise<Job[]> {
   return apiRequest(`/workspaces/${workspaceId}/jobs`)
 }
 
-/** The caller's queries to the workspace's databases over the last day (jobs of
- *  kind `sql_query`), newest first. */
-export function listWorkspaceQueries(workspaceId: string): Promise<Job[]> {
-  return apiRequest(`/workspaces/${workspaceId}/query-log`)
-}
-
-export function clearWorkspaceQueries(workspaceId: string): Promise<void> {
-  return apiRequest(`/workspaces/${workspaceId}/query-log`, { method: 'DELETE' })
-}
-
 export function clearWorkspaceJobs(workspaceId: string): Promise<void> {
   return apiRequest(`/workspaces/${workspaceId}/jobs`, { method: 'DELETE' })
 }

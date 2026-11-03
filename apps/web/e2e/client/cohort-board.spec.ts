@@ -9,13 +9,14 @@ test('a cohort’s patient board is generated from its criteria', async ({ page 
 
   await page.getByRole('button', { name: 'Patients', exact: true }).click()
   await page.getByRole('button', { name: 'Generate tabs' }).first().click()
-  // The record at a glance first, the notes after it.
-  const overview = page.getByRole('button', { name: 'Overview', exact: true })
-  await expect(overview).toBeVisible()
+  // The patient's summary first, the notes after it.
+  await expect(page.getByRole('button', { name: 'Summary', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Notes', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: /^\d+ [FM] / }).first().click()
-  await expect(page.locator('canvas[aria-busy="false"]').first()).toBeVisible()
+  // Every read of the selected patient shows in the jobs panel, named.
+  await page.getByRole('button', { name: /\d+ jobs?$/ }).click()
+  await expect(page.getByText(/^Patient summary · /).first()).toBeVisible()
 })
 
 test('a data table shows a concept’s values by period', async ({ page }) => {
