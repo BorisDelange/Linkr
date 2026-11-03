@@ -66,14 +66,28 @@ describe('relationsWithout', () => {
   })
 })
 
-describe('buildTimelineQuery without relations', () => {
-  it('drops their branch', () => {
+describe('buildTimelineQuery over the counted relations', () => {
+  it('drops the branch of a relation holding none of the concepts, and says so', () => {
     const all = buildTimelineQuery(mapping, [1], 'p1', null)!
-    const some = buildTimelineQuery(mapping, [1], 'p1', null, new Set([observation.name]))!
+    const some = buildTimelineQuery(mapping, [1], 'p1', null, { held: new Map([[observation.name, new Set<number>()]]) })!
     expect(all).toContain(`FROM ${observation.name} e`)
     expect(some).not.toContain(`FROM ${observation.name} e`)
+    expect(some).toContain(`--   ${observation.name}`)
     expect(some).toContain(`FROM ${measurement.name} e`)
-    expect(buildTimelineQuery(mapping, [1], 'p1', null, new Set([measurement.name, observation.name]))).toBeNull()
+    const none = new Set<number>()
+    expect(buildTimelineQuery(mapping, [1], 'p1', null, { held: new Map([[measurement.name, none], [observation.name, none]]) })).toBeNull()
+  })
+
+  it('searches each relation for the concepts it holds only, each named', () => {
+    const sql = buildTimelineQuery(mapping, [1, 2], 'p1', null, {
+      held: new Map([[observation.name, new Set([2])]]),
+      label: (id) => (id === 2 ? 'LOINC - Urine output' : undefined),
+    })!
+    const observationBranch = sql.slice(sql.indexOf(`-- ${observation.name}`))
+    expect(observationBranch).toMatch(/^-- \S+: 1 of the 2 concepts, those the concept count found there/)
+    expect(observationBranch).toContain('e.concept_id IN (\n      2 -- LOINC - Urine output\n    )')
+    // The measurement table, never counted, is searched for both.
+    expect(sql).toContain(`-- ${measurement.name}: every concept, the concept count has not read this table`)
   })
 })
 

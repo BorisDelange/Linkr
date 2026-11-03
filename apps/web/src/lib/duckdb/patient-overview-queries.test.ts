@@ -67,7 +67,7 @@ describe('buildOverviewInventoryQuery — values carry their unit', () => {
     } as never)
     const sql = withClassRelations(buildOverviewInventoryQuery(withUnit, 'p1', NO_SCOPE)!, withUnit)
     expect(sql).toContain('e."unit_source_value" AS unit')
-    expect(sql).toContain('MAX(e.unit) AS unit')
+    expect(sql).toContain('MAX(g.unit) AS unit')
   })
 
   it('still builds when no unit column is mapped', () => {
@@ -132,13 +132,14 @@ describe('buildOverviewTileDensityQuery', () => {
     expect(sql).not.toContain('concept_id AS VARCHAR) IN')
   })
 
-  it('one branch per row, each with its concepts', () => {
+  it('reads a table once for all its rows, each concept joined to its row', () => {
     const sql = buildOverviewTileDensityQuery(mapping, 'p1', NO_SCOPE, [
       { key: 'a', table: 'Measurement', conceptIds: ['1'] },
       { key: 'b', table: 'Measurement', conceptIds: ['2', '3'] },
     ], 4096, '2128-01-01', '2128-01-02')!
-    expect(sql.split('UNION ALL')).toHaveLength(2)
-    expect(sql).toContain("IN ('2', '3')")
+    expect(sql).not.toContain('UNION ALL')
+    expect(sql).toContain("k1(row_key, concept_id) AS (VALUES ('a', '1'), ('b', '2'), ('b', '3'))")
+    expect(sql).not.toContain('concept_id AS VARCHAR) IN')
   })
 })
 

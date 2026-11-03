@@ -808,11 +808,14 @@ function buildTextCriteria(
   baseTable: string,
 ): string {
   const searches = (config.searches ?? []).filter((s) => s.terms.some((t) => t.trim()))
-  // With nothing to search on this stays descriptive, as it was before.
-  if (searches.length === 0) return '1=1'
-
   const note = classRelation(mapping, 'note')
   if (!note) return '1=1'
+  const types = has(note, 'note_type') ? (config.noteTypes ?? []).filter((v) => v.trim()) : []
+  // With nothing to search on, nor a note type to keep, this stays descriptive.
+  if (searches.length === 0 && types.length === 0) return '1=1'
+  const typeClause = types.length
+    ? `CAST(n.note_type AS VARCHAR) IN (${types.map((v) => `'${escSql(v)}'`).join(', ')})`
+    : null
 
   const conditions: { clause: string; operator: CriteriaOperator }[] = []
   for (const search of searches) {
@@ -833,9 +836,9 @@ function buildTextCriteria(
       operator: search.operator ?? 'AND',
     })
   }
-  if (conditions.length === 0) return '1=1'
+  if (conditions.length === 0 && !typeClause) return '1=1'
   // Same AND > OR precedence as the criteria tree, so the two read alike.
-  const combined = buildPrecedenceClause(conditions)
+  const combined = conditions.length ? buildPrecedenceClause(conditions) : null
 
   // Notes hang off the patient; at visit level, narrow to the visit when the
   // mapping says which visit a note belongs to, else to the stay's dates.
@@ -847,7 +850,11 @@ function buildTextCriteria(
     if (window) links.push(window)
   }
 
-  return existsSql(`${note.name} n`, [...links, hasTopLevelOr(combined) ? wrapSql(combined) : combined])
+  return existsSql(`${note.name} n`, [
+    ...links,
+    ...(typeClause ? [typeClause] : []),
+    ...(combined ? [hasTopLevelOr(combined) ? wrapSql(combined) : combined] : []),
+  ])
 }
 
 function buildDurationCriteria(

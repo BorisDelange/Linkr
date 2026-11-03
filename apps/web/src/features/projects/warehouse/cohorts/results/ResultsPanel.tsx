@@ -7,11 +7,13 @@ import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
 import { CUSTOM_SQL_NO_ID } from '@/lib/duckdb/cohort-query'
 import { formatDuration } from '@/lib/format-helpers'
-import type { CohortExecutionResult, CustomSqlOutput } from '@/types'
+import type { CohortExecutionResult, CohortLevel, CustomSqlOutput } from '@/types'
 import { useState, type ReactNode } from 'react'
 
 interface ResultsPanelProps {
   result: CohortExecutionResult | null
+  /** What one row of the cohort is, to name its count. */
+  level: CohortLevel
   loading: boolean
   /** Message from the last failed run, if any. */
   error?: string | null
@@ -39,7 +41,7 @@ type ResultsTab = 'results' | 'attrition' | 'patients' | 'tables' | 'output' | '
 const MEMBER_TABS: ResultsTab[] = ['results', 'attrition', 'patients', 'tables']
 
 export function ResultsPanel({
-  result, loading, error, output, onExecute, onCancel, onExportCsv, renderPatients, renderTables, renderSchema, attritionDetails,
+  result, level, loading, error, output, onExecute, onCancel, onExportCsv, renderPatients, renderTables, renderSchema, attritionDetails,
 }: ResultsPanelProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<ResultsTab>('results')
@@ -209,7 +211,7 @@ export function ResultsPanel({
                 </div>
                 <div>
                   <p className="text-lg font-bold leading-none">{result.totalCount.toLocaleString()}</p>
-                  <p className="text-[10px] text-muted-foreground">{t('cohorts.results_count')}</p>
+                  <p className="text-[10px] text-muted-foreground">{t(`cohorts.results_count_${level}`, { count: result.totalCount })}</p>
                 </div>
               </div>
               {result.fromDraft && (

@@ -29,6 +29,8 @@ Without it they go to `.cache/test-data/`. `npm run worktree:new` copies
 | `mimic-iv-demo-omop` | the public MIMIC-IV demo in OMOP CDM 5.4, 100 patients — the reference schema and mapping | 6 MB |
 | `mimic-iv-demo-omop-x100` | the demo ×100 (`matrix.py upsample`): 10,000 patients under new ids | ~100× the demo |
 | `synthea-100k` | Synthea, 100,000 synthetic patients; 158,000 notes, 309 M characters | 2 GB |
+| `mimic-iv-demo-dense` | the demo + patients `990000001`–`4` with 100k, 1 M, 5 M and 20 M events over a year (`build.py dense`) | 220 MB |
+| `mimic-iv-demo-dense-5m` | the same up to 5 M events, small enough for a browser to store | 60 MB |
 
 `--scale N` on the matrix makes further copies next to them (`<dataset>-x<N>`).
 

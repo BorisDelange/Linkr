@@ -2,7 +2,9 @@ import { useEffect } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { PatientScope } from '@/lib/duckdb/patient-scope'
 import { patientQuery } from '../patient-prefetch'
-import { buildOverviewEventsQuery, buildOverviewTileDensityQuery } from '@/lib/duckdb/patient-overview-queries'
+import { buildOverviewDensityQuery, buildOverviewEventsQuery, buildOverviewTileDensityQuery, TOTAL_ROW_KEY } from '@/lib/duckdb/patient-overview-queries'
+import { RANGE_BUCKETS, type OverviewDensity } from './overview-helpers'
+import { deviceOverviewBudget } from './overview-budget'
 import { toMs } from '@/lib/duckdb/value-coercion'
 import {
   bucketMsFor,
@@ -16,10 +18,16 @@ import {
 import type { OverviewRow } from './overview-layout'
 import type { OverviewEvent } from './event-marks'
 
-/** Events fetched per row before the row falls back to a density band. */
-const EVENT_FETCH_LIMIT = 4000
+/** What this machine reads per row and at once (overview-budget.ts). */
+const BUDGET = deviceOverviewBudget()
 
 type Span = { lo: number; hi: number }
+
+/** The range selector's strip still to read: every event of `tables` over the
+ *  record's span, in RANGE_BUCKETS slices. */
+export interface StripRequest extends Span {
+  tables: string[]
+}
 
 interface OverviewDataInput {
   visible: boolean
@@ -35,6 +43,8 @@ interface OverviewDataInput {
   /** The plot width the last paint used: the bucket width the painter looks up. */
   paintedPlotW: number
   repaint: () => void
+  strip: StripRequest | null
+  onStrip: (density: OverviewDensity | null) => void
 }
 
 /**
@@ -48,7 +58,7 @@ interface OverviewDataInput {
  */
 export function useOverviewData({
   visible, view, bounds, rows, hiddenRef, dataRef,
-  dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint,
+  dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint, strip, onStrip,
 }: OverviewDataInput): void {
   useEffect(() => {
     if (!visible || !view || !bounds || !dataSourceId || !schemaMapping || !selectedPatientId) return
@@ -80,9 +90,15 @@ export function useOverviewData({
     // patient each read is a full scan, so one per tile cost as many scans.
     const tiles = tilesCovering(view.lo, view.hi, bucketMs)
     const missing = dense.filter((row) => tiles.some((t) => !cache.hasTile(rowCacheKey(row), bucketMs, t)))
-    if (missing.length) {
-      const needed = tiles.filter((t) => missing.some((row) => !cache.hasTile(rowCacheKey(row), bucketMs, t)))
-      tasks.push(() => fetchTiles(missing, needed[0], needed[needed.length - 1]))
+    // The range selector's strip, while the view holds the whole record (as a
+    // record first loads): counted in the same read as the tiles, rather than
+    // reading every event of the patient once more.
+    const stripWithTiles = !!strip && view.lo <= strip.lo && view.hi >= strip.hi
+    if (missing.length || stripWithTiles) {
+      const needed = tiles.filter((t) => stripWithTiles || missing.some((row) => !cache.hasTile(rowCacheKey(row), bucketMs, t)))
+      tasks.push(() => fetchTiles(missing, needed[0], needed[needed.length - 1], stripWithTiles ? strip : null))
+    } else if (strip) {
+      tasks.push(() => fetchStrip(strip))
     }
     if (tasks.length === 0) return
 
@@ -105,12 +121,12 @@ export function useOverviewData({
       const from = isoOrNull(win.lo)
       const to = isoOrNull(win.hi)
       const sql = from && to
-        ? buildOverviewEventsQuery(schemaMapping!, selectedPatientId!, scope, row.table, row.conceptIds, from, to, EVENT_FETCH_LIMIT)
+        ? buildOverviewEventsQuery(schemaMapping!, selectedPatientId!, scope, row.table, row.conceptIds, from, to, BUDGET.eventLimit)
         : null
       if (!sql) return unmark([key])
       try {
         const raw = await patientQuery(dataSourceId!, sql, { signal })
-        cache.putEvents(key, { ...win, events: raw.map(toOverviewEvent), truncated: raw.length >= EVENT_FETCH_LIMIT })
+        cache.putEvents(key, { ...win, events: raw.map(toOverviewEvent), truncated: raw.length >= BUDGET.eventLimit })
         repaint()
       } catch (err) {
         if (signal.aborted) return
@@ -124,17 +140,42 @@ export function useOverviewData({
       }
     }
 
-    async function fetchTiles(missing: OverviewRow[], firstTile: number, lastTile: number) {
+    async function fetchStrip(wanted: StripRequest) {
+      const from = isoOrNull(wanted.lo)
+      const to = isoOrNull(wanted.hi)
+      const bands = wanted.tables.map((table) => ({ key: table, table, conceptIds: [] }))
+      const sql = from && to && bands.length
+        ? buildOverviewDensityQuery(schemaMapping!, selectedPatientId!, scope, from, to, RANGE_BUCKETS, bands)
+        : null
+      if (!sql) return onStrip(null)
+      try {
+        const raw = await patientQuery(dataSourceId!, sql, { signal })
+        onStrip(stripOf(raw.map((r) => [Number(r.bucket), Number(r.n ?? 0)])))
+      } catch {
+        // The strip simply stays empty; it is navigation aid, not data.
+        if (!signal.aborted) onStrip(null)
+      }
+    }
+
+    async function fetchTiles(missing: OverviewRow[], firstTile: number, lastTile: number, withStrip: StripRequest | null) {
       const from = isoOrNull(tileBounds(firstTile, bucketMs)[0])
       const to = isoOrNull(tileBounds(lastTile, bucketMs)[1])
       const sql = from && to
         ? buildOverviewTileDensityQuery(schemaMapping!, selectedPatientId!, scope,
-          missing.map((row) => ({ key: rowCacheKey(row), table: row.table, conceptIds: row.conceptIds })), bucketMs, from, to)
+          missing.map((row) => ({ key: rowCacheKey(row), table: row.table, conceptIds: row.conceptIds })), bucketMs, from, to,
+          withStrip?.tables ?? [])
         : null
       const keys = missing.map(rowCacheKey)
       if (!sql) return unmark(keys)
       try {
         const raw = await patientQuery(dataSourceId!, sql, { signal })
+        if (withStrip) {
+          // Each bucket in the slice its start falls in.
+          const span = Math.max(1, withStrip.hi - withStrip.lo)
+          onStrip(stripOf(raw.filter((r) => r.row_key === TOTAL_ROW_KEY).map((r) => [
+            Math.floor(((Number(r.bucket) * bucketMs) - withStrip.lo) / span * RANGE_BUCKETS), Number(r.n ?? 0),
+          ])))
+        }
         const counts = new Map(missing.map((row) => [rowCacheKey(row), new Float64Array((lastTile - firstTile + 1) * TILE_BUCKETS)]))
         const first = firstTile * TILE_BUCKETS
         for (const r of raw) {
@@ -158,13 +199,25 @@ export function useOverviewData({
 
     mark([...eventRows.map(rowCacheKey), ...missing.map(rowCacheKey)])
     repaint()
-    const timer = setTimeout(() => void runLimited(tasks, 4, signal), 150)
+    const timer = setTimeout(() => void runLimited(tasks, BUDGET.concurrency, signal), 150)
     return () => {
       clearTimeout(timer)
       controller.abort()
       for (const k of due) cache.pending.delete(k)
     }
-  }, [visible, view, bounds, rows, hiddenRef, dataRef, dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint])
+  }, [visible, view, bounds, rows, hiddenRef, dataRef, dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint, strip, onStrip])
+}
+
+/** The strip's counts from (slice, count) pairs; slices outside it are dropped. */
+function stripOf(pairs: [number, number][]): OverviewDensity {
+  const counts = new Float64Array(RANGE_BUCKETS)
+  let max = 0
+  for (const [i, n] of pairs) {
+    if (!Number.isFinite(i) || i < 0 || i >= RANGE_BUCKETS) continue
+    counts[i] += n
+    if (counts[i] > max) max = counts[i]
+  }
+  return { counts, max }
 }
 
 /** A row's cache key: what it shows depends on its concepts, not its position. */

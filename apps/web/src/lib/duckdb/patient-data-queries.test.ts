@@ -344,6 +344,6 @@ describe('timeline query on a (terminology, code) thesaurus', () => {
   })
 
   it('reports the dictionary id it matched', () => {
-    expect(sql).toMatch(/^SELECT c\.concept_id,/)
+    expect(sql).toMatch(/^SELECT\n {2}c\.concept_id,/m)
   })
 })

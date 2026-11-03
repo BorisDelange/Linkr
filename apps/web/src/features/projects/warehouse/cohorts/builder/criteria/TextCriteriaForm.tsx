@@ -1,5 +1,7 @@
-import type { ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { MultiSelectFilter, type MultiSelectOption } from '@/components/ui/multi-select-filter'
+import { queryDataSource } from '@/lib/duckdb/engine'
 import { classRelation, has } from '@/lib/schema-classes/relations'
 import { Info, Plus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -22,6 +24,32 @@ interface TextCriteriaFormProps {
   config: TextCriteriaConfig
   onChange: (config: TextCriteriaConfig) => void
   schemaMapping?: SchemaMapping
+  /** The database whose note types are offered. */
+  dataSourceId?: string
+}
+
+/** The note types of the database, most frequent first, with their counts. */
+function useNoteTypes(dataSourceId: string | undefined, mapping: SchemaMapping | undefined): MultiSelectOption[] {
+  const [options, setOptions] = useState<MultiSelectOption[]>([])
+  const note = mapping ? classRelation(mapping, 'note') : undefined
+  const relation = has(note, 'note_type') ? note!.name : null
+  useEffect(() => {
+    if (!dataSourceId || !relation) return
+    let cancelled = false
+    queryDataSource(dataSourceId, `SELECT CAST(note_type AS VARCHAR) AS note_type, COUNT(*) AS n
+FROM ${relation}
+WHERE note_type IS NOT NULL
+GROUP BY 1
+ORDER BY 2 DESC
+LIMIT 500`)
+      .then((rows) => {
+        if (cancelled) return
+        setOptions(rows.map((r) => ({ value: String(r.note_type), label: `${String(r.note_type)} (${Number(r.n).toLocaleString()})` })))
+      })
+      .catch(() => { if (!cancelled) setOptions([]) })
+    return () => { cancelled = true }
+  }, [dataSourceId, relation])
+  return options
 }
 
 const MATCH_MODES: TextMatchMode[] = ['contains', 'word', 'regex']
@@ -74,12 +102,18 @@ function HintToggle({ pressed, onToggle, hint, className, children }: {
   )
 }
 
-export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriteriaFormProps) {
+export function TextCriteriaForm({ config, onChange, schemaMapping, dataSourceId }: TextCriteriaFormProps) {
   const { t } = useTranslation()
   const searches = config.searches ?? []
   const note = schemaMapping ? classRelation(schemaMapping, 'note') : undefined
   const hasTitle = has(note, 'title')
   const hasNotes = has(note, 'text')
+  const noteTypes = useNoteTypes(dataSourceId, schemaMapping)
+  // A saved type the database no longer lists stays visible, to be removed.
+  const typeOptions: MultiSelectOption[] = [
+    ...noteTypes,
+    ...(config.noteTypes ?? []).filter((v) => !noteTypes.some((o) => typeof o !== 'string' && o.value === v)),
+  ]
 
   const update = (patch: Partial<TextCriteriaConfig>) => onChange({ ...config, ...patch })
 
@@ -110,6 +144,23 @@ export function TextCriteriaForm({ config, onChange, schemaMapping }: TextCriter
           </>
         )}
       </FormField>
+
+      {has(note, 'note_type') && (
+        <FormField label={t('cohorts.text_note_types')} hint={t('cohorts.text_note_types_hint')} hintInTooltip>
+          {() => (
+            <MultiSelectFilter
+              value={config.noteTypes ?? []}
+              options={typeOptions}
+              placeholder={t('cohorts.text_note_types_placeholder')}
+              onChange={(noteTypes) => update({ noteTypes })}
+              popoverWidthClass="w-72"
+              selectAllRespectsSearch
+              showChevron
+              triggerClass="h-8 w-full rounded-md border bg-transparent px-2 text-xs outline-none focus:border-primary"
+            />
+          )}
+        </FormField>
+      )}
 
       {!hasNotes && (
         <p className="rounded-md border border-dashed px-2 py-1.5 text-[10px] text-muted-foreground">

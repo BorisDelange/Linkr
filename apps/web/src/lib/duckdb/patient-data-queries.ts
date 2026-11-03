@@ -4,7 +4,7 @@ import { buildCohortQueryParts, escapeLikeTerm, escPatternLiteral, type Relation
 import { classRelation, conceptJoinOn, dictionaryOf, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
 import { escSql, validateIntegerIds } from '@/lib/format-helpers'
 import { eventScopeCondition, scopeCondition, type PatientScope } from './patient-scope'
-import { hang, idListSql, indent } from './sql-layout'
+import { hang, idListSql, indent, sqlComment } from './sql-layout'
 
 // ---------------------------------------------------------------------------
 // Patient filters
@@ -268,16 +268,22 @@ export function buildTimelineQuery(
   conceptIds: number[],
   patientId: string,
   scope: PatientScope | null,
-  /** Event relations known to hold none of the concepts (timeline-relations.ts). */
-  without?: ReadonlySet<string>,
+  opts: {
+    /** Which of the concepts each event relation holds, from the last concept
+     *  count (`relationsHoldingConcepts`): a relation is searched for those only,
+     *  and not at all when it holds none. A relation absent is searched for all. */
+    held?: ReadonlyMap<string, ReadonlySet<number>>
+    /** What a concept is (`vocabulary - name`), written after its id. */
+    label?: (id: number) => string | undefined
+  } = {},
 ): string | null {
   if (conceptIds.length === 0) return null
   if (!validateIntegerIds(conceptIds)) return null
-  const ids = idListSql(conceptIds)
+  const { held, label } = opts
   const parts: string[] = []
+  const notSearched: string[] = []
 
   for (const event of eventRelations(mapping)) {
-    if (without?.has(event.name)) continue
     if (!has(event, 'patient_id') || !has(event, 'start_datetime')) continue
     // A table with neither kind of value has nothing to put on a timeline.
     if (!has(event, 'value_number') && !has(event, 'value_string')) continue
@@ -287,6 +293,14 @@ export function buildTimelineQuery(
     // the whole column to compare, failing on the first non-numeric row. Every
     // branch shares one UNION ALL, so that single error empties the widget.
     if (event.dictionary === null) continue
+
+    const holds = held?.get(event.name)
+    const here = holds ? conceptIds.filter((id) => holds.has(id)) : conceptIds
+    if (here.length === 0) {
+      notSearched.push(event.name)
+      continue
+    }
+    const ids = idListSql(here, label)
 
     const dict = dictionaryOf(mapping, event)
     // An event keyed by (terminology, code) reads its concept_id through the
@@ -332,7 +346,13 @@ export function buildTimelineQuery(
 ) c ON ${conceptJoinOn(event, 'e', 'c')}`
       : dict ? `\nINNER JOIN ${dict.name} c ON ${conceptJoinOn(event, 'e', 'c')}` : ''
 
-    parts.push(`SELECT ${byCode ? 'c' : 'e'}.concept_id,
+    const heading = holds
+      ? `${event.name}: ${here.length === conceptIds.length ? 'every concept' : `${here.length} of the ${conceptIds.length} concepts`}, those the concept count found there`
+      : held ? `${event.name}: every concept, the concept count has not read this table` : event.name
+
+    parts.push(`${sqlComment(heading)}
+SELECT
+  ${byCode ? 'c' : 'e'}.concept_id,
   ${nameExpr} AS concept_name,
   e.value_number AS value,
   e.value_string,
@@ -344,12 +364,19 @@ export function buildTimelineQuery(
   e.start_datetime AS event_date,
   e.end_datetime AS end_date
 FROM ${event.name} e${join}${unitJoin}${routeJoin}
-WHERE e.patient_id = '${escSql(patientId)}'${conceptMatch ? `\n  AND (\n${indent(conceptMatch, '    ')}\n  )` : ''}
+WHERE
+  e.patient_id = '${escSql(patientId)}'${conceptMatch ? `\n  AND (\n${indent(conceptMatch, '    ')}\n  )` : ''}
   AND (${presence})${visitFilter}`)
   }
 
   if (parts.length === 0) return null
-  return `${parts.join('\nUNION ALL\n')}\nORDER BY event_date`
+  const header = [
+    sqlComment('The selected concepts over time, one SELECT per event table'),
+    ...(notSearched.length
+      ? [sqlComment('Not searched, as the concept count found none of these concepts there:'), ...notSearched.map((n) => sqlComment(`  ${n}`))]
+      : []),
+  ]
+  return `${header.join('\n')}\n${parts.join('\nUNION ALL\n')}\nORDER BY event_date`
 }
 
 /** Source text first, the standard concept's name as the fallback. */

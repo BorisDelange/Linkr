@@ -38,10 +38,11 @@ import { cn } from '@/lib/utils'
 import type { PatientDashboardWidget } from '@/types'
 import type { PluginConfigField } from '@/types/plugin'
 import { copyText } from '@/lib/clipboard'
-import { TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
+import { DATATABLE_PLUGIN_ID, TIMELINE_PLUGIN_ID } from '@/lib/plugins/builtin-widget-plugins'
 import { eventRelations } from '@/lib/schema-classes/relations'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
-import { relationsCountedAt, relationsWithoutConcepts } from './timeline-relations'
+import { relationsCountedAt, relationsHoldingConcepts, relationsWithoutConcepts } from './timeline-relations'
+import { conceptLabelOf, fetchConceptLabels } from '@/features/projects/warehouse/cohorts/concept-labels'
 import type { SchemaMapping } from '@/types/schema-mapping'
 
 interface PatientWidgetEditorSheetProps {
@@ -196,6 +197,27 @@ function EditorContent({
   }, [])
 
   // --- SQL ---
+  // The timeline's SQL as it runs: each table searched for the concepts the
+  // concept count found there, each concept named after its id.
+  const timelineIds = widget.pluginId === TIMELINE_PLUGIN_ID || widget.pluginId === DATATABLE_PLUGIN_ID
+    ? ((draftConfig.conceptIds as number[] | undefined) ?? [])
+    : []
+  const timelineKey = timelineIds.join(',')
+  const [timelineRead, setTimelineRead] = useState<{ key: string; opts: Parameters<typeof buildWidgetQueries>[0]['timeline'] } | null>(null)
+  useEffect(() => {
+    if (!timelineKey || !dataSourceId || !schemaMapping) return
+    let cancelled = false
+    const ids = timelineKey.split(',').map(Number)
+    void Promise.all([
+      relationsHoldingConcepts(dataSourceId, schemaMapping, ids).catch(() => undefined),
+      fetchConceptLabels(dataSourceId, schemaMapping, ids).catch(() => new Map()),
+    ]).then(([held, labels]) => {
+      if (!cancelled) setTimelineRead({ key: timelineKey, opts: { held, label: conceptLabelOf(labels) } })
+    })
+    return () => { cancelled = true }
+  }, [timelineKey, dataSourceId, schemaMapping])
+  const timeline = timelineRead?.key === timelineKey ? timelineRead.opts : undefined
+
   const queries = useMemo(
     () =>
       buildWidgetQueries({
@@ -204,8 +226,9 @@ function EditorContent({
         mapping: schemaMapping,
         patientId,
         scope,
+        timeline,
       }),
-    [widget.pluginId, draftConfig, schemaMapping, patientId, scope],
+    [widget.pluginId, draftConfig, schemaMapping, patientId, scope, timeline],
   )
   const editable = supportsCustomSql(widget.pluginId)
   const generatedSql = queries[0]?.sql ?? ''
@@ -510,9 +533,9 @@ function SqlTab({
             )}
           </div>
           {q.sql ? (
-            <pre className="overflow-x-auto rounded-md border bg-muted/40 p-2 text-[10px] leading-relaxed">
-              {shown(q.sql)}
-            </pre>
+            <div className="overflow-hidden rounded-md border">
+              <CodeViewer value={shown(q.sql)} language="sql" />
+            </div>
           ) : (
             <MissingMapping missing={q.missing ?? ''} />
           )}

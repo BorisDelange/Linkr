@@ -74,14 +74,33 @@ function buildInventoryPart(
   if (dict && event.compositeConceptKey && event.codeSql != null) return buildCodesInventoryPart(mapping, event, dict, patientId, scope)
   const visitFilter = eventScopeCondition(mapping, event, scope)
   const durational = has(event, 'end_datetime')
+  // The patient's events grouped first — a few hundred groups whatever the
+  // record's size — and only the groups looked up in the dictionary: joining it
+  // to each of twenty million events cost most of the query.
+  const keyCols = ['concept_id', ...(dict && event.compositeConceptKey ? ['concept_terminology', 'concept_code'] : [])]
+  const unitCols = [has(event, 'unit') ? 'unit' : null, dict && has(event, 'unit_concept_id') ? 'unit_concept_id' : null]
+    .filter((c): c is string => !!c)
+  const groupCols = [...keyCols, ...unitCols]
+  const numeric = has(event, 'value_number')
+  const counted = `SELECT ${groupCols.map((c) => `e.${c}`).join(', ')},
+    COUNT(*) AS n,
+    MIN(e.start_datetime) AS first_event,
+    MAX(COALESCE(${durational ? 'e.end_datetime' : 'NULL'}, e.start_datetime)) AS last_event,
+    ${numeric ? 'MIN(e.value_number)' : 'NULL'} AS value_min,
+    ${numeric ? 'MAX(e.value_number)' : 'NULL'} AS value_max
+  FROM ${event.name} e
+  WHERE e.patient_id = '${escSql(patientId)}'
+    AND e.start_datetime IS NOT NULL${visitFilter.replace(/\n/g, '\n  ')}
+  GROUP BY ${groupCols.map((c) => `e.${c}`).join(', ')}`
+
   // Unit of measure: the standardised concept when the schema maps one, with the
   // source text as fallback AND as the preferred label — "mmHg" reads better
   // than "millimeter mercury column", and "bpm"/"insp/min" both standardise to
   // "per minute", which would make heart and respiratory rate indistinguishable.
-  const unitJoin = dict && has(event, 'unit_concept_id')
-    ? `\nLEFT JOIN ${dict.name} uc ON uc.concept_id = e.unit_concept_id`
+  const unitJoin = unitCols.includes('unit_concept_id')
+    ? `\nLEFT JOIN ${dict!.name} uc ON uc.concept_id = g.unit_concept_id`
     : ''
-  const srcUnit = has(event, 'unit') ? 'e.unit' : null
+  const srcUnit = unitCols.includes('unit') ? 'g.unit' : null
   const stdUnit = unitJoin ? 'uc.concept_name' : null
   const unitExpr =
     srcUnit && stdUnit
@@ -96,31 +115,33 @@ function buildInventoryPart(
 
   // Without a dictionary the concept id is all we can show — still useful, since
   // the point of the figure is where data exists, not only what it is called.
-  const nameExpr = dict ? 'MAX(c.concept_name)' : 'MAX(CAST(e.concept_id AS VARCHAR))'
+  const nameExpr = dict ? 'MAX(c.concept_name)' : 'MAX(CAST(g.concept_id AS VARCHAR))'
   const classCol = dict ? classColumn(dict) : null
   const classExpr = classCol ? `MAX(CAST(c.${classCol} AS VARCHAR))` : 'NULL'
   // The code identifies the concept outside this database — it is what you paste
   // into a vocabulary browser or another site's mapping — so it travels with the
   // name into the tooltip and the copy menu.
   const codeExpr = dict && has(dict, 'concept_code') ? 'MAX(c.concept_code)' : 'NULL'
-  const join = (dict ? `\nLEFT JOIN ${dict.name} c ON ${conceptJoinOn(event, 'e', 'c')}` : '') + unitJoin
+  const join = (dict ? `\nLEFT JOIN ${dict.name} c ON ${conceptJoinOn(event, 'g', 'c')}` : '') + unitJoin
 
   return `SELECT '${escSql(event.key ?? '')}' AS table_label,
-  CAST(e.concept_id AS VARCHAR) AS concept_id,
+  CAST(g.concept_id AS VARCHAR) AS concept_id,
   ${nameExpr} AS concept_name,
   ${codeExpr} AS concept_code,
   ${classExpr} AS concept_class,
   ${unitExpr} AS unit,
   ${unitCountExpr} AS unit_count,
-  COUNT(*) AS event_count,
-  MIN(e.start_datetime) AS first_event,
-  MAX(COALESCE(${durational ? 'e.end_datetime' : 'NULL'}, e.start_datetime)) AS last_event,
+  SUM(g.n) AS event_count,
+  MIN(g.first_event) AS first_event,
+  MAX(g.last_event) AS last_event,
+  MIN(g.value_min) AS value_min,
+  MAX(g.value_max) AS value_max,
   ${durational ? 'TRUE' : 'FALSE'} AS durational,
   ${event.cls === 'drug' ? 'TRUE' : 'FALSE'} AS is_drug
-FROM ${event.name} e${join}
-WHERE e.patient_id = '${escSql(patientId)}'
-  AND e.start_datetime IS NOT NULL${visitFilter}
-GROUP BY e.concept_id`
+FROM (
+  ${counted}
+) g${join}
+GROUP BY g.concept_id`
 }
 
 /**
@@ -160,13 +181,15 @@ function buildCodesInventoryPart(
   const counted = `SELECT ${groupCols.map((c) => `e.${c}`).join(', ')},
     COUNT(*) AS n,
     MIN(e.start_datetime) AS first_event,
-    MAX(COALESCE(${durational ? 'e.end_datetime' : 'NULL'}, e.start_datetime)) AS last_event
+    MAX(COALESCE(${durational ? 'e.end_datetime' : 'NULL'}, e.start_datetime)) AS last_event,
+    ${has(event, 'value_number') ? 'MIN(e.value_number)' : 'NULL'} AS value_min,
+    ${has(event, 'value_number') ? 'MAX(e.value_number)' : 'NULL'} AS value_max
   FROM ${codesRelation(event.name)} e
   WHERE e.patient_id = '${escSql(patientId)}'
     AND e.start_datetime IS NOT NULL${visitFilter}
   GROUP BY ${groupCols.map((c) => `e.${c}`).join(', ')}`
   // One row per counted group, with what the dictionary says of its code.
-  const resolved = `SELECT ${groupCols.map((c) => `g.${c}`).join(', ')}, g.n, g.first_event, g.last_event,
+  const resolved = `SELECT ${groupCols.map((c) => `g.${c}`).join(', ')}, g.n, g.first_event, g.last_event, g.value_min, g.value_max,
     MIN(c.concept_id) AS concept_id,
     MAX(c.concept_name) AS concept_name,
     ${hasCode ? 'MAX(c.concept_code)' : 'NULL'} AS dict_code,
@@ -175,7 +198,7 @@ function buildCodesInventoryPart(
   ${counted}
   ) g
   LEFT JOIN ${dict.name} c ON ${conceptJoinOn(event, 'g', 'c')}${unitJoin}
-  GROUP BY ${groupCols.map((c) => `g.${c}`).join(', ')}, g.n, g.first_event, g.last_event`
+  GROUP BY ${groupCols.map((c) => `g.${c}`).join(', ')}, g.n, g.first_event, g.last_event, g.value_min, g.value_max`
 
   return `SELECT '${escSql(event.key ?? '')}' AS table_label,
   CAST(g.concept_id AS VARCHAR) AS concept_id,
@@ -187,6 +210,8 @@ function buildCodesInventoryPart(
   SUM(g.n) AS event_count,
   MIN(g.first_event) AS first_event,
   MAX(g.last_event) AS last_event,
+  MIN(g.value_min) AS value_min,
+  MAX(g.value_max) AS value_max,
   ${durational ? 'TRUE' : 'FALSE'} AS durational,
   ${event.cls === 'drug' ? 'TRUE' : 'FALSE'} AS is_drug
 FROM (
@@ -251,6 +276,10 @@ GROUP BY 1, 2`)
  * infusion over every bucket it covers would multiply the rows grouped. Zoomed
  * in far enough to draw it, the row reads its events and shows the full span.
  */
+/** The row key of the counts of every event of the tables asked, whatever their
+ *  concept (`totalTables`): the range selector's strip, read with the tiles. */
+export const TOTAL_ROW_KEY = '__total__'
+
 export function buildOverviewTileDensityQuery(
   mapping: SchemaMapping,
   patientId: string,
@@ -259,23 +288,68 @@ export function buildOverviewTileDensityQuery(
   bucketMs: number,
   from: string,
   to: string,
+  /** Tables whose every event is also counted, under TOTAL_ROW_KEY — in the
+   *  same read as the rows' counts. */
+  totalTables: readonly string[] = [],
 ): string | null {
   const width = Math.max(1, Math.floor(bucketMs))
+  const bucket = floorDiv(`${EPOCH_MICROS('CAST(e.start_datetime AS TIMESTAMP)')} // 1000`, width)
+  const byTable = new Map<string, OverviewDensityRow[]>()
+  for (const row of rows) byTable.set(row.table, [...(byTable.get(row.table) ?? []), row])
+  for (const table of totalTables) if (!byTable.has(table)) byTable.set(table, [])
+  const totals = new Set(totalTables)
+
+  // One read of a table for all its rows: a branch per row read the patient's
+  // events once per concept — 500 reads of 20 million rows on a dense record.
+  const ctes: string[] = []
   const parts: string[] = []
-  for (const row of rows) {
-    const event = eventRelation(mapping, row.table)
+  for (const [table, tableRows] of byTable) {
+    const event = eventRelation(mapping, table)
     if (!has(event, 'start_datetime') || !has(event, 'patient_id')) continue
-    parts.push(`SELECT '${escSql(row.key)}' AS row_key,
-  ${floorDiv(`${EPOCH_MICROS('CAST(e.start_datetime AS TIMESTAMP)')} // 1000`, width)} AS bucket,
+    const where = `WHERE e.patient_id = '${escSql(patientId)}'
+  AND e.start_datetime >= ${timestamp(from)}
+  AND e.start_datetime < ${timestamp(to)}${eventScopeCondition(mapping, event!, scope)}`
+    // A row of no concept is the whole table: counted on its own.
+    for (const row of tableRows.filter((r) => r.conceptIds.length === 0)) {
+      parts.push(`SELECT '${escSql(row.key)}' AS row_key,
+  ${bucket} AS bucket,
   COUNT(*) AS n
 FROM ${event!.name} e
-WHERE e.patient_id = '${escSql(patientId)}'
-  AND e.start_datetime >= ${timestamp(from)}
-  AND e.start_datetime < ${timestamp(to)}${eventScopeCondition(mapping, event!, scope)}${buildConceptFilter(row.conceptIds)}
+${where}
 GROUP BY 1, 2`)
+    }
+    const pairs = tableRows.flatMap((r) => r.conceptIds.map((id) => `('${escSql(r.key)}', '${escSql(id)}')`))
+    if (!pairs.length && !totals.has(table)) continue
+    // The table's counts per concept and bucket first, then summed into the rows
+    // they are drawn in: faster than joining every event to its rows, and faster
+    // still than filtering them on the rows' concepts first (a cast and a list
+    // test on every event); the total of the table comes from the same counts.
+    const g = `g${ctes.length}`
+    ctes.push(`${g} AS MATERIALIZED (
+  SELECT CAST(e.concept_id AS VARCHAR) AS concept_id,
+    ${bucket} AS bucket,
+    COUNT(*) AS n
+  FROM ${event!.name} e
+  ${where.replace(/\n/g, '\n  ')}
+  GROUP BY 1, 2
+)`)
+    if (pairs.length) {
+      // In a WITH: the VALUES form an external database is sent (remote_sql).
+      const k = `k${ctes.length}`
+      ctes.push(`${k}(row_key, concept_id) AS (VALUES ${pairs.join(', ')})`)
+      parts.push(`SELECT k.row_key AS row_key, g.bucket AS bucket, SUM(g.n) AS n
+FROM ${g} g
+JOIN ${k} k ON g.concept_id = k.concept_id
+GROUP BY 1, 2`)
+    }
+    if (totals.has(table)) {
+      parts.push(`SELECT '${TOTAL_ROW_KEY}' AS row_key, g.bucket AS bucket, SUM(g.n) AS n
+FROM ${g} g
+GROUP BY 1, 2`)
+    }
   }
   if (parts.length === 0) return null
-  return parts.join('\nUNION ALL\n')
+  return `${ctes.length ? `WITH ${ctes.join(',\n')}\n` : ''}${parts.join('\nUNION ALL\n')}`
 }
 
 /** One band the renderer wants density for: a row key and the concepts behind it. */
@@ -421,7 +495,7 @@ export function overviewSupportsClasses(mapping: SchemaMapping): boolean {
  */
 
 /** A time literal both engines read: `2024-03-01 10:00:00.000`, not ISO's T…Z. */
-function timestamp(iso: string): string {
+export function timestamp(iso: string): string {
   return `TIMESTAMP '${escSql(iso.replace('T', ' ').replace(/Z$/, ''))}'`
 }
 
@@ -434,7 +508,7 @@ function floorDiv(x: string, d: number): string {
 
 /** Bucket index of a timestamp at or after `from` within [from, to], the last
  *  bucket holding `to` itself. */
-function bucketExpr(col: string, from: string, to: string, n: number): string {
+export function bucketExpr(col: string, from: string, to: string, n: number): string {
   const span = `DATE_DIFF('microsecond', ${timestamp(from)}, ${timestamp(to)})`
   const index = `DATE_DIFF('microsecond', ${timestamp(from)}, ${col}) * ${n} // ${span}`
   return `CASE WHEN ${span} <= 0 THEN 0 WHEN ${index} > ${n - 1} THEN ${n - 1} ELSE ${index} END`

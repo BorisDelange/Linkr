@@ -138,6 +138,9 @@ export interface TextCriteriaConfig {
   label?: string
   /** Per-field searches, joined by each one's `operator`. */
   searches?: TextFieldSearch[]
+  /** Only notes of these types (the note's `note_type`); none: every note. With
+   *  no search, the criterion keeps who has a note of one of them. */
+  noteTypes?: string[]
   /** Free-text note kept from the descriptive-only version of this criterion. */
   description: string
 }

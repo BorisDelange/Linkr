@@ -1,20 +1,19 @@
-import { useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type RefObject, type SetStateAction } from 'react'
 import { patientQuery } from '../patient-prefetch'
 import { identity, useLoadedKey } from '../TabVisibilityContext'
 import {
   buildOverviewInventoryQuery,
   buildOverviewUnitStaysQuery,
   buildOverviewDeathQuery,
-  buildOverviewDensityQuery,
 } from '@/lib/duckdb/patient-overview-queries'
 import { toMs } from '@/lib/duckdb/value-coercion'
 import type { PatientScope } from '@/lib/duckdb/patient-scope'
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { sameBounds } from './timeline-view'
-import { isoOrNull } from './use-overview-data'
+import type { StripRequest } from './use-overview-data'
 import type { OverviewDataCache } from './overview-tiles'
 import type { OverviewConceptRow } from './overview-layout'
-import { RANGE_BUCKETS, type OverviewDensity, type UnitStay } from './overview-helpers'
+import type { OverviewDensity, UnitStay } from './overview-helpers'
 
 type ViewWindow = { lo: number; hi: number }
 
@@ -52,6 +51,9 @@ export function useOverviewRecord({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [overview, setOverview] = useState<OverviewDensity | null>(null)
+  /** The range selector's strip still to read, for the tiles' load to read it
+   *  with them (use-overview-data). */
+  const [strip, setStrip] = useState<StripRequest | null>(null)
 
   useEffect(() => {
     if (!visible) return
@@ -78,47 +80,6 @@ export function useOverviewRecord({
     paintFailedRef.current = false
     dataRef.current.clear()
 
-    /**
-     * The range selector's background: the whole record in one histogram,
-     * aggregated in SQL. One query for every table at once, so it costs the same
-     * whether the patient has 80k events or 400k.
-     */
-    const loadOverviewDensity = async (
-      b: { lo: number; hi: number },
-      rows: OverviewConceptRow[],
-    ) => {
-      const byTable = new Map<string, string[]>()
-      for (const r of rows) {
-        const list = byTable.get(r.table)
-        if (list) list.push(r.conceptId)
-        else byTable.set(r.table, [r.conceptId])
-      }
-      const bands = [...byTable].map(([table, conceptIds]) => ({ key: table, table, conceptIds }))
-      const from = isoOrNull(b.lo)
-      const to = isoOrNull(b.hi)
-      if (!from || !to || bands.length === 0) return
-      const sql = buildOverviewDensityQuery(
-        schemaMapping, selectedPatientId, scope, from, to, RANGE_BUCKETS, bands,
-      )
-      if (!sql) return
-      try {
-        const raw = await patientQuery(dataSourceId, sql, { signal })
-        if (cancelled) return
-        const counts = new Float64Array(RANGE_BUCKETS)
-        let max = 0
-        for (const r of raw) {
-          const i = Number(r.bucket)
-          if (!Number.isFinite(i) || i < 0 || i >= RANGE_BUCKETS) continue
-          counts[i] += Number(r.n ?? 0)
-          if (counts[i] > max) max = counts[i]
-        }
-        setOverview({ counts, max })
-      } catch {
-        // The strip simply stays empty; it is navigation aid, not data.
-        if (!cancelled) setOverview(null)
-      }
-    }
-
     const run = async () => {
       try {
         const invSql = buildOverviewInventoryQuery(
@@ -136,6 +97,8 @@ export function useOverviewRecord({
           unit: r.unit == null ? null : String(r.unit),
           unitCount: Number(r.unit_count ?? 0),
           eventCount: Number(r.event_count ?? 0),
+          valueMin: r.value_min == null ? null : Number(r.value_min),
+          valueMax: r.value_max == null ? null : Number(r.value_max),
           durational: r.durational === true || r.durational === 'true',
           drug: r.is_drug === true || r.is_drug === 'true',
         }))
@@ -206,12 +169,14 @@ export function useOverviewRecord({
           // gesture. Broadcasting it would yank every synced peer back to full
           // extent each time this one reloads.
           setViewRaw((prev) => (prev && sameRecord ? prev : b))
-          void loadOverviewDensity(b, rows)
+          setOverview(null)
+          setStrip({ ...b, tables: [...new Set(rows.map((r) => r.table))] })
         } else {
           boundsRef.current = null
           setBounds(null)
           setViewRaw(null)
           setOverview(null)
+          setStrip(null)
         }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e))
@@ -226,5 +191,10 @@ export function useOverviewRecord({
     }
   }, [visible, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope, showUnitStays, showDeath, setViewRaw, paintFailedRef, dataRef, loaded])
 
-  return { concepts, units, death, bounds, loading, error, setError, overview }
+  const takeStrip = useCallback((density: OverviewDensity | null) => {
+    setOverview(density)
+    setStrip(null)
+  }, [])
+
+  return { concepts, units, death, bounds, loading, error, setError, overview, strip, takeStrip }
 }

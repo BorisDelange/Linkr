@@ -1,0 +1,163 @@
+{
+  "id": "linkr-widget-datatable",
+  "name": {
+    "en": "Data table",
+    "fr": "Tableau de données"
+  },
+  "description": {
+    "en": "The chosen concepts over time in a flowsheet: one column per period, each cell an aggregate of the period's values and how many there were.",
+    "fr": "Les concepts choisis au fil du temps, en tableau de suivi : une colonne par période, chaque cellule un agrégat des valeurs de la période et leur nombre."
+  },
+  "version": "1.0.0",
+  "scope": "warehouse",
+  "category": "patient-data",
+  "tags": [
+    "table",
+    "flowsheet",
+    "measurement"
+  ],
+  "runtime": [
+    "component"
+  ],
+  "languages": [],
+  "icon": "Table2",
+  "iconColor": "teal",
+  "needsConceptPicker": true,
+  "configSchema": {
+    "conceptIds": {
+      "type": "concept-select",
+      "label": {
+        "en": "Database concepts",
+        "fr": "Concepts de la base"
+      },
+      "section": {
+        "en": "Data",
+        "fr": "Données"
+      }
+    },
+    "columns": {
+      "type": "number",
+      "label": {
+        "en": "Columns",
+        "fr": "Colonnes"
+      },
+      "default": 8,
+      "min": 1,
+      "max": 60,
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "description": {
+        "en": "How many periods the visible window is cut into. Zooming keeps the number and changes their length.",
+        "fr": "En combien de périodes la fenêtre visible est découpée. Zoomer garde ce nombre et change leur durée."
+      }
+    },
+    "aggregate": {
+      "type": "select",
+      "label": {
+        "en": "Aggregate",
+        "fr": "Agrégat"
+      },
+      "default": "mean",
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "description": {
+        "en": "What a cell shows of the period's values. First and last are the values of the period's first and last event, text included.",
+        "fr": "Ce qu'une cellule montre des valeurs de la période. Premier et dernier sont les valeurs du premier et du dernier événement de la période, texte compris."
+      },
+      "options": [
+        {
+          "value": "mean",
+          "label": {
+            "en": "Mean",
+            "fr": "Moyenne"
+          }
+        },
+        {
+          "value": "median",
+          "label": {
+            "en": "Median",
+            "fr": "Médiane"
+          }
+        },
+        {
+          "value": "min",
+          "label": {
+            "en": "Minimum",
+            "fr": "Minimum"
+          }
+        },
+        {
+          "value": "max",
+          "label": {
+            "en": "Maximum",
+            "fr": "Maximum"
+          }
+        },
+        {
+          "value": "sum",
+          "label": {
+            "en": "Sum",
+            "fr": "Somme"
+          }
+        },
+        {
+          "value": "count",
+          "label": {
+            "en": "Count",
+            "fr": "Nombre"
+          }
+        },
+        {
+          "value": "first",
+          "label": {
+            "en": "First value",
+            "fr": "Première valeur"
+          }
+        },
+        {
+          "value": "last",
+          "label": {
+            "en": "Last value",
+            "fr": "Dernière valeur"
+          }
+        }
+      ]
+    },
+    "showCounts": {
+      "type": "boolean",
+      "label": {
+        "en": "Show counts",
+        "fr": "Afficher les effectifs"
+      },
+      "default": true,
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "description": {
+        "en": "Beside each value, how many events it summarises.",
+        "fr": "À côté de chaque valeur, le nombre d'événements qu'elle résume."
+      }
+    },
+    "syncTimeRange": {
+      "type": "boolean",
+      "label": {
+        "en": "Sync time range",
+        "fr": "Synchroniser la plage temporelle"
+      },
+      "default": false,
+      "section": {
+        "en": "Table",
+        "fr": "Tableau"
+      },
+      "description": {
+        "en": "Share the visible time window with the other synced widgets on the board — timelines and data overviews alike. Board settings decide whether that sharing stops at this tab or spans them all.",
+        "fr": "Partage la fenêtre temporelle visible avec les autres widgets synchronisés du tableau, timelines comme vues d'ensemble. Les paramètres du tableau décident si ce partage s'arrête à cet onglet ou couvre tous les onglets."
+      }
+    }
+  }
+}

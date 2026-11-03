@@ -123,6 +123,24 @@ Node 22.13 or later (`engines` in the root `package.json`; CI and the images run
 The `browser-check` skill stays for exploring a change by hand; once a check is
 worth keeping, it becomes a journey here.
 
+## Patient views at scale
+
+The Data overview on patients of millions of events. `npm run test-data --
+mimic-iv-demo-dense` (and `mimic-iv-demo-dense-5m`, small enough for a browser
+to store) is the MIMIC-IV demo plus patients `990000001`… with 100k, 1 M, 5 M
+and 20 M events over one year. Two measures, off unless the dataset is named:
+
+```bash
+# each query of the overview on DuckDB-WASM, under a memory cap
+OVERVIEW_BENCH=<testData.dir>/mimic-iv-demo-dense OVERVIEW_BENCH_MEMORY=256MB \
+  npx vitest run src/lib/duckdb/overview.perf.test.ts --disableConsoleIntercept
+# the whole widget in the client build, the page's CPU slowed down
+OVERVIEW_DENSE_DIR=<testData.dir>/mimic-iv-demo-dense-5m OVERVIEW_CPU_THROTTLE=4 \
+  npx playwright test overview-dense --project client
+```
+
+CDP slows the page, not DuckDB-WASM's worker: the bench gives the queries' cost.
+
 ## Database matrix
 
 `tests/db-matrix/` ([README](../tests/db-matrix/README.md)). The corpus is the

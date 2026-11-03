@@ -220,6 +220,20 @@ describe('buildCohortCountSql free-text criterion', () => {
     } as unknown as Cohort
   }
 
+  it('searches only the notes of the types picked, and keeps who has one with no term', () => {
+    const typed = mappingV1ToV2({ ...withNotes_V1, noteTable: { ...withNotes_V1.noteTable!, typeColumn: 'note_type_concept_id' } })
+    const sql = buildCohortCountSql(textCohort({
+      noteTypes: ['Discharge summary', "O'Brien"],
+      searches: [{ field: 'text', terms: ['sepsis'] }],
+    }), typed)!
+    expect(sql).toContain("CAST(n.note_type AS VARCHAR) IN ('Discharge summary', 'O''Brien')")
+    expect(sql).toContain('sepsis')
+    const typesOnly = buildCohortCountSql(textCohort({ noteTypes: ['Radiology'] }), typed)!
+    expect(typesOnly).toContain("CAST(n.note_type AS VARCHAR) IN ('Radiology')")
+    // A mapping without a note type cannot filter on one: the types are ignored.
+    expect(buildCohortCountSql(textCohort({ noteTypes: ['Radiology'] }), withNotes)).not.toContain('note_type')
+  })
+
   it('stays descriptive (no filter) when no terms are given', () => {
     const sql = buildCohortCountSql(textCohort({ description: 'just a note' }), withNotes)!
     expect(sql).not.toContain('note')

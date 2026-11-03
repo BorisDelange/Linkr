@@ -535,6 +535,7 @@ export function CohortBuilder() {
           <Allotment.Pane preferredSize="50%" minSize={resultsVisible ? 250 : 0} visible={resultsVisible}>
             <ResultsPanel
               result={result}
+              level={cohort.level}
               loading={loading}
               onCancel={running ? handleCancel : undefined}
               error={executionError}

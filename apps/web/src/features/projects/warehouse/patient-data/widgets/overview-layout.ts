@@ -28,6 +28,9 @@ export interface OverviewConceptRow {
    */
   unitCount?: number
   eventCount: number
+  /** The smallest and largest value recorded, when the concept has numbers. */
+  valueMin?: number | null
+  valueMax?: number | null
   durational: boolean
   /** Read from a drug relation: labelled and described as a drug. */
   drug?: boolean
@@ -54,6 +57,8 @@ export interface OverviewRow {
   conceptCode?: string | null
   /** The concept's own id, on single-concept rows only. */
   conceptId?: string | null
+  /** Its smallest and largest value, on single-concept rows with numbers. */
+  valueRange?: [number, number] | null
   durational: boolean
   /** Single-concept row read from a drug relation. */
   drug?: boolean
@@ -226,6 +231,7 @@ export function buildOverviewRows(opts: BuildRowsOptions): BuildRowsResult {
     unit: (c.unitCount ?? 1) > 1 ? null : c.unit,
     conceptCode: c.conceptCode,
     conceptId: c.conceptId,
+    valueRange: c.valueMin != null && c.valueMax != null ? [c.valueMin, c.valueMax] : null,
     durational: c.durational,
     drug: c.drug,
   })

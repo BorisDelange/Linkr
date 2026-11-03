@@ -13,6 +13,7 @@ import patientSummaryManifest from '@default-plugins/patient-data/patient-summar
 import timelineManifest from '@default-plugins/patient-data/timeline/plugin.json'
 import notesManifest from '@default-plugins/patient-data/notes/plugin.json'
 import overviewManifest from '@default-plugins/patient-data/overview/plugin.json'
+import datatableManifest from '@default-plugins/patient-data/datatable/plugin.json'
 import { registerPlugin } from './registry'
 import { registerPatientComponent } from './patient-component-registry'
 
@@ -24,6 +25,7 @@ export const PATIENT_SUMMARY_PLUGIN_ID = 'linkr-widget-patient-summary'
 export const TIMELINE_PLUGIN_ID = 'linkr-widget-timeline'
 export const NOTES_PLUGIN_ID = 'linkr-widget-notes'
 export const PATIENT_OVERVIEW_PLUGIN_ID = 'linkr-widget-patient-overview'
+export const DATATABLE_PLUGIN_ID = 'linkr-widget-datatable'
 
 /** Set of all system plugin ids (built-in patient widgets + built-in lab components). */
 export const SYSTEM_PLUGIN_IDS = new Set([
@@ -31,6 +33,7 @@ export const SYSTEM_PLUGIN_IDS = new Set([
   TIMELINE_PLUGIN_ID,
   NOTES_PLUGIN_ID,
   PATIENT_OVERVIEW_PLUGIN_ID,
+  DATATABLE_PLUGIN_ID,
   'linkr-analysis-key-indicator',
 ])
 
@@ -39,6 +42,7 @@ const manifests = [
   { manifest: timelineManifest, componentId: 'timeline' },
   { manifest: notesManifest, componentId: 'notes' },
   { manifest: overviewManifest, componentId: 'patient-overview' },
+  { manifest: datatableManifest, componentId: 'datatable' },
 ]
 
 // ---------------------------------------------------------------------------
@@ -60,6 +64,11 @@ export function registerBuiltinWidgetPlugins(): void {
   registerPatientComponent('notes', () =>
     import('@/features/projects/warehouse/patient-data/widgets/NotesWidget').then((m) => ({
       default: m.NotesWidget,
+    })),
+  )
+  registerPatientComponent('datatable', () =>
+    import('@/features/projects/warehouse/patient-data/widgets/DataTableWidget').then((m) => ({
+      default: m.DataTableWidget,
     })),
   )
   registerPatientComponent('patient-overview', () =>

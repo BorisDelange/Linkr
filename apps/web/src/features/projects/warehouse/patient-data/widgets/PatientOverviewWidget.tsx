@@ -18,6 +18,7 @@ import { overviewProbeQueries } from './overview-plan'
 import { useSlowQueries } from '../use-slow-queries'
 import { SlowQueryGate } from '../SlowQueryGate'
 import { OverviewDataCache } from './overview-tiles'
+import { deviceOverviewBudget } from './overview-budget'
 import { buildOverviewRows, type OverviewConceptRow, type OverviewRow } from './overview-layout'
 import { CategoryMenu, ConceptCopyMenu, HoverTip, Message, type TipContent } from './overview-popups'
 import { TABLE_PALETTE, FOOT, RANGE_H, clamp, setOffsetFromBar, describeHit } from './overview-helpers'
@@ -151,7 +152,8 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
   const layoutRef = useRef<LayoutRow[]>([])
   const barsRef = useRef<BarHit[]>([])
   const rangeRef = useRef<RangeGeom | null>(null)
-  const dataRef = useRef(new OverviewDataCache())
+  const [dataCache] = useState(() => new OverviewDataCache(deviceOverviewBudget().maxTiles))
+  const dataRef = useRef(dataCache)
   // The plot width the last paint used: the fetch must ask for the bucket width
   // the painter will look up, and only the painter knows the gutter (it follows
   // the row labels). Set from the paint, which re-runs the fetch when it changes.
@@ -185,7 +187,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
 
   // --- Load the record ------------------------------------------------------
 
-  const { concepts, units, death, bounds, loading, error, setError, overview } = useOverviewRecord({
+  const { concepts, units, death, bounds, loading, error, setError, overview, strip, takeStrip } = useOverviewRecord({
     visible: load, scopeReady, dataSourceId, schemaMapping, selectedPatientId, selectedVisitId, scope,
     showUnitStays, showDeath, setViewRaw, paintFailedRef, dataRef,
   })
@@ -271,7 +273,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
 
   useOverviewData({
     visible: load, view, bounds, rows: layout.rows, hiddenRef, dataRef,
-    dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint,
+    dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint, strip, onStrip: takeStrip,
   })
 
   // --- Paint ----------------------------------------------------------------
@@ -681,6 +683,7 @@ export function PatientOverviewWidget({ widgetId, config }: PatientOverviewWidge
         <canvas
           ref={canvasRef}
           tabIndex={0}
+          aria-busy={loading}
           className="absolute left-0 top-0 block outline-none"
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}

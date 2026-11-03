@@ -359,4 +359,7 @@ export function paintOverview(
   } else {
     rangeRef.current = null
   }
+  // Reads still in flight, for a test (or an assistive tool) to know the
+  // figure is complete.
+  cv.dataset.pending = String(dataRef.current.pending.size)
 }

@@ -3,6 +3,7 @@ config.local.json names. `scripts/test-data.mjs` drives it; see README.md.
 
     python build.py synthea <downloads dir> <reference data dir> <out dir>
     python build.py subset  <dataset dir> <out dir> --patients N
+    python build.py dense   <dataset dir> <out dir> --events 1000000 5000000 20000000
 
 `synthea` turns the public Synthea 100k OMOP export (CDM 5.3, CSV, no vocabulary,
 no notes) into a Parquet folder shaped like the reference (the MIMIC-IV demo,
@@ -218,6 +219,100 @@ def subset(src: Path, out: Path, patients: int) -> None:
     print(f"  subset: {patients:,} patients, {n:,} measurements → {out}", flush=True)
 
 
+# The demo patient the dense ones are modelled on: the most measured one.
+DENSE_TEMPLATE = 10035631
+DENSE_FIRST_ID = 990_000_001
+
+
+def dense(src: Path, out: Path, events: list[int]) -> None:
+    """The dataset `src` plus one patient per size in `events`, each with about
+    that many events over one year of a single hospital stay through six unit
+    stays: monitoring-like measurements of the template patient's concepts at a
+    fixed pace (94 %), drug exposures of an hour (5 %), categorical observations
+    (1 %). Ids from DENSE_FIRST_ID. What the patient views must stay usable on."""
+    out.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect()
+    con.execute(f"SET threads = {max(1, (os.cpu_count() or 2) // 2)}")
+    t = DENSE_TEMPLATE
+    src_of = lambda name: f"read_parquet({_lit(src / f'{name}.parquet')})"  # noqa: E731
+    start = "TIMESTAMP '2150-01-01 00:00:00'"
+    year_s = 365 * 86400
+    people, visits, details, measurements, drugs, observations = [], [], [], [], [], []
+    for k, n in enumerate(events):
+        pid = DENSE_FIRST_ID + k
+        vid = 990_000_000_000 + k
+        n_meas, n_drug, n_obs = int(n * 0.94), int(n * 0.05), max(1, int(n * 0.01))
+        people.append(f"SELECT * REPLACE ({pid} AS person_id) FROM {src_of('person')} WHERE person_id = {t}")
+        visits.append(f"""SELECT * REPLACE ({vid} AS visit_occurrence_id, {pid} AS person_id,
+            CAST({start} AS DATE) AS visit_start_date, {start} AS visit_start_datetime,
+            CAST({start} + INTERVAL 365 DAY AS DATE) AS visit_end_date, {start} + INTERVAL 365 DAY AS visit_end_datetime)
+            FROM (SELECT * FROM {src_of('visit_occurrence')} WHERE person_id = {t} LIMIT 1)""")
+        details.append(f"""SELECT d.* REPLACE ({vid} * 10 + s.i AS visit_detail_id, {pid} AS person_id, {vid} AS visit_occurrence_id,
+            CAST({start} + to_days(CAST(s.i * 60 AS INTEGER)) AS DATE) AS visit_detail_start_date,
+            {start} + to_days(CAST(s.i * 60 AS INTEGER)) AS visit_detail_start_datetime,
+            CAST({start} + to_days(CAST(s.i * 60 + 59 AS INTEGER)) AS DATE) AS visit_detail_end_date,
+            {start} + to_days(CAST(s.i * 60 + 59 AS INTEGER)) AS visit_detail_end_datetime)
+            FROM (SELECT * FROM {src_of('visit_detail')} WHERE person_id = {t} AND care_site_id IS NOT NULL LIMIT 1) d, range(6) s(i)""")
+        # One template row per concept, with its value's spread: the dense rows
+        # draw around it.
+        measurements.append(f"""WITH tpl AS (
+              SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY measurement_concept_id ORDER BY measurement_id) AS rn
+                             FROM {src_of('measurement')} WHERE person_id = {t}) WHERE rn = 1),
+            spread AS (SELECT measurement_concept_id, AVG(value_as_number) AS mu, COALESCE(STDDEV(value_as_number), 1) AS sd
+                       FROM {src_of('measurement')} WHERE person_id = {t} GROUP BY 1),
+            concepts AS (SELECT tpl.*, spread.mu, spread.sd, ROW_NUMBER() OVER (ORDER BY tpl.measurement_concept_id) - 1 AS slot
+                         FROM tpl JOIN spread USING (measurement_concept_id)),
+            k AS (SELECT COUNT(*) AS c FROM concepts)
+            SELECT c.* EXCLUDE (rn, mu, sd, slot) REPLACE (
+                {pid}::BIGINT * 100000000 + r.i AS measurement_id, {pid} AS person_id,
+                {start} + to_seconds(CAST(FLOOR(r.i / k.c) * ({year_s} / ({n_meas} / k.c)) AS BIGINT)) AS measurement_datetime,
+                CAST({start} + to_seconds(CAST(FLOOR(r.i / k.c) * ({year_s} / ({n_meas} / k.c)) AS BIGINT)) AS DATE) AS measurement_date,
+                CAST(CASE WHEN c.mu IS NULL THEN NULL ELSE c.mu + c.sd * ((hash(r.i) % 2000) / 1000.0 - 1) END AS DECIMAL(18,3)) AS value_as_number,
+                {vid} AS visit_occurrence_id,
+                {vid} * 10 + LEAST(5, CAST(FLOOR(r.i / k.c) * 6 / ({n_meas} / k.c) AS BIGINT)) AS visit_detail_id)
+            FROM range({n_meas}) r(i), k JOIN concepts c ON c.slot = r.i % k.c""")
+        drugs.append(f"""WITH tpl AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY drug_concept_id ORDER BY drug_exposure_id) AS rn
+                             FROM {src_of('drug_exposure')} WHERE person_id = {t}) WHERE rn = 1),
+            concepts AS (SELECT *, ROW_NUMBER() OVER (ORDER BY drug_concept_id) - 1 AS slot FROM tpl),
+            k AS (SELECT COUNT(*) AS c FROM concepts)
+            SELECT c.* EXCLUDE (rn, slot) REPLACE (
+                {pid}::BIGINT * 100000000 + r.i AS drug_exposure_id, {pid} AS person_id,
+                {start} + to_seconds(CAST(r.i * ({year_s} / {n_drug}) AS BIGINT)) AS drug_exposure_start_datetime,
+                CAST({start} + to_seconds(CAST(r.i * ({year_s} / {n_drug}) AS BIGINT)) AS DATE) AS drug_exposure_start_date,
+                {start} + to_seconds(CAST(r.i * ({year_s} / {n_drug}) AS BIGINT) + 3600) AS drug_exposure_end_datetime,
+                CAST({start} + to_seconds(CAST(r.i * ({year_s} / {n_drug}) AS BIGINT) + 3600) AS DATE) AS drug_exposure_end_date,
+                {vid} AS visit_occurrence_id)
+            FROM range({n_drug}) r(i), k JOIN concepts c ON c.slot = r.i % k.c""")
+        observations.append(f"""WITH tpl AS (SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY observation_concept_id ORDER BY observation_id) AS rn
+                             FROM {src_of('observation')} WHERE person_id = {t}) WHERE rn = 1),
+            concepts AS (SELECT *, ROW_NUMBER() OVER (ORDER BY observation_concept_id) - 1 AS slot FROM tpl),
+            k AS (SELECT COUNT(*) AS c FROM concepts)
+            SELECT c.* EXCLUDE (rn, slot) REPLACE (
+                {pid}::BIGINT * 100000000 + r.i AS observation_id, {pid} AS person_id,
+                {start} + to_seconds(CAST(r.i * ({year_s} / {n_obs}) AS BIGINT)) AS observation_datetime,
+                CAST({start} + to_seconds(CAST(r.i * ({year_s} / {n_obs}) AS BIGINT)) AS DATE) AS observation_date,
+                {vid} AS visit_occurrence_id)
+            FROM range({n_obs}) r(i), k JOIN concepts c ON c.slot = r.i % k.c""")
+
+    added = {
+        "person": people, "visit_occurrence": visits, "visit_detail": details,
+        "measurement": measurements, "drug_exposure": drugs, "observation": observations,
+    }
+    for parquet in sorted(src.glob("*.parquet")):
+        name = parquet.stem
+        rows = f"SELECT * FROM read_parquet({_lit(parquet)})"
+        if name in added:
+            cols = ", ".join(f'"{c}"' for c, _ in _columns(con, parquet))
+            rows = " UNION ALL BY NAME ".join([rows, *(f"SELECT {cols} FROM ({q})" for q in added[name])])
+            # Sorted by patient, as a warehouse lays its tables out: a patient's
+            # rows sit in a few row groups the read skips to.
+            order = " ORDER BY person_id" if name != "person" else ""
+            rows = f"SELECT * FROM ({rows}){order}"
+        con.execute(f"COPY ({rows}) TO {_lit(out / parquet.name)} (FORMAT parquet)")
+    n = con.execute(f"SELECT COUNT(*) FROM read_parquet({_lit(out / 'measurement.parquet')})").fetchone()[0]
+    print(f"  dense: {len(events)} dense patients from {DENSE_FIRST_ID}, {n:,} measurements → {out}", flush=True)
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -229,9 +324,15 @@ def main() -> int:
     b.add_argument("source", type=Path)
     b.add_argument("out", type=Path)
     b.add_argument("--patients", type=int, required=True)
+    d = sub.add_parser("dense")
+    d.add_argument("source", type=Path)
+    d.add_argument("out", type=Path)
+    d.add_argument("--events", type=int, nargs="+", required=True)
     a = p.parse_args()
     if a.cmd == "subset":
         subset(a.source, a.out, a.patients)
+    elif a.cmd == "dense":
+        dense(a.source, a.out, a.events)
     else:
         synthea(a.downloads, a.reference, a.out)
     return 0

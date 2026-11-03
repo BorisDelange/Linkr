@@ -95,11 +95,29 @@ function subsetOf(base, patients) {
   }
 }
 
+function densified(base, events) {
+  return (dir) => {
+    if (existsSync(join(dir, 'measurement.parquet'))) return
+    const from = join(testDataDir(), base)
+    DATASETS[base].build(from)
+    console.log(`▶ ${base} with patients of ${events.map((n) => n.toLocaleString('en')).join(', ')} events`)
+    run(python, ['-I', 'tests/test-data/build.py', 'dense', tablesOf(from), dir, '--events', ...events.map(String)])
+  }
+}
+
 export const DATASETS = {
   'mimic-iv-demo-omop': { about: 'MIMIC-IV demo, 100 patients, ~12 MB', build: demo },
   'mimic-iv-demo-omop-x100': { about: 'the demo ×100: 10,000 patients', build: upsampled('mimic-iv-demo-omop', 100) },
   'synthea-100k': { about: 'Synthea "100k": 235,000 patients, 118 M rows, 158k notes with edge-case texts, 2 GB', build: synthea },
   'synthea-25k': { about: 'its first 25,000 patients, ~12 M rows: fits Oracle Free (12 GB)', build: subsetOf('synthea-100k', 25_000) },
+  'mimic-iv-demo-dense-5m': {
+    about: 'the demo + patients 990000001-3 with 100k, 1 M and 5 M events: small enough to import in a browser',
+    build: densified('mimic-iv-demo-omop', [100_000, 1_000_000, 5_000_000]),
+  },
+  'mimic-iv-demo-dense': {
+    about: 'the demo + patients 990000001-4 with 100k, 1 M, 5 M and 20 M events over a year: the patient views at scale',
+    build: densified('mimic-iv-demo-omop', [100_000, 1_000_000, 5_000_000, 20_000_000]),
+  },
 }
 
 /** The dataset's folder, built first if missing. */

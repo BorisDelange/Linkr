@@ -2,8 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Allotment, LayoutPriority } from 'allotment'
 import 'allotment/dist/style.css'
-import { LayoutGrid, Loader2, Lock, Pencil, Plus, Settings2 } from 'lucide-react'
+import { LayoutGrid, Loader2, Lock, Pencil, Plus, Settings2, Wand2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { planCohortBoard } from './cohort-board-plan'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useContextRoleStore } from '@/stores/context-role-store'
 import { isServerMode } from '@/lib/api-client'
@@ -70,6 +82,8 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
   const [editMode, setEditMode] = useState(false)
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [generateOpen, setGenerateOpen] = useState(false)
+  const addTabsWithWidgets = usePatientChartStore((s) => s.addTabsWithWidgets)
   const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen, portalContainer: fullscreenContainer } = useFullscreen()
 
   useEffect(() => {
@@ -95,6 +109,14 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
     await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
     setEditMode(true)
     setAddWidgetOpen(true)
+  }
+
+  // The tabs the criteria call for, after whatever the board already has.
+  const plan = useMemo(() => planCohortBoard(cohort, schemaMapping, t), [cohort, schemaMapping, t])
+  const generateTabs = async () => {
+    setGenerateOpen(false)
+    const id = board?.id ?? await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
+    addTabsWithWidgets(id, plan)
   }
 
   const boardId = board?.id
@@ -126,10 +148,16 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
         title={t('cohorts.patients_board_empty_title')}
         description={t('cohorts.patients_board_empty_description')}
         action={
-          <Button size="sm" className="gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
-            <Plus size={14} />
-            {t('dashboard.add_widget')}
-          </Button>
+          <div className="flex gap-2">
+            <Button size="sm" className="gap-1.5" disabled={!canWrite} onClick={() => void generateTabs()}>
+              <Wand2 size={14} />
+              {t('cohorts.board_generate')}
+            </Button>
+            <Button size="sm" variant="outline" className="gap-1.5" disabled={!canWrite} onClick={() => void startConfiguring()}>
+              <Plus size={14} />
+              {t('dashboard.add_widget')}
+            </Button>
+          </div>
         }
       />
     </div>
@@ -154,6 +182,21 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
                       {t('dashboard.add_widget')}
                     </Button>
                   )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="xs"
+                        className="gap-1"
+                        disabled={!canWrite}
+                        onClick={() => (boardTabs.length ? setGenerateOpen(true) : void generateTabs())}
+                      >
+                        <Wand2 size={13} />
+                        {t('cohorts.board_generate')}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="max-w-72">{t('cohorts.board_generate_hint')}</TooltipContent>
+                  </Tooltip>
                   <Button
                     variant="ghost"
                     size="xs"
@@ -198,6 +241,21 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
           <PatientDataSidebar cohort={listedCohort} />
         </Allotment.Pane>
       </Allotment>
+
+      <AlertDialog open={generateOpen} onOpenChange={setGenerateOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('cohorts.board_generate_title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('cohorts.board_generate_description', { count: plan.length, tabs: plan.map((p) => p.name).join(', ') })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void generateTabs()}>{t('cohorts.board_generate')}</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {board && (
         <>

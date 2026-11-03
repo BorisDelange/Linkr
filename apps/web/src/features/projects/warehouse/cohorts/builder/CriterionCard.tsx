@@ -333,7 +333,7 @@ function CriteriaConfigForm({
     case 'concept':
       return <ConceptCriteriaForm config={config as ConceptCriteriaConfig} onChange={onChange} eventTableLabels={eventTableLabels} onOpenConceptPicker={onOpenConceptPicker} cohortLevel={cohortLevel} schemaMapping={schemaMapping} dataSourceId={dataSourceId} />
     case 'text':
-      return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
+      return <TextCriteriaForm config={config as TextCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} dataSourceId={dataSourceId} />
     case 'id_list':
       return <IdListCriteriaForm config={config as IdListCriteriaConfig} onChange={onChange} schemaMapping={schemaMapping} />
     default:
