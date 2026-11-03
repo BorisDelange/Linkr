@@ -1536,7 +1536,8 @@
     "text_not": "NON",
     "text_exclude_hint": "Exclure les documents correspondant à cette recherche",
     "toggle_results": "Afficher ou masquer les résultats",
-    "toggle_builder": "Afficher ou masquer les critères et le SQL"
+    "toggle_builder": "Afficher ou masquer les critères et le SQL",
+    "import_export_later": "L’import et l’export de cohortes arriveront dans une prochaine version."
   },
   "datasets": {
     "title": "Jeux de données",

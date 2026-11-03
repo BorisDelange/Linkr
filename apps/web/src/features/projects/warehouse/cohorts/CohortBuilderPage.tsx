@@ -431,15 +431,23 @@ export function CohortBuilder() {
           </span>
         )}
 
-        {/* Import/Export (export is a read operation → not gated) */}
-        <Button variant="ghost" size="sm" disabled={!can('cohorts:write')} onClick={() => setImportDialogOpen(true)} className="h-6 gap-1 text-xs">
-          <Upload size={12} />
-          {t('common.import')}
-        </Button>
-        <Button variant="ghost" size="sm" onClick={() => setExportDialogOpen(true)} className="h-6 gap-1 text-xs">
-          <Download size={12} />
-          {t('common.export')}
-        </Button>
+        {/* Import/Export: off until they are reviewed in detail. A disabled button
+            emits no pointer events, so the tooltip hangs on the span around it. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex" tabIndex={0}>
+              <Button variant="ghost" size="sm" disabled onClick={() => setImportDialogOpen(true)} className="h-6 gap-1 text-xs">
+                <Upload size={12} />
+                {t('common.import')}
+              </Button>
+              <Button variant="ghost" size="sm" disabled onClick={() => setExportDialogOpen(true)} className="h-6 gap-1 text-xs">
+                <Download size={12} />
+                {t('common.export')}
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">{t('cohorts.import_export_later')}</TooltipContent>
+        </Tooltip>
 
         {/* A read of the definition, like export: not gated on write. */}
         <SavedSqlGate blocked={hasSqlDraft}>

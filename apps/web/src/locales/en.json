@@ -1536,7 +1536,8 @@
     "text_not": "NOT",
     "text_exclude_hint": "Exclude notes matching this search",
     "toggle_results": "Show or hide the results",
-    "toggle_builder": "Show or hide the criteria and SQL"
+    "toggle_builder": "Show or hide the criteria and SQL",
+    "import_export_later": "Import and export of cohorts will come in a later version."
   },
   "datasets": {
     "title": "Datasets",
