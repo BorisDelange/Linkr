@@ -2,6 +2,10 @@
 a wider scope, the tables and variables chosen, birth dates to a precision, and
 ids replaced by pseudonyms — consistently across tables, never copied as they are."""
 
+import json
+import os
+from dataclasses import replace
+
 import duckdb
 import pytest
 
@@ -244,3 +248,63 @@ def test_the_correspondence_goes_to_its_own_database_and_a_rebuild_replaces_its_
     ]
     _patient_scope(source, tmp_path, "p2.duckdb", pseudo)
     assert _query(corr_path, "SELECT COUNT(*) FROM pseudo.linkr_pseudonyms") == [(21,)]
+
+
+# Opt-in live test: set LINKR_TEST_PG_DSN to a JSON connectionConfig of a
+# disposable Postgres the login may create schemas in, e.g.
+#   LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":5432,
+#                       "database":"linkr","username":"me","password":"pw-for-tests-only"}'
+@pytest.mark.skipif(
+    not os.environ.get("LINKR_TEST_PG_DSN"),
+    reason="set LINKR_TEST_PG_DSN to derive into a live Postgres",
+)
+def test_a_pseudonymised_derivation_into_a_postgres_schema(source, tmp_path):
+    from app.services.data import db_connect
+
+    config = json.loads(os.environ["LINKR_TEST_PG_DSN"])
+    password = config.get("password")
+    schema, corr_schema = f"cohort_t{os.getpid()}", f"pseudo_t{os.getpid()}"
+    target = TargetSpec("external", config=config, password=password, schema=schema)
+    pseudo = Pseudonyms(
+        "hmac", KEY,
+        correspondence=TargetSpec("external", config=config, password=password, schema=corr_schema),
+        derivation_id="pg1", derivation="Sepsis",
+    )
+    members = cohort_derive.compute_members(source, "SELECT person_id AS id, person_id AS patient_id FROM person WHERE person_id <= 3")
+    minimization = Minimization(
+        variables={(None, "measurement"): (["measurement_concept_id"], [100])},
+        dates={(None, "person"): {"birth_datetime": "month"}},
+    )
+    con = duckdb.connect()
+    con.execute(f"SET extension_directory = '{db_connect._sql_path(db_connect._ext_dir())}'")
+    con.execute("LOAD postgres")
+    db_connect.attach_dsn(con, db_connect._dsn(config, password), "pg", "TYPE postgres")
+    try:
+        written = {w["table"]: w for w in cohort_derive.derive(
+            source, target, members, MAPPING, "patient", True, minimization=minimization, pseudonyms=pseudo)}
+        assert written["person"]["rows"] == 3 and written["measurement"]["rows"] == 12
+
+        q = lambda sql: con.execute(sql.replace("S.", f"pg.{schema}.").replace("C.", f"pg.{corr_schema}.")).fetchall()
+        persons = {r[0] for r in q("SELECT person_id FROM S.person")}
+        assert len(persons) == 3 and not persons & {1, 2, 3}
+        assert q("SELECT COUNT(*) FROM S.measurement m JOIN S.person p USING (person_id)") == [(12,)]
+        assert q("SELECT DISTINCT measurement_concept_id FROM S.measurement") == [(100,)]
+        assert q("SELECT DISTINCT CAST(birth_datetime AS DATE), day_of_birth FROM S.person") == [(__import__("datetime").date(1980, 6, 1), None)]
+        corr = q("SELECT original_id, pseudonym FROM C.linkr_pseudonyms WHERE kind = 'patient' ORDER BY original_id")
+        assert [r[0] for r in corr] == ["1", "2", "3"] and {r[1] for r in corr} == persons
+
+        # A rebuild into the same schema: the same key, the same pseudonyms, its rows replaced.
+        cohort_derive.derive(source, replace(target, replace_schema=True), members, MAPPING, "patient", True,
+                             minimization=minimization, pseudonyms=pseudo)
+        assert {r[0] for r in q("SELECT person_id FROM S.person")} == persons
+        assert q("SELECT COUNT(*) FROM C.linkr_pseudonyms") == [(21,)]
+    finally:
+        con.execute("DETACH pg")
+        con.close()
+        cleanup = duckdb.connect()
+        cleanup.execute(f"SET extension_directory = '{db_connect._sql_path(db_connect._ext_dir())}'")
+        cleanup.execute("LOAD postgres")
+        db_connect.attach_dsn(cleanup, db_connect._dsn(config, password), "pg", "TYPE postgres")
+        for s in (schema, corr_schema):
+            cleanup.execute(f"CALL postgres_execute('pg', 'DROP SCHEMA IF EXISTS {s} CASCADE')")
+        cleanup.close()

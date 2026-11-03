@@ -178,6 +178,19 @@ Report: `.cache/db-matrix/<machine>-<dataset>-x<scale>/report.md` — per engine
 queries answer the same, differently or not at all, the total time and the
 slowest query.
 
+**Live Postgres tests** — a few API tests write into a real Postgres and are
+skipped unless `LINKR_TEST_PG_DSN` names one (a JSON connectionConfig): the
+introspection and query of `test_data_sources.py`, and a pseudonymised cohort
+derivation into a schema, with its correspondence table, in
+`test_cohort_derive_minimization.py`. A throwaway container is enough:
+
+```bash
+docker run -d --rm --name linkr-pg-test -p 55432:5432 -e POSTGRES_USER=linkr -e POSTGRES_PASSWORD=pw-for-tests-only postgres:16-alpine
+(cd apps/api && LINKR_TEST_PG_DSN='{"engine":"postgresql","host":"127.0.0.1","port":55432,"database":"linkr","username":"linkr","password":"pw-for-tests-only"}' \
+  .venv/bin/python -m pytest tests -k "live_postgres or postgres_schema")
+docker stop linkr-pg-test
+```
+
 ## SPE scenarios
 
 `scripts/test-spe.mjs` over `docker/spe-sim/` ([README](../docker/spe-sim/README.md)):

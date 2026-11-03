@@ -28,18 +28,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { dockerEnv } from './docker-env.mjs'
 import { dataset, tablesOf, testDataDir } from './test-data.mjs'
-
-/** The builder built into the current Docker context (it bears the context's
- *  name: `default`, `desktop-linux`…). A docker-container builder selected with
- *  `docker buildx use` would ship every image back to Docker as a tarball. */
-function dockerBuilder() {
-  try {
-    return execFileSync('docker', ['context', 'show'], { encoding: 'utf8' }).trim() || 'default'
-  } catch {
-    return 'default'
-  }
-}
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const python = join(root, 'apps/api/.venv/bin/python')
@@ -121,10 +111,7 @@ function runInSpe(a, engines, data, work, env) {
   if (engines.includes('sqlserver')) { profiles.push('--profile', 'sqlserver'); services.push('datamart-sqlserver') }
   if (engines.includes('oracle')) { profiles.push('--profile', 'oracle'); services.push('datamart-oracle') }
   const speEnv = {
-    // Docker's own builder: a docker-container builder (buildx) would ship the
-    // 2 GB API image back to Docker as a tarball, minutes per build.
-    BUILDX_BUILDER: dockerBuilder(),
-    ...env,
+    ...dockerEnv(env),
     // The API service refuses to start without one; the matrix never starts it.
     LINKR_SECRET_KEY: process.env.LINKR_SECRET_KEY ?? 'unused-by-the-matrix',
     MATRIX_DATA_DIR: data, MATRIX_WORK_DIR: work,

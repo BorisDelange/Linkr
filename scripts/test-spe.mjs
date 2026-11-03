@@ -15,20 +15,10 @@
  */
 
 import { readdirSync, readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs'
-import { execFileSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-
-/** The builder built into the current Docker context (it bears the context's
- *  name: `default`, `desktop-linux`…). A docker-container builder selected with
- *  `docker buildx use` would ship every image back to Docker as a tarball. */
-function dockerBuilder() {
-  try {
-    return execFileSync('docker', ['context', 'show'], { encoding: 'utf8' }).trim() || 'default'
-  } catch {
-    return 'default'
-  }
-}
+import { dockerEnv } from './docker-env.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const spe = join(root, 'docker/spe-sim')
@@ -79,10 +69,7 @@ function main() {
     const scenario = readEnv(join(spe, `scenarios/${name}.env`))
     console.log(`\n━━ scenario ${name} — ${scenario.about}`)
     const env = {
-      // Docker's own builder: a docker-container builder (buildx) would ship each
-      // 2 GB image back to Docker as a tarball, minutes per build.
-      BUILDX_BUILDER: dockerBuilder(),
-      ...process.env, ...machine.vars, ...scenario.vars,
+      ...dockerEnv(), ...machine.vars, ...scenario.vars,
       LINKR_SECRET_KEY: process.env.LINKR_SECRET_KEY ?? `spe-scenario-${Date.now()}-not-a-real-secret-key`,
     }
     const dc = (args) => spawnSync('docker', ['compose', '-f', join(spe, 'docker-compose.yml'), ...args], { stdio: 'inherit', cwd: root, env })
