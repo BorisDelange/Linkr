@@ -4,6 +4,7 @@
 
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { usePortalTarget } from '@/lib/portal-container'
 import { useTranslation } from 'react-i18next'
 import { TOOLTIP_STYLE } from '@/lib/plugins/shared-styles'
 
@@ -56,6 +57,7 @@ const VIEWPORT_MARGIN = 8
  * the cursor when it would leave the viewport.
  */
 export function FloatingChartTooltip({ point, children }: { point: { x: number; y: number } | null; children: ReactNode }) {
+  const portalTarget = usePortalTarget()
   const ref = useRef<HTMLDivElement>(null)
 
   // Placed imperatively, before paint: the flip needs the card's measured size,
@@ -77,6 +79,6 @@ export function FloatingChartTooltip({ point, children }: { point: { x: number; 
     <div ref={ref} className="pointer-events-none fixed left-0 top-0 z-50">
       {children}
     </div>,
-    document.body,
+    portalTarget,
   )
 }

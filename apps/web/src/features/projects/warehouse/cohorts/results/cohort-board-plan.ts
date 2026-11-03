@@ -1,11 +1,13 @@
 /**
  * The tabs a cohort's patient board is generated with, from its criteria: the
  * patient's record at a glance, the notes highlighting what the free-text
- * criteria search for, and a timeline of each concept criterion's concepts.
+ * criteria search for, and each concept criterion's concepts as a timeline over a
+ * data table.
  */
-import { DASHBOARD_GRID } from '@/features/projects/dashboard/dashboard-grid'
+import { PATIENT_GRID_COLS, PATIENT_GRID_ROWS } from '@/features/projects/warehouse/patient-data/patient-grid'
 import { classRelation, has } from '@/lib/schema-classes/relations'
 import {
+  DATATABLE_PLUGIN_ID,
   NOTES_PLUGIN_ID,
   PATIENT_OVERVIEW_PLUGIN_ID,
   TIMELINE_PLUGIN_ID,
@@ -24,8 +26,9 @@ export interface PlannedTab {
   widgets: PlannedWidget[]
 }
 
-/** The whole tab: the full width, and as tall as a board fitted to its height shows. */
-const FULL = { w: DASHBOARD_GRID.cols, h: 30 }
+/** The whole tab of a board fitted to its height. */
+const FULL = { w: PATIENT_GRID_COLS, h: PATIENT_GRID_ROWS }
+const HALF = { w: PATIENT_GRID_COLS, h: PATIENT_GRID_ROWS / 2 }
 /** Longest tab name, past which it ends in an ellipsis. */
 const NAME_LENGTH = 40
 
@@ -81,7 +84,10 @@ export function planCohortBoard(cohort: Pick<Cohort, 'criteriaTree' | 'customSql
     const name = conceptTabName(config)
     tabs.push({
       name,
-      widgets: [{ pluginId: TIMELINE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds] }, size: FULL }],
+      widgets: [
+        { pluginId: TIMELINE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds] }, size: HALF },
+        { pluginId: DATATABLE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds] }, size: HALF },
+      ],
     })
   }
   return tabs

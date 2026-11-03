@@ -134,7 +134,8 @@ interface PatientChartState {
   // Tab CRUD
   addTab: (dashboardId: string) => void
   /** Tabs named and filled at once, after the board's own; the first is shown. */
-  addTabsWithWidgets: (
+  /** Replaces every tab of the board, and their widgets, by these. */
+  replaceTabsWithWidgets: (
     dashboardId: string,
     tabs: { name: string; widgets: { pluginId: string; name: string; config: Record<string, unknown>; size: { w: number; h: number } }[] }[],
   ) => void
@@ -742,10 +743,11 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
     })
   },
 
-  addTabsWithWidgets: (dashboardId, planned) => {
+  replaceTabsWithWidgets: (dashboardId, planned) => {
     if (planned.length === 0) return
     set((s) => {
-      const existing = s.tabs.filter((t) => t.patientDashboardId === dashboardId).length
+      const oldTabIds = new Set(s.tabs.filter((t) => t.patientDashboardId === dashboardId).map((t) => t.id))
+      const oldWidgetIds = s.widgets.filter((w) => oldTabIds.has(w.tabId)).map((w) => w.id)
       const tabs: PatientDashboardTab[] = []
       const widgets: PatientDashboardWidget[] = []
       planned.forEach((p, i) => {
@@ -753,7 +755,7 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
           id: uid(),
           patientDashboardId: dashboardId,
           name: toLocalized(p.name),
-          displayOrder: existing + i,
+          displayOrder: i,
         }
         tabs.push(tab)
         let y = 0
@@ -769,15 +771,18 @@ export const usePatientChartStore = create<PatientChartState>((set, get) => ({
           y += w.size.h
         }
       })
-      // Each tab before its widgets: a widget names its tab.
+      // Old widgets before their tabs, each new tab before its widgets: a widget names its tab.
       void (async () => {
         const storage = getStorage()
-        for (const tab of tabs) await storage.patientDashboardTabs.create(tab).catch(warn('addTabsWithWidgets'))
-        for (const widget of widgets) await storage.patientDashboardWidgets.create(widget).catch(warn('addTabsWithWidgets'))
+        const log = warn('replaceTabsWithWidgets')
+        for (const id of oldWidgetIds) await storage.patientDashboardWidgets.delete(id).catch(log)
+        for (const id of oldTabIds) await storage.patientDashboardTabs.delete(id).catch(log)
+        for (const tab of tabs) await storage.patientDashboardTabs.create(tab).catch(log)
+        for (const widget of widgets) await storage.patientDashboardWidgets.create(widget).catch(log)
       })()
       return {
-        tabs: [...s.tabs, ...tabs],
-        widgets: [...s.widgets, ...widgets],
+        tabs: [...s.tabs.filter((t) => !oldTabIds.has(t.id)), ...tabs],
+        widgets: [...s.widgets.filter((w) => !oldTabIds.has(w.tabId)), ...widgets],
         activeTabId: { ...s.activeTabId, [dashboardId]: tabs[0].id },
       }
     })

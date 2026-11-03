@@ -48,6 +48,7 @@ import { getNodeDetail } from '@/lib/duckdb/cohort-query'
 import { SchemaBrowser } from '@/features/warehouse/databases/SchemaBrowser'
 import { CohortPatientsPanel } from './results/CohortPatientsPanel'
 import { CohortTablesPanel } from './results/CohortTablesPanel'
+import { CohortStatisticsPanel } from './results/CohortStatisticsPanel'
 import { CohortReportDialog } from './report/CohortReportDialog'
 import { CohortDeriveDialog } from './derive/CohortDeriveDialog'
 import { isServerMode } from '@/lib/api-client'
@@ -467,14 +468,16 @@ export function CohortBuilder() {
           </SavedSqlGate>
         )}
 
-        {/* Execute, or stop the run in progress */}
+        {/* Execute, or stop the run in progress. Keyed apart: one button reused
+            would fade from the Stop red to the Run colour once the run ends. */}
         {running ? (
-          <Button variant="destructive" size="sm" onClick={handleCancel} className="h-6 gap-1 text-xs">
+          <Button key="stop" variant="destructive" size="sm" onClick={handleCancel} className="h-6 gap-1 text-xs">
             <Square size={12} />
             {t('cohorts.stop')}
           </Button>
         ) : (
           <Button
+            key="run"
             size="sm"
             onClick={handleExecute}
             disabled={loading || !activeSource || !can('cohorts:write')}
@@ -543,6 +546,11 @@ export function CohortBuilder() {
               attritionDetails={attritionDetails}
               onExecute={handleExecute}
               onExportCsv={handleExportCsv}
+              renderStatistics={
+                activeSource && mapping && shownCohort && cohort.level !== 'event'
+                  ? () => <CohortStatisticsPanel cohort={shownCohort} source={activeSource} />
+                  : undefined
+              }
               renderPatients={
                 activeSource && mapping?.patient && cohort.level !== 'event'
                   ? (r) => (

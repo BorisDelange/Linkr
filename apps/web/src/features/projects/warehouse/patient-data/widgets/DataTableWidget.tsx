@@ -5,7 +5,12 @@ import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ChartTooltipCard, FloatingChartTooltip } from '@/features/projects/lab/datasets/analyses/chart-tooltip'
 import { fetchConceptLabels } from '@/features/projects/warehouse/cohorts/concept-labels'
-import { buildDataTableBoundsQuery, buildDataTableQuery, type DataTableAggregate } from '@/lib/duckdb/patient-datatable-queries'
+import {
+  buildDataTableBoundsQuery,
+  buildDataTableDensityQuery,
+  buildDataTableQuery,
+  type DataTableAggregate,
+} from '@/lib/duckdb/patient-datatable-queries'
 import { toMs } from '@/lib/duckdb/value-coercion'
 import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from '../PatientChartContext'
@@ -21,6 +26,7 @@ import {
   syncChannel,
 } from '../timeline-sync'
 import { isoOrNull } from './use-overview-data'
+import { DataTableRangeStrip } from './DataTableRangeStrip'
 import { columnStartLabel, columnsOf, durationLabel, formatCell, periodLabel, type DataTableWindow } from './datatable-columns'
 
 interface DataTableWidgetProps {
@@ -54,6 +60,8 @@ interface Hover {
 const DEFAULT_COLUMNS = 8
 const NAME_WIDTH = 176
 const COLUMN_WIDTH = 72
+/** Slices of the record the density strip counts events in. */
+const DENSITY_BUCKETS = 200
 
 /**
  * A flowsheet: the chosen concepts in rows, the time window in columns, each
@@ -85,6 +93,7 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
   const [held, setHeld] = useState<Map<string, Set<number>> | undefined>(undefined)
   const [bounds, setBounds] = useState<DataTableWindow | null>(null)
   const [view, setView] = useState<DataTableWindow | null>(null)
+  const [density, setDensity] = useState<number[]>([])
   const [cells, setCells] = useState<Map<string, Cell>>(new Map())
   const [units, setUnits] = useState<Map<number, string>>(new Map())
   const [loading, setLoading] = useState(false)
@@ -120,7 +129,7 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
   // The record's span for these concepts: what the table opens on.
   useEffect(() => {
     if (!visible || !scopeReady || !dataSourceId || !schemaMapping || !patientId || conceptIds.length === 0) return
-    const sql = buildDataTableBoundsQuery(schemaMapping, conceptIds, patientId, scope, held)
+    const sql = buildDataTableBoundsQuery(schemaMapping, conceptIds, patientId, scope, { held })
     if (!sql) return
     const controller = new AbortController()
     patientQuery(dataSourceId, sql, { signal: controller.signal })
@@ -134,6 +143,31 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
     // idsKey stands for conceptIds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, idsKey, scope, held])
+
+  // The density strip: counts per slice of the whole record, once per record.
+  useEffect(() => {
+    if (!visible || !scopeReady || !dataSourceId || !schemaMapping || !patientId || !bounds) return
+    const from = isoOrNull(bounds.lo)
+    const to = isoOrNull(bounds.hi)
+    const sql = from && to
+      ? buildDataTableDensityQuery(schemaMapping, conceptIds, patientId, scope, { from, to, buckets: DENSITY_BUCKETS, held })
+      : null
+    if (!sql) return
+    const controller = new AbortController()
+    patientQuery(dataSourceId, sql, { signal: controller.signal })
+      .then((rows) => {
+        const counts = new Array<number>(DENSITY_BUCKETS).fill(0)
+        for (const r of rows) {
+          const b = Number(r.col)
+          if (b >= 0 && b < DENSITY_BUCKETS) counts[b] += Number(r.n ?? 0)
+        }
+        setDensity(counts)
+      })
+      .catch(() => { if (!controller.signal.aborted) setDensity([]) })
+    return () => controller.abort()
+    // idsKey stands for conceptIds.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, scopeReady, dataSourceId, schemaMapping, patientId, bounds, idsKey, scope, held])
 
   // Synced: the channel's window first, then whatever a peer moves to.
   useEffect(() => {
@@ -297,6 +331,14 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
           </TableBody>
         </Table>
       </div>
+      {bounds && (
+        <div className="flex shrink-0">
+          <div className="shrink-0 border-t" style={{ width: NAME_WIDTH }} />
+          <div className="min-w-0 flex-1 pr-2">
+            <DataTableRangeStrip bounds={bounds} view={shown ?? bounds} counts={density} onViewChange={move} />
+          </div>
+        </div>
+      )}
       <FloatingChartTooltip point={hover && hovered ? { x: hover.x, y: hover.y } : null}>
         {hover && hovered && (
           <ChartTooltipCard

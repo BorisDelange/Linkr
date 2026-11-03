@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
 import { NO_SCOPE } from './patient-scope'
-import { buildDataTableBoundsQuery, buildDataTableQuery, type DataTableAggregate } from './patient-datatable-queries'
+import { buildDataTableBoundsQuery, buildDataTableDensityQuery, buildDataTableQuery, type DataTableAggregate } from './patient-datatable-queries'
 
 // The Data table's cells, computed by a real DuckDB: each column holds the
 // aggregate of its own events and says how many there were.
@@ -86,6 +86,18 @@ describe('the Data table on DuckDB', () => {
     const [b] = run(buildDataTableBoundsQuery(MAPPING, [10], '1', NO_SCOPE)!)
     expect(new Date(Number(b.first_event)).toISOString()).toBe('2024-01-01T00:00:00.000Z')
     expect(new Date(Number(b.last_event)).toISOString()).toBe('2024-01-01T23:30:00.000Z')
+  })
+
+  it('counts the events of each slice of the record for the density strip', () => {
+    const rows = run(buildDataTableDensityQuery(MAPPING, [10], '1', NO_SCOPE, {
+      from: '2024-01-01T00:00:00.000Z', to: '2024-01-02T00:00:00.000Z', buckets: 2,
+    })!).sort((a, b) => Number(a.col) - Number(b.col))
+    expect(rows.map((r) => [Number(r.col), Number(r.n)])).toEqual([[0, 12], [1, 13]])
+  })
+
+  it('comments each concept id with what it is', () => {
+    const sql = buildDataTableBoundsQuery(MAPPING, [10], '1', NO_SCOPE, { label: () => 'LOINC · Heart rate' })!
+    expect(sql).toContain('10 -- LOINC · Heart rate')
   })
 
   it('searches a table for the concepts the count found there only', () => {

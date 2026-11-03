@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2, RefreshCw, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -9,16 +9,14 @@ import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import * as engine from '@/lib/duckdb/engine'
 import { downloadBlob } from '@/lib/entity-io'
 import { localized } from '@/lib/localized'
 import { printHtml, rasterizeSvg, reportFileName } from '@/lib/cohort-report/export'
-import { buildCohortReportModel, CohortReportUnavailable } from '@/lib/cohort-report/model'
+import { CohortReportUnavailable, shapeCohortReportModel } from '@/lib/cohort-report/model'
 import { renderReportHtml } from '@/lib/cohort-report/render-html'
 import { DEFAULT_SUPPRESSION_THRESHOLD } from '@/lib/cohort-report/suppress'
 import type { Cohort, DataSource } from '@/types'
-import { cohortRelationNarrowing } from '../relation-narrowing'
-import { reportRunOf, startReportRun, stopReportRun, useReportRun } from './report-runs'
+import { useCohortFigures } from './cohort-figures'
 
 type ReportFormat = 'html' | 'pdf' | 'docx'
 
@@ -40,28 +38,16 @@ export function CohortReportDialog(props: CohortReportDialogProps) {
   return props.open ? <ReportPreview {...props} /> : null
 }
 
-/** What a report run is for: the database, the cohort as defined, the language,
- *  and the suppression threshold (applied in the model). */
-const runKey = (sourceId: string | undefined, cohort: Cohort, locale: string, threshold: number) =>
-  JSON.stringify([sourceId, cohort.level, cohort.criteriaTree, cohort.customSql ?? null, cohort.name, cohort.description, cohort.version ?? null, locale, threshold])
-
-/** The threshold a run of this report was asked with, when `key` is one. */
-function thresholdOf(key: string | undefined, sourceId: string | undefined, cohort: Cohort, locale: string): number | null {
-  if (!key) return null
-  const threshold = (JSON.parse(key) as unknown[]).at(-1)
-  return typeof threshold === 'number' && runKey(sourceId, cohort, locale, threshold) === key ? threshold : null
-}
+/** The threshold last applied to each cohort's report, kept while the page is:
+ *  it shapes the figures, so reopening the report shows them as they were. */
+const appliedThresholds = new Map<string, number>()
 
 function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: CohortReportDialogProps) {
   const { t, i18n } = useTranslation()
   // The cohort as it was when the dialog opened: editing it behind the dialog
   // must not re-run the report mid-read.
   const [cohort] = useState(openedCohort)
-  // A report of this cohort already run, or running — the dialog closed while it
-  // was — is taken up as it is, with the threshold it was asked with.
-  const [initialThreshold] = useState(
-    () => thresholdOf(reportRunOf(cohort.id)?.key, source?.id, cohort, i18n.language) ?? DEFAULT_SUPPRESSION_THRESHOLD,
-  )
+  const [initialThreshold] = useState(() => appliedThresholds.get(cohort.id) ?? DEFAULT_SUPPRESSION_THRESHOLD)
   const [format, setFormat] = useState<ReportFormat>('html')
   const [threshold, setThreshold] = useState(String(initialThreshold))
   const [applied, setApplied] = useState(initialThreshold)
@@ -72,14 +58,14 @@ function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: Coh
   const blocked = unavailableReason(cohort)
   const thresholdValue = Number.parseInt(threshold, 10)
   const thresholdValid = Number.isFinite(thresholdValue) && thresholdValue >= 1 && thresholdValue <= 1000
-  const key = runKey(source?.id, cohort, i18n.language, applied)
-  const reportRun = useReportRun(cohort.id)
-  const state = reportRun?.key === key ? reportRun.state : null
-
-  const start = (threshold: number) => {
-    const mapping = source?.schemaMapping
-    if (blocked || !source || !mapping) return
-    startReportRun(cohort.id, runKey(source.id, cohort, i18n.language, threshold), async (signal) => buildCohortReportModel({
+  // Computed once for the definition — by the Statistics tab, or here — then
+  // shaped in the language and under the threshold asked for.
+  const figures = useCohortFigures(cohort, source, { withFlow: true, enabled: !blocked })
+  const { state } = figures
+  const mapping = source?.schemaMapping
+  const model = useMemo(() => {
+    if (!figures.data?.flow || !source || !mapping) return null
+    return shapeCohortReportModel(figures.data, {
       cohort,
       mapping,
       databaseName: localized(source.name, i18n.language),
@@ -87,24 +73,13 @@ function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: Coh
       schemaLabel: localized(source.schemaSource?.label, i18n.language)
         || localized(mapping.presetLabel, i18n.language)
         || undefined,
-      run: (sql) => engine.queryDataSource(source.id, sql, { heavy: true, signal }),
       t,
       locale: i18n.language,
-      threshold,
-      narrowing: await cohortRelationNarrowing(source.id, mapping, cohort).catch(() => undefined),
-      combine: true,
-    }))
-  }
+      threshold: applied,
+    })
+  }, [figures.data, source, mapping, cohort, t, i18n.language, applied])
 
-  // A run of these settings, running or done, is taken up; anything else starts
-  // one. Stopped or failed, it waits for Recompute.
-  useEffect(() => {
-    if (!reportRunOf(cohort.id) || reportRunOf(cohort.id)!.key !== key) start(applied)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key])
-
-  const loading = !blocked && !!source?.schemaMapping && (!state || state.status === 'running')
-  const model = state?.status === 'done' ? state.model : null
+  const loading = !blocked && !!mapping && !model && state?.status !== 'error' && state?.status !== 'stopped'
   const html = useMemo(() => (model ? renderReportHtml(model, t, { includeSql }) : null), [model, t, includeSql])
   const err = state?.status === 'error' ? state.error : null
   const buildError = state?.status === 'stopped' ? t('cohort_report.stopped')
@@ -112,9 +87,12 @@ function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: Coh
       : err instanceof CohortReportUnavailable ? t(`cohort_report.unavailable_${err.reason}`)
         : t('cohort_report.error', { message: err instanceof Error ? err.message : String(err) })
 
+  // A new threshold reshapes the figures; the same one reads them again.
   const recompute = () => {
-    if (thresholdValue !== applied) setApplied(thresholdValue)
-    else start(applied)
+    if (thresholdValue !== applied) {
+      appliedThresholds.set(cohort.id, thresholdValue)
+      setApplied(thresholdValue)
+    } else figures.recompute()
   }
 
   const exportReport = async () => {
@@ -161,10 +139,8 @@ function ReportPreview({ open, onOpenChange, cohort: openedCohort, source }: Coh
       noEnterSubmit
       footerExtra={
         <div className="flex items-center gap-2 sm:mr-auto">
-          {/* The threshold is applied in the model, so a new one is a new run —
-              asked for here, not on every keystroke. */}
           {loading ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => stopReportRun(cohort.id)}>
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={figures.stop}>
               <Square size={14} />
               {t('cohort_report.stop')}
             </Button>

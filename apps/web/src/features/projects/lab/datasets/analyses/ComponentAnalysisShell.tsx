@@ -7,6 +7,8 @@ import 'allotment/dist/style.css'
 import 'react-resizable/css/styles.css'
 import { Settings, Check, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { OutputPaneToggle } from '@/components/editor/OutputPaneToggle'
+import { useOutputPane } from '@/components/editor/use-output-pane'
 import { cn } from '@/lib/utils'
 import { AnalysisExportMenu } from '@/components/ui/analysis-export-menu'
 import type { ExportTable } from '@/lib/table-export'
@@ -37,6 +39,8 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
   const { files, getFileRows, updateAnalysis, saveAnalysis } = useDatasetStore()
 
   const [configVisible, setConfigVisible] = useState(true)
+  const [outputShown, setOutputShown] = useOutputPane('dataset-analysis')
+  const outputVisible = outputShown || !configVisible
   // The rendered result, for the Export menu's PNG.
   const resultRef = useRef<HTMLDivElement | null>(null)
   // This analysis's OWN table slot. Previously a module-level singleton, which
@@ -209,6 +213,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
             {justSaved ? <Check size={12} /> : null}
             {justSaved ? t('common.saved') : t('common.save')}
           </Button>
+          <OutputPaneToggle visible={outputVisible} disabled={!configVisible} onToggle={() => setOutputShown(!outputShown)} />
         </div>
       </div>
 
@@ -225,7 +230,7 @@ export function ComponentAnalysisShell({ analysis, configPanel, componentId }: C
           </Allotment.Pane>
 
           {/* Right: Live component */}
-          <Allotment.Pane minSize={200}>
+          <Allotment.Pane minSize={outputVisible ? 200 : 0} visible={outputVisible}>
             {server && !componentSupportsServer(componentId) ? (
               // Components that compute in-browser from all rows are gated in
               // server mode (would pull raw data client-side) until migrated.

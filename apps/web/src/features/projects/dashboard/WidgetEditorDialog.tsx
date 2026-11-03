@@ -23,6 +23,8 @@ import {
 import { cn } from '@/lib/utils'
 import { localized } from '@/lib/localized'
 import { CodeEditor } from '@/components/editor/CodeEditor'
+import { OutputPaneToggle } from '@/components/editor/OutputPaneToggle'
+import { useOutputPane } from '@/components/editor/use-output-pane'
 import { GenericConfigPanel } from '@/features/projects/lab/datasets/analyses/GenericConfigPanel'
 import { PluginOutputRenderer } from '@/features/projects/lab/datasets/analyses/PluginOutputRenderer'
 import { getPlugin, ensurePluginDependencies } from '@/lib/plugins/registry'
@@ -374,6 +376,8 @@ function WidgetEditorBody({
   }, [])
 
   const leftVisible = activeTab !== null
+  const [outputShown, setOutputShown] = useOutputPane('dashboard-widget')
+  const outputVisible = outputShown || !leftVisible
   const configSchema = plugin?.manifest.configSchema ?? {}
 
   return (
@@ -499,6 +503,7 @@ function WidgetEditorBody({
               {t('datasets.analysis_reset_code')}
             </Button>
           )}
+          <OutputPaneToggle visible={outputVisible} disabled={!leftVisible} onToggle={() => setOutputShown(!outputShown)} />
         </div>
       </div>
 
@@ -544,7 +549,7 @@ function WidgetEditorBody({
             </div>
           </Allotment.Pane>
 
-          <Allotment.Pane minSize={200}>
+          <Allotment.Pane minSize={outputVisible ? 200 : 0} visible={outputVisible}>
             {/* Preview split: the rendered Output (top) and the raw Console
                 (bottom). The Console is edit-only — the dashboard never shows it. */}
             <Allotment vertical proportionalLayout={false}>

@@ -129,19 +129,16 @@ export function TextCriteriaForm({ config, onChange, schemaMapping, dataSourceId
 
   return (
     <div className="space-y-3">
-      <FormField label={t('cohorts.text_label')}>
+      <FormField label={t('cohorts.text_label')} hint={t('cohorts.text_label_hint')} hintInTooltip>
         {() => (
-          <>
-            {/* Debounced: this writes through to the cohort tree, so a raw onChange
-                persisted the whole cohort on every keystroke. */}
-            <DebouncedInput
-              value={config.label ?? ''}
-              onChange={(label) => update({ label })}
-              placeholder={t('cohorts.text_label_placeholder')}
-              className={INPUT_CLASS}
-            />
-            <p className="text-[10px] text-muted-foreground">{t('cohorts.text_label_hint')}</p>
-          </>
+          // Debounced: this writes through to the cohort tree, so a raw onChange
+          // persisted the whole cohort on every keystroke.
+          <DebouncedInput
+            value={config.label ?? ''}
+            onChange={(label) => update({ label })}
+            placeholder={t('cohorts.text_label_placeholder')}
+            className={INPUT_CLASS}
+          />
         )}
       </FormField>
 
@@ -241,21 +238,22 @@ export function TextCriteriaForm({ config, onChange, schemaMapping, dataSourceId
 
             {/* Case and accents ignored by default: a clinical note spells a word
                 every way it can. */}
-            <HintToggle
-              pressed={!!search.caseSensitive}
-              onToggle={() => updateSearch(index, { caseSensitive: !search.caseSensitive })}
-              hint={t(search.caseSensitive ? 'cohorts.text_case_sensitive_on' : 'cohorts.text_case_sensitive_off')}
-              className="font-mono"
-            >
-              Aa
-            </HintToggle>
-            <HintToggle
-              pressed={search.ignoreAccents !== false}
-              onToggle={() => updateSearch(index, { ignoreAccents: search.ignoreAccents === false })}
-              hint={t(search.ignoreAccents !== false ? 'cohorts.text_ignore_accents_on' : 'cohorts.text_ignore_accents_off')}
-            >
-              é=e
-            </HintToggle>
+            <div className="ml-2 flex items-center gap-0.5">
+              <HintToggle
+                pressed={!search.caseSensitive}
+                onToggle={() => updateSearch(index, { caseSensitive: !search.caseSensitive })}
+                hint={t(search.caseSensitive ? 'cohorts.text_ignore_case_off' : 'cohorts.text_ignore_case_on')}
+              >
+                A=a
+              </HintToggle>
+              <HintToggle
+                pressed={search.ignoreAccents !== false}
+                onToggle={() => updateSearch(index, { ignoreAccents: search.ignoreAccents === false })}
+                hint={t(search.ignoreAccents !== false ? 'cohorts.text_ignore_accents_on' : 'cohorts.text_ignore_accents_off')}
+              >
+                é=e
+              </HintToggle>
+            </div>
 
             <button
               type="button"
@@ -277,6 +275,9 @@ export function TextCriteriaForm({ config, onChange, schemaMapping, dataSourceId
             )}
             className={`${INPUT_CLASS} font-mono`}
           />
+          {search.mode !== 'regex' && search.terms.length <= 1 && (
+            <p className="text-[10px] text-muted-foreground">{t('cohorts.text_terms_hint')}</p>
+          )}
 
           {search.terms.length > 1 && (
             <Select

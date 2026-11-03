@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
+import { usePortalTarget } from '@/lib/portal-container'
 import { useTranslation } from 'react-i18next'
 import { User, Calendar, Bed, Heart, HeartOff, List, GanttChart, ZoomIn, ZoomOut, Maximize2, ExternalLink, Cake, Hourglass, Building2, VenusAndMars } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -111,6 +112,7 @@ const AXIS_HEIGHT = 28
 const TOP_PAD = 4
 
 function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onNavigate }: GanttTimelineProps) {
+  const portalTarget = usePortalTarget()
   const containerRef = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(400)
   const [tooltip, setTooltip] = useState<{ x: number; y: number; title: string; details: string[] } | null>(null)
@@ -492,7 +494,7 @@ function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onN
             </div>
           ))}
         </div>,
-        document.body,
+        portalTarget,
       )}
 
       {/* Y-axis label tooltip via portal */}
@@ -509,7 +511,7 @@ function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onN
             {labelTooltip.text}
           </div>
         </div>,
-        document.body,
+        portalTarget,
       )}
 
       {/* Context menu via portal */}
@@ -537,7 +539,7 @@ function GanttTimeline({ visitRows, detailsByVisit, formatDateTime, lang, t, onN
             </button>
           </div>
         </>,
-        document.body,
+        portalTarget,
       )}
     </div>
   )

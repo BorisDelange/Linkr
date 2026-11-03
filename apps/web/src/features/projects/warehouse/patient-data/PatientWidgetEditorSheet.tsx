@@ -9,7 +9,9 @@ import { PluginNameBadge } from '@/components/PluginNameBadge'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { CodeEditor } from '@/components/editor/CodeEditor'
 import { CodeViewer } from '@/components/editor/CodeViewer'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SqlFormSelect, type SqlForm } from '@/components/editor/SqlFormSelect'
+import { OutputPaneToggle } from '@/components/editor/OutputPaneToggle'
+import { useOutputPane } from '@/components/editor/use-output-pane'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
 import { CustomSqlDot } from '@/components/ui/custom-sql-dot'
 import {
@@ -115,6 +117,7 @@ function EditorContent({
   const [draftSql, setDraftSql] = useState<string | null>(widget.customSql ?? null)
   const [conceptPickerOpen, setConceptPickerOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<'config' | 'code'>('config')
+  const [outputVisible, setOutputVisible] = useOutputPane('patient-widget')
   const [justSaved, setJustSaved] = useState(false)
   const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -335,12 +338,13 @@ function EditorContent({
             {t('cohorts.sql_reset')}
           </Button>
         )}
+        <OutputPaneToggle visible={outputVisible} onToggle={() => setOutputVisible(!outputVisible)} />
       </div>
 
       <div className="min-h-0 flex-1">
         <Allotment>
           <Allotment.Pane preferredSize="45%" minSize={320}>
-            <div className="h-full overflow-auto p-3">
+            <div className={cn('h-full p-3', activeTab === 'config' ? 'overflow-auto' : 'overflow-hidden')}>
               {activeTab === 'config' ? (
                 hasConfig ? (
                   <GenericConfigPanel
@@ -373,7 +377,7 @@ function EditorContent({
             </div>
           </Allotment.Pane>
 
-          <Allotment.Pane minSize={320}>
+          <Allotment.Pane minSize={outputVisible ? 320 : 0} visible={outputVisible}>
             <div className="h-full overflow-hidden border-l">
               <SizedPatientWidgetPreview
                 layout={widget.layout}
@@ -430,8 +434,6 @@ function EditorContent({
   )
 }
 
-type SqlForm = 'linkr' | 'native'
-
 /** The Code tab: the generated SQL, editable for the widgets that support it —
  *  on the Linkr relations as written, or read only on the database's own tables. */
 function SqlTab({
@@ -459,25 +461,12 @@ function SqlTab({
   const { t } = useTranslation()
   const [copied, setCopied] = useState(false)
   const [form, setForm] = useState<SqlForm>('linkr')
+  const [queryId, setQueryId] = useState<string | null>(null)
   const native = form === 'native' && mapping
   const shown = (sql: string) =>
-    native ? toNativeSql(sql, mapping) ?? `-- ${t('concepts.stats_sql_no_native')}` : sql
+    native ? toNativeSql(sql, mapping) ?? `-- ${t('common.sql_form_no_native')}` : sql
 
-  const formSelect = mapping && (
-    <div className="flex shrink-0 items-center gap-2">
-      <Select value={form} onValueChange={(v) => setForm(v as SqlForm)}>
-        <SelectTrigger size="sm" className="h-6 w-60 shrink-0 text-xs">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {(['linkr', 'native'] as const).map((f) => (
-            <SelectItem key={f} value={f} className="text-xs">{t(`patient_data.sql_form_${f}`)}</SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-      <p className="min-w-0 flex-1 text-[10px] text-muted-foreground">{t(`patient_data.sql_form_${form}_hint`)}</p>
-    </div>
-  )
+  const formSelect = mapping && <SqlFormSelect value={form} onChange={setForm} />
 
   const copy = (sql: string) => {
     void copyText(sql).then((ok) => {
@@ -515,32 +504,38 @@ function SqlTab({
     )
   }
 
-  // Read-only: one block per query, so a multi-query widget stays legible.
+  // Read-only: one query at a time, picked by its name, filling the pane.
+  const q = queries.find((x) => x.id === queryId) ?? queries[0]
   return (
-    <div className="space-y-3">
+    <div className="flex h-full flex-col gap-2">
       {formSelect}
-      {queries.map((q) => (
-        <div key={q.id} className="space-y-1">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-medium">
-              {q.label[lang as 'en' | 'fr'] ?? q.label.en}
-            </span>
-            <div className="flex-1" />
-            {q.sql && (
-              <Button variant="ghost" size="icon-xs" onClick={() => copy(shown(q.sql!))}>
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-              </Button>
-            )}
-          </div>
-          {q.sql ? (
-            <div className="overflow-hidden rounded-md border">
-              <CodeViewer value={shown(q.sql)} language="sql" />
-            </div>
-          ) : (
-            <MissingMapping missing={q.missing ?? ''} />
-          )}
+      <div className="flex shrink-0 items-center gap-1">
+        {queries.length > 1 ? queries.map((x) => (
+          <Button
+            key={x.id}
+            variant={x.id === q.id ? 'secondary' : 'ghost'}
+            size="xs"
+            onClick={() => setQueryId(x.id)}
+          >
+            {x.label[lang as 'en' | 'fr'] ?? x.label.en}
+          </Button>
+        )) : (
+          <span className="text-xs font-medium">{q.label[lang as 'en' | 'fr'] ?? q.label.en}</span>
+        )}
+        <div className="flex-1" />
+        {q.sql && (
+          <Button variant="ghost" size="icon-xs" onClick={() => copy(shown(q.sql!))} aria-label={t('cohorts.sql_copy')}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+          </Button>
+        )}
+      </div>
+      {q.sql ? (
+        <div className="min-h-0 flex-1 overflow-hidden rounded-md border">
+          <CodeViewer value={shown(q.sql)} language="sql" height="100%" />
         </div>
-      ))}
+      ) : (
+        <MissingMapping missing={q.missing ?? ''} />
+      )}
     </div>
   )
 }

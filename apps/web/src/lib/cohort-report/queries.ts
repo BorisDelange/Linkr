@@ -143,6 +143,18 @@ export function buildMonthSql(indexSql: string): string {
   ].join('\n')
 }
 
+/** The cohort's patients known to have died, at any date. */
+export function buildDeathSql(membershipSql: string, mapping: SchemaMapping): string | null {
+  const patient = classRelation(mapping, 'patient')
+  if (!patient || !has(patient, 'death_datetime')) return null
+  return [
+    'SELECT COUNT(*) AS deaths',
+    `FROM ${patient.name} p`,
+    'WHERE p.death_datetime IS NOT NULL',
+    `  AND p.patient_id IN (SELECT m.patient_id FROM ${members(membershipSql)})`,
+  ].join('\n')
+}
+
 /** Every patient of the database, cohort or not. */
 export function buildDatabasePatientsSql(mapping: SchemaMapping): string | null {
   const patient = classRelation(mapping, 'patient')

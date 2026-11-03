@@ -1,6 +1,5 @@
 import { useMemo } from 'react'
 import type { SchemaMapping } from '@/types/schema-mapping'
-import { prepareQuerySql } from '@/lib/duckdb/engine'
 import { toNativeSql } from '@/lib/schema-classes/native-sql'
 import {
   hasValueColumnForDict,
@@ -10,15 +9,13 @@ import {
 } from './concept-queries'
 import type { ConceptRow } from './use-concepts'
 
-/** One statement behind the stats panel, in the three forms the dialog shows. */
+/** One statement behind the stats panel, in the two forms the dialog shows. */
 export interface StatsSqlQuery {
   titleKey: string
   /** On the Linkr relations (`linkr_*`): portable across schemas. */
   sql: string
   /** Rewritten on the database's own tables; null when it does not translate. */
   native: string | null
-  /** As sent to the database: the relations it reads written in as CTEs. */
-  sent: () => Promise<string>
 }
 
 export interface ConceptStatsSql {
@@ -49,7 +46,7 @@ export function useConceptStatsSql(
     const hasValueColumn = hasValueColumnForDict(mapping, dictKey)
     const statsSql: StatsSqlQuery[] = []
     const add = (titleKey: string, sql: string | null) => {
-      if (sql) statsSql.push({ titleKey, sql, native: toNativeSql(sql, mapping), sent: () => prepareQuerySql(dataSourceId, sql) })
+      if (sql) statsSql.push({ titleKey, sql, native: toNativeSql(sql, mapping) })
     }
     add('concepts.stats_sql_count', buildDomainCountQuery(mapping, dictKey, selectedConceptId))
     if (hasValueColumn) {

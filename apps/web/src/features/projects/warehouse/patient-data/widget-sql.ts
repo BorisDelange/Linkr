@@ -10,7 +10,12 @@ import {
   buildOverviewInventoryQuery,
   buildOverviewUnitStaysQuery,
 } from '@/lib/duckdb/patient-overview-queries'
-import { buildDataTableBoundsQuery, buildDataTableQuery, type DataTableAggregate } from '@/lib/duckdb/patient-datatable-queries'
+import {
+  buildDataTableBoundsQuery,
+  buildDataTableDensityQuery,
+  buildDataTableQuery,
+  type DataTableAggregate,
+} from '@/lib/duckdb/patient-datatable-queries'
 import {
   DATATABLE_PLUGIN_ID,
   PATIENT_SUMMARY_PLUGIN_ID,
@@ -130,7 +135,7 @@ export function buildWidgetQueries({
 
     case DATATABLE_PLUGIN_ID: {
       const conceptIds = ((config.conceptIds as number[] | undefined) ?? []).map(Number)
-      const bounds = buildDataTableBoundsQuery(mapping, conceptIds, pid, scope ?? NO_SCOPE, timeline?.held)
+      const bounds = buildDataTableBoundsQuery(mapping, conceptIds, pid, scope ?? NO_SCOPE, { held: timeline?.held, label: timeline?.label })
       // The cells depend on the window the widget shows, which only it knows:
       // shown over the selected stay, when there is one.
       const window = scope?.stay ?? scope?.visit
@@ -144,6 +149,15 @@ export function buildWidgetQueries({
             label: timeline?.label,
           })
         : null
+      const density = window?.end
+        ? buildDataTableDensityQuery(mapping, conceptIds, pid, scope ?? NO_SCOPE, {
+            from: window.start,
+            to: window.end,
+            buckets: 200,
+            held: timeline?.held,
+            label: timeline?.label,
+          })
+        : null
       return [
         {
           id: 'bounds',
@@ -152,6 +166,7 @@ export function buildWidgetQueries({
           missing: bounds ? undefined : conceptIds.length === 0 ? 'conceptIds' : 'schemaMapping.events',
         },
         ...(cells ? [{ id: 'cells', label: { en: 'Cells, over the selected stay', fr: 'Cellules, sur le séjour choisi' }, sql: cells }] : []),
+        ...(density ? [{ id: 'density', label: { en: 'Density strip, over the selected stay', fr: 'Bande de densité, sur le séjour choisi' }, sql: density }] : []),
       ]
     }
 

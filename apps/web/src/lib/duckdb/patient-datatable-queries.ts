@@ -113,13 +113,7 @@ export function buildDataTableQuery(
   for (const { event, ids } of out) {
     const src = branchSource(mapping, event, ids, opts.label)
     const col = bucketExpr('e.start_datetime', opts.from, opts.to, columns)
-    const where = [
-      `e.patient_id = '${escSql(patientId)}'`,
-      `e.start_datetime >= ${timestamp(opts.from)}`,
-      `e.start_datetime < ${timestamp(opts.to)}`,
-      ...(src.match ? [`(\n${indent(src.match)}\n)`] : []),
-    ].join('\n  AND ')
-    const scoped = `${where}${eventScopeCondition(mapping, event, scope)}`
+    const scoped = branchWhere(mapping, event, src.match, patientId, scope, opts)
     const numeric = has(event, 'value_number')
     const unit = has(event, 'unit') ? 'e.unit' : 'NULL'
     if (opts.aggregate === 'first' || opts.aggregate === 'last') {
@@ -162,6 +156,16 @@ GROUP BY 1, 2`)
 ${parts.join('\nUNION ALL\n')}`
 }
 
+/** One branch's WHERE: the patient, an optional window, the concepts, the scope. */
+function branchWhere(mapping: SchemaMapping, event: ClassRelation, match: string | null, patientId: string, scope: PatientScope, window?: { from: string; to: string }): string {
+  const where = [
+    `e.patient_id = '${escSql(patientId)}'`,
+    ...(window ? [`e.start_datetime >= ${timestamp(window.from)}`, `e.start_datetime < ${timestamp(window.to)}`] : []),
+    ...(match ? [`(\n${indent(match)}\n)`] : []),
+  ].join('\n  AND ')
+  return `${where}${eventScopeCondition(mapping, event, scope)}`
+}
+
 /** The first and last event of the concepts for this patient (`first_event`,
  *  `last_event`): the window a table opens on. */
 export function buildDataTableBoundsQuery(
@@ -169,19 +173,59 @@ export function buildDataTableBoundsQuery(
   conceptIds: number[],
   patientId: string,
   scope: PatientScope,
-  held?: Options['held'],
+  opts: Pick<Options, 'held' | 'label'> = {},
 ): string | null {
   if (conceptIds.length === 0 || !validateIntegerIds(conceptIds)) return null
-  const { out } = branches(mapping, conceptIds, held)
+  const { out, notSearched } = branches(mapping, conceptIds, opts.held)
   const parts = out.map(({ event, ids }) => {
-    const src = branchSource(mapping, event, ids)
-    return `SELECT MIN(e.start_datetime) AS first_event, MAX(e.start_datetime) AS last_event
+    const src = branchSource(mapping, event, ids, opts.label)
+    return `${sqlComment(event.name)}
+SELECT
+  MIN(e.start_datetime) AS first_event,
+  MAX(e.start_datetime) AS last_event
 FROM ${src.from}
-WHERE e.patient_id = '${escSql(patientId)}'${src.match ? `\n  AND (\n${indent(src.match)}\n  )` : ''}${eventScopeCondition(mapping, event, scope)}`
+WHERE
+  ${branchWhere(mapping, event, src.match, patientId, scope)}`
   })
   if (parts.length === 0) return null
-  return `SELECT MIN(b.first_event) AS first_event, MAX(b.last_event) AS last_event
+  return `${header('The first and last event of the chosen concepts', notSearched)}
+SELECT
+  MIN(b.first_event) AS first_event,
+  MAX(b.last_event) AS last_event
 FROM (
 ${indent(parts.join('\nUNION ALL\n'))}
 ) b`
+}
+
+/** How many events of the concepts fall in each of `buckets` equal slices of
+ *  the window (`col`, `n`; empty slices absent): the density strip under the
+ *  table, read as counts, never as the events. */
+export function buildDataTableDensityQuery(
+  mapping: SchemaMapping,
+  conceptIds: number[],
+  patientId: string,
+  scope: PatientScope,
+  opts: Pick<Options, 'from' | 'to' | 'held' | 'label'> & { buckets: number },
+): string | null {
+  if (conceptIds.length === 0 || !validateIntegerIds(conceptIds)) return null
+  const buckets = Math.max(1, Math.min(1000, Math.floor(opts.buckets)))
+  const { out, notSearched } = branches(mapping, conceptIds, opts.held)
+  const parts = out.map(({ event, ids }) => {
+    const src = branchSource(mapping, event, ids, opts.label)
+    return `${sqlComment(event.name)}
+SELECT
+  ${bucketExpr('e.start_datetime', opts.from, opts.to, buckets)} AS col,
+  COUNT(*) AS n
+FROM ${src.from}
+WHERE
+  ${branchWhere(mapping, event, src.match, patientId, scope, opts)}
+GROUP BY 1`
+  })
+  if (parts.length === 0) return null
+  return `${header(`The chosen concepts' events in ${buckets} slices of the record`, notSearched)}
+SELECT d.col, SUM(d.n) AS n
+FROM (
+${indent(parts.join('\nUNION ALL\n'))}
+) d
+GROUP BY d.col`
 }

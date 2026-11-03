@@ -233,7 +233,7 @@ export function DatabaseMappingTab({ source, readOnly }: { source: DataSource; r
   )
 
   return (
-    <div className="space-y-4 px-6 py-4">
+    <div className="space-y-4 px-6 pt-1.5 pb-4">
 
       {removedKeys.length > 0 && (
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">

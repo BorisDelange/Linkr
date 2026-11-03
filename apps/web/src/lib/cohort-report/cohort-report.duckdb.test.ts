@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import type { Cohort, CriteriaTreeNode } from '@/types'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import { mappingV1ToV2, type SchemaMappingV1 } from '@/lib/schema-classes/v1'
-import { buildCohortReportModel } from './model'
+import { buildCohortReportModel, computeCohortReportData, shapeCohortReportModel, withReportFlow } from './model'
 
 // The report in one query, the members computed once, must say exactly what it
 // says section by section — run here on a real DuckDB.
@@ -17,7 +17,7 @@ const t = ((key: string) => key) as unknown as TFunction
 const MAPPING = mappingV1ToV2({
   presetId: 'test',
   presetLabel: { en: 'Test' },
-  patientTable: { table: 'person', idColumn: 'person_id', genderColumn: 'sex', birthYearColumn: 'born' },
+  patientTable: { table: 'person', idColumn: 'person_id', genderColumn: 'sex', birthYearColumn: 'born', deathDateColumn: 'died' },
   visitTable: { table: 'visit', idColumn: 'visit_id', patientIdColumn: 'person_id', startDateColumn: 'start', endDateColumn: 'stop' },
   visitDetailTable: {
     table: 'unit_stay', idColumn: 'unit_stay_id', visitIdColumn: 'visit_id', patientIdColumn: 'person_id',
@@ -33,10 +33,11 @@ const MAPPING = mappingV1ToV2({
   },
 } as SchemaMappingV1)
 
-// 40 patients, one stay each through one or two units; heart rate (100) for
-// the even ones, a source-coded one (900 → 100) for every fifth.
+// 40 patients, one stay each through one or two units, every eighth deceased;
+// heart rate (100) for the even ones, a source-coded one (900 → 100) for every fifth.
 const SETUP = `
-CREATE TABLE person AS SELECT i AS person_id, CASE WHEN i % 3 = 0 THEN 'F' ELSE 'M' END AS sex, 1940 + i AS born FROM range(1, 41) r(i);
+CREATE TABLE person AS SELECT i AS person_id, CASE WHEN i % 3 = 0 THEN 'F' ELSE 'M' END AS sex, 1940 + i AS born,
+  CASE WHEN i % 8 = 0 THEN DATE '2024-06-01' END AS died FROM range(1, 41) r(i);
 CREATE TABLE visit AS SELECT i * 10 AS visit_id, i AS person_id, TIMESTAMP '2023-01-01' + INTERVAL (i * 9) DAY AS start, TIMESTAMP '2023-01-05' + INTERVAL (i * 9) DAY AS stop FROM range(1, 41) r(i);
 CREATE TABLE care_site AS SELECT * FROM (VALUES (1, 'ICU'), (2, 'Cardiology')) t(care_site_id, care_site_name);
 CREATE TABLE unit_stay AS
@@ -82,16 +83,21 @@ function cohort(level: Cohort['level']): Cohort {
   } as unknown as Cohort
 }
 
-async function report(level: Cohort['level'], combine: boolean) {
+function runner() {
   const sent: string[] = []
-  const model = await buildCohortReportModel({
-    cohort: cohort(level), mapping: MAPPING, databaseName: 'db', t, locale: 'en', threshold: 1, combine,
-    now: new Date('2026-11-02T00:00:00Z'),
-    run: async (sql) => {
-      sent.push(sql)
-      return conn.query(withClassRelations(sql, MAPPING)).toArray().map((row) => row.toJSON() as Record<string, unknown>)
-    },
-  })
+  const run = async (sql: string) => {
+    sent.push(sql)
+    return conn.query(withClassRelations(sql, MAPPING)).toArray().map((row) => row.toJSON() as Record<string, unknown>)
+  }
+  return { sent, run }
+}
+
+const NOW = new Date('2026-11-02T00:00:00Z')
+const SHAPE = { mapping: MAPPING, databaseName: 'db', t, locale: 'en', threshold: 1 }
+
+async function report(level: Cohort['level'], combine: boolean) {
+  const { sent, run } = runner()
+  const model = await buildCohortReportModel({ ...SHAPE, cohort: cohort(level), combine, now: NOW, run })
   return { model, sent }
 }
 
@@ -111,5 +117,28 @@ describe('the report in one query', () => {
   it('counts the last attrition step as the cohort itself', async () => {
     const { model } = await report('patient', true)
     expect(model.flow.at(-1)!.units).toEqual(model.kpis[0].count)
+  })
+
+  it('counts the deceased among the cohort’s patients', async () => {
+    const { model } = await report('patient', true)
+    // Men (not a multiple of 3) with a heart rate (even, or a multiple of 5):
+    // 17; of them 8, 16, 32 and 40 died.
+    expect(model.kpis[0].count.value).toBe(17)
+    expect(model.mortality).toEqual({ deaths: { value: 4, label: '4' }, rate: '23.5' })
+  })
+
+  it('makes the report from the Statistics tab’s figures, reading only the attrition steps', async () => {
+    const stats = runner()
+    const data = await computeCohortReportData({ cohort: cohort('visit'), mapping: MAPPING, run: stats.run, combine: true, now: NOW })
+    expect(stats.sent).toHaveLength(1)
+    expect(data.flow).toBeUndefined()
+
+    const completion = runner()
+    const completed = await withReportFlow(data, { cohort: cohort('visit'), mapping: MAPPING, run: completion.run })
+    expect(completion.sent).toHaveLength(1)
+    expect(shapeCohortReportModel(completed, { ...SHAPE, cohort: cohort('visit') })).toEqual((await report('visit', true)).model)
+    // Completed once: asked again, nothing is read.
+    expect(await withReportFlow(completed, { cohort: cohort('visit'), mapping: MAPPING, run: completion.run })).toBe(completed)
+    expect(completion.sent).toHaveLength(1)
   })
 })

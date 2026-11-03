@@ -16,7 +16,7 @@ const cohort = (children: object[], customSql: string | null = null) =>
   ({ criteriaTree: { kind: 'group', id: 'r', operator: 'AND', exclude: false, enabled: true, children }, customSql }) as unknown as Cohort
 
 describe('planCohortBoard', () => {
-  it('gives the overview, the notes and a timeline per concept criterion, each filling its tab', () => {
+  it('gives the overview, the notes and a timeline over a data table per concept criterion, filling each tab', () => {
     const plan = planCohortBoard(cohort([
       criterion('c1', 'concept', { conceptIds: [1, 2], conceptNames: { 1: 'Heart rate', 2: 'Pulse' } }),
       criterion('c2', 'concept', { conceptIds: [3], conceptNames: { 3: 'Creatinine' } }),
@@ -24,7 +24,10 @@ describe('planCohortBoard', () => {
     ]), mapping, t)
     expect(plan.map((p) => p.name)).toEqual(['cohorts.board_tab_overview', 'cohorts.board_tab_notes', 'Heart rate +1', 'Creatinine'])
     expect(plan.every((p) => p.widgets[0].size.w === 48)).toBe(true)
-    expect(plan[2].widgets[0].config).toEqual({ conceptIds: [1, 2] })
+    expect(plan[2].widgets.map((w) => [w.pluginId, w.config, w.size.h])).toEqual([
+      ['linkr-widget-timeline', { conceptIds: [1, 2] }, 24],
+      ['linkr-widget-datatable', { conceptIds: [1, 2] }, 24],
+    ])
     // The notes highlight the free-text terms, and show only the notes holding them.
     expect(plan[1].widgets[0].config).toEqual({
       wordSets: [{ id: 'criterion-t1', label: 'Sepsis', words: ['sepsis', 'shock'] }],

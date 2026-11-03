@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { SqlFormSelect, type SqlForm } from '@/components/editor/SqlFormSelect'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
 import { cohortRelationNarrowing } from '../relation-narrowing'
@@ -24,12 +24,8 @@ interface SqlPreviewPanelProps {
   runRef?: React.MutableRefObject<(() => void) | null>
 }
 
-/** Which tables the query is written on: the linkr_* relations, the same on
- *  every mapped database, or this database's own. */
-type SqlFormat = 'native' | 'linkr'
-
-/** The format a saved query is written in: native unless it names a relation. */
-const formatOf = (sql: string): SqlFormat => (namesRelation(sql) ? 'linkr' : 'native')
+/** The form a saved query is written in: native unless it names a relation. */
+const formatOf = (sql: string): SqlForm => (namesRelation(sql) ? 'linkr' : 'native')
 
 export function SqlPreviewPanel({ cohort, mapping, dataSourceId, onCustomSqlChange, onExecute, onDraftChange, runRef }: SqlPreviewPanelProps) {
   const { t, i18n } = useTranslation()
@@ -51,13 +47,13 @@ export function SqlPreviewPanel({ cohort, mapping, dataSourceId, onCustomSqlChan
   const shown = current?.labelled ?? cohort
   const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(shown, mapping, false, narrowing) : null), [shown, mapping, narrowing])
   const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(shown, mapping, narrowing) : null), [shown, mapping, narrowing])
-  const [chosen, setChosen] = useState<SqlFormat>('native')
+  const [chosen, setChosen] = useState<SqlForm>('native')
   const [hasDraft, setHasDraft] = useState(false)
 
   // A saved query is shown as written: there is no way back from the database's
   // tables to Linkr's. Native is the default whenever the criteria translate.
   const saved = cohort.customSql?.trim() ? formatOf(cohort.customSql) : null
-  const format: SqlFormat = saved ?? (chosen === 'native' && nativeSql ? 'native' : 'linkr')
+  const format: SqlForm = saved ?? (chosen === 'native' && nativeSql ? 'native' : 'linkr')
   const generated = format === 'native' ? nativeSql : linkrSql
 
   const handleDraftChange = useCallback((sql: string | null | undefined) => {
@@ -71,17 +67,13 @@ export function SqlPreviewPanel({ cohort, mapping, dataSourceId, onCustomSqlChan
     : hasDraft ? t('cohorts.sql_format_locked_draft') : !nativeSql ? t('cohorts.sql_format_no_native') : undefined
 
   const formatSelect = (
-    <Select value={format} onValueChange={(v) => setChosen(v as SqlFormat)} disabled={!!lockedHint}>
-      <SelectTrigger size="sm" className="h-6 w-72 shrink-0 text-xs">
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value="native" className="text-xs" disabled={!nativeSql && !saved}>
-          {t('cohorts.sql_format_native', { schema: schemaName })}
-        </SelectItem>
-        <SelectItem value="linkr" className="text-xs">{t('cohorts.sql_format_linkr')}</SelectItem>
-      </SelectContent>
-    </Select>
+    <SqlFormSelect
+      value={format}
+      onChange={setChosen}
+      disabled={!!lockedHint}
+      nativeDisabled={!nativeSql && !saved}
+      showHint={false}
+    />
   )
 
   return (

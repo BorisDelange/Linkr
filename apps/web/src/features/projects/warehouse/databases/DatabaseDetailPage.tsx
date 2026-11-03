@@ -228,7 +228,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         onValueChange={(v) => selectTab(v as DatabaseTabId)}
         className="flex min-h-0 flex-1 flex-col"
       >
-        <div className="flex shrink-0 items-center px-6 py-3">
+        <div className="flex shrink-0 items-center px-6 pt-3 pb-1.5">
           <div className="flex-1" />
           <TabsList>
             <TabsTrigger value="overview">

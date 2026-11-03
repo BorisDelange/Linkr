@@ -90,7 +90,7 @@ export function CohortList() {
 
   return (
     <div className="h-full overflow-auto">
-      <div className={host.kind === 'project' ? 'mx-auto max-w-[96rem] px-6 py-10' : 'mx-auto max-w-[96rem] px-6 pt-2 pb-10'}>
+      <div className={host.kind === 'project' ? 'mx-auto max-w-[96rem] px-6 py-10' : 'mx-auto max-w-[96rem] px-6 pt-0.5 pb-10'}>
         <div className="flex items-center justify-between gap-4">
           {/* On a database the tab already says "Cohorts": a second page title
               under it would only repeat it. */}

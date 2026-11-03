@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Square, Play } from 'lucide-react'
+import { Users, BarChart3, Table2, Download, Loader2, AlertCircle, Contact, Database, Terminal, FolderTree, Square, Play, PieChart } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Badge } from '@/components/ui/badge'
@@ -27,6 +27,9 @@ interface ResultsPanelProps {
    *  show them through (a database's cohorts). Rendered only while it is open;
    *  with no result too (null), so its widgets can be removed without a run. */
   renderPatients?: (result: CohortExecutionResult | null) => ReactNode
+  /** The cohort described (counts, deaths, age, sex, admissions), in place of
+   *  the members' table — which stays where the host has no figures to show. */
+  renderStatistics?: () => ReactNode
   /** A tab browsing every table of the database, filtered on the cohort. */
   renderTables?: () => ReactNode
   /** A tab browsing the database's schema, unfiltered. */
@@ -35,25 +38,28 @@ interface ResultsPanelProps {
   attritionDetails?: Record<string, string[]>
 }
 
-type ResultsTab = 'results' | 'attrition' | 'patients' | 'tables' | 'output' | 'schema'
+type ResultsTab = 'statistics' | 'results' | 'attrition' | 'patients' | 'tables' | 'output' | 'schema'
 
 /** The tabs that read the cohort's members, and so show its error. */
-const MEMBER_TABS: ResultsTab[] = ['results', 'attrition', 'patients', 'tables']
+const MEMBER_TABS: ResultsTab[] = ['statistics', 'results', 'attrition', 'patients', 'tables']
 
 export function ResultsPanel({
-  result, level, loading, error, output, onExecute, onCancel, onExportCsv, renderPatients, renderTables, renderSchema, attritionDetails,
+  result, level, loading, error, output, onExecute, onCancel, onExportCsv, renderStatistics, renderPatients, renderTables, renderSchema, attritionDetails,
 }: ResultsPanelProps) {
   const { t } = useTranslation()
-  const [activeTab, setActiveTab] = useState<ResultsTab>('results')
+  const firstTab: ResultsTab = renderStatistics ? 'statistics' : 'results'
+  const [activeTab, setActiveTab] = useState<ResultsTab>(firstTab)
   const tabs: { id: ResultsTab; label: string; icon: typeof Users }[] = [
-    { id: 'results', label: t('cohorts.results_table'), icon: Table2 },
+    renderStatistics
+      ? { id: 'statistics', label: t('cohorts.results_statistics'), icon: PieChart }
+      : { id: 'results', label: t('cohorts.results_table'), icon: Table2 },
     { id: 'attrition', label: t('cohorts.results_attrition'), icon: BarChart3 },
     ...(renderPatients ? [{ id: 'patients' as const, label: t('cohorts.results_patients'), icon: Contact }] : []),
     ...(renderTables ? [{ id: 'tables' as const, label: t('cohorts.results_tables'), icon: Database }] : []),
     { id: 'output', label: t('cohorts.results_output'), icon: Terminal },
     ...(renderSchema ? [{ id: 'schema' as const, label: t('cohorts.results_schema'), icon: FolderTree }] : []),
   ]
-  const tab = tabs.some((x) => x.id === activeTab) ? activeTab : 'results'
+  const tab = tabs.some((x) => x.id === activeTab) ? activeTab : firstTab
   // Kept mounted once opened: going back to it must not reload the database's tables.
   const [schemaOpened, setSchemaOpened] = useState(false)
   if (tab === 'schema' && !schemaOpened) setSchemaOpened(true)
@@ -157,6 +163,7 @@ export function ResultsPanel({
     }
     const state = membersState()
     if (state || !result) return state
+    if (tab === 'statistics' && renderStatistics) return renderStatistics()
     if (tab === 'tables' && renderTables) return renderTables()
     if (tab === 'patients' && renderPatients) return renderPatients(result)
     if (tab === 'attrition') {

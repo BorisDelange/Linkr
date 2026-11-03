@@ -83,7 +83,7 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
   const [addWidgetOpen, setAddWidgetOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [generateOpen, setGenerateOpen] = useState(false)
-  const addTabsWithWidgets = usePatientChartStore((s) => s.addTabsWithWidgets)
+  const replaceTabsWithWidgets = usePatientChartStore((s) => s.replaceTabsWithWidgets)
   const { ref: fullscreenRef, isFullscreen, toggle: toggleFullscreen, portalContainer: fullscreenContainer } = useFullscreen()
 
   useEffect(() => {
@@ -104,6 +104,11 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
     [board?.id, tabs],
   )
   const currentTabId = activeTabId ?? boardTabs[0]?.id
+  // A board holding nothing yet (its first tab, empty) is replaced without asking.
+  const boardHasWidgets = useMemo(() => {
+    const ids = new Set(boardTabs.map((tab) => tab.id))
+    return widgets.some((w) => ids.has(w.tabId))
+  }, [boardTabs, widgets])
 
   const startConfiguring = async () => {
     await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
@@ -111,12 +116,12 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
     setAddWidgetOpen(true)
   }
 
-  // The tabs the criteria call for, after whatever the board already has.
+  // The tabs the criteria call for, in place of whatever the board has.
   const plan = useMemo(() => planCohortBoard(cohort, schemaMapping, t), [cohort, schemaMapping, t])
   const generateTabs = async () => {
     setGenerateOpen(false)
     const id = board?.id ?? await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
-    addTabsWithWidgets(id, plan)
+    replaceTabsWithWidgets(id, plan)
   }
 
   const boardId = board?.id
@@ -189,7 +194,7 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
                         size="xs"
                         className="gap-1"
                         disabled={!canWrite}
-                        onClick={() => (boardTabs.length ? setGenerateOpen(true) : void generateTabs())}
+                        onClick={() => (boardHasWidgets ? setGenerateOpen(true) : void generateTabs())}
                       >
                         <Wand2 size={13} />
                         {t('cohorts.board_generate')}
@@ -252,7 +257,9 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void generateTabs()}>{t('cohorts.board_generate')}</AlertDialogAction>
+            <AlertDialogAction className="bg-destructive text-white hover:bg-destructive/90" onClick={() => void generateTabs()}>
+              {t('cohorts.board_generate_replace')}
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

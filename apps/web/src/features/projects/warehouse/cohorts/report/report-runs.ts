@@ -1,21 +1,24 @@
 import { useSyncExternalStore } from 'react'
-import type { CohortReportModel } from '@/lib/cohort-report/model'
+import type { Cohort } from '@/types'
+import type { CohortReportData } from '@/lib/cohort-report/model'
 
 /**
- * The report being generated for each cohort, outside its dialog: closing the
- * dialog lets the generation go on, and opening it again on the same cohort and
- * settings finds it — still running, or done — instead of starting over. One
- * per cohort: a new one stops the previous one's queries, as Stop does.
+ * The figures being computed for each cohort, outside the dialog or tab that
+ * asked: closing the report lets the computation go on, and the report and the
+ * Statistics tab both find it — still running, or done — under the same
+ * definition instead of starting over. One per cohort: a new one stops the
+ * previous one's queries, as Stop does.
  */
 
 export type ReportRunState =
-  | { status: 'running' }
-  | { status: 'done'; model: CohortReportModel }
+  /** `data`: figures of the same definition being completed (the attrition steps). */
+  | { status: 'running'; data?: CohortReportData }
+  | { status: 'done'; data: CohortReportData }
   | { status: 'error'; error: unknown }
   | { status: 'stopped' }
 
 export interface ReportRun {
-  /** What the run was asked for: the database, the definition, the settings. */
+  /** What the run was asked for: the database and the definition (`reportDataKey`). */
   key: string
   state: ReportRunState
 }
@@ -34,24 +37,30 @@ function settle(cohortId: string, entry: Entry, state: ReportRunState) {
   notify()
 }
 
-/** Generate the report of `cohortId` for `key`, stopping any other one of it. */
+/** What a cohort's figures depend on: the database and the definition — not
+ *  the language nor the threshold, applied when they are shaped. */
+export const reportDataKey = (sourceId: string | undefined, cohort: Cohort) =>
+  JSON.stringify([sourceId, cohort.level, cohort.criteriaTree, cohort.customSql?.trim() || null])
+
+/** Compute the figures of `cohortId` for `key`, stopping any other run of it. */
 export function startReportRun(
   cohortId: string,
   key: string,
-  build: (signal: AbortSignal) => Promise<CohortReportModel>,
+  build: (signal: AbortSignal) => Promise<CohortReportData>,
+  prior?: CohortReportData,
 ): void {
   runs.get(cohortId)?.controller.abort()
-  const entry: Entry = { key, state: { status: 'running' }, controller: new AbortController() }
+  const entry: Entry = { key, state: { status: 'running', ...(prior ? { data: prior } : {}) }, controller: new AbortController() }
   runs.set(cohortId, entry)
   notify()
   const { signal } = entry.controller
   build(signal).then(
-    (model) => settle(cohortId, entry, { status: 'done', model }),
+    (data) => settle(cohortId, entry, { status: 'done', data }),
     (error) => settle(cohortId, entry, signal.aborted ? { status: 'stopped' } : { status: 'error', error }),
   )
 }
 
-/** Stop the report of `cohortId` being generated: its queries are cancelled. */
+/** Stop the figures of `cohortId` being computed: its queries are cancelled. */
 export function stopReportRun(cohortId: string): void {
   const entry = runs.get(cohortId)
   if (entry?.state.status !== 'running') return
