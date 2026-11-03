@@ -38,7 +38,7 @@ export const checkPushdown = (check: DqCheck) => check.origin !== 'manual'
 async function runCheck(dataSourceId: string, check: DqCheck): Promise<DqCheckResult> {
   const start = performance.now()
   try {
-    const rows = await queryDataSource(dataSourceId, check.sql, { pushdown: checkPushdown(check) })
+    const rows = await queryDataSource(dataSourceId, check.sql, { pushdown: checkPushdown(check), origin: `Data quality · check ${check.name}` })
     return checkResult(check, rows, performance.now() - start)
   } catch (err) {
     return checkResult(check, [], performance.now() - start, err instanceof Error ? err.message : String(err))

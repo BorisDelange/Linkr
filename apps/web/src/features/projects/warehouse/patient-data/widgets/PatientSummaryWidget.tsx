@@ -767,7 +767,7 @@ export function PatientSummaryWidget() {
     let cancelled = false
 
     const summaryRead = summSql
-      ? patientQuery(dataSourceId, summSql)
+      ? patientQuery(dataSourceId, summSql, { origin: 'Patient summary · demographics and counts' })
         .then((rows) => {
           // SQL result rows are dynamically shaped; trust the query's column layout
           if (!cancelled && rows.length > 0) setSummary(rows[0] as unknown as SummaryRow)
@@ -778,7 +778,7 @@ export function PatientSummaryWidget() {
         })
       : Promise.resolve()
     const visitsRead = visitSql
-      ? patientQuery(dataSourceId, visitSql)
+      ? patientQuery(dataSourceId, visitSql, { origin: 'Patient summary · hospital and unit stays' })
         .then((rows) => {
           // SQL result rows are dynamically shaped; trust the query's column layout
           if (!cancelled) setVisits(rows as unknown as VisitRow[])

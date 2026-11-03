@@ -59,7 +59,7 @@ const state = {
   /** The latest statements the widgets sent, whichever patient or database they
    *  name: a widget's effect runs before the list's, so it queries the new
    *  patient while this module still has the previous one on screen. */
-  recorded: [] as { dataSourceId: string; sql: string }[],
+  recorded: [] as { dataSourceId: string; sql: string; origin?: string }[],
   inFlight: 0,
   idleTimer: null as ReturnType<typeof setTimeout> | null,
   /** Each patient being read ahead, and the means to stop its reads. */
@@ -152,7 +152,8 @@ async function readAhead() {
   if (!dataSourceId || !patientId || aheadIds.length === 0) return
   const walk = ++state.walk
   state.walkedFor = windowKey()
-  const ours = state.recorded.filter((r) => r.dataSourceId === dataSourceId).map((r) => r.sql)
+  const recorded = state.recorded.filter((r) => r.dataSourceId === dataSourceId)
+  const ours = recorded.map((r) => r.sql)
   // One patient after the other, one statement at a time: the reads are a bet,
   // and must not slow the patient on screen. A read an earlier walk left going
   // is waited for, not sent twice.
@@ -162,12 +163,17 @@ async function readAhead() {
       controller = new AbortController()
       state.ahead.set(aheadId, controller)
     }
+    // What each statement is for, said again of the patient it is read for.
+    const purpose = new Map(recorded.flatMap((r) => statementsFor([r.sql], patientId, aheadId).map((sql) => [sql, r.origin] as const)))
     for (const sql of statementsFor(ours, patientId, aheadId)) {
       if (walk !== state.walk || controller.signal.aborted) return
       const key = keyOf(dataSourceId, sql)
       const kept = state.kept.get(key)
       if (kept) await kept.read.catch(() => {})
-      else await keep(key, queryDataSource(dataSourceId, sql, { signal: controller.signal })).catch(() => {})
+      else await keep(key, queryDataSource(dataSourceId, sql, {
+        signal: controller.signal,
+        origin: `Read ahead, patient ${aheadId} · ${purpose.get(sql) ?? 'patient board'}`,
+      })).catch(() => {})
     }
   }
 }
@@ -233,16 +239,16 @@ export function clearPatientQueries(dataSourceId?: string): void {
   }
 }
 
-function record(dataSourceId: string, sql: string) {
+function record(dataSourceId: string, sql: string, origin?: string) {
   const at = state.recorded.findIndex((r) => r.dataSourceId === dataSourceId && r.sql === sql)
   if (at >= 0) state.recorded.splice(at, 1)
-  state.recorded.push({ dataSourceId, sql })
+  state.recorded.push({ dataSourceId, sql, origin })
   if (state.recorded.length > MAX_RECORDED) state.recorded.shift()
 }
 
 /** What a patient widget reads: kept rows when the statement was read before. */
 export async function patientQuery(dataSourceId: string, sql: string, options: QueryOptions = {}): Promise<Rows> {
-  record(dataSourceId, sql)
+  record(dataSourceId, sql, options.origin)
   const key = keyOf(dataSourceId, sql)
   const kept = takeKept(key)
   if (kept) {
@@ -255,7 +261,7 @@ export async function patientQuery(dataSourceId: string, sql: string, options: Q
   state.inFlight++
   clearIdle()
   try {
-    return await keep(key, queryDataSource(dataSourceId, sql, options))
+    return await keep(key, queryDataSource(dataSourceId, sql, { origin: 'Patient board', ...options }))
   } finally {
     state.inFlight = Math.max(0, state.inFlight - 1)
     scheduleIfIdle()

@@ -111,7 +111,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
     const sql = buildTableStatsSql(cohort, schemaMapping, table.name, table.columns, await narrowing())
     if (!sql) return
     try {
-      const [row] = await queryDataSource(dataSourceId, sql, { heavy: true, signal })
+      const [row] = await queryDataSource(dataSourceId, sql, { heavy: true, signal, origin: `Cohort tables · rows, patients and fill of ${table.name}` })
       if (currentKeyRef.current !== key) return
       setStats((m) => new Map(m).set(table.name, statsOf(table, row)))
     } catch (err) {
@@ -140,7 +140,7 @@ export function CohortTablesPanel({ dataSourceId, cohort, schemaMapping }: Cohor
     if (sql) {
       setStats((m) => new Map([...m, ...todo.map((table) => [table.name, 'loading'] as const)]))
       try {
-        const rows = await queryDataSource(dataSourceId, sql, { heavy: true, signal: controller.signal })
+        const rows = await queryDataSource(dataSourceId, sql, { heavy: true, signal: controller.signal, origin: `Cohort tables · count all (${todo.length} tables)` })
         if (currentKeyRef.current === key) {
           const byTable = new Map(rows.map((row) => [String(row.block), row]))
           setStats((m) => new Map([...m, ...todo.map((table) => [table.name, statsOf(table, byTable.get(table.name))] as const)]))
@@ -300,7 +300,7 @@ function TableRowsPreview({ dataSourceId, cohort, schemaMapping, table }: Cohort
     cohortRelationNarrowing(dataSourceId, schemaMapping, cohort).catch(() => undefined)
       .then((narrowing) => {
         const sql = buildTableRowsSql(cohort, schemaMapping, table.name, table.columns, PREVIEW_ROWS, narrowing)
-        return sql ? queryDataSource(dataSourceId, sql) : null
+        return sql ? queryDataSource(dataSourceId, sql, { origin: `Cohort tables · preview rows of ${table.name}` }) : null
       })
       .then((r) => { if (!cancelled && r) setRows(r) })
       .catch((err) => { if (!cancelled) setError(queryErrorMessage(err, t, '')) })

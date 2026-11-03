@@ -282,7 +282,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
       // First: get actual columns in the table to avoid querying non-existent columns
       let availableCols: Set<string> = new Set()
       try {
-        const colRows = await queryDataSource(dsId, `DESCRIBE source_concepts`)
+        const colRows = await queryDataSource(dsId, `DESCRIBE source_concepts`, { origin: 'Concept mapping · source columns' })
         availableCols = new Set(colRows.map((r: Record<string, unknown>) => String(r.column_name ?? '')))
         fileSourceColsRef.current = availableCols
       } catch {
@@ -293,7 +293,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
         if (!availableCols.has(col)) continue
         try {
           const sql = buildFileSourceFilterOptionsQuery(col)
-          const result = await queryDataSource(dsId, sql)
+          const result = await queryDataSource(dsId, sql, { origin: 'Concept mapping · source column values' })
           const values = result.map((r: Record<string, unknown>) => String(r.val ?? ''))
           if (values.length > 0) opts[col] = values
         } catch {
@@ -326,7 +326,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
         // Skip columns absent from source_concepts — querying one throws a DuckDB Binder Error.
         if (!fileSourceColsRef.current.has(col)) continue
         try {
-          const result = await queryDataSource(dsId, buildFileSourceFilterOptionsQuery(col, vocabScope))
+          const result = await queryDataSource(dsId, buildFileSourceFilterOptionsQuery(col, vocabScope), { origin: `Concept mapping · filter options (${col})` })
           next[col] = result.map((r: Record<string, unknown>) => String(r.val ?? '')).filter(Boolean)
         } catch {
           // column may not exist
@@ -424,7 +424,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
       // its end: fall back to the last one.
       let targetPage = pageToLoad
       if (pageToLoad === 0 || recount) {
-        const [countResult] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery(filtersWithStatus))
+        const [countResult] = await queryDataSource(dsId, buildFileSourceConceptsCountQuery(filtersWithStatus), { origin: 'Concept mapping · count source concepts' })
         if (isStale()) return
         const total = Number(countResult?.total ?? 0)
         setTotalCount(total)
@@ -433,7 +433,7 @@ export function MappingEditorTab({ project, onGoToConceptSets, onGoToSourceConce
       }
 
       const dataSql = buildFileSourceConceptsQuery(filtersWithStatus, sorting, PAGE_SIZE, targetPage * PAGE_SIZE)
-      const result = await queryDataSource(dsId, dataSql)
+      const result = await queryDataSource(dsId, dataSql, { origin: 'Concept mapping · source concepts page' })
       if (isStale()) return
 
       const parsedRows: SourceConceptRow[] = (result as unknown as SourceConceptRow[]).map((row) => {

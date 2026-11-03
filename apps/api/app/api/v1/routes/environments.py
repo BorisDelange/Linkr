@@ -435,6 +435,31 @@ async def clear_finished_workspace_jobs(
     await jobs.clear_finished(db, None, user.id, workspace_id=workspace_id)
 
 
+@router.get("/workspaces/{workspace_id}/query-log", response_model=list[JobResponse])
+async def list_workspace_queries(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """The caller's queries to the workspace's databases over the retention
+    (`query_log_hours`), newest first — the jobs panel's SQL queries tab. Their
+    SQL comes with `GET /jobs/{id}?withInput=true`."""
+    await check_workspace_permission(db, workspace_id, user, "databases:read")
+    rows = await jobs.list_queries(db, workspace_id, user.id)
+    return [JobResponse.model_validate(j, from_attributes=True).model_copy(update={"input": None}) for j in rows]
+
+
+@router.delete("/workspaces/{workspace_id}/query-log", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_workspace_queries(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Remove the caller's finished queries of the workspace."""
+    await check_workspace_permission(db, workspace_id, user, "databases:read")
+    await jobs.clear_finished(db, None, user.id, workspace_id=workspace_id, queries=True)
+
+
 @router.get("/jobs/{job_id}", response_model=JobResponse)
 async def get_job(
     job_id: str,

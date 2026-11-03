@@ -58,7 +58,7 @@ export function CareSiteCriteriaForm({ config, onChange, dataSourceId, schemaMap
           }
           return
         }
-        const rows = await queryDataSource(dataSourceId, sql)
+        const rows = await queryDataSource(dataSourceId, sql, { origin: 'Cohort builder · care sites to choose from' })
         if (cancelled) return
         // Only cleared once the query for THIS level has actually come back,
         // so an in-flight switch cannot flash "unmapped" off and on.

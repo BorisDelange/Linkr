@@ -85,7 +85,7 @@ export function useOverviewRecord({
         const invSql = buildOverviewInventoryQuery(
           schemaMapping, selectedPatientId, scope,
         )
-        const inv = invSql ? await patientQuery(dataSourceId, invSql, { signal }) : []
+        const inv = invSql ? await patientQuery(dataSourceId, invSql, { signal, origin: 'Data overview · concepts of the record, with counts and ranges' }) : []
         if (cancelled) return
 
         const rows: OverviewConceptRow[] = inv.map((r) => ({
@@ -116,7 +116,7 @@ export function useOverviewRecord({
         if (showUnitStays) {
           const sql = buildOverviewUnitStaysQuery(schemaMapping, selectedPatientId, selectedVisitId)
           if (sql) {
-            const raw = await patientQuery(dataSourceId, sql, { signal })
+            const raw = await patientQuery(dataSourceId, sql, { signal, origin: 'Data overview · unit stays' })
             if (cancelled) return
             stays = raw
               .map((r) => ({
@@ -138,7 +138,7 @@ export function useOverviewRecord({
         if (showDeath) {
           const sql = buildOverviewDeathQuery(schemaMapping, selectedPatientId)
           if (sql) {
-            const raw = await patientQuery(dataSourceId, sql, { signal })
+            const raw = await patientQuery(dataSourceId, sql, { signal, origin: 'Data overview · date of death' })
             if (cancelled) return
             deathMs = raw.length ? toMs(raw[0].death_date) : null
             if (deathMs != null) {

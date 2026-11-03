@@ -85,8 +85,9 @@ export function planCohortBoard(cohort: Pick<Cohort, 'criteriaTree' | 'customSql
     tabs.push({
       name,
       widgets: [
-        { pluginId: TIMELINE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds] }, size: HALF },
-        { pluginId: DATATABLE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds] }, size: HALF },
+        // Synced: the table's columns follow the timeline's window, and back.
+        { pluginId: TIMELINE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds], syncTimeRange: true }, size: HALF },
+        { pluginId: DATATABLE_PLUGIN_ID, name, config: { conceptIds: [...config.conceptIds], syncTimeRange: true }, size: HALF },
       ],
     })
   }

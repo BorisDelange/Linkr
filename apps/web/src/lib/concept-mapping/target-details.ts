@@ -15,7 +15,8 @@ export async function fetchTargetDetails(vocabularyDataSourceId: string, ids: re
   for (let i = 0; i < wanted.length; i += 1000) {
     const rows = await queryDataSourceAll(vocabularyDataSourceId,
       'SELECT concept_id, concept_name, vocabulary_id, domain_id, concept_class_id, concept_code, standard_concept '
-      + `FROM concept WHERE concept_id IN (${wanted.slice(i, i + 1000).join(', ')})`)
+      + `FROM concept WHERE concept_id IN (${wanted.slice(i, i + 1000).join(', ')})`,
+      { origin: 'Concept mapping · target concept details' })
     for (const r of rows) {
       out.set(Number(r.concept_id), {
         conceptId: Number(r.concept_id),

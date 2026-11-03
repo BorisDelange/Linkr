@@ -125,7 +125,7 @@ export function useOverviewData({
         : null
       if (!sql) return unmark([key])
       try {
-        const raw = await patientQuery(dataSourceId!, sql, { signal })
+        const raw = await patientQuery(dataSourceId!, sql, { signal, origin: `Data overview · events of “${row.label}” in view` })
         cache.putEvents(key, { ...win, events: raw.map(toOverviewEvent), truncated: raw.length >= BUDGET.eventLimit })
         repaint()
       } catch (err) {
@@ -149,7 +149,7 @@ export function useOverviewData({
         : null
       if (!sql) return onStrip(null)
       try {
-        const raw = await patientQuery(dataSourceId!, sql, { signal })
+        const raw = await patientQuery(dataSourceId!, sql, { signal, origin: 'Data overview · density strip of the record' })
         onStrip(stripOf(raw.map((r) => [Number(r.bucket), Number(r.n ?? 0)])))
       } catch {
         // The strip simply stays empty; it is navigation aid, not data.
@@ -168,7 +168,7 @@ export function useOverviewData({
       const keys = missing.map(rowCacheKey)
       if (!sql) return unmark(keys)
       try {
-        const raw = await patientQuery(dataSourceId!, sql, { signal })
+        const raw = await patientQuery(dataSourceId!, sql, { signal, origin: `Data overview · density tiles of ${missing.length} rows${withStrip ? ', with the strip' : ''}` })
         if (withStrip) {
           // Each bucket in the slice its start falls in.
           const span = Math.max(1, withStrip.hi - withStrip.lo)

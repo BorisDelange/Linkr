@@ -37,6 +37,7 @@ const duckdb_eh_worker = duckdbAsset('duckdb-browser-eh.worker.js')
 import { splitSqlStatements } from './sql-tokenizer'
 import { fromArrowBigNum } from './value-coercion'
 import { shouldGuardMount, isAttachedCatalog } from './mount-guard'
+import { logQuery, pageOrigin } from './query-log'
 export { splitSqlStatements }
 
 let _db: duckdb.AsyncDuckDB | null = null
@@ -639,6 +640,9 @@ export interface QueryOptions {
    * the container killed for memory.
    */
   heavy?: boolean
+  /** What sent it ("Cohort · Sepsis"), the label of its job in the jobs panel;
+   *  the page it was sent from when absent (query-log.ts). */
+  origin?: string
 }
 
 /**
@@ -694,6 +698,7 @@ async function runOnSource(
   options: QueryOptions,
 ): Promise<Record<string, unknown>[]> {
   const { signal, allRows, pushdown = true, native, heavy, onExecution } = options
+  const origin = options.origin ?? pageOrigin()
   signal?.throwIfAborted()
   // Server mode: the tables live on the server (external DB or server-held
   // files), so the query runs there — the browser never loads the raw data.
@@ -705,7 +710,7 @@ async function runOnSource(
       return queryFileSourceOnServer(dataSourceId.slice('filesrc_'.length), sql)
     }
     try {
-      return await queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, native, heavy, onExecution })
+      return await queryDataSourceOnServer(dataSourceId, sql, { signal, allRows, pushdown, native, heavy, onExecution, origin })
     } catch (e) {
       // 422: the query failed on the database; 5xx: it did not reach it.
       const status = (e as { status?: unknown } | null)?.status
@@ -724,6 +729,7 @@ async function runOnSource(
   const db = await getDuckDB()
   const conn = await db.connect()
   const schema = schemaName(dataSourceId)
+  const ended = logQuery(dataSourceId, sql, origin)
 
   try {
     // Try schema-based path first, fall back to catalog.main for ATTACHed databases
@@ -752,7 +758,10 @@ async function runOnSource(
       result = signal ? await cancellableQuery(conn, stmt, signal) : await conn.query(stmt)
     }
 
-    if (!result) return []
+    if (!result) {
+      ended({ rows: 0 })
+      return []
+    }
 
     // Build set of DATE/TIMESTAMP columns from Arrow schema so we can
     // convert their BigInt epoch values to proper ISO date strings.
@@ -765,9 +774,14 @@ async function runOnSource(
       else if (typeId === ArrowType.Timestamp) timestampColumns.add(field.name)
       else if (DataType.isDecimal(field.type)) decimalScales.set(field.name, field.type.scale)
     }
-    return (result.toArray() as Record<string, unknown>[]).map((row) =>
+    const rows = (result.toArray() as Record<string, unknown>[]).map((row) =>
       coerceRow(row, dateColumns, timestampColumns, decimalScales),
     )
+    ended({ rows: rows.length })
+    return rows
+  } catch (e) {
+    ended(signal?.aborted ? { cancelled: true } : { error: e })
+    throw e
   } finally {
     await conn.close()
   }
@@ -824,10 +838,10 @@ const SERVER_PAGE_ROWS = 10_000
 export async function queryDataSourceAll(
   dataSourceId: string,
   baseSql: string,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; origin?: string } = {},
 ): Promise<Record<string, unknown>[]> {
-  const { signal } = options
-  if (!isServerMode()) return queryDataSource(dataSourceId, baseSql, { signal })
+  const { signal, origin } = options
+  if (!isServerMode()) return queryDataSource(dataSourceId, baseSql, { signal, origin })
 
   const step = SERVER_PAGE_ROWS
   const all: Record<string, unknown>[] = []
@@ -842,7 +856,7 @@ export async function queryDataSourceAll(
     const page = await queryDataSource(
       dataSourceId,
       `SELECT * FROM (${baseSql}) AS _src ORDER BY ALL LIMIT ${step} OFFSET ${offset}`,
-      { signal },
+      { signal, origin },
     )
     all.push(...page)
     if (page.length < step) break

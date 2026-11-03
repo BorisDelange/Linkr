@@ -354,9 +354,9 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       resumeFrom: restart
         ? null
         : { extracted: saved?.extracted ?? 0, total: saved?.total ?? 0, sizes: saved?.sizes, walked: saved?.walked },
-      query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal }),
-      queryAll: (sql, signal) => queryDataSourceAll(dataSource.id, sql, { signal }),
-      queryAggregate: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, allRows: true, heavy: true }),
+      query: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, origin: 'Source concepts · build list' }),
+      queryAll: (sql, signal) => queryDataSourceAll(dataSource.id, sql, { signal, origin: 'Source concepts · build list' }),
+      queryAggregate: (sql, signal) => queryDataSource(dataSource.id, sql, { signal, allRows: true, heavy: true, origin: 'Source concepts · count records' }),
       persist,
       persistError: async (message) => {
         if (!saved) return
@@ -377,7 +377,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
       previousJobIds: saved?.jobIds,
       store: async () => {
         try {
-          const fingerprint = await dataFingerprint(mapping, (sql) => queryDataSource(dataSource.id, sql, { heavy: true }))
+          const fingerprint = await dataFingerprint(mapping, (sql) => queryDataSource(dataSource.id, sql, { heavy: true, origin: 'Source concepts · data fingerprint' }))
           return batchProfileStore(dataSource.id, fingerprint)
         } catch {
           return undefined

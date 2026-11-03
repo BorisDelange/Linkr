@@ -69,6 +69,25 @@ const levelOptions: { value: CohortLevel; labelKey: string }[] = [
 ]
 
 /** A project cohort's page. */
+/** The first and last visit dates of a database, read once per session. */
+const visitDates = new Map<string, Promise<{ minDate: string; maxDate: string } | null>>()
+
+function visitDatesOf(sourceId: string, relation: string) {
+  const key = `${sourceId}\n${relation}`
+  let read = visitDates.get(key)
+  if (!read) {
+    const sql = `SELECT MIN(start_datetime)::DATE::TEXT AS min_date, MAX(start_datetime)::DATE::TEXT AS max_date FROM ${relation}`
+    read = engine.queryDataSource(sourceId, sql, { origin: 'Cohort builder · visit date range, for period defaults' })
+      .then(([row]) => (row?.min_date && row?.max_date ? { minDate: String(row.min_date), maxDate: String(row.max_date) } : null))
+      .catch(() => {
+        visitDates.delete(key)
+        return null
+      })
+    visitDates.set(key, read)
+  }
+  return read
+}
+
 export function CohortBuilderPage() {
   return (
     <ProjectCohortHost>
@@ -167,21 +186,20 @@ export function CohortBuilder() {
     [mapping],
   )
 
-  // Load min/max visit dates for period criteria defaults
+  // Load min/max visit dates for period criteria defaults. Keyed on the source
+  // and the relation, not on their objects: a re-read store hands new ones for
+  // the same database, which sent the query a second time.
   const [visitDateRange, setVisitDateRange] = useState<{ minDate: string; maxDate: string } | undefined>()
+  const sourceId = activeSource?.id
+  const visitRelation = mapping ? classRelation(mapping, 'visit')?.name : undefined
   useEffect(() => {
-    const visit = mapping ? classRelation(mapping, 'visit') : undefined
-    if (!activeSource || !visit) return
-    const sql = `SELECT MIN(start_datetime)::DATE::TEXT AS min_date, MAX(start_datetime)::DATE::TEXT AS max_date FROM ${visit.name}`
-    engine.queryDataSource(activeSource.id, sql).then((rows) => {
-      if (rows[0]?.min_date && rows[0]?.max_date) {
-        setVisitDateRange({
-          minDate: String(rows[0].min_date),
-          maxDate: String(rows[0].max_date),
-        })
-      }
-    }).catch(() => {})
-  }, [activeSource, mapping])
+    if (!sourceId || !visitRelation) return
+    let cancelled = false
+    void visitDatesOf(sourceId, visitRelation).then((range) => {
+      if (!cancelled && range) setVisitDateRange(range)
+    })
+    return () => { cancelled = true }
+  }, [sourceId, visitRelation])
 
 
   const handleUpdateTree = useCallback(
@@ -540,7 +558,6 @@ export function CohortBuilder() {
               result={result}
               level={cohort.level}
               loading={loading}
-              onCancel={running ? handleCancel : undefined}
               error={executionError}
               output={customSqlOutput}
               attritionDetails={attritionDetails}

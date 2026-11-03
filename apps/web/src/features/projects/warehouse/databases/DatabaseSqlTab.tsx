@@ -83,7 +83,7 @@ export function DatabaseSqlTab({ dataSourceId, draftKey = dataSourceId, initialS
     let execution: QueryExecution | null = null
     const onExecution = (e: QueryExecution) => { execution = e }
     try {
-      const rows = await queryDataSource(dataSourceId, sql, { native: offersNative && native, onExecution, signal: controller.signal })
+      const rows = await queryDataSource(dataSourceId, sql, { native: offersNative && native, onExecution, signal: controller.signal, origin: 'SQL console' })
       const headers = rows.length > 0 ? Object.keys(rows[0]) : []
       setOutcome({
         kind: 'rows',

@@ -212,7 +212,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
                   JOIN ${visit.name} vo ON vo.patient_id = p.patient_id
                   WHERE vo.start_datetime IS NOT NULL
                   GROUP BY p.patient_id, p.birth_date, p.birth_year
-                ) sub WHERE age >= 0 AND age < 150`)
+                ) sub WHERE age >= 0 AND age < 150`, { origin: 'Catalog · DCAT typical ages' })
               fill('dataset.minTypicalAge', rows[0]?.age_min != null ? Number(rows[0].age_min) : undefined)
               fill('dataset.maxTypicalAge', rows[0]?.age_max != null ? Number(rows[0].age_max) : undefined)
             } catch { /* optional figure */ }
@@ -222,7 +222,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
             try {
               const rows = await queryDataSource(catalog.dataSourceId, `
                 SELECT MIN(start_datetime)::VARCHAR AS date_min, MAX(start_datetime)::VARCHAR AS date_max
-                FROM ${visit.name} WHERE start_datetime IS NOT NULL`)
+                FROM ${visit.name} WHERE start_datetime IS NOT NULL`, { origin: 'Catalog · DCAT temporal coverage' })
               fill('dataset.temporalStart', rows[0]?.date_min ? String(rows[0].date_min).slice(0, 10) : undefined)
               fill('dataset.temporalEnd', rows[0]?.date_max ? String(rows[0].date_max).slice(0, 10) : undefined)
             } catch { /* optional figure */ }
@@ -234,7 +234,7 @@ export function CatalogDcatTab({ catalog, cache }: Props) {
               if (!has(dict, 'terminology_id')) continue
               try {
                 const rows = await queryDataSource(catalog.dataSourceId,
-                  `SELECT DISTINCT terminology_id AS v FROM ${dict.name} WHERE terminology_id IS NOT NULL LIMIT 200`)
+                  `SELECT DISTINCT terminology_id AS v FROM ${dict.name} WHERE terminology_id IS NOT NULL LIMIT 200`, { origin: `Catalog · DCAT coding systems (${dict.name})` })
                 for (const r of rows) {
                   const name = String(r.v ?? '').toLowerCase().replace(/[\s._-]/g, '')
                   const match = VOCABULARY_CODES.find(([re]) => re.test(name))

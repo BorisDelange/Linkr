@@ -138,6 +138,10 @@ class Settings(BaseSettings):
     # big ones together can get the container killed. Own queue: never waits on,
     # nor holds up, an env build.
     max_heavy_queries: int = 1
+    # Every query a database is sent is a job of its workspace (kind "sql_query"), so
+    # an engineer can read what was asked of the database and how long it took.
+    # Kept this many hours; 0 records none.
+    query_log_hours: int = 24
     # Memory one DuckDB instance opened by db_connect._open (a query, a unit, a
     # materialization over a database) may use before spilling to disk, e.g.
     # "3GB". Per instance, not in total: two heavy queries at once may each take

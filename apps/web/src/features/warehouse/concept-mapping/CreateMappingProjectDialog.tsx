@@ -833,7 +833,7 @@ export function CreateMappingProjectDialog({
         if (remount) await unmountFileSource(projectId)
         await mountFileSourceIntoDuckDB(projectId, source.rows, source.columnMapping, source.rawFileBuffer)
       }
-      const rows = await queryDataSourceAll(fileSourceDataSourceId(projectId), alignedSourceRowsSql(source.columnMapping)) as unknown as AlignedSourceRow[]
+      const rows = await queryDataSourceAll(fileSourceDataSourceId(projectId), alignedSourceRowsSql(source.columnMapping), { origin: 'Concept mapping · read source file' }) as unknown as AlignedSourceRow[]
       if (rows.length === 0) return { aligned: 0 }
 
       const vocabularyId = vocabularyDataSourceIdFor({ workspaceId: activeWorkspaceId }, dataSources)

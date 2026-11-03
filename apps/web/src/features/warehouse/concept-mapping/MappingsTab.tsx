@@ -1169,7 +1169,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
         const clauses: string[] = []
         clauses.push(`concept_code = '${escSql(mapping.sourceConceptCode)}'`)
         if (mapping.sourceVocabularyId) clauses.push(`vocabulary_id = '${escSql(mapping.sourceVocabularyId)}'`)
-        const rows = await queryDataSource(dsId, `SELECT * FROM source_concepts WHERE ${clauses.join(' AND ')} LIMIT 1`)
+        const rows = await queryDataSource(dsId, `SELECT * FROM source_concepts WHERE ${clauses.join(' AND ')} LIMIT 1`, { origin: 'Concept mapping · find a mapping’s source concept' })
         if (rows.length > 0) {
           const r = rows[0] as Record<string, unknown>
           detail.counts = { record_count: Number(r.record_count ?? 0), patient_count: Number(r.patient_count ?? 0) }
@@ -1825,7 +1825,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               project.fileSourceData.rawFileBuffer,
             )
           }
-          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts')
+          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts', { origin: 'Concept mapping · source concept ids' })
           for (const r of rows as Record<string, unknown>[]) {
             const k = `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`
             const cid = Number(r.concept_id)
@@ -2084,7 +2084,7 @@ export function MappingsTab({ project }: MappingsTabProps) {
               project.fileSourceData.rawFileBuffer,
             )
           }
-          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts')
+          const rows = await queryDataSource(dsId, 'SELECT concept_id, concept_code, vocabulary_id FROM source_concepts', { origin: 'Concept mapping · source concept ids' })
           validSourceKeys = new Set()
           for (const r of rows as Record<string, unknown>[]) {
             const k = `${r.vocabulary_id ?? ''}\0${r.concept_code ?? ''}`

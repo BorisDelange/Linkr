@@ -6,7 +6,7 @@ import { materializationFromRows } from '@/lib/cohort-materialization'
 import { deleteCohortBoard } from '@/lib/cohort-board-storage'
 import { stampAuthored } from '@/stores/app-store'
 import { copyName } from '@/lib/copy-name'
-import { toLocalized } from '@/lib/localized'
+import { localized, toLocalized } from '@/lib/localized'
 import { buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortIdColumn, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
 import { withClassRelations } from '@/lib/schema-classes/inject'
@@ -23,6 +23,7 @@ import type {
   DataSourceRef,
   LocalizedString,
 } from '@/types'
+import { cohortOrigin } from '@/lib/duckdb/query-log'
 
 // ---------------------------------------------------------------------------
 // Migration: v1 flat criteria → v2 criteria tree
@@ -420,7 +421,9 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     get().executionAborts.get(id)?.abort()
     const controller = new AbortController()
     const { signal } = controller
-    const query = (sql: string) => engine.queryDataSource(dataSourceId, sql, { signal, heavy: true })
+    const named = cohortOrigin(localized(cohort.name, 'en'))
+    const query = (sql: string, what: string) =>
+      engine.queryDataSource(dataSourceId, sql, { signal, heavy: true, origin: named(what) })
     const isCurrent = () => get().executionAborts.get(id) === controller
     const setIfCurrent = (fn: (s: CohortState) => Partial<CohortState>) =>
       set((s) => (s.executionAborts.get(id) === controller ? fn(s) : {}))
@@ -448,7 +451,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         const start = Date.now()
         let output: CustomSqlOutput
         try {
-          const rows = await query(outputSql)
+          const rows = await query(outputSql, 'its SQL as written, for SQL output')
           output = { rows, truncated: rows.length >= MAX_RESULT_ROWS, durationMs: Date.now() - start }
         } catch (err) {
           if (signal.aborted) throw err
@@ -468,7 +471,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // spinning, then back on "run the query" as if nothing had happened.
       if (!resultsSql) throw new Error('EMPTY_QUERY')
       const resultsStart = Date.now()
-      const rows = await query(resultsSql)
+      const rows = await query(resultsSql, 'members and count')
       const totalCount = Number(rows[0]?.cohort_total ?? 0)
       for (const row of rows) delete row.cohort_total
       // The generated query's output is the members' ids, just read: running it
@@ -488,7 +491,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       const steps = buildAttritionQueries(cohort, schemaMapping, { narrowing })
       for (const [i, aq] of steps.entries()) {
         // The last step keeps every criterion: the cohort itself, counted above.
-        const count = i === steps.length - 1 ? totalCount : Number((await query(aq.sql))[0]?.cnt ?? 0)
+        const count = i === steps.length - 1 ? totalCount : Number((await query(aq.sql, `attrition step ${i + 1}/${steps.length}: ${aq.label}`))[0]?.cnt ?? 0)
         attrition.push({
           nodeId: aq.nodeId,
           label: aq.label,

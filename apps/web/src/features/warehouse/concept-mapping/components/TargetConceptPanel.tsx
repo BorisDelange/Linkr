@@ -1543,7 +1543,7 @@ export function TargetConceptPanel({ project, sourceConcept, ignoredConceptIds, 
     if (!sql) { setEnrichedSuggestions(suggestions); return }
 
     ensureMounted(dsId).then(() =>
-      queryDataSource(dsId, sql) as Promise<Record<string, unknown>[]>
+      queryDataSource(dsId, sql, { origin: 'Concept mapping · target concept details' }) as Promise<Record<string, unknown>[]>
     ).then((rows) => {
       const byId = new Map(rows.map((r) => [Number(r.concept_id), r]))
       setEnrichedSuggestions(suggestions.map((s) => {

@@ -22,7 +22,7 @@ export async function registerDuckDBBridgePython(
   // Create a JS function that Python can call
   const queryFn = async (sql: string): Promise<string> => {
     if (!activeConnectionId) throw new Error('No active database connection. Select a connection before using sql_query().')
-    const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql, { pushdown: false })
+    const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql, { pushdown: false, origin: 'IDE · script query' })
     return JSON.stringify(rows)
   }
 
@@ -64,7 +64,7 @@ export async function registerDuckDBBridgeR(
   (globalThis as Record<string, unknown>).__linkr_active_connection_id = activeConnectionId
   ;(globalThis as Record<string, unknown>).__linkr_query_fn = async (sql: string) => {
     if (!activeConnectionId) throw new Error('No active database connection. Select a connection before using sql_query().')
-    const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql, { pushdown: false })
+    const rows = await duckdbEngine.queryDataSource(activeConnectionId, sql, { pushdown: false, origin: 'IDE · script query' })
     return JSON.stringify(rows)
   }
 

@@ -447,7 +447,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
           // queryDataSourceAll, not queryDataSource: the server caps a single
           // response at MAX_QUERY_ROWS (10k), which capped the whole table at
           // "10k total". Page through to load every source concept.
-          const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
+          const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts', { origin: 'Concept mapping · source concepts for the summary' })
           const seen = new Map<string, SourceConceptRaw>()
           for (const row of rows) {
             const code = String(row.concept_code ?? '')
@@ -911,7 +911,7 @@ export function GlobalSummaryView({ onBack }: GlobalSummaryViewProps) {
         const dsId = fileSourceDataSourceId(proj.id)
         // queryDataSourceAll + SELECT *: page past the 10k server cap, and
         // vocabulary_id may be absent from the view (see loadSourceConcepts).
-        const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts')
+        const rows = await queryDataSourceAll(dsId, 'SELECT * FROM source_concepts', { origin: 'Concept mapping · source concepts for the summary' })
         for (const r of rows) {
           const code = String(r.concept_code ?? '')
           const vocab = String(r.vocabulary_id ?? localized(proj.name, 'en'))

@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Activity, AlertCircle, BedDouble, HeartPulse, Loader2, RefreshCw, Square, Users } from 'lucide-react'
+import { Activity, AlertCircle, BedDouble, HeartPulse, Loader2, Square, Users } from 'lucide-react'
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { SectionLabel } from '@/components/ui/section-label'
@@ -34,7 +34,9 @@ export function CohortStatisticsPanel({ cohort, source }: CohortStatisticsPanelP
   // Not while the cohort itself runs: its queries come first, and its run ends
   // (the Run button back) only once its count is stored.
   const executing = useCohortStore((s) => s.executionAborts.has(cohort.id))
-  const figures = useCohortFigures(cohort, source, { withFlow: false, enabled: !executing })
+  // Computed with the cohort's run: each run reads them again.
+  const runAt = useCohortStore((s) => s.executionResults.get(cohort.id)?.executedAt)
+  const figures = useCohortFigures(cohort, source, { withFlow: false, enabled: !executing, runAt })
   const { state, data } = figures
   const mapping = source.schemaMapping
   const model = useMemo(() => (data && mapping
@@ -60,24 +62,21 @@ export function CohortStatisticsPanel({ cohort, source }: CohortStatisticsPanelP
   return (
     <div className="@container h-full overflow-auto">
       <div className="space-y-5 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-muted-foreground">
-            {running ? (
-              <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />{t('cohorts.stats_computing')}</span>
-            ) : model ? t('cohorts.stats_computed_at', { date: formatDateTimeLocale(model.generatedAt, i18n.language) }) : '\u00A0'}
-          </span>
-          {running ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={figures.stop}>
-              <Square size={14} />
-              {t('cohorts.stop')}
-            </Button>
-          ) : mapping ? (
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={figures.recompute}>
-              <RefreshCw size={14} />
-              {t('cohorts.stats_recompute')}
-            </Button>
-          ) : null}
-        </div>
+        {(running || model) && (
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs text-muted-foreground">
+              {running ? (
+                <span className="flex items-center gap-2"><Loader2 size={14} className="animate-spin" />{t('cohorts.stats_computing')}</span>
+              ) : t('cohorts.stats_computed_at', { date: formatDateTimeLocale(model!.generatedAt, i18n.language) })}
+            </span>
+            {running && (
+              <Button variant="destructive" size="sm" onClick={figures.stop} className="h-6 gap-1 text-xs">
+                <Square size={12} />
+                {t('cohorts.stop')}
+              </Button>
+            )}
+          </div>
+        )}
 
         {message && (
           <p className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
@@ -88,7 +87,7 @@ export function CohortStatisticsPanel({ cohort, source }: CohortStatisticsPanelP
 
         {!model && running && (
           <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3">
               {[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-[74px]" />)}
             </div>
             <div className="grid gap-4 @3xl:grid-cols-2">
@@ -100,19 +99,19 @@ export function CohortStatisticsPanel({ cohort, source }: CohortStatisticsPanelP
 
         {model && (
           <>
-            <div className="grid grid-cols-2 gap-3 @2xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3">
               <StatCard
                 icon={<Users size={16} className="text-emerald-600 dark:text-emerald-400" />}
                 iconBg="bg-emerald-500/10"
                 value={model.kpis[0].count.label}
                 label={model.kpis[0].label}
               />
-              {cohort.level !== 'patient' && kpi(unitLabel) && (
+              {model.mortality && (
                 <StatCard
-                  icon={<BedDouble size={16} className="text-sky-600 dark:text-sky-400" />}
-                  iconBg="bg-sky-500/10"
-                  value={kpi(unitLabel)!.count.label}
-                  label={unitLabel}
+                  icon={<HeartPulse size={16} className="text-rose-600 dark:text-rose-400" />}
+                  iconBg="bg-rose-500/10"
+                  value={model.mortality.rate != null ? `${model.mortality.rate}\u00A0%` : model.mortality.deaths.label}
+                  label={t('cohorts.stats_mortality')}
                 />
               )}
               {cohort.level !== 'visit' && kpi(t('cohort_report.kpi_visits')) && (
@@ -123,13 +122,12 @@ export function CohortStatisticsPanel({ cohort, source }: CohortStatisticsPanelP
                   label={t('cohort_report.kpi_visits')}
                 />
               )}
-              {model.mortality && (
+              {cohort.level !== 'patient' && kpi(unitLabel) && (
                 <StatCard
-                  icon={<HeartPulse size={16} className="text-rose-600 dark:text-rose-400" />}
-                  iconBg="bg-rose-500/10"
-                  value={model.mortality.rate != null ? `${model.mortality.rate}\u00A0%` : model.mortality.deaths.label}
-                  label={t('cohorts.stats_mortality')}
-                  detail={t('cohorts.stats_deaths', { count: model.mortality.deaths.value ?? 0, deaths: model.mortality.deaths.label })}
+                  icon={<BedDouble size={16} className="text-sky-600 dark:text-sky-400" />}
+                  iconBg="bg-sky-500/10"
+                  value={kpi(unitLabel)!.count.label}
+                  label={unitLabel}
                 />
               )}
             </div>

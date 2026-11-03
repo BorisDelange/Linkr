@@ -22,6 +22,7 @@ import { getJob } from '@/lib/api/query-jobs'
 import { webAppFrameUrl } from '@/lib/api/web-apps'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
+import { QUERY_KIND, useQueryLog } from './use-query-log'
 
 const ACTIVE = new Set(['queued', 'running'])
 
@@ -50,10 +51,12 @@ function sameJobs(a: Job[], b: Job[]): boolean {
 }
 
 /**
- * Footer jobs indicator (server mode): shows active long jobs — environment
- * builds and runs of the open project, and the jobs of the open workspace (a
- * database's cohort derivations) — with a popover to view status/log and cancel.
- * Polls while a workspace is open; hidden entirely in front-only mode.
+ * Footer jobs indicator: shows active long jobs — environment builds and runs
+ * of the open project, and the jobs of the open workspace (a database's cohort
+ * derivations) — with a popover to view status/log and cancel. Polls while a
+ * workspace is open. Its second tab lists every query sent to a database over
+ * the last day (use-query-log); front-only mode has that tab alone, over the
+ * queries this browser tab ran.
  *
  * `atRightEdge`: the trigger is the footer's last item (a workspace view in server
  * mode), so the popover is nudged to sit as far from the page's right edge as
@@ -69,7 +72,9 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   // Controlled so opening a job's detail modal closes the list, and closing the
   // modal reopens the list (natural back-to-list flow).
   const [popoverOpen, setPopoverOpen] = useState(false)
-  const enabled = isServerMode() && (!!projectUid || !!wsUid)
+  const server = isServerMode()
+  const enabled = server ? !!projectUid || !!wsUid : true
+  const [view, setView] = useState<'jobs' | 'queries'>(server ? 'jobs' : 'queries')
   // Last status seen per job: a job moving from active to finished is what
   // tells the app to re-read what it changed.
   const seen = useRef(new Map<string, Job['status']>())
@@ -78,7 +83,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   useEffect(() => onJobsChanged(() => setReloadTick((n) => n + 1)), [])
 
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || !server) return
     let cancelled = false
     const tick = () => {
       Promise.all([
@@ -100,21 +105,21 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     tick()
     const id = setInterval(tick, 3000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [enabled, projectUid, wsUid, reloadTick])
+  }, [enabled, server, projectUid, wsUid, reloadTick])
+
+  const { queries, clear: clearQueries } = useQueryLog(server, wsUid, (popoverOpen && view === 'queries') || !!logJobId)
 
   // The input travels only with the single job, fetched once the modal opens.
   const [input, setInput] = useState<{ jobId: string; text: string | null } | null>(null)
   const [logTab, setLogTab] = useState<'output' | 'input'>('output')
   useEffect(() => {
-    if (!logJobId) return
+    if (!logJobId || !server) return
     let live = true
     getJob(logJobId, { withInput: true })
       .then((j) => { if (live) setInput({ jobId: logJobId, text: j.input ?? null }) })
       .catch(() => { if (live) setInput({ jobId: logJobId, text: null }) })
     return () => { live = false }
-  }, [logJobId])
-  const jobInput = input && input.jobId === logJobId ? input.text : null
-  const showInput = logTab === 'input' && !!jobInput
+  }, [logJobId, server])
 
   const activeCount = jobs.filter((j) => ACTIVE.has(j.status)).length
   // Stops asked for and not yet seen through: a cancel only lands once the
@@ -156,8 +161,12 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
     setReloadTick((n) => n + 1)
   }
 
-  const logJob = jobs.find((j) => j.id === logJobId) ?? null
-  const hasFinished = jobs.some((j) => !ACTIVE.has(j.status))
+  const logJob = jobs.find((j) => j.id === logJobId) ?? queries.find((j) => j.id === logJobId) ?? null
+  // A front-only query carries its SQL; a server job's is fetched once opened.
+  const jobInput = !server ? (logJob?.input ?? null) : input && input.jobId === logJobId ? input.text : null
+  const showInput = logTab === 'input' && !!jobInput
+  const listed = view === 'jobs' ? jobs : queries
+  const hasFinished = listed.some((j) => !ACTIVE.has(j.status))
 
   return (
     <>
@@ -169,7 +178,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           ) : (
             <Hourglass size={11} />
           )}
-          <span>{t('jobs.title', { count: activeCount })}</span>
+          <span>{server ? t('jobs.title', { count: activeCount }) : t('jobs.queries')}</span>
         </button>
       </PopoverTrigger>
       <PopoverContent
@@ -177,12 +186,21 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         // Footer padding puts the trigger 12px from the edge; -4 brings the popover
         // to 8px. The trigger's top sits ~2px below the footer's, hence 10 for an 8px gap.
         {...(atRightEdge && { alignOffset: -4, sideOffset: 10 })}
-        className="w-96 p-2 text-xs"
+        className={cn('p-2 text-xs', view === 'queries' ? 'w-[34rem]' : 'w-96')}
       >
         <div className="mb-2.5 flex items-center justify-between">
-          <span className="font-medium">{t('jobs.recent')}</span>
+          {server ? (
+            <Tabs value={view} onValueChange={(v) => setView(v as 'jobs' | 'queries')}>
+              <TabsList variant="line">
+                <TabsTrigger value="jobs" className="text-xs">{t('jobs.recent')}</TabsTrigger>
+                <TabsTrigger value="queries" className="text-xs">{t('jobs.queries')}</TabsTrigger>
+              </TabsList>
+            </Tabs>
+          ) : (
+            <span className="font-medium">{t('jobs.queries')}</span>
+          )}
           <div className="flex items-center gap-3">
-            {activeCount > 0 && (
+            {view === 'jobs' && activeCount > 0 && (
               <button
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive"
                 onClick={() => setConfirmStopAll(true)}
@@ -194,7 +212,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             {hasFinished && (
               <button
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
-                onClick={() => void onClearAll()}
+                onClick={() => void (view === 'jobs' ? onClearAll() : clearQueries())}
               >
                 <Trash2 size={11} />
                 {t('jobs.clear_all')}
@@ -205,26 +223,44 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         {cancelError && (
           <p role="alert" className="mb-2 px-1.5 text-[10px] text-destructive">{cancelError}</p>
         )}
-        {jobs.length === 0 && (
-          <p className="px-1.5 py-3 text-center text-[11px] text-muted-foreground">
-            {t('jobs.empty')}
+        {view === 'queries' && (
+          <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">
+            {t(server ? 'jobs.queries_hint' : 'jobs.queries_hint_local')}
+          </p>
+        )}
+        {listed.length === 0 && (
+          <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">
+            {t(view === 'jobs' ? 'jobs.empty' : 'jobs.queries_empty')}
           </p>
         )}
         {/* A delay, so someone who knows these icons is not shown the tooltip
             at each pass; moving from one icon to the next shows it at once. */}
         <TooltipProvider delayDuration={600}>
-          <ul className="flex flex-col gap-1">
-            {jobs.map((job) => (
+          <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
+            {listed.map((job) => (
               <li key={job.id} className="flex items-center justify-between gap-2 rounded px-1.5 py-1 hover:bg-muted/50">
                 {/* Click the row to open the full log in a modal. */}
                 <button
                   className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
-                  onClick={() => { setLogJobId(job.id); setLogTab('output'); setPopoverOpen(false) }}
-                  title={t('jobs.show_log')}
+                  onClick={() => { setLogJobId(job.id); setLogTab(job.kind === QUERY_KIND ? 'input' : 'output'); setPopoverOpen(false) }}
+                  aria-label={`${job.label} — ${t('jobs.show_log')}`}
                 >
-                  <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">{formatJobTime(job.createdAt)}</span>
-                  <JobStatusIcon status={job.status} />
-                  <span className="truncate">{job.label}</span>
+                  <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground/70">
+                    {formatJobTime(job.createdAt, job.kind === QUERY_KIND)}
+                  </span>
+                  <span className="flex shrink-0"><JobStatusIcon status={job.status} /></span>
+                  {/* One line, the whole label on hover: a query's says what it read. */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="min-w-0 truncate py-px leading-normal">{job.label}</span>
+                    </TooltipTrigger>
+                    <TooltipContent side="top" sideOffset={4} className="max-w-96 break-words">
+                      {job.label}
+                    </TooltipContent>
+                  </Tooltip>
+                  {job.kind === QUERY_KIND && job.status === 'done' && (
+                    <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.logTail.split('\n')[0]}</span>
+                  )}
                   {job.status === 'running' && job.progress > 0 && (
                     <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
                   )}
@@ -248,7 +284,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                     </TooltipContent>
                   </Tooltip>
                 )}
-                {ACTIVE.has(job.status) ? (
+                {ACTIVE.has(job.status) && server ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <button
@@ -264,7 +300,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                       {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
                     </TooltipContent>
                   </Tooltip>
-                ) : (
+                ) : job.kind === QUERY_KIND && job.status === 'done' ? null : (
                   <span className="shrink-0 text-[10px] text-muted-foreground">
                     {t(`jobs.status.${job.status}`)}
                   </span>
@@ -292,7 +328,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         </DialogHeader>
         {logJob && (
           <div className="flex items-center gap-3">
-            {ACTIVE.has(logJob.status) && (
+            {ACTIVE.has(logJob.status) && server && (
               <Button size="xs" variant="destructive" className="gap-1" onClick={() => void onCancel(logJob.id)} disabled={isStopping(logJob)}>
                 {isStopping(logJob) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
                 {t(isStopping(logJob) ? 'jobs.stopping' : 'jobs.stop')}
@@ -434,12 +470,13 @@ function JobArtifacts({ result }: { result: NonNullable<Job['result']> }) {
   )
 }
 
-/** Short local date+time for a job row, e.g. "07/31 14:22". Falsy/bad input → ''. */
-function formatJobTime(iso: string): string {
+/** Short local date+time for a job row, e.g. "07/31 14:22" — with the seconds
+ *  for a query, a page sends several a minute. Falsy/bad input → ''. */
+function formatJobTime(iso: string, seconds = false): string {
   const d = new Date(iso)
   if (isNaN(d.getTime())) return ''
   const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  return `${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}${seconds ? `:${p(d.getSeconds())}` : ''}`
 }
 
 /** How long a job ran, or has been running (ticking). Nothing while queued. */

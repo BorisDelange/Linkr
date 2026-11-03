@@ -41,7 +41,7 @@ FROM ${relation}
 WHERE note_type IS NOT NULL
 GROUP BY 1
 ORDER BY 2 DESC
-LIMIT 500`)
+LIMIT 500`, { origin: 'Cohort builder · note types to filter on' })
       .then((rows) => {
         if (cancelled) return
         setOptions(rows.map((r) => ({ value: String(r.note_type), label: `${String(r.note_type)} (${Number(r.n).toLocaleString()})` })))

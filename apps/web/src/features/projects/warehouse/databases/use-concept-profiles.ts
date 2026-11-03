@@ -95,7 +95,7 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
     return () => { cancelled = true }
   }, [running, dataSourceId])
 
-  const query = useCallback((sql: string) => queryDataSource(dataSourceId, sql, { heavy: true }), [dataSourceId])
+  const query = useCallback((sql: string) => queryDataSource(dataSourceId, sql, { heavy: true, origin: 'Concept profiles · read profiles' }), [dataSourceId])
   const check = useCallback(async () => {
     setCurrent((c) => ({ fingerprint: c?.fingerprint ?? '', checking: true }))
     try {
@@ -132,9 +132,9 @@ export function useConceptProfiles(dataSourceId: string, schemaMapping: SchemaMa
       sort: DEFAULT_EXTRACTION_SORT,
       onlyWithRecords: true,
       resumeFrom: resume && run && !fresh ? { extracted: run.extracted, total: run.total, sizes: run.sizes, walked: run.walked } : null,
-      query: (sql, signal) => queryDataSource(dataSourceId, sql, { signal }),
-      queryAll: (sql, signal) => queryDataSourceAll(dataSourceId, sql, { signal }),
-      queryAggregate: (sql, signal) => queryDataSource(dataSourceId, sql, { signal, allRows: true, heavy: true }),
+      query: (sql, signal) => queryDataSource(dataSourceId, sql, { signal, origin: 'Concept profiles · build list' }),
+      queryAll: (sql, signal) => queryDataSourceAll(dataSourceId, sql, { signal, origin: 'Concept profiles · build list' }),
+      queryAggregate: (sql, signal) => queryDataSource(dataSourceId, sql, { signal, allRows: true, heavy: true, origin: 'Concept profiles · compute' }),
       persist: async (state) => {
         await profileStore().saveRun(dataSourceId, { ...state, fingerprint })
       },

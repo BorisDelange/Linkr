@@ -703,7 +703,7 @@ export const useDataSourceStore = create<DataSourceState>((set, get) => ({
     if (!opts?.force && ds.stats?.patientCount != null) return
     countingSources.add(id)
     try {
-      const rows = await inCountQueue(() => engine.queryDataSource(id, `SELECT COUNT(*) AS n FROM ${patient.name}`))
+      const rows = await inCountQueue(() => engine.queryDataSource(id, `SELECT COUNT(*) AS n FROM ${patient.name}`, { origin: 'Databases · patient count' }))
       const n = Number(rows[0]?.n)
       if (Number.isFinite(n)) await get().recordRowCounts(id, { patientCount: n })
     } catch {

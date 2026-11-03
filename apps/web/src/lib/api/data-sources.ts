@@ -62,9 +62,11 @@ export interface QueryExecution {
 export async function queryDataSourceOnServer(
   dataSourceId: string,
   sql: string,
-  { signal, allRows, pushdown, native, heavy, onExecution }: {
+  { signal, allRows, pushdown, native, heavy, onExecution, origin }: {
     signal?: AbortSignal; allRows?: boolean; pushdown?: boolean; native?: boolean; heavy?: boolean
     onExecution?: (execution: QueryExecution) => void
+    /** The label of the query's job (query-log.ts). */
+    origin?: string
   } = {},
 ): Promise<Record<string, unknown>[]> {
   const res = await cancellableOnServer(dataSourceId, signal, (queryId) =>
@@ -74,6 +76,7 @@ export async function queryDataSourceOnServer(
         method: 'POST',
         body: JSON.stringify({
           sql, allRows, pushdown, ...(native ? { native } : {}), ...(heavy ? { heavy } : {}), ...(queryId ? { queryId } : {}),
+          ...(origin ? { origin } : {}),
         }),
       },
     ),

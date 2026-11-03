@@ -17,7 +17,8 @@ import {
 } from './queries'
 import { suppress, suppressedShare, type ReportCount } from './suppress'
 
-export type RunQuery = (sql: string) => Promise<Record<string, unknown>[]>
+/** Runs a query; `what` says what it reads, for the query log. */
+export type RunQuery = (sql: string, what?: string) => Promise<Record<string, unknown>[]>
 
 export interface CohortReportModel {
   title: string
@@ -203,9 +204,10 @@ export async function computeCohortReportData(args: DataArgs): Promise<CohortRep
   const blocks: CohortReportData['blocks'] = {}
   for (const section of sections) if (section.sql) blocks[section.block] = []
   if (combine) {
-    for (const row of await run(buildReportSectionsSql(membership, sections))) blocks[String(row.block)]?.push(row)
+    const read = sections.filter((x) => x.sql).map((x) => x.block).join(', ')
+    for (const row of await run(buildReportSectionsSql(membership, sections), `all figures: ${read}`)) blocks[String(row.block)]?.push(row)
   } else {
-    for (const section of sections) if (section.sql) blocks[section.block] = await run(section.sql)
+    for (const section of sections) if (section.sql) blocks[section.block] = await run(section.sql, `figure: ${section.block}`)
   }
   return { blocks, membership, computedAt: (args.now ?? new Date()).toISOString() }
 }
@@ -223,7 +225,7 @@ export async function withReportFlow(data: CohortReportData, args: Omit<DataArgs
   for (const [i, q] of attrition.entries()) {
     flow.push(i === 0 ? data.blocks.total?.[0]
       : i === attrition.length - 1 ? { cnt: counts?.units, patients: counts?.patients }
-        : (await args.run(q.sql))[0])
+        : (await args.run(q.sql, `attrition step ${i + 1}/${attrition.length}: ${q.label}`))[0])
   }
   return { ...data, flow }
 }

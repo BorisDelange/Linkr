@@ -197,11 +197,13 @@ export async function prepareImport(
 async function inspectImportDatabase(dataSourceId: string, source: string): Promise<VocabularyImportInventory> {
   const { queryDataSource } = await import('@/lib/duckdb/engine')
   const counts = await queryDataSource(dataSourceId,
-    'SELECT CAST(vocabulary_id AS VARCHAR) AS id, COUNT(*) AS n FROM concept WHERE vocabulary_id IS NOT NULL GROUP BY 1 ORDER BY 1')
+    'SELECT CAST(vocabulary_id AS VARCHAR) AS id, COUNT(*) AS n FROM concept WHERE vocabulary_id IS NOT NULL GROUP BY 1 ORDER BY 1',
+    { origin: 'Vocabulary import · count concepts' })
   let meta: Record<string, unknown>[] = []
   try {
     meta = await queryDataSource(dataSourceId,
-      'SELECT CAST(vocabulary_id AS VARCHAR) AS id, CAST(vocabulary_name AS VARCHAR) AS name, CAST(vocabulary_version AS VARCHAR) AS version FROM vocabulary')
+      'SELECT CAST(vocabulary_id AS VARCHAR) AS id, CAST(vocabulary_name AS VARCHAR) AS name, CAST(vocabulary_version AS VARCHAR) AS version FROM vocabulary',
+      { origin: 'Vocabulary import · versions' })
   } catch { /* an export without VOCABULARY: no versions to compare */ }
   const byId = new Map(meta.map((r) => [String(r.id), r]))
   const release = byId.get(RELEASE_VOCABULARY_ID)?.version

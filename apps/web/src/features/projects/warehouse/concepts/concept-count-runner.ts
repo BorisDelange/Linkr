@@ -103,7 +103,7 @@ async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortS
   if (!classRelation(mapping, 'patient')) return [{}]
   return planSlices(
     mapping,
-    (sql, s) => queryDataSource(dataSourceId, sql, { signal: s, allRows: true }),
+    (sql, s) => queryDataSource(dataSourceId, sql, { signal: s, allRows: true, origin: 'Concepts · count records per concept' }),
     signal,
     CONCEPT_SLICE_ROWS,
     await sourceTables(dataSourceId),
@@ -113,7 +113,7 @@ async function plan(dataSourceId: string, mapping: SchemaMapping, signal: AbortS
 /** Refuses a mapping whose event and dictionary ids cannot be joined, before
  *  any unit runs — rather than fail on DuckDB's cast deep into the run. */
 async function checkConceptIdTypes(dataSourceId: string, mapping: SchemaMapping, signal: AbortSignal): Promise<void> {
-  const mismatches = await findConceptIdTypeMismatches(mapping, (sql) => queryDataSource(dataSourceId, sql, { signal }))
+  const mismatches = await findConceptIdTypeMismatches(mapping, (sql) => queryDataSource(dataSourceId, sql, { signal, origin: 'Concepts · check concept id types' }))
   if (!mismatches.length) return
   throw new Error(mismatches.map((m) => i18n.t('concepts.count_id_type_mismatch', { ...m })).join(' '))
 }

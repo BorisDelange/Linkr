@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.core import audit, deferred
 from app.core.database import get_db
 from app.core.deps import get_current_user, get_session_user
@@ -347,6 +348,16 @@ async def query_data_source(
     # interrupted or it holds the database's pooled connection until it ends.
     query_id = _query_id(body.query_id) if body.query_id else uuid.uuid4().hex
 
+    # Every query is a job of the database's workspace, from the start: what the
+    # database was asked, when, for how long, and how many rows it answered.
+    job_id: str | None = None
+    if not body.plan and source.workspace_id and settings.query_log_hours > 0:
+        job = await jobs.create(
+            db, None, user.id, jobs.QUERY_KIND, (body.origin or "SQL query").strip()[:255] or "SQL query",
+            workspace_id=source.workspace_id, input=body.sql, running=not body.heavy,
+        )
+        job_id = job.id
+
     async def run() -> list[dict]:
         async with deferred.session() as session:
             fresh = await data_source_service.get(session, source_id)
@@ -366,6 +377,11 @@ async def query_data_source(
         recorded = pushdown.execution.set(execution)
         try:
             rows = await deferred.until_stopped(run(), lambda: query_cancel.cancel(query_id, str(user.id)))
+            if job_id is not None:
+                await jobs.record_query(
+                    job_id, rows=len(rows), sent=execution.pop("sent", None),
+                    computed_by=execution.get("computedBy"), reason=execution.get("reason"),
+                )
         except (query_cancel.QueryCancelled, duckdb.InterruptException):
             raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
         except ValueError as e:
@@ -379,11 +395,13 @@ async def query_data_source(
             if cap is not None:
                 db_connect.row_cap.reset(cap)
             pushdown.execution.reset(recorded)
+        execution.pop("sent", None)
         return QueryResult(rows=rows, execution=QueryExecution(**execution) if execution else None)
 
     # Heavy: it waits its turn behind the heavy jobs, from the start, job or not.
     as_job = deferred.AsJob(
         "SQL query", workspace_id=source.workspace_id, lane="heavy_query" if body.heavy else None, input=body.sql,
+        job_id=job_id,
     )
     return await deferred.respond(user.id, work, as_job)
 

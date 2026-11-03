@@ -232,7 +232,7 @@ export function fetchConceptStats(
 
     const countSql = buildDomainCountQuery(schemaMapping, dictKey, conceptId)
     if (!countSql) return null
-    const countResult = await queryDataSource(dataSourceId, countSql)
+    const countResult = await queryDataSource(dataSourceId, countSql, { origin: `Concepts · count records of ${conceptId}` })
     const rowCount = Number(countResult[0]?.cnt ?? 0)
 
     let distribution: MeasurementDistribution | undefined
@@ -243,8 +243,8 @@ export function fetchConceptStats(
         const histSql = buildValueHistogramQuery(schemaMapping, dictKey, conceptId, 20, excludeOutliers)
         if (distSql && histSql) {
           const [distRows, histRows] = await Promise.all([
-            queryDataSource(dataSourceId, distSql),
-            queryDataSource(dataSourceId, histSql),
+            queryDataSource(dataSourceId, distSql, { origin: `Concepts · value distribution of ${conceptId}` }),
+            queryDataSource(dataSourceId, histSql, { origin: `Concepts · value histogram of ${conceptId}` }),
           ])
           if (distRows.length > 0) distribution = distRows[0] as unknown as MeasurementDistribution
           histogram = histRows as unknown as HistogramBin[]
@@ -498,7 +498,7 @@ export function useConcepts(
       ? buildCacheFilterOptionsQuery(columnId, term)
       : buildFilterOptionsQuery(schemaMapping, columnId, term)
     if (!sql) return null
-    const rows = server ? await queryConceptCache(dataSourceId, sql) : await queryDataSource(dataSourceId, sql)
+    const rows = server ? await queryConceptCache(dataSourceId, sql) : await queryDataSource(dataSourceId, sql, { origin: `Concepts · filter options (${columnId})` })
     return { values: rows.map((r) => String(r.val)), total: Number(rows[0]?.total ?? 0) }
   }, [dataSourceId, schemaMapping])
 
@@ -603,7 +603,7 @@ export function useConcepts(
     }
 
     const run = (sql: string) =>
-      server ? queryConceptCache(dataSourceId, sql) : queryDataSource(dataSourceId, sql)
+      server ? queryConceptCache(dataSourceId, sql) : queryDataSource(dataSourceId, sql, { origin: 'Concepts · list page' })
 
     let cancelled = false
     const load = async () => {
@@ -660,7 +660,7 @@ export function useConcepts(
         }
         const sql = buildConceptFullQuery(schemaMapping, selectedConceptId, dictKey)
         if (!sql) return
-        const rows = await queryDataSource(dataSourceId, sql)
+        const rows = await queryDataSource(dataSourceId, sql, { origin: `Concepts · details of ${selectedConceptId}` })
         if (rows.length > 0) {
           setSelectedConcept(rows[0] as Record<string, unknown>)
         }

@@ -45,11 +45,14 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 execution: contextvars.ContextVar[dict | None] = contextvars.ContextVar("pushdown_execution", default=None)
 
 
-def _record(computed_by: str, reason: str | None = None) -> None:
+def _record(computed_by: str, reason: str | None = None, sent: str | None = None) -> None:
+    """`sent`: the statement the database itself ran, for the query's job."""
     holder = execution.get()
     if holder is not None:
         holder.clear()
         holder.update(computedBy=computed_by, reason=reason)
+        if sent:
+            holder["sent"] = sent
 
 
 class RemoteQueryFailed(RuntimeError):
@@ -275,7 +278,7 @@ def _with_pushdown(
     if bulk and flight.port(config) is not None and flight.problem(config, password, _flight_probe(con, config)) is None:
         try:
             result = _run_over_flight(con, config, password, remote, run)
-            _record("database")
+            _record("database", sent=remote.sql)
             return result
         except flight.Unreachable as exc:
             flight.record(config, (exc.status, str(exc)[:300]))
@@ -288,7 +291,7 @@ def _with_pushdown(
         logger.warning("pushed-down query refused by the database, ran it locally: %s", reason)
         _record("linkr", f"refused by the database: {reason.splitlines()[0]}")
         return run(sql)
-    _record("database")
+    _record("database", sent=remote.sql)
     return result
 
 
@@ -323,7 +326,7 @@ def _run_on_oracle(
         result = run(f"SELECT {columns} FROM ({renamed})")
     finally:
         con.unregister(view)
-    _record("database")
+    _record("database", sent=remote.sql)
     return result
 
 

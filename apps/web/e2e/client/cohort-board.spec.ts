@@ -5,7 +5,7 @@ test('a cohort’s patient board is generated from its criteria', async ({ page 
   await page.goto(`${MORTALITY}/warehouse/cohorts`)
   await page.getByRole('button', { name: /Example cohort/ }).click()
   await page.getByRole('button', { name: 'Run query' }).first().click()
-  await expect(page.getByText('unit stays', { exact: true })).toBeVisible()
+  await expect(page.getByText('unit stays', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Patients', exact: true }).click()
   await page.getByRole('button', { name: 'Generate tabs' }).first().click()

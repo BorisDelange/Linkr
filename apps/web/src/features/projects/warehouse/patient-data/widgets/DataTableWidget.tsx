@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { ChevronLeft, ChevronRight, Maximize2, Settings2, ZoomIn, ZoomOut } from 'lucide-react'
+import { Settings2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { ChartTooltipCard, FloatingChartTooltip } from '@/features/projects/lab/datasets/analyses/chart-tooltip'
@@ -132,7 +132,7 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
     const sql = buildDataTableBoundsQuery(schemaMapping, conceptIds, patientId, scope, { held })
     if (!sql) return
     const controller = new AbortController()
-    patientQuery(dataSourceId, sql, { signal: controller.signal })
+    patientQuery(dataSourceId, sql, { signal: controller.signal, origin: 'Data table · first and last event of the concepts' })
       .then(([row]) => {
         const lo = toMs(row?.first_event)
         const hi = toMs(row?.last_event)
@@ -154,7 +154,7 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
       : null
     if (!sql) return
     const controller = new AbortController()
-    patientQuery(dataSourceId, sql, { signal: controller.signal })
+    patientQuery(dataSourceId, sql, { signal: controller.signal, origin: 'Data table · density strip of the record' })
       .then((rows) => {
         const counts = new Array<number>(DENSITY_BUCKETS).fill(0)
         for (const r of rows) {
@@ -202,7 +202,7 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
     setLoading(true)
     // A drag of the window through several columns reads once it settles.
     const timer = setTimeout(() => {
-      patientQuery(dataSourceId, sql, { signal: controller.signal })
+      patientQuery(dataSourceId, sql, { signal: controller.signal, origin: `Data table · ${aggregate} of each concept in ${columns} columns` })
         .then((rows) => {
           const next = new Map<string, Cell>()
           const unitOf = new Map<number, string>()
@@ -231,12 +231,6 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
 
   const cols = shown ? columnsOf(shown, columns) : []
   const width = shown ? (shown.hi - shown.lo) / columns : 0
-  const zoom = (factor: number) => {
-    if (!shown) return
-    const mid = (shown.lo + shown.hi) / 2
-    const half = Math.max(60_000 * columns, (shown.hi - shown.lo) * factor) / 2
-    move({ lo: mid - half, hi: mid + half })
-  }
   const nameOf = (id: number) => names.get(id)?.name ?? String(id)
 
   let message: string | null = null
@@ -261,27 +255,6 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
   const hovered = hover ? cells.get(`${hover.concept}|${hover.col}`) : undefined
   return (
     <div className="flex h-full flex-col overflow-hidden" aria-busy={loading}>
-      <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
-        <span className="text-[10px] text-muted-foreground">
-          {t(`patient_data.datatable_aggregate_${aggregate}`)} · {t('patient_data.datatable_column_width', { width: durationLabel(width, i18n.language) })}
-        </span>
-        <div className="flex-1" />
-        <Button variant="ghost" size="icon-xs" aria-label={t('patient_data.datatable_earlier')} onClick={() => move({ lo: shown!.lo - width, hi: shown!.hi - width })}>
-          <ChevronLeft size={12} />
-        </Button>
-        <Button variant="ghost" size="icon-xs" aria-label={t('patient_data.datatable_later')} onClick={() => move({ lo: shown!.lo + width, hi: shown!.hi + width })}>
-          <ChevronRight size={12} />
-        </Button>
-        <Button variant="ghost" size="icon-xs" aria-label={t('patient_data.datatable_zoom_in')} onClick={() => zoom(0.5)}>
-          <ZoomIn size={12} />
-        </Button>
-        <Button variant="ghost" size="icon-xs" aria-label={t('patient_data.datatable_zoom_out')} onClick={() => zoom(2)}>
-          <ZoomOut size={12} />
-        </Button>
-        <Button variant="ghost" size="icon-xs" aria-label={t('patient_data.datatable_fit')} disabled={!bounds} onClick={() => move(bounds)}>
-          <Maximize2 size={12} />
-        </Button>
-      </div>
       <div className={loading ? 'min-h-0 flex-1 overflow-auto opacity-60' : 'min-h-0 flex-1 overflow-auto'}>
         {/* Columns keep a readable width: a narrow widget scrolls rather than
             cutting every value to an ellipsis. */}
@@ -333,7 +306,11 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
       </div>
       {bounds && (
         <div className="flex shrink-0">
-          <div className="shrink-0 border-t" style={{ width: NAME_WIDTH }} />
+          {/* What a cell holds, beside the strip that sets the columns. */}
+          <div className="flex shrink-0 flex-col justify-center border-t px-2 text-[10px] leading-tight text-muted-foreground" style={{ width: NAME_WIDTH }}>
+            <span>{t(`patient_data.datatable_aggregate_${aggregate}`)}</span>
+            <span>{t('patient_data.datatable_column_width', { width: durationLabel(width, i18n.language) })}</span>
+          </div>
           <div className="min-w-0 flex-1 pr-2">
             <DataTableRangeStrip bounds={bounds} view={shown ?? bounds} counts={density} onViewChange={move} />
           </div>

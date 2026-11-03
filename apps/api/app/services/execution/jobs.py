@@ -13,7 +13,9 @@ reconciled to ``error`` at startup — the row survives, the process does not.
 
 import asyncio
 import contextlib
+import time
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -53,6 +55,26 @@ def capped_input(text: str | None) -> str | None:
     return text if len(text) <= INPUT_MAX else text[:INPUT_MAX] + f"\n\n… ({len(text) - INPUT_MAX:,} more characters)"
 
 
+# A query sent to a database (POST /data-sources/{id}/query): a job of its own,
+# listed apart from the others (`list_queries`) and kept `query_log_hours`.
+QUERY_KIND = "sql_query"
+_PURGE_EVERY = 60.0
+_last_purge = 0.0
+
+
+async def _purge_old_queries(db: AsyncSession) -> None:
+    """Drop the query jobs past the retention, at most once a minute."""
+    global _last_purge
+    now = time.monotonic()
+    if now - _last_purge < _PURGE_EVERY:
+        return
+    _last_purge = now
+    from sqlalchemy import delete
+
+    cutoff = datetime.now(UTC) - timedelta(hours=settings.query_log_hours)
+    await db.execute(delete(Job).where(Job.kind == QUERY_KIND).where(Job.created_at < cutoff))
+
+
 async def create(
     db: AsyncSession,
     project_uid: str | None,
@@ -62,18 +84,23 @@ async def create(
     *,
     workspace_id: str | None = None,
     input: str | None = None,
+    running: bool = False,
 ) -> Job:
     """A queued job owned by a project, or — `project_uid` None — by a workspace.
-    `input`: what it runs (its SQL, its code), kept for the panel."""
+    `input`: what it runs (its SQL, its code), kept for the panel. `running`: it
+    starts at once, so it is created running rather than written twice."""
     if (project_uid is None) == (workspace_id is None):
         raise ValueError("a job belongs to exactly one project or one workspace")
+    if kind == QUERY_KIND:
+        await _purge_old_queries(db)
     job = Job(
         project_uid=project_uid,
         workspace_id=workspace_id,
         user_id=user_id,
         kind=kind,
         label=label,
-        status="queued",
+        status="running" if running else "queued",
+        started_at=datetime.now(UTC) if running else None,
         input=capped_input(input),
     )
     db.add(job)
@@ -95,13 +122,15 @@ def lane_slot(lane: str) -> asyncio.Semaphore:
     return _sem(lane)
 
 
-async def adopt(job_id: str, task: asyncio.Task, *, running: bool = True) -> None:
+async def adopt(job_id: str, task: asyncio.Task, *, running: bool = True, written: bool = False) -> None:
     """Make an already started task a job: cancellable from the panel, its status
     following the task's end. For work that became long only once started (a
     deferred request, core/deferred). Not `running` yet (it waits in its lane):
     queued, until `mark_running`."""
-    # Written before the end can be: the two must not race.
-    await _set(job_id, status="running" if running else "queued")
+    # Written before the end can be: the two must not race. `written`: the job
+    # was created in that state already.
+    if not written:
+        await _set(job_id, status="running" if running else "queued")
     _tasks[job_id] = task
 
     def finished(t: asyncio.Task) -> None:
@@ -121,6 +150,22 @@ async def adopt(job_id: str, task: asyncio.Task, *, running: bool = True) -> Non
         finished(task)
     else:
         task.add_done_callback(finished)
+
+
+async def record_query(job_id: str, *, rows: int, sent: str | None, computed_by: str | None, reason: str | None) -> None:
+    """What a query job answered: its row count (never the rows: they are patient
+    data), who computed it, and the SQL the database itself was sent."""
+    lines = [f"{rows:,} row{'s' if rows != 1 else ''}"]
+    if computed_by == "database":
+        lines.append("Computed by the database.")
+    elif computed_by == "linkr":
+        lines.append("Computed by Linkr (DuckDB)" + (f": {reason}" if reason else "."))
+    fields: dict = {"log_tail": "\n".join(lines)}
+    if sent:
+        async with async_session() as db:
+            current = (await db.execute(select(Job.input).where(Job.id == job_id))).scalar_one_or_none()
+        fields["input"] = capped_input(f"{current or ''}\n\n-- Sent to the database\n{sent}")
+    await _set(job_id, **fields)
 
 
 async def mark_running(job_id: str) -> None:
@@ -267,18 +312,32 @@ async def list_active(
         select(Job)
         .where(_owned_by(project_uid, workspace_id))
         .where(Job.user_id == user_id)
+        .where(Job.kind != QUERY_KIND)
         .order_by(Job.created_at.desc())
         .limit(20)
     )
     return list(result.scalars().all())
 
 
+async def list_queries(db: AsyncSession, workspace_id: str, user_id: int, *, limit: int = 200) -> list[Job]:
+    """A user's queries to the workspace's databases, newest first."""
+    result = await db.execute(
+        select(Job)
+        .where(Job.workspace_id == workspace_id)
+        .where(Job.user_id == user_id)
+        .where(Job.kind == QUERY_KIND)
+        .order_by(Job.created_at.desc())
+        .limit(limit)
+    )
+    return list(result.scalars().all())
+
+
 async def clear_finished(
-    db: AsyncSession, project_uid: str | None, user_id: int, *, workspace_id: str | None = None
+    db: AsyncSession, project_uid: str | None, user_id: int, *, workspace_id: str | None = None, queries: bool = False
 ) -> None:
     """Remove the user's terminal jobs (done/error/cancelled) for a project or a
-    workspace — the 'clear all' action. Active jobs (queued/running) are kept so
-    a build in flight isn't lost from the panel."""
+    workspace — the 'clear all' action; `queries`: its queries instead. Active
+    jobs (queued/running) are kept so a build in flight isn't lost from the panel."""
     from sqlalchemy import delete
 
     from app.services.data import query_jobs
@@ -288,6 +347,7 @@ async def clear_finished(
         .where(_owned_by(project_uid, workspace_id))
         .where(Job.user_id == user_id)
         .where(Job.status.in_(("done", "error", "cancelled")))
+        .where(Job.kind == QUERY_KIND if queries else Job.kind != QUERY_KIND)
     )
     ids = list((await db.execute(finished)).scalars().all())
     await db.execute(delete(Job).where(Job.id.in_(ids)))

@@ -72,7 +72,7 @@ export function ConceptSearchTable({ dataSourceId, mapping, onInfo, onRowClick, 
       try {
         await ensureMounted(dataSourceId)
         const queries = Object.entries(buildStandardConceptFilterOptionsQueries(mapping))
-        const results = await Promise.all(queries.map(([, sql]) => queryDataSource(dataSourceId, sql)))
+        const results = await Promise.all(queries.map(([, sql]) => queryDataSource(dataSourceId, sql, { origin: 'Concept search · filter options' })))
         if (cancelled) return
         setFilterOptions(Object.fromEntries(queries.map(([id], i) => [id, results[i].map((r) => String(r.v)).filter(Boolean)])))
       } catch {
@@ -102,8 +102,8 @@ export function ConceptSearchTable({ dataSourceId, mapping, onInfo, onRowClick, 
       }
       const term = text('concept_name') ?? ''
       const [page, count] = await Promise.all([
-        queryDataSource(dataSourceId, buildStandardConceptSearchQuery(mapping, term, filters, q.pageSize, { offset: q.page * q.pageSize, sort: q.sorting })),
-        queryDataSource(dataSourceId, buildStandardConceptSearchCountQuery(mapping, term, filters)),
+        queryDataSource(dataSourceId, buildStandardConceptSearchQuery(mapping, term, filters, q.pageSize, { offset: q.page * q.pageSize, sort: q.sorting }), { origin: 'Concept search · results page' }),
+        queryDataSource(dataSourceId, buildStandardConceptSearchCountQuery(mapping, term, filters), { origin: 'Concept search · count results' }),
       ])
       if (ticket !== latest.current) return
       setRows(page as unknown as ConceptSearchRow[])

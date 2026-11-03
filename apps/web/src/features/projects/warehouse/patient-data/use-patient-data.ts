@@ -161,8 +161,8 @@ export function usePatientData(
         const knownCount = patientCountCacheRef.current.get(listKey)
 
         const [rows, countResult] = await Promise.all([
-          listSql ? queryDataSource(dataSourceId, listSql, { signal }) : [],
-          knownCount != null ? null : countSql ? queryDataSource(dataSourceId, countSql, { signal }) : [],
+          listSql ? queryDataSource(dataSourceId, listSql, { signal, origin: 'Patient list · one page of patients' }) : [],
+          knownCount != null ? null : countSql ? queryDataSource(dataSourceId, countSql, { signal, origin: 'Patient list · patient count' }) : [],
         ])
         if (signal?.aborted) return
 
@@ -253,7 +253,7 @@ export function usePatientData(
       return
     }
 
-    patientQuery(dataSourceId, sql)
+    patientQuery(dataSourceId, sql, { origin: 'Patient data · hospital stays of the patient' })
       .then((rows) => {
         if (!cancelled) {
           // rows come from a dynamic SQL query shaped to match VisitRow
@@ -297,7 +297,7 @@ export function usePatientData(
       return
     }
 
-    patientQuery(dataSourceId, sql)
+    patientQuery(dataSourceId, sql, { origin: 'Patient data · unit stays of the hospital stay' })
       .then((rows) => {
         if (!cancelled) {
           // rows come from a dynamic SQL query shaped to match VisitDetailRow
@@ -333,7 +333,7 @@ export function usePatientData(
       return
     }
 
-    patientQuery(dataSourceId, sql)
+    patientQuery(dataSourceId, sql, { origin: 'Patient data · demographics' })
       .then((rows) => {
         if (!cancelled && rows.length > 0) {
           // row comes from a dynamic SQL query shaped to match PatientDemographics

@@ -124,6 +124,9 @@ class AsJob:
     lane: str | None = None
     # What the work runs (a query's SQL), shown with the job.
     input: str | None = None
+    # A job created for the work from the start (a query's): it follows the work
+    # at once, and stays the one shown when the work outlives WAIT_SECONDS.
+    job_id: str | None = None
 
 
 async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJob | None = None) -> Any:
@@ -150,6 +153,10 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
 
     task = asyncio.create_task(run())
     task.add_done_callback(_on_done)
+    if as_job is not None and as_job.job_id is not None:
+        async with started.lock:
+            started.job_id = as_job.job_id
+            await jobs.adopt(as_job.job_id, task, running=started.now, written=started.now)
     try:
         return await asyncio.wait_for(asyncio.shield(task), WAIT_SECONDS)
     except TimeoutError:
@@ -160,7 +167,9 @@ async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJo
         task_id = uuid.uuid4().hex
         # An entity outside any project and workspace (a user's own settings) has
         # no panel to show in: it stays a plain deferred request.
-        if as_job is not None and (as_job.project_uid or as_job.workspace_id):
+        if as_job is not None and as_job.job_id is not None:
+            task_id = as_job.job_id
+        elif as_job is not None and (as_job.project_uid or as_job.workspace_id):
             task_id = await _as_job(user_id, task, as_job, started)
         _tasks[task_id] = _Entry(user_id=user_id, task=task)
         return _pending_response(task_id)

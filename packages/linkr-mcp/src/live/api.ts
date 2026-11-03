@@ -246,7 +246,7 @@ export class LinkrApi {
    *  the model or a user wrote. */
   query = async (id: string, sql: string, { pushdown = true }: { pushdown?: boolean } = {}) =>
     (await this.request<{ rows: Record<string, unknown>[] }>(
-      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql), pushdown },
+      'POST', `/data-sources/${encodeURIComponent(id)}/query`, { sql: await this.withRelations(id, sql), pushdown, origin: 'MCP' },
     )).rows
   /** A query on the database's concepts cache (view `concepts`), loaded from its
    *  Concepts tab in Linkr; 404 until it is. */

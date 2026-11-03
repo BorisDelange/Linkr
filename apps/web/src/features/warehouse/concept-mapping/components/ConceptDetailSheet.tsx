@@ -146,9 +146,9 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     setHierarchyUnavailable(false)
     try {
       const [selfRows, ancestorRows, descendantRows] = await Promise.all([
-        queryDataSource(dataSourceId, buildConceptSelfQuery(conceptId, conceptTable)) as Promise<SelfRow[]>,
-        queryDataSource(dataSourceId, buildConceptAncestorsQuery(conceptId, conceptTable)) as Promise<HierarchyConcept[]>,
-        queryDataSource(dataSourceId, buildConceptDescendantsQuery(conceptId, conceptTable)) as Promise<HierarchyConcept[]>,
+        queryDataSource(dataSourceId, buildConceptSelfQuery(conceptId, conceptTable), { origin: `Concept detail · concept ${conceptId}` }) as Promise<SelfRow[]>,
+        queryDataSource(dataSourceId, buildConceptAncestorsQuery(conceptId, conceptTable), { origin: `Concept detail · ancestors of ${conceptId}` }) as Promise<HierarchyConcept[]>,
+        queryDataSource(dataSourceId, buildConceptDescendantsQuery(conceptId, conceptTable), { origin: `Concept detail · descendants of ${conceptId}` }) as Promise<HierarchyConcept[]>,
       ])
 
       const selfData = selfRows[0]
@@ -161,7 +161,7 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
       ]
 
       const edgeRows = allIds.length > 1
-        ? await queryDataSource(dataSourceId, buildConceptEdgesQuery(allIds)) as { from_id: number; to_id: number }[]
+        ? await queryDataSource(dataSourceId, buildConceptEdgesQuery(allIds), { origin: 'Concept detail · hierarchy links' }) as { from_id: number; to_id: number }[]
         : []
 
       setHierarchySelf({ ...selfData, hierarchy_level: 0 } as SelfRow)
@@ -179,8 +179,8 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     if (!dataSourceId) return
     try {
       const [ancRows, descRows] = await Promise.all([
-        queryDataSource(dataSourceId, buildConceptAncestorCountQuery(conceptId, conceptTable)) as Promise<{ cnt: number }[]>,
-        queryDataSource(dataSourceId, buildConceptDescendantCountQuery(conceptId, conceptTable)) as Promise<{ cnt: number }[]>,
+        queryDataSource(dataSourceId, buildConceptAncestorCountQuery(conceptId, conceptTable), { origin: `Concept detail · count ancestors of ${conceptId}` }) as Promise<{ cnt: number }[]>,
+        queryDataSource(dataSourceId, buildConceptDescendantCountQuery(conceptId, conceptTable), { origin: `Concept detail · count descendants of ${conceptId}` }) as Promise<{ cnt: number }[]>,
       ])
       const total = Number(ancRows[0]?.cnt ?? 0) + Number(descRows[0]?.cnt ?? 0) + 1
       if (total > HIERARCHY_WARN_THRESHOLD) {
@@ -210,7 +210,7 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     if (!dataSourceId || !target) return
     setLoadingRelations(true)
     try {
-      const rows = await queryDataSource(dataSourceId, buildConceptRelationsQuery(target.concept_id, conceptTable)) as unknown as RelationRow[]
+      const rows = await queryDataSource(dataSourceId, buildConceptRelationsQuery(target.concept_id, conceptTable), { origin: `Concept detail · relationships of ${target.concept_id}` }) as unknown as RelationRow[]
       setRelations(rows)
     } catch {
       setRelationsUnavailable(true)
@@ -223,7 +223,7 @@ export function ConceptDetailSheet({ target, open, onOpenChange, dataSourceId, c
     if (!dataSourceId || !target) return
     setLoadingSynonyms(true)
     try {
-      const rows = await queryDataSource(dataSourceId, buildConceptSynonymsQuery(target.concept_id)) as SynonymRow[]
+      const rows = await queryDataSource(dataSourceId, buildConceptSynonymsQuery(target.concept_id), { origin: `Concept detail · synonyms of ${target.concept_id}` }) as SynonymRow[]
       setSynonyms(rows)
     } catch (err) {
       // concept_synonym table may not exist — treat as unavailable, not an error

@@ -22,7 +22,7 @@ export function fetchConceptInfo(dataSourceId: string, mapping: SchemaMapping, c
     const read = async () => {
       if (isServerMode()) return queryConceptCache(dataSourceId, buildCacheDetailQuery(conceptId))
       const sql = buildConceptFullQuery(mapping, conceptId)
-      return sql ? queryDataSource(dataSourceId, sql) : []
+      return sql ? queryDataSource(dataSourceId, sql, { origin: `Concepts · details of ${conceptId}` }) : []
     }
     pending = read().then((rows) => rows[0] ?? null, () => {
       known.delete(key)

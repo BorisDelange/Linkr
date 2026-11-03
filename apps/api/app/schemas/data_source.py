@@ -183,6 +183,9 @@ class QueryRequest(CamelModel):
     # Do not run it: answer only who would compute it (`execution`), so a widget
     # can ask before a query that would read the database's tables whole.
     plan: bool = False
+    # Where the app sent it from ("Cohort · Example cohort"): the label of the
+    # query's job.
+    origin: str | None = Field(default=None, max_length=255)
 
 
 class QueryJobItem(CamelModel):

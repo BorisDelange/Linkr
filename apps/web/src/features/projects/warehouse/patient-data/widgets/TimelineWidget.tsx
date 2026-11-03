@@ -299,7 +299,7 @@ export function TimelineWidget({
             })
           }
           const sql = buildTimelineQuery(schemaMapping, conceptIds, patientId, scope, { held })
-          return sql ? patientQuery(dataSourceId, sql, { signal: controller.signal }) : []
+          return sql ? patientQuery(dataSourceId, sql, { signal: controller.signal, origin: `Timeline · events of ${conceptIds.length} concept${conceptIds.length > 1 ? "s" : ""}` }) : []
         })
         .then((rows) => {
           if (cancelled) return

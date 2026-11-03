@@ -25,8 +25,8 @@ describe('planCohortBoard', () => {
     expect(plan.map((p) => p.name)).toEqual(['cohorts.board_tab_overview', 'cohorts.board_tab_notes', 'Heart rate +1', 'Creatinine'])
     expect(plan.every((p) => p.widgets[0].size.w === 48)).toBe(true)
     expect(plan[2].widgets.map((w) => [w.pluginId, w.config, w.size.h])).toEqual([
-      ['linkr-widget-timeline', { conceptIds: [1, 2] }, 24],
-      ['linkr-widget-datatable', { conceptIds: [1, 2] }, 24],
+      ['linkr-widget-timeline', { conceptIds: [1, 2], syncTimeRange: true }, 24],
+      ['linkr-widget-datatable', { conceptIds: [1, 2], syncTimeRange: true }, 24],
     ])
     // The notes highlight the free-text terms, and show only the notes holding them.
     expect(plan[1].widgets[0].config).toEqual({
