@@ -8,13 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core import audit
 from app.models.cohort import Cohort
 from app.models.data_source import DataSource, DataSourceFile, alias_key
+from app.models.pseudonym_key import PseudonymKey
 from app.models.user import User
 from app.schemas.data_source import (
     DatabaseConnectionInfo,
@@ -455,6 +456,17 @@ async def _drop_created_data(source: DataSource, kind: str, login: Login | None)
     await asyncio.to_thread(cohort_derive.drop_schema, target)
 
 
+async def _forget_pseudonym_keys(db: AsyncSession, source: DataSource, dropped_schema: bool) -> None:
+    """The keys of the derivations written into this database, and of the schema
+    it was declared for when that schema is dropped with it: nothing they drew
+    is left."""
+    ids = [PseudonymKey.id == source.id, PseudonymKey.id.like(f"{source.id}.%")]
+    created = source.linkr_created or {}
+    if dropped_schema and created.get("targetId") and created.get("schema"):
+        ids.append(PseudonymKey.id == f"{created['targetId']}.{created['schema']}")
+    await db.execute(sa_delete(PseudonymKey).where(or_(*ids)))
+
+
 async def delete(
     db: AsyncSession, source: DataSource, delete_data: bool = False, login: Login | None = None,
 ) -> None:
@@ -478,6 +490,7 @@ async def delete(
     source_id = source.id
     if created == "schema":
         await _forget_created_schema(db, source)
+    await _forget_pseudonym_keys(db, source, dropped_schema=created == "schema")
     await _forget_derivations_into(db, source_id)
     await database_credential_service.forget_all(db, source_id)
     await db.delete(source)  # cascades to data_source_files via FK

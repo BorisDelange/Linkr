@@ -51,7 +51,9 @@ MIN_APP_VERSION: dict[str, str] = {
     "schema-preset": "2.4.3",
     # 2.4.5: a cohort's concept criterion lists eventTableLabels and a conceptMatch;
     # a 2.4.4 reads no table and drops the criterion.
-    "database": "2.4.5",
+    # 2.4.6: a derived database records what it kept and how it pseudonymised
+    # (derivedFrom.options); a 2.4.5 rebuilds it whole, with the real ids.
+    "database": "2.4.6",
     # 2.4.5: dashboards gained events and widgets an eventIds selection; a 2.4.4
     # drops the events silently.
     "project": "2.4.5",

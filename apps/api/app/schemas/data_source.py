@@ -485,6 +485,48 @@ class DeriveTarget(CamelModel):
     register_alias: str | None = None
 
 
+class DeriveTableRef(CamelModel):
+    """A source table as the derivation plan names it: no schema for the default one."""
+
+    schema_name: str | None = None
+    table: str
+
+
+class DeriveVariables(DeriveTableRef):
+    """An event table keeps the rows whose concept columns hold one of `concept_ids`
+    — none: the table is created empty."""
+
+    columns: list[str]
+    concept_ids: list[int]
+
+
+class DeriveDate(DeriveTableRef):
+    column: str
+    # year | month (truncated to its start) | null (emptied)
+    precision: str
+
+
+class DeriveCorrespondence(CamelModel):
+    """Where the pseudonym ↔ id table goes: a writable database other than the
+    derived one, in `schema_name`."""
+
+    data_source_id: str
+    schema_name: str
+    table_name: str = "linkr_pseudonyms"
+
+
+class DerivePseudonymization(CamelModel):
+    # hmac (keyed SHA-256: a rebuild with the kept key draws the same pseudonyms)
+    # | random (drawn anew at each build)
+    method: str
+    # HMAC: keep the key, sealed, in Linkr.
+    keep_key: bool = True
+    # HMAC: draw with the key of another derivation (`derivationId`), so one
+    # patient has one pseudonym in both — a cohort followed over time.
+    reuse_key_of: str | None = None
+    correspondence: DeriveCorrespondence | None = None
+
+
 class DeriveRequest(CamelModel):
     # The cohort's membership query (`id`, `patient_id`), as the criteria builder
     # writes it. Runs READ_ONLY against the source, alone — see cohort_derive.
@@ -495,10 +537,19 @@ class DeriveRequest(CamelModel):
     # Recorded on what the derivation produces, and on the cohort.
     cohort_id: str | None = None
     derived_from: dict | None = None
+    # What is kept (see cohort_derive.Minimization): the scope (the cohort's level
+    # or a wider one), the tables copied (absent: all, `copy_personless` deciding
+    # the ones with no patient), the variables of each event table, birth dates.
+    scope: str | None = None
+    tables: list[DeriveTableRef] | None = None
+    variables: list[DeriveVariables] = []
+    dates: list[DeriveDate] = []
+    pseudonymization: DerivePseudonymization | None = None
 
 
 class DerivePlanRequest(CamelModel):
     level: str
+    scope: str | None = None
 
 
 

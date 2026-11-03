@@ -23,7 +23,9 @@ export const MIN_APP_VERSION: Partial<Record<LayoutKind, string>> = {
   // 2.4.5: a concept criterion of a cohort lists `eventTableLabels` (several, or
   // none for all) and a `conceptMatch`; a 2.4.4 reads no table and drops the
   // criterion, selecting everyone it filtered out. Same for a project's cohorts.
-  'database': '2.4.5',
+  // 2.4.6: a derived database records what it kept and how it pseudonymised
+  // (`derivedFrom.options`); a 2.4.5 rebuilds it whole, with the real ids.
+  'database': '2.4.6',
   // 2.4.4: a dashboard widget's or analysis's `config.title` may be a LocalizedString
   // ({ en, fr }); a 2.4.3 renders it as a string and the dashboard crashes.
   // 2.4.5: dashboards gained `events` and widgets an `eventIds` selection; a 2.4.4

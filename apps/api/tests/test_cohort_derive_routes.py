@@ -373,3 +373,90 @@ async def test_a_derivation_drops_the_concept_caches_of_what_it_wrote(client):
     # The source it was read from is untouched.
     assert (await client.get(f"{API}/data-sources/{src}/concept-stats/1", headers=headers)).status_code == 200
     assert concept_cache_fs.run_status(src) is not None
+
+
+async def _person_ids(client, headers, ds) -> set:
+    rows = (await client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": "SELECT person_id FROM person"})).json()["rows"]
+    return {r["person_id"] for r in rows}
+
+
+async def test_a_pseudonymised_build_keeps_its_key_sealed_and_a_rebuild_draws_the_same(client):
+    from sqlalchemy import select
+
+    from app.core.database import async_session
+    from app.models.pseudonym_key import PseudonymKey
+
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    dst = await _managed(client, headers, ws, "cohort_p", seed=False)
+    corr = await _managed(client, headers, ws, "corr", seed=True)
+    payload = {
+        "membershipSql": MEMBERSHIP, "level": "patient",
+        "target": {"kind": "new-database", "dataSourceId": dst},
+        "tables": [{"table": "person"}, {"table": "visit_occurrence"}],
+        "pseudonymization": {"method": "hmac", "correspondence": {"dataSourceId": corr, "schemaName": "pseudo"}},
+    }
+    job = await _derive(client, headers, ws, src, payload)
+    assert job["status"] == "done", job
+    assert {t["table"]: t["skipped"] for t in job["result"]["tables"]}["concept"] is True
+    first = await _person_ids(client, headers, dst)
+    assert len(first) == 5 and not first & set(range(1, 21))
+    derived = (await client.get(f"{API}/data-sources/{dst}", headers=headers)).json()
+    assert derived["derivedFrom"]["derivationId"] == dst
+    assert "key" not in str(derived["derivedFrom"]).lower()
+
+    async with async_session() as db:
+        row = (await db.execute(select(PseudonymKey).where(PseudonymKey.id == dst))).scalar_one()
+        assert row.workspace_id == ws and row.sealed_key.startswith("v")
+
+    rows = (await client.post(f"{API}/data-sources/{corr}/query", headers=headers, json={
+        "sql": "SELECT original_id, pseudonym FROM pseudo.linkr_pseudonyms WHERE kind = 'patient'",
+    })).json()["rows"]
+    assert {r["pseudonym"] for r in rows} == first and {r["original_id"] for r in rows} == {"1", "2", "3", "4", "5"}
+
+    job = await _derive(client, headers, ws, src, payload)
+    assert job["status"] == "done" and await _person_ids(client, headers, dst) == first
+
+    # Not kept: a new key, other pseudonyms, and no key left behind.
+    job = await _derive(client, headers, ws, src, {**payload, "pseudonymization": {"method": "hmac", "keepKey": False}})
+    assert job["status"] == "done" and not await _person_ids(client, headers, dst) & first
+    async with async_session() as db:
+        assert (await db.execute(select(PseudonymKey).where(PseudonymKey.id == dst))).scalar_one_or_none() is None
+
+
+async def test_a_followed_cohort_reuses_the_key_of_another_derivation(client):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    a = await _managed(client, headers, ws, "first", seed=False)
+    b = await _managed(client, headers, ws, "second", seed=False)
+    base = {"membershipSql": MEMBERSHIP, "level": "patient", "pseudonymization": {"method": "hmac"}}
+    assert (await _derive(client, headers, ws, src, {**base, "target": {"kind": "new-database", "dataSourceId": a}}))["status"] == "done"
+    job = await _derive(client, headers, ws, src, {
+        **base, "target": {"kind": "new-database", "dataSourceId": b},
+        "pseudonymization": {"method": "hmac", "reuseKeyOf": a},
+    })
+    assert job["status"] == "done"
+    assert await _person_ids(client, headers, a) == await _person_ids(client, headers, b)
+
+
+async def test_the_options_are_checked_before_any_job(client):
+    headers = await _admin(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    src = await _managed(client, headers, ws, "src", seed=True)
+    dst = await _managed(client, headers, ws, "cohort_x", seed=False)
+    target = {"kind": "new-database", "dataSourceId": dst}
+
+    async def status(**extra) -> int:
+        r = await client.post(f"{API}/data-sources/{src}/derive", headers=headers, json={
+            "membershipSql": MEMBERSHIP, "level": "visit", "target": target, **extra,
+        })
+        return r.status_code
+
+    assert await status(scope="visit_detail") == 400
+    assert await status(dates=[{"table": "person", "column": "d", "precision": "day"}]) == 400
+    assert await status(pseudonymization={"method": "sha1"}) == 400
+    assert await status(pseudonymization={"method": "hmac", "reuseKeyOf": "nope"}) == 400
+    # The correspondence never goes into the derived database itself.
+    assert await status(pseudonymization={"method": "random", "correspondence": {"dataSourceId": dst, "schemaName": "p"}}) == 400

@@ -4,13 +4,16 @@
  * request the server runs (see `apps/api/app/services/data/cohort_derive.py`).
  */
 import { ensureUniqueAlias, generateAlias } from '@/lib/alias'
-import type { DeriveRequest } from '@/lib/api/data-sources'
-import { buildCohortMembershipSql, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
+import type { DerivePlanTable, DeriveRequest, DeriveScope } from '@/lib/api/data-sources'
+import { buildCohortMembershipSql, conceptEventTables, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
 import { withClassRelations } from '@/lib/schema-classes/inject'
+import { eventRelations } from '@/lib/schema-classes/relations'
+import { fieldColumn, specAt, specTables } from '@/lib/schema-classes/spec'
 import { localized } from '@/lib/localized'
 import { sanitizeSchemaMapping } from '@/lib/schema-helpers'
 import type {
-  Cohort, ConnectionConfig, DataSource, DatabaseConnectionConfig, DerivedFrom, LocalizedString,
+  Cohort, CohortLevel, ConnectionConfig, CriteriaGroupNode, CriteriaTreeNode, DataSource, DatabaseConnectionConfig,
+  DerivationOptions, DerivedFrom, LocalizedString, SchemaMapping,
 } from '@/types'
 
 /** A SQL schema name the server accepts (`cohort_derive_service._SCHEMA_NAME`). */
@@ -72,6 +75,142 @@ export function derivableReason(definition: DerivationDefinition, source: DataSo
   return null
 }
 
+// --- Minimisation and pseudonymisation --------------------------------------
+
+/** The scopes a cohort at `level` can be derived with: its level, or a wider one. */
+export function derivationScopes(level: CohortLevel): DeriveScope[] {
+  const all: DeriveScope[] = ['patient', 'visit', 'visit_detail']
+  const at = all.indexOf(level as DeriveScope)
+  return at < 0 ? [] : all.slice(0, at + 1)
+}
+
+export const planTableName = (p: { schema: string | null; table: string }) => (p.schema ? `${p.schema}.${p.table}` : p.table)
+
+/** A table a derivation may copy: one never refused as unfilterable. */
+export function copyableTables(plan: readonly DerivePlanTable[]): DerivePlanTable[] {
+  return plan.filter((p) => !p.unresolved && !p.unfilterable)
+}
+
+/** The tables holding no patient data (a vocabulary, the care sites): copied whole. */
+export function personlessTables(plan: readonly DerivePlanTable[]): DerivePlanTable[] {
+  return copyableTables(plan).filter((p) => !p.filter)
+}
+
+export type VariableSelection = NonNullable<DerivationOptions['variables']>
+
+/**
+ * The concept columns of each event table and the concepts it keeps, for a
+ * derivation keeping only `variables`. A table is searched as a concept
+ * criterion would search it (`conceptEventTables`): one not searched keeps no
+ * concept, so it is created empty. `unfiltered`: the event relations whose
+ * concept is no plain column of their table (SQL, an expression, a code looked
+ * up in a thesaurus) — their table keeps every variable.
+ */
+export function variableFilters(
+  mapping: SchemaMapping,
+  variables: VariableSelection,
+): { filters: NonNullable<DeriveRequest['variables']>; unfiltered: string[] } {
+  const searched = new Set(conceptEventTables(
+    { conceptIds: variables.conceptIds, conceptNames: {}, dictionaryKeys: variables.dictionaryKeys },
+    mapping,
+  ))
+  const tables = new Map<string, { schemaName: string | null; table: string; columns: Set<string>; ids: Set<number>; whole: boolean }>()
+  const unfiltered: string[] = []
+  for (const relation of eventRelations(mapping)) {
+    const spec = specAt(mapping, relation.specKey)
+    const grain = specTables(spec)[0]
+    const label = relation.key ?? relation.name
+    if (!grain) {
+      unfiltered.push(label)
+      continue
+    }
+    const k = `${grain.schema ?? ''}.${grain.table}`.toLowerCase()
+    const entry = tables.get(k) ?? { schemaName: grain.schema ?? null, table: grain.table, columns: new Set(), ids: new Set(), whole: false }
+    tables.set(k, entry)
+    const onGrain = (field: string) => {
+      const c = fieldColumn(spec, field)
+      return c && c.table.alias === grain.alias ? c.column : null
+    }
+    const conceptColumn = onGrain('concept_id')
+    if (!conceptColumn || relation.compositeConceptKey) {
+      entry.whole = true
+      unfiltered.push(label)
+      continue
+    }
+    entry.columns.add(conceptColumn)
+    const sourceColumn = onGrain('source_concept_id')
+    if (sourceColumn) entry.columns.add(sourceColumn)
+    if (relation.key && searched.has(relation.key)) for (const id of variables.conceptIds) entry.ids.add(id)
+  }
+  const filters = [...tables.values()]
+    .filter((t) => !t.whole)
+    .map((t) => ({ schemaName: t.schemaName, table: t.table, columns: [...t.columns], conceptIds: [...t.ids] }))
+  return { filters, unfiltered }
+}
+
+/** The birth date kept to `precision`: the mapped birth date column, truncated
+ *  (the server also empties OMOP's day and month of birth beside it). */
+export function birthDates(
+  mapping: SchemaMapping,
+  precision: DerivationOptions['birthPrecision'],
+): NonNullable<DeriveRequest['dates']> {
+  if (!precision || precision === 'day') return []
+  const c = fieldColumn(mapping.patient, 'birth_date')
+  return c ? [{ schemaName: c.table.schema ?? null, table: c.table.table, column: c.column, precision }] : []
+}
+
+/** Every concept the cohort's enabled criteria name, with their dictionaries —
+ *  undefined dictionaries when one criterion does not say. */
+export function criteriaConcepts(tree: CriteriaGroupNode | undefined): VariableSelection {
+  const ids = new Set<number>()
+  const names: Record<number, string> = {}
+  const dictionaries = new Set<string>()
+  let everyDictionaryKnown = true
+  const visit = (node: CriteriaTreeNode) => {
+    if (!node.enabled) return
+    if (node.kind === 'group') {
+      node.children.forEach(visit)
+      return
+    }
+    if (node.type !== 'concept') return
+    const config = node.config as { conceptIds?: number[]; conceptNames?: Record<number, string>; dictionaryKeys?: string[] }
+    for (const id of config.conceptIds ?? []) {
+      ids.add(id)
+      if (config.conceptNames?.[id]) names[id] = config.conceptNames[id]
+    }
+    if (config.dictionaryKeys?.length) config.dictionaryKeys.forEach((k) => dictionaries.add(k))
+    else if (config.conceptIds?.length) everyDictionaryKnown = false
+  }
+  if (tree) visit(tree)
+  return {
+    conceptIds: [...ids],
+    conceptNames: names,
+    ...(everyDictionaryKnown && dictionaries.size ? { dictionaryKeys: [...dictionaries] } : {}),
+  }
+}
+
+/** Two concept selections as one. */
+export function mergeVariables(a: VariableSelection | undefined, b: VariableSelection): VariableSelection {
+  if (!a) return b
+  const known = a.dictionaryKeys && b.dictionaryKeys
+  return {
+    conceptIds: [...new Set([...a.conceptIds, ...b.conceptIds])],
+    conceptNames: { ...a.conceptNames, ...b.conceptNames },
+    ...(known ? { dictionaryKeys: [...new Set([...a.dictionaryKeys!, ...b.dictionaryKeys!])] } : {}),
+  }
+}
+
+/** The request fields `options` stand for, against the mapping of the day. */
+function optionFields(options: DerivationOptions, mapping: SchemaMapping): Partial<DeriveRequest> {
+  return {
+    scope: options.scope as DeriveScope,
+    ...(options.tables ? { tables: options.tables.map((t) => ({ schemaName: t.schema, table: t.table })) } : {}),
+    ...(options.variables ? { variables: variableFilters(mapping, options.variables).filters } : {}),
+    dates: birthDates(mapping, options.birthPrecision),
+    ...(options.pseudonymization ? { pseudonymization: options.pseudonymization } : {}),
+  }
+}
+
 /** The request for a derivation of `source`, without its target. */
 export function derivationRequest(input: {
   cohort: DerivationDefinition & { id?: string }
@@ -81,6 +220,8 @@ export function derivationRequest(input: {
   target: DerivedFrom['target']
   /** Each concept searched only in the tables the concept count found it in. */
   narrowing?: RelationNarrowing
+  /** What is kept and how it is pseudonymised; absent: everything, as it is. */
+  options?: DerivationOptions
 }): Omit<DeriveRequest, 'target'> {
   const { cohort, source } = input
   const built = source.schemaMapping ? buildCohortMembershipSql(cohort as Cohort, source.schemaMapping, input.narrowing) : null
@@ -99,6 +240,7 @@ export function derivationRequest(input: {
     ...(cohort.customSql?.trim() ? { customSql: cohort.customSql } : {}),
     target: input.target,
     copyPersonless: input.copyPersonless,
+    ...(input.options ? { options: input.options } : {}),
   }
   return {
     membershipSql,
@@ -106,6 +248,7 @@ export function derivationRequest(input: {
     copyPersonless: input.copyPersonless,
     ...(cohort.id ? { cohortId: cohort.id } : {}),
     derivedFrom,
+    ...(input.options && source.schemaMapping ? optionFields(input.options, source.schemaMapping) : {}),
   }
 }
 
@@ -130,6 +273,7 @@ export function rebuildRequest(
       source: parent,
       copyPersonless: from.copyPersonless ?? true,
       target: 'new-database',
+      ...(from.options ? { options: from.options } : {}),
     }),
     target: { kind: 'new-database', dataSourceId: derived.id },
   }

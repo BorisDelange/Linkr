@@ -492,7 +492,7 @@ async def derive_plan(
     source = await _load_source(db, source_id, user, "databases:read")
     try:
         async with jobs.tracked(user.id, f"{_named(source)} · plan a cohort derivation", workspace_id=source.workspace_id):
-            return await cohort_derive_service.plan(db, source, body.level, user.id)
+            return await cohort_derive_service.plan(db, source, body.level, body.scope, user.id)
     except ValueError as e:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
 
@@ -556,6 +556,9 @@ async def derive(
     notified when the job starts and when it ends."""
     source = await _load_source(db, source_id, user, "databases:read")
     target = await _load_source(db, body.target.data_source_id, user, "databases:write")
+    pseudo = body.pseudonymization
+    if pseudo is not None and pseudo.correspondence is not None:
+        await _load_source(db, pseudo.correspondence.data_source_id, user, "databases:write")
     if source.workspace_id is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "only a workspace database can be derived")
     cohort = None

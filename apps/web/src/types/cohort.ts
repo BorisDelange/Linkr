@@ -278,6 +278,31 @@ export interface CohortDerivation {
   registeredId?: string
   builtAt: string
   patientCount: number
+  /** What names the derivation server-side: its key, its correspondence rows. */
+  derivationId?: string
+  options?: DerivationOptions
+}
+
+/**
+ * What a derivation keeps — data minimisation — and how it pseudonymises: the
+ * settings as chosen, from which the request is rebuilt against the mapping of
+ * the day (see `derivationRequest`).
+ */
+export interface DerivationOptions {
+  /** The individuals kept: the cohort's level, or a wider one. */
+  scope: CohortLevel
+  /** The tables copied (schema null for the default one); absent: every one. */
+  tables?: { schema: string | null; table: string }[]
+  /** Absent: every variable. */
+  variables?: { conceptIds: number[]; conceptNames: Record<number, string>; dictionaryKeys?: string[] }
+  /** Absent: the birth dates as they are. */
+  birthPrecision?: 'year' | 'month' | 'day'
+  pseudonymization?: {
+    method: 'hmac' | 'random'
+    keepKey: boolean
+    reuseKeyOf?: string
+    correspondence?: { dataSourceId: string; schemaName: string; tableName?: string }
+  }
 }
 
 /**
@@ -294,6 +319,10 @@ export interface DerivedFrom {
   target: DerivationTargetKind
   /** Whether the tables with no patient id were copied, so a rebuild does the same. */
   copyPersonless?: boolean
+  /** What it kept and how it pseudonymised, so a rebuild does the same. */
+  options?: DerivationOptions
+  /** Set by the server: what names the derivation, for another one to reuse its key. */
+  derivationId?: string
   /** A declared SQL schema: the schema the derivation created, set by the
    *  server — the only one deleting the database may drop. */
   schemaName?: string

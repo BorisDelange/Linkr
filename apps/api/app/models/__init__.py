@@ -17,6 +17,7 @@ from app.models.data_catalog import DataCatalog
 from app.models.mapping_project import ConceptMapping, MappingProject, ServiceMapping
 from app.models.source_concept_id import SourceConceptIdEntry, SourceConceptIdRange
 from app.models.database_credential import DatabaseCredential
+from app.models.pseudonym_key import PseudonymKey
 from app.models.data_source import DataSource, DataSourceFile
 from app.models.dataset import DatasetAnalysis, DatasetFile
 from app.models.dq_rule_set import DqCustomCheck, DqRuleSet, DqRunHistory
@@ -107,4 +108,5 @@ __all__ = [
     "WikiPage",
     "Role",
     "DatabaseCredential",
+    "PseudonymKey",
 ]

@@ -45,6 +45,15 @@ describe('classifyTable', () => {
     expect(classifyTable(chartevents, 'patient', ids)).toEqual({ kind: 'patient', column: 'subject_id' })
   })
 
+  it('filters a table carrying only a finer id on the kept stays or unit stays', () => {
+    const transfers = ['hadm_id', 'careunit']
+    const monitor = ['stay_id', 'value']
+    expect(classifyTable(transfers, 'patient', ids)).toEqual({ kind: 'visit', column: 'hadm_id' })
+    expect(classifyTable(monitor, 'visit', ids)).toEqual({ kind: 'visit_detail', column: 'stay_id' })
+    const sql = buildTableStatsSql(cohort('patient'), mapping, 'transfers', transfers)!
+    expect(sql).toMatch(/visit_id AS key FROM linkr_visit WHERE linkr_visit\.patient_id IN \(SELECT patient_id FROM m\)/)
+  })
+
   it('leaves a table with no id unfiltered', () => {
     expect(classifyTable(vocabulary, 'patient', ids)).toBeNull()
   })

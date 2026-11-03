@@ -161,14 +161,29 @@ export interface DerivePlanTable {
   /** The relation that reads this table without a patient id column: never
    *  copied, since its rows cannot be filtered. */
   unresolved?: string | null
+  /** An id column the table carries with no kept set to filter it on: never copied. */
+  unfilterable?: string | null
+  columns?: string[]
+  /** The id columns a pseudonymised build replaces. */
+  pseudonymized?: string[]
 }
 
-/** What deriving a cohort of this database at `level` would do with each table. */
-export function fetchDerivePlan(dataSourceId: string, level: CohortLevel): Promise<DerivePlanTable[]> {
+/** What deriving a cohort of this database at `level`, keeping `scope`, would
+ *  do with each table. */
+export function fetchDerivePlan(dataSourceId: string, level: CohortLevel, scope?: DeriveScope): Promise<DerivePlanTable[]> {
   return apiRequest(`/data-sources/${dataSourceId}/derive-plan`, {
     method: 'POST',
-    body: JSON.stringify({ level }),
+    body: JSON.stringify({ level, ...(scope ? { scope } : {}) }),
   })
+}
+
+/** Which individuals a derivation keeps: the cohort's level or a wider one. */
+export type DeriveScope = 'patient' | 'visit' | 'visit_detail'
+
+export interface DeriveTableRef {
+  /** Null or absent for the database's default schema. */
+  schemaName?: string | null
+  table: string
 }
 
 export type DeriveTarget =
@@ -193,6 +208,19 @@ export interface DeriveRequest {
   target: DeriveTarget
   cohortId?: string
   derivedFrom?: DerivedFrom
+  scope?: DeriveScope
+  /** The tables copied; absent: all, `copyPersonless` deciding the ones with no patient. */
+  tables?: DeriveTableRef[]
+  /** An event table keeps the rows whose concept columns hold one of the ids. */
+  variables?: (DeriveTableRef & { columns: string[]; conceptIds: number[] })[]
+  dates?: (DeriveTableRef & { column: string; precision: 'year' | 'month' | 'null' })[]
+  pseudonymization?: {
+    method: 'hmac' | 'random'
+    keepKey?: boolean
+    /** Another derivation's `derivationId`, whose key draws the same pseudonyms. */
+    reuseKeyOf?: string
+    correspondence?: { dataSourceId: string; schemaName: string; tableName?: string }
+  }
 }
 
 /**

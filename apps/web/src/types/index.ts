@@ -946,6 +946,7 @@ export type {
   Cohort,
   CohortMaterialization,
   CohortDerivation,
+  DerivationOptions,
   DerivationTargetKind,
   DerivedFrom,
   AttritionStep,

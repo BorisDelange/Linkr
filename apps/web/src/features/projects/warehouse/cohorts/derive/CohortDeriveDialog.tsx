@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, RefreshCw } from 'lucide-react'
@@ -23,26 +23,39 @@ import {
 } from '@/components/ui/database-location-field'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { FieldError } from '@/components/ui/field-error'
+import { FieldInfo } from '@/components/ui/field-info'
 import { FormField } from '@/components/ui/form-field'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { SectionLabel } from '@/components/ui/section-label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { fetchDerivePlan, type DerivePlanTable } from '@/lib/api/data-sources'
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { fetchDerivePlan, type DerivePlanTable, type DeriveScope } from '@/lib/api/data-sources'
 import { generateAlias } from '@/lib/duckdb/engine'
 import { formatDateTime } from '@/lib/format-helpers'
 import { localized, toLocalized } from '@/lib/localized'
 import { paths } from '@/lib/paths'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { cohortRelationNarrowing } from '../relation-narrowing'
-import type { Cohort, CohortDerivation, DataSource } from '@/types'
+import type { Cohort, CohortDerivation, DataSource, DerivationOptions } from '@/types'
 import {
+  copyableTables,
   derivationRequest,
   DERIVE_SCHEMA_NAME,
   defaultDeriveSchemaName,
   derivableReason,
+  derivationScopes,
   isWritableTarget,
+  personlessTables,
+  planTableName,
+  type VariableSelection,
 } from '@/lib/cohort-derive'
+import { DeriveContentTab, type VariablesMode } from './DeriveContentTab'
+import { DEFAULT_PSEUDONYMS, deriveDraft, draftFromDerivations, saveDeriveDraft } from './derive-draft'
+import { DerivePseudonymTab } from './DerivePseudonymTab'
+import {
+  pseudonymSettingsValid, type BirthPrecision, type KeyedDerivation, type PseudonymSettings,
+} from './pseudonym-settings'
 
 type TargetKind = 'new-database' | 'schema'
 
@@ -74,19 +87,47 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
     [dataSources, source.workspaceId],
   )
 
-  const [kind, setKind] = useState<TargetKind>('new-database')
-  const [name, setName] = useState(cohortName)
-  const [location, setLocation] = useState<DatabaseLocation>(DEFAULT_DATABASE_LOCATION)
+  const draftKey = cohort.id ?? cohortKey
+  // The dialog as it was left for this cohort, else what its last derivation kept.
+  const [initial] = useState(() => {
+    const draft = deriveDraft(draftKey)
+    if (draft) return draft
+    const recorded = draftFromDerivations(cohort.derivations)
+    return recorded.scope && derivationScopes(cohort.level).includes(recorded.scope) ? recorded : { ...recorded, scope: undefined }
+  })
+  const [kind, setKind] = useState<TargetKind>(initial.kind ?? 'new-database')
+  const [name, setName] = useState(initial.name ?? cohortName)
+  const [location, setLocation] = useState<DatabaseLocation>(initial.location ?? DEFAULT_DATABASE_LOCATION)
   const [locationValid, setLocationValid] = useState(true)
-  const [targetId, setTargetId] = useState(() => (isWritableTarget(source) ? source.id : targets[0]?.id ?? ''))
-  const [schemaName, setSchemaName] = useState(() => defaultDeriveSchemaName(cohort))
-  const [register, setRegister] = useState(true)
-  const [copyPersonless, setCopyPersonless] = useState(true)
-  const [plan, setPlan] = useState<DerivePlanTable[] | null>(null)
-  const [planError, setPlanError] = useState<string | null>(null)
+  const [targetId, setTargetId] = useState(() =>
+    initial.targetId && targets.some((d) => d.id === initial.targetId)
+      ? initial.targetId
+      : isWritableTarget(source) ? source.id : targets[0]?.id ?? '')
+  const [schemaName, setSchemaName] = useState(() => initial.schemaName ?? defaultDeriveSchemaName(cohort))
+  const [register, setRegister] = useState(initial.register ?? true)
+  // Keyed by the scope it was read for: another scope's plan is not this one's.
+  const [planned, setPlanned] = useState<{ scope: DeriveScope; tables?: DerivePlanTable[]; error?: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [rebuilding, setRebuilding] = useState<CohortDerivation | null>(null)
+  const [tab, setTab] = useState(initial.tab ?? 'destination')
+
+  const [scope, setScope] = useState<DeriveScope>(initial.scope ?? (cohort.level as DeriveScope))
+  const [variablesMode, setVariablesMode] = useState<VariablesMode>(initial.variablesMode ?? 'all')
+  const [variables, setVariables] = useState<VariableSelection | undefined>(initial.variables)
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set(initial.excluded ?? []))
+  // Tables a recorded derivation ticked: the others are unticked once the plan lists them.
+  const included = useRef<string[] | undefined>(initial.included)
+  // On by default: the CNIL referential asks each project's data for pseudonyms of its own.
+  const [pseudonyms, setPseudonyms] = useState<PseudonymSettings>(initial.pseudonyms ?? DEFAULT_PSEUDONYMS)
+  const [birthPrecision, setBirthPrecision] = useState<BirthPrecision>(initial.birthPrecision ?? 'month')
+
+  useEffect(() => {
+    saveDeriveDraft(draftKey, {
+      tab, kind, name, location, targetId, schemaName, register, scope, variablesMode, variables,
+      excluded: [...excluded], included: included.current, pseudonyms, birthPrecision,
+    })
+  }, [draftKey, tab, kind, name, location, targetId, schemaName, register, scope, variablesMode, variables, excluded, pseudonyms, birthPrecision])
 
   const blocked = derivableReason(cohort, source)
   const target = targets.find((d) => d.id === targetId)
@@ -96,21 +137,82 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   useEffect(() => {
     if (blocked) return
     let cancelled = false
-    fetchDerivePlan(source.id, cohort.level)
-      .then((p) => { if (!cancelled) setPlan(p) })
-      .catch((e) => { if (!cancelled) setPlanError(e instanceof Error ? e.message : String(e)) })
+    fetchDerivePlan(source.id, cohort.level, scope)
+      .then((tables) => {
+        if (cancelled) return
+        setPlanned({ scope, tables })
+        const kept = included.current
+        if (kept) {
+          setExcluded(new Set(copyableTables(tables).map(planTableName).filter((n) => !kept.includes(n))))
+          included.current = undefined
+        }
+      })
+      .catch((e) => { if (!cancelled) setPlanned({ scope, error: e instanceof Error ? e.message : String(e) }) })
     return () => { cancelled = true }
-  }, [source.id, cohort.level, blocked])
+  }, [source.id, cohort.level, scope, blocked])
+  const plan = planned?.scope === scope ? planned.tables ?? null : null
+  const planError = planned?.scope === scope ? planned.error ?? null : null
 
-  const filtered = plan?.filter((p) => p.filter) ?? []
-  const personless = plan?.filter((p) => !p.filter && !p.unresolved) ?? []
-  const unresolved = plan?.filter((p) => !p.filter && p.unresolved) ?? []
-
-  const canConfirm = !blocked && !busy && (
-    kind === 'new-database'
-      ? !!name.trim() && locationValid
-      : !!target && schemaValid
+  const copied = useMemo(
+    () => (plan ? copyableTables(plan).filter((p) => !excluded.has(planTableName(p))) : []),
+    [plan, excluded],
   )
+  const idColumns = useMemo(() => [...new Set(copied.flatMap((p) => p.pseudonymized ?? []))], [copied])
+
+  // The correspondence never goes into the derived database itself, nor into the
+  // DuckDB file the cohort is read from (one file cannot be opened twice) — a
+  // Postgres source can hold it, in a schema of its own.
+  const correspondenceTargets = useMemo(() => {
+    const sourceIsFile = (source.connectionConfig as { engine?: string }).engine === 'duckdb'
+    return targets.filter((d) => (kind === 'new-database' || d.id !== targetId) && !(sourceIsFile && d.id === source.id))
+  }, [targets, kind, targetId, source])
+  // Derivations of this workspace whose HMAC key is kept: another can draw the
+  // same pseudonyms with it (a cohort followed over time).
+  const keyedDerivations = useMemo<KeyedDerivation[]>(() => {
+    const out = new Map<string, string>()
+    const keyed = (o: DerivationOptions | undefined) => o?.pseudonymization?.method === 'hmac' && o.pseudonymization.keepKey
+    for (const d of dataSources) {
+      const from = d.derivedFrom
+      if (d.workspaceId === source.workspaceId && from?.derivationId && keyed(from.options)) {
+        out.set(from.derivationId, localized(d.name, i18n.language))
+      }
+    }
+    for (const d of cohort.derivations ?? []) {
+      if (d.derivationId && keyed(d.options) && !out.has(d.derivationId)) {
+        const ds = dataSources.find((x) => x.id === d.targetId)
+        const name = ds ? localized(ds.name, i18n.language) : d.targetId
+        out.set(d.derivationId, d.schemaName ? `${name} · ${d.schemaName}` : name)
+      }
+    }
+    return [...out].map(([derivationId, label]) => ({ derivationId, label }))
+  }, [dataSources, source.workspaceId, cohort.derivations, i18n.language])
+
+  const options = (): DerivationOptions => ({
+    scope,
+    tables: copied.map((p) => ({ schema: p.schema, table: p.table })),
+    ...(variablesMode === 'list' && variables ? { variables } : {}),
+    ...(birthPrecision !== 'day' ? { birthPrecision } : {}),
+    ...(pseudonyms.enabled ? {
+      pseudonymization: {
+        method: pseudonyms.method,
+        keepKey: pseudonyms.method === 'hmac' && pseudonyms.keepKey,
+        ...(pseudonyms.method === 'hmac' && pseudonyms.reuseKeyOf ? { reuseKeyOf: pseudonyms.reuseKeyOf } : {}),
+        ...(pseudonyms.correspondenceId ? {
+          correspondence: {
+            dataSourceId: pseudonyms.correspondenceId,
+            schemaName: pseudonyms.correspondenceSchema,
+            tableName: pseudonyms.correspondenceTable,
+          },
+        } : {}),
+      },
+    } : {}),
+  })
+  // Whether every table holding no patient is copied, as the request also says.
+  const copyPersonless = !!plan && personlessTables(plan).every((p) => !excluded.has(planTableName(p)))
+  const contentReady = !!plan && copied.length > 0 && (variablesMode === 'all' || !!variables?.conceptIds.length)
+
+  const destinationReady = kind === 'new-database' ? !!name.trim() && locationValid : !!target && schemaValid
+  const canConfirm = !blocked && !busy && destinationReady && contentReady && pseudonymSettingsValid(pseudonyms)
 
   // The copy runs as a job of the workspace: once it is queued there is nothing
   // left to do here, and the footer's jobs panel follows it. Only a refusal
@@ -134,7 +236,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
 
   const confirm = () => {
     if (!canConfirm) return
-    const base = { cohort, cohortKey, source, copyPersonless }
+    const base = { cohort, cohortKey, source, copyPersonless, options: options() }
     if (kind === 'new-database') {
       // To the new database straight away: it reads "being set up" until the
       // job ends, then connects in place.
@@ -164,7 +266,11 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   const rebuild = (d: CohortDerivation) => {
     setRebuilding(null)
     void run(async () => runDerivation(source.id, {
-      ...derivationRequest({ cohort, cohortKey, source, copyPersonless, target: d.kind, narrowing: await narrowing() }),
+      // With what it kept before: a rebuild redraws the same database, never a
+      // wider one. One recorded before the options were has none: everything.
+      ...derivationRequest({
+        cohort, cohortKey, source, copyPersonless: true, options: d.options, target: d.kind, narrowing: await narrowing(),
+      }),
       target: d.kind === 'new-database'
         ? { kind: 'new-database', dataSourceId: d.targetId }
         : { kind: 'schema', dataSourceId: d.targetId, schemaName: d.schemaName ?? '', replace: true },
@@ -187,6 +293,10 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
         open={open}
         onOpenChange={onOpenChange}
         kind="settings"
+        // The workbench's height at the settings width: the table list of the
+        // Content tab fills it down to the footer, and no tab moves the triggers.
+        className="flex h-[85vh] max-h-[85vh] flex-col"
+        contentClassName="flex min-h-0 flex-1 flex-col"
         title={t('cohort_derive.title')}
         description={t('cohort_derive.description', { name: cohortName })}
         onConfirm={confirm}
@@ -207,7 +317,16 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
         {blocked ? (
           <p className="text-sm text-muted-foreground">{t(`cohort_derive.unavailable_${blocked}`)}</p>
         ) : (
-          <>
+          <DeriveTabs
+            value={tab}
+            onValueChange={setTab}
+            tabs={[
+              {
+                value: 'destination',
+                label: t('cohort_derive.tab_destination'),
+                incomplete: !destinationReady,
+                content: (
+                  <>
             {derivations.length > 0 && (
               <div className="space-y-1.5">
                 <SectionLabel>{t('cohort_derive.existing')}</SectionLabel>
@@ -294,12 +413,12 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
                 <FieldError message={schemaName && !schemaValid ? t('cohort_derive.schema_name_invalid') : null} />
                 {isPostgresTarget && (
                   <>
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-center gap-2">
                       <Checkbox id="derive-register" checked={register} onCheckedChange={(v) => setRegister(v === true)} />
-                      <div className="space-y-0.5">
-                        <Label htmlFor="derive-register">{t('cohort_derive.register')}</Label>
-                        <p className="text-xs text-muted-foreground">{t('cohort_derive.register_hint')}</p>
-                      </div>
+                      <Label htmlFor="derive-register">
+                        {t('cohort_derive.register')}
+                        <FieldInfo text={t('cohort_derive.register_hint')} />
+                      </Label>
                     </div>
                     {register && (
                       <FormField label={t('cohort_derive.database_name')}>
@@ -311,23 +430,48 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
               </>
             )}
 
-            <div className="flex items-start gap-2">
-              <Checkbox id="derive-personless" checked={copyPersonless} onCheckedChange={(v) => setCopyPersonless(v === true)} />
-              <div className="space-y-0.5">
-                <Label htmlFor="derive-personless">{t('cohort_derive.copy_personless')}</Label>
-                <p className="text-xs text-muted-foreground">{t('cohort_derive.copy_personless_hint')}</p>
-              </div>
-            </div>
-
-            <DerivePlan
-              filtered={filtered}
-              personless={personless}
-              unresolved={unresolved}
-              copyPersonless={copyPersonless}
-              loading={!plan && !planError}
-              error={planError}
-            />
-          </>
+                  </>
+                ),
+              },
+              {
+                value: 'content',
+                label: t('cohort_derive.tab_content'),
+                incomplete: !!plan && !contentReady,
+                content: (
+                  <DeriveContentTab
+                    cohort={cohort}
+                    source={source}
+                    scope={scope}
+                    onScopeChange={setScope}
+                    variablesMode={variablesMode}
+                    onVariablesModeChange={setVariablesMode}
+                    variables={variables}
+                    onVariablesChange={setVariables}
+                    plan={plan}
+                    planError={planError}
+                    excluded={excluded}
+                    onExcludedChange={setExcluded}
+                  />
+                ),
+              },
+              {
+                value: 'pseudonymization',
+                label: t('cohort_derive.tab_pseudonymization'),
+                incomplete: !pseudonymSettingsValid(pseudonyms),
+                content: (
+                  <DerivePseudonymTab
+                    settings={pseudonyms}
+                    onChange={setPseudonyms}
+                    birthPrecision={birthPrecision}
+                    onBirthPrecisionChange={setBirthPrecision}
+                    idColumns={idColumns}
+                    correspondenceTargets={correspondenceTargets}
+                    keyedDerivations={keyedDerivations}
+                  />
+                ),
+              },
+            ]}
+          />
         )}
         <FieldError message={error} />
       </DialogShell>
@@ -355,76 +499,30 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
   )
 }
 
-const FILTER_KEY: Record<NonNullable<DerivePlanTable['filter']>, string> = {
-  patient: 'cohort_derive.filter_patient',
-  visit: 'cohort_derive.filter_visit',
-  visit_detail: 'cohort_derive.filter_visit_detail',
-  parent_visit: 'cohort_derive.filter_parent_visit',
+interface DeriveTab {
+  value: string
+  label: string
+  content: ReactNode
+  /** Dot on the trigger: something on that tab still holds the confirm back. */
+  incomplete?: boolean
 }
 
-const tableName = (p: { schema: string | null; table: string }) => (p.schema ? `${p.schema}.${p.table}` : p.table)
-
-/** What will happen to each table, before anything runs. */
-function DerivePlan({
-  filtered,
-  personless,
-  unresolved,
-  copyPersonless,
-  loading,
-  error,
-}: {
-  filtered: DerivePlanTable[]
-  personless: DerivePlanTable[]
-  unresolved: DerivePlanTable[]
-  copyPersonless: boolean
-  loading: boolean
-  error: string | null
-}) {
-  const { t } = useTranslation()
-  if (error) return <FieldError message={t('cohort_derive.plan_error', { error })} />
-  if (loading) {
-    return (
-      <p className="flex items-center gap-2 text-xs text-muted-foreground">
-        <Loader2 size={12} className="animate-spin" />
-        {t('cohort_derive.plan_loading')}
-      </p>
-    )
-  }
+/** The dialog's tabs, filling its fixed height: the active panel scrolls on
+ *  its own, and a panel may stretch a block of its own down to the footer. */
+function DeriveTabs({ tabs, value, onValueChange }: { tabs: DeriveTab[]; value: string; onValueChange: (v: string) => void }) {
   return (
-    <div className="space-y-1.5">
-      <SectionLabel>
-        {t('cohort_derive.plan_title', { filtered: filtered.length, personless: personless.length })}
-      </SectionLabel>
-      <div className="max-h-48 overflow-auto rounded-md border">
-        <table className="w-full text-xs">
-          <tbody>
-            {filtered.map((p) => (
-              <tr key={tableName(p)} className="border-b last:border-0">
-                <td className="px-2 py-1 font-mono">{tableName(p)}</td>
-                <td className="px-2 py-1 text-muted-foreground">
-                  {t(FILTER_KEY[p.filter!], { column: p.column })}
-                </td>
-              </tr>
-            ))}
-            {personless.map((p) => (
-              <tr key={tableName(p)} className="border-b last:border-0">
-                <td className="px-2 py-1 font-mono">{tableName(p)}</td>
-                <td className="px-2 py-1 text-muted-foreground">
-                  {copyPersonless ? t('cohort_derive.filter_whole') : t('cohort_derive.filter_skipped')}
-                </td>
-              </tr>
-            ))}
-            {unresolved.map((p) => (
-              <tr key={tableName(p)} className="border-b last:border-0">
-                <td className="px-2 py-1 font-mono">{tableName(p)}</td>
-                <td className="px-2 py-1 text-destructive">
-                  {t('cohort_derive.filter_unresolved', { relation: p.unresolved })}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <Tabs value={value} onValueChange={onValueChange} className="min-h-0 flex-1">
+      <TabsList className="w-full shrink-0">
+        {tabs.map((tb) => (
+          <TabsTrigger key={tb.value} value={tb.value} className="flex-1 gap-1.5">
+            {tb.label}
+            {tb.incomplete && <span className="size-1.5 rounded-full bg-destructive" />}
+          </TabsTrigger>
+        ))}
+      </TabsList>
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto pt-3">
+        {tabs.find((tb) => tb.value === value)?.content}
       </div>
-    </div>
+    </Tabs>
   )
 }
