@@ -14,7 +14,8 @@ Usage: python worker.py <command> <spec.json>
 
 Protocol on stdout, one line each: `@@progress <0-100>`, `@@result <json>`,
 `@@checkpoint <json>` (`score`: how many source concepts of a stage are written
-for good, which is what a paused run resumes from); any other line is log. Errors go to stderr and a non-zero exit.
+for good, which is what a paused run resumes from, and each method file's size
+then); any other line is log. Errors go to stderr and a non-zero exit.
 
 Index layout (one directory per embedding configuration, one pair of files per
 vocabulary): `<dir>/<key>.ids.npy` (int64 concept ids) and `<dir>/<key>.vec.npy`
@@ -56,10 +57,13 @@ def result(payload: dict) -> None:
 
 def checkpoint(stage: str, done: int, outputs: dict) -> None:
     """The first `done` source concepts of `stage` are on disk: flush first, so a
-    kill right after this line cannot lose them."""
-    for o in outputs.values():
+    kill right after this line cannot lose them. `bytes` is each method file's
+    size then: what a kill writes past it is cut off."""
+    sizes = {}
+    for method, o in outputs.items():
         o.flush()
-    print("@@checkpoint " + json.dumps({"stage": stage, "done": done}), flush=True)
+        sizes[method] = o.size()
+    print("@@checkpoint " + json.dumps({"stage": stage, "done": done, "bytes": sizes}), flush=True)
 
 
 def sql_literal(value: str) -> str:
@@ -186,12 +190,46 @@ class MethodCsv:
     def flush(self) -> None:
         self.handle.flush()
 
+    def size(self) -> int:
+        return self.handle.buffer.tell()
+
     def close(self) -> None:
         self.handle.close()
 
 
 def method_file_name(method: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]", "_", method) + ".csv"
+
+
+# --- Model folders -----------------------------------------------------------
+
+
+def unsafe_model_reason(path: Path) -> str | None:
+    """Why a model folder must not be loaded, if it must not: code of its own (a
+    `.py` file, which a custom module would import) or, in `modules.json`, a
+    module that is not one of sentence-transformers' own."""
+    if any(p.is_file() for p in path.rglob("*.py")):
+        return "The model folder holds Python code (.py files): only plain sentence-transformers models are accepted"
+    modules = path / "modules.json"
+    if not modules.is_file():
+        return None
+    try:
+        entries = json.loads(modules.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return "The model's modules.json cannot be read"
+    if not isinstance(entries, list):
+        return "The model's modules.json is not a list of modules"
+    for entry in entries:
+        kind = entry.get("type") if isinstance(entry, dict) else None
+        if not isinstance(kind, str) or not kind.startswith("sentence_transformers."):
+            return f"The model uses a module that is not part of sentence-transformers ({kind}): it is not accepted"
+    return None
+
+
+def check_model_folder(path) -> None:
+    reason = unsafe_model_reason(Path(path))
+    if reason:
+        raise ValueError(reason)
 
 
 # --- Commands ----------------------------------------------------------------
@@ -227,17 +265,23 @@ def cmd_download(spec: dict) -> None:
     files = HfApi().list_repo_files(spec["repoId"])
     # A repo often carries the same weights in several formats (PyTorch, ONNX,
     # OpenVINO, TensorFlow): take the safetensors alone when there are some.
-    ignore = ["*.h5", "*.msgpack", "*.ot", "onnx/*", "openvino/*", "*.onnx"]
+    ignore = ["*.h5", "*.msgpack", "*.ot", "onnx/*", "openvino/*", "*.onnx", "*.py"]
     if any(f.endswith(".safetensors") for f in files):
         ignore.append("*.bin")
     log(f"Downloading {spec['repoId']} …")
     progress(5)
     snapshot_download(repo_id=spec["repoId"], local_dir=str(dest), ignore_patterns=ignore)
     progress(90)
+    reason = unsafe_model_reason(dest)
+    if reason:
+        import shutil
+
+        shutil.rmtree(dest, ignore_errors=True)
+        raise ValueError(reason)
     log("Checking the model loads …")
     from sentence_transformers import SentenceTransformer
 
-    model = SentenceTransformer(str(dest), device="cpu")
+    model = SentenceTransformer(str(dest), device="cpu", trust_remote_code=False)
     dim = _dimension(model)
     size = sum(p.stat().st_size for p in dest.rglob("*") if p.is_file())
     result({"dimension": dim, "sizeBytes": size})
@@ -262,11 +306,12 @@ def resolve_device(requested: str) -> str:
 
 
 def load_model(spec: dict):
+    check_model_folder(spec["modelPath"])
     from sentence_transformers import SentenceTransformer
 
     device = resolve_device(spec.get("device") or "auto")
     log(f"Loading the model on {device} …")
-    return SentenceTransformer(spec["modelPath"], device=device)
+    return SentenceTransformer(spec["modelPath"], device=device, trust_remote_code=False)
 
 
 def cmd_embed(spec: dict) -> None:
@@ -434,7 +479,7 @@ def allowed_target_ids(spec: dict):
     """Concept ids the score-time filters keep, or None when they keep the whole
     index (no filter beyond what the index was built with)."""
     filters = spec.get("filters") or {}
-    if not any(filters.get(f) for f in ("onlyStandard", "onlyValid", "domains", "vocabularies")):
+    if not any(filters.get(f) for f in ("onlyStandard", "onlyValid", "domains", "vocabularies", "conceptClasses")):
         return None
     import duckdb
     import numpy as np

@@ -271,7 +271,7 @@ async def _correspondence_target(
     corr = await db.get(DataSource, c.data_source_id)
     if corr is None or corr.workspace_id != source.workspace_id:
         raise DeriveError("the correspondence database is not one of this workspace")
-    if corr.id == target.id:
+    if _same_database(target, corr):
         raise DeriveError("the correspondence cannot go into the derived database: keep it apart")
     if not _SCHEMA_NAME.match(c.schema_name or "") or not _SCHEMA_NAME.match(c.table_name or ""):
         raise DeriveError("the correspondence schema and table names must be lowercase letters, digits and underscores")

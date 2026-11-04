@@ -124,7 +124,9 @@ def test_score_reports_a_checkpoint_per_chunk_and_a_semantic_list_of_its_own(tmp
     out = subprocess.run(
         [sys.executable, str(WORKER), "score", str(spec_path)], capture_output=True, text=True, check=True,
     ).stdout.splitlines()
-    assert '@@checkpoint {"stage": "syntactic", "done": 1}' in out
+    points = [json.loads(ln.split(" ", 1)[1]) for ln in out if ln.startswith("@@checkpoint ")]
+    csv_path = tmp_path / "out" / worker.method_file_name("syntactic/jaro-winkler")
+    assert points == [{"stage": "syntactic", "done": 1, "bytes": {"syntactic/jaro-winkler": csv_path.stat().st_size}}]
     # Its semantic list is empty, so no model is loaded (none could be, here).
     result = json.loads(next(ln for ln in out if ln.startswith("@@result ")).split(" ", 1)[1])
     assert list(result["methods"]) == ["syntactic/jaro-winkler"]
@@ -143,6 +145,86 @@ def test_a_resumed_score_reports_progress_from_where_its_pause_stopped(tmp_path)
         [sys.executable, str(WORKER), "score", str(spec_path)], capture_output=True, text=True, check=True,
     ).stdout.splitlines()
     assert [ln for ln in out if ln.startswith("@@progress ")] == ["@@progress 75"]
+
+
+def test_a_class_filter_alone_narrows_the_semantic_targets(tmp_path):
+    spec = {"conceptPaths": [_concepts(tmp_path / "concept.parquet")], "filters": {"conceptClasses": ["Ingredient"]}}
+    assert worker.allowed_target_ids(spec).tolist() == [5]
+    assert worker.allowed_target_ids({**spec, "filters": {"conceptClasses": []}}) is None
+
+
+def _model_folder(path: Path, modules: list[dict] | None = None, extra: dict[str, str] | None = None) -> Path:
+    path.mkdir(parents=True)
+    (path / "config.json").write_text("{}")
+    if modules is not None:
+        (path / "modules.json").write_text(json.dumps(modules))
+    for name, text in (extra or {}).items():
+        (path / name).parent.mkdir(parents=True, exist_ok=True)
+        (path / name).write_text(text)
+    return path
+
+
+def test_a_model_folder_with_code_of_its_own_is_refused(tmp_path):
+    plain = [{"idx": 0, "name": "0", "path": "", "type": "sentence_transformers.models.Transformer"}]
+    assert worker.unsafe_model_reason(_model_folder(tmp_path / "ok", plain)) is None
+    assert worker.unsafe_model_reason(_model_folder(tmp_path / "bare")) is None
+    custom = [*plain, {"idx": 1, "name": "1", "path": "1_Custom", "type": "my_package.Pooling"}]
+    assert "not part of sentence-transformers" in worker.unsafe_model_reason(_model_folder(tmp_path / "custom", custom))
+    with_code = _model_folder(tmp_path / "code", plain, {"sub/modeling.py": "import os"})
+    assert ".py" in worker.unsafe_model_reason(with_code)
+    # Refused before sentence-transformers is even imported (it is not installed here).
+    with pytest.raises(ValueError, match=r"\.py"):
+        worker.load_model({"modelPath": str(with_code)})
+
+
+def test_a_torn_last_line_of_a_paused_method_file_is_dropped(tmp_path):
+    from app.services.suggestions import tasks
+
+    header = worker.CSV_HEADER
+    kept_row = 'REA,hr,1,0.900,skos:exactMatch,"a, ""b""",2026-01-01T00:00:00Z\n'
+    csv_path = tmp_path / "m.csv"
+    keys = [("REA", "hr", "heart rate"), ("REA", "pulse", "pulse")]
+    for torn in ("REA,pulse,1,0.5", 'REA,pulse,1,0.500,skos:exactMatch,"unterminated'):
+        csv_path.write_text(header + kept_row + torn)
+        out = tmp_path / "kept.csv"
+        tasks._keep_sources(str(csv_path), keys, str(out))
+        assert [(r["source_concept_code"], r["comment"]) for r in _read_csv(str(out))] == [("hr", 'a, "b"')]
+    # Cut back to the checkpoint's size, a torn line that would still parse is gone.
+    csv_path.write_text(header + kept_row + "REA,pulse,1,0.500,skos:exactMatch,,2026-01-01T0")
+    tasks._keep_sources(str(csv_path), keys, str(out), size=len((header + kept_row).encode()))
+    assert [r["source_concept_code"] for r in _read_csv(str(out))] == ["hr"]
+
+
+def test_ids_that_would_leave_the_embeddings_root_are_refused():
+    for bad in ("..", ".", "a/b", "a/../b", "", "x.y"):
+        with pytest.raises(ValueError):
+            registry.check_id(bad)
+    with pytest.raises(ValueError):
+        registry.root("..")
+    with pytest.raises(ValueError):
+        registry.index_dir("ws", "..")
+    with pytest.raises(ValueError):
+        registry.model_dir("ws", "../x")
+    assert registry.check_id("3f2a-b_C9") == "3f2a-b_C9"
+
+
+def test_a_job_key_is_held_while_its_job_is_created():
+    from app.services.suggestions import tasks
+
+    assert tasks.reserve("k:test")
+    assert not tasks.reserve("k:test")
+    tasks.release("k:test")
+    assert tasks.reserve("k:test")
+    tasks.release("k:test")
+
+
+async def test_a_pause_left_over_is_dropped_when_a_run_starts(client):
+    from app.services.suggestions import tasks
+
+    tasks.request_pause("mp-left-over")
+    with pytest.raises(ValueError, match="not found"):
+        await tasks.score_project(None, project_id="mp-left-over", params={})
+    assert "mp-left-over" not in tasks._pause_requested
 
 
 def test_ngram_idf_ranks_the_closest_name_first():
@@ -353,6 +435,22 @@ async def test_config_edit_drops_the_index_only_when_its_inputs_change(client, m
     assert (await client.delete(f"{API}/workspaces/{ws}/suggestion-engines/models/m1", headers=headers)).status_code == 204
 
 
+async def test_deleting_an_unknown_or_escaping_configuration_touches_no_folder(client):
+    from tests.test_vocabulary_library import _admin_headers
+
+    headers = await _admin_headers(client)
+    ws = (await client.post(f"{API}/workspaces", headers=headers, json={"name": {"en": "WS"}})).json()["id"]
+    registry.save(ws, {"models": [], "configs": []})
+    sibling = registry.index_dir(ws, "other") / "manifest.json"
+    sibling.parent.mkdir(parents=True)
+    sibling.write_text("{}")
+    base = f"{API}/workspaces/{ws}/suggestion-engines/configs"
+    for config_id in ("%2E%2E", "..%2F..", "unknown"):
+        assert (await client.delete(f"{base}/{config_id}", headers=headers)).status_code == 404
+    assert (await client.delete(f"{API}/workspaces/%2E%2E/suggestion-engines/configs/x", headers=headers)).status_code == 404
+    assert sibling.is_file() and registry.root(ws).joinpath("registry.json").is_file()
+
+
 async def test_a_model_folder_uploaded_from_the_browser_is_copied_in(client):
     from app.services import blob_store
     from tests.test_vocabulary_library import _admin_headers
@@ -378,6 +476,9 @@ async def test_a_model_folder_uploaded_from_the_browser_is_copied_in(client):
     assert bad.status_code == 400
     not_a_model = await client.post(base, headers=headers, json={"source": "upload", "files": await upload(["m/README.md"])})
     assert not_a_model.status_code == 400
+    with_code = await client.post(base, headers=headers, json={
+        "source": "upload", "files": await upload(["m/config.json", "m/modeling_custom.py"])})
+    assert with_code.status_code == 400 and ".py" in with_code.text
     assert len(registry.load(ws)["models"]) == 1
 
     # Linkr's copy goes with the model.

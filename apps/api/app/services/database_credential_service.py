@@ -97,10 +97,10 @@ def target_of(config: dict | None) -> tuple:
 
 
 # Also decide where a login is sent (Doris' Flight port, and its Stream Load
-# port for a write login), but kept out of TARGET_KEYS: those seal every stored
+# port and scheme for a write login), but kept out of TARGET_KEYS: those seal every stored
 # password, and adding one would make the existing ones unreadable. A change
 # still forgets the logins.
-_RETARGET_KEYS = ("flightPort", "httpPort")
+_RETARGET_KEYS = ("flightPort", "httpPort", "httpTls")
 
 
 def target_changed(before: dict | None, after: dict | None) -> bool:

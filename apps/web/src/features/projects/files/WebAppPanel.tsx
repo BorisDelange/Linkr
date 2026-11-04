@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils'
 import { useFileStore } from '@/stores/file-store'
 import {
   getWebApp,
+  openWebAppSession,
+  openWebAppWindow,
   restartWebApp,
   stopWebApp,
   webAppFrameUrl,
@@ -17,6 +19,9 @@ import {
   type WebApp,
   type WebAppStatus,
 } from '@/lib/api/web-apps'
+
+// Well inside the session's 12 h, so an app left open never loses it.
+const SESSION_RENEW_MS = 60 * 60 * 1000
 
 const DOT: Record<WebAppStatus, string> = {
   starting: 'bg-warning animate-pulse',
@@ -39,6 +44,7 @@ export function WebAppPanel({ tabId, appId, active }: { tabId: string; appId: st
   const [frameKey, setFrameKey] = useState(0)
   const [busy, setBusy] = useState(false)
   const [wsBlocked, setWsBlocked] = useState(false)
+  const [sessionFor, setSessionFor] = useState<string | null>(null)
   const retarget = useFileStore((s) => s.retargetAppTab)
   const logEnd = useRef<HTMLDivElement>(null)
 
@@ -82,6 +88,39 @@ export function WebAppPanel({ tabId, appId, active }: { tabId: string; appId: st
   }, [ready?.appId]) // eslint-disable-line react-hooks/exhaustive-deps -- once per app
 
   useEffect(() => {
+    if (!ready) return
+    let cancelled = false
+    const open = () => openWebAppSession(ready.appId).then(
+      () => { if (!cancelled) setSessionFor(ready.appId) },
+      (e) => { if (!cancelled) setError(t('web_apps.session_failed', { error: formatApiError(e).summary ?? String(e) })) },
+    )
+    void open()
+    const renew = setInterval(open, SESSION_RENEW_MS)
+    return () => { cancelled = true; clearInterval(renew) }
+  }, [ready?.appId]) // eslint-disable-line react-hooks/exhaustive-deps -- once per app
+
+  const reload = useCallback(async () => {
+    if (!app) return
+    setError(null)
+    try {
+      await openWebAppSession(app.appId)
+      setFrameKey((k) => k + 1)
+    } catch (e) {
+      setError(t('web_apps.session_failed', { error: formatApiError(e).summary ?? String(e) }))
+    }
+  }, [app, t])
+
+  const openWindow = useCallback(async () => {
+    if (!app) return
+    setError(null)
+    try {
+      await openWebAppWindow(app)
+    } catch (e) {
+      setError(t('web_apps.session_failed', { error: formatApiError(e).summary ?? String(e) }))
+    }
+  }, [app, t])
+
+  useEffect(() => {
     if (showLog) logEnd.current?.scrollIntoView({ block: 'end' })
   }, [showLog, app?.log?.length])
 
@@ -111,7 +150,7 @@ export function WebAppPanel({ tabId, appId, active }: { tabId: string; appId: st
     }
   }, [appId])
 
-  const frameUrl = app ? webAppFrameUrl(app.url) : null
+  const frameUrl = app && sessionFor === app.appId ? webAppFrameUrl(app.url) : null
 
   return (
     <div className="flex h-full flex-col">
@@ -121,10 +160,10 @@ export function WebAppPanel({ tabId, appId, active }: { tabId: string; appId: st
         <span className="shrink-0 text-muted-foreground">{t(`web_apps.status.${status}`)}</span>
         {error && <span role="alert" className="truncate text-destructive">{error}</span>}
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <ToolbarButton label={t('web_apps.reload')} disabled={status !== 'ready'} onClick={() => setFrameKey((k) => k + 1)}>
+          <ToolbarButton label={t('web_apps.reload')} disabled={status !== 'ready'} onClick={() => void reload()}>
             <RefreshCw size={13} />
           </ToolbarButton>
-          <ToolbarButton label={t('web_apps.open_window')} disabled={status !== 'ready' || !frameUrl} onClick={() => frameUrl && window.open(frameUrl, '_blank', 'noopener')}>
+          <ToolbarButton label={t('web_apps.open_window')} disabled={status !== 'ready' || !frameUrl} onClick={() => void openWindow()}>
             <ExternalLink size={13} />
           </ToolbarButton>
           <ToolbarButton label={t('web_apps.logs')} pressed={showLog} onClick={() => setShowLog((v) => !v)}>
@@ -146,7 +185,8 @@ export function WebAppPanel({ tabId, appId, active }: { tabId: string; appId: st
       <div className="relative min-h-0 flex-1">
         {status === 'ready' && frameUrl ? (
           // No sandbox: an app needs its own storage, cookies and WebSocket. It is
-          // reachable only by the user who started it (see routes/apps.py).
+          // reachable only by the user who started it, through the session
+          // cookie opened above (see routes/apps.py).
           <iframe
             key={frameKey}
             src={frameUrl}

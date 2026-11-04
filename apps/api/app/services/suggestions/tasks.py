@@ -6,6 +6,7 @@ worker process (worker.py) — cancelling the job kills it.
 
 import asyncio
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -38,8 +39,24 @@ def running_job(key: str) -> str | None:
     return job_id if job_id and jobs.is_running(job_id) else None
 
 
+_RESERVED = "reserved"
+
+
 def claim(key: str, job_id: str) -> None:
     _running[key] = job_id
+
+
+def reserve(key: str) -> bool:
+    """Hold `key` while its job is being created; False when it is taken."""
+    if running_job(key) or _running.get(key) == _RESERVED:
+        return False
+    _running[key] = _RESERVED
+    return True
+
+
+def release(key: str) -> None:
+    if _running.get(key) == _RESERVED:
+        del _running[key]
 
 
 async def library_inventory(workspace_id: str) -> list[dict]:
@@ -288,12 +305,17 @@ def request_pause(project_id: str) -> None:
     _pause_requested.add(project_id)
 
 
+def discard_pause(project_id: str) -> None:
+    _pause_requested.discard(project_id)
+
+
 def _paused_dir(workspace_id: str) -> Path:
     return registry.root(workspace_id) / "paused"
 
 
 def _paused_files(workspace_id: str, project_id: str) -> tuple[Path, dict[str, Path]]:
     base = _paused_dir(workspace_id)
+    registry.check_id(project_id)
     return base / f"{project_id}.json", {st: base / f"{project_id}.{st}.parquet" for st in STAGES}
 
 
@@ -323,18 +345,29 @@ def _read_sources(path: Path) -> list[tuple[str, str, str]]:
     return list(zip(t["vocabulary_id"], t["concept_code"], t["concept_name"], strict=True))
 
 
-def _keep_sources(csv_path: str, keys: list[tuple[str, str, str]], out_path: str) -> None:
+def _keep_sources(csv_path: str, keys: list[tuple[str, str, str]], out_path: str, size: int | None = None) -> None:
     """The rows of a method's CSV whose source concept is among `keys`: what a
-    stopped worker wrote past its last checkpoint is dropped."""
+    stopped worker wrote past its last checkpoint is dropped.
+
+    The kill may cut the file mid-line. It is first cut back to `size`, the bytes
+    flushed at that checkpoint, and read with its layout given rather than
+    sniffed, a malformed line dropped: a sniffer reading a torn last line fails,
+    and the whole pause with it."""
     import duckdb
 
+    from app.services.suggestions import worker
+
+    if size is not None and Path(csv_path).stat().st_size > size:
+        os.truncate(csv_path, size)
+    columns = ", ".join(f"{scores_service._sql_literal(c)}: 'VARCHAR'" for c in worker.CSV_HEADER.strip().split(","))
     con = duckdb.connect()
     try:
         con.execute("CREATE TEMP TABLE k (v VARCHAR, c VARCHAR)")
         if keys:
             con.executemany("INSERT INTO k VALUES (?, ?)", [(v, c) for v, c, _ in keys])
         con.execute(
-            f"COPY (SELECT r.* FROM read_csv({scores_service._sql_literal(csv_path)}, header=true, all_varchar=true) r "
+            f"COPY (SELECT r.* FROM read_csv({scores_service._sql_literal(csv_path)}, header=true, auto_detect=false, "
+            f"columns={{{columns}}}, delim=',', quote='\"', escape='\"', ignore_errors=true) r "
             "WHERE EXISTS (SELECT 1 FROM k WHERE k.v = coalesce(r.source_vocabulary_id, '') "
             "AND k.c = coalesce(r.source_concept_code, ''))) "
             f"TO {scores_service._sql_literal(out_path)} (FORMAT CSV, HEADER true, DELIMITER ',', QUOTE '\"', "
@@ -353,6 +386,8 @@ async def score_project(handle, project_id: str, params: dict, resume: bool = Fa
     each stage had left, added to what the pause wrote."""
     from app.services import mapping_project_service as svc
 
+    # Left by a pause sent while the job was still queued, or as it ended.
+    _pause_requested.discard(project_id)
     async with async_session() as db:
         project = await svc.get(db, project_id)
         if project is None:
@@ -450,7 +485,7 @@ async def score_project(handle, project_id: str, params: dict, resume: bool = Fa
             spec["semanticSourcesPath"] = str(semantic_path)
         # Syntactic methods need nothing beyond the API's own interpreter.
         python = None if spec["semantic"] else Path(sys.executable)
-        points: dict[str, int] = {}
+        points: dict = {}
         try:
             found = await runtime.run_worker("score", spec, handle=handle, python=python, checkpoints=points)
         except asyncio.CancelledError:
@@ -481,9 +516,11 @@ async def score_project(handle, project_id: str, params: dict, resume: bool = Fa
 
 async def _pause(
     handle, workspace_id: str, project_id: str, params: dict, total: int, existing_scores: str | None,
-    out_dir: Path, stage_of: dict[str, str], stage_sources: dict[str, list], points: dict[str, int], write,
+    out_dir: Path, stage_of: dict[str, str], stage_sources: dict[str, list], points: dict, write,
 ) -> None:
-    """Write what the stopped worker finished, and leave what each stage has to do."""
+    """Write what the stopped worker finished, and leave what each stage has to do.
+    `points`: per stage, the source concepts written at its last checkpoint, and
+    under `bytes` the size of each method's file then."""
     from app.services.suggestions import worker
 
     csvs: list[tuple[str, str]] = []
@@ -494,7 +531,7 @@ async def _pause(
             continue
         kept = str(out_dir / f"kept-{len(csvs)}.csv")
         merged = str(out_dir / f"paused-{len(csvs)}.csv")
-        await asyncio.to_thread(_keep_sources, str(path), done, kept)
+        await asyncio.to_thread(_keep_sources, str(path), done, kept, points.get("bytes", {}).get(method))
         await asyncio.to_thread(scores_service.extend_method_csv, existing_scores, method, kept, merged)
         csvs.append((method, merged))
     if csvs:

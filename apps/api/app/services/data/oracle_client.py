@@ -15,6 +15,7 @@ transaction, on top of the read-only login community_engines requires.
 from __future__ import annotations
 
 import hashlib
+import re
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -62,10 +63,19 @@ class OracleCancelled(RuntimeError):
     """The statement was stopped by `cancel` (the user's Stop)."""
 
 
-def _dsn(config: dict) -> str:
+# What Oracle takes as a service name. The driver writes it into a connect
+# descriptor unescaped, so `)` or `?` would add addresses or options of its own.
+_SERVICE_NAME = re.compile(r"[A-Za-z0-9_$#][A-Za-z0-9_$#.\-]*")
+
+
+def _address(config: dict) -> dict:
+    """host / port / service_name for python-oracledb, never an EZConnect string."""
     check_db_host(config.get("host"))
     port = int(config.get("port") or community_engines.DEFAULT_PORTS["oracle"])
-    return f"{config.get('host')}:{port}/{config.get('database') or ''}"
+    service = str(config.get("database") or "")
+    if not _SERVICE_NAME.fullmatch(service):
+        raise ValueError(f"invalid Oracle service name: {service!r}")
+    return {"host": config.get("host"), "port": port, "service_name": service}
 
 
 def _init_session(connection, _tag) -> None:
@@ -76,14 +86,16 @@ def _init_session(connection, _tag) -> None:
 def _pool(config: dict, password: str | None) -> oracledb.ConnectionPool:
     if oracledb is None:
         raise OracleQueryFailed("the python-oracledb driver is not installed on this server")
-    dsn = _dsn(config)
+    address = _address(config)
     # Keyed by the password's hash too: a user whose password changed gets a new pool.
-    key = hashlib.sha256(f"{dsn}\0{config.get('username')}\0{password}".encode()).hexdigest()
+    key = hashlib.sha256(
+        f"{address['host']}\0{address['port']}\0{address['service_name']}\0{config.get('username')}\0{password}".encode()
+    ).hexdigest()
     with _pools_lock:
         pool = _pools.get(key)
         if pool is None:
             pool = oracledb.create_pool(
-                user=config.get("username"), password=password or "", dsn=dsn,
+                user=config.get("username"), password=password or "", **address,
                 min=0, max=4, increment=1, session_callback=_init_session,
             )
             _pools[key] = pool

@@ -234,6 +234,49 @@ def test_a_text_id_stays_text(tmp_path):
     assert {r[1] for r in rows} == {"VARCHAR"} and not {r[0] for r in rows} & {"P1", "P2", "P3"}
 
 
+def test_linked_ids_are_pseudonymised_and_source_numbers_emptied(tmp_path):
+    path = tmp_path / "s.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute("CREATE TABLE person AS SELECT i AS person_id, 'MRN' || i AS person_source_value FROM range(1, 4) t(i)")
+    con.execute(
+        "CREATE TABLE visit_occurrence AS SELECT i AS visit_occurrence_id, 1 + (i - 1) // 2 AS person_id, "
+        "CASE WHEN i % 2 = 0 THEN i - 1 END AS preceding_visit_occurrence_id, 'ADM' || i AS visit_source_value "
+        "FROM range(1, 7) t(i)"
+    )
+    con.execute(
+        "CREATE TABLE measurement AS SELECT visit_occurrence_id, person_id, 'LAB-' || visit_occurrence_id AS measurement_source_value, "
+        "person_id AS provider_person_id FROM visit_occurrence"
+    )
+    con.close()
+    src = SourceSpec({"kind": "file", "engine": "duckdb", "path": str(path)})
+    mapping = {
+        "patientTable": {"table": "person", "idColumn": "person_id"},
+        "visitTable": {"table": "visit_occurrence", "idColumn": "visit_occurrence_id", "patientIdColumn": "person_id"},
+    }
+    members = cohort_derive.compute_members(src, "SELECT person_id AS id, person_id AS patient_id FROM person")
+    out = tmp_path / "d.duckdb"
+    cohort_derive.derive(src, TargetSpec("file", path=str(out), fresh_file=True), members, mapping, "patient", True,
+                         pseudonyms=Pseudonyms("hmac", KEY))
+    assert _query(out, "SELECT DISTINCT person_source_value FROM person") == [(None,)]
+    assert _query(out, "SELECT DISTINCT visit_source_value FROM visit_occurrence") == [(None,)]
+    # The preceding stay is the kept stay's pseudonym: the link still joins.
+    assert _query(out, "SELECT COUNT(*) FROM visit_occurrence v JOIN visit_occurrence p "
+                       "ON p.visit_occurrence_id = v.preceding_visit_occurrence_id") == [(3,)]
+    assert not {r[0] for r in _query(out, "SELECT preceding_visit_occurrence_id FROM visit_occurrence")} & set(range(1, 7))
+    assert not {r[0] for r in _query(out, "SELECT provider_person_id FROM measurement")} & {1, 2, 3}
+    # A clinical source code is kept.
+    assert _query(out, "SELECT COUNT(*) FROM measurement WHERE measurement_source_value LIKE 'LAB-%'") == [(6,)]
+
+
+def test_the_plan_lists_linked_ids_as_pseudonymised():
+    ids = cohort_derive.id_columns(MAPPING)
+    assert cohort_derive.pseudonym_level("preceding_visit_occurrence_id", ids) == "visit"
+    assert cohort_derive.pseudonym_level("visit_detail_parent_id", ids) == "visit_detail"
+    assert cohort_derive.pseudonym_level("preceding_visit_detail_id", ids) == "visit_detail"
+    assert cohort_derive.pseudonym_level("measurement_source_value", ids) is None
+    assert cohort_derive.pseudonym_level("provider_id", ids) is None
+
+
 def test_the_correspondence_goes_to_its_own_database_and_a_rebuild_replaces_its_rows(source, tmp_path):
     corr_path = tmp_path / "corr.duckdb"
     duckdb.connect(str(corr_path)).close()

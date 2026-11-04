@@ -27,7 +27,7 @@ import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { NoticeBanner } from '@/components/ui/notice-banner'
 import { Link } from 'react-router-dom'
 import {
-  DEFAULT_PROFILE_OPTIONS,
+  normalizeProfileOptions,
   availableSections,
   resolveProfileSource,
   type ProfileOptions,
@@ -129,7 +129,7 @@ export function SourceConceptsTab({ project, dataSource }: SourceConceptsTabProp
   const [dictionaryKeys, setDictionaryKeys] = useState<string[]>(
     saved?.dictionaryKeys ?? dictionaries.map((d) => d.key),
   )
-  const [options, setOptions] = useState<ProfileOptions>(saved?.options ?? DEFAULT_PROFILE_OPTIONS)
+  const [options, setOptions] = useState<ProfileOptions>(() => normalizeProfileOptions(saved?.options))
   const [sort, setSort] = useState<ExtractionSort>(saved?.sort ?? DEFAULT_EXTRACTION_SORT)
   // On by default: a dictionary is often far larger than what the warehouse
   // uses (OMOP's is the whole vocabulary), and a concept no record names has

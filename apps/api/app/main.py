@@ -123,6 +123,10 @@ async def lifespan(app: FastAPI):
     from app.services import storage_gc
 
     gc_task = asyncio.create_task(storage_gc.run_periodic())
+    from app.services.execution import web_apps
+
+    web_apps.reap_orphans()
+    app_sweep_task = asyncio.create_task(web_apps.run_idle_sweeper())
     audit_task = asyncio.create_task(audit.run_periodic())
     yield
     from app.services.execution.kernel import manager as kernel_manager
@@ -132,6 +136,7 @@ async def lifespan(app: FastAPI):
     from app.api.v1.routes.apps import close_client as close_app_proxy
 
     gc_task.cancel()
+    app_sweep_task.cancel()
     audit_task.cancel()
     await kernel_manager.shutdown_all()
     await warm_pool.shutdown_all()

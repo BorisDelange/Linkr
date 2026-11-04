@@ -24,7 +24,9 @@ kept set lists: those are never copied.
 On top of that, what the caller minimises (`Minimization`): the tables copied,
 the variables an event table keeps, the precision of the birth dates. And the
 ids, when pseudonymised (`Pseudonyms`): every patient, stay and unit-stay id is
-replaced, in every table, by a pseudonym drawn for this derivation — keyed
+replaced, in every table, by a pseudonym drawn for this derivation (the links
+between stays too, see `pseudonym_level`; the source system's own patient and
+stay numbers are emptied, free text is copied as it is) — keyed
 HMAC-SHA-256 or random, as the CNIL health-data-warehouse referential asks
 (SEC-PSE-1, SEC-ESP-2) — and the correspondence, if kept, goes to another
 database than the derived one.
@@ -312,6 +314,34 @@ def id_level(column: str, ids: IdColumns) -> str | None:
     return next((lvl for lvl in ("visit_detail", "visit", "patient") if name in _id_sets(ids)[lvl]), None)
 
 
+# Ids of a level a table carries under another name than the one the mapping
+# gives it (OMOP's links between stays and between unit stays), and the
+# suffixes OMOP builds every such name with.
+_LINKED_IDS = {
+    "preceding_visit_occurrence_id": "visit",
+    "preceding_visit_detail_id": "visit_detail",
+    "visit_detail_parent_id": "visit_detail",
+    "parent_visit_detail_id": "visit_detail",
+}
+_ID_SUFFIXES = (("visit_detail_id", "visit_detail"), ("visit_occurrence_id", "visit"), ("person_id", "patient"))
+
+# The source system's own patient, stay and unit-stay numbers, which a
+# pseudonymised build empties. The other `*_source_value` columns hold the
+# source's codes (a lab code, a drug code), not who the row is about.
+IDENTIFYING_SOURCE_VALUES = frozenset({"person_source_value", "visit_source_value", "visit_detail_source_value"})
+
+
+def pseudonym_level(column: str, ids: IdColumns) -> str | None:
+    """The level whose pseudonym replaces `column` in a pseudonymised build: the
+    mapping's id columns, and every other column naming an id of a level."""
+    if (lvl := id_level(column, ids)):
+        return lvl
+    name = column.lower()
+    if name in _LINKED_IDS:
+        return _LINKED_IDS[name]
+    return next((lvl for suffix, lvl in _ID_SUFFIXES if name.endswith(suffix)), None)
+
+
 def classify(columns: list[str], scope: str, ids: IdColumns, keyed: set[str]) -> tuple[str, str] | None:
     """`(filter kind, column)` for a table, or None when it carries no id `keyed`
     lists. The kind is the column's level — `parent_visit` for a stay id at the
@@ -446,7 +476,7 @@ def plan(source: SourceSpec, mapping: dict, level: str, scope: str | None = None
             "unresolved": None if how else unresolved.get((schema, table)),
             "unfilterable": None if how or (schema, table) in unresolved else _carried_id(columns, ids),
             "columns": columns,
-            "pseudonymized": [c for c in columns if id_level(c, ids)],
+            "pseudonymized": [c for c in columns if pseudonym_level(c, ids)],
         })
     return out
 
@@ -761,7 +791,11 @@ def _copy_select(
     joins: list[str] = []
     if pseudo_levels is not None:
         for c in columns:
-            lvl = id_level(c, ids)
+            if c.lower() in IDENTIFYING_SOURCE_VALUES:
+                name = _require_ident(c, "column name")
+                replace[name] = f"CAST(NULL AS {_safe_type(types.get(c, 'VARCHAR'))})"
+                continue
+            lvl = pseudonym_level(c, ids)
             if lvl is None:
                 continue
             name = _require_ident(c, "column name")
@@ -826,7 +860,8 @@ def derive(
     if fresh and same_file:
         raise ValueError("a database cannot be derived into a new copy of its own file")
     # A new database is written beside the old one and swapped in only once
-    # complete: a failed or cancelled rebuild keeps the previous build.
+    # complete: a failed or cancelled rebuild keeps the previous file. A schema
+    # is not: its rebuild drops the previous build first (see replace_schema).
     writing = replace(target, path=f"{target.path}.tmp") if fresh else target
     if fresh:
         _remove_db_file(Path(writing.path))
@@ -834,6 +869,7 @@ def derive(
     con = _connect()
     control._con = con
     schema_created = False
+    complete = False
     writer: derive_writers.Writer | None = None
     corr_writer = None
     try:
@@ -875,6 +911,9 @@ def derive(
 
         if target.schema is not None:
             if target.replace_schema:
+                # The engines Linkr writes into cannot all rename a schema (SQL
+                # Server, Oracle's), so no build-aside-and-swap: the previous
+                # build goes now, as the rebuild dialog warns.
                 writer.drop_schema(target.schema)
             writer.create_schema(target.schema)
             schema_created = True
@@ -916,19 +955,13 @@ def derive(
             _write_correspondence(corr_writer, pseudonyms, sorted(keyed))
             corr_writer.checkpoint()
         writer.checkpoint()
+        complete = True
     except Exception as exc:
         # A half-written copy is worse than none: it would read as a database
         # (or a schema) that exists and holds some of the cohort.
         if schema_created:
-            try:
+            with contextlib.suppress(Exception):  # the original error is the one to report
                 writer.drop_schema(target.schema)
-            except Exception:  # noqa: BLE001 — the original error is the one to report
-                pass
-        control._con = None
-        _close(writer, corr_writer)
-        con.close()
-        if fresh:
-            _remove_db_file(Path(writing.path))
         if control.cancelled.is_set() and not isinstance(exc, DeriveCancelled):
             # The interrupt surfaces as a DuckDB error; say what really happened.
             raise DeriveCancelled("the derivation was cancelled") from exc
@@ -937,6 +970,9 @@ def derive(
         control._con = None
         _close(writer, corr_writer)
         con.close()
+        # Once closed: the half-written file is attached until then.
+        if fresh and not complete:
+            _remove_db_file(Path(writing.path))
     if fresh:
         _swap_in(Path(writing.path), Path(target.path))
     return written

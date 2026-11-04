@@ -552,10 +552,13 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 
 
 # Functions that send SQL to an attached database past its READ_ONLY flag
-# (community_engines). Where one of those databases is attached, `query()` too: it
-# would build such a call from a string. Elsewhere a script may use it (the
-# vocabulary prune script runs `query(getvariable(...))`).
-_PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+")
+# (community_engines, and the postgres/mysql extensions' `*_execute`), or that run
+# a statement held in a string, which hides any of those from this token check
+# (`json_execute_serialized_sql(json_serialize_sql('…'))`). Where a SQL Server or
+# Oracle database is attached, `query()` and `query_table()` too: they would build
+# such a call from a string. Elsewhere a script may use them (the vocabulary prune
+# script runs `query(getvariable(...))`).
+_PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+|POSTGRES_EXECUTE|MYSQL_EXECUTE|JSON_EXECUTE_SERIALIZED_SQL")
 _DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
 
 

@@ -1013,6 +1013,8 @@
     "allow_writes_hint_doris": "Permet de dériver une cohorte vers une nouvelle base Doris ici. Linkr écrit avec un second compte à vous, demandé à la première dérivation (droits CREATE et LOAD), et envoie les lignes par Stream Load ; le compte avec lequel il lit reste en lecture seule. Linkr ne modifie jamais les tables existantes.",
     "allow_writes_hint_oracle": "Permet de dériver une cohorte vers un schéma vide qu’un administrateur a créé pour elle (sous Oracle, un schéma est un utilisateur). Linkr écrit avec un second compte à vous, demandé à la première dérivation, qui a le droit de créer des tables et de charger des lignes dans ce schéma ; le compte avec lequel il lit reste en lecture seule.",
     "field_http_port": "Port Stream Load",
+    "field_http_tls": "Stream Load en HTTPS",
+    "field_http_tls_hint": "Envoyer les lignes et l’identifiant d’écriture au frontend Doris en HTTPS. Une redirection vers un backend en HTTP simple est alors refusée.",
     "field_http_port_hint": "Le port HTTP du frontend Doris (8030 par défaut) : une dérivation de cohorte y envoie ses lignes, par Stream Load."
   },
   "reports": {
@@ -4008,6 +4010,7 @@
     "start_again": "Relancer",
     "stop": "Arrêter l'appli",
     "no_output": "Aucune sortie pour l'instant.",
+    "session_failed": "Impossible d’ouvrir l’application : {{error}}",
     "start_failed": "Impossible de lancer l'appli web : {{error}}",
     "command_title": "Lancer comme appli web",
     "command_description": "Linkr ne reconnaît pas {{name}} comme une appli Shiny, Streamlit, Dash, Gradio, plumber, Panel, FastAPI ou Flask. Indiquez la commande qui la lance.",
@@ -6820,7 +6823,8 @@
     "table_no_variable": "aucun des concepts : créée vide",
     "filter_unfilterable": "Non copiée : elle porte {{column}}, mais le schéma ne permet pas de lister ceux à garder",
     "pseudonymize": "Pseudonymiser les identifiants",
-    "pseudonymize_hint": "Chaque identifiant de patient, de séjour et de séjour en unité est remplacé, dans toutes les tables, par un pseudonyme tiré pour cette seule base — comme les règles sur les données de santé le demandent pour les données de chaque projet (en France, le référentiel CNIL des entrepôts, SEC-ESP-2).",
+    "pseudonymize_hint": "Chaque identifiant de patient, de séjour et de séjour en unité est remplacé, dans toutes les tables, par un pseudonyme tiré pour cette seule base — les colonnes que le mapping du schéma désigne comme identifiants, et toute colonne finissant par person_id, visit_occurrence_id ou visit_detail_id (comme preceding_visit_occurrence_id). Un identifiant sans pseudonyme tiré est vidé, comme les numéros propres au système source : person_source_value, visit_source_value et visit_detail_source_value. Les autres colonnes, codes cliniques sources et texte libre compris, sont copiées telles quelles. C’est ce que les règles sur les données de santé demandent pour les données de chaque projet (en France, le référentiel CNIL des entrepôts, SEC-ESP-2).",
+    "pseudonymize_free_text": "Les colonnes de texte libre (note_text, commentaires…) et toute autre colonne qui nomme une personne sont copiées telles quelles : écartez les tables qui les contiennent, ou vérifiez-les avant de partager la base.",
     "pseudonymized_columns": "Colonnes remplacées",
     "pseudonymized_none": "Aucune des tables cochées ne porte d’identifiant.",
     "method": "Méthode",

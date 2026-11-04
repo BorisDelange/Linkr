@@ -221,20 +221,28 @@ class DorisWriter(Writer):
 
         host = self.config.get("host") or ""
         check_db_host(host)
+        scheme = "https" if self.config.get("httpTls") else "http"
         port = int(self.config.get("httpPort") or 8030)
-        url = f"http://{host}:{port}/api/{_require_ident(schema, 'schema name')}/{_require_ident(table, 'table name')}/_stream_load"
+        url = (f"{scheme}://{host}:{port}/api/{_require_ident(schema, 'schema name')}/"
+               f"{_require_ident(table, 'table name')}/_stream_load")
         auth = base64.b64encode(f"{self.config.get('username') or ''}:{self.password}".encode()).decode()
         headers = {"Authorization": f"Basic {auth}", "format": "parquet", "Expect": "100-continue"}
-        body = parquet.read_bytes()
         with httpx.Client(timeout=None) as client:
-            r = client.put(url, content=body, headers=headers)
-            # The frontend answers with the backend that takes the load. httpx drops
-            # the credentials on a redirect to another host: sent again, as Doris
-            # documents for every client (curl's --location-trusted).
+            # The frontend answers with the backend that takes the load, before
+            # reading a body: asked first without one, so the file is sent once.
+            # httpx drops the credentials on a redirect to another host: sent
+            # again, as Doris documents for every client (curl's --location-trusted),
+            # to a host the deployment allows only.
+            r = client.put(url, content=b"", headers=headers)
             for _ in range(3):
-                if r.status_code not in (301, 302, 307, 308):
+                if r.status_code not in _REDIRECTS:
                     break
-                r = client.put(r.headers["location"], content=body, headers=headers)
+                url = _stream_load_redirect(url, r.headers.get("location"))
+                r = client.put(url, content=b"", headers=headers)
+            if r.status_code in _REDIRECTS:
+                raise ValueError("Doris Stream Load redirected too many times")
+            size = parquet.stat().st_size
+            r = client.put(url, content=_chunks(parquet), headers={**headers, "Content-Length": str(size)})
         try:
             result = r.json()
         except ValueError:
@@ -245,6 +253,32 @@ class DorisWriter(Writer):
 
     def close(self) -> None:
         shutil.rmtree(self.tmp, ignore_errors=True)
+
+
+_REDIRECTS = (301, 302, 303, 307, 308)
+
+
+def _stream_load_redirect(current: str, location: str | None) -> str:
+    """Where a Stream Load redirect points, checked as any database host is — the
+    credentials follow it. Never from https down to http."""
+    from urllib.parse import urljoin, urlsplit
+
+    if not location:
+        raise ValueError("Doris Stream Load answered a redirect without a Location")
+    target = urljoin(current, location)
+    parts = urlsplit(target)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        raise ValueError(f"Doris Stream Load redirected to an unusable address: {location[:200]}")
+    if urlsplit(current).scheme == "https" and parts.scheme != "https":
+        raise ValueError("Doris Stream Load redirected from https to http: the credentials would travel in clear")
+    check_db_host(parts.hostname)
+    return target
+
+
+def _chunks(path: Path, size: int = 1 << 20):
+    with path.open("rb") as f:
+        while chunk := f.read(size):
+            yield chunk
 
 
 def _doris_type(duck_type: str) -> str:
@@ -292,7 +326,7 @@ class OracleWriter:
             raise ValueError("the python-oracledb driver is not installed on this server")
         self.con = con
         self.conn = oracle_client.oracledb.connect(
-            user=config.get("username"), password=password or "", dsn=oracle_client._dsn(config),
+            user=config.get("username"), password=password or "", **oracle_client._address(config),
         )
         self.cur = self.conn.cursor()
 

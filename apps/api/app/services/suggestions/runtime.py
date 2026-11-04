@@ -142,8 +142,8 @@ async def run_worker(
 ) -> dict:
     """Run one worker command and return its result. Progress and log lines go
     to the job `handle` when there is one; cancelling kills the process.
-    `checkpoints` (stage → source concepts written) is kept up to date as the
-    worker reports them, so it still holds after a cancel."""
+    `checkpoints` (stage → source concepts written, and `bytes`: method → its
+    file's size then) is kept up to date as the worker reports them, so it still holds after a cancel."""
     interpreter = python or venv_python()
     if python is None and not is_installed():
         raise WorkerError("The embeddings runtime is not installed")
@@ -168,6 +168,7 @@ async def run_worker(
                 if checkpoints is not None:
                     point = json.loads(line.split(" ", 1)[1])
                     checkpoints[point["stage"]] = point["done"]
+                    checkpoints.setdefault("bytes", {}).update(point.get("bytes") or {})
                 return
             tail.append(line)
             del tail[:-40]
