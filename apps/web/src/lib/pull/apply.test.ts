@@ -127,4 +127,48 @@ describe('workspace pull', () => {
     expect(await storage.conceptSets.getByWorkspace(WS)).toEqual([])
     expect(await storage.serviceMappings.getByWorkspace(WS)).toEqual([])
   })
+
+  it('removes a wiki page the remote deleted, never one created after the pull was prepared', async () => {
+    const ws = 'ws-wiki'
+    const page = (id: string) => ({
+      id, workspaceId: ws, parentId: null, title: { en: id }, slug: id, content: { en: '' }, sortOrder: 0, createdAt: NOW, updatedAt: NOW,
+    }) as never
+    await storage.wikiPages.create(page('old'))
+    await storage.wikiPages.create(page('new'))
+    const preview = { branch: 'main', remoteHead: 'r', files: [{ path: 'wiki/_tree.json', local: JSON.stringify([{ id: 'old' }]) }] }
+    const zip = new JSZip()
+    zip.file('wiki/_tree.json', '[]')
+    await applyWorkspacePull(ws, zip, taken(['wiki/_tree.json']), storage, preview)
+    expect((await storage.wikiPages.getByWorkspace(ws)).map((p) => p.id)).toEqual(['new'])
+  })
+
+  it('writes the badge ranges as a diff: updated, added and removed, the rest kept', async () => {
+    const ws = 'ws-ranges'
+    const range = (badgeLabel: string, rangeStart: number) => ({ workspaceId: ws, badgeLabel, rangeStart, rangeEnd: rangeStart + 9, nextId: rangeStart, createdAt: NOW, updatedAt: NOW })
+    await storage.sourceConceptIdRanges.save(range('A', 2000000001))
+    await storage.sourceConceptIdRanges.save(range('B', 2000000011))
+    const zip = new JSZip()
+    zip.file('source-concept-ids/ranges.json', JSON.stringify([range('B', 2000000021), range('C', 2000000031)]))
+    await applyWorkspacePull(ws, zip, taken(['source-concept-ids/ranges.json']), storage)
+    const after = (await storage.sourceConceptIdRanges.getByWorkspace(ws)).map((r) => [r.badgeLabel, r.rangeStart]).sort()
+    expect(after).toEqual([['B', 2000000021], ['C', 2000000031]])
+  })
+
+  it('creates an entity whose lineage matches none here, even in a folder a local one would claim', async () => {
+    const ws = 'ws-lineage'
+    const zip = new JSZip()
+    const paths = golden('dq-rule-set', zip, 'data-quality/icu-dq/')
+    await applyWorkspacePull(ws, zip, taken(paths), storage)
+    const [first] = await storage.dqRuleSets.getByWorkspace(ws)
+    expect(first.lineageId).toBe('lin-1')
+
+    const other = new JSZip()
+    golden('dq-rule-set', other, 'data-quality/icu-dq/')
+    const manifest = JSON.parse(await other.file('data-quality/icu-dq/entity.json')!.async('string'))
+    other.file('data-quality/icu-dq/entity.json', JSON.stringify({ ...manifest, lineageId: 'lin-2' }))
+    await applyWorkspacePull(ws, other, taken(['data-quality/icu-dq/entity.json']), storage)
+    const all = await storage.dqRuleSets.getByWorkspace(ws)
+    expect(all).toHaveLength(2)
+    expect((await storage.dqRuleSets.getById(first.id))?.lineageId).toBe('lin-1')
+  })
 })

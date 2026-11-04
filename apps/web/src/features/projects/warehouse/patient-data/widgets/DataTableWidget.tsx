@@ -16,6 +16,8 @@ import { usePatientChartStore } from '@/stores/patient-chart-store'
 import { usePatientChartContext } from '../PatientChartContext'
 import { usePatientScope } from '../use-patient-scope'
 import { useTabVisible } from '../TabVisibilityContext'
+import { formatApiError } from '@/lib/api-client'
+import { isQueryStopped } from '@/lib/api/query-stopped'
 import { patientQuery } from '../patient-prefetch'
 import { relationsHoldingConcepts } from '../timeline-relations'
 import {
@@ -82,6 +84,12 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
   const aggregate = config.aggregate ?? 'mean'
   const showCounts = config.showCounts ?? true
   const syncTimeRange = config.syncTimeRange ?? false
+  /** What the widget says of a read that did not answer: stopped, or why it failed. */
+  const failure = (err: unknown) => {
+    if (isQueryStopped(err)) return t('patient_data.datatable_stopped')
+    console.warn('[patient-datatable] query failed', err)
+    return t('patient_data.datatable_error', { message: formatApiError(err).summary ?? String(err) })
+  }
 
   const tabId = widget?.tabId ?? ''
   const boardId = usePatientChartStore((s) => s.tabs.find((tb) => tb.id === tabId)?.patientDashboardId)
@@ -91,7 +99,13 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
 
   const [names, setNames] = useState<Map<number, { vocabulary?: string; name?: string }>>(new Map())
   const [held, setHeld] = useState<Map<string, Set<number>> | undefined>(undefined)
-  const [bounds, setBounds] = useState<DataTableWindow | null>(null)
+  // The record's span with the patient it is of: another patient's first
+  // cells must not be read over the previous one's window.
+  const [boundsOf, setBoundsOf] = useState<{ patientId: string; window: DataTableWindow | null } | null>(null)
+  const boundsKnown = !!patientId && boundsOf?.patientId === patientId
+  const bounds = boundsKnown ? boundsOf.window : null
+  const [boundsError, setBoundsError] = useState<string | null>(null)
+  const [cellsError, setCellsError] = useState<string | null>(null)
   const [view, setView] = useState<DataTableWindow | null>(null)
   const [density, setDensity] = useState<number[]>([])
   const [cells, setCells] = useState<Map<string, Cell>>(new Map())
@@ -124,6 +138,9 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
     lastPatient.current = patientId
     forgetTimelineRange(channel)
     setView(null)
+    setCells(new Map())
+    setDensity([])
+    setCellsError(null)
   }, [patientId, channel])
 
   // The record's span for these concepts: what the table opens on.
@@ -132,13 +149,18 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
     const sql = buildDataTableBoundsQuery(schemaMapping, conceptIds, patientId, scope, { held })
     if (!sql) return
     const controller = new AbortController()
+    setBoundsError(null)
     patientQuery(dataSourceId, sql, { signal: controller.signal, origin: 'Data table · first and last event of the concepts' })
       .then(([row]) => {
         const lo = toMs(row?.first_event)
         const hi = toMs(row?.last_event)
-        setBounds(lo != null && hi != null ? { lo, hi: hi + 1 } : null)
+        setBoundsOf({ patientId, window: lo != null && hi != null ? { lo, hi: hi + 1 } : null })
       })
-      .catch(() => { if (!controller.signal.aborted) setBounds(null) })
+      .catch((err) => {
+        if (controller.signal.aborted) return
+        setBoundsOf({ patientId, window: null })
+        setBoundsError(failure(err))
+      })
     return () => controller.abort()
     // idsKey stands for conceptIds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -163,7 +185,12 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
         }
         setDensity(counts)
       })
-      .catch(() => { if (!controller.signal.aborted) setDensity([]) })
+      .catch((err) => {
+        if (controller.signal.aborted) return
+        // Navigation aid, not data: the table still shows without it.
+        console.warn('[patient-datatable] density query failed', err)
+        setDensity([])
+      })
     return () => controller.abort()
     // idsKey stands for conceptIds.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -217,8 +244,13 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
           }
           setCells(next)
           setUnits(unitOf)
+          setCellsError(null)
         })
-        .catch(() => { if (!controller.signal.aborted) setCells(new Map()) })
+        .catch((err) => {
+          if (controller.signal.aborted) return
+          setCells(new Map())
+          setCellsError(failure(err))
+        })
         .finally(() => { if (!controller.signal.aborted) setLoading(false) })
     }, 150)
     return () => {
@@ -236,12 +268,12 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
   let message: string | null = null
   if (conceptIds.length === 0) message = t('patient_data.configure_concepts')
   else if (!patientId) message = t('patient_data.select_patient_first')
-  else if (!shown) message = loading ? t('common.loading') : t('patient_data.no_data')
+  else if (!shown) message = !boundsKnown ? t('common.loading') : boundsError ?? t('patient_data.no_data')
 
   if (message) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2">
-        <p className="text-xs text-muted-foreground">{message}</p>
+        <p className={boundsError && message === boundsError ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>{message}</p>
         {conceptIds.length === 0 && onConfigureConcepts && (
           <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={onConfigureConcepts}>
             <Settings2 size={12} />
@@ -255,6 +287,7 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
   const hovered = hover ? cells.get(`${hover.concept}|${hover.col}`) : undefined
   return (
     <div className="flex h-full flex-col overflow-hidden" aria-busy={loading}>
+      {cellsError && <p role="alert" className="shrink-0 border-b px-2 py-1 text-[10px] text-destructive">{cellsError}</p>}
       <div className={loading ? 'min-h-0 flex-1 overflow-auto opacity-60' : 'min-h-0 flex-1 overflow-auto'}>
         {/* Columns keep a readable width: a narrow widget scrolls rather than
             cutting every value to an ellipsis. */}
@@ -309,7 +342,7 @@ export function DataTableWidget({ widgetId, config: configProp, onConfigureConce
           {/* What a cell holds, beside the strip that sets the columns. */}
           <div className="flex shrink-0 flex-col justify-center border-t px-2 text-[10px] leading-tight text-muted-foreground" style={{ width: NAME_WIDTH }}>
             <span>{t(`patient_data.datatable_aggregate_${aggregate}`)}</span>
-            <span>{t('patient_data.datatable_column_width', { width: durationLabel(width, i18n.language) })}</span>
+            <span>{t('patient_data.datatable_column_width', { width: durationLabel(width, i18n.language, (unit, value) => t(`patient_data.datatable_duration_${unit}`, { value })) })}</span>
           </div>
           <div className="min-w-0 flex-1 pr-2">
             <DataTableRangeStrip bounds={bounds} view={shown ?? bounds} counts={density} onViewChange={move} />

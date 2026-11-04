@@ -179,7 +179,14 @@ export function SearchableSelect({
           style={{ maxHeight: 'min(320px, var(--radix-popover-content-available-height, 320px))' }}
           // Opened from a dialog, the list is portaled outside it, where the
           // dialog's scroll lock swallows the wheel: scroll it by hand.
-          onWheel={(e) => { e.stopPropagation(); e.currentTarget.scrollTop += e.deltaY }}
+          onWheel={(e) => {
+            e.stopPropagation()
+            const el = e.currentTarget
+            const unit = e.deltaMode === WheelEvent.DOM_DELTA_LINE ? 16
+              : e.deltaMode === WheelEvent.DOM_DELTA_PAGE ? el.clientHeight
+              : 1
+            el.scrollTop += e.deltaY * unit
+          }}
         >
           {sections.map((sec) => (
             <div key={sec.key} className="divide-y divide-border">

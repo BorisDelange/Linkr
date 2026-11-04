@@ -67,6 +67,17 @@ def _shared_r_cache(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _own_app_ports(monkeypatch):
+    # Each xdist worker is its own API process with its own web-app manager: on
+    # one shared port range, two workers can both see a port free and race to
+    # bind it ("Address already in use").
+    worker = os.environ.get("PYTEST_XDIST_WORKER", "gw0")
+    slot = int(worker.removeprefix("gw") or 0) % 10
+    lo = 8700 + slot * 10
+    monkeypatch.setattr(settings, "app_port_range", f"{lo}-{lo + 9}")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_data_dir(tmp_path, monkeypatch):
     """Point blob/upload storage at a temp dir so tests never touch ~/.linkr."""
     monkeypatch.setattr(settings, "data_dir", str(tmp_path))
@@ -131,8 +142,27 @@ _PG_URL = os.environ.get("LINKR_TEST_APP_DATABASE_URL")
 _pg_template_ready = False
 
 
+def _check_disposable_pg_url(raw: str, app_database_url: str | None) -> None:
+    """Every test drops and recreates the database the URL names: refuse one
+    that does not say it is for tests, or that is the app's own."""
+    url = make_url(raw)
+    name = url.database or ""
+    if "test" not in name.lower():
+        raise RuntimeError(
+            f"LINKR_TEST_APP_DATABASE_URL names the database {name!r}, which the tests drop and recreate: "
+            "give it a name containing 'test' (e.g. linkr_test)"
+        )
+    app_url = make_url(app_database_url) if app_database_url else None
+    if app_url is not None and app_url.get_backend_name() == "postgresql" and app_url.database == name and app_url.host == url.host:
+        raise RuntimeError(
+            f"LINKR_TEST_APP_DATABASE_URL names {name!r}, the database LINKR_DATABASE_URL uses: the tests "
+            "would drop it — point them at another one"
+        )
+
+
 async def _fresh_pg_database() -> str:
     global _pg_template_ready
+    _check_disposable_pg_url(_PG_URL, settings.database_url)
     url = make_url(_PG_URL)
     # One database (and template) per xdist worker, or they drop each other's.
     worker = os.environ.get("PYTEST_XDIST_WORKER")

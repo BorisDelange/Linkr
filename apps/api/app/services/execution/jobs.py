@@ -14,12 +14,12 @@ reconciled to ``error`` at startup — the row survives, the process does not.
 import asyncio
 import contextlib
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core import audit
+from app.core import audit, deferred
 from app.config import settings
 from app.core.database import async_session
 from app.core.redact import redact_secrets
@@ -55,7 +55,8 @@ def capped_input(text: str | None) -> str | None:
 
 
 # A query sent to a database (POST /data-sources/{id}/query, and every other
-# route that reads or writes one): a job like the others, from the start.
+# route that reads or writes one): a job like the others, from the start, kept
+# `query_log_hours` once finished (`purge_old_queries`).
 QUERY_KIND = "sql_query"
 
 
@@ -97,11 +98,35 @@ async def create(
     return job
 
 
-def launch(job_id: str, body, *, lane: str | None = "build") -> None:
+async def purge_old_queries() -> int:
+    """Drop the finished queries older than `settings.query_log_hours`, whoever
+    sent them (storage_gc's loop, and at startup); one still running stays.
+    Returns how many went."""
+    from app.services.data import query_jobs
+
+    cutoff = datetime.now(UTC) - timedelta(hours=settings.query_log_hours)
+    async with async_session() as db:
+        ids = list((await db.execute(
+            select(Job.id).where(Job.kind == QUERY_KIND, Job.status.in_(_ENDED), Job.created_at < cutoff)
+        )).scalars().all())
+        for i in range(0, len(ids), _PURGE_BATCH):
+            await db.execute(delete(Job).where(Job.id.in_(ids[i:i + _PURGE_BATCH])))
+        await db.commit()
+    for job_id in ids:
+        query_jobs.drop_results(job_id)
+    return len(ids)
+
+
+_PURGE_BATCH = 500
+
+
+def launch(job_id: str, body, *, lane: str | None = "build", running: bool = True) -> None:
     """Schedule a job body (an async callable receiving a JobHandle). Runs behind
     its lane's semaphore — none: the body takes `lane_slot` itself, for each
-    step; records status/log/progress transitions in its own DB session."""
-    _tasks[job_id] = asyncio.create_task(_run(job_id, body, audit.actor(), lane))
+    step; records status/log/progress transitions in its own DB session.
+    `running=False`: the job stays queued until the body calls `mark_running`
+    (with no lane, once its first step has a slot)."""
+    _tasks[job_id] = asyncio.create_task(_run(job_id, body, audit.actor(), lane, running))
 
 
 def lane_slot(lane: str) -> asyncio.Semaphore:
@@ -123,7 +148,7 @@ async def adopt(job_id: str, task: asyncio.Task, *, running: bool = True, writte
 
     def finished(t: asyncio.Task) -> None:
         _tasks.pop(job_id, None)
-        if t.cancelled():
+        if t.cancelled() or isinstance(t.exception(), deferred.Stopped):
             fields = {"status": "cancelled"}
         elif t.exception() is not None:
             fields = {"status": "error", "log_tail": redact_secrets(str(t.exception()))[-4000:]}
@@ -199,13 +224,14 @@ async def run_now(job_id: str, body) -> None:
     await task
 
 
-async def _run(job_id: str, body, launched_by: dict, lane: str | None = "build") -> None:
+async def _run(job_id: str, body, launched_by: dict, lane: str | None = "build", running: bool = True) -> None:
     """`launched_by` is the launching request's actor: the job's own access-log
     line (core/audit) names them, whatever data the body touches."""
     handle = JobHandle(job_id)
     try:
         async with _sem(lane) if lane else contextlib.nullcontext():
-            await _set(job_id, status="running")
+            if running:
+                await _set(job_id, status="running")
             with audit.job_scope(job_id, "job", launched_by):
                 await body(handle)
             await _set(job_id, status="done", progress=100)
@@ -288,6 +314,7 @@ async def live_log(handle: JobHandle, every: float = 2.0):
 
 
 _ENDED = ("done", "error", "cancelled")
+_ACTIVE = ("queued", "running")
 
 
 async def _set(job_id: str, **fields) -> None:
@@ -299,6 +326,12 @@ async def _set(job_id: str, **fields) -> None:
     async with async_session() as db:
         await db.execute(update(Job).where(Job.id == job_id).values(**fields))
         await db.commit()
+
+
+def summary_of(log_tail: str | None) -> str | None:
+    """A log's first line, as the panel's row shows it."""
+    first = next((line for line in (log_tail or "").splitlines() if line.strip()), None)
+    return first[:200] if first else None
 
 
 def is_running(job_id: str) -> bool:
@@ -342,14 +375,24 @@ async def list_active(
         .order_by(func.max(Job.created_at).desc())
         .limit(RECENT_JOBS)
     ).subquery()
-    result = await db.execute(
+    listed = (await db.execute(
         select(Job)
         .where(*owned)
         .where(entry.in_(select(recent.c.entry)))
         .order_by(Job.created_at.desc())
         .limit(LISTED_JOBS)
-    )
-    return list(result.scalars().all())
+    )).scalars().all()
+    # A job still running is always listed, however many rows came after it —
+    # with its group, a group counting as one row: it can only be stopped from here.
+    active = select(entry).where(*owned).where(Job.status.in_(_ACTIVE)).distinct()
+    seen = {j.id for j in listed}
+    older = [
+        j for j in (await db.execute(select(Job).where(*owned).where(entry.in_(active)))).scalars().all()
+        if j.id not in seen
+    ]
+    if not older:
+        return list(listed)
+    return sorted([*listed, *older], key=lambda j: j.created_at, reverse=True)
 
 
 async def clear_finished(
@@ -358,8 +401,6 @@ async def clear_finished(
     """Remove the user's terminal jobs (done/error/cancelled) for a project or a
     workspace — the 'clear all' action. Active jobs (queued/running) are kept so
     a build in flight isn't lost from the panel."""
-    from sqlalchemy import delete
-
     from app.services.data import query_jobs
 
     finished = (
@@ -377,7 +418,8 @@ async def clear_finished(
 
 async def reconcile_on_startup() -> None:
     """A job left running/queued when the process died has no task anymore → mark
-    it error so the panel doesn't show a phantom 'running' forever."""
+    it error so the panel doesn't show a phantom 'running' forever. Then drop
+    the queries past their retention."""
     async with async_session() as db:
         await db.execute(
             update(Job)
@@ -385,3 +427,4 @@ async def reconcile_on_startup() -> None:
             .values(status="error", log_tail="Interrupted by server restart", finished_at=func.now())
         )
         await db.commit()
+    await purge_old_queries()

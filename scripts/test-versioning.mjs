@@ -23,6 +23,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { createServer } from 'node:net'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { dockerEnv } from './docker-env.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const web = join(root, 'apps/web')
@@ -109,8 +110,9 @@ function playwrightRun(args, env) {
 
 function forgeUp() {
   console.log('\n━━ forge-sim: starting the local GitLab (first boot: a few minutes)')
-  if (spawnSync('docker', ['compose', '-p', 'linkr-forge-sim', 'up', '-d'], { cwd: forge, stdio: 'inherit' }).status !== 0) throw new Error('forge-sim did not start')
-  if (spawnSync('./seed.sh', [], { cwd: forge, stdio: 'inherit' }).status !== 0) throw new Error('forge-sim seeding failed')
+  const env = dockerEnv()
+  if (spawnSync('docker', ['compose', '-p', 'linkr-forge-sim', 'up', '-d'], { cwd: forge, env, stdio: 'inherit' }).status !== 0) throw new Error('forge-sim did not start')
+  if (spawnSync('./seed.sh', [], { cwd: forge, env, stdio: 'inherit' }).status !== 0) throw new Error('forge-sim seeding failed')
 }
 
 async function main() {
@@ -162,7 +164,7 @@ async function main() {
       stop(apiProc)
     }
   } finally {
-    if (a.forge && !a.keepForge) spawnSync('docker', ['compose', '-p', 'linkr-forge-sim', 'down'], { cwd: forge, stdio: 'ignore' })
+    if (a.forge && !a.keepForge) spawnSync('docker', ['compose', '-p', 'linkr-forge-sim', 'down'], { cwd: forge, env: dockerEnv(), stdio: 'ignore' })
   }
 
   console.log('\n━━ versioning journeys')

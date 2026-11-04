@@ -13,7 +13,7 @@ vi.mock('@/lib/duckdb/engine', () => ({
   }),
 }))
 
-const { clearPatientQueries, estimateBytes, patientQuery, releasePrefetch, setPrefetchPatients, statementsFor } = await import('./patient-prefetch')
+const { clearPatientQueries, estimateBytes, filtersOnPatient, patientQuery, releasePrefetch, setPrefetchPatients, statementsFor } = await import('./patient-prefetch')
 
 const board = {}
 
@@ -204,5 +204,17 @@ describe('kept for the session', () => {
 
   it('weighs rows by their text', () => {
     expect(estimateBytes([{ a: 'xx', b: 1 }])).toBe(16 + 4 + 16)
+  })
+})
+
+describe('filtersOnPatient', () => {
+  it('matches the patient filter, aliased or not, and nothing else quoting the id', () => {
+    expect(filtersOnPatient(notes('42'), '42')).toBe(true)
+    expect(filtersOnPatient(`SELECT 1 FROM m e WHERE e.patient_id  =  '42'`, '42')).toBe(true)
+    expect(filtersOnPatient(`SELECT 1 FROM m WHERE value_source = '42' AND patient_id = '7'`, '42')).toBe(false)
+    expect(filtersOnPatient(`SELECT 1 FROM m WHERE other_patient_id = '42'`, '42')).toBe(false)
+    expect(filtersOnPatient(`SELECT 1 FROM m WHERE patient_id = '420'`, '42')).toBe(false)
+    expect(filtersOnPatient(`SELECT 1 FROM m WHERE patient_id = 'a.b(c)'`, 'a.b(c)')).toBe(true)
+    expect(filtersOnPatient(`SELECT 1 FROM m WHERE patient_id = 'o''brien'`, "o'brien")).toBe(true)
   })
 })

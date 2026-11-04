@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CohortReportData } from '@/lib/cohort-report/model'
 import type { Cohort } from '@/types'
+import { ApiError } from '@/lib/api-client'
 import { reportDataKey, reportRunOf, startReportRun, stopReportRun } from './report-runs'
 
 const data = { blocks: {}, membership: 'SELECT 1', computedAt: '' } as CohortReportData
@@ -37,6 +38,15 @@ describe('report runs', () => {
     expect(run.signal().aborted).toBe(true)
     await flush()
     expect(reportRunOf('c2')?.state).toEqual({ status: 'stopped' })
+  })
+
+  it('a query stopped from the jobs panel ends the run stopped, a failure in error', async () => {
+    startReportRun('c4', 'k', () => Promise.reject(new ApiError(409, JSON.stringify({ detail: 'cancelled from the jobs panel' }))))
+    const failure = new ApiError(422, JSON.stringify({ detail: 'syntax error' }))
+    startReportRun('c5', 'k', () => Promise.reject(failure))
+    await flush()
+    expect(reportRunOf('c4')?.state).toEqual({ status: 'stopped' })
+    expect(reportRunOf('c5')?.state).toEqual({ status: 'error', error: failure })
   })
 
   it('a new run of the cohort stops the previous one, whose end writes nothing', async () => {

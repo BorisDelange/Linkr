@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 
 import duckdb
+import pytest
 
 from app.config import settings
 from app.services import blob_store
@@ -90,6 +91,46 @@ def test_a_zipped_export_reads_like_its_folder():
     assert lib.expand_zips(files) == expanded
     lib.discard_zip_expansions(files)
     assert not any(Path(p).exists() for _, p in expanded)
+
+
+def _zip_export(path: Path) -> Path:
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, file in _export():
+            zf.write(file, Path(name).name)
+    return path
+
+
+def test_a_replaced_zip_is_extracted_again_and_old_extractions_go():
+    zipped = _zip_export(Path(tempfile.mkdtemp()) / "vocabulary_download_v5.zip")
+    files = [("vocabulary_download_v5.zip", str(zipped))]
+    first = lib.expand_zips(files)
+    first_dir = Path(first[0][1]).parent
+    # Another download at the same path: another size and modification time.
+    with zipfile.ZipFile(zipped, "a") as zf:
+        zf.writestr("CONCEPT_SYNONYM.csv", "concept_id\tconcept_synonym_name\tlanguage_concept_id\n")
+    os.utime(zipped, ns=(os.stat(zipped).st_atime_ns, os.stat(zipped).st_mtime_ns + 10**9))
+    second = lib.expand_zips(files)
+    assert "CONCEPT_SYNONYM.csv" in {n for n, _ in second}
+    assert not first_dir.exists()
+    # An extraction nothing has read for a day is left over from an inspect.
+    other = _zip_export(Path(tempfile.mkdtemp()) / "other.zip")
+    stale = Path(lib.expand_zips([("other.zip", str(other))])[0][1]).parent
+    old = os.stat(stale / ".complete").st_mtime - lib.ZIP_EXTRACTION_TTL_SECONDS - 60
+    os.utime(stale / ".complete", (old, old))
+    lib.expand_zips(files)
+    assert not stale.exists()
+    lib.discard_zip_expansions(files)
+
+
+def test_a_zip_larger_than_the_free_space_is_not_extracted(monkeypatch):
+    import shutil
+
+    zipped = _zip_export(Path(tempfile.mkdtemp()) / "big.zip")
+    monkeypatch.setattr(shutil, "disk_usage", lambda _p: shutil._ntuple_diskusage(10**12, 10**12, 10))
+    files = [("big.zip", str(zipped))]
+    with pytest.raises(ValueError, match="disk space"):
+        lib.expand_zips(files)
+    assert not lib._zip_dir(str(zipped)).exists()
 
 
 def test_partitions_follow_the_owning_concept():

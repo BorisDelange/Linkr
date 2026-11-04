@@ -227,7 +227,7 @@ The export tree is already the entity's canonical text form. So every pull is:
 
 1. **Three trees.** BASE (the sync anchor) and REMOTE from git, LOCAL = the
    export the server builds now (the same one `status` diffs). One generic
-   server route per scope (`tree-preview`, extended to every family) returns the
+   server route per scope (`three-way`, which replaced the wiki-only `tree-preview`) returns the
    three, text in full, binaries as oids.
 2. **Per file:** unchanged on one side → that side; same change on both → no
    item; both changed → merged by the file's kind (below), conflict only where

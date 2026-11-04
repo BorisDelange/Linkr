@@ -133,10 +133,10 @@ export function buildReportSectionsSql(membershipSql: string, sections: readonly
   const all = Object.keys(COLUMNS) as Column[]
   const blocks = sections.filter((s) => s.sql).map((s) => [
     `SELECT '${s.block}' AS block,`,
-    // A placeholder NULL takes the column's type; a text value goes as it is
-    // (Oracle is sent no cast to text of a value it cannot type).
-    indent(all.map((c) => (s.columns.includes(c) && COLUMNS[c] === 'VARCHAR' ? `b.${c}`
-      : `CAST(${s.columns.includes(c) ? `b.${c}` : 'NULL'} AS ${COLUMNS[c]})`) + ` AS ${c}`).join(',\n')),
+    // Every block casts every column, its values as its NULL placeholders:
+    // Oracle refuses a UNION ALL whose blocks type one column apart (a text
+    // literal, an NVARCHAR2 column and a VARCHAR2 NULL).
+    indent(all.map((c) => `CAST(${s.columns.includes(c) ? `b.${c}` : 'NULL'} AS ${COLUMNS[c]}) AS ${c}`).join(',\n')),
     `FROM ${subquerySql(s.sql!)} b`,
   ].join('\n'))
   return [`WITH ${MEMBERS} AS MATERIALIZED ${subquerySql(membershipSql)}`, blocks.join('\nUNION ALL\n')].join('\n')

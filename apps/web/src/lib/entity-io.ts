@@ -1203,6 +1203,32 @@ export function datasetToCsv(df: DatasetFile, rows: Record<string, unknown>[]): 
 }
 
 /**
+ * File name (without `.json`) of each analysis of one dataset: the slug of its
+ * name, `analysis` when unnamed, `-<n>` on a collision — names are not unique, and
+ * two analyses sharing a file lost one. Ordered by creation so the suffixes stay
+ * put across round-trips. The import derives the analysis id from this name.
+ * Twin of `_analysis_file_keys` (apps/api/app/services/project_export.py).
+ */
+export function analysisFileKeys<T extends { id: string; name?: string; createdAt?: string }>(analyses: T[]): [string, T][] {
+  const ordered = [...analyses].sort((a, b) => {
+    const x = `${a.createdAt ?? ''}\0${a.id}`
+    const y = `${b.createdAt ?? ''}\0${b.id}`
+    return x < y ? -1 : x > y ? 1 : 0
+  })
+  const seen = new Set<string>()
+  return ordered.map((a) => {
+    const base = slugify(a.name || 'analysis')
+    let key = base
+    for (let n = 2; seen.has(key); n++) key = `${base}-${n}`
+    seen.add(key)
+    return [key, a]
+  })
+}
+
+/** The file name each parsed analysis came from, read back as its key on import. */
+const analysisImportKey = new WeakMap<DatasetAnalysis, string>()
+
+/**
  * Build a ZIP blob containing all project data in a git-friendly folder layout.
  */
 export async function buildProjectZip(
@@ -1500,10 +1526,10 @@ export async function buildProjectZip(
       // the redundant _columns.json is no longer written (never read on import).
 
       const analyses = await storage.datasetAnalyses.getByDataset(df.id)
-      for (const a of analyses) {
-        // No id: it is derived on import from the analysis key (dataset + name).
+      for (const [key, a] of analysisFileKeys(analyses)) {
+        // No id: it is derived on import from the analysis key (dataset + file name).
         const { id: _id, ...portable } = stripInstanceFields(a)
-        zip.file(`datasets/${folderName}/${slugify(a.name || a.id)}.json`, json(portable))
+        zip.file(`datasets/${folderName}/${key}.json`, json(portable))
       }
 
       // A data file leaves the machine only when explicitly marked for versioning.
@@ -2037,7 +2063,7 @@ export async function importProjectContent(
       ...a,
       // From the analysis' key, never its exported id: an id derived from an id
       // moves on every re-import, and the export wrote it back.
-      id: keyId(`analysis:${(a as { datasetPath?: string }).datasetPath ?? a.datasetFileId}/${slugify(a.name || 'analysis')}`),
+      id: keyId(`analysis:${a.datasetFileId}/${analysisImportKey.get(a) ?? slugify(a.name || 'analysis')}`),
       datasetFileId: resolveDatasetId(a.datasetFileId),
       config: remapColIds(a.config, colIdMap),
     })
@@ -2511,7 +2537,9 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
     // it would import as an idless ghost analysis.
     if (path.endsWith(EDITS_SUFFIX)) continue
     if (path.endsWith('.json')) {
-      datasetAnalyses.push(JSON.parse(await entry.async('string')))
+      const analysis = JSON.parse(await entry.async('string')) as DatasetAnalysis
+      analysisImportKey.set(analysis, path.slice(path.lastIndexOf('/') + 1, -'.json'.length))
+      datasetAnalyses.push(analysis)
     }
   }
 

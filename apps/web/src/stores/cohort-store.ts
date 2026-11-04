@@ -9,6 +9,7 @@ import { copyName } from '@/lib/copy-name'
 import { localized, toLocalized } from '@/lib/localized'
 import { buildCohortResultsSql, buildAttritionQueries, buildCohortMembershipSql, buildCustomSqlOutputSql, cohortIdColumn, cohortRunError } from '@/lib/duckdb/cohort-query'
 import { cohortRelationNarrowing } from '@/features/projects/warehouse/cohorts/relation-narrowing'
+import { relationsCountedAt } from '@/features/projects/warehouse/patient-data/timeline-relations'
 import { withClassRelations } from '@/lib/schema-classes/inject'
 import * as engine from '@/lib/duckdb/engine'
 import type {
@@ -466,6 +467,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
       // table paginates client-side, so a 50-row fetch showed "50 / 50" on a
       // cohort of 1500. The same query counts the cohort.
       const resultsSql = buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS, narrowing)
+      const narrowed = !!narrowing && resultsSql !== buildCohortResultsSql(cohort, schemaMapping, MAX_RESULT_ROWS)
+      const narrowedBy = narrowed ? { countedAt: await relationsCountedAt(dataSourceId).catch(() => null) } : undefined
       // No SQL means the criteria tree produced nothing runnable (an empty group,
       // a criterion missing its concepts). Returning silently here left the panel
       // spinning, then back on "run the query" as if nothing had happened.
@@ -510,6 +513,7 @@ export const useCohortStore = create<CohortState>((set, get) => ({
         executedAt: new Date().toISOString(),
         durationMs,
         ...(draft ? { fromDraft: { customSql: customSqlDraft ?? null } } : {}),
+        ...(narrowedBy ? { narrowedBy } : {}),
       }
 
       if (!isCurrent()) return totalCount
@@ -590,7 +594,8 @@ export const useCohortStore = create<CohortState>((set, get) => ({
     }))
 
     try {
-      const sql = buildCohortMembershipSql(cohort, schemaMapping, await cohortRelationNarrowing(dataSourceId, schemaMapping, cohort))
+      // Never narrowed by the concept count: a frozen membership must be exact.
+      const sql = buildCohortMembershipSql(cohort, schemaMapping)
       // Returning here without clearing the spinner left the button turning for
       // ever with nothing to explain it — surface it as the failure it is.
       if (!sql) throw new Error('EMPTY_QUERY')

@@ -3,8 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { GeneratedSqlEditor } from '@/components/editor/GeneratedSqlEditor'
 import { SqlFormSelect, type SqlForm } from '@/components/editor/SqlFormSelect'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn, type RelationNarrowing } from '@/lib/duckdb/cohort-query'
-import { cohortRelationNarrowing } from '../relation-narrowing'
+import { buildCohortCriteriaSql, buildCohortNativeSql, cohortIdColumn } from '@/lib/duckdb/cohort-query'
 import { labelCohortConcepts } from '../concept-labels'
 import { namesRelation } from '@/lib/schema-classes/native-sql'
 import { localized } from '@/lib/localized'
@@ -13,8 +12,9 @@ import type { Cohort, SchemaMapping } from '@/types'
 interface SqlPreviewPanelProps {
   cohort: Cohort
   mapping: SchemaMapping | undefined
-  /** The database the cohort runs on: its concept count leaves out the tables
-   *  holding none of a criterion's concepts, here as in the run. */
+  /** The database the cohort runs on, which names its concepts. The query shown
+   *  is the exact definition, never narrowed by the concept count: a hand edit
+   *  starts from it, and a stale count would silently drop matches. */
   dataSourceId: string | undefined
   onCustomSqlChange: (sql: string | null) => void
   /** Runs the editor's text, saved or not (null: the criteria). */
@@ -29,24 +29,19 @@ const formatOf = (sql: string): SqlForm => (namesRelation(sql) ? 'linkr' : 'nati
 
 export function SqlPreviewPanel({ cohort, mapping, dataSourceId, onCustomSqlChange, onExecute, onDraftChange, runRef }: SqlPreviewPanelProps) {
   const { t, i18n } = useTranslation()
-  // What the database says of the cohort: the tables its concepts are absent
-  // from, and their vocabulary and name, written after each id.
-  const [read, setRead] = useState<{ of: Cohort; narrowing: RelationNarrowing | undefined; labelled: Cohort } | null>(null)
+  // The concepts' vocabulary and name, written after each id.
+  const [read, setRead] = useState<{ of: Cohort; labelled: Cohort } | null>(null)
   useEffect(() => {
     if (!dataSourceId || !mapping) return
     let cancelled = false
-    Promise.all([
-      cohortRelationNarrowing(dataSourceId, mapping, cohort).catch(() => undefined),
-      labelCohortConcepts(dataSourceId, mapping, cohort).catch(() => cohort),
-    ]).then(([narrowing, labelled]) => { if (!cancelled) setRead({ of: cohort, narrowing, labelled }) })
+    labelCohortConcepts(dataSourceId, mapping, cohort).catch(() => cohort)
+      .then((labelled) => { if (!cancelled) setRead({ of: cohort, labelled }) })
     return () => { cancelled = true }
   }, [dataSourceId, mapping, cohort])
   // Only for the cohort it was asked about: an edited criterion waits for its own.
-  const current = read?.of === cohort ? read : null
-  const narrowing = current?.narrowing
-  const shown = current?.labelled ?? cohort
-  const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(shown, mapping, false, narrowing) : null), [shown, mapping, narrowing])
-  const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(shown, mapping, narrowing) : null), [shown, mapping, narrowing])
+  const shown = (read?.of === cohort ? read.labelled : null) ?? cohort
+  const linkrSql = useMemo(() => (mapping ? buildCohortCriteriaSql(shown, mapping, false) : null), [shown, mapping])
+  const nativeSql = useMemo(() => (mapping ? buildCohortNativeSql(shown, mapping) : null), [shown, mapping])
   const [chosen, setChosen] = useState<SqlForm>('native')
   const [hasDraft, setHasDraft] = useState(false)
 

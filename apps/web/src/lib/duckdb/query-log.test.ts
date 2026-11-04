@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { clearLoggedQueries, loggedQueries, logQuery, originOf, pageOrigin, stopLoggedQuery } from './query-log'
 
 afterEach(() => {
@@ -19,6 +19,21 @@ describe('a query’s origin', () => {
 })
 
 describe('the front-only query log', () => {
+  it('forgets a finished query after a day, never a running one', () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(0)
+      logQuery('ds', 'SELECT old', 'Cohorts')({ rows: 1 })
+      const end = logQuery('ds', 'SELECT live', 'Cohorts')
+      vi.setSystemTime(25 * 3_600_000)
+      logQuery('ds', 'SELECT new', 'Cohorts')({ rows: 1 })
+      expect(loggedQueries().map((q) => q.sql)).toEqual(['SELECT new', 'SELECT live'])
+      end({ rows: 0 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps each query’s SQL, row count or error, newest first', () => {
     logQuery('ds', 'SELECT 1', 'Cohorts')({ rows: 3 })
     logQuery('ds', 'SELECT nope', 'Concepts')({ error: new Error('no column nope') })

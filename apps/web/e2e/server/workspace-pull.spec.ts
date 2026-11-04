@@ -149,9 +149,14 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   await expect(page.getByText('Sync Wiki', { exact: true }).first()).toBeVisible()
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'push-quick.png'), fullPage: true })
 
-  // Review mode: no direct push left, the cards propose instead.
-  await page.getByRole('switch', { name: 'Changes go through review' }).click()
-  await expect(page.getByRole('button', { name: 'Propose changes' }).first()).toBeVisible()
+  // Review mode (Workspace settings → Versioning): no direct push left, the cards propose instead.
+  await page.goto(`${wsUrl}/settings/versioning`)
+  const reviewSwitch = page.getByRole('switch', { name: 'Changes go through review' })
+  await reviewSwitch.click()
+  await expect(reviewSwitch).toBeChecked()
+  await page.goto(`${wsUrl}/versioning?tab=git`)
+  await page.getByRole('tab', { name: 'Quick actions' }).click()
+  await expect(page.getByRole('button', { name: 'Propose changes' }).first()).toBeVisible({ timeout: 30_000 })
   await expect(page.getByRole('button', { name: 'Sync all' })).toHaveCount(0)
   await page.getByRole('tab', { name: 'Details' }).click()
   await expect(page.getByRole('button', { name: 'Commit & push' })).toHaveCount(0)

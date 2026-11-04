@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import type { Cohort } from '@/types'
 import type { CohortReportData } from '@/lib/cohort-report/model'
+import { isQueryStopped } from '@/lib/api/query-stopped'
 
 /**
  * The figures being computed for each cohort, outside the dialog or tab that
@@ -56,7 +57,8 @@ export function startReportRun(
   const { signal } = entry.controller
   build(signal).then(
     (data) => settle(cohortId, entry, { status: 'done', data }),
-    (error) => settle(cohortId, entry, signal.aborted ? { status: 'stopped' } : { status: 'error', error }),
+    // A query stopped from the jobs panel ends the run as Stop does.
+    (error) => settle(cohortId, entry, signal.aborted || isQueryStopped(error) ? { status: 'stopped' } : { status: 'error', error }),
   )
 }
 

@@ -36,7 +36,7 @@ function jobFinished(job: Job): void {
 /** True when the poll returned nothing this indicator would draw differently. The
  *  common case by far is "no jobs at all", where re-rendering the footer every 3s
  *  also re-rendered every dialog mounted in it (the environments manager). While a
- *  job IS running, progress/logTail move and the compare correctly reports a change. */
+ *  job IS running, progress/summary move and the compare correctly reports a change. */
 function sameJobs(a: Job[], b: Job[]): boolean {
   if (a.length !== b.length) return false
   return a.every((j, i) => {
@@ -46,7 +46,8 @@ function sameJobs(a: Job[], b: Job[]): boolean {
       j.status === o.status &&
       j.progress === o.progress &&
       j.label === o.label &&
-      j.logTail === o.logTail &&
+      j.summary === o.summary &&
+      j.cancellable === o.cancellable &&
       j.finishedAt === o.finishedAt
     )
   })
@@ -110,17 +111,34 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
 
   const localQueries = useLocalQueries(!server)
 
-  // The input travels only with the single job, fetched once the modal opens.
-  const [input, setInput] = useState<{ jobId: string; text: string | null } | null>(null)
+  // The input and the log travel only with the single job: fetched once the
+  // modal opens, the log again while the job runs.
+  const [detail, setDetail] = useState<{ jobId: string; input: string | null; logTail: string } | null>(null)
   const [logTab, setLogTab] = useState<'output' | 'input'>('output')
+  const openStatus = jobs.find((j) => j.id === logJobId)?.status
+  const openActive = !!openStatus && ACTIVE.has(openStatus)
   useEffect(() => {
     if (!logJobId || !server) return
     let live = true
-    getJob(logJobId, { withInput: true })
-      .then((j) => { if (live) setInput({ jobId: logJobId, text: j.input ?? null }) })
-      .catch(() => { if (live) setInput({ jobId: logJobId, text: null }) })
-    return () => { live = false }
-  }, [logJobId, server])
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const read = (withInput: boolean) => getJob(logJobId, { withInput })
+      .then((j) => {
+        if (!live) return
+        setDetail((prev) => ({
+          jobId: logJobId,
+          input: withInput ? j.input ?? null : prev?.jobId === logJobId ? prev.input : null,
+          logTail: j.logTail,
+        }))
+        if (openActive && ACTIVE.has(j.status)) timer = setTimeout(() => void read(false), 2000)
+      })
+      .catch((err) => {
+        console.warn('[jobs] reading the job failed', err)
+        if (live) setDetail((prev) => prev?.jobId === logJobId ? prev : { jobId: logJobId, input: null, logTail: '' })
+      })
+    void read(true)
+    return () => { live = false; clearTimeout(timer) }
+    // Read once more when the job ends: its last lines come with its end.
+  }, [logJobId, server, openActive])
 
   const listed = server ? jobs : localQueries
   const rows = useMemo(() => groupJobs(listed), [listed])
@@ -135,6 +153,8 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   // unit in flight is interrupted, so the button says it was heard meanwhile.
   const [stopping, setStopping] = useState<ReadonlySet<string>>(new Set())
   const isStopping = (job: Job) => stopping.has(job.id) && ACTIVE.has(job.status)
+  // A job seen but out of the panel's reach (a connection test) shows no Stop.
+  const canStop = (job: Job) => ACTIVE.has(job.status) && job.cancellable !== false
   const [confirmStopAll, setConfirmStopAll] = useState(false)
   const [cancelError, setCancelError] = useState<string | null>(null)
 
@@ -159,13 +179,13 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
   }
 
   const onStopGroup = (group: JobGroupRow) => {
-    for (const job of group.jobs) if (ACTIVE.has(job.status) && !stopping.has(job.id)) void onCancel(job.id)
+    for (const job of group.jobs) if (canStop(job) && !stopping.has(job.id)) void onCancel(job.id)
   }
-  const groupStopping = (group: JobGroupRow) => group.jobs.filter((j) => ACTIVE.has(j.status)).every(isStopping)
+  const groupStopping = (group: JobGroupRow) => group.jobs.filter(canStop).every(isStopping)
 
   const onStopAll = () => {
     setConfirmStopAll(false)
-    for (const job of listed) if (ACTIVE.has(job.status) && !stopping.has(job.id)) void onCancel(job.id)
+    for (const job of listed) if (canStop(job) && !stopping.has(job.id)) void onCancel(job.id)
   }
 
   const onClearAll = async () => {
@@ -179,7 +199,9 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
 
   const logJob = listed.find((j) => j.id === logJobId) ?? null
   // A front-only query carries its SQL; a server job's is fetched once opened.
-  const jobInput = !server ? (logJob?.input ?? null) : input && input.jobId === logJobId ? input.text : null
+  const opened = detail && detail.jobId === logJobId ? detail : null
+  const jobInput = !server ? (logJob?.input ?? null) : opened?.input ?? null
+  const jobLog = !server ? (logJob?.logTail ?? '') : opened?.logTail ?? ''
   const showInput = logTab === 'input' && !!jobInput
   const hasFinished = listed.some((j) => !ACTIVE.has(j.status))
 
@@ -205,7 +227,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           </TooltipContent>
         </Tooltip>
         {job.kind === QUERY_KIND && job.status === 'done' && (
-          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.logTail.split('\n')[0]}</span>
+          <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.summary}</span>
         )}
         {job.status === 'running' && job.progress > 0 && (
           <span className="shrink-0 tabular-nums text-[10px] text-muted-foreground">{job.progress}%</span>
@@ -230,7 +252,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
           </TooltipContent>
         </Tooltip>
       )}
-      {ACTIVE.has(job.status) ? (
+      {canStop(job) ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -246,7 +268,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
             {t(isStopping(job) ? 'jobs.stopping' : 'jobs.cancel_tooltip')}
           </TooltipContent>
         </Tooltip>
-      ) : job.kind === QUERY_KIND && job.status === 'done' ? null : (
+      ) : (job.kind === QUERY_KIND && job.status === 'done') || ACTIVE.has(job.status) ? null : (
         <span className="shrink-0 text-[10px] text-muted-foreground">
           {t(`jobs.status.${job.status}`)}
         </span>
@@ -277,7 +299,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         <div className="mb-2.5 flex items-center justify-between">
           <span className="font-medium">{t('jobs.recent')}</span>
           <div className="flex items-center gap-3">
-            {activeCount > 0 && (
+            {listed.some(canStop) && (
               <button
                 className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-destructive"
                 onClick={() => setConfirmStopAll(true)}
@@ -300,9 +322,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         {cancelError && (
           <p role="alert" className="mb-2 px-1.5 text-[10px] text-destructive">{cancelError}</p>
         )}
-        {!server && (
-          <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">{t('jobs.queries_hint_local')}</p>
-        )}
+        <p className="mb-1.5 px-1.5 text-[10px] text-muted-foreground">{t(server ? 'jobs.queries_hint' : 'jobs.queries_hint_local')}</p>
         {listed.length === 0 && (
           <p className="px-1.5 py-3 text-center text-[10px] text-muted-foreground">{t('jobs.empty')}</p>
         )}
@@ -333,7 +353,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                     </span>
                     <JobDuration job={row.group} className="ml-auto shrink-0 text-[10px] text-muted-foreground" />
                   </button>
-                  {ACTIVE.has(row.group.status) ? (
+                  {row.group.jobs.some(canStop) ? (
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
@@ -349,7 +369,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
                         {t(groupStopping(row.group) ? 'jobs.stopping' : 'jobs.cancel_group')}
                       </TooltipContent>
                     </Tooltip>
-                  ) : row.group.status !== 'done' && (
+                  ) : row.group.status !== 'done' && !ACTIVE.has(row.group.status) && (
                     <span className="shrink-0 text-[10px] text-muted-foreground">
                       {t(`jobs.status.${row.group.status}`)}
                     </span>
@@ -383,7 +403,7 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         </DialogHeader>
         {logJob && (
           <div className="flex items-center gap-3">
-            {ACTIVE.has(logJob.status) && (
+            {canStop(logJob) && (
               <Button size="xs" variant="destructive" className="gap-1" onClick={() => void onCancel(logJob.id)} disabled={isStopping(logJob)}>
                 {isStopping(logJob) ? <Loader2 size={12} className="animate-spin" /> : <Square size={12} />}
                 {t(isStopping(logJob) ? 'jobs.stopping' : 'jobs.stop')}
@@ -410,12 +430,12 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
         ) : logJob?.result && logJob.kind !== 'app' ? (
           // With artifacts the body scrolls: log at a fixed share, figures below.
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto">
-            {logJob.logTail ? <JobLogView text={logJob.logTail} height={320} /> : <NoLog />}
+            {jobLog ? <JobLogView text={jobLog} height={320} /> : <NoLog />}
             <JobArtifacts result={logJob.result} />
           </div>
         ) : (
           <div className="flex min-h-0 flex-1 flex-col">
-            {logJob?.logTail ? <JobLogView text={logJob.logTail} height="100%" /> : <NoLog />}
+            {jobLog ? <JobLogView text={jobLog} height="100%" /> : <NoLog />}
           </div>
         )}
       </DialogContent>

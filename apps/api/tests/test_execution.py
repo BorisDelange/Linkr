@@ -136,7 +136,9 @@ async def _wait_job(client, headers, uid, job_id):
     if task is not None:
         await asyncio.gather(task, return_exceptions=True)
     jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
-    return next(j for j in jobs if j["id"] == job_id)
+    assert any(j["id"] == job_id for j in jobs)
+    # Its log comes with the job itself, not with the list.
+    return (await client.get(f"{API}/jobs/{job_id}", headers=headers)).json()
 
 
 async def test_run_as_job_batch_captures_output_and_result(client):
@@ -855,8 +857,16 @@ async def test_execute_stream_keeps_variables_between_runs(tmp_path):
 async def test_interrupt_stops_run_and_kernel_survives(tmp_path):
     """SIGINT (Ctrl+C) breaks a long-running loop and the kernel stays alive for
     the next command — the terminal interruption contract."""
+    from app.config import settings
+
     kernel = _make_python_kernel(tmp_path)
+    # Booting the interpreter (matplotlib's import, its font cache on a cold
+    # MPLCONFIGDIR) is not what is under test, and under `pytest -n 4` it can take
+    # longer than any short deadline: boot it with a first run, bounded by the
+    # kernel's own timeout, so the deadlines below only measure the interrupt.
+    deadline = settings.execution_timeout_seconds
     try:
+        await kernel.execute_stream("pass", lambda k, d: None)
         started = asyncio.Event()
         chunks: list[str] = []
 
@@ -872,9 +882,10 @@ async def test_interrupt_stops_run_and_kernel_survives(tmp_path):
                 on_chunk,
             )
         )
-        await asyncio.wait_for(started.wait(), timeout=10)
+        await asyncio.wait_for(started.wait(), timeout=deadline)
         assert kernel.interrupt() is True
-        await asyncio.wait_for(run, timeout=10)
+        # Well under the loop's 50 s: a run that ends in time was interrupted.
+        await asyncio.wait_for(run, timeout=30)
         # In stream mode the interrupt notice arrives as a stderr chunk, not in
         # the done payload (whose stdout/stderr are empty while streaming).
         assert any("KeyboardInterrupt" in c for c in chunks)

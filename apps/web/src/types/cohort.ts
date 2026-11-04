@@ -381,4 +381,7 @@ export interface CohortExecutionResult {
   /** Set when the run used the SQL tab's unsaved text rather than the saved
    *  definition: `customSql` is what ran (null: the criteria). */
   fromDraft?: { customSql: string | null }
+  /** Set when the run searched some concepts only in the tables the concept
+   *  count found them in: when that count was taken (null: unknown). */
+  narrowedBy?: { countedAt: string | null }
 }

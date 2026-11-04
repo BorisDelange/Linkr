@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { AlertTriangle, ArrowDownToLine, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { gitThreeWay, type GitScope } from '@/lib/api/git'
+import { gitThreeWay, LocalChangedError, type GitScope } from '@/lib/api/git'
 import { itemIdFor, planIsEmpty, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
 import {
   buildThreeWayPlan,
@@ -42,6 +42,16 @@ interface Draft {
 }
 const _drafts = new Map<string, Draft>()
 
+async function loadDraft(scope: GitScope, id: string, branch: string): Promise<Draft> {
+  const preview = await gitThreeWay(scope, id, branch)
+  const { prepared, unsupported } = splitUnwritable(scope, prepareThreeWay(preview), useAuthStore.getState().user?.username)
+  return { preview, prepared, unsupported, decisions: new Map<string, PullDecision>(), edits: new Map<string, string>() }
+}
+
+/** What a draft's decisions were computed on: the files and their local and remote ids. */
+const basis = (p: ThreeWayPreview) =>
+  p.files.map((f) => `${f.path}\0${f.localOid ?? ''}\0${f.remoteOid ?? ''}`).sort().join('\n')
+
 /**
  * The pull of any versioned entity, inline in its versioning panel: what the
  * remote changed since the last sync, file by file and item by item, merged with
@@ -61,21 +71,32 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
   const [error, setError] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
   const [diffPath, setDiffPath] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [reload, setReload] = useState(0)
 
   useEffect(() => {
-    if (_drafts.has(key)) return
     let cancelled = false
+    const cachedDraft = _drafts.get(key)
+    if (cachedDraft) {
+      // A kept draft is only good while the local export it was computed on
+      // stands: an edit made meanwhile starts the review over.
+      loadDraft(scope, id, branch)
+        .then((fresh) => {
+          if (cancelled || basis(fresh.preview) === basis(cachedDraft.preview)) return
+          _drafts.delete(key)
+          setDraft(fresh)
+          setNotice(t('versioning.pull_local_changed'))
+        })
+        .catch(() => {})
+      return () => { cancelled = true }
+    }
     setLoading(true)
     setError(null)
-    ;(async () => {
-      const preview = await gitThreeWay(scope, id, branch)
-      const { prepared, unsupported } = splitUnwritable(scope, prepareThreeWay(preview), useAuthStore.getState().user?.username)
-      return { preview, prepared, unsupported, decisions: new Map<string, PullDecision>(), edits: new Map<string, string>() }
-    })()
+    loadDraft(scope, id, branch)
       .then((d) => { if (!cancelled) { setDraft(d); setLoading(false) } })
       .catch((e) => { if (!cancelled) { setError(e instanceof Error ? e.message : String(e)); setLoading(false) } })
     return () => { cancelled = true }
-  }, [key, scope, id, branch, remoteHead])
+  }, [key, scope, id, branch, remoteHead, reload, t])
 
   useEffect(() => { if (draft) _drafts.set(key, draft) }, [key, draft])
 
@@ -142,10 +163,17 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
         decisions: views.toReal(draft.decisions), unsupported: draft.unsupported, edits: draft.edits,
       })
       _drafts.delete(key)
+      setNotice(null)
       await onPulled()
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
       _drafts.delete(key)
+      if (e instanceof LocalChangedError) {
+        setNotice(t('versioning.pull_local_changed'))
+        setDraft(null)
+        setReload((n) => n + 1)
+      } else {
+        setError(e instanceof Error ? e.message : String(e))
+      }
     } finally {
       setApplying(false)
     }
@@ -187,6 +215,12 @@ export function ThreeWayPull({ scope, id, workspaceId, branch, remoteHead, mode,
     <>
       {error && (
         <div className="mb-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</div>
+      )}
+      {notice && (
+        <div className="mb-2 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+          <AlertTriangle size={14} className="mt-px shrink-0" />
+          <p className="min-w-0">{notice}</p>
+        </div>
       )}
       {draft.unsupported.length > 0 && (
         <div className="mb-2 flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">

@@ -36,7 +36,6 @@ import { formatDateTime } from '@/lib/format-helpers'
 import { localized, toLocalized } from '@/lib/localized'
 import { paths } from '@/lib/paths'
 import { useDataSourceStore } from '@/stores/data-source-store'
-import { cohortRelationNarrowing } from '../relation-narrowing'
 import type { Cohort, CohortDerivation, DataSource, DerivationOptions } from '@/types'
 import {
   copyableTables,
@@ -231,11 +230,6 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
     }
   }
 
-  // Each concept searched only in the tables the concept count found it in.
-  const narrowing = () => (source.schemaMapping
-    ? cohortRelationNarrowing(source.id, source.schemaMapping, cohort).catch(() => undefined)
-    : Promise.resolve(undefined))
-
   const confirm = () => {
     if (!canConfirm) return
     const base = { cohort, cohortKey, source, copyPersonless, options: options() }
@@ -247,7 +241,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
           parentId: source.id,
           name: toLocalized(name.trim()),
           path: databaseLocationPath(location),
-          request: derivationRequest({ ...base, target: 'new-database', narrowing: await narrowing() }),
+          request: derivationRequest({ ...base, target: 'new-database' }),
         })
         const ids = useDataSourceStore.getState().dataSources.map((d) => d.id)
         navigate(paths.warehouseDatabase(source.workspaceId ?? '', dataSourceId, ids))
@@ -255,7 +249,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
       return
     }
     void run(async () => runDerivation(source.id, {
-      ...derivationRequest({ ...base, target: 'schema', narrowing: await narrowing() }),
+      ...derivationRequest({ ...base, target: 'schema' }),
       target: {
         kind: 'schema',
         dataSourceId: targetId,
@@ -271,7 +265,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
       // With what it kept before: a rebuild redraws the same database, never a
       // wider one. One recorded before the options were has none: everything.
       ...derivationRequest({
-        cohort, cohortKey, source, copyPersonless: true, options: d.options, target: d.kind, narrowing: await narrowing(),
+        cohort, cohortKey, source, copyPersonless: true, options: d.options, target: d.kind,
       }),
       target: d.kind === 'new-database'
         ? { kind: 'new-database', dataSourceId: d.targetId }
@@ -489,6 +483,7 @@ function DeriveForm({ open, onOpenChange, cohort, cohortKey, source }: CohortDer
             <AlertDialogTitle>{t('cohort_derive.rebuild_title')}</AlertDialogTitle>
             <AlertDialogDescription>
               {rebuilding && t('cohort_derive.rebuild_description', { target: derivationLabel(rebuilding) })}
+              {rebuilding?.kind === 'schema' && ` ${t('cohort_derive.rebuild_schema_warning')}`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -4,7 +4,7 @@ import type { TFunction } from 'i18next'
 import type { Cohort } from '@/types'
 import { columnChart, donut, flowchart, horizontalBars, niceScale, verticalBars } from './charts'
 import { describeCriteria } from './describe'
-import { buildCohortReportModel, fillMonths } from './model'
+import { buildCohortReportModel, buildReportSectionsSql, fillMonths } from './model'
 import { buildAgeSql, buildCareUnitSql, buildConceptSql, buildIndexSql, buildVisitCountSql } from './queries'
 import { renderReportHtml } from './render-html'
 import { suppress, suppressedShare } from './suppress'
@@ -177,6 +177,19 @@ describe('buildCohortReportModel', () => {
     if (sql.includes('AS unit')) return [{ unit: 'ICU', n: 700 }]
     return []
   }
+
+  it('types every column alike in every block of the one query, text values as their NULLs', () => {
+    const sql = buildReportSectionsSql('SELECT 1 AS id', [
+      { block: 'events', sql: "SELECT 'Drug' AS label, 1 AS rows, 1 AS patients", columns: ['label', 'rows', 'patients'] },
+      { block: 'units', sql: 'SELECT unit_name AS unit, 1 AS n FROM visit_detail', columns: ['unit', 'n'] },
+      { block: 'none', sql: null, columns: ['n'] },
+    ])
+    expect(sql.split('UNION ALL')).toHaveLength(2)
+    expect(sql).toContain('CAST(b.label AS VARCHAR) AS label')
+    expect(sql).toContain('CAST(b.unit AS VARCHAR) AS unit')
+    expect(sql).toContain('CAST(NULL AS VARCHAR) AS unit')
+    expect(sql).not.toMatch(/^\s*b\.\w+ AS/m)
+  })
 
   it('builds every section, suppressed at the model', async () => {
     const model = await buildCohortReportModel({ cohort: cohort(), mapping, databaseName: 'eHOP', run, t, locale: 'en', threshold: 11, now: new Date('2026-09-23T10:00:00Z') })

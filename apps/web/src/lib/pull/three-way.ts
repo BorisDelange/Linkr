@@ -18,7 +18,10 @@
  * its conflicting parts from the remote); declining keeps the local side, which
  * then shows as a change to push.
  */
+import { compareVersions, ENTITY_MANIFEST, isAppTooOld, MANIFEST } from '@linkr/format'
 import type { GitScope } from '@/lib/api/git'
+import i18n from '@/lib/i18n'
+import { APP_VERSION } from '@/lib/version'
 import { buildPullFiles, itemIdFor, type PullDecision, type PullItem, type PullItemState, type PullPlan } from '@/lib/pull-plan'
 import { LINES, PARAGRAPHS, mergeText, resolveMerge, type MarkdownMerge, type MergeUnit } from '@/lib/wiki/markdown-merge'
 
@@ -42,6 +45,41 @@ export interface ThreeWayPreview {
 
 /** Stamped by the exporting app, not authored: never offered, never merged. */
 const STAMP_FIELDS = new Set(['appVersion', 'minAppVersion'])
+
+const MANIFEST_NAMES = new Set<string>([ENTITY_MANIFEST, ...Object.values(MANIFEST)])
+
+const LFS_POINTER_PREFIX = 'version https://git-lfs.github.com/spec/v1'
+const isLfsPointer = (text: string | null | undefined) => !!text?.startsWith(LFS_POINTER_PREFIX)
+
+const minAppVersionOf = (text: string | null | undefined): string | null => {
+  const parsed = parseJson(text)
+  const min = parsed && typeof parsed === 'object' ? (parsed as Json).minAppVersion : undefined
+  return typeof min === 'string' && min.trim() ? min : null
+}
+
+const higherVersion = (a: string | null, b: string | null) =>
+  !a ? b : !b ? a : compareVersions(a, b) >= 0 ? a : b
+
+/** The highest `minAppVersion` a manifest the remote changed declares, or null. */
+export function remoteRequiredAppVersion(preview: ThreeWayPreview): string | null {
+  let highest: string | null = null
+  for (const f of preview.files) {
+    if (MANIFEST_NAMES.has(f.path.split('/').pop() ?? '')) highest = higherVersion(highest, minAppVersionOf(f.remote))
+  }
+  return highest
+}
+
+export class PullAppTooOldError extends Error {
+  readonly required: string
+  readonly current: string
+
+  constructor(required: string, current: string = APP_VERSION) {
+    super(i18n.t('versioning.pull_app_too_old', { required, current }))
+    this.name = 'PullAppTooOldError'
+    this.required = required
+    this.current = current
+  }
+}
 
 /** Keys that identify an element of a JSON array, in order of preference. */
 const ELEMENT_KEYS = ['id', 'path', 'key', 'templateKey', 'entityId', 'username', 'name'] as const
@@ -103,7 +141,9 @@ function elementKey(arrays: unknown[][]): string | null {
 }
 
 export function prepareFile(file: ThreeWayFile): PreparedFile | null {
-  if (file.binary || (file.base == null && file.local == null && file.remote == null && (file.baseOid || file.localOid || file.remoteOid))) {
+  // A pointer is no content: its file is taken whole, materialised server-side.
+  const lfs = [file.base, file.local, file.remote].some(isLfsPointer)
+  if (file.binary || lfs || (file.base == null && file.local == null && file.remote == null && (file.baseOid || file.localOid || file.remoteOid))) {
     const state = verdict(file.baseOid ?? null, file.localOid ?? null, file.remoteOid ?? null, has)
     return state ? { file, merge: { kind: 'whole', state } } : null
   }
@@ -147,7 +187,11 @@ export function prepareFile(file: ThreeWayFile): PreparedFile | null {
   return { file, merge: { kind: 'text', unit: name, merge, base: base ?? '', local: local ?? '', remote: remote ?? '', state: resolved } }
 }
 
+/** Throws `PullAppTooOldError` when the remote needs a newer Linkr: the merged
+ *  tree would be re-imported here, and read only partly, without a word. */
 export function prepareThreeWay(preview: ThreeWayPreview): PreparedFile[] {
+  const required = remoteRequiredAppVersion(preview)
+  if (required && isAppTooOld(required, APP_VERSION)) throw new PullAppTooOldError(required)
   return preview.files.map(prepareFile).filter((f): f is PreparedFile => f !== null)
 }
 
@@ -189,7 +233,9 @@ export function buildThreeWayPlan(
   }
 }
 
-export type Override = { text: string } | { remote: true } | { delete: true }
+/** `localOid`: the file's id in the three-way the decision was computed on (null:
+ *  absent locally); the server refuses the tree when the local file has moved. */
+export type Override = ({ text: string } | { remote: true } | { delete: true }) & { localOid?: string | null }
 
 /**
  * The text a file ends up with, given the decisions; undefined when the local
@@ -217,6 +263,9 @@ export function mergedContent(prepared: PreparedFile, decisions: Map<string, Pul
         if (merge.remote && f.key in merge.remote) out[f.key] = merge.remote[f.key]
         else delete out[f.key]
       }
+      // Fields taken from the remote may need the version that wrote them.
+      const min = higherVersion(minAppVersionOf(file.local), minAppVersionOf(file.remote))
+      if (min && MANIFEST_NAMES.has(file.path.split('/').pop() ?? '')) out.minAppVersion = min
       return { text: JSON.stringify(out, null, 2) }
     }
     case 'elements': {
@@ -248,8 +297,9 @@ export function overridesFor(
   const out: Record<string, Override> = {}
   for (const p of prepared) {
     const edited = edits.get(p.file.path)
-    const o = edited !== undefined ? { text: edited } : mergedContent(p, decisions)
-    if (o) out[p.file.path] = o
+    const o: Override | undefined = edited !== undefined ? { text: edited } : mergedContent(p, decisions)
+    if (!o) continue
+    out[p.file.path] = p.file.localOid !== undefined ? { ...o, localOid: p.file.localOid } : o
   }
   return out
 }

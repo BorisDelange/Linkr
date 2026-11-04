@@ -22,6 +22,7 @@ function asJob(q: LoggedQuery): Job {
     status: q.status,
     progress: 0,
     logTail: outcome(q),
+    summary: outcome(q).split('\n')[0] || null,
     input: q.sql,
     createdAt: new Date(q.startedAt).toISOString(),
     startedAt: new Date(q.startedAt).toISOString(),

@@ -168,7 +168,7 @@ export function ConceptSetsTab({ project }: ConceptSetsTabProps) {
             <Tooltip>
               <TooltipTrigger asChild><span className="cursor-default">{badge}</span></TooltipTrigger>
               <TooltipContent side="left" className="max-w-sm">
-                <ul className="space-y-0.5 text-[11px]">
+                <ul className="space-y-0.5">
                   {r.mappedSources.slice(0, 10).map((src, i) => <li key={i} className="truncate">- {src}</li>)}
                   {r.mappedSources.length > 10 && <li className="text-muted-foreground">…</li>}
                 </ul>

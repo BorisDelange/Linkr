@@ -170,6 +170,9 @@ async def start(
                 await handle.progress(int(100 * (i + pct / 100) / len(queries)))
 
             async with jobs.lane_slot("heavy_query") if share_lane else contextlib.nullcontext():
+                # Queued while it waits for its first slot, not running.
+                if share_lane and i == 0:
+                    await jobs.mark_running(job_id)
                 # From its slot: the wait for it is not the query's time.
                 started = time.monotonic()
                 run = asyncio.create_task(_run_one(job_id, source_id, runner, q, tag, launched_by))
@@ -201,7 +204,7 @@ async def start(
             outcome = "failed" if key in errors else "" if rows is None else f"{len(rows)} rows"
             await handle.log(f"{i + 1}/{len(queries)} {key}{': ' + outcome if outcome else ''} in {elapsed:.1f} s")
 
-    jobs.launch(job_id, body, lane=None if share_lane else "heavy_query")
+    jobs.launch(job_id, body, lane=None if share_lane else "heavy_query", running=not share_lane)
     return job
 
 

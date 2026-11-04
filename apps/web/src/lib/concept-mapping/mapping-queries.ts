@@ -1,6 +1,7 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptIdentity, type ConceptIdentity } from '@/lib/schema-classes/spec'
 import { escSql as esc } from '@/lib/format-helpers'
+import { escapeLikeTerm, escPatternLiteral } from '@/lib/duckdb/cohort-query'
 import { hashedConceptId } from './hashed-concept-id'
 import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 import { conceptRelation, has, type ClassRelation } from '@/lib/schema-classes/relations'
@@ -180,6 +181,16 @@ function tupleInClause(keys: string[]): string | null {
   return `(vocabulary_id, concept_code) IN (${tuples.join(',')})`
 }
 
+/** A LIKE matching `term` literally (its `%` and `_` are not wildcards), as a
+ *  prefix or anywhere, case aside for `contains`. */
+function likeClause(expr: string, term: string, mode: 'prefix' | 'contains'): string {
+  const escaped = escapeLikeTerm(term)
+  const pattern = mode === 'prefix' ? `${escaped}%` : `%${escaped}%`
+  return mode === 'prefix'
+    ? `${expr} LIKE '${escPatternLiteral(pattern)}' ESCAPE '\\'`
+    : `LOWER(${expr}) LIKE LOWER('${escPatternLiteral(pattern)}') ESCAPE '\\'`
+}
+
 function buildWhereClause(filters: SourceConceptFilters): string {
   const conditions: string[] = []
   const name = buildLabelFilterSql(filters.searchText ?? '', 'concept_name', 'source_concepts')
@@ -189,13 +200,9 @@ function buildWhereClause(filters: SourceConceptFilters): string {
     // means no row, never "ignore the filter".
     conditions.push(tupleInClause(filters.registryIdKeys) ?? 'FALSE')
   } else if (filters.searchId) {
-    const term = esc(filters.searchId)
-    conditions.push(`CAST(concept_id AS VARCHAR) LIKE '${term}%'`)
+    conditions.push(likeClause('CAST(concept_id AS VARCHAR)', filters.searchId, 'prefix'))
   }
-  if (filters.searchCode) {
-    const term = esc(filters.searchCode)
-    conditions.push(`LOWER(concept_code) LIKE LOWER('%${term}%')`)
-  }
+  if (filters.searchCode) conditions.push(likeClause('concept_code', filters.searchCode, 'contains'))
   if (filters.searchTextFuzzy) {
     const fuzzy = fuzzySearchClauses(filters.searchTextFuzzy)
     if (fuzzy) conditions.push(fuzzy.where)
@@ -453,9 +460,9 @@ function standardSearchParts(source: DictSource, filters?: StandardConceptSearch
     filterConds.push(ids.length ? `d.concept_id IN (${ids.join(',')})` : 'FALSE')
   }
   const idPrefix = filters?.conceptIdPrefix?.trim()
-  if (idPrefix) filterConds.push(`CAST(d.concept_id AS VARCHAR) LIKE '${esc(idPrefix)}%'`)
+  if (idPrefix) filterConds.push(likeClause('CAST(d.concept_id AS VARCHAR)', idPrefix, 'prefix'))
   const code = filters?.conceptCode?.trim()
-  if (code) filterConds.push(`LOWER(d.concept_code) LIKE LOWER('%${esc(code)}%')`)
+  if (code) filterConds.push(likeClause('d.concept_code', code, 'contains'))
 
   const selectCols = [
     'd.concept_id AS concept_id',

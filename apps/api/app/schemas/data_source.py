@@ -184,12 +184,18 @@ class QueryRequest(CamelModel):
     # can ask before a query that would read the database's tables whole.
     plan: bool = False
     # Where the app sent it from ("Cohort · Example cohort"): the label of the
-    # query's job.
-    origin: str | None = Field(default=None, max_length=255)
+    # query's job. Cut to the column's 255, never refused: a long cohort name
+    # must not cost the query.
+    origin: str | None = None
     # The action the query is one of ("patient:<db>:<id>"), and its name
     # ("Patient 123"): the panel folds a group's jobs into one row.
     group_key: str | None = Field(default=None, max_length=128)
-    group_label: str | None = Field(default=None, max_length=255)
+    group_label: str | None = None
+
+    @field_validator("origin", "group_label")
+    @classmethod
+    def _fit_label(cls, v: str | None) -> str | None:
+        return v.strip()[:255] if v is not None else None
 
 
 class QueryJobItem(CamelModel):

@@ -140,11 +140,19 @@ class AsJob:
 current_job: contextvars.ContextVar[str | None] = contextvars.ContextVar("deferred_job", default=None)
 
 
-class CancelledFromPanel(HTTPException):
+class Stopped(HTTPException):
+    """Work stopped before it answered — its job ends cancelled, not in error.
+    The client tells a stop from a failure by these details (lib/api/query-stopped.ts)."""
+
+    def __init__(self, detail: str = "query cancelled") -> None:
+        super().__init__(status.HTTP_409_CONFLICT, detail)
+
+
+class CancelledFromPanel(Stopped):
     """Work stopped from the jobs panel before it answered."""
 
     def __init__(self) -> None:
-        super().__init__(status.HTTP_409_CONFLICT, "cancelled from the jobs panel")
+        super().__init__("cancelled from the jobs panel")
 
 
 async def respond(user_id: str, work: Callable[[], Awaitable[Any]], as_job: AsJob | None = None) -> Any:

@@ -31,7 +31,8 @@ for user in alice bob; do
   uid=$(api "$URL/api/v4/users?username=$user" | python3 -c 'import sys,json;u=json.load(sys.stdin);print(u[0]["id"] if u else "")')
   [ -n "$uid" ] || uid=$(api -X POST "$URL/api/v4/users" -d "{\"username\":\"$user\",\"name\":\"$user\",\"email\":\"$user@forge-sim.local\",\"password\":\"$(openssl rand -base64 18)Aa1!\",\"skip_confirmation\":true}" | python3 -c 'import sys,json;print(json.load(sys.stdin)["id"])')
   api -X POST "$URL/api/v4/groups/$group_id/members" -d "{\"user_id\":$uid,\"access_level\":40}" >/dev/null 2>&1 || true
-  if [ ! -s ".tokens/$user" ]; then
+  # A token kept from a GitLab whose volumes were since recreated answers 401: mint a new one.
+  if [ ! -s ".tokens/$user" ] || ! curl -sf -o /dev/null -H "PRIVATE-TOKEN: $(cat ".tokens/$user")" "$URL/api/v4/user"; then
     api -X POST "$URL/api/v4/users/$uid/personal_access_tokens" -d "{\"name\":\"linkr\",\"scopes\":[\"api\",\"write_repository\"],\"expires_at\":\"$(date -v+1y +%F 2>/dev/null || date -d '+1 year' +%F)\"}" \
       | python3 -c 'import sys,json;print(json.load(sys.stdin)["token"])' > ".tokens/$user"
   fi

@@ -390,7 +390,7 @@ async def query_data_source(
                     computed_by=execution.get("computedBy"), reason=execution.get("reason"),
                 )
         except (query_cancel.QueryCancelled, duckdb.InterruptException):
-            raise HTTPException(status.HTTP_409_CONFLICT, "query cancelled")
+            raise deferred.Stopped() from None
         except ValueError as e:
             raise HTTPException(status.HTTP_400_BAD_REQUEST, redact_secrets(str(e)))
         except HTTPException:
@@ -410,7 +410,7 @@ async def query_data_source(
     # database was asked, when, for how long, and how many rows it answered —
     # stoppable from the panel. A plan runs nothing.
     as_job = deferred.AsJob(
-        (body.origin or "").strip()[:255] or "SQL query", workspace_id=source.workspace_id,
+        body.origin or "SQL query", workspace_id=source.workspace_id,
         lane="heavy_query" if body.heavy else None, input=body.sql,
         always=not body.plan, kind=jobs.QUERY_KIND,
         group_key=body.group_key, group_label=body.group_label,

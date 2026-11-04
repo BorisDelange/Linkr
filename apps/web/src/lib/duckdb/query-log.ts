@@ -1,10 +1,11 @@
 /**
  * Where a query comes from, and — front-only mode — the queries this tab sent.
  *
- * In server mode every query is a job of its database's workspace; the server
- * writes it, labelled with the `origin` the app sends. Front-only mode has no
- * server: the queries DuckDB-WASM ran are kept here, in this tab's memory, for
- * the jobs panel to list and stop alike.
+ * In server mode every query is a job of its database's workspace, kept a day
+ * once finished (`query_log_hours`); the server writes it, labelled with the
+ * `origin` the app sends. Front-only mode has no server: the queries DuckDB-WASM
+ * ran are kept here, in this tab's memory, a day alike, for the jobs panel to
+ * list and stop.
  */
 
 /** The app section a path is in, as a query's default origin. */
@@ -66,6 +67,8 @@ export interface LoggedQuery {
 /** The SQL of a query is kept whole: past this many queries, in this tab's
  *  memory, the oldest go. */
 const MAX_ENTRIES = 2000
+/** A finished query is kept this long, as the server keeps its own. */
+const KEEP_MS = 24 * 60 * 60 * 1000
 
 let entries: LoggedQuery[] = []
 /** How to stop each query still running. */
@@ -76,7 +79,11 @@ function changed() {
   for (const fn of listeners) fn()
 }
 
-function prune() {
+function prune(now: number) {
+  const from = now - KEEP_MS
+  if (entries.some((e) => e.status !== 'running' && e.startedAt < from)) {
+    entries = entries.filter((e) => e.status === 'running' || e.startedAt >= from)
+  }
   if (entries.length > MAX_ENTRIES) entries = entries.slice(-MAX_ENTRIES)
 }
 
@@ -86,7 +93,7 @@ export function logQuery(
   dataSourceId: string, sql: string, origin: string, stop?: () => void, group?: JobGroup,
 ): (end: { rows?: number; error?: unknown; cancelled?: boolean }) => void {
   const now = Date.now()
-  prune()
+  prune(now)
   const entry: LoggedQuery = {
     id: crypto.randomUUID(),
     dataSourceId,
@@ -118,6 +125,7 @@ export function logQuery(
 
 /** This tab's queries, newest first. */
 export function loggedQueries(): LoggedQuery[] {
+  prune(Date.now())
   return [...entries].reverse()
 }
 

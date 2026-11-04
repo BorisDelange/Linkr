@@ -49,6 +49,7 @@ import {
   type EnvPackage,
   type EnvInstallOptions,
 } from '@/lib/api/environments'
+import { getJob } from '@/lib/api/query-jobs'
 
 /**
  * Server-mode environment manager for the active project (per language). Packages
@@ -177,7 +178,11 @@ export function ServerEnvironmentsPanel({
           await new Promise((r) => setTimeout(r, 1500))
           return poll(n + 1)
         }
-        if (build && build.status === 'error') setError(build.logTail || 'Build failed')
+        if (build && build.status === 'error') {
+          // The list carries no log: the failed build's comes with the job.
+          const failed = await getJob(build.id).catch(() => null)
+          setError(failed?.logTail || build.summary || 'Build failed')
+        }
       }
       await poll()
       await load()

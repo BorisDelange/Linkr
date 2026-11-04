@@ -64,7 +64,7 @@ export function DebouncedInput({ value, onChange, delay = 300, commitOnEnter, cl
   return (
     <div className="relative w-full">
       {input}
-      <kbd aria-hidden className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 rounded border bg-muted px-1 font-sans text-[9px] leading-tight text-muted-foreground">
+      <kbd aria-hidden className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 rounded border bg-muted px-1 font-sans text-[10px] leading-tight text-muted-foreground">
         ↵
       </kbd>
     </div>

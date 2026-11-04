@@ -1,5 +1,5 @@
 import type { Cohort, ConceptCriteriaConfig, CriteriaTreeNode, SchemaMapping } from '@/types'
-import { fetchConceptInfo } from '@/features/projects/warehouse/concepts/concept-info'
+import { fetchConceptInfos } from '@/features/projects/warehouse/concepts/concept-info'
 import { criterionConceptIds } from './relation-narrowing'
 
 type Label = { vocabulary?: string; name?: string }
@@ -21,10 +21,10 @@ function withLabels(node: CriteriaTreeNode, labels: Map<number, Label>): Criteri
 /** Each concept's vocabulary and name, as the database's concepts give them;
  *  a concept that cannot be read is absent. */
 export async function fetchConceptLabels(sourceId: string, mapping: SchemaMapping, ids: readonly number[]): Promise<Map<number, Label>> {
-  const rows = await Promise.all(ids.map((id) => fetchConceptInfo(sourceId, mapping, id)))
+  const rows = await fetchConceptInfos(sourceId, mapping, ids)
   const labels = new Map<number, Label>()
-  ids.forEach((id, i) => {
-    const row = rows[i]
+  ids.forEach((id) => {
+    const row = rows.get(Number(id))
     if (!row) return
     labels.set(id, {
       vocabulary: row.vocabulary_id == null ? undefined : String(row.vocabulary_id),

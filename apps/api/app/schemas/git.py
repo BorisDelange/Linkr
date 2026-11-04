@@ -157,19 +157,6 @@ class GitPullPreviewResponse(CamelModel):
     source_concepts_diff: SourceConceptsDiff = SourceConceptsDiff()
 
 
-class GitTreePreviewResponse(CamelModel):
-    """At BASE (the sync anchor) and at the remote head: the text of every file
-    under the requested prefix, and the blob oid of every other file in the tree."""
-
-    branch: str
-    remote_head: str | None = None
-    synced_oid: str | None = None
-    base: dict[str, str] = {}
-    remote: dict[str, str] = {}
-    base_oids: dict[str, str] = {}
-    remote_oids: dict[str, str] = {}
-
-
 class GitThreeWayFile(CamelModel):
     """One file the remote changed since BASE. The three texts are present when
     every side that has the file holds readable text; `binary` otherwise, and

@@ -365,33 +365,31 @@ export async function gitThreeWay(scope: GitScope, id: string, branch?: string):
   return postForm<ThreeWayPreview>(`${base(scope, id)}/three-way`, zipForm(null, branch ? { branch } : {}))
 }
 
-/** The local export with the pull's choices applied, as the ZIP to re-import. */
+/** The merged tree was refused: these files changed locally since the three-way
+ *  its decisions were computed on, so the pull must be prepared again. */
+export class LocalChangedError extends Error {
+  readonly paths: string[]
+
+  constructor(paths: string[]) {
+    super(`local content changed: ${paths.join(', ')}`)
+    this.name = 'LocalChangedError'
+    this.paths = paths
+  }
+}
+
+/** The local export with the pull's choices applied, as the ZIP to re-import.
+ *  Throws `LocalChangedError` when a file a decision touches moved locally. */
 export async function gitMergedTree(
   scope: GitScope, id: string, branch: string, remoteHead: string, overrides: Record<string, Override>,
 ): Promise<Blob> {
   const form = zipForm(null, { branch, remoteHead, overrides: JSON.stringify(overrides) })
   const res = await apiFetchFollowing(`/api/v1${base(scope, id)}/merged-tree`, { method: 'POST', body: form })
+  if (res.status === 409) {
+    const detail = await res.clone().json().then((b) => b?.detail).catch(() => null)
+    if (detail?.code === 'local_changed') throw new LocalChangedError(Array.isArray(detail.paths) ? detail.paths : [])
+  }
   if (!res.ok) throw await gitError(res)
   return res.blob()
-}
-
-export interface GitTreePreview {
-  branch: string
-  remoteHead: string | null
-  syncedOid: string | null
-  /** path → text, for the files under the requested prefix. */
-  base: Record<string, string>
-  remote: Record<string, string>
-  /** path → blob oid, for every other file in the tree. */
-  baseOids: Record<string, string>
-  remoteOids: Record<string, string>
-}
-
-/** BASE (the sync anchor) and REMOTE of a repository tree, for a client-side
- *  3-way merge. v1: the workspace wiki. */
-export async function gitTreePreview(scope: GitScope, id: string, prefix: string, branch?: string): Promise<GitTreePreview> {
-  const qs = `?prefix=${encodeURIComponent(prefix)}${branch ? `&branch=${encodeURIComponent(branch)}` : ''}`
-  return apiRequest<GitTreePreview>(`${base(scope, id)}/tree-preview${qs}`)
 }
 
 /** Fetch the raw bytes of a heavy managed file (source CSV / scores parquet) at the

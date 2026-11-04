@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next'
 import { Badge } from '@/components/ui/badge'
 import type { DataTableColumn } from '@/components/ui/data-table'
+import { getBadgeClasses } from '@/lib/badge-colors'
 import { getConceptSetI18n } from '@/lib/concept-mapping/i18n'
 import { cn } from '@/lib/utils'
 import type { ConceptSet, ConceptSetReviewStatus } from '@/types'
@@ -36,11 +37,11 @@ export const NOT_DEPRECATED = ['draft', 'pending_review', 'approved', 'needs_rev
 
 // The hues of the data-dictionary app, as Linkr's tinted chips.
 const STATUS_CLASS: Record<ConceptSetReviewStatus, string> = {
-  draft: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400',
-  pending_review: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-400',
-  approved: 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400',
-  needs_revision: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-400',
-  deprecated: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400',
+  draft: 'bg-muted text-muted-foreground',
+  pending_review: getBadgeClasses('amber'),
+  approved: getBadgeClasses('green'),
+  needs_revision: 'bg-warning/15 text-warning-foreground',
+  deprecated: 'bg-destructive/10 text-destructive',
 }
 
 export function conceptSetColumns<R extends ConceptSetRow>(t: TFunction): DataTableColumn<R>[] {

@@ -174,8 +174,17 @@ describe('buildStandardConceptSearchQuery', () => {
 
   it('filters on an id prefix and a code fragment, escaped', () => {
     const sql = buildStandardConceptSearchQuery(vocabMapping, '', { conceptIdPrefix: '301', conceptCode: "o'k" }, 25)
-    expect(sql).toContain("CAST(d.concept_id AS VARCHAR) LIKE '301%'")
-    expect(sql).toContain("LOWER(d.concept_code) LIKE LOWER('%o''k%')")
+    expect(sql).toContain("CAST(d.concept_id AS VARCHAR) LIKE '301%' ESCAPE '\\'")
+    expect(sql).toContain("LOWER(d.concept_code) LIKE LOWER('%o''k%') ESCAPE '\\'")
+  })
+
+  // A code like `A_1` or `50%` is matched as typed, not as a wildcard pattern.
+  it('matches LIKE wildcards and the escape character literally', () => {
+    const sql = buildStandardConceptSearchQuery(vocabMapping, '', { conceptIdPrefix: '3_', conceptCode: '50%\\x' }, 25)
+    expect(sql).toContain("CAST(d.concept_id AS VARCHAR) LIKE '3\\_%' ESCAPE '\\'")
+    expect(sql).toContain("LOWER(d.concept_code) LIKE LOWER('%50\\%\\\\x%') ESCAPE '\\'")
+    expect(buildFileSourceConceptsQuery({ searchCode: 'a_b' }, null, 10, 0))
+      .toContain("LOWER(concept_code) LIKE LOWER('%a\\_b%') ESCAPE '\\'")
   })
 
   it('pages with an offset, after the limit', () => {
@@ -197,7 +206,7 @@ describe('buildFileSourceConceptsQuery — source concept id search', () => {
     buildFileSourceConceptsQuery(filters, null, 10, 0)
 
   it('matches the id column when the source carries its own ids', () => {
-    expect(q({ searchId: '42' })).toContain("CAST(concept_id AS VARCHAR) LIKE '42%'")
+    expect(q({ searchId: '42' })).toContain("CAST(concept_id AS VARCHAR) LIKE '42%' ESCAPE '\\'")
   })
 
   it('filters on the concepts the registry id resolved to', () => {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { itemIdFor, type PullDecision } from '@/lib/pull-plan'
-import { buildThreeWayPlan, overridesFor, prepareThreeWay, type ThreeWayFile } from './three-way'
+import { APP_VERSION } from '@/lib/version'
+import { buildThreeWayPlan, overridesFor, PullAppTooOldError, prepareThreeWay, type ThreeWayFile } from './three-way'
 
 const labels = { file: 'File', field: (k: string) => k, element: (k: string) => k, merged: 'merged' }
 const prep = (...files: ThreeWayFile[]) => prepareThreeWay({ branch: 'main', remoteHead: 'r', files })
@@ -65,7 +66,7 @@ describe('3-way pull: items by file kind', () => {
     )
     expect(files.map((f) => [f.file.path, f.merge.kind === 'whole' && f.merge.state])).toEqual([['logo.png', 'add'], ['old.png', 'delete']])
     expect(overridesFor(files, decide([['logo.png', 'file', 'accept'], ['old.png', 'file', 'accept']])))
-      .toEqual({ 'logo.png': { remote: true }, 'old.png': { delete: true } })
+      .toEqual({ 'logo.png': { remote: true, localOid: null }, 'old.png': { delete: true, localOid: 'o' } })
   })
 
   it('a local-only change and a change made identically on both sides offer nothing', () => {
@@ -78,5 +79,58 @@ describe('3-way pull: items by file kind', () => {
   it('declining everything changes no file', () => {
     const files = prep({ path: 'a.md', base: 'x\n', local: 'x\n', remote: 'y\n' })
     expect(overridesFor(files, decide([['a.md', 'file', 'decline']]))).toEqual({})
+  })
+
+  it('a whole JSON file deleted on the remote is one delete per field, and taking them all deletes it', () => {
+    const doc = j({ name: 'D', tabs: [] })
+    const [p] = prep({ path: 'dashboards/d.json', base: doc, local: doc, remote: null })
+    expect(p.merge.kind === 'fields' && p.merge.fields.map((f) => [f.key, f.state])).toEqual([['name', 'delete'], ['tabs', 'delete']])
+    const all = decide([['dashboards/d.json', 'field:name', 'accept'], ['dashboards/d.json', 'field:tabs', 'accept']])
+    expect(overridesFor([p], all)).toEqual({ 'dashboards/d.json': { delete: true } })
+  })
+
+  it('a keyed array whose names repeat is merged by line, not by element', () => {
+    const [p] = prep({
+      path: 'checks.json',
+      base: j([{ name: 'x', v: 1 }, { name: 'x', v: 2 }]),
+      local: j([{ name: 'x', v: 1 }, { name: 'x', v: 2 }]),
+      remote: j([{ name: 'x', v: 1 }, { name: 'x', v: 3 }]),
+    })
+    expect(p.merge.kind).toBe('text')
+    expect(p.merge.kind === 'text' && p.merge.unit).toBe('lines')
+  })
+})
+
+describe('3-way pull: LFS, versions and the local basis', () => {
+  const pointer = 'version https://git-lfs.github.com/spec/v1\noid sha256:abc\nsize 3\n'
+
+  it('a file in LFS is whole, and taking it asks the server for the content, never writes the pointer', () => {
+    const [p] = prep({ path: 'data/big.csv', base: pointer, local: 'a,b\n', remote: pointer.replace('abc', 'def'), baseOid: 's1', localOid: 's1', remoteOid: 's2' })
+    expect(p.merge.kind).toBe('whole')
+    expect(overridesFor([p], decide([['data/big.csv', 'file', 'accept']]))).toEqual({ 'data/big.csv': { remote: true, localOid: 's1' } })
+  })
+
+  it('every override carries the local id its decision was computed on', () => {
+    const [p] = prep({ path: 'a.md', base: 'x\n', local: 'x\n', remote: 'y\n', localOid: 'l1' })
+    expect(overridesFor([p], decide([['a.md', 'file', 'accept']]))).toEqual({ 'a.md': { text: 'y\n', localOid: 'l1' } })
+    const [absent] = prep({ path: 'b.md', base: null, local: null, remote: 'new\n', localOid: null })
+    expect(overridesFor([absent], decide([['b.md', 'file', 'accept']]))['b.md'].localOid).toBeNull()
+  })
+
+  it('refuses a remote whose manifest needs a newer Linkr', () => {
+    const remote = j({ name: 'B', minAppVersion: '999.0.0' })
+    expect(() => prep({ path: 'projects/p/entity.json', base: j({ name: 'A' }), local: j({ name: 'A' }), remote }))
+      .toThrow(PullAppTooOldError)
+  })
+
+  it('stamps the merged manifest with the higher minAppVersion of the two sides', () => {
+    const [p] = prep({
+      path: 'entity.json',
+      base: j({ name: 'A', minAppVersion: '1.0.0' }),
+      local: j({ name: 'A', minAppVersion: '1.0.0' }),
+      remote: j({ name: 'B', minAppVersion: APP_VERSION }),
+    })
+    const text = (overridesFor([p], decide([['entity.json', 'field:name', 'accept']]))['entity.json'] as { text: string }).text
+    expect(JSON.parse(text)).toEqual({ name: 'B', minAppVersion: APP_VERSION })
   })
 })

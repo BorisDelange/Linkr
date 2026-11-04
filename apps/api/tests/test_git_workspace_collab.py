@@ -1,8 +1,9 @@
 """Two people on one workspace repository: the push anchors the workspace, a
-second editor's push makes the first one behind (and refused), and the tree
-preview hands back BASE and REMOTE of the wiki for the client's 3-way merge.
+second editor's push makes the first one behind (and refused), and the three-way
+hands back BASE, LOCAL and REMOTE of what came in for the client's merge.
 Every remote is a bare repository on this machine."""
 
+import hashlib
 import io
 import json
 import subprocess
@@ -45,6 +46,13 @@ async def _linked_workspace(client, headers, tmp_path) -> tuple[str, str]:
     return ws, f"file://{remote}"
 
 
+async def _three_way(client, headers, ws, files: dict[str, str]):
+    return await client.post(
+        f"{API}/git/workspaces/{ws}/three-way", headers=headers,
+        data={"branch": "main"}, files={"file": ("ws.zip", _zip(files), "application/zip")},
+    )
+
+
 async def _push(client, headers, ws, files: dict[str, str], message="m"):
     return await client.post(
         f"{API}/git/workspaces/{ws}/commit-push", headers=headers,
@@ -82,11 +90,9 @@ async def test_second_editor_makes_the_workspace_behind_and_the_push_wait(client
     r = await _push(client, headers, ws, {"wiki/home.md": "Hello, mine\n"})
     assert r.status_code == 400 and "pull_required" in r.text
 
-    preview = (await client.get(
-        f"{API}/git/workspaces/{ws}/tree-preview", headers=headers, params={"prefix": "wiki/"},
-    )).json()
-    assert preview["base"] == {"wiki/home.md": "Hello\n"}
-    assert preview["remote"] == {"wiki/home.md": "Hello from Bob\n"}
+    preview = (await _three_way(client, headers, ws, {"wiki/home.md": "Hello, mine\n"})).json()
+    [home] = preview["files"]
+    assert (home["path"], home["base"], home["remote"]) == ("wiki/home.md", "Hello\n", "Hello from Bob\n")
 
     # The pull is applied by the client; it then anchors on the remote head.
     r = await client.post(
@@ -100,25 +106,46 @@ async def test_second_editor_makes_the_workspace_behind_and_the_push_wait(client
     assert r.status_code == 200 and r.json()["pushed"]
 
 
-async def test_tree_preview_lists_binaries_by_oid_and_refuses_odd_prefixes(client, tmp_path):
-    headers = await _admin(client)
-    ws, _ = await _linked_workspace(client, headers, tmp_path)
-    await _push(client, headers, ws, {
-        "wiki/_tree.json": "[]", "wiki/_attachments/a-x.png": "PNG", "workspace.json": "{}",
-    })
-
-    preview = (await client.get(
-        f"{API}/git/workspaces/{ws}/tree-preview", headers=headers, params={"prefix": "wiki"},
-    )).json()
-    assert preview["remote"] == {"wiki/_tree.json": "[]"}
-    assert sorted(preview["remoteOids"]) == ["wiki/_attachments/a-x.png", "workspace.json"]
-    # No anchor yet would have been an empty base; here the push anchored it.
-    assert preview["base"] == {"wiki/_tree.json": "[]"}
-
-    r = await client.get(
-        f"{API}/git/workspaces/{ws}/tree-preview", headers=headers, params={"prefix": "../etc"},
+def _lfs_pointer(content: bytes) -> str:
+    return (
+        "version https://git-lfs.github.com/spec/v1\n"
+        f"oid sha256:{hashlib.sha256(content).hexdigest()}\nsize {len(content)}\n"
     )
-    assert r.status_code >= 400
+
+
+async def test_a_file_in_lfs_is_whole_and_compared_by_its_content(client, tmp_path):
+    headers = await _admin(client)
+    ws, remote = await _linked_workspace(client, headers, tmp_path)
+    clone = tmp_path / "bob"
+    subprocess.run(["git", "clone", "-q", remote, str(clone)], check=True, capture_output=True)
+    _git(clone, "config", "user.email", "bob@example.org")
+    _git(clone, "config", "user.name", "Bob")
+    (clone / "workspace.json").write_text("{}")
+    (clone / "big.csv").write_text(_lfs_pointer(b"a,b\n1,2\n"))
+    (clone / "same.csv").write_text(_lfs_pointer(b"x\n"))
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", "base")
+    _git(clone, "push", "-q", "origin", "main")
+    r = await client.post(
+        f"{API}/git/workspaces/{ws}/set-sync-state", headers=headers,
+        json={"branch": "main", "syncedOid": _git(clone, "rev-parse", "HEAD").strip()},
+    )
+    assert r.status_code == 204
+    (clone / "big.csv").write_text(_lfs_pointer(b"a,b\n1,3\n"))
+    (clone / "same.csv").write_text(_lfs_pointer(b"y\n"))
+    _git(clone, "commit", "-q", "-am", "bob")
+    _git(clone, "push", "-q", "origin", "main")
+
+    # Locally the export holds the content, never the pointer.
+    r = await _three_way(client, headers, ws, {"workspace.json": "{}", "big.csv": "a,b\n1,2\n", "same.csv": "y\n"})
+    assert r.status_code == 200, r.text
+    by_path = {f["path"]: f for f in r.json()["files"]}
+    big = by_path["big.csv"]
+    assert big["binary"] and big.get("base") is None and big.get("remote") is None
+    assert big["localOid"] == big["baseOid"] == f"sha256:{hashlib.sha256(b'a,b\n1,2\n').hexdigest()}"
+    assert big["remoteOid"] == f"sha256:{hashlib.sha256(b'a,b\n1,3\n').hexdigest()}"
+    # Already what the remote has: nothing to decide on.
+    assert by_path["same.csv"]["localOid"] == by_path["same.csv"]["remoteOid"]
 
 
 @pytest.mark.parametrize(
@@ -223,6 +250,27 @@ async def test_three_way_describes_what_came_in_and_merged_tree_applies_the_choi
         assert zf.read("logo.png") == b"\x89PNG\x00\x01binary"
         assert zf.read("workspace.json") == b"{}"
 
+    merged = lambda overrides, files=local: client.post(
+        f"{API}/git/workspaces/{ws}/merged-tree", headers=headers,
+        data={"branch": "main", "remoteHead": body["remoteHead"], "overrides": json.dumps(overrides)},
+        files={"file": ("ws.zip", files, "application/zip")},
+    )
+    # The decision on home.md was computed on "Hello, mine": an edit made since
+    # refuses the tree rather than being overwritten.
+    take = {"wiki/home.md": {"text": "Merged\n", "localOid": home["localOid"]},
+            "logo.png": {"remote": True, "localOid": None}}
+    assert (await merged(take)).status_code == 200
+    r = await merged(take, _zip({"wiki/home.md": "Edited meanwhile\n", "workspace.json": "{}", "logo.png": "x"}))
+    assert r.status_code == 409
+    assert r.json()["detail"]["code"] == "local_changed"
+    assert r.json()["detail"]["paths"] == ["logo.png", "wiki/home.md"]
+
+    for bad in ({"wiki/home.md": "Merged"}, {"wiki/home.md": {"text": 1}}, {"wiki/home.md": {"remote": True, "delete": True}},
+                {"wiki/home.md": {"what": True}}, {"wiki/home.md": {"remote": True, "localOid": 3}}):
+        assert (await merged(bad)).status_code == 422, bad
+    r = await merged({"../etc/passwd": {"text": "x"}})
+    assert r.status_code == 400
+
 
 async def test_propose_pushes_a_branch_from_the_target_and_records_the_request(client, tmp_path, monkeypatch):
     from app.services import forge_service
@@ -266,6 +314,35 @@ async def test_propose_pushes_a_branch_from_the_target_and_records_the_request(c
     listed = (await client.get(f"{API}/git/workspaces/{ws}/proposals", headers=headers)).json()
     assert [(p["number"], p["state"]) for p in listed] == [(12, "merged")]
 
+    # The scratch repository is back on main, at the remote's main — not on the
+    # proposal commit, which the next status would have read as pushed.
+    repo = g.workspace_repo_getter(ws)
+    assert _git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+    assert _git(repo, "rev-parse", "main") == _git(tmp_path / "remote.git", "rev-parse", "main")
+
+
+async def test_a_failed_proposal_push_leaves_the_repository_on_its_base_branch(client, tmp_path, monkeypatch):
+    headers = await _admin(client)
+    ws, remote = await _linked_workspace(client, headers, tmp_path)
+    await _push(client, headers, ws, {"wiki/home.md": "Hello\n"})
+    real_run = g._run
+
+    def failing_push(repo, *args, **kw):
+        if args and args[0] == "push":
+            raise g.GitError("rejected", "unknown")
+        return real_run(repo, *args, **kw)
+
+    monkeypatch.setattr(g, "_run", failing_push)
+    with pytest.raises(g.GitError):
+        await g.commit_push(
+            g.workspace_repo_getter, ws, _zip({"wiki/home.md": "Proposed\n"}), "main", "m", remote, None,
+            paths=["wiki/home.md"], push_branch="linkr/admin/x",
+        )
+    monkeypatch.setattr(g, "_run", real_run)
+    repo = g.workspace_repo_getter(ws)
+    assert _git(repo, "rev-parse", "--abbrev-ref", "HEAD").strip() == "main"
+    assert _git(repo, "rev-parse", "main") == _git(tmp_path / "remote.git", "rev-parse", "main")
+
 
 async def test_relinking_to_a_new_empty_repository_pushes_everything_with_no_old_history(client, tmp_path):
     headers = await _admin(client)
@@ -291,4 +368,22 @@ async def test_a_workspace_in_review_mode_refuses_direct_pushes(client, tmp_path
     r = await client.patch(f"{API}/workspaces/{ws}", headers=headers, json={"gitPushPolicy": "review"})
     assert r.status_code == 200 and r.json()["gitPushPolicy"] == "review"
     r = await _push(client, headers, ws, {"wiki/home.md": "Hello\n"})
+    assert r.status_code == 403 and "review_required" in r.text
+
+
+async def test_review_mode_refuses_a_direct_push_of_an_entity_in_the_workspace(client, tmp_path):
+    headers = await _admin(client)
+    ws, _ = await _linked_workspace(client, headers, tmp_path)
+    await client.patch(f"{API}/workspaces/{ws}", headers=headers, json={"gitPushPolicy": "review"})
+    remote = tmp_path / "project.git"
+    subprocess.run(["git", "init", "--bare", "-b", "main", str(remote)], check=True, capture_output=True)
+    await client.post(f"{API}/projects", headers=headers, json={
+        "workspaceId": ws, "uid": "p-review", "name": {"en": "P"},
+        "gitRemoteConfig": {"url": f"file://{remote}", "branch": "main"},
+    })
+    r = await client.post(
+        f"{API}/git/projects/p-review/commit-push", headers=headers,
+        data={"message": "m", "branch": "main", "paths": ["README.md"]},
+        files={"file": ("p.zip", _zip({"README.md": "x\n"}), "application/zip")},
+    )
     assert r.status_code == 403 and "review_required" in r.text

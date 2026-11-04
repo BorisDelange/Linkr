@@ -113,7 +113,14 @@ export interface Job {
   label: string
   status: 'queued' | 'running' | 'done' | 'error' | 'cancelled'
   progress: number
+  /** Its log. Only on a single job (`getJob`) and the response that started it:
+   *  the polled lists carry `summary` instead (empty there). */
   logTail: string
+  /** The log's first line ("3 rows"), as the panel's row shows it. */
+  summary?: string | null
+  /** False: the panel's Stop does not reach it (a connection test, a job left by
+   *  a restart). Absent on a front-only query, which can always be stopped. */
+  cancellable?: boolean
   /** What it was given to run (its SQL, its code). Only on a single job
    *  (`getJob`): the polled lists leave it out. */
   input?: string | null

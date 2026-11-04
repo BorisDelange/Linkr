@@ -83,13 +83,22 @@ let opened: { patientId: string; group: JobGroup } | null = null
 
 const literal = (patientId: string) => `'${escSql(patientId)}'`
 
+const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+/** Whether `sql` filters on `patientId` as the patient queries do
+ *  (`[alias.]patient_id = '<id>'`), not merely quotes it — an id that is also a
+ *  concept code or a value would otherwise file the read under that patient. */
+export function filtersOnPatient(sql: string, patientId: string): boolean {
+  return new RegExp(`(?<![\\w"])(?:\\w+\\.)?patient_id\\s*=\\s*${escapeRegExp(literal(patientId))}`).test(sql)
+}
+
 /** The group of a widget's statement: that of the patient it names, opened anew
  *  when it is not the one opened last. A widget's effect runs before the list's,
  *  so the patient is read from the statement, not from `state`. */
 function groupOf(sql: string): JobGroup | undefined {
-  if (opened && sql.includes(literal(opened.patientId))) return opened.group
+  if (opened && filtersOnPatient(sql, opened.patientId)) return opened.group
   const shown = Object.values(usePatientChartStore.getState().selectedPatientId)
-  const patientId = shown.find((id): id is string => !!id && sql.includes(literal(id)))
+  const patientId = shown.find((id): id is string => !!id && filtersOnPatient(sql, id))
   if (!patientId) return undefined
   opened = { patientId, group: { key: `patient:${crypto.randomUUID()}`, label: `Patient ${patientId}` } }
   return opened.group

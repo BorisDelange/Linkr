@@ -61,3 +61,12 @@ async def test_a_private_host_not_listed_is_refused(calls, monkeypatch):
     monkeypatch.setattr(git_service.settings, "git_allowed_hosts", "")
     with pytest.raises(git_service.GitError):
         await f.detect("http://localhost:8929/sandbox/ws.git", "t")
+
+
+async def test_a_link_that_is_not_http_is_never_kept(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"number": 4, "html_url": "javascript:alert(1)", "state": "open"})
+
+    monkeypatch.setattr(f, "_transport", httpx.MockTransport(handler))
+    p = await f.open_proposal("https://github.com/o/r", "ghp_x", source="s", target="main", title="t", description="d")
+    assert p.url == ""

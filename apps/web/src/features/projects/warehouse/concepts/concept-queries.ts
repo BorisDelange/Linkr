@@ -1,6 +1,6 @@
 import type { SchemaMapping } from '@/types/schema-mapping'
 import { conceptRelations, eventRelations, has, type ClassRelation } from '@/lib/schema-classes/relations'
-import { columnLabel, escSql as esc } from '@/lib/format-helpers'
+import { columnLabel, escSql as esc, validateIntegerIds } from '@/lib/format-helpers'
 import { buildFuzzySearchSql, buildLabelFilterSql } from '@/lib/fuzzy-search'
 import { NULL_FILTER_VALUE } from '@/lib/concept-mapping/mapping-queries'
 import { matchFilterTerm } from '@/lib/match-filter'
@@ -640,6 +640,13 @@ export function buildCacheDetailQuery(conceptId: number): string {
   return `SELECT * FROM concepts WHERE concept_id = ${conceptId} LIMIT 1`
 }
 
+/** buildCacheDetailQuery for several concepts at once; null for ids that are
+ *  not all integers. */
+export function buildCacheDetailsQuery(conceptIds: readonly number[]): string | null {
+  if (conceptIds.length === 0 || !validateIntegerIds([...conceptIds])) return null
+  return `SELECT * FROM concepts WHERE concept_id IN (${conceptIds.map(Number).join(', ')})`
+}
+
 // ---------------------------------------------------------------------------
 // Concept detail
 // ---------------------------------------------------------------------------
@@ -660,6 +667,17 @@ export function buildConceptFullQuery(
   const match = `c.concept_id = ${Number(conceptId)}`
   const parts = dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, { kind: 'none' }, { extraWhere: match }))
   return `${parts.join(' UNION ALL ')} LIMIT 1`
+}
+
+/** buildConceptFullQuery for several concepts at once: every row of each,
+ *  one per dictionary holding it. Null for ids that are not all integers. */
+export function buildConceptsFullQuery(mapping: SchemaMapping, conceptIds: readonly number[]): string | null {
+  if (conceptIds.length === 0 || !validateIntegerIds([...conceptIds])) return null
+  const dicts = conceptRelations(mapping)
+  if (dicts.length === 0) return null
+  const columns = computeAvailableColumns(dicts)
+  const match = `c.concept_id IN (${conceptIds.map(Number).join(', ')})`
+  return dicts.map((d) => buildSelectForDict(d, columns, EMPTY_FILTERS, mapping, { kind: 'none' }, { extraWhere: match })).join(' UNION ALL ')
 }
 
 // ---------------------------------------------------------------------------

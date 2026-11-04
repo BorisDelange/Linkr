@@ -18,7 +18,7 @@
 
 import type { SchemaMapping } from '@/types/schema-mapping'
 import type { ClassRelation } from '@/lib/schema-classes/relations'
-import { planRunQueries, profileQueryKey, type ProfileJobs } from './profile-jobs'
+import { QUERY_JOB_MAX_QUERIES, planRunQueries, profileQueryKey, type ProfileJobs } from './profile-jobs'
 import type { SourceExtraction } from '@/types'
 import {
   availableSections,
@@ -466,10 +466,14 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     const keys = sources.map((s) => s.dictionary.key)
 
     // Server mode, ranked: every profile query the pages below will send is
-    // known, and runs on the server as one job. Each is then answered from it;
-    // one the plan missed (a concept gone since the ranking) from the database.
+    // known, and runs on the server as jobs of at most `maxQueries`, each
+    // started when the pages reach its first query (one at a time, in order).
+    // Each query is then answered from its job; one the plan missed (a concept
+    // gone since the ranking) from the database.
     let profileQuery = queryAggregate
     let jobIds: string[] = []
+    let walkedIndex = -1
+    let walked = EMPTY_WALK
     const { jobs } = input
     const previous = input.previousJobIds ?? []
     for (const id of previous) await jobs?.cancel(id)
@@ -489,16 +493,52 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
         }
       }
       const missing = [...wanted].filter(([key]) => !answered.has(key)).map(([key, sql]) => ({ key, sql }))
-      if (missing.length > 0) {
-        const id = await jobs.start(missing)
-        for (const { key } of missing) answered.set(key, id)
+      const cap = Math.max(1, jobs.maxQueries ?? QUERY_JOB_MAX_QUERIES)
+      const chunks: { key: string; sql: string }[][] = []
+      for (let i = 0; i < missing.length; i += cap) chunks.push(missing.slice(i, i + cap))
+      const chunkOf = new Map<string, number>()
+      chunks.forEach((chunk, i) => { for (const { key } of chunk) chunkOf.set(key, i) })
+      const starting = new Map<number, Promise<string>>()
+      const startChunk = (i: number): Promise<string> => {
+        let started = starting.get(i)
+        if (!started) {
+          started = jobs.start(chunks[i]).then((id) => {
+            for (const { key } of chunks[i]) { answered.set(key, id); chunkOf.delete(key) }
+            if (!jobIds.includes(id)) jobIds.push(id)
+            return id
+          })
+          starting.set(i, started)
+        }
+        return started
       }
+      if (chunks.length > 0) await startChunk(0)
       jobIds = [...new Set(answered.values())]
       // A pause stops the server's work too; closing the tab does not.
       signal.addEventListener('abort', () => { for (const id of jobIds) void jobs.cancel(id) })
+      // A later job, recorded once started: a resume must find it, not start a
+      // second one beside it.
+      const recordJobs = async () => {
+        const at = locate(Math.min(offset, runTotal - 1), sizes)
+        await persist(
+          {
+            dictionaryKeys: keys, extracted: offset, total: runTotal, sizes: [...sizes],
+            options: { ...options, sections: effectiveSections(options.sections, availableSections(mapping, sources[at.index])) },
+            sort, onlyWithRecords, jobIds: [...jobIds],
+            ...(walkedIndex === at.index ? { walked: walkKey(walked) } : input.resumeFrom?.walked ? { walked: input.resumeFrom.walked } : {}),
+            updatedAt: new Date().toISOString(),
+          },
+          '', offset, false,
+        )
+      }
       profileQuery = async (sql) => {
         const key = profileQueryKey(sql)
-        const id = answered.get(key)
+        let id = answered.get(key)
+        const later = chunkOf.get(key)
+        if (!id && later !== undefined && !signal.aborted) {
+          const fresh = !starting.has(later)
+          id = await startChunk(later)
+          if (fresh && !signal.aborted) await recordJobs()
+        }
         return (id ? await jobs.rows(id, key, signal) : null) ?? queryAggregate(sql)
       }
       // Recorded at once: a tab closed before the first page is written must
@@ -523,8 +563,6 @@ async function loop(input: StartRunInput, controller: AbortController): Promise<
     // offset counts them, and a resume picks up at the next one — so the batch
     // below is only how often the CSV is written back, never something the run
     // stops on.
-    let walkedIndex = -1
-    let walked = EMPTY_WALK
     while (!controller.signal.aborted && offset < runTotal) {
       const { index, local } = locate(offset, sizes)
       if (index >= sources.length) break

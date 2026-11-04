@@ -115,7 +115,7 @@ export function PatientDataSettingsDialog({
                   </Tooltip>
                 </TooltipProvider>
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {t('dashboard.reload_widgets_on_tab_switch_hint')}
               </p>
             </div>
@@ -130,7 +130,7 @@ export function PatientDataSettingsDialog({
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label>{t('patient_data.sync_timelines_across_tabs')}</Label>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {t('patient_data.sync_timelines_across_tabs_hint')}
               </p>
             </div>
@@ -144,7 +144,7 @@ export function PatientDataSettingsDialog({
             <div className="flex items-center justify-between gap-4">
               <div className="space-y-0.5">
                 <Label>{t('patient_data.read_ahead')}</Label>
-                <p className="text-[11px] text-muted-foreground">{t('patient_data.read_ahead_hint')}</p>
+                <p className="text-xs text-muted-foreground">{t('patient_data.read_ahead_hint')}</p>
               </div>
               <Switch
                 checked={draft.readAheadPatients > 0}
@@ -155,7 +155,7 @@ export function PatientDataSettingsDialog({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label>{t('patient_data.read_ahead_count')}</Label>
-                  <span className="text-[11px] tabular-nums text-muted-foreground">
+                  <span className="text-xs tabular-nums text-muted-foreground">
                     {t('patient_data.read_ahead_patients', { count: draft.readAheadPatients })}
                   </span>
                 </div>
@@ -175,7 +175,7 @@ export function PatientDataSettingsDialog({
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label>{t('dashboard.show_widget_titles')}</Label>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 {t('dashboard.show_widget_titles_hint')}
               </p>
             </div>
@@ -188,7 +188,7 @@ export function PatientDataSettingsDialog({
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-0.5">
               <Label>{t('dashboard.fit_to_height')}</Label>
-              <p className="text-[11px] text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
+              <p className="text-xs text-muted-foreground">{t('dashboard.fit_to_height_hint')}</p>
             </div>
             <Switch
               checked={draft.fitToHeight}
@@ -199,11 +199,11 @@ export function PatientDataSettingsDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label>{t('dashboard.widget_spacing')}</Label>
-              <span className="text-[11px] tabular-nums text-muted-foreground">
+              <span className="text-xs tabular-nums text-muted-foreground">
                 {draft.widgetSpacing} px
               </span>
             </div>
-            <p className="text-[11px] text-muted-foreground">{t('dashboard.widget_spacing_hint')}</p>
+            <p className="text-xs text-muted-foreground">{t('dashboard.widget_spacing_hint')}</p>
             <input
               type="range"
               min={0}

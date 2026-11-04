@@ -97,7 +97,7 @@ export function MultiSelectFilter({
   const [search, setSearch] = useState('')
   const remote = !!onSearch
   // The last search run on the server, with its page of matches.
-  const [searched, setSearched] = useState<{ term: string; options: NormalizedOption[]; total: number } | null>(null)
+  const [searched, setSearched] = useState<{ term: string; options: NormalizedOption[]; total: number; failed?: boolean } | null>(null)
   const [searching, setSearching] = useState(false)
   const searchRun = useRef(0)
 
@@ -153,7 +153,7 @@ export function MultiSelectFilter({
       if (run === searchRun.current) setSearched({ term, options: page.options.map(normalize), total: page.total })
     } catch (err) {
       console.error('Filter option search failed:', err)
-      if (run === searchRun.current) setSearched({ term, options: [], total: 0 })
+      if (run === searchRun.current) setSearched({ term, options: [], total: 0, failed: true })
     } finally {
       if (run === searchRun.current) setSearching(false)
     }
@@ -234,7 +234,7 @@ export function MultiSelectFilter({
               const term = search.trim()
               // Server-searched: the first Enter searches, the next one — the
               // matches on screen — selects them.
-              if (remote && (searching || term !== (searched?.term ?? ''))) {
+              if (remote && (searching || searched?.failed || term !== (searched?.term ?? ''))) {
                 void runSearch(term)
                 return
               }
@@ -249,7 +249,7 @@ export function MultiSelectFilter({
             placeholder={t('common.search')}
             title={remote ? t('common.filter_on_enter_hint') : undefined}
             className={cn(
-              'h-7 w-full rounded border bg-transparent pl-7 pr-2 text-[11px] outline-none placeholder:text-muted-foreground focus:border-primary',
+              'h-7 w-full rounded border bg-transparent pl-7 pr-2 text-xs outline-none placeholder:text-muted-foreground focus:border-primary',
               remote && 'pr-6',
             )}
           />
@@ -257,7 +257,7 @@ export function MultiSelectFilter({
           {remote && (searching ? (
             <Loader2 size={11} className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-muted-foreground" />
           ) : (
-            <kbd aria-hidden className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 rounded border bg-muted px-1 font-sans text-[9px] leading-tight text-muted-foreground">
+            <kbd aria-hidden className="pointer-events-none absolute right-1 top-1/2 -translate-y-1/2 rounded border bg-muted px-1 font-sans text-[10px] leading-tight text-muted-foreground">
               ↵
             </kbd>
           ))}
@@ -268,7 +268,7 @@ export function MultiSelectFilter({
               type="button"
               onClick={selectAll}
               // Server-searched, "all" before a search is the whole column — no filter.
-              disabled={remote && !searched}
+              disabled={remote && (!searched || searched.failed)}
               className="text-[10px] text-muted-foreground hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
             >
               {t('common.select_all')}
@@ -330,7 +330,9 @@ export function MultiSelectFilter({
               </div>
             )
           })}
-          {searchFiltered.length === 0 && (
+          {searched?.failed ? (
+            <p role="alert" className="py-2 text-center text-[10px] text-destructive">{t('common.filter_search_failed')}</p>
+          ) : searchFiltered.length === 0 && (
             <p className="py-2 text-center text-[10px] text-muted-foreground">{t('common.no_results')}</p>
           )}
           {remote && !searched ? (

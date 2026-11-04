@@ -13,5 +13,5 @@
       "@/*": ["../../apps/web/src/*"]
     }
   },
-  "include": ["*.ts", "../../apps/web/src/types/globals.d.ts"]
+  "include": ["*.ts", "../../apps/web/src/types/globals.d.ts", "../../apps/web/src/types/file-system-access.d.ts"]
 }

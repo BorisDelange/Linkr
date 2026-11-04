@@ -272,7 +272,8 @@ async def sweep_and_log(dry_run: bool = False) -> GcReport:
 
 
 async def run_periodic() -> None:
-    """Sweep at startup, then every `_PERIOD_SECONDS`, until cancelled.
+    """Sweep at startup, then every `_PERIOD_SECONDS`, until cancelled — and
+    drop the queries past `query_log_hours` (jobs.purge_old_queries) each pass.
 
     A failed sweep must never kill the loop: the data dir is shared with live
     work (an ETL writing, a user uploading), so a transient OSError on one entry
@@ -285,4 +286,12 @@ async def run_periodic() -> None:
             raise
         except Exception:
             logger.exception("storage_gc_failed")
+        try:
+            from app.services.execution import jobs
+
+            await jobs.purge_old_queries()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("query_log_purge_failed")
         await asyncio.sleep(_PERIOD_SECONDS)

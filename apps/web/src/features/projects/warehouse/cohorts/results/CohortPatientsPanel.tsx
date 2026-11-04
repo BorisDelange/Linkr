@@ -121,7 +121,7 @@ export function CohortPatientsPanel({ dataSourceId, cohort, schemaMapping, rows,
   const generateTabs = async () => {
     setGenerateOpen(false)
     const id = board?.id ?? await ensureCohortBoard({ dataSourceId, projectUid }, cohort.id)
-    replaceTabsWithWidgets(id, plan)
+    await replaceTabsWithWidgets(id, plan)
   }
 
   const boardId = board?.id

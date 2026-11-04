@@ -16,12 +16,15 @@ export function columnsOf(window: DataTableWindow, n: number): { index: number; 
   return Array.from({ length: n }, (_, index) => ({ index, lo: window.lo + index * width, hi: window.lo + (index + 1) * width }))
 }
 
+/** A value with its unit, in the reader's language: ('hour', '6') → "6 h". */
+export type DurationUnit = (unit: 'day' | 'hour' | 'minute', value: string) => string
+
 /** A column's width as one reads it: "6 h", "2 d", "45 min". */
-export function durationLabel(ms: number, locale: string): string {
-  const fmt = (v: number, unit: string) => `${v.toLocaleString(locale, { maximumFractionDigits: 1 })} ${unit}`
-  if (ms >= DAY) return fmt(ms / DAY, 'd')
-  if (ms >= HOUR) return fmt(ms / HOUR, 'h')
-  return fmt(Math.max(ms, 0) / MINUTE, 'min')
+export function durationLabel(ms: number, locale: string, unit: DurationUnit): string {
+  const fmt = (v: number, u: 'day' | 'hour' | 'minute') => unit(u, v.toLocaleString(locale, { maximumFractionDigits: 1 }))
+  if (ms >= DAY) return fmt(ms / DAY, 'day')
+  if (ms >= HOUR) return fmt(ms / HOUR, 'hour')
+  return fmt(Math.max(ms, 0) / MINUTE, 'minute')
 }
 
 /** A column's start, as precise as its width needs: the day for a day or more,

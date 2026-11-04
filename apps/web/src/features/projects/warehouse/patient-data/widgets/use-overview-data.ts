@@ -170,24 +170,12 @@ export function useOverviewData({
       try {
         const raw = await patientQuery(dataSourceId!, sql, { signal, origin: `Data overview · density tiles of ${missing.length} rows${withStrip ? ', with the strip' : ''}` })
         if (withStrip) {
-          // Each bucket in the slice its start falls in.
-          const span = Math.max(1, withStrip.hi - withStrip.lo)
           onStrip(stripOf(raw.filter((r) => r.row_key === TOTAL_ROW_KEY).map((r) => [
-            Math.floor(((Number(r.bucket) * bucketMs) - withStrip.lo) / span * RANGE_BUCKETS), Number(r.n ?? 0),
+            stripSliceOf(Number(r.bucket), bucketMs, withStrip), Number(r.n ?? 0),
           ])))
         }
-        const counts = new Map(missing.map((row) => [rowCacheKey(row), new Float64Array((lastTile - firstTile + 1) * TILE_BUCKETS)]))
-        const first = firstTile * TILE_BUCKETS
-        for (const r of raw) {
-          const i = Number(r.bucket) - first
-          const arr = counts.get(String(r.row_key))
-          if (arr && i >= 0 && i < arr.length) arr[i] += Number(r.n ?? 0)
-        }
-        for (const [key, arr] of counts) {
-          for (let t = firstTile; t <= lastTile; t++) {
-            const at = (t - firstTile) * TILE_BUCKETS
-            cache.putTile(key, bucketMs, t, arr.slice(at, at + TILE_BUCKETS))
-          }
+        for (const [key, tiles] of tileCountsOf(raw, keys, firstTile, lastTile)) {
+          tiles.forEach((counts, i) => cache.putTile(key, bucketMs, firstTile + i, counts))
         }
         repaint()
       } catch (err) {
@@ -208,8 +196,32 @@ export function useOverviewData({
   }, [visible, view, bounds, rows, hiddenRef, dataRef, dataSourceId, schemaMapping, selectedPatientId, scope, paintedPlotW, repaint, strip, onStrip])
 }
 
+/** The strip's slice a density bucket falls in: the one its start falls in. */
+export function stripSliceOf(bucket: number, bucketMs: number, strip: Span): number {
+  const span = Math.max(1, strip.hi - strip.lo)
+  return Math.floor((bucket * bucketMs - strip.lo) / span * RANGE_BUCKETS)
+}
+
+/** Each row's counts per tile, `firstTile` to `lastTile`, from rows of
+ *  (row_key, absolute bucket, n); buckets outside those tiles are dropped. */
+export function tileCountsOf(
+  raw: Record<string, unknown>[], keys: readonly string[], firstTile: number, lastTile: number,
+): Map<string, Float64Array[]> {
+  const counts = new Map(keys.map((key) => [key, new Float64Array((lastTile - firstTile + 1) * TILE_BUCKETS)]))
+  const first = firstTile * TILE_BUCKETS
+  for (const r of raw) {
+    const i = Number(r.bucket) - first
+    const arr = counts.get(String(r.row_key))
+    if (arr && i >= 0 && i < arr.length) arr[i] += Number(r.n ?? 0)
+  }
+  return new Map([...counts].map(([key, arr]) => [
+    key,
+    Array.from({ length: lastTile - firstTile + 1 }, (_, t) => arr.slice(t * TILE_BUCKETS, (t + 1) * TILE_BUCKETS)),
+  ]))
+}
+
 /** The strip's counts from (slice, count) pairs; slices outside it are dropped. */
-function stripOf(pairs: [number, number][]): OverviewDensity {
+export function stripOf(pairs: [number, number][]): OverviewDensity {
   const counts = new Float64Array(RANGE_BUCKETS)
   let max = 0
   for (const [i, n] of pairs) {

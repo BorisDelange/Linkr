@@ -102,6 +102,14 @@ def _raise_for(r: httpx.Response, what: str) -> None:
         raise ForgeError(f"{what}: {detail}", "rejected")
 
 
+def _web_url(raw: object) -> str:
+    """The forge's link to a request, kept only when it is http(s): it is shown
+    as a link, and a `javascript:` URL from a hostile forge would run on click."""
+    if isinstance(raw, str) and urlsplit(raw).scheme.lower() in ("http", "https"):
+        return raw
+    return ""
+
+
 def _gitlab_state(raw: str) -> ProposalState:
     return "merged" if raw == "merged" else "closed" if raw in ("closed", "locked") else "open"
 
@@ -122,14 +130,14 @@ async def open_proposal(
                 )
                 _raise_for(r, "open merge request")
                 body = r.json()
-                return Proposal(body["iid"], body["web_url"], _gitlab_state(body["state"]))
+                return Proposal(body["iid"], _web_url(body.get("web_url")), _gitlab_state(body["state"]))
             r = await client.post(
                 f"{forge.api_base}/repos/{forge.project_path}/pulls",
                 json={"title": title, "head": source, "base": target, "body": description},
             )
             _raise_for(r, "open pull request")
             body = r.json()
-            return Proposal(body["number"], body["html_url"], "open")
+            return Proposal(body["number"], _web_url(body.get("html_url")), "open")
     except httpx.HTTPError as exc:
         raise ForgeError("could not reach the forge", "network") from exc
 
@@ -144,11 +152,11 @@ async def read_proposal(remote_url: str, token: str | None, number: int) -> Prop
                 )
                 _raise_for(r, "read merge request")
                 body = r.json()
-                return Proposal(body["iid"], body["web_url"], _gitlab_state(body["state"]))
+                return Proposal(body["iid"], _web_url(body.get("web_url")), _gitlab_state(body["state"]))
             r = await client.get(f"{forge.api_base}/repos/{forge.project_path}/pulls/{number}")
             _raise_for(r, "read pull request")
             body = r.json()
             state: ProposalState = "merged" if body.get("merged_at") else "open" if body["state"] == "open" else "closed"
-            return Proposal(body["number"], body["html_url"], state)
+            return Proposal(body["number"], _web_url(body.get("html_url")), state)
     except httpx.HTTPError as exc:
         raise ForgeError("could not reach the forge", "network") from exc

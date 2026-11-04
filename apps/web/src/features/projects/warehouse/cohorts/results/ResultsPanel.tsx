@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { ResultsTable } from './ResultsTable'
 import { AttritionChart } from './AttritionChart'
 import { CUSTOM_SQL_NO_ID } from '@/lib/duckdb/cohort-query'
-import { formatDuration } from '@/lib/format-helpers'
+import { formatDateTimeLocale, formatDuration } from '@/lib/format-helpers'
 import type { CohortExecutionResult, CohortLevel, CustomSqlOutput } from '@/types'
 import { useState, type ReactNode } from 'react'
 
@@ -44,7 +44,7 @@ const MEMBER_TABS: ResultsTab[] = ['statistics', 'results', 'attrition', 'patien
 export function ResultsPanel({
   result, level, loading, error, output, onExecute, onExportCsv, renderStatistics, renderPatients, renderTables, renderSchema, attritionDetails,
 }: ResultsPanelProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const firstTab: ResultsTab = renderStatistics ? 'statistics' : 'results'
   const [activeTab, setActiveTab] = useState<ResultsTab>(firstTab)
   const tabs: { id: ResultsTab; label: string; icon: typeof Users }[] = [
@@ -216,6 +216,13 @@ export function ResultsPanel({
                 <Badge variant="outline" className="border-warning/50 text-warning-foreground" title={t('cohorts.results_from_draft_hint')}>
                   {t('cohorts.results_from_draft')}
                 </Badge>
+              )}
+              {result.narrowedBy && (
+                <span className="text-xs text-muted-foreground" title={t('cohorts.results_narrowed_hint')}>
+                  {result.narrowedBy.countedAt
+                    ? t('cohorts.results_narrowed', { date: formatDateTimeLocale(result.narrowedBy.countedAt, i18n.language) })
+                    : t('cohorts.results_narrowed_unknown')}
+                </span>
               )}
               <div className="flex-1" />
               <span className="text-[10px] text-muted-foreground">{formatDuration(result.durationMs)}</span>

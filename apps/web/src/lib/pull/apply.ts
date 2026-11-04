@@ -138,9 +138,23 @@ async function textFiles(zip: JSZip, prefix: string): Promise<Record<string, str
   return out
 }
 
-/** The wiki as the merged tree has it, written page by page. */
-async function applyWiki(zip: JSZip, workspaceId: string, storage: Storage) {
+/** The pages the local export had when the pull was prepared (its `_tree.json`),
+ *  or none when the preview does not carry the tree — the remote left it as is. */
+function previewWikiIds(preview: ThreeWayPreview | undefined): Set<string> {
+  const text = preview?.files.find((f) => f.path === 'wiki/_tree.json')?.local
+  try {
+    const tree = text ? JSON.parse(text) as { id?: unknown }[] : []
+    return new Set(Array.isArray(tree) ? tree.map((p) => p?.id).filter((v): v is string => typeof v === 'string') : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/** The wiki as the merged tree has it, written page by page. A page is removed
+ *  only when the preview had it: one created since is not the remote's to delete. */
+async function applyWiki(zip: JSZip, workspaceId: string, storage: Storage, preview?: ThreeWayPreview) {
   const pages = readWikiSnapshot(await textFiles(zip, 'wiki/'))
+  const known = previewWikiIds(preview)
   const local = await storage.wikiPages.getByWorkspace(workspaceId)
   const now = new Date().toISOString()
   for (const [id, page] of pages) {
@@ -149,7 +163,7 @@ async function applyWiki(zip: JSZip, workspaceId: string, storage: Storage) {
     else await storage.wikiPages.create({ ...row, updatedAt: now })
   }
   for (const p of local) {
-    if (pages.has(p.id)) continue
+    if (pages.has(p.id) || !known.has(p.id)) continue
     await storage.wikiAttachments.deleteByPage(p.id).catch(() => {})
     await storage.wikiPages.delete(p.id)
   }
@@ -205,9 +219,13 @@ async function applySourceIdRanges(zip: JSZip, workspaceId: string, storage: Sto
   const entry = zip.files['source-concept-ids/ranges.json']
   const ranges = entry ? JSON.parse(await entry.async('string')) as SourceConceptIdRange[] : []
   const now = new Date().toISOString()
-  await storage.sourceConceptIdRanges.deleteByWorkspace(workspaceId)
+  // Saved before anything is removed: a failure midway leaves ranges, never none.
   for (const range of ranges) {
     await storage.sourceConceptIdRanges.save({ ...range, workspaceId, createdAt: range.createdAt ?? now, updatedAt: now })
+  }
+  const kept = new Set(ranges.map((r) => r.badgeLabel))
+  for (const range of await storage.sourceConceptIdRanges.getByWorkspace(workspaceId)) {
+    if (!kept.has(range.badgeLabel)) await storage.sourceConceptIdRanges.delete(workspaceId, range.badgeLabel)
   }
 }
 
@@ -258,9 +276,17 @@ export function inlineFolderOf(path: string): { section: string; folder: string 
   return WORKSPACE_SECTIONS[section] && folder && rest.length ? { section, folder } : null
 }
 
+/** A lineageId names one entity across instances: a local entity carrying
+ *  another one is never matched by folder or slug — the manifest's is new here.
+ *  One carrying none (exported before it had one) still may be. */
 function matchEntity(candidates: Portable[], manifest: Portable | null, folder: string): Portable | undefined {
-  return (manifest?.lineageId && candidates.find((c) => c.lineageId === manifest.lineageId))
-    || (manifest?.entityId && candidates.find((c) => c.entityId === manifest.entityId))
+  const lineage = manifest?.lineageId
+  if (lineage) {
+    const same = candidates.find((c) => c.lineageId === lineage)
+    if (same) return same
+    candidates = candidates.filter((c) => !c.lineageId)
+  }
+  return (manifest?.entityId && candidates.find((c) => c.entityId === manifest.entityId))
     || candidates.find((c) => folderNames(c).includes(folder))
     || undefined
 }
@@ -322,7 +348,7 @@ export async function applyWorkspacePull(
   preview?: ThreeWayPreview,
 ): Promise<void> {
   const paths = Object.keys(overrides)
-  if (paths.some((p) => p.startsWith('wiki/'))) await applyWiki(zip, workspaceId, storage)
+  if (paths.some((p) => p.startsWith('wiki/'))) await applyWiki(zip, workspaceId, storage, preview)
   if (paths.some((p) => !p.includes('/'))) await applyWorkspaceInfo(zip, workspaceId, storage)
 
   const conceptSets = paths.filter((p) => /^concept-sets\/[^/]+\.json$/.test(p))

@@ -1397,76 +1397,6 @@ async def pull_preview(
         return await asyncio.to_thread(work)
 
 
-_TREE_PREVIEW_TEXT_SUFFIXES = (".md", ".json", ".sql", ".txt", ".yml", ".yaml")
-
-
-async def tree_preview(
-    repo_getter,
-    uid: str,
-    branch: str,
-    remote_url: str | None,
-    synced_oid: str | None,
-    prefix: str,
-    token: str | None = None,
-) -> dict:
-    """BASE (synced_oid) and REMOTE (remote head) of the repository tree: the text
-    files under `prefix` as content, every other file as its blob oid (enough to
-    tell whether it moved, so a pull can say what it does not handle). The generic
-    sibling of `pull_preview`, for scopes whose pull is a tree of small text files
-    — the workspace wiki first."""
-    _safe_ref(branch)
-    if synced_oid is not None:
-        _safe_oid(synced_oid)
-    if not prefix or prefix.startswith(("/", "-")) or ".." in prefix.split("/"):
-        raise GitError("invalid tree prefix", "unknown")
-    if not prefix.endswith("/"):
-        prefix += "/"
-
-    def work() -> dict:
-        repo = repo_getter(uid)
-        _ensure_repo(repo, remote_url)
-        if not remote_url:
-            raise GitError("entity is not linked to a git remote", "unknown")
-        if not _sync_remote_branch(repo, branch, remote_url, token):
-            raise GitError("remote branch not found", "not_found")
-        remote_head = _run(repo, "rev-parse", "FETCH_HEAD", check=False).strip() or None
-        if synced_oid:
-            _run(repo, "fetch", "-q", _with_credentials(remote_url, token), synced_oid,
-                 token=token, env_extra={"GIT_LFS_SKIP_SMUDGE": "1"}, check=False)
-
-        def side(commit: str | None) -> tuple[dict[str, str], dict[str, str]]:
-            texts: dict[str, str] = {}
-            oids: dict[str, str] = {}
-            if not commit:
-                return texts, oids
-            out = _run(repo, "ls-tree", "-r", commit, check=False)
-            for line in out.splitlines():
-                meta, _, path = line.partition("\t")
-                parts = meta.split()
-                if len(parts) != 3 or parts[1] != "blob":
-                    continue
-                if path.startswith(prefix) and path.lower().endswith(_TREE_PREVIEW_TEXT_SUFFIXES):
-                    texts[path] = _run(repo, "show", f"{commit}:{path}", check=False)
-                else:
-                    oids[path] = parts[2]
-            return texts, oids
-
-        base_texts, base_oids = side(synced_oid)
-        remote_texts, remote_oids = side(remote_head)
-        return {
-            "branch": branch,
-            "remoteHead": remote_head,
-            "syncedOid": synced_oid,
-            "base": base_texts,
-            "remote": remote_texts,
-            "baseOids": base_oids,
-            "remoteOids": remote_oids,
-        }
-
-    async with _lock_for(repo_getter(uid)):
-        return await asyncio.to_thread(work)
-
-
 # --- 3-way pull, every scope -------------------------------------------------
 #
 # The pull of any versioned entity is a merge over its export tree
@@ -1510,6 +1440,40 @@ def _blob_bytes(repo: Path, oid: str) -> bytes | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
+_LFS_OID_RE = re.compile(rb"^oid sha256:([0-9a-f]{64})$", re.MULTILINE)
+
+
+def _lfs_pointer_oid(data: bytes | None) -> str | None:
+    """The sha256 an LFS pointer blob names, or None when `data` is not one."""
+    if data is None or len(data) > _LFS_POINTER_MAX_BYTES or not data.startswith(_LFS_POINTER_PREFIX):
+        return None
+    m = _LFS_OID_RE.search(data)
+    return m.group(1).decode() if m else None
+
+
+def _content_id(data: bytes | None) -> str | None:
+    """`sha256:<hex>` of a file's content; an LFS pointer gives the id it names."""
+    if data is None:
+        return None
+    return f"sha256:{_lfs_pointer_oid(data) or hashlib.sha256(data).hexdigest()}"
+
+
+def _local_id(data: bytes | None, like: str) -> str | None:
+    """The id of a local file in the form `like` has (a git blob oid, or a
+    `sha256:` content id for an LFS file), for comparing with it."""
+    if like.startswith("sha256:"):
+        return _content_id(data)
+    return _blob_oid(data) if data is not None else None
+
+
+class LocalChangedError(GitError):
+    """The local export moved since the three-way the decisions were made on."""
+
+    def __init__(self, paths: list[str]) -> None:
+        super().__init__("the local content changed since the pull was prepared", "local_changed")
+        self.paths = paths
+
+
 def _as_text(data: bytes | None) -> str | None:
     if data is None or len(data) > _THREE_WAY_TEXT_MAX or b"\0" in data[:8192]:
         return None
@@ -1525,8 +1489,10 @@ async def three_way(
 ) -> dict:
     """Every file the remote changed since BASE, with its three versions: text
     when it is text and not too large, else only the blob ids (the client then
-    offers the file whole). LFS pointers stay pointers here: their oid says
-    whether the content moved, and `merged_tree` materialises what is taken."""
+    offers the file whole). A file stored in LFS is always whole, its three ids
+    the content's sha256 (`sha256:<hex>`), and `merged_tree` materialises what
+    is taken. Each file's `localOid` is what `merged_tree` checks the local
+    export against before applying a decision computed on it."""
     _safe_ref(branch)
     if synced_oid is not None:
         _safe_oid(synced_oid)
@@ -1550,16 +1516,30 @@ async def three_way(
             if base.get(path) == remote.get(path):
                 continue
             local_bytes = local.get(path)
-            local_oid = _blob_oid(local_bytes) if local_bytes is not None else None
-            entry: dict = {
+            base_bytes = _blob_bytes(repo, base[path]) if path in base else None
+            remote_bytes = _blob_bytes(repo, remote[path]) if path in remote else None
+            lfs = _lfs_pointer_oid(base_bytes) is not None or _lfs_pointer_oid(remote_bytes) is not None
+            if lfs:
+                # The trees hold pointers and the export real content: compare
+                # them all by the content's sha256, the id a pointer names.
+                entry: dict = {
+                    "path": path,
+                    "baseOid": _content_id(base_bytes),
+                    "localOid": _content_id(local_bytes),
+                    "remoteOid": _content_id(remote_bytes),
+                    "binary": True,
+                }
+                files.append(entry)
+                continue
+            entry = {
                 "path": path,
                 "baseOid": base.get(path),
-                "localOid": local_oid,
+                "localOid": _blob_oid(local_bytes) if local_bytes is not None else None,
                 "remoteOid": remote.get(path),
             }
             texts = {
-                "base": _as_text(_blob_bytes(repo, base[path])) if path in base else None,
-                "remote": _as_text(_blob_bytes(repo, remote[path])) if path in remote else None,
+                "base": _as_text(base_bytes),
+                "remote": _as_text(remote_bytes),
                 "local": _as_text(local_bytes),
             }
             binary = any(
@@ -1582,7 +1562,10 @@ async def merged_tree(
 ) -> bytes:
     """The local export with the pull's decisions applied, as a ZIP: per path,
     `{"text": …}` writes that content, `{"remote": true}` takes the file as it is
-    at `remote_head` (LFS resolved), `{"delete": true}` removes it."""
+    at `remote_head` (LFS resolved), `{"delete": true}` removes it. An op's
+    `localOid` is the file's id in the three-way the decision was made on (null:
+    absent); a file that has since changed locally refuses the whole tree with
+    `LocalChangedError`, so an edit made meanwhile is never overwritten."""
     _safe_ref(branch)
     _safe_oid(remote_head)
 
@@ -1593,6 +1576,12 @@ async def merged_tree(
             raise GitError("entity is not linked to a git remote", "unknown")
         _sync_remote_branch(repo, branch, remote_url, token)
         files = _zip_files(zip_bytes)
+        changed = [
+            path for path, op in overrides.items()
+            if "localOid" in op and (op["localOid"] or None) != _local_id(files.get(path), op["localOid"] or "")
+        ]
+        if changed:
+            raise LocalChangedError(sorted(changed))
         for path, op in overrides.items():
             _safe_join(repo, path)
             if op.get("delete"):
@@ -1942,21 +1931,29 @@ async def commit_push(
         staged = _run(repo, "diff", "--cached", "--name-only").strip()
         if not staged:
             return {"committed": False, "pushed": False, "nothingToCommit": True}
+        base_head = _run(repo, "rev-parse", "-q", "--verify", "HEAD", check=False).strip() or None
         if push_branch:
             # Same index, on the proposal branch: the local base branch stays at
             # the remote head for the next status.
             _run(repo, "checkout", "-q", "-B", push_branch)
-        _run(repo, "commit", "-q", "-m", message)
-        head = _run(repo, "rev-parse", "HEAD").strip()
-        pushed = False
         target = push_branch or branch
-        if remote_url:
-            _reject_internal_host(remote_url)
-            push_url = _with_credentials(remote_url, token)
-            _run(repo, "push", push_url, f"{target}:{target}", token=token)
-            pushed = True
-        if push_branch:
-            _run(repo, "checkout", "-q", "-B", branch, check=False)
+        pushed = False
+        try:
+            _run(repo, "commit", "-q", "-m", message)
+            head = _run(repo, "rev-parse", "HEAD").strip()
+            if remote_url:
+                _reject_internal_host(remote_url)
+                push_url = _with_credentials(remote_url, token)
+                _run(repo, "push", push_url, f"{target}:{target}", token=token)
+                pushed = True
+        finally:
+            if push_branch:
+                # Back on the base branch AT the remote head, whatever happened: a
+                # bare `checkout -B branch` would move it onto the proposal commit.
+                if base_head:
+                    _run(repo, "checkout", "-q", "-f", "-B", branch, base_head, check=False)
+                else:
+                    _run(repo, "checkout", "-q", "-B", branch, check=False)
         return {
             "committed": True,
             "pushed": pushed,

@@ -185,6 +185,8 @@ dropped and re-created per test), every test runs on Postgres, on the schema
 the migrations build — the one a Postgres install runs `alembic upgrade head`
 into, built once into a `<name>_template` database each test copies. Under
 `-n`, each worker gets its own pair (`<name>_gw0`, `<name>_gw0_template`…).
+The name must contain `test` and differ from `LINKR_DATABASE_URL`'s, or the
+suite refuses to start rather than drop it.
 
 ```bash
 docker run -d --rm --name linkr-pg-app -p 55433:5432 -e POSTGRES_USER=linkr -e POSTGRES_PASSWORD=pw-for-tests-only postgres:16-alpine

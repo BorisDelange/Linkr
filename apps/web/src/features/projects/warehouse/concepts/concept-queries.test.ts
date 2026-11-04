@@ -3,6 +3,8 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import {
   buildCachePageQuery,
   buildCacheCountQuery,
+  buildCacheDetailsQuery,
+  buildConceptsFullQuery,
   buildCacheFilterOptionsQuery,
   buildConceptsCountQuery,
   buildFilterOptionsQuery,
@@ -299,6 +301,27 @@ describe('column dropdown options, searched past FILTER_OPTIONS_LIMIT', () => {
     const sql = buildCachePageQuery({ domain_id: [matchFilterValue('myco'), 'Drug'] }, COLS, 0, 50, null)
     expect(sql).toContain(`("domain_id" = 'Drug' OR CAST("domain_id" AS VARCHAR) IN (WITH _opts AS (SELECT DISTINCT`)
     expect(sql).toContain("contains(strip_accents(LOWER(val)), strip_accents(LOWER('myco')))")
+  })
+})
+
+describe('several concepts read in one query', () => {
+  const mapping = mappingV1ToV2({ presetId: 't', presetLabel: { en: 't' }, conceptTables: [
+    { key: 'a', table: 'dict_a', idColumn: 'id', nameColumn: 'name' },
+    { key: 'b', table: 'dict_b', idColumn: 'id', nameColumn: 'name' },
+  ] })
+
+  it('reads every dictionary for the ids at once', () => {
+    const sql = buildConceptsFullQuery(mapping, [3, 1, 2])!
+    expect(sql.match(/c\.concept_id IN \(3, 1, 2\)/g)).toHaveLength(2)
+    expect(sql).toContain(' UNION ALL ')
+    expect(buildCacheDetailsQuery([3, 1])).toBe('SELECT * FROM concepts WHERE concept_id IN (3, 1)')
+  })
+
+  it('builds nothing for ids that are not all integers', () => {
+    const ids = [1, '2) OR (1=1' as unknown as number]
+    expect(buildConceptsFullQuery(mapping, ids)).toBeNull()
+    expect(buildCacheDetailsQuery(ids)).toBeNull()
+    expect(buildCacheDetailsQuery([])).toBeNull()
   })
 })
 

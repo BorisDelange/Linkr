@@ -9,6 +9,7 @@ import { StatCard } from '@/components/ui/stat-card'
 import { ChartTooltipCard } from '@/features/projects/lab/datasets/analyses/chart-tooltip'
 import type { ChartItem } from '@/lib/cohort-report/charts'
 import { CohortReportUnavailable, shapeCohortReportModel } from '@/lib/cohort-report/model'
+import { ENTITY_COLORS, type EntityColorKey } from '@/lib/entity-colors'
 import { formatDateTimeLocale } from '@/lib/format-helpers'
 import { localized } from '@/lib/localized'
 import type { Cohort, DataSource } from '@/types'
@@ -20,6 +21,8 @@ interface CohortStatisticsPanelProps {
   cohort: Cohort
   source: DataSource
 }
+
+const tint = (key: EntityColorKey) => `${ENTITY_COLORS[key].bg} ${ENTITY_COLORS[key].icon}`
 
 const SEX_COLORS = ['var(--color-chart-1)', 'var(--color-chart-4)', 'var(--color-chart-3)', 'var(--color-chart-2)', 'var(--color-chart-5)']
 
@@ -57,6 +60,11 @@ export function CohortStatisticsPanel({ cohort, source }: CohortStatisticsPanelP
   const emptyReason = (block: string, items: unknown[], notMapped: string) =>
     items.length > 0 ? undefined : data && !(block in data.blocks) ? notMapped : t('cohorts.stats_no_rows')
   const kpi = (label: string) => model?.kpis.find((k) => k.label === label)
+  const deaths = model?.mortality?.deaths.value
+  const population = model?.kpis[0].count.value
+  const mortality = model?.mortality?.rate != null && deaths != null && population
+    ? new Intl.NumberFormat(i18n.language, { style: 'percent', maximumFractionDigits: 1 }).format(deaths / population)
+    : model?.mortality?.deaths.label
   const unitLabel = t(`cohort_report.unit_${cohort.level}`)
 
   return (
@@ -101,31 +109,31 @@ export function CohortStatisticsPanel({ cohort, source }: CohortStatisticsPanelP
           <>
             <div className="grid grid-cols-2 gap-3">
               <StatCard
-                icon={<Users size={16} className="text-emerald-600 dark:text-emerald-400" />}
-                iconBg="bg-emerald-500/10"
+                icon={<Users size={16} />}
+                iconBg={tint('patient-data')}
                 value={model.kpis[0].count.label}
                 label={model.kpis[0].label}
               />
               {model.mortality && (
                 <StatCard
-                  icon={<HeartPulse size={16} className="text-rose-600 dark:text-rose-400" />}
-                  iconBg="bg-rose-500/10"
-                  value={model.mortality.rate != null ? `${model.mortality.rate}\u00A0%` : model.mortality.deaths.label}
+                  icon={<HeartPulse size={16} />}
+                  iconBg={tint('dataset')}
+                  value={mortality}
                   label={t('cohorts.stats_mortality')}
                 />
               )}
               {cohort.level !== 'visit' && kpi(t('cohort_report.kpi_visits')) && (
                 <StatCard
-                  icon={<Activity size={16} className="text-violet-600 dark:text-violet-400" />}
-                  iconBg="bg-violet-500/10"
+                  icon={<Activity size={16} />}
+                  iconBg={tint('report')}
                   value={kpi(t('cohort_report.kpi_visits'))!.count.label}
                   label={t('cohort_report.kpi_visits')}
                 />
               )}
               {cohort.level !== 'patient' && kpi(unitLabel) && (
                 <StatCard
-                  icon={<BedDouble size={16} className="text-sky-600 dark:text-sky-400" />}
-                  iconBg="bg-sky-500/10"
+                  icon={<BedDouble size={16} />}
+                  iconBg={tint('schema-preset')}
                   value={kpi(unitLabel)!.count.label}
                   label={unitLabel}
                 />

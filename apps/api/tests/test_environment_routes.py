@@ -136,7 +136,8 @@ async def test_add_package_creates_visible_job(client, fake_provisioner):
     jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
     add_jobs = [j for j in jobs if j["kind"] == "package"]
     assert add_jobs, "package op should create a job"
-    assert "$ fake add pandas" in add_jobs[0]["logTail"]
+    job = (await client.get(f"{API}/jobs/{add_jobs[0]['id']}", headers=headers)).json()
+    assert "$ fake add pandas" in job["logTail"]
 
 
 async def test_failed_install_returns_clear_error_not_500(client, monkeypatch):
@@ -168,7 +169,9 @@ async def test_failed_install_returns_clear_error_not_500(client, monkeypatch):
 
     jobs = (await client.get(f"{API}/projects/{uid}/jobs", headers=headers)).json()
     errored = [j for j in jobs if j["status"] == "error"]
-    assert errored and "uv add aaa" in errored[0]["logTail"]
+    assert errored
+    job = (await client.get(f"{API}/jobs/{errored[0]['id']}", headers=headers)).json()
+    assert "uv add aaa" in job["logTail"]
 
 
 async def test_unknown_language_is_rejected(client):

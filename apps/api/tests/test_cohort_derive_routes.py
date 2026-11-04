@@ -57,7 +57,8 @@ async def _derive(client, headers, ws, src, payload) -> dict:
         with contextlib.suppress(BaseException):
             await task
     rows = (await client.get(f"{API}/workspaces/{ws}/jobs", headers=headers)).json()
-    return next(j for j in rows if j["id"] == job_id)
+    assert any(j["id"] == job_id for j in rows)
+    return (await client.get(f"{API}/jobs/{job_id}", headers=headers)).json()
 
 
 MEMBERSHIP = "SELECT DISTINCT person.person_id AS id, person.person_id AS patient_id FROM person WHERE person_id <= 5"

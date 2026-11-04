@@ -42,6 +42,15 @@ async def _queries(client, headers, ws) -> list[dict]:
     return [j for j in await _jobs(client, headers, ws) if j["kind"] == "sql_query"]
 
 
+async def _running(client, headers, ws, label: str) -> list[dict]:
+    for _ in range(200):
+        running = [j for j in await _queries(client, headers, ws) if j["label"] == label and j["status"] == "running"]
+        if running:
+            return running
+        await asyncio.sleep(0.02)
+    raise AssertionError(f"{label} never ran")
+
+
 async def test_a_query_is_a_job_with_its_sql_purpose_and_row_count(client):
     headers = await _admin(client)
     ws, ds = await _database(client, headers)
@@ -49,9 +58,11 @@ async def test_a_query_is_a_job_with_its_sql_purpose_and_row_count(client):
     assert r.status_code == 200 and len(r.json()["rows"]) == 3
 
     job = next(j for j in await _queries(client, headers, ws) if j["label"] == "Cohort · Sepsis")
-    assert job["status"] == "done" and job["logTail"].startswith("3 rows") and job["startedAt"] and job["finishedAt"]
+    assert job["status"] == "done" and job["summary"] == "3 rows" and job["startedAt"] and job["finishedAt"]
+    # The list carries neither the input nor the log: the job opened does.
+    assert job["logTail"] == "" and job["input"] is None and job["cancellable"] is False
     full = (await client.get(f"{API}/jobs/{job['id']}?withInput=true", headers=headers)).json()
-    assert full["input"].startswith("SELECT a FROM t")
+    assert full["input"].startswith("SELECT a FROM t") and full["logTail"].startswith("3 rows")
 
 
 async def test_the_queries_of_one_action_count_as_one_row_of_the_panel(client, monkeypatch):
@@ -77,7 +88,8 @@ async def test_a_failed_query_is_an_error_job(client):
     r = await client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": "SELECT nope FROM t"})
     assert r.status_code == 422
     [job] = [j for j in await _queries(client, headers, ws) if j["label"] == "SQL query"]
-    assert job["status"] == "error" and "nope" in job["logTail"]
+    full = (await client.get(f"{API}/jobs/{job['id']}", headers=headers)).json()
+    assert job["status"] == "error" and "nope" in full["logTail"]
 
 
 async def test_reading_the_tables_and_writing_them_are_jobs_too(client):
@@ -86,7 +98,7 @@ async def test_reading_the_tables_and_writing_them_are_jobs_too(client):
     await client.get(f"{API}/data-sources/{ds}/schema", headers=headers)
     labels = {j["label"]: j for j in await _queries(client, headers, ws)}
     assert labels["Demo · create its tables (DDL)"]["status"] == "done"
-    assert labels["Demo · list its tables and columns"]["logTail"] == "1 tables"
+    assert labels["Demo · list its tables and columns"]["summary"] == "1 tables"
 
 
 async def test_a_query_stopped_from_the_panel_answers_409(client):
@@ -94,14 +106,42 @@ async def test_a_query_stopped_from_the_panel_answers_409(client):
     ws, ds = await _database(client, headers)
     slow = "SELECT count(*) AS n FROM range(100000000000) a"
     request = asyncio.create_task(client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": slow, "origin": "slow"}))
-    for _ in range(200):
-        running = [j for j in await _queries(client, headers, ws) if j["label"] == "slow" and j["status"] == "running"]
-        if running:
-            break
-        await asyncio.sleep(0.02)
-    assert running
+    running = await _running(client, headers, ws, "slow")
+    assert running[0]["cancellable"] is True
     assert (await client.post(f"{API}/jobs/{running[0]['id']}/cancel", headers=headers)).status_code == 204
     r = await asyncio.wait_for(request, 30)
     assert r.status_code == 409
     [job] = [j for j in await _queries(client, headers, ws) if j["label"] == "slow"]
     assert job["status"] == "cancelled"
+
+
+async def test_a_query_stopped_by_its_client_ends_cancelled(client):
+    headers = await _admin(client)
+    ws, ds = await _database(client, headers)
+    query_id = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    slow = "SELECT count(*) AS n FROM range(100000000000) a"
+    request = asyncio.create_task(client.post(
+        f"{API}/data-sources/{ds}/query", headers=headers, json={"sql": slow, "origin": "aborted", "queryId": query_id},
+    ))
+    await _running(client, headers, ws, "aborted")
+    for _ in range(200):
+        r = await client.post(f"{API}/data-sources/{ds}/query/cancel", headers=headers, json={"queryId": query_id})
+        if r.json()["cancelled"]:
+            break
+        await asyncio.sleep(0.02)
+    r = await asyncio.wait_for(request, 30)
+    assert r.status_code == 409 and r.json()["detail"] == "query cancelled"
+    [job] = [j for j in await _queries(client, headers, ws) if j["label"] == "aborted"]
+    assert job["status"] == "cancelled"
+
+
+async def test_a_long_label_is_cut_not_refused(client):
+    headers = await _admin(client)
+    ws, ds = await _database(client, headers)
+    label = "Cohort · " + "x" * 400
+    r = await client.post(f"{API}/data-sources/{ds}/query", headers=headers, json={
+        "sql": "SELECT a FROM t", "origin": label, "groupKey": "g", "groupLabel": label,
+    })
+    assert r.status_code == 200, r.text
+    [job] = [j for j in await _queries(client, headers, ws) if j["groupKey"] == "g"]
+    assert job["label"] == label[:255] and job["groupLabel"] == label[:255]

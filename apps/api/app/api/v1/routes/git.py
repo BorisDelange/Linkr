@@ -62,7 +62,6 @@ from app.schemas.git import (
     GitStatusResponse,
     GitSyncStateResponse,
     GitThreeWayResponse,
-    GitTreePreviewResponse,
     GitVerifyRequest,
     GitVerifyResponse,
     SettingsGitConfig,
@@ -255,6 +254,19 @@ async def _three_way(db, scope, entity_id, repo_getter, zip_bytes, branch, remot
     )
 
 
+def _valid_override(op: object) -> bool:
+    """One decision of a merged-tree request: exactly one of `text` (a string),
+    `remote: true` or `delete: true`, plus an optional `localOid`."""
+    if not isinstance(op, dict) or not set(op) <= {"text", "remote", "delete", "localOid"}:
+        return False
+    if "localOid" in op and op["localOid"] is not None and not isinstance(op["localOid"], str):
+        return False
+    actions = [k for k in ("text", "remote", "delete") if k in op]
+    if len(actions) != 1:
+        return False
+    return isinstance(op["text"], str) if actions[0] == "text" else op[actions[0]] is True
+
+
 async def _merged_tree(repo_getter, entity_id, zip_bytes, branch, remote_url, token, remote_head, overrides):
     """The local export with the pull's decisions applied, as the ZIP the client
     re-imports. `overrides` is JSON: {path: {"text"} | {"remote": true} | {"delete": true}}."""
@@ -266,10 +278,18 @@ async def _merged_tree(repo_getter, entity_id, zip_bytes, branch, remote_url, to
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "overrides is not JSON") from exc
     if not isinstance(parsed, dict):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "overrides must be an object")
+    for path, op in parsed.items():
+        if not _valid_override(op):
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, f"invalid override for {path!r}")
     try:
         data = await git_service.merged_tree(
             repo_getter, entity_id, zip_bytes, branch, remote_url, remote_head, parsed, token,
         )
+    except git_service.LocalChangedError as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail={"code": exc.code, "message": str(exc), "paths": exc.paths},
+        ) from exc
     except git_service.GitError as exc:
         raise _git_http_error(exc) from exc
     return Response(content=data, media_type="application/zip")
@@ -777,33 +797,6 @@ async def workspace_merged_tree(
         git_service.workspace_repo_getter, ws.id, await _workspace_zip_bytes(db, ws, file),
         _default_branch(ws, branch), _remote_url(ws), await _token(db, _member, ws),
         remote_head, overrides,
-    )
-
-
-@router.get("/workspaces/{workspace_id}/tree-preview", response_model=GitTreePreviewResponse)
-async def workspace_tree_preview(
-    workspace_id: str,
-    prefix: str,
-    branch: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    _member=Depends(require_permission("workspace-settings:read")),
-):
-    """BASE (the sync anchor) and REMOTE text of every file under `prefix` (e.g.
-    `wiki/`), for the client to 3-way merge against its DB. Read access is enough:
-    the pull writes through the entities' own APIs once the user has decided."""
-    ws = await _load_workspace(workspace_id, db, _member)
-    branch = _default_branch(ws, branch)
-    row = await git_sync_state_service.get(db, "workspaces", ws.id, branch)
-    return await _guard(
-        git_service.tree_preview(
-            git_service.workspace_repo_getter,
-            ws.id,
-            branch,
-            _remote_url(ws),
-            (row.synced_oid or None) if row else None,
-            prefix,
-            await _token(db, _member, ws),
-        )
     )
 
 

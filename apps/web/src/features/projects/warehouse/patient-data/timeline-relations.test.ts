@@ -35,6 +35,16 @@ describe('relationsHolding', () => {
     expect([...relationsWithout(mapping, counted, [observation.name])]).toEqual([observation.name])
   })
 
+  it('says a table the count covered, holding none of the concepts asked, holds none', () => {
+    const counted = [
+      { relation: measurement.name, signature: sig(measurement), holds: false, held: [] },
+      { relation: observation.name, signature: sig(observation), holds: true, held: ['3'] },
+    ]
+    const holding = relationsHolding(mapping, counted)
+    expect(holding.get(measurement.name)).toEqual(new Set())
+    expect(holding.get(observation.name)).toEqual(new Set([3]))
+  })
+
   it('cannot speak for a relation counted under other SQL, or held ids it was not told', () => {
     expect(relationsHolding(mapping, [
       { relation: measurement.name, signature: 'older', holds: false, held: [] },

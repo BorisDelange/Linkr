@@ -147,3 +147,63 @@ async def test_reconcile_marks_orphaned_running_as_error(db):
     await jobs.reconcile_on_startup()
     await db.refresh(job)
     assert job.status == "error"
+
+
+async def _job(db, label: str, *, status: str = "done", minute: int, kind: str = jobs.QUERY_KIND, group: str | None = None) -> Job:
+    from datetime import UTC, datetime
+
+    job = await jobs.create(db, "proj-1", 1, kind=kind, label=label, group_key=group, group_label=group)
+    job.status = status
+    job.created_at = datetime(2026, 1, 1, 0, minute, tzinfo=UTC)
+    await db.commit()
+    return job
+
+
+async def test_a_running_job_is_listed_however_many_rows_came_after_it(db, monkeypatch):
+    await _job(db, "old running", status="running", minute=0)
+    await _job(db, "old group done", minute=1, group="g")
+    await _job(db, "old group running", status="queued", minute=2, group="g")
+    await _job(db, "old done", minute=3)
+    for i in range(3):
+        await _job(db, f"new {i}", minute=10 + i)
+    monkeypatch.setattr(jobs, "RECENT_JOBS", 2)
+
+    labels = [j.label for j in await jobs.list_active(db, "proj-1", 1)]
+    # Newest first; the old active job, and the whole group holding one, still listed.
+    assert labels == ["new 2", "new 1", "old group running", "old group done", "old running"]
+
+
+async def test_finished_queries_go_after_the_retention_the_others_stay(db, monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    monkeypatch.setattr(jobs.settings, "query_log_hours", 24)
+    now = datetime.now(UTC)
+    for label, status, kind, age in [
+        ("old query", "done", jobs.QUERY_KIND, 25), ("old failed query", "error", jobs.QUERY_KIND, 30),
+        ("recent query", "done", jobs.QUERY_KIND, 23), ("old running query", "running", jobs.QUERY_KIND, 30),
+        ("old build", "done", "build", 30),
+    ]:
+        job = await jobs.create(db, "proj-1", 1, kind=kind, label=label)
+        job.status = status
+        job.created_at = now - timedelta(hours=age)
+        await db.commit()
+
+    assert await jobs.purge_old_queries() == 2
+    labels = {j.label for j in await jobs.list_active(db, "proj-1", 1)}
+    assert labels == {"recent query", "old running query", "old build"}
+
+
+async def test_a_job_stopped_by_its_client_ends_cancelled(db):
+    from app.core import deferred
+
+    job = await jobs.create(db, "proj-1", 1, kind=jobs.QUERY_KIND, label="q", running=True)
+
+    async def stopped():
+        raise deferred.Stopped()
+
+    task = asyncio.create_task(stopped())
+    await jobs.adopt(job.id, task, written=True)
+    await asyncio.gather(task, return_exceptions=True)
+    await asyncio.gather(*list(jobs._status_writes), return_exceptions=True)
+    await db.refresh(job)
+    assert job.status == "cancelled"

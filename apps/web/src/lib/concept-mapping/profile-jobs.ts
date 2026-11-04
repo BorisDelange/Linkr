@@ -13,10 +13,16 @@ import { exactOptions, missingSections, sectionSet, variantOf, type SectionKey }
 import { availableSections, effectiveSections, plannedProfileQueries, type ProfileOptions, type ProfileSource } from './concept-profile'
 import type { BatchProfileStore } from './source-extraction'
 
+/** The most queries one server job takes (`QueryJobRequest.queries`). */
+export const QUERY_JOB_MAX_QUERIES = 10_000
+
 /** The server side of a run's job. */
 export interface ProfileJobs {
   /** Run these queries, in order, as one job; its id. */
   start: (queries: readonly { key: string; sql: string }[]) => Promise<string>
+  /** The most queries `start` takes at once; a longer run is several jobs, one
+   *  after the other. QUERY_JOB_MAX_QUERIES when unset. */
+  maxQueries?: number
   /** The rows of `key`, once the job has run it; null when it never will
    *  (failed, cancelled, gone). */
   rows: (jobId: string, key: string, signal: AbortSignal) => Promise<Record<string, unknown>[] | null>

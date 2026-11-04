@@ -3,7 +3,8 @@ import { useTranslation } from 'react-i18next'
 import { Loader2, Pause, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Progress } from '@/components/ui/progress'
-import { cancelJob, type Job } from '@/lib/api/environments'
+import { cancelJob } from '@/lib/api/environments'
+import type { WatchedJob } from './use-job'
 
 // Jobs asked to stop or pause, kept outside the line so it still says so when
 // it mounts again (dialog reopened, tab switched back) before the job ends.
@@ -14,7 +15,7 @@ const pauseRequested = new Set<string>()
  * A running job as one line: label, bar, last log line, Stop — and Pause when
  * the job can resume where it stopped (`onPause`).
  */
-export function JobLine({ job, onPause }: { job: Job; onPause?: () => Promise<void> }) {
+export function JobLine({ job, onPause }: { job: WatchedJob; onPause?: () => Promise<void> }) {
   const { t } = useTranslation()
   // A cancel lands once the job's process has stopped: until then the button says so.
   const [stopping, setStopping] = useState(() => stopRequested.has(job.id))
@@ -60,7 +61,9 @@ export function JobLine({ job, onPause }: { job: Job; onPause?: () => Promise<vo
         </Button>
       </div>
       <Progress value={job.progress} className="h-1" />
-      {last && <p className="truncate font-mono text-[10px] text-muted-foreground" title={last}>{last}</p>}
+      {job.unreachable
+        ? <p className="text-[10px] text-destructive">{t('concept_mapping.engines_job_unreachable')}</p>
+        : last && <p className="truncate font-mono text-[10px] text-muted-foreground" title={last}>{last}</p>}
     </div>
   )
 }

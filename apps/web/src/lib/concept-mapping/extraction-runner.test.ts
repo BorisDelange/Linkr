@@ -372,6 +372,33 @@ describe('profile queries run as a server job', () => {
     expect(writes.at(-1)!.state.jobIds).toBeUndefined()
   })
 
+  it('splits a run longer than one job takes into jobs started one after the other', async () => {
+    // Past the rows one batch reads: one query per concept.
+    const { answer } = fakeSource({ ...warehouse, records: { 1: 5_000_000, 2: 4_000_000, 3: 3_000_000 } })
+    const whole = fakeJobs()
+    await runToEnd({ ...input(answer), resumeFrom: null, jobs: whole.jobs })
+    const planned = whole.started[0].map((q) => q.key)
+    expect(planned.length).toBeGreaterThan(1)
+
+    const { jobs, started, read } = fakeJobs()
+    const order: string[] = []
+    const capped: ProfileJobs = {
+      ...jobs,
+      maxQueries: 1,
+      start: async (queries) => { const id = await jobs.start(queries); order.push(`start ${id}`); return id },
+      rows: async (id, key, signal) => { order.push(`read ${id}`); return jobs.rows(id, key, signal) },
+    }
+    const writes = await runToEnd({ ...input(answer), resumeFrom: null, jobs: capped })
+    expect(started.map((q) => q.length)).toEqual(planned.map(() => 1))
+    expect(started.flat().map((q) => q.key)).toEqual(planned)
+    expect(read).toEqual(planned)
+    // Each job once the one before it was read: never two at once.
+    expect(order).toEqual(planned.flatMap((_, i) => [`start job${i + 1}`, `read job${i + 1}`]))
+    // Each recorded as it starts, for a resume to find.
+    expect(writes.some((w) => w.state.jobIds?.includes(`job${planned.length}`))).toBe(true)
+    expect(writes.at(-1)!.state.jobIds).toBeUndefined()
+  })
+
   it('takes what the paused run\'s job finished, without a new one', async () => {
     const { answer } = fakeSource(warehouse)
     const first = fakeJobs()
