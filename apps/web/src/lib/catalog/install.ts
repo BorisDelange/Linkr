@@ -526,7 +526,7 @@ async function installWorkspaceEntry(
   parsed.workspace.gitRemoteConfig = git
 
   try {
-    const { targetWsId, idMap, skippedOrgName, aliasRenames } = await importWorkspaceTree(parsed, {
+    const { targetWsId, idMap, skippedOrgName, aliasRenames, unsyncedDictionaries } = await importWorkspaceTree(parsed, {
       // Only a real lineage match makes "keep both" meaningful — see the note above.
       duplicate: duplicate && (await workspaceLineageExists(parsed.workspace.lineageId)),
       language,
@@ -536,7 +536,7 @@ async function installWorkspaceEntry(
     // Best-effort, exactly like the page's loop: a child whose repo needs a token
     // (the catalog passes none) leaves its content behind rather than failing the
     // install.
-    const failed = await cloneWorkspaceChildren(parsed, targetWsId, idMap)
+    const failed = [...unsyncedDictionaries, ...await cloneWorkspaceChildren(parsed, targetWsId, idMap)]
     if (oid) {
       try {
         await gitSetSyncState('workspaces', targetWsId, git.branch || 'main', oid)

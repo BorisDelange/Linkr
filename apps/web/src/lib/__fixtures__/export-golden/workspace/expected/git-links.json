@@ -7,6 +7,12 @@
       "branch": "main"
     },
     {
+      "type": "data-dictionary",
+      "folder": "indicate-data-dictionary",
+      "url": "https://github.com/indicate-eu/data-dictionary",
+      "branch": "main"
+    },
+    {
       "type": "dq-rule-set",
       "folder": "linked-checks",
       "url": "https://git.example.org/dq.git",

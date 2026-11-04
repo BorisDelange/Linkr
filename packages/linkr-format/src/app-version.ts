@@ -35,6 +35,9 @@ export const MIN_APP_VERSION: Partial<Record<LayoutKind, string>> = {
   // import); a 2.4.5 importing a workspace or a rule-set file writes checks with
   // no id.
   'dq-rule-set': '2.4.6',
+  // 2.4.6 too: wiki/_tree.json names pages by entityId (no id/parentId) and the
+  // attachments by page + file name; a 2.4.5 writes pages with no id and
+  // drops the attachments.
   'workspace': '2.4.6',
 }
 

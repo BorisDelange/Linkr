@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { getStorage } from '@/lib/storage'
 import { migrateEntityIds } from '@/lib/slugify-id'
 import { localized, toLocalized } from '@/lib/localized'
-import { stampAuthored } from '@/stores/app-store'
+import { stampAuthored, stampLineage } from '@/stores/app-store'
 import type { WikiPage, LocalizedString } from '@/types'
 import { foldAccents } from '@/lib/fold-accents'
 
@@ -111,6 +111,7 @@ export const useWikiStore = create<WikiState>((set, get) => ({
     const page: WikiPage = {
       id,
       entityId: entityId || undefined,
+      ...stampLineage(),
       workspaceId,
       parentId,
       title,

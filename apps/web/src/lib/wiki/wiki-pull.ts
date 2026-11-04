@@ -1,38 +1,40 @@
 /**
  * Reading an exported wiki tree back into pages — what the workspace pull writes
  * once the merged tree is built (lib/pull/apply.ts). A page is identified by its
- * `id`, which `_tree.json` carries across instances.
+ * `entityId`, which names its files; the local id is not in the tree
+ * (lib/wiki/wiki-tree.ts).
  */
-import type { LocalizedString, WikiPage } from '@/types'
+import type { LocalizedString } from '@/types'
 import { toLocalized } from '@/lib/localized'
 import { readWikiPageMeta } from '@/lib/wiki-page-meta'
+import { readWikiTree, WIKI_TREE_FILE, type WikiTreePage } from './wiki-tree'
 
 export const WIKI_PREFIX = 'wiki/'
-const TREE_FILE = 'wiki/_tree.json'
 
-/** Metadata a pull may write. Identity (id, entityId), the derived slug and the
- *  instance fields (workspaceId, timestamps, authorship) never travel. */
-export const WIKI_MERGED_FIELDS = ['title', 'parentId', 'sortOrder', 'icon', 'status', 'owner', 'reviewDueAt'] as const
+/** Metadata a pull may write. Identity (entityId, lineage), the derived slug and
+ *  the instance fields (workspaceId, timestamps, authorship) never travel. */
+export const WIKI_MERGED_FIELDS = ['title', 'parentEntityId', 'sortOrder', 'icon', 'status', 'owner', 'reviewDueAt'] as const
 export type WikiMergedField = (typeof WIKI_MERGED_FIELDS)[number]
 
 export interface WikiSnapshotPage {
-  meta: Omit<WikiPage, 'content'>
+  /** Keyed by entityId: `id` is the entityId, `parentId` the parent's. */
+  meta: WikiTreePage
   content: LocalizedString
   /** The page's main file in the exported tree — the pull row's path. */
   path: string
 }
 
-/** The pages an exported `wiki/` tree describes, keyed by id. */
+/** The pages an exported `wiki/` tree describes, keyed by entityId. */
 export function readWikiSnapshot(files: Record<string, string>): Map<string, WikiSnapshotPage> {
   const pages = new Map<string, WikiSnapshotPage>()
-  let tree: Omit<WikiPage, 'content'>[] = []
+  let raw: unknown
   try {
-    tree = JSON.parse(files[TREE_FILE] ?? '[]')
+    raw = JSON.parse(files[WIKI_TREE_FILE] ?? '[]')
   } catch {
     return pages
   }
-  for (const raw of tree) {
-    const meta = { ...readWikiPageMeta(raw), title: toLocalized(raw.title) }
+  for (const entry of readWikiTree(raw)) {
+    const meta = { ...readWikiPageMeta(entry), title: toLocalized(entry.title) }
     const content: LocalizedString = {}
     let path = ''
     for (const [file, text] of Object.entries(files)) {
@@ -41,12 +43,11 @@ export function readWikiSnapshot(files: Record<string, string>): Map<string, Wik
       const langMatch = /\.([a-z]{2})$/.exec(rel)
       const lang = langMatch ? langMatch[1] : 'en'
       const name = langMatch ? rel.slice(0, -3) : rel
-      const matches = meta.entityId ? name === meta.entityId : name.endsWith(`--${meta.id}`)
-      if (!matches) continue
+      if (name !== meta.entityId) continue
       content[lang] = text
       if (!langMatch || !path) path = file
     }
-    pages.set(meta.id, { meta, content, path: path || `${WIKI_PREFIX}${meta.entityId ?? meta.id}.md` })
+    pages.set(meta.id, { meta, content, path: path || `${WIKI_PREFIX}${meta.id}.md` })
   }
   return pages
 }

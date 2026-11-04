@@ -65,6 +65,8 @@ const TYPE_DIR = {
   'dq-rule-set': 'data-quality',
   'schema-preset': 'schemas',
   'database': 'databases',
+  // Not a Linkr tree: the dictionary's own repository (concept_sets/, units/).
+  'data-dictionary': 'data-dictionaries',
 }
 
 const log = (msg) => process.stdout.write(`[default-data] ${msg}\n`)

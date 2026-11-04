@@ -32,6 +32,7 @@ from app.models.mapping_project import MappingProject
 from app.models.project import Project
 from app.models.workspace import Workspace
 from app.schemas.concept_set import ConceptSetResponse
+from app.schemas.data_dictionary import DataDictionaryResponse
 from app.schemas.data_catalog import DataCatalogResponse
 from app.schemas.data_source import DataSourceResponse
 from app.schemas.dq_rule_set import DqCustomCheckResponse, DqRuleSetResponse
@@ -88,6 +89,7 @@ from app.services import (
     cohort_service,
     concept_set_service,
     data_catalog_service,
+    data_dictionary_service,
     data_source_service,
     dq_rule_set_service,
     etl_pipeline_service,
@@ -833,16 +835,25 @@ async def build_workspace_tree_from_db(
     mapping_projects = None
     id_ranges = None
     concept_sets = None
+    data_dictionaries = None
     if options.on("conceptMapping"):
         mapping_projects, id_ranges = await _mapping_projects_section(
             db, workspace.id, options
         )
-        # dictionaryId is a local key: the data dictionaries do not travel yet
-        # (twin of entity-io.ts).
-        concept_sets = [
-            {k: v for k, v in _strip_instance_fields(_dump(ConceptSetResponse, cs)).items() if k != "dictionaryId"}
-            for cs in await concept_set_service.list_for_workspace(db, workspace.id)
-            if not options.exclude_entities.get(cs.id)
+        # dictionaryId is a local key: it rides as `_dictionaryId`, for the
+        # section to leave out the sets of a git-linked dictionary (twin of
+        # entity-io.ts), and is never written.
+        concept_sets = []
+        for cs in await concept_set_service.list_for_workspace(db, workspace.id):
+            if options.exclude_entities.get(cs.id):
+                continue
+            data = _strip_instance_fields(_dump(ConceptSetResponse, cs))
+            dictionary_id = data.pop("dictionaryId", None)
+            concept_sets.append({**data, "_dictionaryId": dictionary_id})
+        data_dictionaries = [
+            _dump(DataDictionaryResponse, d)
+            for d in await data_dictionary_service.list_for_workspace(db, workspace.id)
+            if not options.exclude_entities.get(d.id)
         ]
 
     catalogs = None
@@ -892,6 +903,7 @@ async def build_workspace_tree_from_db(
         dq_rule_sets=dq_rule_sets,
         mapping_projects=mapping_projects,
         concept_sets=concept_sets,
+        data_dictionaries=data_dictionaries,
         id_ranges=id_ranges,
         catalogs=catalogs,
         service_mappings=service_mappings,

@@ -377,6 +377,21 @@ describe('buildSeedManifest — internals', () => {
     expect(withTree.internals?.wikiPages).toEqual(['wiki/home.md'])
   })
 
+  it('lists a linked dictionary\'s index and its cloned repository', () => {
+    const m = buildSeedManifest(workspace({
+      'data-dictionaries/_dictionaries.json': '[]',
+      'data-dictionaries/core/concept_sets/1.json': '{}',
+      'data-dictionaries/core/units/unit_conversions.json': '[]',
+      'data-dictionaries/core/README.md': '# core',
+    }))
+    expect(m.internals?.dataDictionaries).toEqual([
+      'data-dictionaries/_dictionaries.json',
+      'data-dictionaries/core/concept_sets/1.json',
+      'data-dictionaries/core/units/unit_conversions.json',
+    ])
+    expect(buildSeedManifest(workspace({ 'data-dictionaries/core/concept_sets/1.json': '{}' })).internals?.dataDictionaries).toBeUndefined()
+  })
+
   it('omits internals entirely when there are none', () => {
     const m = buildSeedManifest(workspace({ 'projects/p/entity.json': '{}' }))
     expect(m.internals).toBeUndefined()

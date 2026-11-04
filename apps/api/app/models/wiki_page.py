@@ -14,6 +14,10 @@ class WikiPage(Base, TimestampMixin):
     )
     # Human-readable, URL-safe id set once at creation (folder name in exports).
     entity_id: Mapped[str | None] = mapped_column(String(255))
+    # Cross-instance identity (the repo names the page by entity_id); a duplicated
+    # workspace mints a new lineage_id and points parent_lineage_id at its source.
+    lineage_id: Mapped[str | None] = mapped_column(String(36))
+    parent_lineage_id: Mapped[str | None] = mapped_column(String(36))
     # Self-referential hierarchy; not an FK so orphaned children survive a parent
     # delete (the frontend re-parents them). Nullable = top-level page.
     parent_id: Mapped[str | None] = mapped_column(String(36))

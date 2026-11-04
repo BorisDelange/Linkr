@@ -328,7 +328,14 @@ def _build_tree() -> dict[str, bytes]:
         }
         for c in data["dataCatalogs"]
     ]
-    concept_sets = [_strip_instance_fields(cs) for cs in data["conceptSets"]]
+    # As the assembler hands them over: dictionaryId moved aside as _dictionaryId.
+    concept_sets = [
+        {
+            **{k: v for k, v in _strip_instance_fields(cs).items() if k != "dictionaryId"},
+            "_dictionaryId": cs.get("dictionaryId"),
+        }
+        for cs in data["conceptSets"]
+    ]
 
     # Mirrors _data_source_sub_tree: unlinked databases are a folder like their own
     # repo (entity.json + mapping.json/schema.ddl + docs); linked ones a pointer.
@@ -465,6 +472,7 @@ def _build_tree() -> dict[str, bytes]:
         dq_rule_sets=dq_rule_sets,
         mapping_projects=mapping_projects,
         concept_sets=concept_sets,
+        data_dictionaries=data.get("dataDictionaries", []),
         id_ranges=_to_portable_ranges(data["ranges"]),
         catalogs=catalogs,
         service_mappings=data["serviceMappings"],

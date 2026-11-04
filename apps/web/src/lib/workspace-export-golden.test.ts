@@ -95,6 +95,7 @@ interface GoldenInput {
   dataCatalogs: Record<string, unknown>[]
   serviceMappings: Record<string, unknown>[]
   conceptSets: Record<string, unknown>[]
+  dataDictionaries?: Record<string, unknown>[]
 }
 
 const input = JSON.parse(readFileSync(join(GOLDEN_DIR, 'input.json'), 'utf8')) as GoldenInput
@@ -190,6 +191,7 @@ const storage = {
   dataCatalogs: { getByWorkspace: async () => input.dataCatalogs },
   serviceMappings: { getByWorkspace: async () => input.serviceMappings },
   conceptSets: { getByWorkspace: async () => input.conceptSets },
+  dataDictionaries: { getByWorkspace: async () => input.dataDictionaries ?? [] },
   userPlugins: { getByWorkspace: async () => input.userPlugins },
 } as unknown as Storage
 

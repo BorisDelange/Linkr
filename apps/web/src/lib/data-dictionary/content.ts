@@ -39,6 +39,11 @@ export interface DictionaryContent {
   title?: string
 }
 
+/** A readable name for a repository URL: its last path segment. */
+export function repoName(url: string): string {
+  return url.trim().replace(/\.git$/, '').replace(/\/+$/, '').split(/[/:]/).pop() || url
+}
+
 /** Is `path` part of what a dictionary sync reads? (Everything else in the repo
  *  — the app, resolved snapshots, CI — is left out.) */
 export function isDictionaryFile(path: string): boolean {

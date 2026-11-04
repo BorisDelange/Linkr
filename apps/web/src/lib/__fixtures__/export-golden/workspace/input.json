@@ -180,9 +180,38 @@
  },
  "wikiPages": [
   {
+   "id": "wp2",
+   "workspaceId": "ws1",
+   "entityId": "setup-guide",
+   "lineageId": "22222222-2222-4222-8222-222222222222",
+   "parentLineageId": null,
+   "parentId": "wp1",
+   "title": {
+    "en": "Setup guide"
+   },
+   "slug": "setup-guide",
+   "icon": null,
+   "content": {
+    "en": "See [Home](home.md)."
+   },
+   "template": null,
+   "owner": null,
+   "status": null,
+   "statusChangedAt": null,
+   "reviewDueAt": null,
+   "sortOrder": 0,
+   "createdById": null,
+   "createdBy": "Boris Delange",
+   "createdByDetails": null,
+   "createdAt": "2026-01-01T00:00:00.000Z",
+   "updatedAt": "2026-02-01T00:00:00.000Z"
+  },
+  {
    "id": "wp1",
    "workspaceId": "ws1",
    "entityId": "home",
+   "lineageId": "11111111-1111-4111-8111-111111111111",
+   "parentLineageId": null,
    "parentId": null,
    "title": {
     "en": "Home"
@@ -1128,7 +1157,48 @@
    "updatedAt": "2026-06-01T00:00:00.000Z"
   }
  ],
+ "dataDictionaries": [
+  {
+   "id": "dd1",
+   "workspaceId": "ws1",
+   "name": "INDICATE data dictionary",
+   "sourceRepo": "https://github.com/indicate-eu/data-dictionary",
+   "branch": "main",
+   "commit": "0123456789abcdef0123456789abcdef01234567",
+   "syncedAt": "2026-06-01T00:00:00.000Z",
+   "unitConversions": [],
+   "recommendedUnits": [],
+   "createdAt": "2026-01-02T03:04:05.000Z",
+   "updatedAt": "2026-06-01T00:00:00.000Z"
+  },
+  {
+   "id": "dd2",
+   "workspaceId": "ws1",
+   "name": "Local sets",
+   "createdAt": "2026-01-02T03:04:05.000Z",
+   "updatedAt": "2026-06-01T00:00:00.000Z"
+  }
+ ],
  "conceptSets": [
+  {
+   "id": "cs2",
+   "workspaceId": "ws1",
+   "dictionaryId": "dd1",
+   "name": "Heart rate",
+   "description": "Synced from the dictionary repository.",
+   "expression": {
+    "items": [
+     {
+      "conceptId": 3027018,
+      "includeDescendants": false
+     }
+    ]
+   },
+   "uniqueId": "dd-heart-rate",
+   "sourceRepo": "https://github.com/indicate-eu/data-dictionary",
+   "createdAt": "2026-01-02T03:04:05.000Z",
+   "updatedAt": "2026-06-01T00:00:00.000Z"
+  },
   {
    "id": "cs1",
    "workspaceId": "ws1",

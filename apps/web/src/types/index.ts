@@ -600,7 +600,7 @@ export interface EntityLicense {
 
 // --- Wiki Types ---
 
-export interface WikiPage extends Authored {
+export interface WikiPage extends Authored, Lineaged {
   id: string
   /** Human-readable, URL-safe identifier. Set once at creation, never changes. Used as folder name in exports/git. */
   entityId?: string

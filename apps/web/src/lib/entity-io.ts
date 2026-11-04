@@ -47,6 +47,14 @@ import type {
 import * as engine from '@/lib/duckdb/engine'
 import { aliasesInScope } from '@/lib/alias'
 import { localized, toLocalized } from '@/lib/localized'
+import {
+  buildDictionaryLinks, clonedDictionaryFiles, DICTIONARIES_INDEX, readDictionaryLinks, unlinkedConceptSets,
+  type DictionaryLink,
+} from '@/lib/data-dictionary/dictionary-links'
+import {
+  buildWikiAttachmentMeta, buildWikiTree, readWikiAttachmentMeta, readWikiTree, wikiAttachmentPath, wikiPageFolder,
+  WIKI_ATTACHMENTS_META_FILE, WIKI_TREE_FILE,
+} from '@/lib/wiki/wiki-tree'
 import { readWikiPageMeta } from '@/lib/wiki-page-meta'
 import { importedChecks, portableChecks } from '@/lib/dq-check-portable'
 import { buildCohortKeyMap, cohortKey } from '@/lib/cohort-key'
@@ -2642,7 +2650,7 @@ async function parseNewLayout(zip: JSZip, project: Project): Promise<ParsedProje
 //   wiki/_tree.json                           — wiki page metadata (hierarchy, icons, etc.)
 //   wiki/{slug}--{id}.md                      — wiki page content as markdown
 //   wiki/_attachments/_meta.json              — wiki attachment metadata
-//   wiki/_attachments/{id}-{filename}         — wiki attachment binaries
+//   wiki/_attachments/{page}/{filename}       — wiki attachment binaries
 //   sql-scripts/{collection-slug}/
 //     _collection.json                        — collection metadata
 //     _tree.json                              — tree keyed by path (type, order, …); ids derived on import
@@ -2693,7 +2701,7 @@ export interface BuildWorkspaceZipOptions {
  *  that changed on every round trip. The portal's sync-git-links.sh reads only
  *  type/folder/url/branch, and nothing in this repo reads the file back. */
 export interface GitLinkEntry {
-  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset' | 'database'
+  type: 'project' | 'mapping-project' | 'sql-collection' | 'etl-pipeline' | 'data-catalog' | 'dq-rule-set' | 'schema-preset' | 'database' | 'data-dictionary'
   /** Folder name used inside the workspace zip (projectId / entityId / slug). */
   folder: string
   url: string
@@ -4563,19 +4571,13 @@ export async function buildWorkspaceZip(
   if (on('wiki')) {
     const wikiPages = await storage.wikiPages.getByWorkspace(workspaceId)
     if (wikiPages.length > 0) {
-      // Stripped like every other section: the raw rows leaked this instance's
-      // `workspaceId`/`createdById` and an `updatedAt` that churns on every edit.
-      // `id`/`parentId` stay — they are the tree's own structure, and the import
-      // re-keys them (mapWikiId) rather than adopting them.
-      // By id: storage order is insertion order, which differs between two
-      // instances holding the same pages and would churn the file.
-      const treeMeta = [...wikiPages]
-        .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-        .map(({ content: _, ...meta }) => stripInstanceFields(meta as WikiPage))
-      zip.file('wiki/_tree.json', json(treeMeta))
+      // Stripped like every other section, and keyed by entityId rather than the
+      // local id (lib/wiki/wiki-tree.ts): an instance re-minting its ids no longer
+      // rewrites the tree.
+      zip.file(WIKI_TREE_FILE, json(buildWikiTree(wikiPages, (m) => stripInstanceFields(m))))
 
       for (const page of wikiPages) {
-        const pageFolder = page.entityId || `${slugify(localized(page.title, 'en') || page.id)}--${page.id}`
+        const pageFolder = wikiPageFolder(page)
         // Content is multilingual: <folder>.md holds en/first, <folder>.<lang>.md the rest.
         const content = toLocalized(page.content)
         const langs = Object.keys(content).filter((l) => content[l])
@@ -4591,11 +4593,13 @@ export async function buildWorkspaceZip(
       }
 
       const wikiAttachments = await storage.wikiAttachments.getByWorkspace(workspaceId)
-      if (wikiAttachments.length > 0) {
-        const meta = wikiAttachments.map(({ data: _, ...rest }) => rest)
-        zip.file('wiki/_attachments/_meta.json', json(meta))
+      const attachmentMeta = buildWikiAttachmentMeta(wikiAttachments, wikiPages)
+      if (attachmentMeta.length > 0) {
+        zip.file(WIKI_ATTACHMENTS_META_FILE, json(attachmentMeta))
+        const folderOf = new Map(wikiPages.map((p) => [p.id, wikiPageFolder(p)]))
         for (const att of wikiAttachments) {
-          zip.file(`wiki/_attachments/${att.id}-${att.fileName}`, att.data)
+          const folder = folderOf.get(att.pageId)
+          if (folder) zip.file(wikiAttachmentPath(folder, att.fileName), att.data)
         }
       }
     }
@@ -4745,16 +4749,23 @@ export async function buildWorkspaceZip(
     }
   }
 
-  // --- concept-sets/ ---
-  // Workspace-scoped imported data dictionaries. parseWorkspaceZip has always read
-  // these back (and ParsedWorkspaceZip carries them), but nothing ever wrote them —
-  // so an export/reimport round trip silently dropped every concept set.
+  // --- data-dictionaries/ + concept-sets/ ---
+  // A dictionary synced from a repository travels as a pointer, its sets and
+  // units coming back from the repo (lib/data-dictionary/dictionary-links.ts).
+  // Every other concept set is written as its own file.
   if (on('conceptMapping')) {
-    const conceptSets = await storage.conceptSets.getByWorkspace(workspaceId)
+    const dictionaries = (await storage.dataDictionaries.getByWorkspace(workspaceId)).filter((d) => !excluded[d.id])
+    const links = buildDictionaryLinks(dictionaries)
+    if (links.length > 0) {
+      zip.file(DICTIONARIES_INDEX, json(links.map(({ id: _id, ...link }) => link)))
+      for (const link of links) {
+        gitLinks.push({ type: 'data-dictionary', folder: link.entityId, url: link.git.url, branch: link.git.branch })
+      }
+    }
+    const conceptSets = unlinkedConceptSets(await storage.conceptSets.getByWorkspace(workspaceId), dictionaries)
     for (const cs of conceptSets) {
       if (excluded[cs.id]) continue
-      // dictionaryId is a local key: the data dictionaries themselves do not
-      // travel yet (TODO(data-dictionaries): export them, as a repo pointer).
+      // dictionaryId is a local key.
       const { dictionaryId: _dictionary, ...portable } = cs
       zip.file(`concept-sets/${slugify(cs.name || cs.id)}.json`, json(stripInstanceFields(portable)))
     }
@@ -4900,6 +4911,9 @@ export interface ParsedWorkspaceZip {
   databaseCohorts: Map<string, Cohort[]>
   /** Per database id: its cohorts' boards, by cohort key. */
   databaseBoards: Map<string, Map<string, CohortBoardBundle>>
+  /** Keyed by entityId (`id` = entityId, `parentId` = the parent's): the import
+   *  derives the local ids (lib/wiki/wiki-tree.ts). Attachments likewise, by
+   *  `<pageEntityId>/<fileName>`. */
   wikiPages: WikiPage[]
   /** The workspace README's own images. */
   workspaceAttachments?: ParsedEntityAttachments
@@ -4909,6 +4923,10 @@ export interface ParsedWorkspaceZip {
   etlPipelines: { pipeline: EtlPipeline; files: EtlFile[]; attachments?: ParsedEntityAttachments }[]
   dqRuleSets: { ruleSet: DqRuleSet; checks: DqCustomCheck[] }[]
   conceptSets: ConceptSet[]
+  /** Git-linked dictionaries, and the clone of each (by entityId) when the tree
+   *  holds one — empty otherwise, the import then reads the repository. */
+  dataDictionaries: DictionaryLink[]
+  dictionaryClones: Map<string, Record<string, string>>
   mappingProjects: { project: MappingProject; mappings: ConceptMapping[]; scores: ImportedScores }[]
   sourceConceptIdRanges: SourceConceptIdRange[]
   sourceConceptIdEntries: SourceConceptIdEntry[]
@@ -5130,32 +5148,34 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
   }
 
   // --- wiki/ ---
+  // Pages and attachments keyed by entityId until the import lands them
+  // (WikiTreePage): the tree carries no local id.
   const wikiPages: WikiPage[] = []
-  const wikiTreeMeta = await readJsonFile<Omit<WikiPage, 'content'>[]>(zipData, 'wiki/_tree.json')
-  if (wikiTreeMeta) {
-    for (const meta of wikiTreeMeta) {
-      // Content lives in wiki/<folder>.md (en/first) + wiki/<folder>.<lang>.md.
-      // <folder> is either the page.entityId or "<slug>--<id>".
-      const folder = meta.entityId
-      const content: LocalizedString = {}
-      for (const [path, entry] of Object.entries(zipData.files)) {
-        if (entry.dir || !path.startsWith('wiki/') || !path.endsWith('.md')) continue
-        const rel = path.slice('wiki/'.length, -'.md'.length)
-        const langMatch = /\.([a-z]{2})$/.exec(rel)
-        const lang = langMatch ? langMatch[1] : 'en'
-        const base = langMatch ? rel.slice(0, -3) : rel
-        const matches = folder ? base === folder : base.endsWith(`--${meta.id}`)
-        if (matches) content[lang] = await entry.async('string')
-      }
-      wikiPages.push({ ...readWikiPageMeta(meta), content } as WikiPage)
+  const rawWikiTree = await readJsonFile<unknown>(zipData, WIKI_TREE_FILE)
+  const wikiTree = readWikiTree(rawWikiTree)
+  for (const meta of wikiTree) {
+    // Content lives in wiki/<entityId>.md (en/first) + wiki/<entityId>.<lang>.md.
+    const content: LocalizedString = {}
+    for (const [path, entry] of Object.entries(zipData.files)) {
+      if (entry.dir || !path.startsWith('wiki/') || !path.endsWith('.md') || path.includes('/_attachments/')) continue
+      const rel = path.slice('wiki/'.length, -'.md'.length)
+      const langMatch = /\.([a-z]{2})$/.exec(rel)
+      const lang = langMatch ? langMatch[1] : 'en'
+      const base = langMatch ? rel.slice(0, -3) : rel
+      if (base === meta.entityId) content[lang] = await entry.async('string')
     }
+    wikiPages.push({ ...readWikiPageMeta(meta), content } as WikiPage)
   }
 
-  const wikiAttachmentsMeta = (await readJsonFile<Omit<WikiAttachment, 'data'>[]>(zipData, 'wiki/_attachments/_meta.json')) ?? []
+  const wikiAttachmentsMeta: Omit<WikiAttachment, 'data'>[] = []
   const wikiAttachmentBlobs = new Map<string, ArrayBuffer>()
-  for (const meta of wikiAttachmentsMeta) {
-    const entry = zipData.files[`wiki/_attachments/${meta.id}-${meta.fileName}`]
-    if (entry) wikiAttachmentBlobs.set(meta.id, await entry.async('arraybuffer'))
+  for (const att of readWikiAttachmentMeta(await readJsonFile<unknown>(zipData, WIKI_ATTACHMENTS_META_FILE), wikiTree, rawWikiTree)) {
+    const entry = zipData.files[att.path]
+    if (!entry) continue
+    const { path: _path, ...meta } = att
+    const id = `${att.pageId}/${att.fileName}`
+    wikiAttachmentsMeta.push({ ...meta, id, workspaceId: '' })
+    wikiAttachmentBlobs.set(id, await entry.async('arraybuffer'))
   }
 
   // --- sql-scripts/ ---
@@ -5263,6 +5283,17 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     conceptSets.push(JSON.parse(await entry.async('string')))
   }
 
+  // --- data-dictionaries/: pointers, and the clone of each when the tree has one ---
+  const dataDictionaries = readDictionaryLinks(await readJsonFile<unknown>(zipData, DICTIONARIES_INDEX))
+  const dictionaryClones = new Map<string, Record<string, string>>()
+  if (dataDictionaries.length > 0) {
+    const texts: Record<string, string> = {}
+    for (const [path, entry] of Object.entries(zipData.files)) {
+      if (!entry.dir && path.startsWith('data-dictionaries/') && path.endsWith('.json')) texts[path] = await entry.async('string')
+    }
+    for (const link of dataDictionaries) dictionaryClones.set(link.entityId, clonedDictionaryFiles(texts, link.entityId))
+  }
+
   // --- mapping-projects/ ---
   const mappingProjects: ParsedWorkspaceZip['mappingProjects'] = []
   // Each project's source-concept-ids/ subfolder is a registry group; the
@@ -5360,7 +5391,7 @@ export async function parseWorkspaceZip(file: File): Promise<ParsedWorkspaceZip 
     workspace, organization, projects, projectEntries, schemas, databases, databaseCohorts, databaseBoards,
     workspaceAttachments: { meta: workspaceAttachments.attachmentsMeta, blobs: workspaceAttachments.attachmentBlobs },
     wikiPages, wikiAttachmentsMeta, wikiAttachmentBlobs,
-    sqlCollections, etlPipelines, dqRuleSets, conceptSets,
+    sqlCollections, etlPipelines, dqRuleSets, conceptSets, dataDictionaries, dictionaryClones,
     mappingProjects, sourceConceptIdRanges, sourceConceptIdEntries,
     catalogs, serviceMappings, plugins,
   }

@@ -189,6 +189,7 @@ export function registerWikiTools(server: Server): void {
     const page = await wiki.create({
       id: randomUUID(),
       entityId: entity_id || uniqueEntityId(slugifyId(title), taken),
+      lineageId: randomUUID(),
       workspaceId: ws,
       parentId: parent_id ?? null,
       title: titleL,

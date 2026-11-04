@@ -8,30 +8,42 @@
 import { itemIdFor, type PullDecision, type PullFile, type PullPlan } from '@/lib/pull-plan'
 import { WIKI_MERGED_FIELDS, WIKI_PREFIX } from '@/lib/wiki/wiki-pull'
 import type { ThreeWayFile } from './three-way'
+import type { WikiPage } from '@/types'
+import { wikiPageFolder } from '@/lib/wiki/wiki-tree'
 
 const TREE = `${WIKI_PREFIX}_tree.json`
 const META_KEY = 'page-settings:'
 
-interface TreeEntry { id: string; entityId?: string; [field: string]: unknown }
+interface TreeEntry { id?: string; entityId: string; [field: string]: unknown }
 
+/** The tree's entries by entityId — the name of the page's files. An entry of
+ *  the older format, which carried the local `id`, is also found by it: the
+ *  three-way merge keys elements by `id` while every tree still has one. */
 function entries(text: string | null | undefined): Map<string, TreeEntry> {
   try {
-    return new Map((text ? JSON.parse(text) as TreeEntry[] : []).map((e) => [e.id, e]))
+    const out = new Map<string, TreeEntry>()
+    for (const e of (text ? JSON.parse(text) as Record<string, unknown>[] : [])) {
+      const id = typeof e.id === 'string' ? e.id : undefined
+      const entityId = typeof e.entityId === 'string' && e.entityId ? e.entityId
+        : id ? wikiPageFolder({ id, title: (e.title ?? {}) as WikiPage['title'] }) : null
+      if (!entityId) continue
+      const entry = { ...e, id, entityId } as TreeEntry
+      out.set(entityId, entry)
+      if (id) out.set(id, entry)
+    }
+    return out
   } catch {
     return new Map()
   }
 }
 
-/** The page a wiki text file belongs to: `<entityId>.md`, or `<slug>--<id>.md`. */
+/** The page a wiki text file belongs to: `<entityId>.md`. */
 function pageOf(path: string, pages: Map<string, TreeEntry>): { id: string; main: boolean } | null {
   if (!path.startsWith(WIKI_PREFIX) || !path.endsWith('.md') || path.includes('/_attachments/')) return null
   const rel = path.slice(WIKI_PREFIX.length, -'.md'.length)
   const lang = /\.([a-z]{2})$/.exec(rel)
   const name = lang ? rel.slice(0, -3) : rel
-  for (const page of pages.values()) {
-    if (page.entityId ? name === page.entityId : name.endsWith(`--${page.id}`)) return { id: page.id, main: !lang }
-  }
-  return null
+  return pages.has(name) && pages.get(name)!.entityId === name ? { id: name, main: !lang } : null
 }
 
 export interface GroupedWiki {
@@ -63,7 +75,8 @@ export function groupWikiPages(
 
   const moved = new Map<string, { row: PullFile; detail: string }>()
   for (const item of treeRow.items) {
-    const id = item.key.replace(/^el:/, '')
+    const key = item.key.replace(/^el:/, '')
+    const id = pages.get(key)?.entityId ?? key
     const row = rowOf.get(id)
     if (!row) continue
     const [b, r] = [base.get(id), remote.get(id)]

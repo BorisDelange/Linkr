@@ -32,6 +32,8 @@ import { restoreImportedScores } from '@/lib/concept-mapping/scores-restore'
 import { resolveConceptSetRefs, type ConceptSetRef } from '@/lib/concept-mapping/concept-set-refs'
 import type { DataSource, DataSourceRef, MappingProject, Project, WikiAttachment, LocalizedString, Workspace } from '@/types'
 import { importedChecks } from '@/lib/dq-check-portable'
+import { wikiAttachmentId, wikiPageId } from '@/lib/wiki/wiki-tree'
+import { landDictionaries } from '@/lib/data-dictionary/dictionary-links'
 
 /** Append " (copy)" to every language of a multilingual name when duplicating. */
 function copyLocalizedName(name: LocalizedString): LocalizedString {
@@ -128,6 +130,9 @@ export interface WorkspaceImportResult {
    *  one was taken in their scope: what came with them still queries `ds_<from>`. */
   aliasRenames: { from: string; to: string }[]
   landed: LandedChildren
+  /** Linked dictionaries created empty: neither the tree nor their repository
+   *  could be read (offline, private repo). A sync from Vocabularies fills them. */
+  unsyncedDictionaries: { name: string; reason: string }[]
 }
 
 export async function importWorkspaceTree(
@@ -544,28 +549,27 @@ export async function importWorkspaceTree(
       await storage.wikiAttachments.deleteByWorkspace(targetWsId).catch(() => {})
       await storage.wikiPages.deleteByWorkspace(targetWsId).catch(() => {})
     }
-    const wikiIdMap = new Map<string, string>()
-    const mapWikiId = (oldId: string): string => {
-      if (!duplicate) return oldId
-      if (!wikiIdMap.has(oldId)) wikiIdMap.set(oldId, crypto.randomUUID())
-      return wikiIdMap.get(oldId)!
-    }
+    // The parsed pages are keyed by entityId; the local id derives from it, so
+    // the same tree into the same workspace lands on the same ids.
+    const pageId = (entityId: string) => wikiPageId(targetWsId, entityId)
     for (const page of parsed.wikiPages) {
       await storage.wikiPages.create({
         ...page,
-        id: mapWikiId(page.id),
+        id: pageId(page.id),
         workspaceId: targetWsId,
-        parentId: page.parentId ? mapWikiId(page.parentId) : null,
+        parentId: page.parentId ? pageId(page.parentId) : null,
+        ...(duplicate ? { lineageId: crypto.randomUUID(), parentLineageId: page.lineageId } : {}),
         updatedAt: now,
       })
     }
     for (const meta of parsed.wikiAttachmentsMeta) {
       const blobData = parsed.wikiAttachmentBlobs.get(meta.id)
       if (blobData) {
+        const landedPage = pageId(meta.pageId)
         await storage.wikiAttachments.create({
           ...meta,
-          id: duplicate ? crypto.randomUUID() : meta.id,
-          pageId: mapWikiId(meta.pageId),
+          id: wikiAttachmentId(landedPage, meta.fileName),
+          pageId: landedPage,
           workspaceId: targetWsId,
           data: blobData,
         } as WikiAttachment)
@@ -688,6 +692,13 @@ export async function importWorkspaceTree(
       ...(duplicate ? { name: `${cs.name} (copy)`, createdAt: now } : {}),
     })
   }
+
+  // --- Git-linked data dictionaries: synced before the mapping projects, whose
+  // concept-set refs resolve against the sets they bring ---
+  const dictionaries = await landDictionaries(
+    parsed.dataDictionaries ?? [], parsed.dictionaryClones ?? new Map(), targetWsId, options.language, storage,
+  )
+  for (const id of dictionaries.conceptSetIds) landed.conceptSets.add(id)
 
   // --- Import mapping projects ---
   if (parsed.mappingProjects.length > 0) {
@@ -985,5 +996,5 @@ export async function importWorkspaceTree(
   // whole app with a full-screen loader. Reload it now (flips the flag back to true)
   // instead of waiting for some later loadCatalogs() to un-block the shell.
   await useCatalogStore.getState().loadCatalogs()
-  return { targetWsId, idMap, skippedOrgName, aliasRenames, landed }
+  return { targetWsId, idMap, skippedOrgName, aliasRenames, landed, unsyncedDictionaries: dictionaries.unsynced }
 }

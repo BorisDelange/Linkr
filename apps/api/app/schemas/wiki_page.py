@@ -10,6 +10,8 @@ class WikiPageCreate(CamelModel):
     id: str  # client supplies crypto.randomUUID()
     workspace_id: str
     entity_id: str | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     parent_id: str | None = None
     title: dict[str, str] = {}
     slug: str = ""
@@ -32,6 +34,8 @@ class WikiPageCreate(CamelModel):
 class WikiPageUpdate(CamelModel):
     workspace_id: str | None = None
     entity_id: str | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     parent_id: str | None = None
     title: dict[str, str] | None = None
     slug: str | None = None
@@ -58,6 +62,8 @@ class WikiPageResponse(CamelModel):
     id: str
     workspace_id: str | None = None
     entity_id: str | None = None
+    lineage_id: str | None = None
+    parent_lineage_id: str | None = None
     parent_id: str | None = None
     title: dict[str, str]
     slug: str

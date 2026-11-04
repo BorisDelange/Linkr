@@ -31,7 +31,7 @@ export const PULL_CARDS: Partial<Record<GitScope, PullCardDef[]>> = {
     { id: 'catalogs', patterns: [/^catalogs\//] },
     { id: 'schemas', patterns: [/^schemas\//] },
     { id: 'databases', patterns: [/^databases\//] },
-    { id: 'dictionaries', patterns: [/^concept-sets\//, /^service-mappings\//] },
+    { id: 'dictionaries', patterns: [/^concept-sets\//, /^data-dictionaries\//, /^service-mappings\//] },
     { id: 'plugins', patterns: [/^plugins\//] },
   ],
   projects: [

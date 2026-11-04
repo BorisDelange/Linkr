@@ -19,18 +19,19 @@ function nameIn(text: string | null | undefined, language: string): string | nul
   return null
 }
 
-/** Page id and entityId → title, from the wiki trees the preview carries. */
+/** Page entityId (and id, in older trees) → title, from the wiki trees the preview carries. */
 export function wikiTitles(files: ThreeWayFile[], language: string): Map<string, string> {
   const titles = new Map<string, string>()
   const tree = files.find((f) => f.path === 'wiki/_tree.json')
   for (const text of [tree?.base, tree?.local, tree?.remote]) {
     if (!text) continue
     try {
-      for (const page of JSON.parse(text) as { id: string; entityId?: string; title?: Record<string, string> }[]) {
+      for (const page of JSON.parse(text) as { id?: string; entityId?: string; title?: Record<string, string> }[]) {
         const title = localized(page.title ?? {}, language)
         if (!title) continue
         if (page.entityId) titles.set(page.entityId, title)
-        titles.set(page.id, title)
+        // Trees written before the entityId was the identity also carry the id.
+        if (page.id) titles.set(page.id, title)
       }
     } catch { /* unreadable tree */ }
   }
