@@ -4,6 +4,7 @@ import { DialogShell } from '@/components/ui/dialog-shell'
 import { NoticeBanner } from '@/components/ui/notice-banner'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Label } from '@/components/ui/label'
+import { GitPullRequest, UploadCloud } from 'lucide-react'
 import { ChangeBadge } from './ChangeBadge'
 
 interface DataFileEntry {
@@ -11,8 +12,11 @@ interface DataFileEntry {
   changeType?: string
 }
 
+/** What the push the dialog gates will do: commit and push, or propose. */
+export type DataPushAction = 'push' | 'propose'
+
 interface PendingConfirm {
-  kind: 'mark' | 'push'
+  kind: 'mark' | DataPushAction
   files: DataFileEntry[]
   apply: () => void
 }
@@ -21,15 +25,17 @@ interface PendingConfirm {
  * Gate for data files reaching the remote, at the two moments it is decided:
  * - `requestMark(paths, apply)` when a file is marked "to version" (it leaves the
  *   gitignore). Unmarking needs no gate — call the store directly for it.
- * - `requestPush(files, apply)` before a commit+push that carries data files, since
- *   a mark made once is not consent for every later version of the file.
+ * - `requestPush(files, apply, action)` before a commit+push — or a proposal,
+ *   which pushes too — that carries data files, since a mark made once is not
+ *   consent for every later version of the file. The confirm button names the
+ *   action the user started.
  *
  * Both list the exact files and require an explicit acknowledgement, then run
  * `apply`; an empty list applies at once.
  */
 export function useConfirmDataVersioning(): {
   requestMark: (paths: string[], apply: () => void) => void
-  requestPush: (files: DataFileEntry[], apply: () => void) => void
+  requestPush: (files: DataFileEntry[], apply: () => void, action?: DataPushAction) => void
   dialog: ReactNode
 } {
   const { t } = useTranslation()
@@ -53,7 +59,7 @@ export function useConfirmDataVersioning(): {
     [request],
   )
   const requestPush = useCallback(
-    (files: DataFileEntry[], apply: () => void) => request('push', files, apply),
+    (files: DataFileEntry[], apply: () => void, action: DataPushAction = 'push') => request(action, files, apply),
     [request],
   )
 
@@ -67,7 +73,12 @@ export function useConfirmDataVersioning(): {
   }
 
   const count = pending?.files.length ?? 0
-  const isPush = pending?.kind === 'push'
+  const isPush = pending?.kind === 'push' || pending?.kind === 'propose'
+  const confirmLabel = pending?.kind === 'propose'
+    ? <><GitPullRequest size={14} />{t('versioning.propose')}</>
+    : isPush
+      ? <><UploadCloud size={14} />{t('versioning.confirm_push_data_action', { count })}</>
+      : t('versioning.confirm_data_action', { count })
 
   const dialog = (
     <DialogShell
@@ -76,7 +87,7 @@ export function useConfirmDataVersioning(): {
       kind="settings"
       title={t(isPush ? 'versioning.confirm_push_data_title' : 'versioning.confirm_data_title', { count })}
       onConfirm={handleConfirm}
-      confirmLabel={t(isPush ? 'versioning.confirm_push_data_action' : 'versioning.confirm_data_action', { count })}
+      confirmLabel={confirmLabel}
       confirmDisabled={!acknowledged}
     >
       <NoticeBanner

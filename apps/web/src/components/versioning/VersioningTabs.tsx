@@ -74,12 +74,14 @@ export function VersioningTabs({
   // non-scrolling flex container. The Git tab, once linked, is a full-height flex column whose
   // sync panel owns its own scroll — so in page mode it must NOT scroll at the tab level.
   // px-1 (pb-1) gives the inner cards' shadow-sm room so it isn't clipped by overflow ancestors.
-  const exportContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3 px-1' : 'flex flex-col pt-3 px-1'
+  // On a page the Git tab spans the full width (the quick-action cards need it);
+  // the tab bar and the Export form keep a readable column.
+  const exportContentClass = fillHeight ? 'mx-auto w-full max-w-3xl min-h-0 flex-1 flex flex-col pt-3 px-1' : 'flex flex-col pt-3 px-1'
   const sideContentClass = fillHeight ? 'min-h-0 flex-1 flex flex-col pt-3 px-1 pb-1' : 'pt-3 px-1'
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as VersioningTab)} className={fillHeight ? 'flex min-h-0 flex-1 flex-col' : undefined}>
-      <TabsList className="w-full">
+      <TabsList className="mx-auto w-full max-w-3xl">
         <TabsTrigger value="git" className="flex-1 gap-1.5">
           <GitBranch size={14} />
           {t('app_versioning.tab_git_repository')}

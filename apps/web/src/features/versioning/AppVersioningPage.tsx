@@ -62,7 +62,7 @@ export function AppVersioningPage() {
         <h1 className="text-2xl font-bold text-foreground">{t('app_versioning.title')}</h1>
       </div>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-6 pb-6">
+      <div className="flex min-h-0 w-full flex-1 flex-col px-6 pb-6">
         <VersioningTabs
           fillHeight
           gitRemote={wsRemote}

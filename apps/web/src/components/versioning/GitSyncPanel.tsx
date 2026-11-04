@@ -31,7 +31,7 @@ const THREE_WAY_SCOPES: GitScope[] = [
 import { GitFileRow } from './GitFileRow'
 import { QuickActionCard } from './QuickActionCard'
 import { GitErrorInline } from './GitErrorInline'
-import { useConfirmDataVersioning } from './ConfirmDataVersioningDialog'
+import { useConfirmDataVersioning, type DataPushAction } from './ConfirmDataVersioningDialog'
 import { dataFilesToPush } from '@/lib/git-file-classify'
 
 interface GitSyncPanelProps {
@@ -106,9 +106,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // renderer; the rest still open their own dialog from the banner until they move
   // to the same shell. Mapping projects keep their built-in renderer below.
   const inlinePull = (scope === 'mapping-projects' || threeWay || !!renderInlinePull) && !renderPullDialog
-  // Which quick action is mid-commit (its messageKey), so ONLY that card spins
+  // Which quick action is mid-run and how, so ONLY that card's button spins
   // while the others merely disable — a shared `committing` would spin them all.
-  const [runningQuickAction, setRunningQuickAction] = useState<string | null>(null)
+  const [runningQuickAction, setRunningQuickAction] = useState<{ id: string; action: DataPushAction } | null>(null)
   // Quick actions (simple, one-click) is the default; Details is the full
   // branch/file/message UI for advanced users.
   const [mode, setMode] = useState<'quick' | 'details'>('quick')
@@ -155,7 +155,7 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
         setProposalsKey((k) => k + 1)
       }
     }
-    requestPush(dataFilesToPush(files.filter((f) => selected.has(f.path))), () => void run())
+    requestPush(dataFilesToPush(files.filter((f) => selected.has(f.path))), () => void run(), 'propose')
   }
 
   const handleCommit = () => {
@@ -197,11 +197,11 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
   // files and write a commit message for the common cases. Each action lists
   // the exact paths it will push (from the current changes) in a hover tooltip.
   const quickActions = buildQuickActions(scope, files)
-  const runQuickAction = (qa: QuickAction) => {
+  const runQuickAction = (qa: QuickAction, action: DataPushAction) => {
     if (committing || mustPullFirst || qa.files.length === 0) return
-    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa))
+    requestPush(dataFilesToPush(qa.files), () => void commitQuickAction(qa, action), action)
   }
-  const commitQuickAction = async (qa: QuickAction) => {
+  const commitQuickAction = async (qa: QuickAction, action: DataPushAction) => {
     // commitPushPaths refreshes the status once the push lands, so the cards
     // reflect the new remote state (the pushed files drop off) without a manual
     // refresh — during that recompute the tab shows the computing spinner, not
@@ -210,9 +210,9 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
       author: authorName || t('versioning.quick_unknown_author'),
       subject: qa.subjectKey ? t(qa.subjectKey) : '',
     })
-    setRunningQuickAction(qa.id)
+    setRunningQuickAction({ id: qa.id, action })
     try {
-      if (reviewOnly) {
+      if (action === 'propose') {
         const proposal = await propose(scope, id, message, branch, qa.files.map((f) => f.path))
         if (proposal) {
           setProposed(proposal)
@@ -465,36 +465,20 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
           ) : nothingToCommit ? (
             <p className="py-6 text-center text-xs text-muted-foreground">{t('versioning.sync_clean')}</p>
           ) : (
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {quickActions.map((qa, i) => (
-                  <QuickActionCard
-                    key={qa.id}
-                    action={qa}
-                    runLabel={reviewOnly ? t('versioning.propose') : undefined}
-                    primary={i === 0}
-                    running={runningQuickAction === qa.id}
-                    // While one action commits, the others disable (but don't spin);
-                    // a pull-first requirement disables all.
-                    disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction !== qa.id)}
-                    onRun={() => runQuickAction(qa)}
-                    onOpenDiff={setDiffPath}
-                    onViewMappings={scope === 'mapping-projects' ? () => setMappingsOpen(true) : undefined}
-                    t={t}
-                  />
-                ))}
-              </div>
-              {/* A scope without the inline pull can still be blocked here, and
-                  then needs telling why. With the inline pull the panel has
-                  already become the pull, so the notice would restate itself. */}
+            <div className="flex min-h-0 flex-1 flex-col gap-3">
+              {/* Above the cards, not under them: two rows fill the height, so
+                  anything below would sit out of sight. A scope without the
+                  inline pull can still be blocked here, and then needs telling
+                  why. With the inline pull the panel has already become the
+                  pull, so the notice would restate itself. */}
               {mustPullFirst && !inlinePull && (
-                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+                <div className="flex shrink-0 items-start gap-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
                   <Info size={14} className="mt-0.5 shrink-0" />
                   <span>{t('versioning.quick_pull_required')}</span>
                 </div>
               )}
               {pushed && (
-                <span className="flex items-center gap-1 text-xs text-primary">
+                <span className="flex shrink-0 items-center gap-1 text-xs text-primary">
                   <GitCommitVertical size={13} />
                   {t('versioning.sync_pushed')}
                 </span>
@@ -502,6 +486,31 @@ export function GitSyncPanel({ scope, id, defaultBranch, renderPullDialog, rende
               {error && !statusError && (
                 <GitErrorInline code={error.code} detail={error.code === 'pull_required' ? t('versioning.sync_push_blocked') : error.raw} />
               )}
+              {/* Container breakpoints, not viewport ones: the same panel sits in
+                  a full-width page and in a 3xl dialog. A row takes its cards'
+                  height, at most half the panel (two rows fit, more scroll, a
+                  long file list scrolls in its card); `content-start` keeps the
+                  rows from stretching. In an unbounded parent the percentage
+                  reads as auto and the cards take their own height. */}
+              <div className="@container min-h-0 flex-1 overflow-y-auto">
+                <div className="grid h-full auto-rows-[fit-content(calc((100%-0.75rem)/2))] content-start grid-cols-1 gap-3 @xl:grid-cols-2 @5xl:grid-cols-3 @7xl:grid-cols-4">
+                  {quickActions.map((qa) => (
+                    <QuickActionCard
+                      key={qa.id}
+                      action={qa}
+                      canPush={!reviewOnly}
+                      running={runningQuickAction?.id === qa.id ? runningQuickAction.action : null}
+                      // While one action runs, the others disable (but don't spin);
+                      // a pull-first requirement disables all.
+                      disabled={mustPullFirst || (runningQuickAction != null && runningQuickAction.id !== qa.id)}
+                      onRun={(action) => runQuickAction(qa, action)}
+                      onOpenDiff={setDiffPath}
+                      onViewMappings={scope === 'mapping-projects' ? () => setMappingsOpen(true) : undefined}
+                      t={t}
+                    />
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </TabsContent>

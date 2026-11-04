@@ -243,7 +243,7 @@ export function GitRepositoryTab({ gitRemote, onSave, syncScope, syncId, renderP
   }
 
   return (
-    <div className="space-y-4">
+    <div className="mx-auto w-full max-w-3xl space-y-4">
       <div className="space-y-2">
         <Label>{t('versioning.remote_url')}</Label>
         <Input

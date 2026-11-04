@@ -147,6 +147,9 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   // The push cards mirror the pull's subjects: Sync all, then the wiki on its own.
   await page.getByRole('tab', { name: 'Quick actions' }).click()
   await expect(page.getByText('Sync Wiki', { exact: true }).first()).toBeVisible()
+  // Each card offers both: propose (a merge request) or sync (commit + push).
+  await expect(page.getByRole('button', { name: 'Propose', exact: true }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Sync', exact: true }).first()).toBeVisible()
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'push-quick.png'), fullPage: true })
 
   // Review mode (Workspace settings → Versioning): no direct push left, the cards propose instead.
@@ -156,8 +159,8 @@ test('a colleague’s wiki edits come back through the pull, page by page and it
   await expect(reviewSwitch).toBeChecked()
   await page.goto(`${wsUrl}/versioning?tab=git`)
   await page.getByRole('tab', { name: 'Quick actions' }).click()
-  await expect(page.getByRole('button', { name: 'Propose changes' }).first()).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole('button', { name: 'Sync all' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Propose', exact: true }).first()).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: 'Sync', exact: true })).toHaveCount(0)
   await page.getByRole('tab', { name: 'Details' }).click()
   await expect(page.getByRole('button', { name: 'Commit & push' })).toHaveCount(0)
   if (process.env.E2E_SHOTS) await page.screenshot({ path: path.join(process.env.E2E_SHOTS, 'review-mode.png'), fullPage: true })

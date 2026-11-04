@@ -415,8 +415,8 @@ export function PluginEditor() {
       )}
 
       {activeTab === 'versioning' && (
-        <div className="min-h-0 flex-1 overflow-auto px-6 pb-1.5">
-          <div className="mx-auto w-full max-w-3xl">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-1.5">
+          <div className="flex h-full min-h-0 w-full flex-col">
             <GitRepositoryTab
               gitRemote={currentPlugin?.gitRemoteConfig ?? null}
               onSave={(config) => pluginActions.onSaveGitRemote(pluginItem, config)}

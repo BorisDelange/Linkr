@@ -224,7 +224,7 @@ export function EtlPipelinePage({ pipelineId }: Props) {
           </div>
         )}
         {activeTab === 'versioning' && (
-          <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+          <div className="flex h-full min-h-0 w-full flex-col px-6 py-6">
             {/* Git link + push/pull sync panel. Export is a menu action here, so
                 no export UI in this tab. */}
             <GitRepositoryTab

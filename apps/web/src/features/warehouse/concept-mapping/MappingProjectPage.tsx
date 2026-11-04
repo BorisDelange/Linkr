@@ -287,7 +287,7 @@ export function MappingProjectPage({ projectId }: MappingProjectPageProps) {
         </TabsContent>
         <TabsContent value="versioning" className="min-h-0 flex-1 overflow-hidden">
           {activeTab === 'versioning' && (
-            <div className="mx-auto flex min-h-0 h-full w-full max-w-3xl flex-col px-6 py-6">
+            <div className="flex h-full min-h-0 w-full flex-col px-6 py-6">
               {/* Git repository link + push-only sync panel. The mapping project
                   has its own Export tab, so no export UI here. */}
               <GitRepositoryTab

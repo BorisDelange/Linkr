@@ -480,7 +480,7 @@ export function DatabaseDetailPage({ source, onBack, readOnly = false, cohortId,
         </TabsContent>
 
         <TabsContent value="versioning" className="m-0 min-h-0 flex-1 p-0">
-          <div className="mx-auto flex h-full min-h-0 w-full max-w-3xl flex-col px-6 py-6">
+          <div className="flex h-full min-h-0 w-full flex-col px-6 py-6">
             {/* Export is a menu action, so no export UI here — the tab is the
                 push/pull panel alone. */}
             <GitRepositoryTab
