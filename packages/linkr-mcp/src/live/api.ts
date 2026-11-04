@@ -217,7 +217,12 @@ export class LinkrApi {
           detail = typeof payload.detail === 'string' ? payload.detail : JSON.stringify(payload.detail)
         }
         const code = (payload.detail as { code?: string } | undefined)?.code
-        if (res.status === 428 && code === 'database_credential_required') {
+        const purpose = (payload.detail as { purpose?: string } | undefined)?.purpose
+        if (res.status === 428 && code === 'database_credential_required' && purpose === 'write') {
+          detail = 'The user has no write account for this database yet: Linkr writes a derivation with a second '
+            + 'account of theirs, never the one it reads with. Ask them to derive once from Linkr (Cohorts → Derive), '
+            + 'which asks for that account, then try again. Never ask them for the password in this conversation.'
+        } else if (res.status === 428 && code === 'database_credential_required') {
           // An agent never receives or sets a password: the person does, in Linkr.
           detail = 'The user has no account of their own for this database yet. Ask them to open it in '
             + 'Linkr (or Profile → Database accounts) and enter their login there, then try again. '
@@ -422,8 +427,8 @@ export class LinkrApi {
     this.request<Cohort[]>('GET', `/cohorts?dataSourceId=${encodeURIComponent(dataSourceId)}`)
   createDataSource = (body: Record<string, unknown>) => this.request<DataSource>('POST', '/data-sources', body)
   deleteDataSource = (id: string) => this.request<void>('DELETE', `/data-sources/${encodeURIComponent(id)}`)
-  derivePlan = (id: string, level: string) =>
-    this.request<DerivePlanTable[]>('POST', `/data-sources/${encodeURIComponent(id)}/derive-plan`, { level })
+  derivePlan = (id: string, level: string, scope?: string) =>
+    this.request<DerivePlanTable[]>('POST', `/data-sources/${encodeURIComponent(id)}/derive-plan`, { level, ...(scope ? { scope } : {}) })
   /** Starts the copy as a job of the database's workspace; returns it queued. */
   derive = async (id: string, body: DeriveRequest) =>
     this.request<Job>('POST', `/data-sources/${encodeURIComponent(id)}/derive`, {

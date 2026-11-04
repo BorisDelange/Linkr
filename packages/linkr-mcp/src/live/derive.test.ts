@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { mappingV1ToV2 } from '@/lib/schema-classes/v1'
 import type { Job } from '@/lib/api/environments'
 import type { Cohort, DataSource } from '@/types'
-import { formatDerivePlan, formatJob, planDerivation, waitForJob } from './derive'
+import { derivationOptions, formatDerivePlan, formatJob, planDerivation, waitForJob } from './derive'
+import type { DerivePlanTable } from '@/lib/api/data-sources'
 
 const mapping = mappingV1ToV2({
   presetId: 'omop',
@@ -101,6 +102,79 @@ describe('planDerivation', () => {
     const q = plan({ databases: [db(), pg], target: { kind: 'schema', databaseId: 'pg', schemaName: 'icu', register: false } })
     if ('error' in q) throw new Error(q.error)
     expect(q.request.target).toEqual({ kind: 'schema', dataSourceId: 'pg', schemaName: 'icu' })
+    const ora = db({ id: 'ora', connectionConfig: { engine: 'oracle', allowWrites: true } as DataSource['connectionConfig'] })
+    const o = plan({ databases: [db(), ora], target: { kind: 'schema', databaseId: 'ora', schemaName: 'cohort_t' } })
+    if ('error' in o) throw new Error(o.error)
+    expect(o.request.target).toMatchObject({ registerAlias: 'cohort_t' })
+  })
+
+  it('sends the options and checks where the correspondence goes', () => {
+    const pg = db({ id: 'pg', connectionConfig: { engine: 'postgresql', allowWrites: true } as DataSource['connectionConfig'] })
+    const options = { scope: 'visit' as const, birthPrecision: 'year' as const, pseudonymization: { method: 'hmac' as const, keepKey: true, correspondence: { dataSourceId: 'pg', schemaName: 'pseudonyms' } } }
+    const p = plan({ databases: [db(), pg], options })
+    if ('error' in p) throw new Error(p.error)
+    expect(p.request.pseudonymization).toEqual(options.pseudonymization)
+    expect(p.request.derivedFrom?.options).toEqual(options)
+    expect(plan({ databases: [db(), pg], options, target: { kind: 'schema', databaseId: 'pg' } }))
+      .toEqual({ error: expect.stringMatching(/database derived into/) })
+    const onSource = { ...options, pseudonymization: { ...options.pseudonymization, correspondence: { dataSourceId: 'src', schemaName: 'p' } } }
+    expect(plan({ options: onSource })).toEqual({ error: expect.stringMatching(/DuckDB file/) })
+  })
+})
+
+describe('derivationOptions', () => {
+  const planTables: DerivePlanTable[] = [
+    { schema: null, table: 'person', filter: 'patient', column: 'person_id', pseudonymized: ['person_id'] },
+    { schema: null, table: 'measurement', filter: 'visit', column: 'visit_occurrence_id' },
+    { schema: 'vocab', table: 'concept', filter: null, column: null },
+    { schema: null, table: 'note', filter: null, column: null, unfilterable: 'visit_detail_id' },
+  ]
+  const conceptTree = {
+    ...tree,
+    children: [{ kind: 'criterion', id: 'k', type: 'concept', enabled: true, config: { conceptIds: [3, 4], conceptNames: { 3: 'HR' } } }],
+  } as unknown as Cohort['criteriaTree']
+
+  it('takes the app\'s defaults: the cohort\'s level, every copyable table, pseudonymised, birth to the month', () => {
+    const r = derivationOptions(cohort(), planTables, {})
+    if ('error' in r) throw new Error(r.error)
+    expect(r.copyPersonless).toBe(true)
+    expect(r.options).toEqual({
+      scope: 'visit',
+      tables: [{ schema: null, table: 'person' }, { schema: null, table: 'measurement' }, { schema: 'vocab', table: 'concept' }],
+      birthPrecision: 'month',
+      pseudonymization: { method: 'hmac', keepKey: true },
+    })
+  })
+
+  it('keeps the tables, variables and pseudonyms asked', () => {
+    const r = derivationOptions(cohort({ criteriaTree: conceptTree }), planTables, {
+      scope: 'patient', tables: ['PERSON'], variables: 'criteria', birthPrecision: 'day', method: 'random',
+      correspondence: { databaseId: 'pg' },
+    })
+    if ('error' in r) throw new Error(r.error)
+    expect(r.copyPersonless).toBe(false)
+    expect(r.options).toEqual({
+      scope: 'patient',
+      tables: [{ schema: null, table: 'person' }],
+      variables: { conceptIds: [3, 4], conceptNames: { 3: 'HR' } },
+      pseudonymization: {
+        method: 'random', keepKey: false,
+        correspondence: { dataSourceId: 'pg', schemaName: 'pseudonyms', tableName: 'linkr_pseudonyms' },
+      },
+    })
+    const plain = derivationOptions(cohort(), planTables, { pseudonymize: false, copyPersonless: false, variables: [5, 5] })
+    if ('error' in plain) throw new Error(plain.error)
+    expect(plain.options.pseudonymization).toBeUndefined()
+    expect(plain.options.variables).toEqual({ conceptIds: [5], conceptNames: {} })
+    expect(plain.options.tables).toHaveLength(2)
+  })
+
+  it('refuses what the dialog would not send', () => {
+    expect(derivationOptions(cohort({ level: 'patient' }), planTables, { scope: 'visit' })).toHaveProperty('error')
+    expect(derivationOptions(cohort(), planTables, { tables: ['note'] })).toEqual({ error: expect.stringMatching(/note/) })
+    expect(derivationOptions(cohort(), planTables, { variables: 'criteria' })).toEqual({ error: expect.stringMatching(/no concept/) })
+    expect(derivationOptions(cohort(), planTables, { method: 'random', reuseKeyOf: 'd1' })).toHaveProperty('error')
+    expect(derivationOptions(cohort(), planTables, { correspondence: { databaseId: 'pg', schemaName: 'Bad' } })).toHaveProperty('error')
   })
 })
 
@@ -118,6 +192,15 @@ describe('formatDerivePlan', () => {
     const out = formatDerivePlan([{ schema: null, table: 'labs', filter: null, column: null, unresolved: 'events.Labs' }], true)
     expect(out).toContain('labs: skipped — relation events.Labs')
     expect(out).not.toContain('copied whole')
+  })
+
+  it('skips a table no kept set filters, and names the pseudonymised ids', () => {
+    const out = formatDerivePlan([
+      { schema: null, table: 'person', filter: 'patient', column: 'person_id', pseudonymized: ['person_id'] },
+      { schema: null, table: 'note', filter: null, column: null, unfilterable: 'visit_detail_id', pseudonymized: ['note_id'] },
+    ], true)
+    expect(out).toContain('note: skipped — it carries visit_detail_id')
+    expect(out).toContain('replaces: person_id.')
   })
 })
 

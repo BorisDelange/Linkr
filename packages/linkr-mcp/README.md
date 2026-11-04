@@ -83,8 +83,8 @@ details, API keys, git host tokens) — see `docs/design/ai-agents-plan.md` §6.
 | `cohort_report` | the app's cohort report: a text summary for the model + the HTML report as an MCP-UI resource (`ui://`), rendered inline by LibreChat and never sent to the model |
 | `list_concept_sets`, `get_concept_set` | the workspace's imported data dictionaries (read-only): resolved concept ids, `uniqueId`, long description with its Mapping Notes |
 | `list_concept_lists`, `get_concept_list`, `create_concept_list`, `update_concept_list`, `delete_concept_list` | the project's hand-picked concept lists |
-| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts; whether a cohort can be derived and what the copy does with each table |
-| `derive_database_from_cohort` | the app's *Derive*: a new database (or SQL schema) restricted to a cohort — creates the managed target first, starts the server job, returns its `job_id` at once |
+| `list_database_cohorts`, `plan_cohort_derivation` | a database's own cohorts (and the derivations whose key can be reused); whether a cohort can be derived, what the copy does with each table at a scope, and the id columns pseudonymisation replaces |
+| `derive_database_from_cohort` | the app's *Derive*: a new database, or a SQL schema of a writable DuckDB, Postgres, SQL Server, Doris or Oracle database, restricted to a cohort — minimised (scope, tables, variables, birth-date precision) and pseudonymised as the dialog does by default (keyed hash, key kept; optional correspondence table); creates the managed target first, starts the server job, returns its `job_id` at once. A write account is entered by the user in Linkr, never through the agent |
 | `get_job_status`, `cancel_job` | a job's status, progress, log tail and, for a finished derivation, the database id to query |
 
 ### `dq` — data quality
