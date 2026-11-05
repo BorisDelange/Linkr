@@ -928,3 +928,21 @@ async def test_a_query_id_is_a_uuid(client):
     assert r.status_code == 200 and r.json() == {"cancelled": False}
     bad = await client.post(f"{API}/data-sources/{source_id}/query", headers=headers, json={"sql": "SELECT 1", "queryId": "q"})
     assert bad.status_code == 422
+
+
+async def test_a_database_created_again_under_a_deleted_id_starts_with_no_cache(client, db):
+    admin = await _admin_headers(client)
+    ws_a, ws_b = await _workspace(client, admin), await _workspace(client, admin)
+    _, bob = await _create_member(db, client, admin, ws_b, "bob", "editor")
+    ds_id = "11111111-2222-3333-4444-555555555555"
+    body = {"id": ds_id, "alias": "db", "name": "db", "sourceType": "database", "connectionConfig": {"engine": "duckdb"}}
+    assert (await client.post(f"{API}/data-sources", headers=admin, json={**body, "workspaceId": ws_a})).status_code == 201
+    stats = {"computedAt": "2026-10-22T00:00:00Z", "payload": {"summary": {"patientCount": 4242}}}
+    assert (await client.put(f"{API}/data-sources/{ds_id}/stats-cache", headers=admin, json=stats)).status_code == 200
+    assert (await client.put(f"{API}/data-sources/{ds_id}/concept-stats/7", headers=admin, json={"stats": {"rowCount": 9}})).status_code == 200
+    assert (await client.delete(f"{API}/data-sources/{ds_id}", headers=admin)).status_code == 204
+
+    assert (await client.post(f"{API}/data-sources", headers=bob, json={**body, "workspaceId": ws_b})).status_code == 201
+    r = await client.get(f"{API}/data-sources/{ds_id}/stats-cache", headers=bob)
+    assert r.status_code == 200 and r.json() is None
+    assert (await client.get(f"{API}/data-sources/{ds_id}/concept-stats/7", headers=bob)).status_code == 404

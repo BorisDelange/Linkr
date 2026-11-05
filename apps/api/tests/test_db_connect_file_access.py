@@ -273,3 +273,19 @@ def test_shared_parquet_pool_survives_a_dropped_view(tmp_path):
         assert run("SELECT id FROM patients") == [{"id": 1}]
     finally:
         connection_pool.invalidate(key)
+
+
+def test_a_file_or_folder_named_with_quotes_is_read_like_any_other(tmp_path):
+    folder = tmp_path / "it's \"here\""
+    folder.mkdir()
+    db = folder / "o'brien.duckdb"
+    con = duckdb.connect(str(db))
+    con.execute("CREATE TABLE patients AS SELECT 1 AS id UNION ALL SELECT 2")
+    con.close()
+    assert query_file("duckdb", str(db), "SELECT count(*) AS n FROM patients") == [{"n": 2}]
+
+    table = folder / "sch'ema\"x" / "patients.parquet"
+    table.parent.mkdir()
+    duckdb.sql(f"COPY (SELECT 1 AS id) TO '{str(table).replace(chr(39), chr(39) * 2)}' (FORMAT PARQUET)")
+    result = query_parquet_folder([("sch'ema\"x/patients.parquet", str(table))], ["patients"], "SELECT id FROM patients")
+    assert result == [{"id": 1}]

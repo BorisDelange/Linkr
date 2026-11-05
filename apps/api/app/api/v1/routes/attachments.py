@@ -15,6 +15,7 @@ from app.models.schema_preset import SchemaPreset
 from app.models.sql_script import SqlScriptCollection
 from app.models.user import User
 from app.models.user_plugin import UserPlugin
+from app.models.wiki_page import WikiPage
 from app.schemas.attachment import ReadmeAttachmentResponse, WikiAttachmentResponse
 from app.services import attachment_service, blob_store
 
@@ -181,6 +182,15 @@ async def delete_readme_batch(
 wiki_router = APIRouter(prefix="/wiki-attachments", tags=["attachments"])
 
 
+async def _authorized_page(db: AsyncSession, page_id: str, user: User, permission: str) -> WikiPage | None:
+    """The page, once the caller holds `permission` on its workspace — the one
+    its attachments belong to, whatever a row claims."""
+    page = await db.get(WikiPage, page_id)
+    if page is not None:
+        await check_workspace_permission(db, page.workspace_id, user, permission)
+    return page
+
+
 @wiki_router.get("", response_model=list[WikiAttachmentResponse])
 async def list_wiki(
     page_id: str | None = Query(alias="pageId", default=None),
@@ -189,10 +199,8 @@ async def list_wiki(
     db: AsyncSession = Depends(get_db),
 ):
     if page_id is not None:
-        atts = await attachment_service.list_wiki_by_page(db, page_id)
-        if atts:
-            await check_workspace_permission(db, atts[0].workspace_id, user, "wiki:read")
-        return atts
+        page = await _authorized_page(db, page_id, user, "wiki:read")
+        return [] if page is None else await attachment_service.list_wiki_by_page(db, page_id, page.workspace_id)
     if workspace_id is not None:
         await check_workspace_permission(db, workspace_id, user, "wiki:read")
         return await attachment_service.list_wiki_by_workspace(db, workspace_id)
@@ -211,7 +219,11 @@ async def create_wiki(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await check_workspace_permission(db, workspace_id, user, "wiki:write")
+    page = await _authorized_page(db, page_id, user, "wiki:write")
+    if page is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Page not found")
+    if page.workspace_id != workspace_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "The page belongs to another workspace")
     data = await request.body()
     return await attachment_service.create_wiki(
         db, id=id, page_id=page_id, workspace_id=workspace_id, file_name=file_name,
@@ -257,10 +269,9 @@ async def delete_wiki_batch(
     db: AsyncSession = Depends(get_db),
 ):
     if page_id is not None:
-        atts = await attachment_service.list_wiki_by_page(db, page_id)
-        if atts:
-            await check_workspace_permission(db, atts[0].workspace_id, user, "wiki:delete")
-        await attachment_service.delete_wiki_for_page(db, page_id)
+        page = await _authorized_page(db, page_id, user, "wiki:delete")
+        if page is not None:
+            await attachment_service.delete_wiki_for_page(db, page_id, page.workspace_id)
         return
     if workspace_id is not None:
         await check_workspace_permission(db, workspace_id, user, "wiki:delete")

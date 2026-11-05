@@ -12,7 +12,7 @@ from app.schemas.dataset import (
     DatasetFileUpdate,
     DatasetImportRequest,
 )
-from app.services import author_provenance, blob_store
+from app.services import author_provenance, blob_cleanup, blob_store
 from app.services.data import dataset_rows
 from app.services.data.dataset_parser import parse_blob
 
@@ -78,14 +78,6 @@ async def update(
     return node
 
 
-async def _sha_still_referenced(db: AsyncSession, sha: str, exclude_id: str) -> bool:
-    q = select(DatasetFile.id).where(
-        (DatasetFile.data_sha == sha) | (DatasetFile.raw_sha == sha),
-        DatasetFile.id != exclude_id,
-    ).limit(1)
-    return (await db.execute(q)).first() is not None
-
-
 async def delete(db: AsyncSession, node: DatasetFile) -> None:
     # Gather this subtree's blob shas before the cascade removes the rows.
     shas: set[str] = set()
@@ -102,14 +94,10 @@ async def delete(db: AsyncSession, node: DatasetFile) -> None:
             await collect(c)
 
     await collect(node)
-    node_id = node.id
     await db.delete(node)  # cascades to children + analyses via FK
     await db.commit()
 
-    # Free blobs no longer referenced by any remaining row.
-    for sha in shas:
-        if not await _sha_still_referenced(db, sha, node_id):
-            await blob_store.delete(sha)
+    await blob_cleanup.deref_blobs(db, shas)
 
 
 # --- Import / re-import (parse a blob into a file) -------------------------
@@ -175,8 +163,7 @@ async def reimport_file(
     await db.commit()
     await db.refresh(node)
     if old_data_sha and old_data_sha != node.data_sha:
-        if not await _sha_still_referenced(db, old_data_sha, node.id):
-            await blob_store.delete(old_data_sha)
+        await blob_cleanup.deref_blobs(db, {old_data_sha})
     return node
 
 
@@ -232,8 +219,8 @@ async def write_rows(db: AsyncSession, node: DatasetFile, rows: list[dict]) -> N
     node.data_sha = await _write_rows_blob(rows, node.columns)
     node.row_count = len(rows)
     await db.commit()
-    if old and old != node.data_sha and not await _sha_still_referenced(db, old, node.id):
-        await blob_store.delete(old)
+    if old and old != node.data_sha:
+        await blob_cleanup.deref_blobs(db, {old})
 
 
 # --- Analyses --------------------------------------------------------------

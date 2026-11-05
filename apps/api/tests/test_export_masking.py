@@ -123,3 +123,33 @@ def test_masking_an_already_masked_file_changes_nothing():
     assert mask_source_concepts_csv(once, None, 11) == once
     # A higher threshold masks again, edges included.
     assert mask_source_concepts_csv(once, None, 20) != once
+
+
+_SKIP_PIPE = {"skipRows": 2, "delimiter": "|"}
+_SKIP_PIPE_MAPPING = {"patientCountColumn": "n_pat", "recordCountColumn": "n_rec"}
+
+
+def test_the_file_is_read_with_its_parse_options():
+    assert mask_source_concepts_csv(
+        _read("input-skip-pipe.csv"), _SKIP_PIPE_MAPPING, 11, _SKIP_PIPE
+    ) == _read("expected-skip-pipe.csv")
+    assert mask_source_concepts_csv(
+        _read("input-no-header.csv"), {"patientCountColumn": "column2"}, 11, {"hasHeader": False}
+    ) == _read("expected-no-header.csv")
+
+
+def test_a_mapped_count_column_the_file_does_not_have_is_refused():
+    with pytest.raises(SourceConceptsUnreadable):
+        mask_source_concepts_csv(_read("input-skip-pipe.csv"), _SKIP_PIPE_MAPPING, 11, None)
+
+
+def test_a_server_export_reads_the_source_with_the_project_parse_options(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "export_min_count", 11)
+    project = {"sourceType": "file", "fileSourceData": {"columnMapping": _SKIP_PIPE_MAPPING, "parseOptions": _SKIP_PIPE}}
+    tree = build_mapping_project_tree(
+        project=project, mappings=[], ranges=[], entries=[], organization=None,
+        source_csv=_read("input-skip-pipe.csv").encode(),
+    )
+    assert tree["source-concepts.csv"].decode() == _read("expected-skip-pipe.csv")

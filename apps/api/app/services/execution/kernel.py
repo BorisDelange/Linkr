@@ -25,6 +25,7 @@ import json
 import os
 import signal
 import subprocess
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -1324,22 +1325,32 @@ class KernelManager:
         project_uid: str,
         environment: "Environment | None" = None,
         token: str | None = None,
+        server_owned: bool = False,
     ) -> Kernel:
+        """`server_owned`: the process runs only the server's own programs (built-in
+        renders), so nothing it imports or reads by relative path may come from the
+        project's files — it starts in an empty folder of its own and, for Python,
+        with no working directory on sys.path (-P)."""
         from app.services import project_fs
 
         spec = runtime_spec(language, project_uid, environment, token)
         stamp = _env_stamp(environment)
+        cwd = tempfile.mkdtemp(prefix="linkr-render-") if server_owned else spec.cwd
         if language == "python":
             env = spec.env
             jedi_site = _jedi_site()
             if jedi_site is not None:
                 env = {**env, "LINKR_JEDI_PATH": jedi_site}
-            return Kernel([spec.interpreter, "-c", _PY_KERNEL_LOOP], cwd=spec.cwd, env=env, env_stamp=stamp)
+            argv = [spec.interpreter, *(["-P"] if server_owned else []), "-c", _PY_KERNEL_LOOP]
+            return Kernel(argv, cwd=cwd, owns_cwd=server_owned, env=env, env_stamp=stamp)
         # Run the loop from a file, not `-e`: `-e` silently truncates a long
         # program, and the loop is close enough to that limit that a few added
         # lines would make the kernel hang at boot with no usable error.
         loop_path = project_fs.kernel_r_script(_R_KERNEL_LOOP)
-        return Kernel([spec.interpreter, "--vanilla", str(loop_path)], cwd=spec.cwd, env=spec.env, env_stamp=stamp)
+        return Kernel(
+            [spec.interpreter, "--vanilla", str(loop_path)],
+            cwd=cwd, owns_cwd=server_owned, env=spec.env, env_stamp=stamp,
+        )
 
 
 @dataclass(frozen=True)
@@ -1439,16 +1450,19 @@ def _interpreter_key(language: str, project_uid: str, environment: "Environment 
     """Identity of the interpreter a run will use, so warm processes are only
     reused by runs that would spawn the same interpreter/library set.
 
-    The app interpreter (environment is None) is shared → a per-language system key.
+    The app interpreter (environment is None) is shared → a per-language server key.
     A project R env is ALWAYS isolated to its own library (even empty/unbuilt), so it
     is keyed per project — otherwise a shared warm process (with global packages)
     could be handed to an env that must only see its declared packages. Python only
-    isolates once built (a venv), so an unbuilt Python env still shares the app key."""
-    if environment is not None:
-        if environment.interpreter_path:
-            return environment.interpreter_path
-        if language == "r":
-            return f"__project_r__:{project_uid}"
+    isolates once built (a venv), so an unbuilt Python env still shares the app
+    interpreter — but not its warm processes: those of the app interpreter itself
+    are server-owned (see KernelManager._make) and never mixed with user-code ones."""
+    if environment is None:
+        return f"__server__:{language}"
+    if environment.interpreter_path:
+        return environment.interpreter_path
+    if language == "r":
+        return f"__project_r__:{project_uid}"
     return f"__system__:{language}"
 
 
@@ -1642,7 +1656,8 @@ async def run_ephemeral(
     await manager._prepare_r_shared(language)
 
     def make() -> Kernel:
-        return manager._make(language, project_uid, environment)
+        # The app interpreter (environment None) runs only built-in renders.
+        return manager._make(language, project_uid, environment, server_owned=environment is None)
 
     async with _ephemeral_gate:
         k = await warm_pool.acquire(make, language, project_uid, interpreter_key)
@@ -1676,6 +1691,7 @@ async def prewarm(
     await manager._prepare_r_shared(language)
 
     def make() -> Kernel:
-        return manager._make(language, project_uid, environment)
+        # The app interpreter (environment None) runs only built-in renders.
+        return manager._make(language, project_uid, environment, server_owned=environment is None)
 
     _spawn_bg(warm_pool.refill(make, language, project_uid, interpreter_key, target))

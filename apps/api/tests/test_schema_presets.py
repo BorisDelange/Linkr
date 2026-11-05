@@ -68,6 +68,23 @@ async def test_global_preset_upsert_and_list(client):
     assert r.status_code == 204
 
 
+async def test_a_built_in_preset_is_written_and_deleted_by_an_admin_only(client, db):
+    admin = await _admin_headers(client)
+    r = await client.put(f"{API}/schema-presets/shared", headers=admin, json={"presetId": "shared", "mapping": {}})
+    assert r.status_code == 200
+    user = await _create_user(db, client, "carol")
+
+    assert (await client.put(
+        f"{API}/schema-presets/shared", headers=user, json={"presetId": "shared", "mapping": {"tables": ["x"]}},
+    )).status_code == 403
+    assert (await client.put(
+        f"{API}/schema-presets/mine", headers=user, json={"presetId": "mine", "mapping": {}},
+    )).status_code == 403
+    assert (await client.delete(f"{API}/schema-presets/shared", headers=user)).status_code == 403
+    kept = {p["presetId"]: p for p in (await client.get(f"{API}/schema-presets", headers=admin)).json()}
+    assert kept["shared"]["mapping"] == {} and "mine" not in kept
+
+
 async def test_body_url_mismatch_rejected(client):
     headers = await _admin_headers(client)
     r = await client.put(
@@ -141,6 +158,34 @@ async def test_cannot_hijack_existing_preset_by_reparenting(client, db):
     r = await client.get(f"{API}/schema-presets", headers=admin)
     secret = next(p for p in r.json() if p["presetId"] == "secret")
     assert secret["mapping"] == {"tables": ["a"]} and secret["workspaceId"] == ws_a
+
+
+async def test_preset_is_only_written_through_the_key_that_was_authorized(client, db):
+    """The row an upsert writes is the row whose workspace was checked: a body id
+    naming another workspace's preset, behind an unused URL key, is refused."""
+    admin = await _admin_headers(client)
+    ws_a = await _make_workspace(client, admin)
+    r = await client.put(
+        f"{API}/schema-presets/target",
+        headers=admin,
+        json={"id": "target", "presetId": "target-slug", "workspaceId": ws_a,
+              "mapping": {"tables": ["a"]}},
+    )
+    assert r.status_code == 200
+
+    bob = await _create_user(db, client, "bob")
+    ws_b = await _make_workspace(client, bob)
+    for extra in ({"workspaceId": ws_b}, {}):
+        r = await client.put(
+            f"{API}/schema-presets/unused-key",
+            headers=bob,
+            json={"id": "target", "presetId": "unused-key", "mapping": {"tables": ["b"]}, **extra},
+        )
+        assert r.status_code in (400, 403)
+
+    r = await client.get(f"{API}/schema-presets", headers=admin)
+    target = next(p for p in r.json() if p["id"] == "target")
+    assert target["mapping"] == {"tables": ["a"]} and target["workspaceId"] == ws_a
 
 
 async def test_preset_persists_author_provenance(client):

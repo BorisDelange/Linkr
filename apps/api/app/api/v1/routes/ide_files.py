@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.core import deferred
+from app.core import audit, deferred
 from app.core.database import async_session, get_db
 from app.core.deps import get_current_user
 from app.core.permissions import check_project_permission
@@ -71,6 +71,7 @@ async def list_files(
 ):
     """Scan scripts/ from disk and return the tree with each file's content."""
     await _check_project(db, project_uid, user, "ide:read")
+    audit.bind(action="preview", project_uid=project_uid, detail="ide/ tree with file contents")
     # Off the event loop: this walks the whole IDE working dir and reads EVERY file's
     # content. Run inline it froze the single worker for the duration — the kernels and
     # jobs polls piled up behind it and released in a burst, which reads as the IDE
@@ -95,6 +96,8 @@ async def read_raw(
     if not p.is_file():
         raise HTTPException(status.HTTP_404_NOT_FOUND, "File not found")
     media_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+    audit.bind(action="download", project_uid=project_uid,
+               detail=f"ide/{path} ({p.stat().st_size} bytes)")
     return FileResponse(p, media_type=media_type)
 
 

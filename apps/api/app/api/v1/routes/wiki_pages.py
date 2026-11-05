@@ -23,8 +23,8 @@ async def _get_page_with_role(
     page = await wiki_page_service.get(db, page_id)
     if page is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    if page.workspace_id is not None:
-        await check_workspace_permission(db, page.workspace_id, user, permission)
+    # A page with no workspace is reachable by admins and all-workspaces grants only.
+    await check_workspace_permission(db, page.workspace_id, user, permission)
     return page
 
 
@@ -106,6 +106,8 @@ async def update_wiki_page(
     db: AsyncSession = Depends(get_db),
 ):
     page = await _get_page_with_role(page_id, user, db, "wiki:write")
+    if "workspace_id" in body.model_fields_set and body.workspace_id != page.workspace_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "A page stays in its workspace")
     before = change_tracking.changed_values(page, body.model_dump(exclude_unset=True))
     page = await wiki_page_service.update(db, page, body)
     if before:

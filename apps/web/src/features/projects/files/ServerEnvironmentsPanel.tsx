@@ -72,7 +72,10 @@ export function ServerEnvironmentsPanel({
 }) {
   const { t } = useTranslation()
   const projectUid = useProjectRouteUid()
-  const canWrite = useMyProjectRole().can('ide:write')
+  const role = useMyProjectRole()
+  const canWrite = role.can('ide:write')
+  // Resolving, installing and building packages runs their code on the server.
+  const canInstall = canWrite && role.can('ide:execute')
   const clearPending = useEnvironmentsUiStore((s) => s.clearPending)
   const autoBuild = useEnvironmentsUiStore((s) => s.autoBuild)
   const setAutoBuild = useEnvironmentsUiStore((s) => s.setAutoBuild)
@@ -338,7 +341,7 @@ export function ServerEnvironmentsPanel({
       accessor: () => '',
       filter: 'none',
       sortable: false,
-      size: canWrite ? 110 : 70,
+      size: canInstall ? 110 : 70,
       center: true,
       cell: (p) => {
         const pending = isPkgPending(p.name)
@@ -360,7 +363,7 @@ export function ServerEnvironmentsPanel({
               </TooltipTrigger>
               <TooltipContent className="text-xs">{t('environments.col_docs')}</TooltipContent>
             </Tooltip>
-            {canWrite && (
+            {canInstall && (
               <>
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -414,7 +417,7 @@ export function ServerEnvironmentsPanel({
     // onUpgrade/onRemove/setRemoveTarget/isPkgPending/packageUrl are omitted on
     // purpose — see the note above; they read fresh state and would defeat the memo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [t, language, updates, checkedAt, busy, canWrite, pendingPkgs])
+  ], [t, language, updates, checkedAt, busy, canInstall, pendingPkgs])
 
   if (!projectUid) {
     return (
@@ -516,7 +519,7 @@ export function ServerEnvironmentsPanel({
           )}
         </div>
 
-        {canWrite && (
+        {canInstall && (
           <div className="flex gap-2">
             <Input
               value={newPkg}
@@ -560,7 +563,7 @@ export function ServerEnvironmentsPanel({
         ) : packages.length === 0 ? (
           <div className="flex flex-col items-center gap-2 py-6 text-center">
             <p className="text-xs text-muted-foreground">{t('environments.no_packages')}</p>
-            {canWrite && (
+            {canInstall && (
               <Button size="sm-tight" variant="outline" disabled={busy} onClick={() => void onPreset()}>
                 <Sparkles size={13} className="mr-1" />
                 {t('environments.install_preset')}
@@ -571,7 +574,7 @@ export function ServerEnvironmentsPanel({
           <>
             {/* An env with only the kernel infra rows has no user packages yet —
                 offer the preset without hiding the (infra) table. */}
-            {canWrite && userPackages.length === 0 && (
+            {canInstall && userPackages.length === 0 && (
               <div className="flex items-center justify-between gap-2 rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground">
                 <span>{t('environments.no_user_packages')}</span>
                 <Button size="sm-tight" variant="outline" className="shrink-0" disabled={busy} onClick={() => void onPreset()}>
@@ -594,7 +597,7 @@ export function ServerEnvironmentsPanel({
           </>
         )}
 
-        {canWrite && (
+        {canInstall && (
           <div className="flex items-center justify-between gap-2">
             <label className="flex items-center gap-2 text-xs text-muted-foreground">
               <Checkbox

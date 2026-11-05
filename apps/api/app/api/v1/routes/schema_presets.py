@@ -3,13 +3,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
-from app.core.permissions import check_workspace_permission
+from app.core.permissions import check_workspace_permission, has_global_permission
 from app.models.schema_preset import SchemaPreset
 from app.models.user import User
 from app.schemas.schema_preset import SchemaPresetResponse, SchemaPresetSave
 from app.services import notification_service, schema_preset_service
 
 router = APIRouter(prefix="/schema-presets", tags=["schema-presets"])
+
+
+async def _check_preset_permission(db: AsyncSession, user: User, workspace_id: str | None, permission: str) -> None:
+    """A workspace preset needs `permission` in its workspace; a built-in one (no
+    workspace) is shared by every workspace, so it needs it globally (admins)."""
+    if workspace_id is not None:
+        await check_workspace_permission(db, workspace_id, user, permission)
+    elif not await has_global_permission(db, user, permission):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
 
 
 # --- Notifications (writes by an external client, e.g. an agent over MCP) ---
@@ -87,17 +96,24 @@ async def save_schema_preset(
     # BOTH the current workspace (so a stranger can't overwrite/steal an existing
     # preset via a known id) and the target workspace (so it can't be planted
     # somewhere the caller lacks rights), mirroring the delete handler.
-    existing = await schema_preset_service.get(db, key)
-    if existing is not None and existing.workspace_id is not None:
-        await check_workspace_permission(db, existing.workspace_id, user, "schemas:write")
-    if body.workspace_id is not None:
-        await check_workspace_permission(db, body.workspace_id, user, "schemas:write")
+    # The row authorized is the row written: it is resolved once, the way save()
+    # resolves it, and handed to save(); the URL key must name that same row.
+    existing = await schema_preset_service.get(db, body.id or body.preset_id)
+    keyed = existing if key == (body.id or body.preset_id) else await schema_preset_service.get(db, key)
+    if keyed is not None and (existing is None or keyed.id != existing.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="id in body must match the URL",
+        )
+    if existing is not None:
+        await _check_preset_permission(db, user, existing.workspace_id, "schemas:write")
+    await _check_preset_permission(db, user, body.workspace_id, "schemas:write")
     sent = body.model_dump()
     before = (
         {k: getattr(existing, k) for k in _CONTENT_FIELDS if getattr(existing, k) != sent[k]}
         if existing is not None else None
     )
-    preset = await schema_preset_service.save(db, body)
+    preset = await schema_preset_service.save(db, body, existing)
     if before is None:
         await _notify(db, request, user, "created", preset)
     elif before:
@@ -116,7 +132,6 @@ async def delete_schema_preset(
     preset = await schema_preset_service.get(db, key)
     if preset is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
-    if preset.workspace_id is not None:
-        await check_workspace_permission(db, preset.workspace_id, user, "schemas:delete")
+    await _check_preset_permission(db, user, preset.workspace_id, "schemas:delete")
     await schema_preset_service.delete(db, preset)
     await _notify(db, request, user, "deleted", preset)

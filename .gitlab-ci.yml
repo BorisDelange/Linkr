@@ -36,6 +36,13 @@ build:
     # ships neither git nor git-lfs, and without them this step fails loudly
     # rather than publishing a site with no default content.
     - apk add --no-cache git git-lfs
+    # The default branch publishes the site, so it starts from nothing a cache
+    # could have carried over from another branch's pipeline: any branch can
+    # write a cache under any key.
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "$CI_DEFAULT_BRANCH" ]; then
+        rm -rf .cache/default-data node_modules apps/web/node_modules
+      fi
     - npm ci
     - npm run data:fetch
     - cd apps/web && npx vite build --base /

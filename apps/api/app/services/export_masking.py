@@ -368,31 +368,62 @@ def _index(headers: list[str], mapped: str | None, guesses: tuple[str, ...]) -> 
     return -1
 
 
-def mask_source_concepts_csv(text: str, column_mapping: dict | None = None, k: int | None = None) -> str:
-    """`text` with every cell the rule masks rewritten; unchanged when nothing is."""
+def _positional_headers(width: int) -> list[str]:
+    """The names DuckDB gives the columns of a file read with header=false —
+    what a headerless project's column mapping refers to."""
+    digits = len(str(max(width - 1, 0)))
+    return [f"column{str(i).zfill(digits)}" for i in range(width)]
+
+
+def mask_source_concepts_csv(
+    text: str, column_mapping: dict | None = None, k: int | None = None, parse_options: dict | None = None,
+) -> str:
+    """`text` with every cell the rule masks rewritten; unchanged when nothing is.
+
+    The file is read as the app reads it (`parse_options`: skipRows lines kept as
+    they are, the chosen delimiter, a header or positional names). A count or
+    profile column the mapping names but the file does not have means the file
+    was not read as it should be: it raises rather than leaves unmasked."""
     k = settings.export_min_count if k is None else k
     text = text.removeprefix("\ufeff")
     if k <= 1 or not text or text.startswith("version https://git-lfs"):
         return text
-    first_line = text.split("\n", 1)[0]
-    delimiter = max((",", ";", "\t"), key=first_line.count)
+    opts = parse_options or {}
     try:
-        rows = list(csv.reader(io.StringIO(text, newline=""), delimiter=delimiter))
+        skip = max(0, int(opts.get("skipRows") or 0))
+    except (TypeError, ValueError) as exc:
+        raise SourceConceptsUnreadable() from exc
+    lines = text.split("\n", skip)
+    if len(lines) <= skip:
+        return text
+    preamble = "".join(f"{line}\n" for line in lines[:skip])
+    table = lines[skip]
+    first_line = table.split("\n", 1)[0]
+    delimiter = opts.get("delimiter") or max((",", ";", "\t", "|"), key=first_line.count)
+    if not isinstance(delimiter, str) or len(delimiter) != 1:
+        raise SourceConceptsUnreadable()
+    try:
+        rows = list(csv.reader(io.StringIO(table, newline=""), delimiter=delimiter))
     except csv.Error as exc:
         raise SourceConceptsUnreadable() from exc
     if not rows:
         return text
     mapping = column_mapping or {}
-    headers = rows[0]
+    has_header = opts.get("hasHeader", True) is not False
+    headers = rows[0] if has_header else _positional_headers(max(len(r) for r in rows))
+    data = rows[1:] if has_header else rows
     record_idx = _index(headers, mapping.get("recordCountColumn"), ("record_count", "rows_count"))
     patient_idx = _index(headers, mapping.get("patientCountColumn"), ("patient_count", "patients_count"))
     json_idx = _index(headers, mapping.get("infoJsonColumn"), _JSON_HEADERS)
+    roles = (("recordCountColumn", record_idx), ("patientCountColumn", patient_idx), ("infoJsonColumn", json_idx))
+    if any(mapping.get(role) and idx < 0 for role, idx in roles):
+        raise SourceConceptsUnreadable()
     count_idx = [i for i in (record_idx, patient_idx) if i >= 0]
     if not count_idx and json_idx < 0:
         return text
 
     changed = False
-    for cells in rows[1:]:
+    for cells in data:
         withheld = any(i < len(cells) and _small(cells[i], k) for i in count_idx)
         row_patients, row_records = (
             cells[i] if 0 <= i < len(cells) and cells[i].strip() else None for i in (patient_idx, record_idx)
@@ -411,4 +442,4 @@ def mask_source_concepts_csv(text: str, column_mapping: dict | None = None, k: i
     if not changed:
         return text
     body = "\n".join(delimiter.join(_cell(c, delimiter) for c in cells) for cells in rows)
-    return body + "\n" if text.endswith("\n") else body
+    return preamble + (body + "\n" if table.endswith("\n") else body)

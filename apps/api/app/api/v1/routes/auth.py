@@ -17,8 +17,8 @@ from app.core.security import (
     decode_token,
     password_policy_error,
     predates_password_change,
-    set_password,
-    verify_password,
+    set_password_async,
+    verify_password_async,
 )
 from app.models.role import Role
 from app.models.user import User
@@ -194,7 +194,7 @@ async def change_password(
     which the client stores to stay signed in."""
     if settings.auth_provider != "local" or not user.password_hash:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Passwords are managed by the identity provider")
-    if not verify_password(body.current_password, user.password_hash):
+    if not await verify_password_async(body.current_password, user.password_hash):
         audit.bind(action="password_change_failed")
         raise HTTPException(status.HTTP_403_FORBIDDEN, "The current password is incorrect")
     if body.new_password == body.current_password:
@@ -203,7 +203,7 @@ async def change_password(
         })
     if error := password_policy_error(body.new_password, user.username):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, error)
-    set_password(user, body.new_password)
+    await set_password_async(user, body.new_password)
     await db.commit()
     audit.bind(action="password_change")
     return _issue_tokens(user)

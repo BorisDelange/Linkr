@@ -322,7 +322,7 @@ export function ExportTab({ project }: ExportTabProps) {
             const buf = project.fileSourceData.rawFileBuffer instanceof Uint8Array
               ? project.fileSourceData.rawFileBuffer
               : new Uint8Array(project.fileSourceData.rawFileBuffer)
-            const out = await maskedSourceConcepts(buf, project.fileSourceData.columnMapping)
+            const out = await maskedSourceConcepts(buf, project.fileSourceData.columnMapping, project.fileSourceData.parseOptions)
             // TS lib.dom's BlobPart rejects the generic Uint8Array<ArrayBufferLike>; runtime accepts it
             const csvBlob = new Blob([out as BlobPart], { type: 'text/csv' })
             downloadBlob(csvBlob, `${slugify(localized(project.name, 'en'))}-source-concepts.csv`)

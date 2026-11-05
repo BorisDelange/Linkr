@@ -100,6 +100,11 @@ def _require_ident(value: str, what: str) -> str:
     return value
 
 
+def _quote_ident(name: str) -> str:
+    """A double-quoted SQL identifier, any `"` in the name doubled."""
+    return '"' + str(name).replace('"', '""') + '"'
+
+
 def _sql_path(path: str) -> str:
     """A filesystem path escaped for a single-quoted SQL literal."""
     return str(path).replace("'", "''")
@@ -222,7 +227,7 @@ def _connect(extension: str) -> duckdb.DuckDBPyConnection:
     con = _open()
     # Persist installed extensions under data_dir so INSTALL only hits the
     # network once (and can be pre-warmed at build time in an offline image).
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
     _install(con, extension)
     return con
 
@@ -810,7 +815,7 @@ def _run_statements(
     caller can report progress. Every statement shares this one connection, which
     is what lets a script carry `SET VARIABLE` or a temp table from one statement
     to the next — splitting the script across requests loses that."""
-    con.execute(f"SET search_path='{search_path}'")
+    con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
     statements = _split_statements(sql)
     dynamic_sql = _has_community_attach(con)
@@ -839,7 +844,7 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
     """`_run_statements` without the row cap, returning the last result as an Arrow
     table — for server-side consumers that write the whole result somewhere (a
     dataset from a query) and must not truncate it."""
-    con.execute(f"SET search_path='{search_path}'")
+    con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
     statements = _split_statements(sql)
     dynamic_sql = _has_community_attach(con)
@@ -946,11 +951,12 @@ def _load_sqlite(con: duckdb.DuckDBPyConnection) -> None:
 def _attach_file(con: duckdb.DuckDBPyConnection, engine: str, path: str) -> None:
     """ATTACH a local database file read-only. DuckDB files attach natively;
     SQLite needs the sqlite extension."""
+    literal = _sql_path(path)
     if engine == "sqlite":
         _load_sqlite(con)
-        con.execute(f"ATTACH '{path}' AS {_ATTACH_ALIAS} (TYPE sqlite, READ_ONLY)")
+        con.execute(f"ATTACH '{literal}' AS {_ATTACH_ALIAS} (TYPE sqlite, READ_ONLY)")
     else:  # duckdb
-        con.execute(f"ATTACH '{path}' AS {_ATTACH_ALIAS} (READ_ONLY)")
+        con.execute(f"ATTACH '{literal}' AS {_ATTACH_ALIAS} (READ_ONLY)")
 
 
 def query_file(
@@ -963,7 +969,7 @@ def query_file(
 
     def _setup() -> duckdb.DuckDBPyConnection:
         con = _open()
-        con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
         _attach_file(con, engine, path)
         _forbid_file_access(con)
         _lock_down_user_sql(con)
@@ -1018,7 +1024,7 @@ def query_file_source(
     the shared `file_reader.build_read_expr`, the same one dataset import uses.
     """
     con = _open()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
     try:
         reader = file_reader.build_read_expr(
             con, path, file_name, parse_options or {}, nullstr="NA"
@@ -1064,7 +1070,7 @@ def file_source_columns(
     so a literal "NA" cell becomes NULL identically to the browser DuckDB-WASM
     path and the eventual server-side query."""
     con = _open()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
     try:
         reader = file_reader.build_read_expr(
             con, path, file_name, parse_options or {}, nullstr="NA"
@@ -1086,7 +1092,7 @@ def introspect_file(engine: str, path: str) -> list[dict]:
     """Tables + columns of a local DuckDB/SQLite file. Types are DuckDB-normalized
     (the file has no separate native catalog to passthrough to)."""
     con = _open()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
     try:
         _attach_file(con, engine, path)
         rows = con.execute(
@@ -1286,7 +1292,7 @@ def _parquet_search_path(groups: dict[tuple[str | None, str], list[str]]) -> str
     module directories. Sorted, so the winner of a name present in two schemas
     never depends on file order."""
     schemas = sorted({s for s, _ in groups if s is not None})
-    return ",".join([_ATTACH_ALIAS, "memory", *(f'"{s}"' for s in schemas)])
+    return ",".join([_ATTACH_ALIAS, "memory", *(_quote_ident(s) for s in schemas)])
 
 
 def query_parquet_folder(
@@ -1301,7 +1307,7 @@ def query_parquet_folder(
 
     def _setup() -> duckdb.DuckDBPyConnection:
         con = _open()
-        con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
         _attach_parquet_views(con, groups)
         _forbid_file_access(con, [p for paths in groups.values() for p in paths])
         _lock_down_user_sql(con)
@@ -1352,7 +1358,7 @@ def _source_setup(
 
         def _setup_pq() -> duckdb.DuckDBPyConnection:
             con = _open()
-            con.execute(f"SET extension_directory = '{_ext_dir()}'")
+            con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
             _attach_parquet_views(con, groups)
             return con
 
@@ -1366,7 +1372,7 @@ def _source_setup(
 
     def _setup_file() -> duckdb.DuckDBPyConnection:
         con = _open()
-        con.execute(f"SET extension_directory = '{_ext_dir()}'")
+        con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
         _attach_file(con, str(engine), path)
         return con
 
@@ -1435,7 +1441,7 @@ def materialize_parquet(
             view_files.extend(files_read)
         _forbid_file_access(con, [*readable, *view_files, tmp.as_posix()])
         _lock_down_user_sql(con)
-        con.execute(f"SET search_path='{search_path(con)}'")
+        con.execute(f"SET search_path='{_sql_path(search_path(con))}'")
 
         def _copy(query: str) -> None:
             with query_cancel.tracking(con):
@@ -1455,7 +1461,7 @@ def query_cached_parquet(path: str, sql: str) -> list[dict]:
     """Run read-only SQL against a materialized cache Parquet exposed as the view
     `concepts` — the table name the page query references."""
     con = _open()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
     try:
         con.execute(
             f"CREATE VIEW concepts AS SELECT * FROM read_parquet('{_sql_path(path)}')"
@@ -1477,7 +1483,7 @@ def introspect_parquet_folder(
     hold the same table name, and a flat list would show one of them twice."""
     groups = _group_parquet(files, known)
     con = _open()
-    con.execute(f"SET extension_directory = '{_ext_dir()}'")
+    con.execute(f"SET extension_directory = '{_sql_path(_ext_dir())}'")
     result: list[dict] = []
     try:
         for (schema, table), paths in groups.items():

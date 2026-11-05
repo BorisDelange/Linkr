@@ -148,6 +148,21 @@ def invalidate(key: str) -> None:
             _close_quietly(entry.con)
 
 
+def invalidate_principal(principal: str) -> None:
+    """Drop every warm connection opened as `principal`, to any database: the
+    `<source id>:<principal>` keys and their `<source id>:<principal>:<purpose>`
+    variants."""
+    def opened_as(key: str) -> bool:
+        rest = key.partition(":")[2]
+        return rest == principal or rest.startswith(f"{principal}:")
+
+    with _registry_lock:
+        entries = [_registry.pop(k) for k in [k for k in _registry if opened_as(k)]]
+    for entry in entries:
+        with entry.lock:
+            _close_quietly(entry.con)
+
+
 def clear() -> None:
     """Close every pooled connection (shutdown / tests)."""
     with _registry_lock:

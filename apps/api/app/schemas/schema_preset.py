@@ -1,16 +1,17 @@
 from datetime import datetime
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 
 
 class SchemaPresetSave(CamelModel):
     """Upsert payload — the frontend's SchemaPresetStorage.save()."""
 
-    preset_id: str
+    preset_id: SafeId
     # Local uuid PK and readable slug, taking over from preset_id — see
     # docs/design/schema-preset-identity-plan.md. Optional while both shapes
     # coexist: an older client sends neither.
-    id: str | None = None
+    id: SafeId | None = None
     entity_id: str | None = None
     workspace_id: str | None = None
     # README + licence ({id, name?, text}); the licence text travels as LICENSE.md

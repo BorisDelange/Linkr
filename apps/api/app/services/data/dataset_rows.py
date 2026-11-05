@@ -139,12 +139,12 @@ def write_parquet(
                 projection = f"try_cast({_quote_ident(ROW_ORD)} AS BIGINT) AS {_quote_ident(ROW_ORD)}, {projection}"
             source = (
                 f"SELECT {projection} "
-                f"FROM read_json('{json_path.as_posix()}', columns={spec})"
+                f"FROM read_json({_sql_str(json_path.as_posix())}, columns={spec})"
             )
         else:
             # No columns and no row keys — emit a valid empty Parquet.
             source = "SELECT NULL WHERE FALSE"
-        con.execute(f"COPY ({source}) TO '{parquet_path.as_posix()}' (FORMAT PARQUET)")
+        con.execute(f"COPY ({source}) TO {_sql_str(parquet_path.as_posix())} (FORMAT PARQUET)")
     finally:
         con.close()
         json_path.unlink(missing_ok=True)
@@ -155,7 +155,7 @@ def read_parquet(path: Path, offset: int | None = None, limit: int | None = None
     """Read rows back as dicts keyed by columnId. Optional LIMIT/OFFSET page."""
     con = duckdb.connect()
     try:
-        sql = f"SELECT * FROM read_parquet('{path.as_posix()}')"
+        sql = f"SELECT * FROM read_parquet({_sql_str(path.as_posix())})"
         if limit is not None:
             sql += f" LIMIT {int(limit)} OFFSET {int(offset or 0)}"
         res = con.execute(sql)
@@ -163,6 +163,12 @@ def read_parquet(path: Path, offset: int | None = None, limit: int | None = None
         return [_row_to_json(dict(zip(names, r))) for r in res.fetchall()]
     finally:
         con.close()
+
+
+def _sql_str(value: str) -> str:
+    """Single-quote a string literal for DuckDB (doubling embedded quotes): a
+    dataset's file name is the user's, and may hold a quote."""
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _quote_ident(name: str) -> str:
@@ -177,7 +183,7 @@ def _source_expr(path: Path, columns: list[dict] | None) -> str:
     to the ``col_<slug>`` ids the rest of the query (filters, sort, stats) speaks,
     via a projection subquery. ``columns`` is [{id, name}, ...] from resolve_cache;
     None (the blob-store path) → raw read."""
-    raw = f"read_parquet('{path.as_posix()}')"
+    raw = f"read_parquet({_sql_str(path.as_posix())})"
     if not columns:
         return raw
     proj = ", ".join(

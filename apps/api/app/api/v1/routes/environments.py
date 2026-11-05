@@ -1,8 +1,9 @@
 """Project environments (managed Python/R packages) + long-running jobs.
 
 Separate from the /execute router because these live at /projects/{uid}/… and
-/jobs/… (not under /execute). Package ops are gated on ide:write, reads on
-ide:read, matching the IDE permission model. Build runs as a tracked, cancellable
+/jobs/… (not under /execute). Editing an environment's spec or options is gated
+on ide:write, anything that runs the package manager on ide:write + ide:execute,
+reads on ide:read, matching the IDE permission model. Build runs as a tracked, cancellable
 job (see services.execution.jobs); a env's spec (manifest+lockfile) is versioned
 in the project git while the materialised venv/library is machine-local."""
 
@@ -62,6 +63,17 @@ async def _require_ide(db: AsyncSession, project_uid: str, user: User, action: s
     if not await has_project_permission(db, project, user, f"ide:{action}"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted on this project")
     project_fs.prime_binding(project_uid, project.ide_path, project.scripts_path, project.datasets_path)
+    return project
+
+
+async def _require_ide_install(db: AsyncSession, project_uid: str, user: User) -> Project:
+    """Gate an operation that runs the package manager (resolve, install, build).
+    Installing an R package or building a Python sdist runs the package's own code
+    on the server, so it takes ide:execute, like any code the server runs, on top
+    of the ide:write that changes the environment."""
+    project = await _require_ide(db, project_uid, user, "write")
+    if not await has_project_permission(db, project, user, "ide:execute"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Not permitted on this project")
     return project
 
 
@@ -214,7 +226,7 @@ async def add_env_packages(
     """Add package(s): rewrite the manifest and re-lock. Build is a separate,
     explicit step (POST …/build) — nothing is materialised here. Runs as a tracked
     job so the exact command + any failure is visible in the jobs panel."""
-    await _require_ide(db, project_uid, user, "write")
+    await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     if not body.packages:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "No packages given")
@@ -273,7 +285,7 @@ async def remove_env_package(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    await _require_ide(db, project_uid, user, "write")
+    await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     package = _valid_package(package)
     # Kernel infra packages (shared kernel library) make every R kernel work — the UI
@@ -310,7 +322,7 @@ async def install_preset(
 ):
     """Record the workspace's default data-science package list into this env
     (manifest + re-lock; no build). Build separately or on first run."""
-    project = await _require_ide(db, project_uid, user, "write")
+    project = await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     workspace = await db.get(Workspace, project.workspace_id) if project.workspace_id else None
     packages = environments.preset_for(
@@ -343,7 +355,7 @@ async def upgrade_env_packages(
 ):
     """Re-lock a package (query `?package=`) or all packages to newer versions, then
     mark the env for rebuild. No build here."""
-    await _require_ide(db, project_uid, user, "write")
+    await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     if package is not None:
         package = _valid_package(package)
@@ -370,7 +382,7 @@ async def build_environment(
     """Kick off a manual environment build as a tracked, cancellable job. Returns
     the queued job immediately; poll GET /projects/{uid}/jobs for progress and the
     env's status. The build runs behind the bounded executor (won't block others)."""
-    await _require_ide(db, project_uid, user, "write")
+    await _require_ide_install(db, project_uid, user)
     _valid_language(language)
     label = f"Build {environments.language_label(language)} environment"
     job = await jobs.create(

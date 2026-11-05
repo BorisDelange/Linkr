@@ -9,6 +9,10 @@ from app.models.base import Base, LocalizedText
 
 class User(Base):
     __tablename__ = "users"
+    # Ids are never handed out again: tokens, logins and caches keyed by the id
+    # of a deleted account must never resolve to another one. (Postgres sequences
+    # never reuse; SQLite reuses the highest id unless AUTOINCREMENT.)
+    __table_args__ = {"sqlite_autoincrement": True}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     username: Mapped[str] = mapped_column(String(255), unique=True, index=True)
@@ -29,7 +33,8 @@ class User(Base):
     )
     external_id: Mapped[str | None] = mapped_column(String(255), index=True)
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Session tokens issued before it are refused (core/security.py).
+    # Session tokens issued before it are refused (core/security.py). Stamped
+    # at creation too, so no token older than the account is accepted for it.
     password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     preferences: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(

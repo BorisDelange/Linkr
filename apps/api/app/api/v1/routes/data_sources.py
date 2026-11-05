@@ -577,15 +577,33 @@ async def derive(
 
     label = cohort_derive_service.job_label(source, target, body, cohort)
     try:
-        return await _launch_derive(db, request, user, source, target, body, cohort, label)
+        may_remove = await _may_remove_on_failure(db, target, body, user)
+        return await _launch_derive(db, request, user, source, target, body, cohort, label, may_remove)
     except BaseException:
         cohort_derive_service.release(target.id)
         raise
 
 
+async def _may_remove_on_failure(db: AsyncSession, target: DataSource, body: DeriveRequest, user: User) -> bool:
+    """Whether a failed first build may remove the target row: removing a
+    database needs `databases:delete`, unless it is the launcher's own empty
+    card, created for this derivation."""
+    if body.target.kind != "new-database" or (target.linkr_created or {}).get("file"):
+        return False
+    try:
+        await _require_source_access(db, target, user, "databases:delete")
+        return True
+    except HTTPException:
+        return (
+            target.created_by_id == user.id
+            and _awaiting_build(target)
+            and not await data_source_service.holds_files_or_cohorts(db, target.id)
+        )
+
+
 async def _launch_derive(
     db: AsyncSession, request: Request, user: User, source: DataSource, target: DataSource,
-    body: DeriveRequest, cohort: Cohort | None, label: str,
+    body: DeriveRequest, cohort: Cohort | None, label: str, may_remove: bool,
 ) -> JobResponse:
     job = await jobs.create(db, None, user.id, kind="derive", label=label, workspace_id=source.workspace_id)
     ids = (source.id, target.id, cohort.id if cohort else None)
@@ -606,7 +624,9 @@ async def _launch_derive(
                 if src is None or dst is None:
                     raise cohort_derive_service.DeriveError("the database was removed")
                 coh = await job_db.get(Cohort, ids[2]) if ids[2] else None
-                result = await cohort_derive_service.derive(job_db, src, dst, body, coh, user_id, progress)
+                result = await cohort_derive_service.derive(
+                    job_db, src, dst, body, coh, user_id, progress, may_remove=may_remove,
+                )
         except BaseException:
             with contextlib.suppress(Exception):
                 await _notify_derivation(client, user_id, workspace_id, ids[1], what, "failed")

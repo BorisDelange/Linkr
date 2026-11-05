@@ -6,7 +6,7 @@ import { mappingKey } from '@/lib/concept-mapping/merge'
 import { compareCodePoints } from '@/lib/concept-mapping/source-concept-ids-io'
 import { buildCcrCsvs } from '@/lib/concept-mapping/ccr-export'
 import { toConceptSetRefs } from '@/lib/concept-mapping/concept-set-refs'
-import { decodeSourceText, maskFrequency, maskSourceConceptsCsv, SourceConceptsUnreadableError } from '@/lib/concept-mapping/export-masking'
+import { decodeSourceText, maskFrequency, maskSourceConceptsCsv, SourceConceptsUnreadableError, type SourceParseOptions } from '@/lib/concept-mapping/export-masking'
 import { csvPathForMethod, SCORES_PARQUET_FILE, type ScoresExportFormat } from '@/lib/concept-mapping/scores-csv'
 
 // ---------------------------------------------------------------------------
@@ -59,17 +59,21 @@ export async function parquetBufferToCsv(buf: Uint8Array): Promise<string | null
 
 /**
  * The source concepts as they may leave the instance: Parquet converted to CSV,
- * then small counts and single-patient values masked (export-masking.ts). Bytes
- * that cannot be read cannot be masked, so they throw rather than leave as they
- * are. Every writer of source-concepts.csv goes through here.
+ * then small counts and single-patient values masked (export-masking.ts), the
+ * file read with the parse options the app reads it with — a Parquet source has
+ * none, its CSV is ours. Bytes that cannot be read cannot be masked, so they
+ * throw rather than leave as they are. Every writer of source-concepts.csv goes
+ * through here.
  */
 export async function maskedSourceConcepts(
   buf: Uint8Array,
   columnMapping?: Partial<FileColumnMapping> | null,
+  parseOptions?: SourceParseOptions | null,
 ): Promise<string> {
-  const text = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : decodeSourceText(buf)
+  const parquet = isParquetBuffer(buf)
+  const text = parquet ? await parquetBufferToCsv(buf) : decodeSourceText(buf)
   if (text === null) throw new SourceConceptsUnreadableError()
-  return maskSourceConceptsCsv(text, columnMapping)
+  return maskSourceConceptsCsv(text, columnMapping, undefined, parquet ? null : parseOptions)
 }
 
 export function csvEscape(value: string | number | undefined | null): string {
@@ -809,7 +813,10 @@ export async function buildMappingProjectFolder(
   const maskCsv = (csv: string) => (options.unmasked ? csv : maskSourceConceptsCsv(csv, project.fileSourceData?.columnMapping))
   const writeSource = async (buf: Uint8Array) => {
     if (!options.unmasked) {
-      zip.file(`${prefix}source-concepts.csv`, await maskedSourceConcepts(buf, project.fileSourceData?.columnMapping))
+      zip.file(
+        `${prefix}source-concepts.csv`,
+        await maskedSourceConcepts(buf, project.fileSourceData?.columnMapping, project.fileSourceData?.parseOptions),
+      )
       return
     }
     const csv = isParquetBuffer(buf) ? await parquetBufferToCsv(buf) : null

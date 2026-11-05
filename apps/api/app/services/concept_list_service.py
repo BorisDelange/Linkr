@@ -1,11 +1,11 @@
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import has_project_permission
 from app.models.concept_list import ConceptList
-from app.models.project import Project
 from app.models.user import User
-from app.models.workspace_member import WorkspaceMember
 from app.schemas.concept_list import ConceptListCreate, ConceptListUpdate
+from app.services import project_service
 
 
 async def list_for_project(db: AsyncSession, project_uid: str) -> list[ConceptList]:
@@ -16,22 +16,21 @@ async def list_for_project(db: AsyncSession, project_uid: str) -> list[ConceptLi
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[ConceptList]:
-    """Concept lists in projects the user can reach (admins see all). The store
-    loads everything then filters by project client-side; scope to accessible
-    workspaces in server mode."""
+    """Concept lists of the projects the user sees (project_service's
+    visibility, "none" overrides included) where they hold `concepts:read` —
+    admins see all. The store loads everything then filters by project
+    client-side."""
     if user.role == "admin":
         result = await db.execute(select(ConceptList))
         return list(result.scalars().all())
 
-    result = await db.execute(
-        select(ConceptList)
-        .join(Project, Project.uid == ConceptList.project_uid)
-        .join(
-            WorkspaceMember,
-            WorkspaceMember.workspace_id == Project.workspace_id,
-        )
-        .where(WorkspaceMember.user_id == user.id)
-    )
+    readable = [
+        p.uid for p in await project_service.list_for_user(db, user)
+        if await has_project_permission(db, p, user, "concepts:read")
+    ]
+    if not readable:
+        return []
+    result = await db.execute(select(ConceptList).where(ConceptList.project_uid.in_(readable)))
     return list(result.scalars().all())
 
 

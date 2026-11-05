@@ -340,3 +340,17 @@ async def test_update_and_delete_checks_in_one_request(client):
     assert r.status_code == 204
     assert list(groups((await client.get(url, headers=headers)).json())) == ["c1"]
     assert len((await client.get(f"{API}/dq-rule-sets/{other}/checks", headers=headers)).json()) == 1
+
+
+async def test_a_run_id_never_moves_a_run_to_another_rule_set(client):
+    headers = await _admin_headers(client)
+    ws_a, ws_b = await _workspace(client, headers), await _workspace(client, headers)
+    ra = await _rule_set(client, headers, ws_a, rid="ra")
+    rb = await _rule_set(client, headers, ws_b, rid="rb")
+    run = {"id": "dq-b", "dataSourceId": "src-1", "startedAt": "2026-10-01T00:00:00Z"}
+    assert (await client.post(f"{API}/dq-run-history", headers=headers, json={**run, "ruleSetId": rb["id"], "status": "failed", "failed": 3})).status_code == 201
+    r = await client.post(f"{API}/dq-run-history", headers=headers, json={**run, "ruleSetId": ra["id"], "status": "success", "failed": 0})
+    assert r.status_code == 409
+    runs = (await client.get(f"{API}/dq-rule-sets/{rb['id']}/runs", headers=headers)).json()
+    assert [(x["id"], x["failed"], x["workspaceId"]) for x in runs] == [("dq-b", 3, ws_b)]
+    assert (await client.get(f"{API}/dq-rule-sets/{ra['id']}/runs", headers=headers)).json() == []

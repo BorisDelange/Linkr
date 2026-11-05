@@ -366,3 +366,17 @@ async def test_quality_cache_requires_pipeline_access(client, db):
     assert (await client.delete(
         f"{API}/etl-pipelines/{p['id']}/quality-cache", headers=other
     )).status_code in (403, 404)
+
+
+async def test_a_run_id_never_moves_a_run_to_another_pipeline(client):
+    headers = await _admin_headers(client)
+    ws_a, ws_b = await _workspace(client, headers), await _workspace(client, headers)
+    pa = await _pipeline(client, headers, ws_a, pid="pa")
+    pb = await _pipeline(client, headers, ws_b, pid="pb")
+    run = {"id": "run-b", "startedAt": "2026-10-01T00:00:00Z"}
+    assert (await client.post(f"{API}/etl-runs", headers=headers, json={**run, "pipelineId": pb["id"], "status": "failed"})).status_code == 201
+    r = await client.post(f"{API}/etl-runs", headers=headers, json={**run, "pipelineId": pa["id"], "status": "success"})
+    assert r.status_code == 409
+    runs = (await client.get(f"{API}/etl-pipelines/{pb['id']}/runs", headers=headers)).json()
+    assert [(x["id"], x["status"]) for x in runs] == [("run-b", "failed")]
+    assert (await client.get(f"{API}/etl-pipelines/{pa['id']}/runs", headers=headers)).json() == []

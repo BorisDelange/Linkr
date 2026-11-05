@@ -291,7 +291,10 @@ async def create_run(
     # Authorized through the pipeline's workspace, which is why pipeline_id is
     # required on the schema rather than optional.
     await _load_pipeline(db, body.pipeline_id, user, "etl:write")
-    run = await etl_pipeline_service.create_run(db, body, user_id=user.id)
+    try:
+        run = await etl_pipeline_service.create_run(db, body, user_id=user.id)
+    except etl_pipeline_service.RunIdTaken as e:
+        raise HTTPException(status.HTTP_409_CONFLICT, "This run id belongs to another pipeline") from e
     await _notify_runs(db, request, user, body.pipeline_id)
     return run
 

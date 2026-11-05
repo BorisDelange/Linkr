@@ -75,7 +75,9 @@ def resolve(language: str, workspace_default: dict | None, env_override: dict) -
     keeping only non-empty values. Returns the effective options for `language`."""
     server = _server_defaults(language)
     ws = _sanitize(language, (workspace_default or {}).get(language) or {})
-    override = _confine_override(_sanitize(language, env_override), (server, ws))
+    override = _confine_override(
+        _sanitize(language, env_override), (server, ws), _mirror_hosts(server, ws)
+    )
     merged = dict(server)
     for layer in (ws, override):
         for k, v in layer.items():
@@ -88,6 +90,24 @@ def _server_defaults(language: str) -> dict:
     if language == "r":
         return {"repos": settings.r_repos}
     return {"indexUrl": settings.pip_index_url}
+
+
+def _mirror_hosts(server: dict, ws: dict) -> set[str]:
+    """When the deployment names its own package mirror (LINKR_PIP_INDEX_URL /
+    LINKR_R_REPOS changed from the public default), the hosts a project's index may
+    use: that mirror's, and those the workspace default itself uses. Empty when the
+    instance keeps the public default."""
+    built_in = {
+        "repos": type(settings).model_fields["r_repos"].default,
+        "indexUrl": type(settings).model_fields["pip_index_url"].default,
+    }
+    configured = [server[k] for k in _URL_KEYS if server.get(k) and server[k] != built_in[k]]
+    if not configured:
+        return set()
+    hosts: set[str] = set()
+    for value in configured + [ws[k] for k in _URL_KEYS if ws.get(k)]:
+        hosts |= _url_hosts(value)
+    return hosts
 
 
 def _sanitize(language: str, data: dict) -> dict:
@@ -113,25 +133,36 @@ def _host(url: str) -> str:
     return (urlsplit(url).hostname or "").lower()
 
 
+def _url_hosts(value: str) -> set[str]:
+    return {_host(part.strip()) for part in value.split(",") if part.strip()}
+
+
 def _is_plain_http(url: str) -> bool:
     return url.lower().startswith("http://")
 
 
-def _confine_override(override: dict, upper_layers: tuple[dict, ...]) -> dict:
+def _confine_override(
+    override: dict, upper_layers: tuple[dict, ...], mirror_hosts: set[str] = frozenset()
+) -> dict:
     """Plain http and trustedHost (TLS checks off) are for an internal mirror the
     administrator (server config) or a workspace owner (workspace default) chose.
     A project's options.json — edited by any editor, and imported with the project
     from git — cannot send package downloads, code the server will run, over an
     unauthenticated channel to a host of its own choosing, nor downgrade a mirror
     an upper layer reaches over https: plain http only to a host an upper layer
-    itself uses over http, trustedHost only as an upper layer set it."""
+    itself uses over http, trustedHost only as an upper layer set it. Once the
+    deployment names its own mirror (`mirror_hosts`), the project's index stays on
+    the hosts the upper layers use, whatever the scheme."""
     http_hosts = {
         _host(v) for layer in upper_layers for k, v in layer.items() if k in _URL_KEYS and _is_plain_http(v)
     }
     trusted = {layer["trustedHost"].lower() for layer in upper_layers if layer.get("trustedHost")}
     out = dict(override)
     for key in _URL_KEYS:
-        if _is_plain_http(out.get(key, "")) and _host(out[key]) not in http_hosts:
+        url = out.get(key, "")
+        downgraded = _is_plain_http(url) and _host(url) not in http_hosts
+        off_mirror = bool(mirror_hosts and url) and not _url_hosts(url) <= mirror_hosts
+        if downgraded or off_mirror:
             out.pop(key, None)
     if out.get("trustedHost") and out["trustedHost"].strip().lower() not in trusted:
         out.pop("trustedHost", None)

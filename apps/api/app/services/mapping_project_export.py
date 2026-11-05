@@ -236,13 +236,18 @@ def _csv_escape(value: Any) -> str:
     return s
 
 
-def _masked_csv_bytes(data: bytes, column_mapping: dict | None) -> bytes:
-    """Small counts and single-patient values masked (export_masking). Bytes that
-    cannot be read cannot be masked, so they raise rather than leave as they are."""
-    text = decode_source_text(data)
+def _masked_csv_bytes(source: bytes, file_source: dict | None) -> bytes:
+    """The source concepts as CSV (`_as_csv_bytes`), small counts and
+    single-patient values masked (export_masking), the file read with the parse
+    options the app reads it with — a Parquet source has none, its CSV is ours.
+    Bytes that cannot be read cannot be masked, so they raise rather than leave
+    as they are."""
+    file_source = file_source or {}
+    parse_options = None if source.startswith(_PARQUET_MAGIC) else file_source.get("parseOptions")
+    text = decode_source_text(_as_csv_bytes(source))
     if text is None:
         raise SourceConceptsUnreadable()
-    return mask_source_concepts_csv(text, column_mapping).encode("utf-8")
+    return mask_source_concepts_csv(text, file_source.get("columnMapping"), None, parse_options).encode("utf-8")
 
 
 def _as_csv_bytes(source: bytes) -> bytes:
@@ -320,9 +325,7 @@ def build_mapping_project_tree(
     if source_csv and (
         project.get("sourceType") == "file" or project.get("fileSourceData")
     ):
-        tree["source-concepts.csv"] = _masked_csv_bytes(
-            _as_csv_bytes(source_csv), (project.get("fileSourceData") or {}).get("columnMapping")
-        )
+        tree["source-concepts.csv"] = _masked_csv_bytes(source_csv, project.get("fileSourceData") or {})
 
     # source-concept-ids/: written only when the project has assigned ids. The
     # whole folder is skipped when both are empty (matches the TS no-op).

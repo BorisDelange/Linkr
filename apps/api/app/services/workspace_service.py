@@ -3,6 +3,7 @@ import shutil
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core import path_ids
 from app.core.permissions import global_grant_role
 from app.models.project import Project
 from app.models.user import User
@@ -92,7 +93,8 @@ async def delete(db: AsyncSession, workspace: Workspace) -> None:
     # Disk cleanup after the DB commit — see project_service.delete for the
     # same reasoning (per-project dirs are never shared; blobs may be).
     for project_uid in project_uids:
-        shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
+        if path_ids.is_safe_segment(project_uid):
+            shutil.rmtree(project_fs.project_dir(project_uid), ignore_errors=True)
     # Remove the versioning working trees that would otherwise be orphaned: the
     # workspace's own, and each of its mapping projects'.
     git_service.remove_repo("workspaces", workspace_id)
@@ -101,5 +103,6 @@ async def delete(db: AsyncSession, workspace: Workspace) -> None:
     # The vocabulary library's partitions are the workspace's own files.
     from app.services import vocabulary_library
 
-    shutil.rmtree(vocabulary_library.library_dir(workspace_id), ignore_errors=True)
+    if path_ids.is_safe_segment(workspace_id):
+        shutil.rmtree(vocabulary_library.library_dir(workspace_id), ignore_errors=True)
     await blob_cleanup.deref_blobs(db, shas)

@@ -17,26 +17,18 @@ from app.schemas.mapping_project import (
 from app.services import (
     attachment_service,
     author_provenance,
-    blob_store,
+    blob_cleanup,
     change_tracking,
     git_secret,
 )
 from app.services.data.mapping_status import effective_mapping_status, source_key
 
 
-async def _sha_still_referenced(db: AsyncSession, sha: str) -> bool:
-    """Whether any other mapping project still points at this content blob."""
-    q = select(MappingProject.id).where(
-        MappingProject.raw_file_sha == sha
-    ).limit(1)
-    return (await db.execute(q)).first() is not None
-
-
 async def _forget_blob(db: AsyncSession, sha: str | None) -> None:
     """Delete an orphaned source-CSV blob once no row references it (the store is
     content-addressed + shared, so a reference check is required before removal)."""
-    if sha and not await _sha_still_referenced(db, sha):
-        await blob_store.delete(sha)
+    if sha:
+        await blob_cleanup.deref_blobs(db, {sha})
 
 
 # --- Mapping projects ------------------------------------------------------

@@ -1,10 +1,11 @@
 from datetime import datetime
 
+from app.core.path_ids import SafeId
 from app.schemas.base import CamelModel
 
 
 class UserPluginCreate(CamelModel):
-    id: str
+    id: SafeId
     entity_id: str | None = None
     workspace_id: str  # required — plugins are always workspace-scoped
     # README + licence ({id, name?, text}); the licence text travels as LICENSE.md

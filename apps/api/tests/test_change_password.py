@@ -3,11 +3,12 @@ did not exist. Current password required, a server-side policy, logged. A change
 ends every session issued before it; the caller gets fresh tokens."""
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
 from jose import jwt
+from sqlalchemy import update
 
 from app.config import settings
 from app.core import audit
@@ -19,6 +20,8 @@ from app.core.security import (
     predates_password_change,
     set_password,
 )
+
+from app.models.user import User
 
 API = "/api/v1"
 
@@ -88,14 +91,23 @@ def _earlier_token(user_id: int, kind: str) -> str:
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
+async def _age_account(db, user_id: int) -> None:
+    """Move the account's creation stamp before `_earlier_token`'s issue time:
+    a token older than the account is refused on its own."""
+    await db.execute(update(User).where(User.id == user_id).values(
+        password_changed_at=datetime.now(timezone.utc) - timedelta(minutes=1)))
+    await db.commit()
+
+
 async def _admin_id(client) -> int:
     await client.post(f"{API}/setup/initialize", json={"username": "admin", "password": "pw-for-tests-only"})
     h = await _login(client)
     return (await client.get(f"{API}/auth/me", headers=h)).json()["id"]
 
 
-async def test_a_change_ends_the_sessions_issued_before_it(client):
+async def test_a_change_ends_the_sessions_issued_before_it(client, db):
     admin_id = await _admin_id(client)
+    await _age_account(db, admin_id)
     stolen = {"Authorization": f"Bearer {_earlier_token(admin_id, 'access')}"}
     stolen_refresh = _earlier_token(admin_id, "refresh")
     assert (await client.get(f"{API}/auth/me", headers=stolen)).status_code == 200
@@ -130,10 +142,11 @@ def test_the_tokens_minted_after_a_change_are_current():
         assert not predates_password_change(decode_token(token), user)
 
 
-async def test_an_admin_reset_ends_the_users_sessions(client):
+async def test_an_admin_reset_ends_the_users_sessions(client, db):
     await _admin_id(client)
     h = await _login(client)
     bob = (await client.post(f"{API}/users", headers=h, json={"username": "bob", "password": "bob-first-password"})).json()
+    await _age_account(db, bob["id"])
     stolen = {"Authorization": f"Bearer {_earlier_token(bob['id'], 'access')}"}
     assert (await client.get(f"{API}/auth/me", headers=stolen)).status_code == 200
     r = await client.patch(f"{API}/users/{bob['id']}", headers=h, json={"password": "bob-second-password"})

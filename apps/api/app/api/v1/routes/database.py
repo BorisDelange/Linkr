@@ -5,9 +5,11 @@ read-only SELECT and introspect the schema of the app DB itself (SQLite or
 Postgres), reached through the SQLAlchemy async engine — not the DuckDB ATTACH
 path used for external data sources.
 
-Read-only is enforced two ways: only a single SELECT/WITH statement is accepted,
-and it runs in a transaction that is always rolled back, so nothing can be
-written even if a driver would otherwise allow it. Gated by the global
+Read-only is enforced by the database itself: the statement runs on a connection
+switched to read-only (SQLite `PRAGMA query_only`, otherwise a READ ONLY
+transaction), which is always rolled back. A statement that starts with SELECT or
+WITH does not have to be a read (SQLite accepts `WITH … UPDATE`), so the keyword
+check below only gives a clear message early; it is not the barrier. Gated by the global
 "app-database:read" permission (admin-only by default) because the app DB holds
 every table, including password hashes and encrypted connection secrets.
 """
@@ -110,8 +112,13 @@ async def query_app_database(
             status.HTTP_400_BAD_REQUEST,
             "Only a single read-only SELECT (or WITH … SELECT) statement is allowed.",
         )
+    # Start a fresh transaction: a READ ONLY mode must be set before its first query.
+    await db.rollback()
+    conn = await db.connection()
+    is_sqlite = conn.dialect.name == "sqlite"
+    await conn.exec_driver_sql("PRAGMA query_only = ON" if is_sqlite else "SET TRANSACTION READ ONLY")
     try:
-        result = await db.execute(text(body.sql))
+        result = await conn.execute(text(body.sql))
         cols = list(result.keys())
         rows = [
             {c: _jsonable(v) for c, v in zip(cols, row)}
@@ -120,7 +127,14 @@ async def query_app_database(
     except Exception as e:  # noqa: BLE001 — surface the DB error to the admin UI
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(e))
     finally:
-        # Never persist anything a read query might have triggered.
+        # query_only belongs to the pooled connection, not the transaction: it must
+        # be lifted before the connection goes back to the pool, or the connection
+        # is discarded.
+        if is_sqlite:
+            try:
+                await conn.exec_driver_sql("PRAGMA query_only = OFF")
+            except Exception:  # noqa: BLE001
+                await conn.invalidate()
         await db.rollback()
     return QueryResult(rows=rows)
 

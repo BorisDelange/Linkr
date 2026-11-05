@@ -12,7 +12,7 @@ from app.schemas.concept_set import (
     ConceptSetResponse,
     ConceptSetUpdate,
 )
-from app.services import concept_set_service
+from app.services import concept_set_service, data_dictionary_service
 
 router = APIRouter(prefix="/concept-sets", tags=["concept-sets"])
 
@@ -23,6 +23,15 @@ async def _load(db: AsyncSession, concept_set_id: str, user: User, permission: s
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     await check_workspace_permission(db, concept_set.workspace_id, user, permission)
     return concept_set
+
+
+async def _check_dictionary(db: AsyncSession, dictionary_id: str | None, workspace_id: str) -> None:
+    """A set is only ever bound to a dictionary of its own workspace."""
+    if dictionary_id is None:
+        return
+    dictionary = await data_dictionary_service.get(db, dictionary_id)
+    if dictionary is None or dictionary.workspace_id != workspace_id:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unknown data dictionary")
 
 
 @router.get("", response_model=list[ConceptSetResponse])
@@ -52,6 +61,7 @@ async def create_concept_set(
     db: AsyncSession = Depends(get_db),
 ):
     await check_workspace_permission(db, body.workspace_id, user, "concept-mapping:write")
+    await _check_dictionary(db, body.dictionary_id, body.workspace_id)
     return await concept_set_service.create(db, body)
 
 
@@ -89,6 +99,7 @@ async def update_concept_set(
     db: AsyncSession = Depends(get_db),
 ):
     concept_set = await _load(db, concept_set_id, user, "concept-mapping:write")
+    await _check_dictionary(db, body.dictionary_id, concept_set.workspace_id)
     return await concept_set_service.update(db, concept_set, body)
 
 

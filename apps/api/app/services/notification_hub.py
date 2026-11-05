@@ -20,11 +20,29 @@ def subscribe(user_id: int) -> asyncio.Queue:
 
 
 def unsubscribe(user_id: int, queue: asyncio.Queue) -> None:
+    if user_id not in _subscribers:
+        return
     _subscribers[user_id].discard(queue)
     if not _subscribers[user_id]:
         del _subscribers[user_id]
         # No tab left open: the last position no longer says where the user is.
         _contexts.pop(user_id, None)
+
+
+# Queued to a socket to end it: its account is gone.
+CLOSE = None
+
+
+def drop_user(user_id: int) -> None:
+    """End every open socket of a deleted account and forget where it was."""
+    _contexts.pop(user_id, None)
+    for queue in _subscribers.pop(user_id, set()):
+        while True:
+            try:
+                queue.put_nowait(CLOSE)
+                break
+            except asyncio.QueueFull:
+                queue.get_nowait()
 
 
 def set_context(user_id: int, context: dict) -> None:

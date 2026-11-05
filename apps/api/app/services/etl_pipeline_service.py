@@ -141,6 +141,10 @@ async def get_run(db: AsyncSession, run_id: str) -> EtlRunHistory | None:
     return await db.get(EtlRunHistory, run_id)
 
 
+class RunIdTaken(ValueError):
+    """A run id already recorded under another pipeline."""
+
+
 async def create_run(
     db: AsyncSession, data: EtlRunHistoryCreate, user_id: int | None = None
 ) -> EtlRunHistory:
@@ -153,6 +157,9 @@ async def create_run(
         # Attributed once, at creation: later ticks must not reassign the run to
         # whoever happened to PUT it.
         run.created_by_id = user_id
+    elif run.pipeline_id != data.pipeline_id:
+        # The pipeline the caller was authorized on is the run's own, never another's.
+        raise RunIdTaken(data.id)
     for key, value in payload.items():
         setattr(run, key, value)
     db.add(run)

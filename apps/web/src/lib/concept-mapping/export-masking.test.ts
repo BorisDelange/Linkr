@@ -1,7 +1,13 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { EXPORT_MIN_COUNT, maskFrequency, maskSourceConceptsCsv, setExportMinCount } from './export-masking'
+import {
+  EXPORT_MIN_COUNT,
+  maskFrequency,
+  maskSourceConceptsCsv,
+  setExportMinCount,
+  SourceConceptsUnreadableError,
+} from './export-masking'
 
 // Shared with apps/api/tests/test_export_masking.py: the two sides must emit the
 // same bytes, or front-only and server clients would fight over the file in git.
@@ -23,6 +29,19 @@ describe('maskSourceConceptsCsv', () => {
   it('follows the project column mapping and the file delimiter', () => {
     expect(maskSourceConceptsCsv(read('input-semicolon.csv'), { recordCountColumn: 'n_records' }, 11))
       .toBe(read('expected-semicolon.csv'))
+  })
+
+  it('reads the file with its parse options: lines skipped, delimiter, no header', () => {
+    const skipPipe = { skipRows: 2, delimiter: '|' }
+    const mapping = { patientCountColumn: 'n_pat', recordCountColumn: 'n_rec' }
+    expect(maskSourceConceptsCsv(read('input-skip-pipe.csv'), mapping, 11, skipPipe)).toBe(read('expected-skip-pipe.csv'))
+    expect(maskSourceConceptsCsv(read('input-no-header.csv'), { patientCountColumn: 'column2' }, 11, { hasHeader: false }))
+      .toBe(read('expected-no-header.csv'))
+  })
+
+  it('refuses a file that lacks a count column the mapping names', () => {
+    const mapping = { patientCountColumn: 'n_pat', recordCountColumn: 'n_rec' }
+    expect(() => maskSourceConceptsCsv(read('input-skip-pipe.csv'), mapping, 11)).toThrow(SourceConceptsUnreadableError)
   })
 
   it('drops a byte order mark, as the server does', () => {

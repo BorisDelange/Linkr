@@ -266,3 +266,13 @@ def test_native_parquet_columns_aliased_to_ids(tmp_path):
 
     distinct = distinct_values(path, "col_gender", columns=columns)
     assert distinct["values"] == ["F", "M"]
+
+
+def test_a_file_name_with_a_quote_is_read_like_any_other(tmp_path):
+    cols = [{"id": "c0", "type": "string"}]
+    named = tmp_path / "it's.parquet"
+    write_parquet([{"c0": "a"}, {"c0": "b"}], cols).rename(named)
+    assert [r["c0"] for r in read_parquet(named)] == ["a", "b"]
+    rows, total = query_page(named, {"c0": "string"}, columns=[{"id": "c0", "name": "c0"}])
+    assert total == 2 and [r["c0"] for r in rows] == ["a", "b"]
+    assert write_parquet([{"c0": "a"}], cols, dir=tmp_path / "it's").is_file()

@@ -295,3 +295,36 @@ async def test_import_env_spec_rejects_unknown_and_traversal_names(client):
             json={"files": [{"name": bad, "content": "x"}]},
         )
         assert r.status_code == 400, bad
+
+
+async def test_running_the_package_manager_takes_ide_execute(client, db, fake_provisioner):
+    """Resolving, installing and building packages runs their code on the server:
+    ide:write alone edits the environment's spec and options, never builds it."""
+    from app.core.security import hash_password
+    from app.models.project_member import ProjectMember
+    from app.models.role import Role
+    from app.models.user import User
+
+    headers = await _admin_headers(client)
+    uid = await _project(client, headers)
+    bob = User(username="bob", password_hash=hash_password("pw-for-tests-only"), role="user")
+    db.add(bob)
+    db.add(Role(name="ide-writer", scope="workspace", permissions=["projects:read", "ide:read", "ide:write"]))
+    await db.commit()
+    db.add(ProjectMember(project_uid=uid, user_id=bob.id, role="ide-writer"))
+    await db.commit()
+    r = await client.post(f"{API}/auth/login", json={"username": "bob", "password": "pw-for-tests-only"})
+    bob_h = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    base = f"{API}/projects/{uid}/environments/python"
+
+    assert (await client.put(f"{base}/options", headers=bob_h, json={})).status_code == 200
+    for method, path, kwargs in (
+        ("post", "/build", {}),
+        ("post", "/packages", {"json": {"packages": ["pandas"]}}),
+        ("delete", "/packages/pandas", {}),
+        ("post", "/preset", {}),
+        ("post", "/upgrade", {}),
+    ):
+        r = await getattr(client, method)(f"{base}{path}", headers=bob_h, **kwargs)
+        assert r.status_code == 403, path
+    assert (await client.post(f"{base}/build", headers=headers)).status_code == 200

@@ -1,11 +1,11 @@
 from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.permissions import has_project_permission
 from app.models.pipeline import Pipeline
-from app.models.project import Project
 from app.models.user import User
-from app.models.workspace_member import WorkspaceMember
 from app.schemas.pipeline import PipelineCreate, PipelineUpdate
+from app.services import project_service
 
 
 async def list_for_project(db: AsyncSession, project_uid: str) -> list[Pipeline]:
@@ -16,25 +16,22 @@ async def list_for_project(db: AsyncSession, project_uid: str) -> list[Pipeline]
 
 
 async def list_for_user(db: AsyncSession, user: User) -> list[Pipeline]:
-    """Pipelines in projects the user can reach (admins see all).
+    """Pipelines of the projects the user sees (project_service's visibility,
+    "none" overrides included) where they hold `pipeline:read` — admins see all.
 
-    The pipeline store loads everything then filters by project client-side; in
-    server mode we scope to the user's accessible workspaces instead of exposing
-    every project's pipelines.
+    The pipeline store loads everything then filters by project client-side.
     """
     if user.role == "admin":
         result = await db.execute(select(Pipeline))
         return list(result.scalars().all())
 
-    result = await db.execute(
-        select(Pipeline)
-        .join(Project, Project.uid == Pipeline.project_uid)
-        .join(
-            WorkspaceMember,
-            WorkspaceMember.workspace_id == Project.workspace_id,
-        )
-        .where(WorkspaceMember.user_id == user.id)
-    )
+    readable = [
+        p.uid for p in await project_service.list_for_user(db, user)
+        if await has_project_permission(db, p, user, "pipeline:read")
+    ]
+    if not readable:
+        return []
+    result = await db.execute(select(Pipeline).where(Pipeline.project_uid.in_(readable)))
     return list(result.scalars().all())
 
 

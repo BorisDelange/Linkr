@@ -173,6 +173,20 @@ def forget_session_logins(user_id: int) -> None:
             del _session[key]
 
 
+async def forget_user(db: AsyncSession, user_id: int) -> None:
+    """Drop everything kept for a deleted account outside its own rows: its
+    session-only logins, the connections opened as it and the statistics
+    computed through them."""
+    from app.models.stats_cache import StatsCache
+    from app.services.data import connection_pool
+
+    forget_session_logins(user_id)
+    principal = f"user:{user_id}"
+    connection_pool.invalidate_principal(principal)
+    await db.execute(sa_delete(StatsCache).where(StatsCache.cache_key.endswith(f":{principal}", autoescape=True)))
+    await db.commit()
+
+
 def _forget_session(source_id: str, user_id: int | None = None, purpose: str | None = None) -> None:
     with _session_lock:
         for key in [

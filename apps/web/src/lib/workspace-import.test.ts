@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { importedDatabaseLineage, importedPresetLanding } from './workspace-import'
+import { importedDatabaseLineage, importedPresetLanding, importedProjectUid } from './workspace-import'
 
 const REMOTE = { url: 'https://framagit.org/g/mimic-iv-demo', branch: 'main' }
 
@@ -80,5 +80,27 @@ describe('importedPresetLanding', () => {
       { id: 'mimic-iv', lineageId: 'lin-1' }, 'mimic-iv', 'local-abc', { workspaceId: WS }, WS, true, counter(),
     )
     expect(id).toBe('minted-1')
+  })
+})
+
+describe('importedProjectUid', () => {
+  const WS = 'ws-target'
+  const mint = () => 'minted'
+  const holding = (workspaceId?: string) => async () => (workspaceId ? { workspaceId } : undefined)
+
+  it('takes the tree key when no project holds it', async () => {
+    expect(await importedProjectUid(holding(), 'icu-mortality', WS, false, mint)).toBe('icu-mortality')
+  })
+
+  it('overwrites in place a project already in the target workspace', async () => {
+    expect(await importedProjectUid(holding(WS), 'icu-mortality', WS, false, mint)).toBe('icu-mortality')
+  })
+
+  it('never lands on a project of another workspace', async () => {
+    expect(await importedProjectUid(holding('ws-other'), 'icu-mortality', WS, false, mint)).toBe('minted')
+  })
+
+  it('always mints on a duplicate', async () => {
+    expect(await importedProjectUid(holding(), 'icu-mortality', WS, true, mint)).toBe('minted')
   })
 })

@@ -59,9 +59,9 @@ WORKSPACE_CATALOGUE: dict[str, list[str]] = {
     # lists, which ARE authored on this page.
     "concepts": RWD,
     "cohorts": RWD,
-    # execute = render widgets/analyses (run their author-defined code). It's a
-    # view-time operation, so viewer gets it by default (see _catalogue_perms),
-    # yet it stays separable from ide:execute (arbitrary code in the IDE).
+    # execute = render widgets/analyses that run author-defined code. Running
+    # client-sent code through /execute always needs ide:execute as well: this
+    # permission narrows who may run a widget, it never grants free-form code.
     "patient-data": ["read", "write", "delete", "execute"],
     "datasets": ["read", "write", "delete", "execute"],
     "dashboards": ["read", "write", "delete", "execute"],
