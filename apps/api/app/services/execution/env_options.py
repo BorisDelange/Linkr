@@ -110,6 +110,17 @@ def _mirror_hosts(server: dict, ws: dict) -> set[str]:
     return hosts
 
 
+def confined_hosts(language: str, options: dict) -> set[str]:
+    """When the deployment names its own package mirror, the hosts a package may
+    come from: the mirror's and the effective index's (which `resolve` already kept
+    on the mirror's hosts). Empty when the instance keeps the public default."""
+    server = _server_defaults(language)
+    if not _mirror_hosts(server, {}):
+        return set()
+    key = _URL_KEYS[0] if language == "r" else _URL_KEYS[1]
+    return _url_hosts(server[key]) | _url_hosts(options.get(key) or "")
+
+
 def _sanitize(language: str, data: dict) -> dict:
     """Keep only allowed keys with string values; validate the R method and any
     repo/index URL. An invalid value is DROPPED (the next layer — ultimately the

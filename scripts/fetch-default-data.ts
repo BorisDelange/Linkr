@@ -28,7 +28,7 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // Relative paths, not `@linkr/format`: the workspace link is not installed in
@@ -95,11 +95,12 @@ function cacheKey(url, ref) {
  */
 function cloneCached(url, ref, label) {
   const dest = join(CACHE_DIR, cacheKey(url, ref))
-  if (existsSync(join(dest, '.git')) && !cachedCloneMatches(dest, url)) {
+  if (existsSync(join(dest, '.git')) && !(isPlainClone(dest) && cachedCloneMatches(dest, url))) {
     log(`${label}: cached clone does not point at ${url}, cloning afresh`)
     rmSync(dest, { recursive: true, force: true })
   }
   if (existsSync(join(dest, '.git'))) {
+    resetGitConfig(dest, url)
     if (OFFLINE) {
       log(`${label}: cached`)
       return dest
@@ -150,8 +151,36 @@ function cloneCached(url, ref, label) {
  */
 function git(cwd, args) {
   return execFileSync('git', [
-    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...args,
+    '-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', '-c', 'core.attributesFile=/dev/null', ...args,
   ], { cwd, stdio: 'pipe', encoding: 'utf-8' }).trim()
+}
+
+/** Whether `dest` and its `.git` are real folders, not links to elsewhere. */
+function isPlainClone(dest) {
+  try {
+    return [dest, join(dest, '.git')].every((p) => {
+      const st = lstatSync(p)
+      return st.isDirectory() && !st.isSymbolicLink()
+    })
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Replace a cached clone's `.git/config` with a fresh one naming only `url`: a
+ * cache restored from elsewhere (CI) may carry a config whose filters, hooks or
+ * helpers git would run on the next command.
+ */
+function resetGitConfig(dest, url) {
+  writeFileSync(join(dest, '.git', 'config'), [
+    '[core]',
+    '\trepositoryformatversion = 0',
+    '\tbare = false',
+    '[remote "origin"]',
+    `\turl = ${url}`,
+    '',
+  ].join('\n'))
 }
 
 /** Whether the cached clone at `dest` is a clone of `url`. */

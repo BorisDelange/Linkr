@@ -22,7 +22,9 @@ from pathlib import Path
 from app.config import settings
 from app.services.execution.child_env import child_env
 
-PACKAGES = ["sentence-transformers>=3", "huggingface_hub", "numpy", "duckdb"]
+# torch 2.6 / transformers 4.50 are the first to load weights with torch.load's
+# weights_only, which refuses to run code from a pickle.
+PACKAGES = ["sentence-transformers>=3", "torch>=2.6", "transformers>=4.50", "huggingface_hub", "numpy", "duckdb"]
 WORKER = Path(__file__).with_name("worker.py")
 
 

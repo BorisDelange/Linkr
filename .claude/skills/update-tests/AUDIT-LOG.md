@@ -5,6 +5,20 @@ Each audit covers the commits since the previous entry's `Last audited commit`.
 
 ---
 
+## 2026-11-05 — Demo ETL pipeline run whole on the server
+
+- Range: scoped to the server ETL runner and the vocabulary fill script generator (`query()` refused in pipeline scripts, fill script reading `linkr_target_concept_ids`), uncommitted on security/review-2026-11-05 over 41cf36c4a — not a commit range
+- Last audited commit: 41cf36c4a
+- Added:
+  - tier `npm run test:etl` (`scripts/test-etl.mjs`) — prints the current fill script (`tests/etl-demo/fill-vocabulary-script.ts`, the Vocabulary tab's builder) into `.cache/etl-demo/`, runs the test below, prints `report.json`
+  - API (slow, skipped without the tier) `apps/api/tests/test_etl_demo_pipeline.py` — MIMIC-IV demo + demo vocabulary as server-path Parquet folders, an OMOP 5.4 target from the schema DDL, the 31 scripts of `mimic-iv-demo-omop-cdm` posted to `…/etl-run` in tree order with the regenerated fill script; the seeded fill script refused with the regenerate hint; 100 persons, one observation period each, deaths = dates of death (31), a visit per admission, a note per discharge, clinical tables and eras filled, one `cdm_source`, `90_tests.sql` without `fail` outside the mapping rates, standard concepts pruned (13,677 of 14,937), every used concept the vocabulary holds copied, no staging table left
+- Updated: `docs/testing.md` (tier table, § Demo ETL pipeline, slow tests), run-tests skill (tier `etl`, diff rule, `full` = six tiers), root `package.json` (`test:etl`)
+- Removed: none
+- Known bugs re-checked: none tagged
+- Left for later: the three `90_tests.sql` mapping-rate thresholds fail on the demo (diagnoses 74.6 % < 80 %, ICD procedures 80.5 % < 90 %) and 14 hard-coded SNOMED ids (routes, operators, note language, discharge) are absent from target.concept — both because the demo vocabulary holds only redistributable terminologies; tolerated by the test, a content question for linkr-public-content (thresholds or a vocabulary-aware check). The pipeline is run through `etl-run`, not the UI's Run all / `etl-jobs` path, and not in the client (WASM) mode.
+
+---
+
 ## 2026-10-19 — End-to-end journeys for the missing areas
 
 - Range: e2e coverage of the app as of 8fe04fa42 (first audit; scoped to the journeys, not a commit range)

@@ -384,6 +384,10 @@ async def _load_run(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     if run.rule_set_id:
         await _load_rule_set(db, run.rule_set_id, user, permission)
+    elif run.workspace_id:
+        await check_workspace_permission(db, run.workspace_id, user, permission)
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
     return run
 
 

@@ -20,6 +20,7 @@
     "test-data": "node scripts/test-data.mjs",
     "test:spe": "node scripts/test-spe.mjs",
     "test:versioning": "node scripts/test-versioning.mjs",
+    "test:etl": "node scripts/test-etl.mjs",
     "dev:web": "cd apps/web && npm run dev",
     "dev:client": "cd apps/web && npm run dev:client",
     "build:client": "cd apps/web && npm run build:client",

@@ -151,3 +151,107 @@ def test_ensure_kernel_r_lib_reports_a_failed_install(monkeypatch, tmp_path):
     logs: list[str] = []
     R.ensure_kernel_r_lib(on_log=logs.append)
     assert logs and "exit 1" in logs[0] and "cannot open URL" in logs[0]
+
+
+_MIRROR = "https://cran.chu.local/latest"
+
+
+def _lock_with(tmp_path, monkeypatch, packages: dict):
+    spec = tmp_path / "environments" / "r"
+    spec.mkdir(parents=True, exist_ok=True)
+    (spec / "renv.lock").write_text(json.dumps({
+        "R": {"Repositories": [{"Name": "CRAN", "URL": _MIRROR}]},
+        "Packages": {name: {"Package": name, "Version": "1.0.0", **record} for name, record in packages.items()},
+    }))
+    monkeypatch.setattr(R.project_fs, "env_spec_dir", lambda uid, lang: spec)
+    monkeypatch.setattr(R, "_library_dir", lambda uid: tmp_path / "lib")
+    monkeypatch.setattr(R.project_fs, "r_sandbox", lambda: tmp_path / "sandbox")
+    monkeypatch.setattr(R, "ensure_r_sandbox", lambda on_log=None: None)
+
+
+def _r_mirror(monkeypatch, url=_MIRROR):
+    monkeypatch.setattr(R.settings, "r_repos", url)
+
+
+_GITHUB = {"Source": "GitHub", "RemoteType": "github", "RemoteUsername": "someone", "RemoteRepo": "glue"}
+
+
+def test_without_a_mirror_a_lockfile_package_keeps_its_own_source(tmp_path, monkeypatch):
+    _lock_with(tmp_path, monkeypatch, {"glue": _GITHUB})
+    calls = []
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: calls.append(code) or "")
+
+    R._require_mirror_sources("p", {})
+    R.add_packages("p", ["dplyr"])
+    assert calls
+
+
+def test_under_a_mirror_a_lockfile_package_from_github_is_refused(tmp_path, monkeypatch):
+    _r_mirror(monkeypatch)
+    _lock_with(tmp_path, monkeypatch, {"glue": _GITHUB, "dplyr": {"Source": "Repository", "Repository": "CRAN"}})
+    calls = []
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: calls.append(code) or "")
+
+    with pytest.raises(R.ProvisionError, match="package glue comes from GitHub, not from the deployment's package mirror"):
+        R.add_packages("p", ["tidyr"])
+    with pytest.raises(R.ProvisionError, match="glue"):
+        R.upgrade("p")
+    result = R.asyncio.run(R.build("p"))
+    assert not result.ok and "package glue comes from GitHub" in result.log
+    assert "dplyr" not in result.log
+    assert not calls
+
+
+@pytest.mark.parametrize("record", [
+    {"Source": "Repository", "Repository": "CRAN"},
+    {"Source": "Repository", "Repository": _MIRROR},
+    {"Source": "Repository", "Repository": "RSPM", "RemoteRepos": _MIRROR},
+])
+def test_under_a_mirror_a_repository_package_installs_from_the_mirror(tmp_path, monkeypatch, record):
+    _r_mirror(monkeypatch)
+    _lock_with(tmp_path, monkeypatch, {"dplyr": record})
+    calls = []
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: calls.append(code) or "")
+
+    R._require_mirror_sources("p", {})
+    R.add_packages("p", ["tidyr"])
+    assert calls
+
+
+@pytest.mark.parametrize("record, origin", [
+    ({"Source": "Repository", "Repository": "https://elsewhere.example/cran"}, "elsewhere.example"),
+    ({"Source": "Repository", "Repository": "CRAN", "RemoteRepos": "https://elsewhere.example"}, "elsewhere.example"),
+    ({"Source": "Bioconductor"}, "Bioconductor"),
+    ({"Source": "URL", "RemoteUrl": "https://elsewhere.example/glue.tar.gz"}, "a URL"),
+    ({"Source": "Local", "RemoteUrl": "/srv/glue"}, "a local path"),
+    ({}, "an unknown source"),
+])
+def test_under_a_mirror_a_lockfile_package_outside_the_mirror_is_refused(tmp_path, monkeypatch, record, origin):
+    _r_mirror(monkeypatch)
+    _lock_with(tmp_path, monkeypatch, {"glue": record})
+    with pytest.raises(R.ProvisionError, match=f"package glue comes from {origin},"):
+        R._require_mirror_sources("p", {})
+
+
+@pytest.mark.parametrize("spec", ["someone/glue", "github::someone/glue", "https://elsewhere.example/glue.tar.gz"])
+def test_under_a_mirror_a_package_named_by_another_source_is_refused(tmp_path, monkeypatch, spec):
+    _r_mirror(monkeypatch)
+    _lock_with(tmp_path, monkeypatch, {})
+    calls = []
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: calls.append(code) or "")
+    with pytest.raises(ValueError):
+        R.add_packages("p", [spec])
+    assert not calls
+
+
+@pytest.mark.parametrize("spec", ["glue_1.0.0.tar.gz", "renv.lock"])
+def test_under_a_mirror_a_package_named_by_a_file_is_refused(tmp_path, monkeypatch, spec):
+    _r_mirror(monkeypatch)
+    _lock_with(tmp_path, monkeypatch, {})
+    calls = []
+    monkeypatch.setattr(R, "_run_r", lambda uid, code, on_log=None, options=None: calls.append(code) or "")
+    with pytest.raises(R.ProvisionError, match="not from the deployment's package mirror"):
+        R.add_packages("p", [spec])
+    with pytest.raises(R.ProvisionError, match="not from the deployment's package mirror"):
+        R.upgrade("p", spec)
+    assert not calls

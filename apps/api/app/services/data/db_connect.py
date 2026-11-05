@@ -559,21 +559,25 @@ _FORBIDDEN_IN_USER_SQL = re.compile(
 # Functions that send SQL to an attached database past its READ_ONLY flag
 # (community_engines, and the postgres/mysql extensions' `*_execute`), or that run
 # a statement held in a string, which hides any of those from this token check
-# (`json_execute_serialized_sql(json_serialize_sql('…'))`). Where a SQL Server or
-# Oracle database is attached, `query()` and `query_table()` too: they would build
-# such a call from a string. Elsewhere a script may use them (the vocabulary prune
-# script runs `query(getvariable(...))`).
+# (`json_execute_serialized_sql(json_serialize_sql('…'))`). `query()` and
+# `query_table()` too, in a pipeline script or a cohort query always, elsewhere
+# where a database with such a function is attached: they would build the call
+# from a string.
 _PASSTHROUGH_CALL = re.compile(r"(MSSQL_|ORACLE_)\w+|POSTGRES_EXECUTE|MYSQL_EXECUTE|JSON_EXECUTE_SERIALIZED_SQL")
 _DYNAMIC_SQL_CALL = re.compile(r"QUERY|QUERY_TABLE")
+_PASSTHROUGH_ENGINES = frozenset({"postgres", "mysql", "mssql"})
 
 
-def _has_community_attach(con: duckdb.DuckDBPyConnection) -> bool:
-    """Whether a SQL Server or Oracle database is reachable from `con`: SQL Server
-    attached, or Oracle's views over oracle_query (community_engines). Read before
-    a script runs, so a statement dropping them cannot lift the guard."""
+def _has_passthrough_attach(con: duckdb.DuckDBPyConnection) -> bool:
+    """Whether a database that runs SQL handed to it as text is reachable from
+    `con`: PostgreSQL, MySQL or SQL Server attached, or Oracle's views over
+    oracle_query (community_engines). Read before a script runs, so a statement
+    dropping them cannot lift the guard."""
+    types = {str(t).lower() for (t,) in con.execute("SELECT DISTINCT type FROM duckdb_databases()").fetchall()}
+    if types & _PASSTHROUGH_ENGINES:
+        return True
     return bool(con.execute(
-        "SELECT (SELECT COUNT(*) FROM duckdb_databases() WHERE type = 'mssql') "
-        "+ (SELECT COUNT(*) FROM duckdb_views() WHERE sql ILIKE '%oracle_query(%')"
+        "SELECT COUNT(*) FROM duckdb_views() WHERE sql ILIKE '%oracle_query(%'"
     ).fetchall()[0][0])
 
 
@@ -594,15 +598,29 @@ def _materialization_left_to_duckdb(stmt: str) -> str:
     return stmt
 
 
-def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False) -> None:
+def _reject_passthrough_calls(stmt: str, dynamic_sql: bool = False, dynamic_hint: str = "") -> None:
     texts = [(t.strip('"'), kind) for t, kind in _token_texts(stmt)]
     for i, (text, kind) in enumerate(texts[:-1]):
-        if kind in (duckdb.token_type.identifier, duckdb.token_type.keyword) and texts[i + 1][0].startswith("(") \
-                and (_PASSTHROUGH_CALL.fullmatch(text) or (dynamic_sql and _DYNAMIC_SQL_CALL.fullmatch(text))):
+        if kind not in (duckdb.token_type.identifier, duckdb.token_type.keyword) or not texts[i + 1][0].startswith("("):
+            continue
+        if _PASSTHROUGH_CALL.fullmatch(text):
             raise ValueError(f"{text.lower()}() is not allowed: it would run SQL on the database past Linkr's read-only guard")
+        if dynamic_sql and _DYNAMIC_SQL_CALL.fullmatch(text):
+            raise ValueError(
+                f"{text.lower()}() is not allowed: it runs SQL built from text, "
+                f"which Linkr's read-only guard cannot check{dynamic_hint}"
+            )
 
 
-def _reject_forbidden_statements(sql: str) -> None:
+# The generated vocabulary fill script ran `query(getvariable(...))` before it
+# read TARGET_CONCEPT_IDS_VIEW; a pipeline still holding that version is told how
+# to replace it.
+_REGENERATE_FILL_HINT = (
+    ". If this is the vocabulary fill script, regenerate it from the pipeline's Vocabulary tab"
+)
+
+
+def _reject_forbidden_statements(sql: str, dynamic_hint: str = "") -> None:
     """Raise when a user script contains a statement it must never run.
 
     Checked per split statement, with whatever comments precede the first keyword
@@ -615,7 +633,7 @@ def _reject_forbidden_statements(sql: str) -> None:
         m = _leading_match(_FORBIDDEN_IN_USER_SQL, stmt)
         if m:
             raise ValueError(f"{m.group(1).upper()} is not allowed in a pipeline script")
-        _reject_passthrough_calls(stmt)
+        _reject_passthrough_calls(stmt, dynamic_sql=True, dynamic_hint=dynamic_hint)
 
 
 # Where a token's own text stops: DuckDB's tokenizer only gives start offsets, so
@@ -818,7 +836,7 @@ def _run_statements(
     con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
     statements = _split_statements(sql)
-    dynamic_sql = _has_community_attach(con)
+    dynamic_sql = _has_passthrough_attach(con)
     for stmt in statements:
         _reject_passthrough_calls(stmt, dynamic_sql)
     if _has_sqlserver_attach(con):
@@ -847,7 +865,7 @@ def _run_to_arrow(con: duckdb.DuckDBPyConnection, search_path: str, sql: str):
     con.execute(f"SET search_path='{_sql_path(search_path)}'")
     result: duckdb.DuckDBPyConnection | None = None
     statements = _split_statements(sql)
-    dynamic_sql = _has_community_attach(con)
+    dynamic_sql = _has_passthrough_attach(con)
     for stmt in statements:
         _reject_passthrough_calls(stmt, dynamic_sql)
     if _has_sqlserver_attach(con):
@@ -1701,8 +1719,10 @@ def run_etl_sql(
 
             # Checked on the FINAL sql, after mapping refs are resolved, so nothing
             # can be smuggled in through a `'mapping.<name>'` substitution.
-            _reject_forbidden_statements(sql)
+            _reject_forbidden_statements(sql, _REGENERATE_FILL_HINT)
             _reject_copy_to_file(sql)
+            if TARGET_CONCEPT_IDS_VIEW in sql.lower():
+                _create_target_concept_ids_view(con)
 
             # Every legitimate attach is done: the script keeps the attached
             # databases, the parquet files its roles' views read and its mapping
@@ -1737,6 +1757,34 @@ def run_etl_sql(
             if handle is not None:
                 handle._finish()
             con.close()
+
+
+# What the generated vocabulary fill script scans for the concepts the CDM uses
+# (buildFillVocabularyScript). The `*_concept_id` columns differ per CDM version
+# and per target, and a pipeline script may not build SQL from text, so the run
+# builds the scan itself from the target's catalog.
+TARGET_CONCEPT_IDS_VIEW = "linkr_target_concept_ids"
+
+
+def _create_target_concept_ids_view(con: duckdb.DuckDBPyConnection) -> None:
+    """`memory.main.linkr_target_concept_ids(table_name, concept_id)`: every value
+    of every `*_concept_id` column of the target's tables and views, as BIGINT
+    (TRY_CAST: a staging copy may hold them as text), as the catalog stands when
+    the script starts. Names come from the catalog and are only ever quoted."""
+    rows = con.execute(
+        "SELECT schema_name, table_name, list(column_name ORDER BY column_index) "
+        "FROM duckdb_columns() WHERE database_name = 'target' AND NOT internal "
+        "AND ends_with(column_name, '_concept_id') "
+        "GROUP BY schema_name, table_name ORDER BY schema_name, table_name"
+    ).fetchall()
+    scans = [
+        f"SELECT '{_sql_path(table)}' AS table_name, "
+        f"UNNEST([{', '.join(f'TRY_CAST({_quote_ident(c)} AS BIGINT)' for c in columns)}]) AS concept_id "
+        f"FROM target.{_quote_ident(schema)}.{_quote_ident(table)}"
+        for schema, table, columns in rows
+    ]
+    body = " UNION ALL ".join(scans) or "SELECT NULL::VARCHAR AS table_name, NULL::BIGINT AS concept_id WHERE false"
+    con.execute(f"CREATE OR REPLACE VIEW memory.main.{TARGET_CONCEPT_IDS_VIEW} AS {body}")
 
 
 # `'mapping.<name>'` inside a string literal — the only place it is meaningful.
