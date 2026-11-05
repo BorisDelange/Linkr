@@ -1,11 +1,16 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
+    "jsx": "react-jsx",
     "noEmit": true,
     "strict": true,
     "noUnusedLocals": true,
@@ -13,13 +18,26 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true,
     "skipLibCheck": true,
-    "types": ["node", "vite/client"],
+    "types": [
+      "node",
+      "vite/client"
+    ],
     "baseUrl": ".",
     "paths": {
-      "@linkr/format": ["../linkr-format/src/index.ts"],
-      "@/*": ["../../apps/web/src/*"],
-      "@default-plugins/*": ["../default-plugins/*"]
+      "@linkr/format": [
+        "../linkr-format/src/index.ts"
+      ],
+      "@/*": [
+        "../../apps/web/src/*"
+      ],
+      "@default-plugins/*": [
+        "../default-plugins/*"
+      ]
     }
   },
-  "include": ["src", "../../apps/web/src/types/globals.d.ts", "../../apps/web/src/types/file-system-access.d.ts"]
+  "include": [
+    "src",
+    "../../apps/web/src/types/globals.d.ts",
+    "../../apps/web/src/types/file-system-access.d.ts"
+  ]
 }

@@ -1,6 +1,15 @@
 import { test as base, expect, type Page } from '@playwright/test'
 
 /**
+ * Monaco's own cancellation when a diff editor is disposed while its diff is still
+ * being computed (a dialog closed mid-diff). Monaco rethrows it through its own
+ * error handler, which the page cannot intercept; it changes nothing on screen.
+ */
+function isMonacoCancellation(e: Error): boolean {
+  return e.message === 'Canceled' && /monaco-editor@[^/]+\/min\/vs\//.test(e.stack ?? '')
+}
+
+/**
  * Every journey fails on an uncaught exception in the page, even when the screen
  * looked right: several boot bugs only ever announced themselves there.
  */
@@ -8,7 +17,9 @@ export const test = base.extend<{ pageErrors: string[] }>({
   pageErrors: [
     async ({ page }, use) => {
       const errors: string[] = []
-      page.on('pageerror', (e) => errors.push(e.message))
+      page.on('pageerror', (e) => {
+        if (!isMonacoCancellation(e)) errors.push(e.message)
+      })
       await use(errors)
       expect(errors, 'uncaught exceptions in the page').toEqual([])
     },
