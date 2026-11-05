@@ -126,6 +126,40 @@ export const DEFAULT_PROFILE_OPTIONS: ProfileOptions = {
   minPatients: 11,
 }
 
+const OUTLIER_METHODS: readonly ProfileOptions['outlierMethod'][] = ['iqr', 'mad', 'percentile', 'none']
+
+const finiteIn = (x: unknown, min: number, max: number, fallback: number): number =>
+  typeof x === 'number' && Number.isFinite(x) && x >= min && x <= max ? x : fallback
+
+/**
+ * Profile options as stored on a project, made safe to build SQL from: they
+ * travel with an exported mapping project, so anything may come back. A field
+ * out of range or of the wrong type falls back to its default.
+ */
+export function normalizeProfileOptions(raw: unknown): ProfileOptions {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const d = DEFAULT_PROFILE_OPTIONS
+  const rawSections = (o.sections && typeof o.sections === 'object' ? o.sections : {}) as Record<string, unknown>
+  const sections = { ...d.sections }
+  for (const key of Object.keys(rawSections) as (keyof ProfileSections)[]) {
+    if (typeof rawSections[key] === 'boolean') sections[key] = rawSections[key] as boolean
+  }
+  const method = OUTLIER_METHODS.includes(o.outlierMethod as ProfileOptions['outlierMethod'])
+    ? o.outlierMethod as ProfileOptions['outlierMethod']
+    : d.outlierMethod
+  return {
+    metadata: typeof o.metadata === 'boolean' ? o.metadata : d.metadata,
+    sections,
+    outlierMethod: method,
+    outlierCoef: finiteIn(o.outlierCoef, 0, 100, d.outlierCoef),
+    bins: o.bins === 'auto' ? 'auto' : Math.trunc(finiteIn(o.bins, 1, 50, 0)) || d.bins,
+    minCategoryCount: Math.trunc(finiteIn(o.minCategoryCount, 0, 1e9, d.minCategoryCount)),
+    topN: Math.trunc(finiteIn(o.topN, 1, 10_000, d.topN)),
+    maxCategoryLength: Math.trunc(finiteIn(o.maxCategoryLength, 1, 100_000, d.maxCategoryLength)),
+    minPatients: Math.trunc(finiteIn(o.minPatients, 0, 1e9, d.minPatients)),
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Resolving what the schema actually offers
 // ---------------------------------------------------------------------------
@@ -1073,8 +1107,13 @@ function scalarColumns(event: ClassRelation, sections: ProfileSections): string[
  *  (`unit`, `median`, `patients_count`) and the result unites them by name. */
 const SCALAR_PREFIX = 's_'
 
-/** A double literal, the very value JavaScript holds. */
-const doubleLiteral = (x: number) => `CAST('${x}' AS DOUBLE)`
+/** A double literal, the very value JavaScript holds. Rendered from a finite
+ *  number only: the coefficient comes from a stored, importable project. */
+function doubleLiteral(x: number): string {
+  const n = Number(x)
+  if (!Number.isFinite(n)) throw new Error(`Not a finite number: ${String(x)}`)
+  return `CAST('${n}' AS DOUBLE)`
+}
 
 /**
  * The outlier fences, in SQL: `outlierBounds` over the scalar row, operation for
@@ -1083,7 +1122,8 @@ const doubleLiteral = (x: number) => `CAST('${x}' AS DOUBLE)`
  */
 function fenceSql(options: Pick<ProfileOptions, 'outlierMethod' | 'outlierCoef'>, numeric: boolean): { lo: string; hi: string } {
   const none = { lo: 'CAST(NULL AS DOUBLE)', hi: 'CAST(NULL AS DOUBLE)' }
-  if (!numeric || options.outlierMethod === 'none') return none
+  if (!numeric || !OUTLIER_METHODS.includes(options.outlierMethod) || options.outlierMethod === 'none') return none
+  if (options.outlierMethod !== 'percentile' && !Number.isFinite(Number(options.outlierCoef))) return none
   const c = doubleLiteral(options.outlierCoef)
   const k = doubleLiteral(1.4826)
   const known = 'numeric_count > 0 AND p25 IS NOT NULL AND p75 IS NOT NULL'

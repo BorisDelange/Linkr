@@ -461,3 +461,27 @@ async def test_the_options_are_checked_before_any_job(client):
     assert await status(pseudonymization={"method": "hmac", "reuseKeyOf": "nope"}) == 400
     # The correspondence never goes into the derived database itself.
     assert await status(pseudonymization={"method": "random", "correspondence": {"dataSourceId": dst, "schemaName": "p"}}) == 400
+
+
+async def test_the_correspondence_never_goes_into_the_derived_database_under_another_entry():
+    from types import SimpleNamespace
+
+    from app.schemas.data_source import DeriveRequest
+    from app.services import cohort_derive_service
+
+    server = {"engine": "postgresql", "host": "pg.internal", "port": 5432, "database": "cdm", "allowWrites": True}
+    source = SimpleNamespace(id="src", workspace_id="ws", connection_config={"engine": "duckdb", "managed": True})
+    target = SimpleNamespace(id="dst", workspace_id="ws", connection_config=server)
+    second_entry = SimpleNamespace(id="dst-again", workspace_id="ws", connection_config=dict(server))
+
+    class _Db:
+        async def get(self, _model, key):
+            return second_entry if key == "dst-again" else None
+
+    body = DeriveRequest.model_validate({
+        "membershipSql": MEMBERSHIP, "level": "visit",
+        "target": {"kind": "schema", "dataSourceId": "dst", "schemaName": "cohort"},
+        "pseudonymization": {"method": "random", "correspondence": {"dataSourceId": "dst-again", "schemaName": "pseudo"}},
+    })
+    with pytest.raises(cohort_derive_service.DeriveError, match="keep it apart"):
+        await cohort_derive_service._correspondence_target(_Db(), source, target, body, 1)

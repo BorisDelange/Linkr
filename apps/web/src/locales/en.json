@@ -1015,6 +1015,8 @@
     "allow_writes_hint_doris": "Lets a cohort be derived into a new Doris database here. Linkr writes with a second account of yours, asked at the first derivation (CREATE and LOAD rights), and sends the rows by Stream Load; the account it reads with stays read-only. Linkr never changes the existing tables.",
     "allow_writes_hint_oracle": "Lets a cohort be derived into an empty schema an administrator created for it (Oracle has no schema but a user's). Linkr writes with a second account of yours, asked at the first derivation, with the right to create tables and load rows in that schema; the account it reads with stays read-only.",
     "field_http_port": "Stream Load port",
+    "field_http_tls": "Stream Load over HTTPS",
+    "field_http_tls_hint": "Send the rows and the write login to the Doris frontend over HTTPS. A redirect to a backend in plain HTTP is then refused.",
     "field_http_port_hint": "The HTTP port of the Doris frontend (8030 by default): a cohort derivation sends its rows there, by Stream Load."
   },
   "reports": {
@@ -4014,6 +4016,7 @@
     "start_again": "Start again",
     "stop": "Stop the app",
     "no_output": "No output yet.",
+    "session_failed": "Could not open the app: {{error}}",
     "start_failed": "Could not start the web app: {{error}}",
     "command_title": "Run as web app",
     "command_description": "Linkr does not recognise {{name}} as a Shiny, Streamlit, Dash, Gradio, plumber, Panel, FastAPI or Flask app. Give the command that starts it.",
@@ -6826,7 +6829,8 @@
     "table_no_variable": "none of the concepts: created empty",
     "filter_unfilterable": "Not copied: it carries {{column}}, but the schema gives no way to list the ones to keep",
     "pseudonymize": "Pseudonymise the identifiers",
-    "pseudonymize_hint": "Every patient, stay and unit-stay id is replaced, in every table, by a pseudonym drawn for this database alone — as health-data rules ask of each project’s data (in France, the CNIL warehouse referential, SEC-ESP-2).",
+    "pseudonymize_hint": "Every patient, stay and unit-stay id is replaced, in every table, by a pseudonym drawn for this database alone — the columns the schema mapping names as ids, and any column ending in person_id, visit_occurrence_id or visit_detail_id (such as preceding_visit_occurrence_id). An id with no pseudonym drawn is emptied, as are the source system’s own numbers: person_source_value, visit_source_value and visit_detail_source_value. Other columns, the clinical source codes and free text included, are copied as they are. This is what health-data rules ask of each project’s data (in France, the CNIL warehouse referential, SEC-ESP-2).",
+    "pseudonymize_free_text": "Free-text columns (note_text, comments…) and any other column that names a person are copied as they are: leave out the tables that hold them, or check them before sharing the database.",
     "pseudonymized_columns": "Replaced columns",
     "pseudonymized_none": "None of the ticked tables carries an id.",
     "method": "Method",

@@ -123,6 +123,29 @@ export async function restartWebApp(app: WebApp): Promise<WebApp> {
   })
 }
 
+/** Let this browser open the app: an HttpOnly cookie for the app's path, that
+ *  only its owner gets and that every request to the app must carry. Called
+ *  before the app is loaded, and again to renew it. `include`: in development
+ *  the API is on another origin, whose cookie a plain fetch would not keep. */
+export async function openWebAppSession(appId: string): Promise<void> {
+  await apiRequest<void>(`/apps/${encodeURIComponent(appId)}/session`, { method: 'POST', credentials: 'include' })
+}
+
+/** The app in a new window, once its session is open. The window opens at once,
+ *  while the click still counts as one for the popup blocker. */
+export async function openWebAppWindow(app: { appId: string; url: string }): Promise<void> {
+  const win = window.open('', '_blank')
+  try {
+    await openWebAppSession(app.appId)
+  } catch (e) {
+    win?.close()
+    throw e
+  }
+  if (!win) return
+  win.opener = null
+  win.location.href = webAppFrameUrl(app.url)
+}
+
 export function getWebApp(appId: string): Promise<WebApp> {
   return apiRequest<WebApp>(`/apps/${encodeURIComponent(appId)}`)
 }

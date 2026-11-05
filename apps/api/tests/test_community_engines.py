@@ -38,6 +38,10 @@ class _FakeCon:
     'SELECT * FROM "ORACLE_EXECUTE"(\'linkr_ext\', \'DELETE FROM person\')',
     "SELECT * FROM oracle_execute_admin /* x */ ('linkr_ext', 'DROP TABLE person')",
     "SELECT * FROM main.oracle_plsql('linkr_ext', 'BEGIN NULL; END;')",
+    "SELECT * FROM json_execute_serialized_sql(json_serialize_sql('SELECT * FROM oracle_query(''linkr_ext'', ''DELETE FROM person'')'))",
+    "SELECT * FROM JSON_EXECUTE_SERIALIZED_SQL(json_serialize_sql('SELECT 1'))",
+    "CALL postgres_execute('src', 'DELETE FROM person')",
+    "CALL mysql_execute('src', 'DELETE FROM person')",
 ])
 def test_passthrough_functions_are_refused(sql):
     with pytest.raises(ValueError, match="read-only guard"):
@@ -54,6 +58,13 @@ def test_dynamic_sql_is_refused_only_beside_a_community_database():
     with pytest.raises(ValueError, match="read-only guard"):
         db_connect._reject_passthrough_calls(sql, dynamic_sql=True)
     assert db_connect._run_statements(duckdb.connect(), "memory", "SELECT * FROM query('SELECT 1 AS x')") == [{"x": 1}]
+
+
+def test_query_table_is_refused_beside_a_community_database():
+    sql = "SELECT * FROM query_table('oracle_' || 'query')"
+    db_connect._reject_passthrough_calls(sql)
+    with pytest.raises(ValueError, match="read-only guard"):
+        db_connect._reject_passthrough_calls(sql, dynamic_sql=True)
 
 
 @pytest.mark.parametrize("sql", [
@@ -87,6 +98,26 @@ def test_a_sqlserver_login_that_can_write_is_refused():
     con = _FakeCon({"IS_SRVROLEMEMBER": [(0, 0, 1, 0, 1, 1, 1, 0, 0)]})
     with pytest.raises(ValueError, match="db_datawriter, INSERT, UPDATE, DELETE"):
         community_engines.attach(con, "ext", SQLSERVER, "pw")
+
+
+def test_a_sqlserver_login_granted_writes_on_one_schema_is_refused():
+    con = _FakeCon({
+        "IS_SRVROLEMEMBER": [(0,) * 9],
+        "fn_my_permissions": [("CONNECT",), ("SELECT",), ("VIEW DEFINITION",), ("REFERENCES",),
+                              ("INSERT",), ("ALTER",), ("EXECUTE",)],
+    })
+    with pytest.raises(ValueError, match="holds ALTER, EXECUTE, INSERT"):
+        community_engines.attach(con, "ext", SQLSERVER, "pw")
+    query = next(s for s in con.sql if "fn_my_permissions" in s)
+    assert "CROSS APPLY fn_my_permissions(s.name, ''SCHEMA'')" in query
+
+
+def test_a_sqlserver_login_that_only_reads_on_its_schemas_is_accepted():
+    con = _FakeCon({
+        "IS_SRVROLEMEMBER": [(0,) * 9],
+        "fn_my_permissions": [("CONNECT",), ("SELECT",), ("VIEW DEFINITION",), ("REFERENCES",), ("SHOWPLAN",)],
+    })
+    community_engines.attach(con, "ext", SQLSERVER, "pw")
 
 
 def _oracle(privs, table_privs=(), owned=0, columns=()):

@@ -19,7 +19,7 @@ import { sanitizeHtml } from '@/lib/sanitize'
 import { useProjectRouteUid } from '@/hooks/use-project-route'
 import { listJobs, listWorkspaceJobs, cancelJob, clearJobs, clearWorkspaceJobs, onJobsChanged, type Job } from '@/lib/api/environments'
 import { getJob } from '@/lib/api/query-jobs'
-import { webAppFrameUrl } from '@/lib/api/web-apps'
+import { openWebAppWindow, webAppFrameUrl } from '@/lib/api/web-apps'
 import { useResolvedParams } from '@/hooks/use-resolved-params'
 import { useDataSourceStore } from '@/stores/data-source-store'
 import { clearLoggedQueries, stopLoggedQuery } from '@/lib/duckdb/query-log'
@@ -241,6 +241,15 @@ export function JobsIndicator({ atRightEdge = false }: { atRightEdge?: boolean }
               href={webAppFrameUrl(webAppUrl(job)!)}
               target="_blank"
               rel="noopener"
+              onClick={(e) => {
+                const appId = (job.result as { appId?: unknown } | null | undefined)?.appId
+                if (typeof appId !== 'string') return
+                e.preventDefault()
+                setCancelError(null)
+                void openWebAppWindow({ appId, url: webAppUrl(job)! }).catch((err) => {
+                  setCancelError(t('web_apps.session_failed', { error: err instanceof Error ? err.message : String(err) }))
+                })
+              }}
               className="shrink-0 text-muted-foreground hover:text-foreground"
               aria-label={t('web_apps.open_window')}
             >

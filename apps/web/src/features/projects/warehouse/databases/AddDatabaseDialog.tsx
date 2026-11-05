@@ -226,6 +226,7 @@ export function AddDatabaseDialog({
         if (config.port) setDbPort(String(config.port))
         setDbFlightPort(config.flightPort ? String(config.flightPort) : '')
         setDbHttpPort(config.httpPort ? String(config.httpPort) : '')
+        setDbHttpTls(!!config.httpTls)
         const defaultSchema = databaseIsSchema(config.engine) ? config.schema || config.database : config.database
         if (defaultSchema) setDbDatabase(defaultSchema)
         if (config.schema && !databaseIsSchema(config.engine)) setDbSchema(config.schema)
@@ -285,6 +286,7 @@ export function AddDatabaseDialog({
   const [dbFlightPort, setDbFlightPort] = useState('')
   // Doris' Stream Load port (its frontend's HTTP port), where a derivation sends its rows.
   const [dbHttpPort, setDbHttpPort] = useState('')
+  const [dbHttpTls, setDbHttpTls] = useState(false)
   const dbPortValue = parsePort(dbPort)
   const dbFlightPortValue = parsePort(dbFlightPort)
   const dbHttpPortValue = parsePort(dbHttpPort)
@@ -374,6 +376,26 @@ export function AddDatabaseDialog({
     setUploadedFiles((prev) => prev.filter((_, i) => i !== index))
   }
 
+  // An empty password field sends none: the stored (encrypted) credential stays.
+  const buildConnectionConfig = (serverPathValue?: string): DatabaseConnectionConfig => ({
+    engine: dbEngine,
+    ...(serverPathValue ? { serverPath: serverPathValue } : {}),
+    ...(!isFileEngine(dbEngine)
+      ? {
+          host: dbHost,
+          port: dbPortValue ?? undefined,
+          database: dbDatabase,
+          schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
+          username: dbUsername || undefined,
+          ...(dbPassword ? { password: dbPassword } : {}),
+          ...(WRITABLE_ENGINES.includes(dbEngine) && dbAllowWrites ? { allowWrites: true } : {}),
+          ...(dbEngine === 'doris' && dbAllowWrites && dbHttpPortValue !== null ? { httpPort: dbHttpPortValue } : {}),
+          ...(dbEngine === 'doris' && dbAllowWrites && dbHttpTls ? { httpTls: true } : {}),
+          ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
+        }
+      : {}),
+  })
+
   const handleSubmit = async () => {
     if (!selectedType || !name.trim()) return
     setSubmitError(null)
@@ -417,22 +439,7 @@ export function AddDatabaseDialog({
           await removeDataSource(editingSource.id)
 
           if (selectedType === 'database') {
-            const connectionConfig: DatabaseConnectionConfig = {
-              engine: dbEngine,
-              ...(!isFileEngine(dbEngine)
-                ? {
-                    host: dbHost,
-                    port: dbPortValue ?? undefined,
-                    database: dbDatabase,
-                    schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
-                    username: dbUsername || undefined,
-                    password: dbPassword || undefined,
-                    ...(WRITABLE_ENGINES.includes(dbEngine) && dbAllowWrites ? { allowWrites: true } : {}),
-                    ...(dbEngine === 'doris' && dbAllowWrites && dbHttpPortValue !== null ? { httpPort: dbHttpPortValue } : {}),
-                    ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
-                  }
-                : {}),
-            }
+            const connectionConfig = buildConnectionConfig()
             const newId = await addDataSource({
               name: setLocalized({}, language, name.trim()),
               description: setLocalized({}, language, description.trim()),
@@ -498,21 +505,7 @@ export function AddDatabaseDialog({
             changes.connectionConfig = { engine: dbEngine }
           }
           if (isExternal) {
-            const connectionConfig: DatabaseConnectionConfig = {
-              engine: dbEngine,
-              host: dbHost,
-              port: dbPortValue ?? undefined,
-              database: dbDatabase,
-              schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
-              username: dbUsername || undefined,
-              // Only send a password when the user typed one — an empty field
-              // leaves the stored (encrypted) credential untouched server-side.
-              ...(dbPassword ? { password: dbPassword } : {}),
-              ...(WRITABLE_ENGINES.includes(dbEngine) && dbAllowWrites ? { allowWrites: true } : {}),
-                    ...(dbEngine === 'doris' && dbAllowWrites && dbHttpPortValue !== null ? { httpPort: dbHttpPortValue } : {}),
-              ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
-            }
-            changes.connectionConfig = connectionConfig
+            changes.connectionConfig = buildConnectionConfig()
             if (isServerMode()) changes.requireSessionOnly = requireSessionOnly
           } else if (bothDatabases) {
             // Re-pointing at a different server path is a config change, not a
@@ -549,23 +542,7 @@ export function AddDatabaseDialog({
       }
 
       if (selectedType === 'database') {
-        const connectionConfig: DatabaseConnectionConfig = {
-          engine: dbEngine,
-          ...(usesServerPath ? { serverPath } : {}),
-          ...(!isFileEngine(dbEngine)
-            ? {
-                host: dbHost,
-                port: dbPortValue ?? undefined,
-                database: dbDatabase,
-                schema: databaseIsSchema(dbEngine) ? undefined : dbSchema || undefined,
-                username: dbUsername || undefined,
-                password: dbPassword || undefined,
-                ...(WRITABLE_ENGINES.includes(dbEngine) && dbAllowWrites ? { allowWrites: true } : {}),
-                    ...(dbEngine === 'doris' && dbAllowWrites && dbHttpPortValue !== null ? { httpPort: dbHttpPortValue } : {}),
-                ...(dbEngine === 'doris' && dbFlightPortValue !== null ? { flightPort: dbFlightPortValue } : {}),
-              }
-            : {}),
-        }
+        const connectionConfig = buildConnectionConfig(usesServerPath ? serverPath : undefined)
 
         const mapping = resolveMapping()
         const schemaSource = resolveSchemaSource()
@@ -1191,6 +1168,15 @@ export function AddDatabaseDialog({
                           aria-invalid={dbHttpPortInvalid}
                         />
                         {dbHttpPortInvalid && <p className="text-xs text-destructive">{t('databases.port_invalid')}</p>}
+                      </div>
+                    )}
+                    {dbEngine === 'doris' && dbAllowWrites && isServerMode() && (
+                      <div className="col-span-full flex items-start gap-2">
+                        <Checkbox id="db-http-tls" checked={dbHttpTls} onCheckedChange={(v) => setDbHttpTls(v === true)} />
+                        <div className="space-y-0.5">
+                          <Label htmlFor="db-http-tls">{t('databases.field_http_tls')}</Label>
+                          <p className="text-xs text-muted-foreground">{t('databases.field_http_tls_hint')}</p>
+                        </div>
                       </div>
                     )}
                   </div>

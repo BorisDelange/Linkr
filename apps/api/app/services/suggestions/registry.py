@@ -29,6 +29,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import settings
+from app.services.suggestions import worker
 
 BIOLORD_REPO = "FremyCompany/BioLORD-2023-M"
 TEMPLATES = ("name_class", "name")
@@ -40,6 +41,9 @@ FILTER_LISTS = ("domains", "vocabularies", "conceptClasses")
 
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,39}$")
 _REPO_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*$")
+# Workspace, model, configuration and project ids name folders and files here:
+# no dot, so `..` or `a/../b` never leaves the embeddings root.
+_ID_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 _locks: dict[str, asyncio.Lock] = {}
 
@@ -48,8 +52,15 @@ def lock(workspace_id: str) -> asyncio.Lock:
     return _locks.setdefault(workspace_id, asyncio.Lock())
 
 
+def check_id(value: str) -> str:
+    """`value` when it may name a folder or file, else ValueError."""
+    if not isinstance(value, str) or not _ID_RE.fullmatch(value):
+        raise ValueError(f"Invalid identifier: {value!r}")
+    return value
+
+
 def root(workspace_id: str) -> Path:
-    return settings.data_path / "embeddings" / workspace_id
+    return settings.data_path / "embeddings" / check_id(workspace_id)
 
 
 def _registry_path(workspace_id: str) -> Path:
@@ -101,7 +112,7 @@ def find(items: list[dict], item_id: str) -> dict | None:
 
 
 def model_dir(workspace_id: str, model_id: str) -> Path:
-    return root(workspace_id) / "models" / model_id
+    return root(workspace_id) / "models" / check_id(model_id)
 
 
 def model_path(workspace_id: str, model: dict) -> Path:
@@ -155,6 +166,7 @@ def install_uploaded_model(workspace_id: str, model_id: str, files: list[tuple[s
             shutil.copyfile(src, target)
         if not model_ready(workspace_id, {"id": model_id, "source": "upload"}):
             raise ValueError("Not a sentence-transformers model folder (no modules.json or config.json)")
+        worker.check_model_folder(dest)
     except BaseException:
         shutil.rmtree(dest, ignore_errors=True)
         raise
@@ -168,7 +180,7 @@ def method_for(config: dict) -> str:
 
 
 def index_dir(workspace_id: str, config_id: str) -> Path:
-    return root(workspace_id) / "indexes" / config_id
+    return root(workspace_id) / "indexes" / check_id(config_id)
 
 
 def _manifest_path(workspace_id: str, config_id: str) -> Path:

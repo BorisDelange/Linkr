@@ -208,3 +208,15 @@ def test_exact_numbers_are_integers_when_they_fit():
     assert oracle_client._integers(ids).schema.field("id").type == pa.int64()
     wide = pa.table({"big": pa.array([10**20], pa.decimal128(38, 0)), "price": pa.array([1], pa.decimal128(10, 2))})
     assert oracle_client._integers(wide).schema == wide.schema
+
+
+@pytest.mark.parametrize("service", ["svc?https_proxy=evil", "svc)(ADDRESS=(HOST=evil))", "", "svc/x"])
+def test_a_service_name_that_is_not_one_is_refused(service):
+    with pytest.raises(ValueError, match="invalid Oracle service name"):
+        oracle_client._address({"host": "oracle.internal", "database": service})
+
+
+def test_the_driver_gets_host_port_and_service_name_apart():
+    assert oracle_client._address({"host": "oracle.internal", "database": "FREEPDB1.example.org"}) == {
+        "host": "oracle.internal", "port": 1521, "service_name": "FREEPDB1.example.org",
+    }

@@ -214,6 +214,14 @@ _ENDED_KEPT = 20
 # Flushing every line to the job row would hammer the database for a chatty app.
 _LOG_FLUSH_SECONDS = 2.0
 _STOP_GRACE_SECONDS = 3.0
+_SWEEP_SECONDS = 60.0
+# Written beside an app's launcher, so a restarted API can find the process
+# groups its previous run left behind (start_new_session outlives a crash).
+_PID_FILE = "pid"
+
+
+def _apps_cache() -> Path:
+    return settings.data_path / ".cache" / "web-apps"
 
 
 @dataclass
@@ -235,6 +243,8 @@ class WebApp:
     error: str | None = None
     log: deque[str] = field(default_factory=lambda: deque(maxlen=LOG_LINES))
     task: asyncio.Task | None = None
+    # The names of the cookies the app has set: the only ones the proxy hands back.
+    cookie_names: set[str] = field(default_factory=set)
 
     def touch(self) -> None:
         self.last_seen = time.monotonic()
@@ -275,6 +285,41 @@ def _port_free(port: int) -> bool:
         except OSError:
             return False
     return True
+
+
+def _is_our_app(pid: int, app_id: str) -> bool:
+    """Proof that `pid` is still the app started under `app_id`, not a process
+    that reused its number: the environment Linkr gave it. Only Linux exposes
+    another process's environment; elsewhere nothing is proven."""
+    try:
+        environ = Path(f"/proc/{pid}/environ").read_bytes()
+    except OSError:
+        return False
+    return f"LINKR_APP_ID={app_id}".encode() in environ.split(b"\0")
+
+
+def reap_orphans() -> int:
+    """Kill the app process groups a previous API process left running, when they
+    are provably Linkr's; the others keep their ports, which `_allocate_port`
+    skips. Run at startup, before any app of this process exists."""
+    reaped = 0
+    root = _apps_cache()
+    if not root.is_dir():
+        return 0
+    for pid_file in root.glob(f"*/{_PID_FILE}"):
+        app_id = pid_file.parent.name
+        try:
+            pid = int(pid_file.read_text().strip())
+        except (OSError, ValueError):
+            pid = 0
+        if pid > 0 and _is_our_app(pid, app_id):
+            try:
+                os.killpg(pid, signal.SIGKILL)
+                reaped += 1
+            except (ProcessLookupError, PermissionError):
+                pass
+        pid_file.unlink(missing_ok=True)
+    return reaped
 
 
 def _kill_group(proc: asyncio.subprocess.Process, sig: int) -> None:
@@ -322,7 +367,7 @@ class AppManager:
         return app if app is not None and app.status in ("starting", "ready") else None
 
     def list_for_user(self, project_uid: str, user_id: int) -> list[WebApp]:
-        self._sweep_idle()
+        self.sweep_idle()
         return [
             a for a in self._apps.values()
             if a.project_uid == project_uid and a.user_id == user_id
@@ -338,7 +383,7 @@ class AppManager:
                 return port
         raise AppStartError(f"No free port in {settings.app_port_range}.")
 
-    def _sweep_idle(self) -> None:
+    def sweep_idle(self) -> None:
         limit = settings.app_idle_timeout_minutes * 60
         now = time.monotonic()
         for app in list(self._apps.values()):
@@ -364,7 +409,7 @@ class AppManager:
         """Spawn the app and return at once, status `starting`: a background probe
         flips it to `ready` when its port accepts a connection."""
         async with self._lock:
-            self._sweep_idle()
+            self.sweep_idle()
             if self._count_for_user(user_id) >= settings.max_apps_per_user:
                 raise AppLimitReached(
                     f"Web app limit reached ({settings.max_apps_per_user}). Stop one to start another."
@@ -372,7 +417,7 @@ class AppManager:
             port = self._allocate_port()
             app_id = app_id or secrets.token_urlsafe(24)
             base_path = f"{public_prefix}/api/v1/apps/{app_id}/proxy/"
-            launcher_dir = settings.data_path / ".cache" / "web-apps" / app_id
+            launcher_dir = _apps_cache() / app_id
             if command:
                 framework = "custom"
                 extra_env = custom_r_profile(launcher_dir) if language == "r" else {}
@@ -388,7 +433,7 @@ class AppManager:
                 argv = launch_argv(p, spec, file, port, base_path, launcher_dir)
                 filled = launch_command(p, file, port, base_path)
                 shown = filled if isinstance(filled, str) else shlex.join(["python", *filled])
-            env = app_env(spec, port, base_path, extra_env)
+            env = app_env(spec, port, base_path, {**extra_env, "LINKR_APP_ID": app_id})
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *argv,
@@ -401,6 +446,11 @@ class AppManager:
                 )
             except OSError as e:
                 raise AppStartError(f"Could not start {argv[0]}: {e}") from e
+            try:
+                launcher_dir.mkdir(parents=True, exist_ok=True)
+                (launcher_dir / _PID_FILE).write_text(str(proc.pid))
+            except OSError:
+                pass
             try:
                 job = await jobs.create(
                     db, project_uid, user_id, kind="app", label=file.name, input=shown,
@@ -443,59 +493,48 @@ class AppManager:
     async def _watch(self, app: WebApp) -> None:
         """The app's whole life, as the job's task. Returns when the process exits
         on its own (an error if it failed); cancelled to stop it."""
-        handle = jobs.JobHandle(app.job_id)
-        pending: list[str] = []
-        flushed = time.monotonic()
-
-        async def flush() -> None:
-            nonlocal flushed
-            if pending:
-                chunk = "\n".join(pending)
-                pending.clear()
-                await handle.log(chunk)
-            flushed = time.monotonic()
-
-        async def pump() -> None:
-            # Chunks, not readline(): a line longer than the stream's limit (a
-            # minified bundle printed by mistake) would raise and stop the pump.
-            assert app.proc.stdout is not None
-            partial = ""
-            while True:
-                chunk = await app.proc.stdout.read(65536)
-                if not chunk:
-                    if partial:
-                        app.log.append(partial)
-                        pending.append(partial)
-                    return
-                *lines, partial = (partial + chunk.decode("utf-8", "replace")).split("\n")
-                app.log.extend(lines)
-                pending.extend(lines)
-                if time.monotonic() - flushed > _LOG_FLUSH_SECONDS:
-                    await flush()
-
         probe = asyncio.create_task(self._probe(app))
         try:
-            await pump()
-            code = await app.proc.wait()
-            await flush()
+            async with jobs.live_log(jobs.JobHandle(app.job_id), _LOG_FLUSH_SECONDS) as on_log:
+                try:
+                    await self._pump(app, on_log)
+                    code = await app.proc.wait()
+                except asyncio.CancelledError:
+                    if app.status != "failed":
+                        app.status = "stopped"
+                    await self._terminate(app)
+                    raise
             if app.status == "stopped":
                 return
             app.status = "failed"
             tail = "\n".join(list(app.log)[-30:])
             app.error = f"The app exited (code {code})."
             raise AppStartError(f"{app.error}\n{tail}".strip())
-        except asyncio.CancelledError:
-            if app.status != "failed":
-                app.status = "stopped"
-            await self._terminate(app)
-            await asyncio.shield(flush())
-            raise
         finally:
             probe.cancel()
+            (_apps_cache() / app.app_id / _PID_FILE).unlink(missing_ok=True)
             self._apps.pop(app.app_id, None)
             self._ended[app.app_id] = app
             while len(self._ended) > _ENDED_KEPT:
                 self._ended.pop(next(iter(self._ended)))
+
+    @staticmethod
+    async def _pump(app: WebApp, on_log) -> None:
+        # Chunks, not readline(): a line longer than the stream's limit (a
+        # minified bundle printed by mistake) would raise and stop the pump.
+        assert app.proc.stdout is not None
+        partial = ""
+        while True:
+            chunk = await app.proc.stdout.read(65536)
+            if not chunk:
+                if partial:
+                    app.log.append(partial)
+                    on_log(partial)
+                return
+            *lines, partial = (partial + chunk.decode("utf-8", "replace")).split("\n")
+            app.log.extend(lines)
+            for line in lines:
+                on_log(line)
 
     async def _terminate(self, app: WebApp) -> None:
         if app.proc.returncode is not None:
@@ -532,3 +571,11 @@ class AppManager:
 
 
 manager = AppManager()
+
+
+async def run_idle_sweeper() -> None:
+    """Stop idle apps on a timer, not only when someone lists or starts one: an
+    app nobody looks at any more is exactly the one nobody lists."""
+    while True:
+        await asyncio.sleep(_SWEEP_SECONDS)
+        manager.sweep_idle()

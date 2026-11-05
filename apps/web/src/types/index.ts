@@ -314,6 +314,8 @@ export interface DatabaseConnectionConfig {
   flightPort?: number
   /** Doris: its frontend's HTTP port, where a cohort derivation sends its rows (Stream Load). Default 8030. */
   httpPort?: number
+  /** Doris: Stream Load over https rather than http (the frontend's port then serves TLS). */
+  httpTls?: boolean
   database?: string
   schema?: string
   /** Sent, never stored: in server mode a username + password typed in the

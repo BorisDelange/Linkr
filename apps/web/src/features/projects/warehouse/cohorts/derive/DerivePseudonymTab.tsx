@@ -60,6 +60,9 @@ export function DerivePseudonymTab({
             <p className="font-mono text-xs">
               {idColumns.length ? idColumns.join(', ') : <span className="font-sans text-muted-foreground">{t('cohort_derive.pseudonymized_none')}</span>}
             </p>
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-xs text-warning-foreground">
+              {t('cohort_derive.pseudonymize_free_text')}
+            </p>
           </div>
 
           <FormField label={t('cohort_derive.method')} hint={t(`cohort_derive.method_${s.method}_hint`)} hintInTooltip>

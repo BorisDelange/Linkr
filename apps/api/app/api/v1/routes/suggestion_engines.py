@@ -9,7 +9,7 @@ from functools import partial
 from pathlib import Path
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,9 +24,22 @@ from app.schemas.execution import JobResponse
 from app.services import blob_store, fs_browser
 from app.services import mapping_project_service as mapping_svc
 from app.services.execution import jobs
-from app.services.suggestions import registry, runtime, tasks
+from app.services.suggestions import registry, runtime, tasks, worker
 
-router = APIRouter(tags=["suggestion-engines"])
+
+def _valid_ids(request: Request) -> None:
+    """Ids of the path name folders under the embeddings root (registry.check_id)."""
+    for name in ("workspace_id", "model_id", "config_id"):
+        value = request.path_params.get(name)
+        if value is None:
+            continue
+        try:
+            registry.check_id(value)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found") from e
+
+
+router = APIRouter(tags=["suggestion-engines"], dependencies=[Depends(_valid_ids)])
 
 _WS = "/workspaces/{workspace_id}/suggestion-engines"
 
@@ -47,10 +60,14 @@ def _filters_dict(f: TargetFilters) -> dict:
 
 
 async def _launch(db: AsyncSession, user: User, workspace_id: str, kind: str, label: str, body, *, key: str, lane: str):
-    running = tasks.running_job(key)
-    if running:
+    # Claimed before the await: two requests at once would both pass the check.
+    if not tasks.reserve(key):
         raise HTTPException(status.HTTP_409_CONFLICT, "Already running")
-    job = await jobs.create(db, None, user.id, kind, label, workspace_id=workspace_id)
+    try:
+        job = await jobs.create(db, None, user.id, kind, label, workspace_id=workspace_id)
+    except BaseException:
+        tasks.release(key)
+        raise
     tasks.claim(key, job.id)
     jobs.launch(job.id, body, lane=lane)
     return JobResponse.model_validate(job, from_attributes=True)
@@ -192,6 +209,10 @@ async def create_model(
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "Not a sentence-transformers model folder (no modules.json or config.json)",
             )
+        try:
+            await asyncio.to_thread(worker.check_model_folder, path)
+        except ValueError as e:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(e)) from e
         model["installedAt"] = registry.now()
     async with registry.lock(workspace_id):
         data = registry.load(workspace_id)
@@ -359,6 +380,8 @@ async def delete_config(
         raise HTTPException(status.HTTP_409_CONFLICT, "The index is being built")
     async with registry.lock(workspace_id):
         data = registry.load(workspace_id)
+        if registry.find(data["configs"], config_id) is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Configuration not found")
         data["configs"] = [c for c in data["configs"] if c["id"] != config_id]
         registry.save(workspace_id, data)
     await asyncio.to_thread(registry.drop_index, workspace_id, config_id)
@@ -494,7 +517,8 @@ async def pause_compute(
     if job is None:
         raise HTTPException(status.HTTP_409_CONFLICT, "No computation is running")
     tasks.request_pause(project_id)
-    await jobs.cancel(db, job)
+    if not await jobs.cancel(db, job):
+        tasks.discard_pause(project_id)
     return {"jobId": job_id}
 
 

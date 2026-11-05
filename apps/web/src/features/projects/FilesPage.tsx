@@ -88,10 +88,7 @@ import { CreateFolderDialog } from './files/CreateFolderDialog'
 import { UploadDialog } from './files/UploadDialog'
 import { RunButton } from './files/RunButton'
 import { WebAppPanel } from './files/WebAppPanel'
-import { useRunAsWebApp } from './files/use-run-as-web-app'
-import { detectWebAppPreset, listWebAppPresets, listWebApps, type WebAppPreset } from '@/lib/api/web-apps'
-import { onJobsChanged } from '@/lib/api/environments'
-import { ideFilePath } from '@/lib/api/ide-files'
+import { useRunAsWebApp, useWebAppEntry } from './files/use-run-as-web-app'
 import { useIdeTabBar, type TabGroup } from './files/ide-tab-bar'
 import { KeepAlivePortal } from './files/keep-alive-portal'
 import { SessionDropdown } from '@/components/execution/SessionDropdown'
@@ -895,40 +892,13 @@ export function FilesPage() {
     if (selectedNode) void runAsWebApp({ fileId: selectedNode.id, name: selectedNode.name })
   }, [selectedNode, runAsWebApp, pendingEditsRef])
 
-  // A Shiny / Streamlit / Dash… entry point means nothing run line by line in the
-  // console (Streamlit warns on each call, Shiny holds the R session): its Run
-  // starts the app, like RStudio's "Run App". The console run stays in the menu.
-  const [webAppPresets, setWebAppPresets] = useState<WebAppPreset[]>([])
-  useEffect(() => {
-    if (isServerMode()) listWebAppPresets().then(setWebAppPresets, () => {})
-  }, [])
-  const webAppPreset = useMemo(
-    () => (selectedName !== null && (selectedLanguage === 'python' || selectedLanguage === 'r')
-      ? detectWebAppPreset(selectedName, selectedContent ?? '', webAppPresets)
-      : null),
-    [selectedName, selectedLanguage, selectedContent, webAppPresets],
-  )
+  const { preset: webAppPreset, running: webAppRunning } = useWebAppEntry(activeProjectUid, {
+    id: selectedFileId,
+    name: selectedName,
+    language: selectedLanguage,
+    content: selectedContent,
+  })
   const handleRunPrimary = webAppPreset ? handleRunAsWebApp : handleRunFile
-
-  // Which files have an app running, so Run reads "Reload app" on them. Refreshed
-  // when an app starts or stops from here, or a tab opens or closes; an app that
-  // ends on its own is noticed at the next of those — the click restarts it either way.
-  const [runningAppPaths, setRunningAppPaths] = useState<ReadonlySet<string>>(new Set())
-  const appTabIds = terminalTabs.filter((tt) => tt.kind === 'app').map((tt) => tt.appId).join()
-  useEffect(() => {
-    if (!isServerMode() || !activeProjectUid) return
-    let live = true
-    const refresh = () => {
-      listWebApps(activeProjectUid).then((apps) => {
-        if (live) setRunningAppPaths(new Set(apps.map((a) => a.path)))
-      }, () => {})
-    }
-    refresh()
-    const off = onJobsChanged(refresh)
-    return () => { live = false; off() }
-  }, [activeProjectUid, appTabIds, selectedFileId])
-  const selectedPath = selectedFileId ? ideFilePath(selectedFileId) : undefined
-  const webAppRunning = !!webAppPreset && selectedPath !== undefined && runningAppPaths.has(selectedPath)
 
   const handleRunSelection = useCallback(() => {
     if (!editorRef.current || !selectedNode) return

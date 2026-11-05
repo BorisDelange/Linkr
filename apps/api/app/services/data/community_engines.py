@@ -133,11 +133,37 @@ def _require_read_only_sqlserver_login(con: duckdb.DuckDBPyConnection, alias: st
     if len(row) != len(names):
         raise ValueError("cannot verify that this SQL Server login is read-only")
     held = [name for name, value in zip(names, row) if value]
+    held += [p for p in _sqlserver_granted_permissions(con, alias) if p not in held]
     if held:
         raise ValueError(
             "Linkr only connects to SQL Server with a read-only login (db_datareader or SELECT "
             f"grants); this one also holds {', '.join(held)}"
         )
+
+
+# Permissions a read-only login may hold on the database or on a schema: the
+# deny-list below names the rest, as fn_my_permissions spells them.
+_SQLSERVER_WRITE_PERMS = {"INSERT", "UPDATE", "DELETE", "CONTROL", "EXECUTE", "TAKE OWNERSHIP", "IMPERSONATE"}
+
+
+def _is_sqlserver_write_permission(name: str) -> bool:
+    name = name.strip().upper()
+    return name in _SQLSERVER_WRITE_PERMS or name.startswith(("ALTER", "CREATE"))
+
+
+def _sqlserver_granted_permissions(con: duckdb.DuckDBPyConnection, alias: str) -> list[str]:
+    """The writing permissions the login holds on the database or on any user
+    schema — a grant on one schema (`GRANT INSERT ON SCHEMA::cdm`) is invisible to
+    HAS_PERMS_BY_NAME at the database level."""
+    inner = (
+        "SELECT DISTINCT permission_name FROM ("
+        "SELECT permission_name FROM fn_my_permissions(NULL, 'DATABASE') "
+        "UNION ALL SELECT p.permission_name FROM sys.schemas s "
+        "CROSS APPLY fn_my_permissions(s.name, 'SCHEMA') p "
+        "WHERE s.name NOT IN ('sys', 'INFORMATION_SCHEMA')) perms"
+    ).replace("'", "''")
+    rows = con.execute(f"SELECT * FROM mssql_scan('{alias}', '{inner}')").fetchall()
+    return sorted({str(r[0]).strip().upper() for r in rows if r and r[0] and _is_sqlserver_write_permission(str(r[0]))})
 
 
 def _oracle_rows(con: duckdb.DuckDBPyConnection, secret: str, sql: str) -> list[tuple]:

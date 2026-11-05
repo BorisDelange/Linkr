@@ -22,6 +22,7 @@ import {
   frequencyLabel,
   histogramBins,
   histogramFromRows,
+  normalizeProfileOptions,
   outlierBounds,
   packProfileBatches,
   PROFILE_BATCH_CONCEPTS_UNSIZED,
@@ -593,6 +594,24 @@ describe('batched profiles', () => {
     const none = buildBatchProfileQuery(OMOP, source(), [1], DEFAULT_PROFILE_SECTIONS, { ...DEFAULT_PROFILE_OPTIONS, outlierMethod: 'none', bins: 12 })
     expect(none).toContain('CAST(NULL AS DOUBLE) AS lo')
     expect(none).toContain('12 AS bins')
+  })
+
+  it('never lets a stored coefficient that is not a number into the SQL', () => {
+    const coef = "1) AS DOUBLE); DROP TABLE person; --" as unknown as number
+    const raw = buildBatchProfileQuery(OMOP, source(), [1], DEFAULT_PROFILE_SECTIONS, { ...DEFAULT_PROFILE_OPTIONS, outlierCoef: coef })
+    expect(raw).not.toContain('DROP TABLE')
+    expect(raw).toContain('CAST(NULL AS DOUBLE) AS lo')
+    const normalized = normalizeProfileOptions({ ...DEFAULT_PROFILE_OPTIONS, outlierCoef: coef, outlierMethod: "iqr'; --" })
+    expect(normalized.outlierCoef).toBe(DEFAULT_PROFILE_OPTIONS.outlierCoef)
+    expect(normalized.outlierMethod).toBe(DEFAULT_PROFILE_OPTIONS.outlierMethod)
+    expect(buildBatchProfileQuery(OMOP, source(), [1], DEFAULT_PROFILE_SECTIONS, normalized)).not.toContain('DROP TABLE')
+  })
+
+  it('reads stored options back within range, the defaults for what is missing', () => {
+    expect(normalizeProfileOptions(undefined)).toEqual(DEFAULT_PROFILE_OPTIONS)
+    const o = normalizeProfileOptions({ outlierMethod: 'mad', outlierCoef: 3, bins: 500, topN: -1, sections: { numeric: false, histogram: 'x' } })
+    expect(o).toMatchObject({ outlierMethod: 'mad', outlierCoef: 3, bins: 'auto', topN: DEFAULT_PROFILE_OPTIONS.topN })
+    expect(o.sections).toMatchObject({ numeric: false, histogram: true })
   })
 
   it('packs concepts by records and by count, a huge one alone', () => {

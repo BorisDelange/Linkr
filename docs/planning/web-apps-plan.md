@@ -43,7 +43,7 @@ Three consequences worth stating up front, because they constrain the whole desi
 | Path prefix | **`/api/v1/apps/{app_id}/…`** — inherits nginx's existing WS upgrade + 3600s timeouts for free |
 | Origin | **Same origin as Linkr.** A wildcard-subdomain deployment is the only true isolation and it is not deployable on a GitLab-Pages-style setup |
 | iframe sandbox | **No `sandbox` attribute** on app frames — breaks the established `allow-scripts`-only rule, see § Security |
-| Auth for in-iframe requests | **Opaque per-app path token** in the URL, not a cookie — no `SameSite`/`HttpOnly` matrix to get wrong, and it dies with the app |
+| Auth for in-iframe requests | **Owner-only session cookie** `linkr_app_<id>`, HMAC-signed over (app id, user id, expiry), HttpOnly, `SameSite=Strict`, scoped to the app's proxy path — opened by `POST /apps/{id}/session` before the frame loads; see § Security |
 | Blocking | **Never.** An app is its own detached process, not a kernel run — the R/Python session stays free (see § Never blocking) |
 | Process registry | **In-memory `AppManager`** owns the lifecycle; a `kind="app"` job row shadows it for the Jobs panel (see § Job registry) |
 | Port allocation | Bind-probe a configurable range on `127.0.0.1`, retry on collision |
@@ -249,7 +249,7 @@ Rules:
 - **WebSocket**: accept, dial the child with `websockets.connect`, then two `asyncio` tasks
   pumping in each direction until either side closes. Shiny and Streamlit are both
   WS-primary; getting this wrong means the app renders once and then freezes.
-- **Auth**: `app_id` *is* the bearer. See § Security.
+- **Auth**: the owner's session cookie, checked on every request and handshake. See § Security.
 - Bump `last_seen` on every request.
 
 ### Path rewriting
@@ -290,16 +290,29 @@ Two ways to look at it:
 - *It changes something.* An app **shared with another user** turns that user's token over to
   its author. That is a real escalation, and it is exactly what "show me your app" would do.
 
-Proposed position: **accept same-origin for now, and refuse to make apps shareable** until an
-origin split exists. An app is reachable only by the user who started it (the `app_id` is
-theirs), and the UI must not offer a "copy link" affordance. If sharing is ever wanted, it
-needs a wildcard-subdomain deployment (`{app_id}.apps.linkr.example`) — worth designing then,
-not now.
+Position: **accept same-origin, and apps cannot be shared** while they share Linkr's origin.
+An app is reachable only by the user who started it, and the UI offers no "copy link". If
+sharing is ever wanted, it needs an origin split (a wildcard-subdomain deployment,
+`{app_id}.apps.linkr.example`) — worth designing then, not now.
 
-Other points:
-- The `app_id` is the capability. Generate with `secrets.token_urlsafe(32)`; check it against
-  the registry **and** against the requesting user on every proxy call. It dies when the app
-  is stopped.
+How "only its owner" is enforced (built):
+- An iframe sends no `Authorization` header, so the IDE first calls the authenticated
+  `POST /apps/{id}/session` (owner only, 404 for anyone else). It sets `linkr_app_<id>` =
+  `<app id>.<user id>.<expiry>.<HMAC-SHA256 under the server secret>`, 12 h, renewed by the
+  panel every hour and on each reload or "open in new window"; HttpOnly, `SameSite=Strict`,
+  `Secure` over https, `Path` = the app's public proxy path (gateway prefix included, as the
+  browser gave it at start).
+- `proxy_http` and `proxy_ws` check it on every request and handshake: signature, expiry, app
+  id, and that the user is the app's owner. Anything else gets 404, as an app that does not
+  run, so ids are not probed.
+- The cookie never reaches the app: the proxy forwards only the cookies the app itself has
+  set (their names, recorded as its `Set-Cookie`s pass, kept unchanged so a page script can
+  read them back — Streamlit's XSRF token), scoped to its proxy path; every other cookie of
+  the origin (Linkr's, the gateway's session) is dropped, as are `Authorization`, the trusted
+  proxy secret and the trusted-identity header. Limit: a gateway cookie that happens to share
+  the name of one the app set goes through too — only to its owner's own app.
+- The app id (`secrets.token_urlsafe`) dies when the app is stopped; it is no longer the
+  capability on its own.
 - Honour `settings.enable_code_execution` as a kill switch, like `execution.py:107-110`.
 - Bind children to `127.0.0.1` explicitly in every preset. A framework defaulting to `0.0.0.0`
   would expose the app on the host network, bypassing every check above.

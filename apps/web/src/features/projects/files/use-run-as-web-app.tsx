@@ -1,9 +1,10 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { DialogShell } from '@/components/ui/dialog-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { formatApiError } from '@/lib/api-client'
+import { formatApiError, isServerMode } from '@/lib/api-client'
+import { onJobsChanged } from '@/lib/api/environments'
 import { ideFilePath } from '@/lib/api/ide-files'
 import {
   detectWebAppPreset,
@@ -11,6 +12,7 @@ import {
   listWebApps,
   restartWebApp,
   startWebApp,
+  type WebAppPreset,
 } from '@/lib/api/web-apps'
 import { useFileStore } from '@/stores/file-store'
 
@@ -128,4 +130,51 @@ export function useRunAsWebApp(projectUid: string | null) {
   )
 
   return { runAsWebApp, dialog }
+}
+
+interface EntryFile {
+  id: string | null
+  name: string | null
+  language: string | null | undefined
+  content: string | null
+}
+
+/**
+ * Whether the open file is a web app's entry point, and whether its app runs.
+ * A Shiny / Streamlit / Dash… entry point means nothing run line by line in the
+ * console (Streamlit warns on each call, Shiny holds the R session): its Run
+ * starts the app, like RStudio's "Run App", and reads "Reload app" while it runs.
+ */
+export function useWebAppEntry(projectUid: string | null, file: EntryFile) {
+  const [presets, setPresets] = useState<WebAppPreset[]>([])
+  useEffect(() => {
+    if (isServerMode()) listWebAppPresets().then(setPresets, () => {})
+  }, [])
+  const { id, name, language, content } = file
+  const preset = useMemo(
+    () => (name !== null && (language === 'python' || language === 'r')
+      ? detectWebAppPreset(name, content ?? '', presets)
+      : null),
+    [name, language, content, presets],
+  )
+
+  // Refreshed when an app starts or stops from here, or a tab opens or closes; an
+  // app that ends on its own is noticed at the next of those — the click restarts
+  // it either way.
+  const [runningPaths, setRunningPaths] = useState<ReadonlySet<string>>(new Set())
+  const appTabIds = useFileStore((s) => s.terminalTabs.filter((tt) => tt.kind === 'app').map((tt) => tt.appId).join())
+  useEffect(() => {
+    if (!isServerMode() || !projectUid) return
+    let live = true
+    const refresh = () => {
+      listWebApps(projectUid).then((apps) => {
+        if (live) setRunningPaths(new Set(apps.map((a) => a.path)))
+      }, () => {})
+    }
+    refresh()
+    const off = onJobsChanged(refresh)
+    return () => { live = false; off() }
+  }, [projectUid, appTabIds, id])
+  const path = id ? ideFilePath(id) : undefined
+  return { preset, running: !!preset && path !== undefined && runningPaths.has(path) }
 }
